@@ -1,0 +1,23 @@
+@DSL Implicit;
+@Behaviour StandardElastoViscoPlasticityTest;
+@Description {
+  "A behaviour testing the StandardElastoViscoPlasticity brick: plastic "
+  "flow, Mises criterion, isotropic hardening rule defined by data and "
+  "kinematic hardening rules (Armstrong-Frederick, Chaboche 2012)."
+}
+@ModellingHypotheses {".+"};
+@Epsilon 1.e-14;
+@Theta 1;
+
+@Brick StandardElastoViscoPlasticity{
+  stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
+  inelastic_flow : "Plastic" {
+    criterion : "Mises",
+    isotropic_hardening : "Data" {
+      values : {0 : 150e6, 1e-3 : 200e6, 2e-3 : 400e6},
+      interpolation : "linear"
+    },
+    kinematic_hardening : "Armstrong-Frederick" {C : 1.5e9, D : 5},
+    kinematic_hardening : "Chaboche 2012" {C : 250e7, D : 100, m : 2, w : 0.6}
+  }
+};

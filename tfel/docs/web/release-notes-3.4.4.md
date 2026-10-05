@@ -1,0 +1,355 @@
+---
+title: Release notes of the 3.4.4 version of `TFEL`, `MFront` and `MTest`
+author: Thomas Helfer
+date: 21/09/2021
+lang: en-EN
+numbersections: true
+documentclass: article
+from: markdown+tex_math_single_backslash
+geometry:
+  - margin=2cm
+papersize: a4
+link-citations: true
+colorlinks: true
+figPrefixTemplate: "$$i$$"
+tblPrefixTemplate: "$$i$$"
+secPrefixTemplate: "$$i$$"
+eqnPrefixTemplate: "($$i$$)"
+---
+
+The page describes the new functionalities of Version 3.4.4 of the
+`TFEL` project.
+
+Version 3.4.4 has been released on October, 24th 2022. It inherits from
+all the issues fixes in:
+
+- [Version 3.0.11](release-notes-3.0.11.html).
+- [Version 3.1.11](release-notes-3.1.11.html).
+- [Version 3.2.8](release-notes-3.2.8.html).
+- [Version 3.3.4](release-notes-3.3.4.html).
+
+# Known incompatilities
+
+## Known incompatilities in `MFront`
+
+Declaration of variables in the `MaterialLaw` DSL is more restrictive:
+they they must now be defined before the `@Function` keyword.
+
+The same restriction apply to the declaration of external names
+(glossary or entry names).
+
+# New features of `MFront`
+
+## Alternative way to select a single material knowledge (material property, behaviour, model) in a `madnex` file {#sec:tfel-3.4.4:mfront:mandex_full_path}
+
+`mfront`, `mfront-query` and `mfront-doc` now allow to select a specific
+material knowledge inside a `madnex` file using the following syntax:
+
+~~~~
+madnex:<file>:<type>:<material>:<name>
+~~~~
+
+where:
+
+- `<file>` is the path to the `madnex` file.
+- `<type>` is the type of the material knowledge (`material_property`,
+  `behaviour` or `model`).
+- `<material>` is the name of the material considered. This name can be
+  empty or `<none>` if the considered material knowledge is not
+  associated to a material.
+- `<name>` is the name of theconsidered material knowledge.
+
+### Example of usage
+
+~~~~{.bash}
+$ mfront --obuild --interface=generic madnex:Plasticity.mdnx:behaviour::Plasticity
+~~~~
+
+or, equivalently:
+
+~~~~{.bash}
+$ mfront --obuild --interface=generic madnex:Plasticity.mdnx:behaviour:"<none>":Plasticity
+~~~~
+
+# New features of `mtest`
+
+## Imposed inner radius loading in pipe modelling
+
+`PTest` now supports imposing the evolution of the inner radius of the pipe.
+
+### Example of usage
+
+The following code shows how to impose the evolution of the inner radius
+of the pipe:
+
+~~~~{.cxx}
+@RadialLoading 'ImposedInnerRadius';
+@InnerRadiusEvolution{0 : 4.2e-3, 1 : 4.3e-3};
+~~~~
+
+# New features of `mfront-query`
+
+## New `--list-implementation-paths` query {#sec:tfel-3.4.4:mfront-query:list_implementation_paths}
+
+The `--list-implementation-paths` query returns explicit paths to
+material knowledge in a `madnex` file. This query has two options:
+
+- `sorted-by-files` (default): the implementations paths are preceded by
+  the `madnex` file name.
+- `unsorted`: the implementations paths are not preceded by the `madnex`
+  file name.
+
+~~~~{.bash}
+$ mfront-query --list-implementation-paths=unsorted --all-behaviours Plasticity.mdnx
+madnex:Plasticity.mdnx:behaviour::Plasticity
+~~~~
+
+See also Section @sec:tfel-3.4.4:mfront:mandex_full_path.
+
+## New `--list-materials` query {#sec:tfel-3.4.4:mfront-query:list_materials}
+
+The `--list-materials` returns the list of materials for which material
+knowledge is defined inside a [`madnex file`](madnex.html).
+
+If a material knowledge is not associated to a material, the special
+identifier `<none>` is returned.
+
+## Better `--list-material-properties` query {#sec:tfel-3.4.4:mfront-query:list_materials_properties}
+
+The `--list-material-properties` query can now have an option:
+
+- `sorted-by-materials` (default): which returns the material properties sorted
+  by materials
+- `unsorted`: which returns all the material properties to be generated
+
+## Better `--list-behaviours` query {#sec:tfel-3.4.4:mfront-query:list_behaviours}
+
+The `--list-behaviours` query can now have an option:
+
+- `sorted-by-materials` (default): which returns the behaviours sorted
+  by materials
+- `unsorted`: which returns all the behaviours to be generated
+
+## Better `--list-models` query {#sec:tfel-3.4.4:mfront-query:list_models}
+
+The `--list-models` query can now have an option:
+
+- `sorted-by-materials` (default): which returns the models sorted
+  by materials
+- `unsorted`: which returns all the models to be generated
+
+## Better `--generated-sources` query {#sec:tfel-3.4.4:mfront-query:generated_sources}
+
+The `--generated-sources` query can now have an option:
+
+- `sorted-by-libraries` (default): which returns the sources to be
+  generated associated with each library
+- `unsorted`: which returns all the sources to be generated
+
+This option may be used in conjunction with the `--nomelt` option.
+
+## Retrieve the sources associated with specific targets {#sec:tfel-3.4.4:mfront-query:specific_target_generated_sources}
+
+`mfront-query` now have two new queries:
+
+- `--specific-target-generated-sources` which allows to retrieve the
+  sources generated by a specific target
+- `--all-specific-targets-generated-source`, which displays all the
+  sources associated with specific targets
+
+By default, all sources associated with libraries dependencies of the
+specific targets are also displayed, unless the `--nomelt` command line
+argument is used.
+
+# Issues solved
+
+## Issue #311: [mfront-query] The header files generated by the generation of slip systems are missing from the result of the `--generated-headers` query
+
+For more details, see : <https://github.com/thelfer/tfel/issues/311>
+
+## Issue #310: [mfront-query] Query `--generated-headers` is inconsistent with the `--generated-sources query`
+
+For more details, see : <https://github.com/thelfer/tfel/issues/310>
+
+## Issue #277: [thelfer/tfel] Inconsistency in the `GursonTvergaardNeedleman` model in the `StandardElastoViscoPlasticity` brick
+
+In the code (and the documentation), the ultimate value of the effective
+porosity (corresponding to the value of porosity for which the stress is
+equal to zero according to the yield criterion) is defined as:
+\[
+ f_{u} = \Frac{1}{q_1},
+\], 
+which is true only for \(q_3 = q_1^2\). In the current implementation,
+taking \(q_3\) different from \(q_1^2\) may lead to divergence. In the
+general case, the ultimate porosity is the root of:
+\[
+ 2 * q_1 * f -1 -q_3 * f^{2}.
+\]
+
+For more details, see : <https://github.com/thelfer/tfel/issues/277>
+
+## Issue #228: [mfront] check if overriding parameters are well defined
+
+For more details, see : <https://github.com/thelfer/tfel/issues/228>
+
+## Issue #227:￼ ￼[mfront] Override parameters by external, symbolic or variable names
+
+For more details, see : <https://github.com/thelfer/tfel/issues/227>
+
+## Issue #212: [mfront] `OverridableImplementation` does not take into account overriden parameters
+
+For more details, see : <https://github.com/thelfer/tfel/issues/212>
+
+## Issue #185: [mfront] missing inclusion of the `cstddef` header in `MFront/GenericBehaviour/Types.h`
+
+For more details, see : <https://github.com/thelfer/tfel/issues/185>
+
+## Issue #131: [mfront] The content of a madnex files is erased when writting an overridable implementation 
+
+For more details, see : <https://github.com/thelfer/tfel/issues/131>
+
+## Issue #98: [mfront-query] add query to retrieve all implementation paths
+
+This feature is described in Section
+@sec:tfel-3.4.4:mfront-query:list_implementation_paths
+
+For more details, see : <https://github.com/thelfer/tfel/issues/98>
+
+## Issue #97: [mfront] Allow to specify the full path to a material knowledge (material property, behaviour, model) in a `madnex` file on the command line
+
+This feature is described in Section
+@sec:tfel-3.4.4:mfront:mandex_full_path.
+
+For more details, see : <https://github.com/thelfer/tfel/issues/97>
+
+## Issue #96: [mfront] Add support to the `--all-material-properties`, `--all-behaviours`, `--all-models` to the `parsePathSpecifierArguments`  function for consistency with `mfront`
+
+For more details, see : <https://github.com/thelfer/tfel/issues/96>
+
+## Issue #87: Better `--list-material-properties`, `--list-behaviours` and `--list-models queries`
+
+Theses features are described in Sections
+@sec:tfel-3.4.4:mfront-query:list_materials_properties,
+@sec:tfel-3.4.4:mfront-query:list_behaviours and
+@sec:tfel-3.4.4:mfront-query:list_models.
+
+For more details, see : <https://github.com/thelfer/tfel/issues/87>
+
+## Issue #86: [mfront-query] new `--list-materials` query
+
+This feature is described in Section
+@sec:tfel-3.4.4:mfront-query:list_materials.
+
+For more details, see : <https://github.com/thelfer/tfel/issues/86>
+
+## Issue #85: [mfront] Support for the `.mdnx` file extension for `madnex` files
+
+For more details, see : <https://github.com/thelfer/tfel/issues/85>
+
+## Issue #68: [mfront-query] Add a `--dsl-target` option
+
+`mfront-query` now have `--dsl-target` option which returns the kind of
+material knowledge described by a file (material property, behaviour, or
+model).
+
+For more details, see <https://github.com/thelfer/tfel/issues/68>.
+
+## Issue #67: [mfront-query] Add a `--has-model-query` option enhancement
+
+`mfront-query` now have `--has-model-query` option that can be used as
+follows:
+
+~~~~{.bash}
+$ mfront-query --has-model-query=class-name
+~~~~
+
+For more details, see <https://github.com/thelfer/tfel/issues/67>.
+
+￼
+￼
+## Issue #66: [mfront-query] Add a `--has-material-property-query` option enhancement
+
+`mfront-query` now have `--has-material-property-query` option that can
+be used as follows:
+
+~~~~{.bash}
+$ mfront-query --has-material-property-query=class-name
+~~~~
+
+￼
+For more details, see <https://github.com/thelfer/tfel/issues/66>.
+
+￼
+## Issue #65: [mfront-query] Add a `--has-behaviour-query` option enhancement
+
+`mfront-query` now have `--has-behaviour-query` option that can be used
+as follows:
+
+~~~~{.bash}
+$ mfront-query --has-behaviour-query=class-name
+~~~~
+
+For more details, see <https://github.com/thelfer/tfel/issues/65>.
+
+## Issue #64: [mfront-query] Add a query for the class name
+
+`mfront-query` now has a `--class-name` query which works for material
+properties, behaviours and models.
+
+For more details, see <https://github.com/thelfer/tfel/issues/64>.
+
+## Issue #63: [mfront-query] Add a query for the behaviour name
+
+`mfront-query` now has:
+
+- a `--law-name` query for material properties.
+- a `--behaviour-name` query for behaviours.
+- a `--model-name` query for models.
+
+For more details, see <https://github.com/thelfer/tfel/issues/63>.
+
+## Issue #62: [tfel-config] add a `--quiet-failure` option
+
+In case of errors, `tfel-config` with the the `--quiet-failure` option
+just fails without displaying all the available options nor error
+message.
+
+For more details, see <https://github.com/thelfer/tfel/issues/62>.
+
+## Issue #59: [mfront-doc] add a standalone option
+
+By default, the generated markdown uses a section to describe a
+behaviour. Using the `--standalone` option, `mfront-doc` generates a
+standalone document.
+
+For more details, see <https://github.com/thelfer/tfel/issues/59>.
+
+## Issue #49: [mfront-query] query sources related to specific targets
+
+See Section
+@sec:tfel-3.4.4:mfront-query:specific_target_generated_sources for a
+description of the `--specific-target-generated-sources` and
+`--all-specific-targets-generated-source` queries.
+
+For more details, see <https://github.com/thelfer/tfel/issues/49>.
+
+## Issue #40: [mfront-query] return all the generated sources (not sorted by library)
+
+See Section @sec:tfel-3.4.4:mfront-query:generated_sources for a
+description of the new features of the `--generated-sources` query.
+
+For more details, see <https://github.com/thelfer/tfel/issues/40>.
+
+# Build system changes
+
+## Build static libraries
+
+When specifying `-DBUILD_SHARED_LIBS=OFF` (for CMake-based builds only) all
+libraries except of modules are build as static libraries. This allows for
+easier deployment of downstream applications which use TFEL / MFront.
+
+Also added the CMake-option `enable-testing` (defaults to `ON`) to disable
+all tests to speed-up compilation times.
+
+For more details, see <https://github.com/thelfer/tfel/pull/217>.
+

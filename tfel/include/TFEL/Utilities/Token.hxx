@@ -1,0 +1,82 @@
+/*!
+ * \file   include/TFEL/Utilities/Token.hxx
+ * \brief  This file declares the Token class
+ * \author Thomas Helfer
+ * \date   20 Nov 2006
+ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+ * reserved.
+ * This project is publicly released under either the GNU GPL Licence with
+ * linking exception or the CECILL-A licence. A copy of thoses licences are
+ * delivered with the sources of TFEL. CEA or EDF may also distribute this
+ * project under specific licensing conditions.
+ */
+
+#ifndef LIB_TFEL_UTILITIES_TOKEN_HXX
+#define LIB_TFEL_UTILITIES_TOKEN_HXX
+
+#include <string>
+#include "TFEL/Config/TFELConfig.hxx"
+
+namespace tfel::utilities {
+
+  /*!
+   * \brief class representing a token in a C++-like file
+   */
+  struct TFELUTILITIES_VISIBILITY_EXPORT Token {
+    //! a simple alias
+    using size_type = size_t;
+    //! possible type of the token
+    enum TokenFlag {
+      Standard,
+      Comment,
+      Number,
+      DoxygenComment,
+      DoxygenBackwardComment,
+      String,
+      Char,
+      Preprocessor
+    };
+    //! default constructor
+    Token();
+    /*!
+     * \brief constructor
+     * \param[in] v: token value
+     * \param[in] l: line number
+     * \param[in] o: offset
+     * \param[in] f: token flag
+     */
+    Token(const std::string&,
+          const size_type,
+          const size_type,
+          const TokenFlag = Standard);
+    //! \brief copy constructor
+    Token(const Token&);
+    //! \brief move constructor
+    Token(Token&&) noexcept;
+    //! \brief assignement
+    Token& operator=(const Token&);
+    //! \brief move assignement
+    Token& operator=(Token&&) noexcept;
+    //! \brief destructor
+    ~Token() noexcept;
+    //! \brief string holded by the token
+    std::string value;
+    //! \brief line number
+    size_type line = 0u;
+    //! \brief offset in the line
+    size_type offset = 0u;
+    //! \brief comment
+    std::string comment;
+    //! \brief type of the token
+    TokenFlag flag = Standard;
+  };  // end of struct Token
+
+  /*!
+   * \return true if the argument is a comment
+   * \param[in] t: token
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT bool isComment(const Token&);
+
+}  // end of namespace tfel::utilities
+
+#endif /* LIB_TFEL_UTILITIES_TOKEN_HXX */

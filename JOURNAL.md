@@ -149,10 +149,11 @@ D. Intégration
 
 - `tfel/` : TFEL complet adapté (clone du dépôt officiel de TFEL, branche
   `generic-parallel-behaviours`, base master `fec0ade99`, commits locaux).
-  Série `git format-patch` depuis la base (`git am`) dans `patches/tfel/`
-  (lien `tfel/proto-patches`), versionnée dans le dépôt du prototype, à
-  régénérer après chaque commit :
-  `git format-patch -q fec0ade99..HEAD -o proto-patches/`.
+  Le dépôt du prototype suit aussi les sources de `tfel/` (copie du dernier
+  commit, sans l'historique de TFEL) et la série `git format-patch` depuis
+  la base dans `patches/tfel/` (lien `tfel/proto-patches`). Après chaque
+  commit dans `tfel/` : `scripts/sync-tfel.sh` met les deux à jour, puis
+  commit dans le dépôt du prototype.
 - `mgis/` : MGIS (dépôt officiel, base master `818f0f9`, branche
   `gpu-proto`), non modifié pour l'instant.
 - `mfem-mgis/` : mfem-mgis (dépôt officiel, base master `4c8a91d815`,

@@ -1,0 +1,199 @@
+/*!
+ * \file
+ * MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+ *
+ * \brief  This file declares the `CxxProgrammingModelBackendBase` class
+ * \author Thomas Helfer
+ * \date   18/05/2026
+ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+ * reserved.
+ * This project is publicly released under either the GNU GPL Licence with
+ * linking exception or the CECILL-A licence. A copy of thoses licences are
+ * delivered with the sources of TFEL. CEA or EDF may also distribute this
+ * project under specific licensing conditions.
+ */
+
+#ifndef LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
+#define LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
+
+#include <functional>
+#include <string_view>
+#include "TFEL/Utilities/Data.hxx"
+#include "MFront/MFrontConfig.hxx"
+#include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
+
+namespace mfront::generic_parallel::material_property {
+
+  /*!
+   * \brief This intermediate class helps implementing various closely related
+   * backends which defines the kernel as a lambda function. Those backends
+   * include `ParallelSTL`, `SYCL`
+   */
+  struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
+    //! \brief default constructor
+    CxxProgrammingModelBackendBase();
+    /*!
+     * \brief constructor
+     *
+     * \param[in] opts: options
+     */
+    CxxProgrammingModelBackendBase(const tfel::utilities::DataMap&);
+    //
+    [[nodiscard]] std::string getHeaderFileExtension() const override;
+    void writeSpecificIncludesInHeaderFile(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const override;
+    void writeCxxDeclarations(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const override;
+    void writeGlobalFunctions(std::ostream&,
+                              const GenericParallelMaterialPropertyInterface&,
+                              const MaterialPropertyDescription&,
+                              const FileDescription&) const override;
+    [[nodiscard]] std::string getSourceFileExtension() const override;
+    void writeSpecificIncludesInSourceFile(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const override;
+    void writeCImplementations(std::ostream&,
+                               const GenericParallelMaterialPropertyInterface&,
+                               const MaterialPropertyDescription&,
+                               const FileDescription&) const override;
+    void writeCxxImplementations(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const FileDescription&) const override;
+    //! \brief destructor
+    ~CxxProgrammingModelBackendBase() noexcept override;
+
+   protected:
+    //
+    virtual bool isBoundsCheckingRequired(
+        const MaterialPropertyDescription&) const;
+    /*!
+     * \brief write the C implementations of the material property
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] fd: file description
+     * \param[in] handleStrides: boolean stating if one shall add
+     * support for striedes
+     */
+    virtual void writeCImplementations2(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const FileDescription&,
+        const bool) const;
+    /*!
+     * \brief write a kernel as a lambda function inside the body of the
+     * material property
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] fd: file description
+     * \param[in] handleStrides: boolean stating if one shall add
+     * support for strides
+     */
+    virtual void writeKernel(std::ostream&,
+                             const GenericParallelMaterialPropertyInterface&,
+                             const MaterialPropertyDescription&,
+                             const FileDescription&,
+                             const bool) const;
+    /*!
+     * \brief write the declarations of the variables captured by the kernels
+     * (pointer to the bounds statuses, stored in a container named
+     * `mfront_bounds_statuses_storage` declared by the backend, and values of
+     * the parameters) and the kernels (with and without strides)
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] fd: file description
+     * \param[in] treatStrides: boolean stating if strides are treated
+     */
+    void writeKernels(std::ostream&,
+                      const GenericParallelMaterialPropertyInterface&,
+                      const MaterialPropertyDescription&,
+                      const FileDescription&,
+                      const bool) const;
+    //
+    virtual void writeKernelCall(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const FileDescription&,
+        const bool) const = 0;
+    /*!
+     * \return the specifiers written between the captures and the parameters
+     * of the lambda functions implementing the kernels (for instance, the
+     * host and device annotations of the extended lambdas required by Kokkos
+     * with the CUDA execution space)
+     */
+    [[nodiscard]] virtual std::string getKernelSpecifiers() const;
+    /*!
+     * \brief write the selection of the kernel called at each point.
+     *
+     * If strides are treated, a single point is evaluated if all the
+     * arguments are uniform and the output stride is null, the kernel
+     * without strides is used if all the strides are equal to one, and the
+     * kernel handling strides otherwise.
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] treatStrides: boolean stating if strides are treated
+     * \param[in] write_loop: function writing the loop over the given number
+     * of points (`1` or `mfront_npoints`) calling the kernel handling strides
+     * (`mfront_kernel`) if its second argument is true, or the kernel without
+     * strides (`mfront_kernel_without_strides`) otherwise
+     */
+    void writeKernelSelection(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const bool,
+        const std::function<void(std::string_view, bool)>&) const;
+    /*!
+     * \brief write the code transferring the data to the device
+     *
+     * This method is only called if the `handlesDataTransfer` returns true.
+     * This method shall define a pointer named `mfront_arg`.
+     * All memory allocated on the device shall be handled by RAII
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] handleStrides: boolean stating if one shall add
+     * support for striedes
+     */
+    virtual void writeDataTransfersToDevice(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const bool) const;
+    /*!
+     * \brief write the code transferring the data to the host
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] handleStrides: boolean stating if one shall add
+     * support for striedes
+     */
+    virtual void writeDataTransfersToHost(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const bool) const;
+  };  // end of CxxProgrammingModelBackendBase
+
+}  // end of namespace mfront::generic_parallel::material_property
+
+#endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX \
+        */

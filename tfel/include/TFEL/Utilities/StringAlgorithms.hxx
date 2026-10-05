@@ -1,0 +1,150 @@
+/*!
+ * \file  include/TFEL/Utilities/StringAlgorithms.hxx
+ * \brief
+ * \author Thomas Helfer
+ * \brief 03 mar 2011
+ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+ * reserved.
+ * This project is publicly released under either the GNU GPL Licence with
+ * linking exception or the CECILL-A licence. A copy of thoses licences are
+ * delivered with the sources of TFEL. CEA or EDF may also distribute this
+ * project under specific licensing conditions.
+ */
+
+#ifndef LIB_TFEL_UTILITIES_STRINGALGORITHMS_HXX
+#define LIB_TFEL_UTILITIES_STRINGALGORITHMS_HXX
+
+#include <vector>
+#include <string>
+#include <string_view>
+#include "TFEL/Config/TFELConfig.hxx"
+
+namespace tfel::utilities {
+
+  /*!
+   * \param[in] s1: first string
+   * \param[in] s2: second string
+   * \return true if the first string starts with the second
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT
+  bool starts_with(std::string_view, std::string_view);
+  /*!
+   * \param[in] s1: first string
+   * \param[in] s2: second string
+   * \return true if the first string ends with the second
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT
+  bool ends_with(std::string_view, std::string_view);
+  /*!
+   * split a string into tokens using the specified delimiter
+   * \param s: string to be splitted
+   * \param c: delimiter
+   * \param keep_empty_string:
+   * \return the tokens
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT
+  std::vector<std::string> tokenize(std::string_view,
+                                    const char,
+                                    const bool = false);
+
+  /*!
+   * split a string into tokens using the specified delimiter
+   * \param s     : string to be splitted
+   * \param delim : delimiter
+   * \return the tokens
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT
+  std::vector<std::string> tokenize(std::string_view, std::string_view);
+
+  /*!
+   * \brief replace all occurences of substring s1 by s2
+   * \param s  : original string
+   * \param s1 : substring to be changed
+   * \param s2 : replacement string
+   * \param ps : beginning of the search
+   * \return a copy of s where all occurences of substring s1 have
+   * been replaced by s2
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT std::string replace_all(
+      std::string_view,
+      std::string_view,
+      std::string_view,
+      const std::string::size_type = 0u);
+
+  /*!
+   * \brief replace all occurences of substring s1 by s2
+   * \param r  : result
+   * \param s  : original string
+   * \param s1 : substring to be changed
+   * \param s2 : replacement string
+   * \param ps : beginning of the search
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT void replace_all(
+      std::string&,
+      std::string_view,
+      std::string_view,
+      std::string_view,
+      const std::string::size_type = 0u);
+
+  /*!
+   * \brief replace all occurences of character c1 by c2
+   * \param c  : original string
+   * \param c1 : character to be changed
+   * \param c2 : replacement character
+   * \return a copy of c where all occurences of c1 have
+   * been replaced by c2
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT std::string replace_all(std::string_view,
+                                                          const char,
+                                                          const char);
+
+  /*!
+   * \brief replace all occurences of character c by n
+   * \param[in,out] s : original string
+   * \param[in]     c : character to be changed
+   * \param[in]     n : replacement character
+   * \return a copy of c where all occurences of c have
+   * been replaced by n
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT void replace_all(std::string&,
+                                                   const char,
+                                                   std::string_view);
+  /*!
+   * \brief convert a string to the given type
+   * \param[in] s: string to be converted
+   */
+  template <typename T>
+  T convert(const std::string&);
+  /*!
+   * \brief partial specialisation for double
+   * \param[in] s: string to be converted
+   */
+  template <>
+  TFELUTILITIES_VISIBILITY_EXPORT double convert<>(const std::string&);
+  /*!
+   * \brief partial specialisation for double
+   * \param[in] s: string to be converted
+   */
+  template <>
+  TFELUTILITIES_VISIBILITY_EXPORT long double convert<>(const std::string&);
+  /*!
+   * \brief convert a float to string using scientific notation and a 14 digit
+   * precision.
+   * \param[in] v: string to be converted
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT std::string convert(const float&);
+  /*!
+   * \brief convert a double to string using scientific notation and a 14 digit
+   * precision.
+   * \param[in] v: string to be converted
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT std::string convert(const double&);
+  /*!
+   * \brief convert a long double to string using scientific notation and a 14
+   * digit precision. \param[in] v: string to be converted
+   */
+  TFELUTILITIES_VISIBILITY_EXPORT std::string convert(const long double&);
+
+}  // end of namespace tfel::utilities
+
+#endif /* LIB_TFEL_UTILITIES_STRINGALGORITHMS_HXX */

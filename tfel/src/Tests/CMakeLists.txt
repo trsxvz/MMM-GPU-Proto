@@ -1,0 +1,20 @@
+tfel_library(TFELTests
+             Test.cxx
+             TestResult.cxx
+             TestSuite.cxx
+             TestOutput.cxx
+             StdStreamTestOutput.cxx
+             XMLTestOutput.cxx
+             MultipleTestOutputs.cxx
+             TestManager.cxx
+             TestCase.cxx)
+target_include_directories(TFELTests
+   PUBLIC 
+   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+   $<INSTALL_INTERFACE:include>)
+if(enable-static)
+   target_include_directories(TFELTests-static
+     PUBLIC 
+     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+     $<INSTALL_INTERFACE:include>)
+ endif(enable-static)

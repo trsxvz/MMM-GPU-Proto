@@ -4,7 +4,7 @@ Series of patches giving this tree from TFEL master, commit `fec0ade99`
 (merge of pull request #1040, 01/10/2026):
 
 ```bash
-git clone https://github.com/thelfer/tfel.git && cd tfel
+git clone <official TFEL repository> tfel && cd tfel
 git checkout fec0ade99
 git am /path/to/patches/*.patch
 ```

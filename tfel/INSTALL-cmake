@@ -1,0 +1,177 @@
+Basic Installation
+==================
+
+  These are generic installation instructions.
+
+  cmake attempts to guess correct values for various system-dependent
+  variables used during compilation.  It uses those values to create 
+  a `Makefile' in each directory of the package.  It may also create one
+  or more `.h' files containing system-dependent definitions..
+
+  The simplest way to compile this package is:
+
+  1. `cd' to the directory containing the package's source code and type
+     `cmake' to configure the package for your system.
+
+     Running `cmake' takes awhile.  While running, it prints some
+     messages telling which features it is checking for.
+
+  2. Type `make' to compile the package.
+
+  3. Optionally, type `make check' to run any self-tests that come with
+     the package.
+
+  4. Type `make install' to install the programs and any data files and
+     documentation.
+
+  5. You can remove the program binaries and object files from the
+     source code directory by typing `make clean'.
+
+Options
+=======
+
+- `enable-static`: compiles static libraries
+- `enable-fortran`: enables fortran support
+- `enable-python`: enables python support
+- `enable-numpy-support: enables numpy support. This is activated by
+  default if enable-python is set
+- `enable-java`: enables java support
+- `enable-aster`: enables aster support
+- `enable-abaqus`: enables abaqus support
+- `enable-ansys`: enables ansys support
+- `enable-zmat`: enables zmat support
+- `enable-cyrano`: enables cyrano support (cyrano is eDF fuel performance
+  code)
+- `enable-calculix  `: enables CalculiX support
+- `enable-comsol`: enables Combsol support
+- `enable-diana-fea`: enables Diana FEA support
+- `enable-lsdyna`: enables LS-DYNA support
+- `enable-libcxx`: enable libc++ on Linux and clang
+- `enable-cxx-17`: enable c++-17 features (requires `gcc` >= 7.2)
+- `enable-random-tests: enable tests based on a random choice of
+- `enable-developer-warnings`: enable additionnal compiler warnings
+- `enable-advanced-developer-warnings`: enable additional compiler
+  warnings
+- `enable-sanitize-options`: additional compiler flags (gcc specific)
+- `enable-portable-build`: do not use processor specific flags. The
+  generated binaries can be used on other machines as long as the
+  architecture and the compiler version are the same
+- `enable-doxygen-doc`: generate doxygen documentation (disabled by
+  default)
+- `enable-reference-doc`: enable the generation of the reference
+  documentation (requires a valid latex engine)
+- `enable-website`: generate the TFEL website (enabled by default if
+  pandoc is found)
+- `enable-fast-math`: use advance options to optimize code further.
+  Compiler can then ignore IEEE 754 compatibility
+- `enable-glibcxx-debug`: use the debug version of the STL implemented
+  by the GLIB
+- `enable-testing`: enables tests. ON by default.
+- `enable-mfront-quantity-tests`: enable tests of behaviours using 
+  quantities (such tests fails on old compilers, i.e. gcc-8.1.0). 
+  ON by default.
+- `enable-tdls`: add support for Tiny Device-callable Linear Solvers
+  (`TDLS`) library. `OFF` by default.
+- `enable-tdls-as-default-linear-system-solver-in-mfront`: use `TDLS`
+  as the default linear solver. Requires `enable-tdls` to be `ON`.
+  `OFF` by default.
+
+cmake usefull variables
+=======================
+
+- `CMAKE_BUILD_TYPE`: two values are supported 'Release' and 'Debug'
+- `CASTEM_INSTALL_PATH`: specify where the castem has been installed
+- `ZSET_INSTALL_PATH`: specify where the ZSET sofware has been
+  installed
+- `CMAKE_TOOLCHAIN_FILE`: specify a tool chain file
+- `TFEL_GIT_HASH`: git revision
+- `Python_ADDITIONAL_VERSIONS`: select the `python` version to use.
+  Note that only the major and minor version of python shall be passed,
+  not the revision version or the detection fails.
+- `Madnex_DIR`: path where the `MadnexConfig.cmake` file has been
+  installed. This information is required when compiling `TFEL` with
+  support of `madnex` files. This path is usually given by
+  `$MADNEX_PREFIX/share/madnex/cmake/` where `MADNEX_PREFIX` is the
+  installation directory of the `Madnex` library.
+- `TFEL_APPEND_VERSION`: append the `TFEL` version to the libraries
+  names and `python` modules (except if the
+  `unversioned-python-module-names` option is set to `OFF`) .
+- `TFEL_VERSION_FLAVOUR`: append the given string to the libraries names
+  and `python` modules (except if the `unversioned-python-module-names`
+  option is set to `OFF`). Typical values for `TFEL_VERSION_FLAVOUR` are
+  `release` and `debug`.
+- `unversioned-python-module-names`: if set to `ON`, do not modify
+  the names of the `python` modules if `TFEL_APPEND_VERSION` is
+  set to `ON` or if `TFEL_VERSION_FLAVOUR` is set.
+- `TFEL_DL_LIBRARY`: set the path the `dl` library. This library can
+  sometimes not be found when using non default compilers (eg. the PGI
+  compiler).
+- `TFEL_BROKEN_LIBMATH`: set to `ON` to disable tests based on changing
+  the rounding mode. This is not well supported by old version of the
+  GNU library for example (such as the one delivered with debian
+  wheezy).
+- `USE_EXTERNAL_COMPILER_FLAGS`: set to `ON` to use the `CFLAGS` and
+  `CXXFLAGS` environment variables to build `TFEL`
+- `BUILD_SHARED_LIBS`: Builds shared libraries (`ON` by default). Set to
+  `OFF` to build static libraries instead.
+- `pandoc_reference_filter`: path to the reference filter used by `pandoc`.
+  Currently, both `pandoc-crossref` and `pandoc-xnos` have been tested
+- `generic-parallel-configurations`: list of configurations to be
+  supported. See next paragraph for details and the list of supported
+  configurations.
+- `TFEL_GXX_COMPILER`: path to the `g++` compiler.
+- `TFEL_CLANGXX_COMPILER`: path to the `clang++` compiler.
+- `TFEL_ICPX_COMPILER`: path to INTEL's `icpx` compiler.
+- `TFEL_NVHPC_COMPILER`: path to NVIDIA's `nvhpc` compiler.
+- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp's `acpp` compiler.
+- `tdls_DIR`: directory where to find the `cmake` files installed by the
+  Tiny Device-callable Linear Solvers (`TDLS`) library.
+
+cmake typical usage
+===================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Release -Dlocal-castem-header=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_INSTALL_PREFIX=/home/th202608/codes/tfel/master/install
+
+debug and valgrind
+==================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Debug -DCTEST_MEMORYCHECK_COMMAND=valgrind -DCTEST_MEMORYCHECK_COMMAND_OPTIONS="--trace-children=yes --leak-check=full" -Dlocal-castem-header=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_INSTALL_PREFIX=/tmp/tfel-debug
+
+profiling (gcc only) 
+===================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Profiling -Dlocal-castem-header=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_INSTALL_PREFIX=/tmp/tfel-profiling
+
+coverage (gcc only) 
+===================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Coverage -Dlocal-castem-header=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_INSTALL_PREFIX=/tmp/tfel-coverage
+
+cmake for PLEIADES users
+========================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Release  -DCASTEM_INSTALL_PATH=/home/th202608/codes/castem/2014/install/ -Denable-castem-pleiades=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_INSTALL_PREFIX=/home/th202608/codes/tfel/master/install
+
+cmake for TFEL developers
+=========================
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Release -Denable-developer-warnings=ON -Denable-random-tests=ON -DCASTEM_INSTALL_PATH=/home/th202608/codes/castem/2014/install/ -Denable-castem-pleiades=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -Denable-sanitize-options=ON -Denable-vera++=ON -DVERA_ROOT=/home/th202608/codes/vera++/1.3.0/install/ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON  -DCMAKE_INSTALL_PREFIX=/home/th202608/codes/tfel/master/install 
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Release -Denable-developer-warnings=ON -Denable-random-tests=ON -DCASTEM_INSTALL_PATH=/home/th202608/codes/castem/2014/install/ -Denable-castem-pleiades=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=ON -DZSET_INSTALL_PATH=/home/th202608/codes/ZeBuLoN/8.5/Z8.5 -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=ON -DCADNA_INSTALL_PATH=/home/th202608/codes/cadna/3.0/install -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON  -DCMAKE_INSTALL_PREFIX=/home/th202608/codes/tfel/master/install-python-3.7
+
+cmake ../tfel -DCMAKE_BUILD_TYPE=Release -Denable-developer-warnings=ON -Denable-random-tests=ON -Dlocal-castem-header=ON -Denable-fortran=ON -Denable-python=ON -Denable-python-bindings=ON -Denable-java=ON -Denable-aster=ON -Denable-abaqus=ON -Denable-calculix=ON -Denable-comsol=ON -Denable-diana-fea=ON -Denable-ansys=ON -Denable-zmat=OFF -Denable-cyrano=ON -Denable-lsdyna=ON -Denable-cadna=OFF -Denable-reference-doc=ON -Denable-website=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON  -DCMAKE_INSTALL_PREFIX=/home/th202608/codes/tfel/master/install-python-3.7
+
+cmake ../tfel/ -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang;hip-hipcc;hip-clang;stlpar-parunseq-gcc;stlpar-parunseq-clang;stlpar-parunseq-nvhpc-gpu;stlpar-parunseq-icpx" -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc -DCUDAToolkit_ROOT=/usr/local/cuda-12.8/ -Dhip_DIR=`spack location -i hip`/lib/cmake/hip
+
+main targets:
+=============
+
+The main generated targets are:
+
+- `all` : build the libraries
+- `doc-html`: generate the `doxygen` documentation
+- `doc-pdf`: generate all the documentation in pdf
+- `website`: generate the `TFEL` website
+- `doc`: generate all the documentation
+- `check`: build tests and execute them
+- `install`: install the libraries

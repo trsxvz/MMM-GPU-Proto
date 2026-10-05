@@ -1,0 +1,20 @@
+dsl_options: {
+  disable_runtime_checks: false
+},
+interfaces_options: {
+  generic-parallel: {
+    backend: {kokkos: {
+        execution_space: "Kokkos::DefaultExecutionSpace"
+      }
+    }
+  }
+},
+compilation_options : {
+  cxx : {
+    compiler: "@TFEL_KOKKOS_CXX_COMPILER@",
+    compilation_flags: "-O2 -fPIC @TFEL_KOKKOS_CXX_FLAGS@"
+  }
+},
+linking_options : {
+  linker_flags: "@TFEL_KOKKOS_LINKER_FLAGS@"
+}

@@ -1,0 +1,13 @@
+@DSL DefaultModel;
+@Model ExternalModelTest;
+@Description {
+  "Model used by the ExternalModelCallerTest model."
+}
+
+@Parameter real k = 1;
+
+@AuxiliaryStateVariable real x;
+
+@Integrator {
+  x *= (2 - k * dt) / (2 + k * dt);
+}

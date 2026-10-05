@@ -1,0 +1,19 @@
+@DSL IsotropicPlasticMisesFlow;
+@Behaviour BehaviourVariableTestPlasticity;
+@Description {
+  "Behaviour used by the BehaviourVariableTest behaviour. Its parameters "
+  "are not treated as static variables: in device code, the behaviour "
+  "variable uses their default values."
+}
+
+@UseQt true;
+@Epsilon 1e-14;
+
+@MaterialProperty stress H;
+@MaterialProperty stress s0;
+
+@FlowRule {
+  f = seq - H * p - s0;
+  df_dseq = 1;
+  df_dp = -H;
+}

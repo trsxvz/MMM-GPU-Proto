@@ -1,0 +1,20 @@
+# a simple macro
+macro(tests_test test_arg)
+  add_executable(${test_arg} EXCLUDE_FROM_ALL ${test_arg}.cxx)
+  add_test(NAME ${test_arg} COMMAND ${test_arg})
+  if((CMAKE_HOST_WIN32) AND (NOT MSYS))
+    set_property(TEST ${test_arg}
+  	         PROPERTY ENVIRONMENT "PATH=$<TARGET_FILE_DIR:TFELTests>\;$ENV{PATH}")
+  endif((CMAKE_HOST_WIN32) AND (NOT MSYS))
+  add_dependencies(build-tests ${test_arg})
+  target_link_libraries(${test_arg} TFELTests)
+endmacro(tests_test)
+
+tests_test(testcase)
+tests_test(testsuite)
+tests_test(testproxy)
+tests_test(testproxy2)
+tests_test(testmanager)
+tests_test(testfunctionwrapper)
+tests_test(stdstreamtestoutput)
+tests_test(multipletestoutputs)

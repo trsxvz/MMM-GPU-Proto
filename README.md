@@ -24,18 +24,23 @@ parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
 |---|---|
 | `JOURNAL.md` | journal daté, plan cochable, état et objectifs : **point d'entrée pour reprendre** |
 | `DESIGN.md` | conception de l'interface `generic-parallel` (données, exécution par point, backends) |
-| `patches/tfel/` | série de patchs TFEL depuis le master `fec0ade99` (`git am`), et son README |
+| `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit de la branche de développement, sans l'historique de TFEL) |
+| `patches/tfel/` | les mêmes modifications sous forme de série de patchs depuis le master `fec0ade99` (`git am`), et son README |
 | `build-tfel.sh` | configuration, construction et installation de TFEL (chemins de la machine de développement) |
-| `scripts/` | environnement (`env.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
+| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
 | `results/` | résultats des matrices et des balayages, défauts de compilateurs rencontrés avec leurs reproducteurs (`results/nvhpc-bugs/`) |
 | `scratch/` | scripts de validation, configurations de développement, proposition de conception pour MGIS (`d1-mgis-design.md`) |
 | `deps/spack-sycl/` | spécification spack du LLVM utilisé par AdaptiveCpp |
 
-La documentation utilisateur des interfaces est apportée par les patchs :
-`docs/web/generic-parallel-behaviour-interface.md` et
-`docs/web/generic-parallel-material-property-interface.md`.
+La documentation utilisateur des interfaces est dans
+`tfel/docs/web/generic-parallel-behaviour-interface.md` et
+`tfel/docs/web/generic-parallel-material-property-interface.md`.
 
-## Reconstruire
+## Compiler
+
+`build-tfel.sh` compile `tfel/` dans `build/tfel` et l'installe dans
+`install/tfel`. Pour repartir du dépôt officiel de TFEL avec son historique,
+appliquer les patchs :
 
 ```bash
 git clone <dépôt officiel de TFEL> tfel

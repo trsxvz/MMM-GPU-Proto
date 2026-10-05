@@ -1,0 +1,47 @@
+/*!
+ * \file
+ * mfront/include/MFront/BehaviourBrick/RousselierTanguyBesson2002StressCriterion.hxx
+ * \brief
+ * \author Thomas Helfer, Jérémy Hure, Mohamed Shokeir
+ * \date   14/04/2020
+ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+ * reserved.
+ * This project is publicly released under either the GNU GPL Licence with
+ * linking exception or the CECILL-A licence. A copy of thoses licences are
+ * delivered with the sources of TFEL. CEA or EDF may also distribute this
+ * project under specific licensing conditions.
+ */
+
+#ifndef LIB_MFRONT_BEHAVIOURBRICK_ROUSSELIER_TANGUY_BESSON_2002_STRESSCRITERION_HXX
+#define LIB_MFRONT_BEHAVIOURBRICK_ROUSSELIER_TANGUY_BESSON_2002_STRESSCRITERION_HXX
+
+#include "MFront/BehaviourBrick/StandardPorousStressCriterionBase.hxx"
+
+namespace mfront::bbrick {
+
+  /*!
+   * \brief implementation of the RousselierTanguyBesson2002 stress criterion
+   */
+  struct RousselierTanguyBesson2002StressCriterion
+      : StandardPorousStressCriterionBase {
+    //! \brief constructor
+    RousselierTanguyBesson2002StressCriterion();
+    //
+    [[nodiscard]] std::vector<BehaviourSymmetry>
+    getSupportedBehaviourSymmetries() const override;
+    [[nodiscard]] std::vector<OptionDescription> getOptions() const override;
+    [[nodiscard]] PorosityEffectOnFlowRule
+    getPorosityEffectOnEquivalentPlasticStrain() const override;
+    [[nodiscard]] std::string updatePorosityUpperBound(
+        const BehaviourDescription&,
+        const std::string&,
+        const Role) const override;
+
+    //! \brief destructor
+    ~RousselierTanguyBesson2002StressCriterion() override;
+  };  // end of struct RousselierTanguyBesson2002StressCriterion
+
+}  // end of namespace mfront::bbrick
+
+#endif /* LIB_MFRONT_BEHAVIOURBRICK_ROUSSELIER_TANGUY_BESSON_2002_STRESSCRITERION_HXX \
+        */

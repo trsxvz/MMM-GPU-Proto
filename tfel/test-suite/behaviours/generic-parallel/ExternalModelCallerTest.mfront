@@ -1,0 +1,20 @@
+@DSL RungeKuttaModel;
+@Model ExternalModelCallerTest;
+@Description {
+  "A model integrated by a Runge-Kutta algorithm calling an external model "
+  "(behaviour variable factory)."
+}
+
+@Model "ExternalModelTest.mfront" {
+  shared_material_properties : {".+"},
+  shared_external_state_variables : {".+"}
+};
+
+@Algorithm rk54;
+@Epsilon 1e-8;
+
+@StateVariable real x2;
+
+@Derivative {
+  dx2 = -x2;
+}

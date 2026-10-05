@@ -1,0 +1,41 @@
+@DSL Model;
+@Model GenericParallelModelTest;
+@Description {
+  "A model testing the generic-parallel interface: parameter, constant "
+  "material property, material law, bounds, physical bounds, values at the "
+  "beginning of the time step and functions using the results of other "
+  "functions."
+}
+
+@MaterialLaw "Inconel600_YoungModulus.mfront";
+
+@Parameter real A = 2e-3;
+A.setEntryName("SwellingCoefficient");
+
+@ConstantMaterialProperty real Ta;
+Ta.setEntryName("ActivationTemperature");
+
+@Input T;
+T.setGlossaryName("Temperature");
+T.setDepth(1);
+@Bounds T in [0:*[;
+
+@Output s;
+s.setEntryName("TestSwelling");
+s.setDefaultInitialValue(0.);
+s.setDepth(1);
+// a negative initial value makes the model fail
+@PhysicalBounds s in [0:*[;
+
+@Output r;
+r.setEntryName("TestSwellingRate");
+r.setDefaultInitialValue(0.);
+
+@Function computeSwelling {
+  const auto E = Inconel600_YoungModulus(T);
+  s = s_1 + A * (E / 2e11) * exp(-Ta / T) * dt;
+}
+
+@Function computeSwellingRate {
+  r = (s - s_1) / dt;
+}

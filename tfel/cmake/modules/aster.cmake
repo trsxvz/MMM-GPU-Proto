@@ -1,0 +1,5 @@
+if( CMAKE_SIZEOF_VOID_P EQUAL 8 )
+  tfel_add_c_cxx_definitions("ASTER_ARCH=64")
+else( CMAKE_SIZEOF_VOID_P EQUAL 8 )
+  tfel_add_c_cxx_definitions("ASTER_ARCH=32")
+endif( CMAKE_SIZEOF_VOID_P EQUAL 8 )

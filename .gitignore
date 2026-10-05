@@ -1,6 +1,8 @@
-# Dépôts des bibliothèques : TFEL est poussé sur la branche `tfel` de ce
-# dépôt, sa série de patchs est dans patches/tfel ; MGIS et mfem-mgis ne sont
-# pas modifiés pour l'instant (commits de base dans README.md).
+# Dépôts des bibliothèques. Les sources de TFEL modifié sont suivies par ce
+# dépôt (copie du dernier commit du dépôt local `tfel/`, faite par
+# scripts/sync-tfel.sh) ; les fichiers non suivis de `tfel/` sont ignorés.
+# MGIS et mfem-mgis ne sont pas modifiés pour l'instant (commits de base dans
+# README.md).
 /tfel/
 /mgis/
 /mfem-mgis/

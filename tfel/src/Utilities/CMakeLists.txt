@@ -1,0 +1,21 @@
+tfel_library(TFELUtilities
+  StringAlgorithms.cxx
+  TextData.cxx
+  GenTypeCastError.cxx
+  Token.cxx
+  Data.cxx
+  CxxKeywords.cxx
+  CxxTokenizerOptions.cxx
+  CxxTokenizer.cxx
+  Argument.cxx
+  ArgumentParser.cxx)
+target_include_directories(TFELUtilities
+   PUBLIC 
+   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+   $<INSTALL_INTERFACE:include>)
+if(enable-static)
+  target_include_directories(TFELUtilities-static
+    PUBLIC 
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+endif(enable-static)

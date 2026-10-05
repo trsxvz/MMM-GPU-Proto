@@ -1,0 +1,25 @@
+@DSL Model;
+@Model GenericParallelModelWithQuantitiesTest;
+@Description {
+  "A model testing the generic-parallel interface with quantities."
+}
+@UseQt true;
+
+@Parameter frequency k = 1e-2;
+k.setEntryName("RateCoefficient");
+
+@StaticVariable temperature Tref = 300;
+
+@Input temperature T;
+T.setGlossaryName("Temperature");
+T.setDepth(1);
+
+@Output c;
+c.setEntryName("TestConcentration");
+c.setDefaultInitialValue(1.);
+c.setDepth(1);
+
+@Function compute {
+  const auto Tm = (T + T_1) / 2;
+  c = c_1 * exp(-k * exp(-Tref / Tm) * dt);
+}

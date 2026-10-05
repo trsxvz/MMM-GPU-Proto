@@ -1,0 +1,35 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour OrthotropicStationaryHeatTransfer;
+@Description {
+  "Stationary heat transfer with an orthotropic thermal conductivity. "
+  "This behaviour tests the rotation of vectors (temperature gradient and "
+  "heat flux) and of the derivative of a vector with respect to a vector."
+}
+
+@OrthotropicBehaviour;
+
+@Gradient TemperatureGradient gT;
+gT.setGlossaryName("TemperatureGradient");
+
+@Flux HeatFlux j;
+j.setGlossaryName("HeatFlux");
+
+//! \brief thermal conductivities along the material axes
+@MaterialProperty thermalconductivity k[3];
+
+@LocalVariable tmatrix<N, N, thermalconductivity> K;
+
+@InitLocalVariables {
+  K = tmatrix<N, N, thermalconductivity>(thermalconductivity(0));
+  for (unsigned short i = 0; i != N; ++i) {
+    K(i, i) = k[i];
+  }
+}
+
+@Integrator {
+  j = -K * (gT + dgT);
+}
+
+@TangentOperator {
+  dj_ddgT = -K;
+}

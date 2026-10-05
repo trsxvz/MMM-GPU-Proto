@@ -1,0 +1,11 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-gcc",
+            "mfront::linear_system_solver::tdls"};
+
+@Environment {"LD_LIBRARY_PATH": "src"};
+// behaviours using the TDLS linear system solver
+@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../../ImplicitNortonTDLS.mfront";
+@Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src"};
