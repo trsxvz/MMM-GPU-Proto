@@ -1,0 +1,2606 @@
+From 42d6521a47dcfb952e7fe4da1353f750570157ab Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 14:22:18 +0200
+Subject: [PATCH 01/21] TFEL: device code support in mathematical and material
+ headers
+
+- TFEL_DEVICE_CODE macro, defined when device code is compiled (CUDA,
+  HIP, SYCL).
+- BoundsCheck: functions callable in device code, returning a boolean
+  (false if a strict bound is violated in device code, exceptions are
+  thrown on the host as before). Names passed as C strings: building a
+  std::string_view from a C string silently removes device code with nvcc.
+- Host/device annotations: virtual destructor of MechanicalBehaviour,
+  fixed size algorithms, eigen solvers of symmetric tensors (TFEL, FSES,
+  GTE, Harari), decomposition in positive and negative parts, Hosford
+  criterion.
+- FSES: std::fpclassify replaced by tfel::math::ieee754::fpclassify,
+  std::fpclassify silently removes device code with nvcc.
+---
+ include/FSES/Utilities.hxx                    |  20 +-
+ include/FSES/Utilities.ixx                    |  30 +-
+ include/FSES/slvsec3.hxx                      |   4 +-
+ include/FSES/slvsec3.ixx                      |   4 +-
+ include/FSES/std_array.hxx                    |   8 +-
+ include/FSES/syev2.hxx                        |   4 +-
+ include/FSES/syev2.ixx                        |   4 +-
+ include/FSES/syevc3.hxx                       |   4 +-
+ include/FSES/syevc3.ixx                       |   2 +-
+ include/FSES/syevd3.hxx                       |   4 +-
+ include/FSES/syevd3.ixx                       |   4 +-
+ include/FSES/syevh3.hxx                       |   4 +-
+ include/FSES/syevh3.ixx                       |   2 +-
+ include/FSES/syevj3.hxx                       |   4 +-
+ include/FSES/syevj3.ixx                       |   4 +-
+ include/FSES/syevq3.hxx                       |   4 +-
+ include/FSES/syevq3.ixx                       |   2 +-
+ include/FSES/syevv3.hxx                       |   4 +-
+ include/FSES/syevv3.ixx                       |   4 +-
+ include/FSES/sytrd3.hxx                       |   2 +-
+ include/FSES/sytrd3.ixx                       |   2 +-
+ include/TFEL/Config/TFELConfig.hxx            |  16 +
+ include/TFEL/FSAlgorithm/accumulate.hxx       |   6 +-
+ include/TFEL/FSAlgorithm/equal.hxx            |   8 +-
+ include/TFEL/FSAlgorithm/fill.hxx             |   2 +-
+ include/TFEL/FSAlgorithm/for_each.hxx         |   2 +-
+ include/TFEL/FSAlgorithm/generate.hxx         |   2 +-
+ include/TFEL/FSAlgorithm/max_element.hxx      |  39 +-
+ include/TFEL/FSAlgorithm/min_element.hxx      |  39 +-
+ include/TFEL/FSAlgorithm/swap_ranges.hxx      |   4 +-
+ include/TFEL/FSAlgorithm/transform.hxx        |  28 +-
+ include/TFEL/Material/BoundsCheck.hxx         | 560 ++++++------------
+ .../Material/Hosford1972YieldCriterion.ixx    |   6 +-
+ include/TFEL/Material/MechanicalBehaviour.hxx |   2 +-
+ ...ecompositionInPositiveAndNegativeParts.hxx |  12 +-
+ ...ecompositionInPositiveAndNegativeParts.ixx |  16 +-
+ .../Internals/FSESSymmetricEigenSolver.hxx    |   8 +-
+ .../Internals/FSESSymmetricEigenSolver.ixx    |   8 +-
+ .../Internals/GteSymmetricEigenSolver.hxx     |  16 +-
+ .../Internals/GteSymmetricEigenSolver.ixx     |  16 +-
+ .../Stensor/Internals/HarariEigenSolver.hxx   |   6 +-
+ .../Stensor/Internals/HarariEigenSolver.ixx   |   4 +-
+ .../Stensor/Internals/SortEigenValues.hxx     |   6 +-
+ .../Stensor/Internals/SortEigenVectors.hxx    |   6 +-
+ .../Internals/StensorComputeEigenValues.hxx   |   6 +-
+ .../Internals/StensorComputeEigenVectors.hxx  |  36 +-
+ .../StensorComputeEigenVectorsDerivatives.hxx |   8 +-
+ .../Stensor/Internals/StensorEigenSolver.hxx  |  38 +-
+ 48 files changed, 445 insertions(+), 575 deletions(-)
+
+diff --git a/include/FSES/Utilities.hxx b/include/FSES/Utilities.hxx
+index ac0e43772..795eff634 100644
+--- a/include/FSES/Utilities.hxx
++++ b/include/FSES/Utilities.hxx
+@@ -36,6 +36,10 @@
+ #ifndef LIB_FSES_UTILITIES_HXX
+ #define LIB_FSES_UTILITIES_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
++// std::fpclassify is not supported in device code by some compilers
++#include "TFEL/Math/General/IEEE754.hxx"
+ #include <cstdlib>
+ #include <type_traits>
+ 
+@@ -58,7 +62,7 @@ namespace fses {
+    * \param[in] x: value
+    */
+   template <typename T>
+-  inline constexpr T square(const T);
++  TFEL_HOST_DEVICE inline constexpr T square(const T);
+ 
+   /*!
+    * \brief a metafunction returning the numerical type used by a
+@@ -74,12 +78,12 @@ namespace fses {
+    * \brief get values of a vector
+    */
+   template <typename VectorType, typename IndexType>
+-  inline GetVectorNumericType_t<VectorType>& at(VectorType&, const IndexType&);
++  TFEL_HOST_DEVICE inline GetVectorNumericType_t<VectorType>& at(VectorType&, const IndexType&);
+   /*!
+    * \brief get values of a vector
+    */
+   template <typename VectorType, typename IndexType>
+-  inline const GetVectorNumericType_t<VectorType>& at(const VectorType&,
++  TFEL_HOST_DEVICE inline const GetVectorNumericType_t<VectorType>& at(const VectorType&,
+                                                       const IndexType&);
+   /*!
+    * \brief a metafunction returning the numerical type used by a
+@@ -95,14 +99,14 @@ namespace fses {
+    * \brief get values of a matrix
+    */
+   template <typename MatrixType, typename IndexType>
+-  inline GetMatrixNumericType_t<MatrixType>& at(MatrixType&,
++  TFEL_HOST_DEVICE inline GetMatrixNumericType_t<MatrixType>& at(MatrixType&,
+                                                 const IndexType&,
+                                                 const IndexType&);
+   /*!
+    * \brief get values of a matrix
+    */
+   template <typename MatrixType, typename IndexType>
+-  inline const GetMatrixNumericType_t<MatrixType>& at(const MatrixType&,
++  TFEL_HOST_DEVICE inline const GetMatrixNumericType_t<MatrixType>& at(const MatrixType&,
+                                                       const IndexType&,
+                                                       const IndexType&);
+   /*!
+@@ -111,10 +115,10 @@ namespace fses {
+    * \param[in]  v: value
+    */
+   template <typename MatrixType, typename NumericType>
+-  void fill(MatrixType&, const NumericType&);
++  TFEL_HOST_DEVICE void fill(MatrixType&, const NumericType&);
+ 
+   template <typename real>
+-  inline bool is_negligible(const real&, const real&);
++  TFEL_HOST_DEVICE inline bool is_negligible(const real&, const real&);
+   /*!
+    * \brief sort the eigenvalues and the eigenvectors
+    * \param[in,out] m: eigenvectors, stored as column of a 3x3 matrix
+@@ -122,7 +126,7 @@ namespace fses {
+    * \param[in]     o: ordering
+    */
+   template <typename MatrixType, typename VectorType>
+-  inline void sort(MatrixType&, VectorType&, const EigenValuesOrdering);
++  TFEL_HOST_DEVICE inline void sort(MatrixType&, VectorType&, const EigenValuesOrdering);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/Utilities.ixx b/include/FSES/Utilities.ixx
+index f8cade92d..d2498cb7f 100644
+--- a/include/FSES/Utilities.ixx
++++ b/include/FSES/Utilities.ixx
+@@ -41,7 +41,7 @@
+ namespace fses {
+ 
+   template <typename T>
+-  constexpr T square(const T x) {
++  TFEL_HOST_DEVICE constexpr T square(const T x) {
+     return x * x;
+   }
+ 
+@@ -111,12 +111,12 @@ namespace fses {
+   template <typename VectorType>
+   struct VectorAccess {
+     template <typename IndexType>
+-    static GetVectorNumericType_t<VectorType>& exe(VectorType& v,
++    TFEL_HOST_DEVICE static GetVectorNumericType_t<VectorType>& exe(VectorType& v,
+                                                    const IndexType& i) {
+       return v(i);
+     }
+     template <typename IndexType>
+-    static const GetVectorNumericType_t<VectorType>& exe(const VectorType& v,
++    TFEL_HOST_DEVICE static const GetVectorNumericType_t<VectorType>& exe(const VectorType& v,
+                                                          const IndexType& i) {
+       return v(i);
+     }
+@@ -125,22 +125,22 @@ namespace fses {
+   template <typename T, size_t N>
+   struct VectorAccess<T[N]> {
+     template <typename IndexType>
+-    [[nodiscard]] static T& exe(T v[N], const IndexType& i) {
++    TFEL_HOST_DEVICE [[nodiscard]] static T& exe(T v[N], const IndexType& i) {
+       return v[i];
+     }
+     template <typename IndexType>
+-    [[nodiscard]] static const T& exe(const T v[N], const IndexType& i) {
++    TFEL_HOST_DEVICE [[nodiscard]] static const T& exe(const T v[N], const IndexType& i) {
+       return v[i];
+     }
+   };
+ 
+   template <typename VectorType, typename IndexType>
+-  [[nodiscard]] GetVectorNumericType_t<VectorType>& at(VectorType& v,
++  TFEL_HOST_DEVICE [[nodiscard]] GetVectorNumericType_t<VectorType>& at(VectorType& v,
+                                                        const IndexType& i) {
+     return VectorAccess<VectorType>::exe(v, i);
+   }
+   template <typename VectorType, typename IndexType>
+-  [[nodiscard]] const GetVectorNumericType_t<VectorType>& at(
++  TFEL_HOST_DEVICE [[nodiscard]] const GetVectorNumericType_t<VectorType>& at(
+       const VectorType& v, const IndexType& i) {
+     return VectorAccess<VectorType>::exe(v, i);
+   }
+@@ -148,12 +148,12 @@ namespace fses {
+   template <typename MatrixType>
+   struct MatrixAccess {
+     template <typename IndexType>
+-    [[nodiscard]] static GetMatrixNumericType_t<MatrixType>& exe(
++    TFEL_HOST_DEVICE [[nodiscard]] static GetMatrixNumericType_t<MatrixType>& exe(
+         MatrixType& v, const IndexType& i, const IndexType& j) {
+       return v(i, j);
+     }
+     template <typename IndexType>
+-    [[nodiscard]] static const GetMatrixNumericType_t<MatrixType>& exe(
++    TFEL_HOST_DEVICE [[nodiscard]] static const GetMatrixNumericType_t<MatrixType>& exe(
+         const MatrixType& v, const IndexType& i, const IndexType& j) {
+       return v(i, j);
+     }
+@@ -161,31 +161,31 @@ namespace fses {
+ 
+   template <typename T, size_t N, size_t M>
+   struct MatrixAccess<T[N][M]>{
+-      template <typename IndexType> [[nodiscard]] static T &
++      template <typename IndexType> TFEL_HOST_DEVICE [[nodiscard]] static T &
+       exe(T v[N][M], const IndexType& i, const IndexType& j){return v[i][j];
+ }  // namespace fses
+ template <typename IndexType>
+-static const T& exe(const T v[N][M], const IndexType& i, const IndexType& j) {
++TFEL_HOST_DEVICE static const T& exe(const T v[N][M], const IndexType& i, const IndexType& j) {
+   return v[i][j];
+ }
+ }
+ ;
+ 
+ template <typename MatrixType, typename IndexType>
+-GetMatrixNumericType_t<MatrixType>& at(MatrixType& v,
++TFEL_HOST_DEVICE GetMatrixNumericType_t<MatrixType>& at(MatrixType& v,
+                                        const IndexType& i,
+                                        const IndexType& j) {
+   return MatrixAccess<MatrixType>::exe(v, i, j);
+ }
+ template <typename MatrixType, typename IndexType>
+-const GetMatrixNumericType_t<MatrixType>& at(const MatrixType& v,
++TFEL_HOST_DEVICE const GetMatrixNumericType_t<MatrixType>& at(const MatrixType& v,
+                                              const IndexType& i,
+                                              const IndexType& j) {
+   return MatrixAccess<MatrixType>::exe(v, i, j);
+ }
+ 
+ template <typename MatrixType, typename NumericType>
+-void fill(MatrixType& m, const NumericType& v) {
++TFEL_HOST_DEVICE void fill(MatrixType& m, const NumericType& v) {
+   for (int i = 0; i != 3; ++i) {
+     for (int j = 0; j != 3; ++j) {
+       at(m, i, j) = v;
+@@ -201,7 +201,7 @@ template <typename real>
+ }
+ 
+ template <typename MatrixType, typename VectorType>
+-void sort(MatrixType& m, VectorType& v, const EigenValuesOrdering o) {
++TFEL_HOST_DEVICE void sort(MatrixType& m, VectorType& v, const EigenValuesOrdering o) {
+   using size_type = unsigned short;
+   using real = GetVectorNumericType_t<VectorType>;
+   constexpr auto zero = size_type{0};
+diff --git a/include/FSES/slvsec3.hxx b/include/FSES/slvsec3.hxx
+index ea2aa84d9..e2c76bc0c 100644
+--- a/include/FSES/slvsec3.hxx
++++ b/include/FSES/slvsec3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SLVSEC3_HXX
+ #define LIB_FSES_SLVSEC3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -49,7 +51,7 @@ namespace fses {
+   // results.
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename real>
+-  void slvsec3(MatrixType&,
++  TFEL_HOST_DEVICE void slvsec3(MatrixType&,
+                VectorType&,
+                const real d[3],
+                const real z[3],
+diff --git a/include/FSES/slvsec3.ixx b/include/FSES/slvsec3.ixx
+index ce4c00d6c..b1ec848b9 100644
+--- a/include/FSES/slvsec3.ixx
++++ b/include/FSES/slvsec3.ixx
+@@ -45,7 +45,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename real>
+-  void slvsec3(MatrixType& R,
++  TFEL_HOST_DEVICE void slvsec3(MatrixType& R,
+                VectorType& w,
+                const real d[3],
+                const real z[3],
+@@ -137,7 +137,7 @@ namespace fses {
+       dx = dxold = one_half * (xh - xl);
+ 
+       // Make sure that xl != xh
+-      if (std::fpclassify(dx) == FP_ZERO) {
++      if (tfel::math::ieee754::fpclassify(dx) == FP_ZERO) {
+         w[i] = xl;
+         for (int j = 0; j < 3; j++) {
+           R[j][i] = d[j] - xl;
+diff --git a/include/FSES/std_array.hxx b/include/FSES/std_array.hxx
+index 9b89d82fc..d1e7f7d31 100644
+--- a/include/FSES/std_array.hxx
++++ b/include/FSES/std_array.hxx
+@@ -65,11 +65,11 @@ namespace fses {
+   template <typename T, size_t N>
+   struct VectorAccess<std::array<T, N>> {
+     template <typename IndexType>
+-    static T& exe(std::array<T, N>& v, const IndexType& i) {
++    TFEL_HOST_DEVICE static T& exe(std::array<T, N>& v, const IndexType& i) {
+       return v[i];
+     }
+     template <typename IndexType>
+-    static const T& exe(const std::array<T, N>& v, const IndexType& i) {
++    TFEL_HOST_DEVICE static const T& exe(const std::array<T, N>& v, const IndexType& i) {
+       return v[i];
+     }
+   };
+@@ -100,13 +100,13 @@ namespace fses {
+   template <typename T, std::size_t N, std::size_t M>
+   struct MatrixAccess<std::array<std::array<T, M>, N>> {
+     template <typename IndexType>
+-    static T& exe(std::array<std::array<T, M>, N>& v,
++    TFEL_HOST_DEVICE static T& exe(std::array<std::array<T, M>, N>& v,
+                   const IndexType& i,
+                   const IndexType& j) {
+       return v[i][j];
+     }
+     template <typename IndexType>
+-    static const T& exe(const std::array<std::array<T, M>, N>& v,
++    TFEL_HOST_DEVICE static const T& exe(const std::array<std::array<T, M>, N>& v,
+                         const IndexType& i,
+                         const IndexType& j) {
+       return v[i][j];
+diff --git a/include/FSES/syev2.hxx b/include/FSES/syev2.hxx
+index 2807a47d4..d02b0d7f2 100644
+--- a/include/FSES/syev2.hxx
++++ b/include/FSES/syev2.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEV2_HXX
+ #define LIB_FSES_SYEV2_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -49,7 +51,7 @@ namespace fses {
+   // in the LAPACK routine DLAEV2, where |rt1| >= |rt2|.
+   // ----------------------------------------------------------------------------
+   template <typename real>
+-  inline void syev2(real& rt1,
++  TFEL_HOST_DEVICE inline void syev2(real& rt1,
+                     real& rt2,
+                     real& cs,
+                     real& sn,
+diff --git a/include/FSES/syev2.ixx b/include/FSES/syev2.ixx
+index b5cd0ea40..cb4f7e450 100644
+--- a/include/FSES/syev2.ixx
++++ b/include/FSES/syev2.ixx
+@@ -42,7 +42,7 @@
+ namespace fses {
+ 
+   template <typename real>
+-  void syev2(real& rt1,
++  TFEL_HOST_DEVICE void syev2(real& rt1,
+              real& rt2,
+              real& cs,
+              real& sn,
+@@ -85,7 +85,7 @@ namespace fses {
+       t = -two * B / cs;
+       sn = one / std::sqrt(one + square(t));
+       cs = t * (sn);
+-    } else if (std::fpclassify(B) == FP_ZERO) {
++    } else if (tfel::math::ieee754::fpclassify(B) == FP_ZERO) {
+       cs = one;
+       sn = zero;
+     } else {
+diff --git a/include/FSES/syevc3.hxx b/include/FSES/syevc3.hxx
+index c2f460a7c..98f57e8b8 100644
+--- a/include/FSES/syevc3.hxx
++++ b/include/FSES/syevc3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVC3_HXX
+ #define LIB_FSES_SYEVC3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -53,7 +55,7 @@ namespace fses {
+   //  -1: Error
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType>
+-  int syevc3(VectorType&, const MatrixType&);
++  TFEL_HOST_DEVICE int syevc3(VectorType&, const MatrixType&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevc3.ixx b/include/FSES/syevc3.ixx
+index 57d310a6e..cc7b4d90d 100644
+--- a/include/FSES/syevc3.ixx
++++ b/include/FSES/syevc3.ixx
+@@ -43,7 +43,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType>
+-  int syevc3(VectorType& w, const MatrixType& A) {
++  TFEL_HOST_DEVICE int syevc3(VectorType& w, const MatrixType& A) {
+     using real = GetMatrixNumericType_t<MatrixType>;
+     constexpr auto c_sqrt3 = std::numbers::sqrt3_v<real>;
+     constexpr auto one = real(1);
+diff --git a/include/FSES/syevd3.hxx b/include/FSES/syevd3.hxx
+index e11d47faf..3ab8d5073 100644
+--- a/include/FSES/syevd3.hxx
++++ b/include/FSES/syevd3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVD3_HXX
+ #define LIB_FSES_SYEVD3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -57,7 +59,7 @@ namespace fses {
+   //   syev2(), slvsec3(), sytrd3()
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevd3(MatrixType&, VectorType&, const MatrixType2&);
++  TFEL_HOST_DEVICE int syevd3(MatrixType&, VectorType&, const MatrixType2&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevd3.ixx b/include/FSES/syevd3.ixx
+index 2fdfd5093..1855a2a80 100644
+--- a/include/FSES/syevd3.ixx
++++ b/include/FSES/syevd3.ixx
+@@ -46,7 +46,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevd3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
++  TFEL_HOST_DEVICE int syevd3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
+     using real = std::decay_t<decltype(at(A, 0, 0))>;
+     constexpr auto zero = real(0);
+     constexpr auto one = real(1);
+@@ -166,7 +166,7 @@ namespace fses {
+     } else {
+       for (int j = 0; j < n; j++) {
+         for (int i = 0; i < n; i++) {
+-          if (std::fpclassify(P[i][j]) == FP_ZERO) {
++          if (tfel::math::ieee754::fpclassify(P[i][j]) == FP_ZERO) {
+             P[i][j] = one;
+             P[(i + 1) % n][j] = zero;
+             P[(i + 2) % n][j] = zero;
+diff --git a/include/FSES/syevh3.hxx b/include/FSES/syevh3.hxx
+index 2b6365db5..e748fc705 100644
+--- a/include/FSES/syevh3.hxx
++++ b/include/FSES/syevh3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVH3_HXX
+ #define LIB_FSES_SYEVH3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -64,7 +66,7 @@ namespace fses {
+   //   v1.0: First released version
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevh3(MatrixType&, VectorType&, const MatrixType2&);
++  TFEL_HOST_DEVICE int syevh3(MatrixType&, VectorType&, const MatrixType2&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevh3.ixx b/include/FSES/syevh3.ixx
+index cb3432856..fa2610831 100644
+--- a/include/FSES/syevh3.ixx
++++ b/include/FSES/syevh3.ixx
+@@ -45,7 +45,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevh3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
++  TFEL_HOST_DEVICE int syevh3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
+     using real = GetMatrixNumericType_t<MatrixType2>;
+     constexpr auto one = real(1);
+     constexpr auto c256 = real(256);
+diff --git a/include/FSES/syevj3.hxx b/include/FSES/syevj3.hxx
+index 6d330372a..736b046ca 100644
+--- a/include/FSES/syevj3.hxx
++++ b/include/FSES/syevj3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVJ3_HXX
+ #define LIB_FSES_SYEVJ3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -55,7 +57,7 @@ namespace fses {
+   //  -1: Error (no convergence)
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevj3(MatrixType&, VectorType&, MatrixType2&);
++  TFEL_HOST_DEVICE int syevj3(MatrixType&, VectorType&, MatrixType2&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevj3.ixx b/include/FSES/syevj3.ixx
+index 700161d62..c7233fe4c 100644
+--- a/include/FSES/syevj3.ixx
++++ b/include/FSES/syevj3.ixx
+@@ -42,7 +42,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevj3(MatrixType& Q, VectorType& w, MatrixType2& A) {
++  TFEL_HOST_DEVICE int syevj3(MatrixType& Q, VectorType& w, MatrixType2& A) {
+     using real = GetMatrixNumericType_t<MatrixType2>;
+ 
+     constexpr auto zero = real(0);
+@@ -82,7 +82,7 @@ namespace fses {
+       so = zero;
+       for (int p = 0; p < n; p++)
+         for (int q = p + 1; q < n; q++) so += std::abs(at(A, p, q));
+-      if (std::fpclassify(so) == FP_ZERO) return 0;
++      if (tfel::math::ieee754::fpclassify(so) == FP_ZERO) return 0;
+ 
+       if (nIter < 4)
+         thresh = c1_5 * so / square(n);
+diff --git a/include/FSES/syevq3.hxx b/include/FSES/syevq3.hxx
+index 0862e56be..de0ead5ff 100644
+--- a/include/FSES/syevq3.hxx
++++ b/include/FSES/syevq3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVQ3_HXX
+ #define LIB_FSES_SYEVQ3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -58,7 +60,7 @@ namespace fses {
+   //   sytrd3()
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevq3(MatrixType&, VectorType&, const MatrixType2&);
++  TFEL_HOST_DEVICE int syevq3(MatrixType&, VectorType&, const MatrixType2&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevq3.ixx b/include/FSES/syevq3.ixx
+index f143f1e22..afbea626a 100644
+--- a/include/FSES/syevq3.ixx
++++ b/include/FSES/syevq3.ixx
+@@ -43,7 +43,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevq3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
++  TFEL_HOST_DEVICE int syevq3(MatrixType& Q, VectorType& w, const MatrixType2& A) {
+     using real = GetMatrixNumericType_t<MatrixType2>;
+     constexpr auto zero = real(0);
+     constexpr auto one = real(1);
+diff --git a/include/FSES/syevv3.hxx b/include/FSES/syevv3.hxx
+index 9b76a0e3d..0cba30290 100644
+--- a/include/FSES/syevv3.hxx
++++ b/include/FSES/syevv3.hxx
+@@ -36,6 +36,8 @@
+ #ifndef LIB_FSES_SYEVV3_HXX
+ #define LIB_FSES_SYEVV3_HXX
+ 
++
++#include "TFEL/Config/TFELConfig.hxx"
+ namespace fses {
+ 
+   // ----------------------------------------------------------------------------
+@@ -65,7 +67,7 @@ namespace fses {
+   //   v1.0: First released version
+   // ----------------------------------------------------------------------------
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevv3(MatrixType&, VectorType&, MatrixType2&);
++  TFEL_HOST_DEVICE int syevv3(MatrixType&, VectorType&, MatrixType2&);
+ 
+ }  // end of namespace fses
+ 
+diff --git a/include/FSES/syevv3.ixx b/include/FSES/syevv3.ixx
+index 274f544ac..6d9ab1304 100644
+--- a/include/FSES/syevv3.ixx
++++ b/include/FSES/syevv3.ixx
+@@ -44,7 +44,7 @@
+ namespace fses {
+ 
+   template <typename MatrixType, typename VectorType, typename MatrixType2>
+-  int syevv3(MatrixType& Q, VectorType& w, MatrixType2& A) {
++  TFEL_HOST_DEVICE int syevv3(MatrixType& Q, VectorType& w, MatrixType2& A) {
+     using real = GetMatrixNumericType_t<MatrixType2>;
+ 
+     constexpr auto zero = real(0);
+@@ -210,7 +210,7 @@ namespace fses {
+       if (i == 3) {
+         // This means that any vector orthogonal to v[0] is an EV.
+         for (j = 0; j < 3; j++) {
+-          if (std::fpclassify(at(Q, j, 0)) != FP_ZERO) {
++          if (tfel::math::ieee754::fpclassify(at(Q, j, 0)) != FP_ZERO) {
+             // Find nonzero element of v[0] ...
+             // ... and swap it with the next one
+             norm = one / std::sqrt(square(at(Q, j, 0)) +
+diff --git a/include/FSES/sytrd3.hxx b/include/FSES/sytrd3.hxx
+index d4d23a928..e0b538347 100644
+--- a/include/FSES/sytrd3.hxx
++++ b/include/FSES/sytrd3.hxx
+@@ -51,7 +51,7 @@ namespace fses {
+             typename VectorType,
+             typename VectorType2,
+             typename MatrixType2>
+-  inline void sytrd3(MatrixType&,
++  TFEL_HOST_DEVICE inline void sytrd3(MatrixType&,
+                      VectorType&,
+                      VectorType2&,
+                      const MatrixType2&);
+diff --git a/include/FSES/sytrd3.ixx b/include/FSES/sytrd3.ixx
+index 3b14e0dca..7eb1a5c7a 100644
+--- a/include/FSES/sytrd3.ixx
++++ b/include/FSES/sytrd3.ixx
+@@ -45,7 +45,7 @@ namespace fses {
+             typename VectorType,
+             typename VectorType2,
+             typename MatrixType2>
+-  void sytrd3(MatrixType& Q,
++  TFEL_HOST_DEVICE void sytrd3(MatrixType& Q,
+               VectorType& d,
+               VectorType2& e,
+               const MatrixType2& A) {
+diff --git a/include/TFEL/Config/TFELConfig.hxx b/include/TFEL/Config/TFELConfig.hxx
+index e2acd6e64..37858378b 100644
+--- a/include/TFEL/Config/TFELConfig.hxx
++++ b/include/TFEL/Config/TFELConfig.hxx
+@@ -364,4 +364,20 @@
+ 
+ #define TFEL_HOST_DEVICE TFEL_DEVICE TFEL_HOST
+ 
++/*!
++ * \brief `TFEL_DEVICE_CODE` is defined when the code being compiled is device
++ * code, i.e. during the device compilation pass of `CUDA` and `HIP` sources
++ * and during the device compilation of `SYCL` sources.
++ *
++ * This macro allows to select code that can't be executed on the device,
++ * for instance when throwing an exception, while keeping the same behaviour
++ * on the host.
++ */
++#if (defined __CUDA_ARCH__) || (defined __HIP_DEVICE_COMPILE__) || \
++    (defined __SYCL_DEVICE_ONLY__)
++#ifndef TFEL_DEVICE_CODE
++#define TFEL_DEVICE_CODE 1
++#endif /* TFEL_DEVICE_CODE */
++#endif
++
+ #endif /* LIB_TFEL_CONFIG_HXX */
+diff --git a/include/TFEL/FSAlgorithm/accumulate.hxx b/include/TFEL/FSAlgorithm/accumulate.hxx
+index fb48bc58f..bb1aafd08 100644
+--- a/include/TFEL/FSAlgorithm/accumulate.hxx
++++ b/include/TFEL/FSAlgorithm/accumulate.hxx
+@@ -48,7 +48,7 @@ namespace tfel::fsalgo {
+      * - The return type of x + y is convertible to T.
+      */
+     template <typename InputIterator, typename T>
+-    static T exe(InputIterator p, const T init) {
++    TFEL_HOST_DEVICE static T exe(InputIterator p, const T init) {
+       if constexpr (N >= 1) {
+         const auto result = *p + init;
+         return accumulate<N - 1>::exe(++p, result);
+@@ -78,7 +78,9 @@ namespace tfel::fsalgo {
+      *
+      */
+     template <class InputIterator, class T, class BinaryFunction>
+-    static T exe(InputIterator p, const T init, BinaryFunction binary_op) {
++    TFEL_HOST_DEVICE static T exe(InputIterator p,
++                                  const T init,
++                                  BinaryFunction binary_op) {
+       if constexpr (N >= 1) {
+         const auto result = binary_op(*p, init);
+         return accumulate<N - 1>::exe(++p, result, binary_op);
+diff --git a/include/TFEL/FSAlgorithm/equal.hxx b/include/TFEL/FSAlgorithm/equal.hxx
+index baa26189b..c2edf8806 100644
+--- a/include/TFEL/FSAlgorithm/equal.hxx
++++ b/include/TFEL/FSAlgorithm/equal.hxx
+@@ -50,7 +50,8 @@ namespace tfel::fsalgo {
+ 
+      */
+     template <typename InputIterator, typename InputIterator2>
+-    static TFEL_FSALGORITHM_INLINE bool exe(InputIterator p, InputIterator2 q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE bool exe(InputIterator p,
++                                                             InputIterator2 q) {
+       if constexpr (N >= 1) {
+         return (*p == *q) && (equal<N - 1>::exe(++p, ++q));
+       } else {
+@@ -79,9 +80,8 @@ namespace tfel::fsalgo {
+     template <typename InputIterator,
+               typename InputIterator2,
+               typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE bool exe(InputIterator p,
+-                                            InputIterator2 q,
+-                                            BinaryPredicate binary_pred) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE bool exe(
++        InputIterator p, InputIterator2 q, BinaryPredicate binary_pred) {
+       if constexpr (N >= 1) {
+         return (binary_pred(*p, *q)) &&
+                (equal<N - 1>::exe(++p, ++q, binary_pred));
+diff --git a/include/TFEL/FSAlgorithm/fill.hxx b/include/TFEL/FSAlgorithm/fill.hxx
+index 60cc7bb06..545e2a435 100644
+--- a/include/TFEL/FSAlgorithm/fill.hxx
++++ b/include/TFEL/FSAlgorithm/fill.hxx
+@@ -37,7 +37,7 @@ namespace tfel::fsalgo {
+      * \param  q: value.
+      */
+     template <typename OutputIterator, typename T>
+-    static void exe(OutputIterator p, const T& q) {
++    TFEL_HOST_DEVICE static void exe(OutputIterator p, const T& q) {
+       if constexpr (N >= 1) {
+         *p = q;
+         fill<N - 1>::exe(++p, q);
+diff --git a/include/TFEL/FSAlgorithm/for_each.hxx b/include/TFEL/FSAlgorithm/for_each.hxx
+index 0805af956..15924ca66 100644
+--- a/include/TFEL/FSAlgorithm/for_each.hxx
++++ b/include/TFEL/FSAlgorithm/for_each.hxx
+@@ -55,7 +55,7 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename InputIterator, typename UnaryFunction>
+-    static void exe(InputIterator p, UnaryFunction& f) {
++    TFEL_HOST_DEVICE static void exe(InputIterator p, UnaryFunction& f) {
+       if constexpr (N >= 1) {
+         f(*p);
+         for_each<N - 1>::exe(++p, f);
+diff --git a/include/TFEL/FSAlgorithm/generate.hxx b/include/TFEL/FSAlgorithm/generate.hxx
+index 5030e4a21..d6a8c998e 100644
+--- a/include/TFEL/FSAlgorithm/generate.hxx
++++ b/include/TFEL/FSAlgorithm/generate.hxx
+@@ -39,7 +39,7 @@ namespace tfel::fsalgo {
+      * \param g: generator type used
+      */
+     template <typename ForwardIterator, typename Generator>
+-    static void exe(ForwardIterator p, Generator gen) {
++    TFEL_HOST_DEVICE static void exe(ForwardIterator p, Generator gen) {
+       if constexpr (N >= 1) {
+         *p = gen();
+         generate<N - 1>::exe(++p, gen);
+diff --git a/include/TFEL/FSAlgorithm/max_element.hxx b/include/TFEL/FSAlgorithm/max_element.hxx
+index 19bbc5b89..6260d3fa2 100644
+--- a/include/TFEL/FSAlgorithm/max_element.hxx
++++ b/include/TFEL/FSAlgorithm/max_element.hxx
+@@ -45,8 +45,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q) {
+       const auto r = (*p > *q) ? p : q;
+       return max_element<N - 1>::exe_(++p, r);
+     }
+@@ -69,9 +69,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q,
+-                                                        BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q, BinaryPredicate comp) {
+       const auto r = (comp(*p, *q)) ? p : q;
+       return max_element<N - 1>::exe_(++p, r, comp);
+     }
+@@ -94,7 +93,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       ForwardIterator result = p;
+       return max_element<N - 1>::exe_(++p, result);
+     }
+@@ -119,8 +119,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate comp) {
+       ForwardIterator result = p;
+       return max_element<N - 1>::exe_(++p, result, comp);
+     }
+@@ -143,8 +143,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q) {
+       if (*p > *q) {
+         return p;
+       }
+@@ -159,9 +159,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q,
+-                                                        BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q, BinaryPredicate comp) {
+       if (comp(*p, *q)) {
+         return p;
+       }
+@@ -177,7 +176,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       return p;
+     }
+ 
+@@ -189,8 +189,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate) {
+       return p;
+     }
+   };
+@@ -212,7 +212,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       return p;
+     }
+ 
+@@ -224,8 +225,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate) {
+       return p;
+     }
+   };
+diff --git a/include/TFEL/FSAlgorithm/min_element.hxx b/include/TFEL/FSAlgorithm/min_element.hxx
+index 948de362d..2c653138e 100644
+--- a/include/TFEL/FSAlgorithm/min_element.hxx
++++ b/include/TFEL/FSAlgorithm/min_element.hxx
+@@ -45,8 +45,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q) {
+       ForwardIterator result;
+       if (*p < *q) {
+         result = p;
+@@ -74,9 +74,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q,
+-                                                        BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q, BinaryPredicate comp) {
+       ForwardIterator result;
+       if (comp(*p, *q)) {
+         result = p;
+@@ -104,7 +103,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       ForwardIterator result = p;
+       return min_element<N - 1>::exe_(++p, result);
+     }
+@@ -129,8 +129,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate comp) {
+       ForwardIterator result = p;
+       return min_element<N - 1>::exe_(++p, result, comp);
+     }
+@@ -153,8 +153,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q) {
+       if (*p < *q) {
+         return p;
+       }
+@@ -169,9 +169,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe_(ForwardIterator p,
+-                                                        ForwardIterator q,
+-                                                        BinaryPredicate comp) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe_(ForwardIterator p, ForwardIterator q, BinaryPredicate comp) {
+       if (comp(*p, *q)) {
+         return p;
+       }
+@@ -187,7 +186,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       return p;
+     }
+ 
+@@ -199,8 +199,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate) {
+       return p;
+     }
+   };
+@@ -222,7 +222,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p) {
+       return p;
+     }
+ 
+@@ -234,8 +235,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator, typename BinaryPredicate>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator exe(ForwardIterator p,
+-                                                       BinaryPredicate) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
++    exe(ForwardIterator p, BinaryPredicate) {
+       return p;
+     }
+   };
+diff --git a/include/TFEL/FSAlgorithm/swap_ranges.hxx b/include/TFEL/FSAlgorithm/swap_ranges.hxx
+index 3ac63ac89..0dbadf43e 100644
+--- a/include/TFEL/FSAlgorithm/swap_ranges.hxx
++++ b/include/TFEL/FSAlgorithm/swap_ranges.hxx
+@@ -51,8 +51,8 @@ namespace tfel::fsalgo {
+      * \date   30 Jun 2006
+      */
+     template <typename ForwardIterator1, typename ForwardIterator2>
+-    static TFEL_FSALGORITHM_INLINE ForwardIterator2 exe(ForwardIterator1 p,
+-                                                        ForwardIterator2 q) {
++    TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator2
++    exe(ForwardIterator1 p, ForwardIterator2 q) {
+       if constexpr (N >= 1) {
+         std::swap(*q, *p);
+         return swap_ranges<N - 1>::exe(++p, ++q);
+diff --git a/include/TFEL/FSAlgorithm/transform.hxx b/include/TFEL/FSAlgorithm/transform.hxx
+index af7fa4739..a8253cc13 100644
+--- a/include/TFEL/FSAlgorithm/transform.hxx
++++ b/include/TFEL/FSAlgorithm/transform.hxx
+@@ -60,9 +60,9 @@ namespace tfel::fsalgo {
+     template <typename InputIterator,
+               typename OutputIterator,
+               typename UnaryFunction>
+-    static constexpr OutputIterator exe(InputIterator p,
+-                                        OutputIterator q,
+-                                        UnaryFunction op) {
++    TFEL_HOST_DEVICE static constexpr OutputIterator exe(InputIterator p,
++                                                         OutputIterator q,
++                                                         UnaryFunction op) {
+       *q = op(*p);
+       return transform<N - 1>::exe(++p, ++q, op);
+     }
+@@ -99,10 +99,10 @@ namespace tfel::fsalgo {
+               typename InputIterator2,
+               typename OutputIterator,
+               typename BinaryFunction>
+-    static constexpr OutputIterator exe(InputIterator1 p,
+-                                        InputIterator2 q,
+-                                        OutputIterator r,
+-                                        BinaryFunction op) {
++    TFEL_HOST_DEVICE static constexpr OutputIterator exe(InputIterator1 p,
++                                                         InputIterator2 q,
++                                                         OutputIterator r,
++                                                         BinaryFunction op) {
+       *r = op(*p, *q);
+       return transform<N - 1>::exe(++p, ++q, ++r, op);
+     }
+@@ -127,9 +127,9 @@ namespace tfel::fsalgo {
+     template <typename InputIterator,
+               typename OutputIterator,
+               typename UnaryFunction>
+-    static constexpr OutputIterator exe(InputIterator,
+-                                        OutputIterator q,
+-                                        UnaryFunction) {
++    TFEL_HOST_DEVICE static constexpr OutputIterator exe(InputIterator,
++                                                         OutputIterator q,
++                                                         UnaryFunction) {
+       return q;
+     }
+ 
+@@ -144,10 +144,10 @@ namespace tfel::fsalgo {
+               typename InputIterator2,
+               typename OutputIterator,
+               typename BinaryFunction>
+-    static constexpr OutputIterator exe(InputIterator,
+-                                        InputIterator2,
+-                                        OutputIterator r,
+-                                        BinaryFunction) {
++    TFEL_HOST_DEVICE static constexpr OutputIterator exe(InputIterator,
++                                                         InputIterator2,
++                                                         OutputIterator r,
++                                                         BinaryFunction) {
+       return r;
+     }
+   };
+diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
+index 9de09cf43..dc301ffb2 100644
+--- a/include/TFEL/Material/BoundsCheck.hxx
++++ b/include/TFEL/Material/BoundsCheck.hxx
+@@ -40,6 +40,18 @@ namespace tfel::material {
+ 
+   /*!
+    * \brief an helper class
++   *
++   * All the checks return a boolean which is false if a bound is violated
++   * and if this violation is not tolerated by the out of bounds policy.
++   *
++   * The names of the variables are passed as C strings: constructing a
++   * `std::string_view` from a C string is not supported in device code by
++   * some compilers (nvcc silently removes the code).
++   *
++   * On the host, an exception is thrown in this case, so the returned value
++   * is always true. In device code, where exceptions are not available, the
++   * returned value must be used to report the failure. Warnings are not
++   * displayed in device code.
+    */
+   struct BoundsCheckBase {
+     /*!
+@@ -49,7 +61,7 @@ namespace tfel::material {
+     template <typename T>
+     static std::string convert_to_string(const T& value) {
+       if constexpr (tfel::math::ImmutableQuantityConcept<T>) {
+-        return std::to_string(base_type_cast(value));
++        return std::to_string(tfel::math::base_type_cast(value));
+       } else {
+         return std::to_string(value);
+       }
+@@ -110,418 +122,236 @@ namespace tfel::material {
+         const std::string_view,
+         const std::string_view);
+     template <typename T>
+-    static inline void lowerBoundCheck(const std::string_view name,
+-                                       const T value,
+-                                       const T lBound,
+-                                       const OutOfBoundsPolicy p = Strict) {
++    TFEL_HOST_DEVICE static bool lowerBoundCheck(
++        const char* const name,
++        const T value,
++        const T lBound,
++        const OutOfBoundsPolicy p = Strict) {
+       if (value < lBound) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto lower_bound_as_string = convert_to_string(lBound);
+-        if (p == Strict) {
+-          throwOutOfLowerBoundsException(name, value_as_string,
+-                                         lower_bound_as_string);
+-        }
+-        displayOutOfLowerBoundsWarning(name, value_as_string,
+-                                       lower_bound_as_string);
++        return treatOutOfLowerBound(name, -1, value, lBound, p);
+       }
++      return true;
+     }
+     template <tfel::math::QuantityConcept QuantityType>
+-    static inline void lowerBoundCheck(
+-        const std::string_view name,
++    TFEL_HOST_DEVICE static bool lowerBoundCheck(
++        const char* const name,
+         const QuantityType& value,
+         const tfel::math::base_type<QuantityType> lBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      if (base_type_cast(value) < lBound) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto lower_bound_as_string = convert_to_string(lBound);
+-        if (p == Strict) {
+-          throwOutOfLowerBoundsException(name, value_as_string,
+-                                         lower_bound_as_string);
+-        }
+-        displayOutOfLowerBoundsWarning(name, value_as_string,
+-                                       lower_bound_as_string);
+-      }
++      return lowerBoundCheck(name, tfel::math::base_type_cast(value), lBound,
++                             p);
+     }
+     template <typename T>
+-    static inline void upperBoundCheck(const std::string_view name,
+-                                       const T value,
+-                                       const T uBound,
+-                                       const OutOfBoundsPolicy p = Strict) {
++    TFEL_HOST_DEVICE static bool upperBoundCheck(
++        const char* const name,
++        const T value,
++        const T uBound,
++        const OutOfBoundsPolicy p = Strict) {
+       if (value > uBound) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto upper_bound_as_string = convert_to_string(uBound);
+-        if (p == Strict) {
+-          throwOutOfUpperBoundsException(name, value_as_string,
+-                                         upper_bound_as_string);
+-        }
+-        displayOutOfUpperBoundsWarning(name, value_as_string,
+-                                       upper_bound_as_string);
++        return treatOutOfUpperBound(name, -1, value, uBound, p);
+       }
++      return true;
+     }
+     template <tfel::math::QuantityConcept QuantityType>
+-    static inline void upperBoundCheck(
+-        const std::string_view name,
+-        const QuantityType value,
++    TFEL_HOST_DEVICE static bool upperBoundCheck(
++        const char* const name,
++        const QuantityType& value,
+         const tfel::math::base_type<QuantityType> uBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      if (base_type_cast(value) > uBound) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto upper_bound_as_string = convert_to_string(uBound);
+-        if (p == Strict) {
+-          throwOutOfUpperBoundsException(name, value_as_string,
+-                                         upper_bound_as_string);
+-        }
+-        displayOutOfUpperBoundsWarning(name, value_as_string,
+-                                       upper_bound_as_string);
+-      }
++      return upperBoundCheck(name, tfel::math::base_type_cast(value), uBound,
++                             p);
+     }
+     template <typename T>
+-    static inline void lowerAndUpperBoundsChecks(
+-        const std::string_view name,
++    TFEL_HOST_DEVICE static bool lowerAndUpperBoundsChecks(
++        const char* const name,
+         const T value,
+         const T lBound,
+         const T uBound,
+         const OutOfBoundsPolicy p = Strict) {
+       if ((value < lBound) || (value > uBound)) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto lower_bound_as_string = convert_to_string(lBound);
+-        const auto upper_bound_as_string = convert_to_string(uBound);
+-        if (p == Strict) {
+-          throwOutOfBoundsException(name, value_as_string,
+-                                    lower_bound_as_string,
+-                                    upper_bound_as_string);
+-        }
+-        displayOutOfBoundsWarning(name, value_as_string, lower_bound_as_string,
+-                                  upper_bound_as_string);
++        return treatOutOfBounds(name, -1, value, lBound, uBound, p);
+       }
++      return true;
+     }
+     template <tfel::math::QuantityConcept QuantityType>
+-    static inline void lowerAndUpperBoundsChecks(
+-        const std::string_view name,
+-        const QuantityType value,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const tfel::math::base_type<QuantityType> uBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      if ((base_type_cast(value) < lBound) ||
+-          (base_type_cast(value) > uBound)) {
+-        if (p == None) {
+-          return;
+-        }
+-        const auto value_as_string = convert_to_string(value);
+-        const auto lower_bound_as_string = convert_to_string(lBound);
+-        const auto upper_bound_as_string = convert_to_string(uBound);
+-        if (p == Strict) {
+-          throwOutOfBoundsException(name, value_as_string,
+-                                    lower_bound_as_string,
+-                                    upper_bound_as_string);
+-        }
+-        displayOutOfBoundsWarning(name, value_as_string, lower_bound_as_string,
+-                                  upper_bound_as_string);
+-      }
+-    }
+-  };  // end of struct BoundsCheckBase
+-
+-  template <unsigned short N>
+-  struct BoundsCheck;
+-
+-  template <>
+-  struct BoundsCheck<1u> : public BoundsCheckBase {
+-    using BoundsCheckBase::lowerAndUpperBoundsChecks;
+-    using BoundsCheckBase::lowerBoundCheck;
+-    using BoundsCheckBase::upperBoundCheck;
+-    template <typename T>
+-    static void lowerBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<1u, T>& s,
+-                                const T lBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2), lBound, p);
+-    }
+-    template <typename T>
+-    static void upperBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<1u, T>& s,
+-                                const T uBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2), uBound, p);
+-    }
+-    template <typename T>
+-    static void lowerAndUpperBoundsChecks(const std::string& name,
+-                                          const tfel::math::stensor<1u, T>& s,
+-                                          const T lBound,
+-                                          const T uBound,
+-                                          const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2), lBound,
+-                                                 uBound, p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<1u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2).getValue(), lBound,
+-                                       p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void upperBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<1u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> uBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2).getValue(), uBound,
+-                                       p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerAndUpperBoundsChecks(
+-        const std::string& name,
+-        const tfel::math::stensor<1u, QuantityType>& s,
++    TFEL_HOST_DEVICE static bool lowerAndUpperBoundsChecks(
++        const char* const name,
++        const QuantityType& value,
+         const tfel::math::base_type<QuantityType> lBound,
+         const tfel::math::base_type<QuantityType> uBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2).getValue(),
+-                                                 lBound, uBound, p);
++      return lowerAndUpperBoundsChecks(name, tfel::math::base_type_cast(value),
++                                       lBound, uBound, p);
+     }
+-  };  // end of struct BoundsCheck<1u>;
+ 
+-  template <>
+-  struct BoundsCheck<2u> : public BoundsCheckBase {
+-    using BoundsCheckBase::lowerAndUpperBoundsChecks;
+-    using BoundsCheckBase::lowerBoundCheck;
+-    using BoundsCheckBase::upperBoundCheck;
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static inline void lowerAndUpperBoundsChecks(
+-        const std::string& name,
+-        const QuantityType& value,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const tfel::math::base_type<QuantityType> uBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name, base_type_cast(value), lBound, p);
+-      BoundsCheckBase::upperBoundCheck(name, base_type_cast(value), uBound, p);
++   protected:
++    /*!
++     * \return the name of the variable, or the name of the component of the
++     * variable if the given index is positive
++     * \param[in] n: variable name
++     * \param[in] i: component index
++     */
++    static std::string getVariableName(const char* const n, const int i) {
++      if (i < 0) {
++        return std::string{n};
++      }
++      return std::string{n} + "(" + std::to_string(i) + ")";
+     }
++    /*!
++     * \brief treat a value below its lower bound
++     * \param[in] n: variable name
++     * \param[in] i: component index, or -1 for a scalar variable
++     * \param[in] v: value
++     * \param[in] b: lower bound
++     * \param[in] p: out of bounds policy
++     */
+     template <typename T>
+-    static void lowerBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<2u, T>& s,
+-                                const T lBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(3)", s(3), lBound, p);
++    TFEL_HOST_DEVICE static bool treatOutOfLowerBound(
++        [[maybe_unused]] const char* const n,
++        [[maybe_unused]] const int i,
++        [[maybe_unused]] const T v,
++        [[maybe_unused]] const T b,
++        const OutOfBoundsPolicy p) {
++      if (p == None) {
++        return true;
++      }
++#ifdef TFEL_DEVICE_CODE
++      return p != Strict;
++#else  /* TFEL_DEVICE_CODE */
++      const auto name = getVariableName(n, i);
++      if (p == Strict) {
++        throwOutOfLowerBoundsException(name, convert_to_string(v),
++                                       convert_to_string(b));
++      }
++      displayOutOfLowerBoundsWarning(name, convert_to_string(v),
++                                     convert_to_string(b));
++      return true;
++#endif /* TFEL_DEVICE_CODE */
+     }
++    /*!
++     * \brief treat a value above its upper bound
++     * \param[in] n: variable name
++     * \param[in] i: component index, or -1 for a scalar variable
++     * \param[in] v: value
++     * \param[in] b: upper bound
++     * \param[in] p: out of bounds policy
++     */
+     template <typename T>
+-    static void upperBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<2u, T>& s,
+-                                const T uBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(3)", s(3), uBound, p);
++    TFEL_HOST_DEVICE static bool treatOutOfUpperBound(
++        [[maybe_unused]] const char* const n,
++        [[maybe_unused]] const int i,
++        [[maybe_unused]] const T v,
++        [[maybe_unused]] const T b,
++        const OutOfBoundsPolicy p) {
++      if (p == None) {
++        return true;
++      }
++#ifdef TFEL_DEVICE_CODE
++      return p != Strict;
++#else  /* TFEL_DEVICE_CODE */
++      const auto name = getVariableName(n, i);
++      if (p == Strict) {
++        throwOutOfUpperBoundsException(name, convert_to_string(v),
++                                       convert_to_string(b));
++      }
++      displayOutOfUpperBoundsWarning(name, convert_to_string(v),
++                                     convert_to_string(b));
++      return true;
++#endif /* TFEL_DEVICE_CODE */
+     }
++    /*!
++     * \brief treat a value out of its bounds
++     * \param[in] n: variable name
++     * \param[in] i: component index, or -1 for a scalar variable
++     * \param[in] v: value
++     * \param[in] lb: lower bound
++     * \param[in] ub: upper bound
++     * \param[in] p: out of bounds policy
++     */
+     template <typename T>
+-    static void lowerAndUpperBoundsChecks(const std::string& name,
+-                                          const tfel::math::stensor<2u, T>& s,
+-                                          const T lBound,
+-                                          const T uBound,
+-                                          const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(3)", s(3), lBound,
+-                                                 uBound, p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<2u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(3)", s(3).getValue(), lBound,
+-                                       p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void upperBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<2u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> uBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(3)", s(3).getValue(), uBound,
+-                                       p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerAndUpperBoundsChecks(
+-        const std::string& name,
+-        const tfel::math::stensor<2u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const tfel::math::base_type<QuantityType> uBound,
+-        const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(3)", s(3).getValue(),
+-                                                 lBound, uBound, p);
++    TFEL_HOST_DEVICE static bool treatOutOfBounds(
++        [[maybe_unused]] const char* const n,
++        [[maybe_unused]] const int i,
++        [[maybe_unused]] const T v,
++        [[maybe_unused]] const T lb,
++        [[maybe_unused]] const T ub,
++        const OutOfBoundsPolicy p) {
++      if (p == None) {
++        return true;
++      }
++#ifdef TFEL_DEVICE_CODE
++      return p != Strict;
++#else  /* TFEL_DEVICE_CODE */
++      const auto name = getVariableName(n, i);
++      if (p == Strict) {
++        throwOutOfBoundsException(name, convert_to_string(v),
++                                  convert_to_string(lb), convert_to_string(ub));
++      }
++      displayOutOfBoundsWarning(name, convert_to_string(v),
++                                convert_to_string(lb), convert_to_string(ub));
++      return true;
++#endif /* TFEL_DEVICE_CODE */
+     }
+-  };  // end of struct BoundsCheck<2u>;
++  };  // end of struct BoundsCheckBase
+ 
+-  template <>
+-  struct BoundsCheck<3u> : public BoundsCheckBase {
++  /*!
++   * \brief checks of the bounds of scalars and of the components of
++   * symmetric tensors
++   * \tparam N: space dimension
++   */
++  template <unsigned short N>
++  struct BoundsCheck : public BoundsCheckBase {
++    static_assert((N == 1u) || (N == 2u) || (N == 3u));
+     using BoundsCheckBase::lowerAndUpperBoundsChecks;
+     using BoundsCheckBase::lowerBoundCheck;
+     using BoundsCheckBase::upperBoundCheck;
+     template <typename T>
+-    static void lowerBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<3u, T>& s,
+-                                const T lBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(3)", s(3), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(4)", s(4), lBound, p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(5)", s(5), lBound, p);
+-    }
+-    template <typename T>
+-    static void upperBoundCheck(const std::string& name,
+-                                const tfel::math::stensor<3u, T>& s,
+-                                const T uBound,
+-                                const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(3)", s(3), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(4)", s(4), uBound, p);
+-      BoundsCheckBase::upperBoundCheck(name + "(5)", s(5), uBound, p);
+-    }
+-    template <typename T>
+-    static void lowerAndUpperBoundsChecks(const std::string& name,
+-                                          const tfel::math::stensor<3u, T>& s,
+-                                          const T lBound,
+-                                          const T uBound,
+-                                          const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(3)", s(3), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(4)", s(4), lBound,
+-                                                 uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(5)", s(5), lBound,
+-                                                 uBound, p);
+-    }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<3u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> lBound,
++    TFEL_HOST_DEVICE static bool lowerBoundCheck(
++        const char* const name,
++        const tfel::math::stensor<N, T>& s,
++        const tfel::math::base_type<T> lBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerBoundCheck(name + "(0)", s(0).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(1)", s(1).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(2)", s(2).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(3)", s(3).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(4)", s(4).getValue(), lBound,
+-                                       p);
+-      BoundsCheckBase::lowerBoundCheck(name + "(5)", s(5).getValue(), lBound,
+-                                       p);
++      auto r = true;
++      for (int i = 0; i != static_cast<int>(s.size()); ++i) {
++        const auto v = tfel::math::base_type_cast(s(i));
++        if (v < lBound) {
++          r = treatOutOfLowerBound(name, i, v, lBound, p) && r;
++        }
++      }
++      return r;
+     }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void upperBoundCheck(
+-        const std::string& name,
+-        const tfel::math::stensor<3u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> uBound,
++    template <typename T>
++    TFEL_HOST_DEVICE static bool upperBoundCheck(
++        const char* const name,
++        const tfel::math::stensor<N, T>& s,
++        const tfel::math::base_type<T> uBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::upperBoundCheck(name + "(0)", s(0).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(1)", s(1).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(2)", s(2).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(3)", s(3).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(4)", s(4).getValue(), uBound,
+-                                       p);
+-      BoundsCheckBase::upperBoundCheck(name + "(5)", s(5).getValue(), uBound,
+-                                       p);
++      auto r = true;
++      for (int i = 0; i != static_cast<int>(s.size()); ++i) {
++        const auto v = tfel::math::base_type_cast(s(i));
++        if (v > uBound) {
++          r = treatOutOfUpperBound(name, i, v, uBound, p) && r;
++        }
++      }
++      return r;
+     }
+-    template <tfel::math::QuantityConcept QuantityType>
+-    static void lowerAndUpperBoundsChecks(
+-        const std::string& name,
+-        const tfel::math::stensor<3u, QuantityType>& s,
+-        const tfel::math::base_type<QuantityType> lBound,
+-        const tfel::math::base_type<QuantityType> uBound,
++    template <typename T>
++    TFEL_HOST_DEVICE static bool lowerAndUpperBoundsChecks(
++        const char* const name,
++        const tfel::math::stensor<N, T>& s,
++        const tfel::math::base_type<T> lBound,
++        const tfel::math::base_type<T> uBound,
+         const OutOfBoundsPolicy p = Strict) {
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(0)", s(0).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(1)", s(1).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(2)", s(2).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(3)", s(3).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(4)", s(4).getValue(),
+-                                                 lBound, uBound, p);
+-      BoundsCheckBase::lowerAndUpperBoundsChecks(name + "(5)", s(5).getValue(),
+-                                                 lBound, uBound, p);
++      auto r = true;
++      for (int i = 0; i != static_cast<int>(s.size()); ++i) {
++        const auto v = tfel::math::base_type_cast(s(i));
++        if ((v < lBound) || (v > uBound)) {
++          r = treatOutOfBounds(name, i, v, lBound, uBound, p) && r;
++        }
++      }
++      return r;
+     }
+-  };  // end of struct BoundsCheck<3u>;
++  };  // end of struct BoundsCheck
+ 
+ }  // end of namespace tfel::material
+ 
+diff --git a/include/TFEL/Material/Hosford1972YieldCriterion.ixx b/include/TFEL/Material/Hosford1972YieldCriterion.ixx
+index bab2d0103..b4efdecef 100644
+--- a/include/TFEL/Material/Hosford1972YieldCriterion.ixx
++++ b/include/TFEL/Material/Hosford1972YieldCriterion.ixx
+@@ -37,7 +37,7 @@ namespace tfel::material::internals {
+    * \param[in] e: criterion used to check if two eigenvalues are equal
+    */
+   template <tfel::math::StensorConcept StressStensor>
+-  void computeHosfordStressSecondDerivative(
++  TFEL_HOST_DEVICE void computeHosfordStressSecondDerivative(
+       tfel::material::HosfordStressSecondDerivativeType<StressStensor>&
+           d2Psi_ds2,
+       const tfel::math::
+@@ -72,7 +72,7 @@ namespace tfel::material::internals {
+    * \param[in] e: criterion used to check if two eigenvalues are equal
+    */
+   template <tfel::math::StensorConcept StressStensor>
+-  void computeHosfordStressSecondDerivative(
++  TFEL_HOST_DEVICE void computeHosfordStressSecondDerivative(
+       tfel::material::HosfordStressSecondDerivativeType<StressStensor>&
+           d2Psi_ds2,
+       const tfel::math::tvector<3u,
+@@ -126,7 +126,7 @@ namespace tfel::material::internals {
+    * \param[in] e: criterion used to check if two eigenvalues are equal
+    */
+   template <tfel::math::StensorConcept StressStensor>
+-  void computeHosfordStressSecondDerivative(
++  TFEL_HOST_DEVICE void computeHosfordStressSecondDerivative(
+       tfel::material::HosfordStressSecondDerivativeType<StressStensor>&
+           d2Psi_ds2,
+       const tfel::math::tvector<3u,
+diff --git a/include/TFEL/Material/MechanicalBehaviour.hxx b/include/TFEL/Material/MechanicalBehaviour.hxx
+index b0eac7b61..6c26eb747 100644
+--- a/include/TFEL/Material/MechanicalBehaviour.hxx
++++ b/include/TFEL/Material/MechanicalBehaviour.hxx
+@@ -236,7 +236,7 @@ namespace tfel::material {
+     computeAPosterioriTimeStepScalingFactor(
+         const typename TFELTypes::real) const = 0;
+     //! destructor
+-    virtual ~MechanicalBehaviour() noexcept = default;
++    TFEL_HOST_DEVICE virtual ~MechanicalBehaviour() noexcept = default;
+   };
+ 
+ }  // end of namespace tfel::material
+diff --git a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx b/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx
+index ef7ece769..c9318e125 100644
+--- a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx
++++ b/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.hxx
+@@ -35,7 +35,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType&,
+       PPType&,
+       const StensorType&,
+@@ -64,7 +64,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType&,
+       PPType&,
+       const StensorType&,
+@@ -93,7 +93,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType&,
+       PPType&,
+       const StensorType&,
+@@ -130,7 +130,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType&,
+       DNPType&,
+       PPType&,
+@@ -175,7 +175,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType&,
+       DNPType&,
+       PPType&,
+@@ -220,7 +220,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType&,
+       DNPType&,
+       PPType&,
+diff --git a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.ixx b/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.ixx
+index 528c25e55..0c31bff1b 100644
+--- a/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.ixx
++++ b/include/TFEL/Math/Stensor/DecompositionInPositiveAndNegativeParts.ixx
+@@ -20,12 +20,12 @@
+ namespace tfel::math::internals {
+ 
+   template <typename NumType>
+-  constexpr auto stensor_ppos(const NumType x) {
++  TFEL_HOST_DEVICE constexpr auto stensor_ppos(const NumType x) {
+     return x >= NumType(0) ? x : NumType(0);
+   }
+ 
+   template <typename NumType>
+-  constexpr auto stensor_pneg(const NumType x) {
++  TFEL_HOST_DEVICE constexpr auto stensor_pneg(const NumType x) {
+     return x <= NumType(0) ? x : NumType(0);
+   }
+ 
+@@ -36,7 +36,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType& dpp,
+       PPType& pp,
+       const StensorType& s,
+@@ -89,7 +89,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType& dpp,
+       PPType& pp,
+       const StensorType& s,
+@@ -164,7 +164,7 @@ namespace tfel::math {
+   template <ST2toST2Concept DPPType,
+             StensorConcept PPType,
+             StensorConcept StensorType>
+-  void computeStensorPositivePartAndDerivative(
++  TFEL_HOST_DEVICE void computeStensorPositivePartAndDerivative(
+       DPPType& dpp,
+       PPType& pp,
+       const StensorType& s,
+@@ -317,7 +317,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType& dpp,
+       DNPType& dnp,
+       PPType& pp,
+@@ -396,7 +396,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType& dpp,
+       DNPType& dnp,
+       PPType& pp,
+@@ -498,7 +498,7 @@ namespace tfel::math {
+             StensorConcept PPType,
+             StensorConcept NPType,
+             StensorConcept StensorType>
+-  void computeStensorDecompositionInPositiveAndNegativeParts(
++  TFEL_HOST_DEVICE void computeStensorDecompositionInPositiveAndNegativeParts(
+       DPPType& dpp,
+       DNPType& dnp,
+       PPType& pp,
+diff --git a/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.hxx
+index 641568657..59dcf6412 100644
+--- a/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.hxx
++++ b/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.hxx
+@@ -54,7 +54,7 @@ namespace tfel::math::internals {
+      * \param[in]  B:  component of the matrix
+      * \param[in]  C:  component of the matrix
+      */
+-    static void computeEigenValues(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenValues(tvector<3u, real>&,
+                                    const real,
+                                    const real,
+                                    const real);
+@@ -72,7 +72,7 @@ namespace tfel::math::internals {
+      * \param[in]  B:  component of the matrix
+      * \param[in]  C:  component of the matrix
+      */
+-    static void computeEigenVectors(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenVectors(tvector<3u, real>&,
+                                     tmatrix<3u, 3u, real>&,
+                                     const real,
+                                     const real,
+@@ -81,9 +81,9 @@ namespace tfel::math::internals {
+ 
+   template <typename real>
+   struct FSESAnalyticalSymmetricEigensolver3x3 {
+-    static void computeEigenValues(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenValues(tvector<3u, real>&,
+                                    const tmatrix<3u, 3u, real>&);
+-    static void computeEigenVectors(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenVectors(tvector<3u, real>&,
+                                     tmatrix<3u, 3u, real>&,
+                                     tmatrix<3u, 3u, real>&);
+   };
+diff --git a/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.ixx b/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.ixx
+index 325b604c3..d2814c63e 100644
+--- a/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.ixx
++++ b/include/TFEL/Math/Stensor/Internals/FSESSymmetricEigenSolver.ixx
+@@ -46,7 +46,7 @@
+ namespace tfel::math::internals {
+ 
+   template <typename real>
+-  void FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenValues(
++  TFEL_HOST_DEVICE void FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenValues(
+       tvector<3u, real>& vp, const real A, const real B, const real C) {
+     constexpr auto zero = real{0};
+     constexpr auto one = real{1};
+@@ -71,7 +71,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenVectors(
++  TFEL_HOST_DEVICE void FSESAnalyticalSymmetricEigensolver2x2<real>::computeEigenVectors(
+       tvector<3u, real>& vp,
+       tmatrix<3u, 3u, real>& m,
+       const real A,
+@@ -116,13 +116,13 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenValues(
++  TFEL_HOST_DEVICE void FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenValues(
+       tvector<3u, real>& vp, const tmatrix<3u, 3u, real>& s) {
+     fses::syevc3(vp, s);
+   }
+ 
+   template <typename real>
+-  void FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenVectors(
++  TFEL_HOST_DEVICE void FSESAnalyticalSymmetricEigensolver3x3<real>::computeEigenVectors(
+       tvector<3u, real>& vp,
+       tmatrix<3u, 3u, real>& m,
+       tmatrix<3u, 3u, real>& s) {
+diff --git a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
+index bdaa0ce03..ad6918194 100644
+--- a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
++++ b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.hxx
+@@ -51,7 +51,7 @@ namespace tfel::math::internals {
+     // be a right-handed orthonormal set.  The return value is the number of
+     // iterations used by the algorithm.
+ 
+-    static int exe(tvector<3u, real>& vp,
++    TFEL_HOST_DEVICE static int exe(tvector<3u, real>& vp,
+                    tmatrix<3u, 3u, real>& m,
+                    real a00,
+                    real a01,
+@@ -63,16 +63,16 @@ namespace tfel::math::internals {
+ 
+    private:
+     // update Q = Q*G in-place using G = {{c,0,-s},{s,0,c},{0,0,1}}.
+-    static void update0(real Q[3][3], real c, real s);
++    TFEL_HOST_DEVICE static void update0(real Q[3][3], real c, real s);
+ 
+     // update Q = Q*G in-place using G = {{0,1,0},{c,0,s},{-s,0,c}}.
+-    static void update1(real Q[3][3], real c, real s);
++    TFEL_HOST_DEVICE static void update1(real Q[3][3], real c, real s);
+ 
+     // update Q = Q*H in-place using H = {{c,s,0},{s,-c,0},{0,0,1}}.
+-    static void update2(real Q[3][3], real c, real s);
++    TFEL_HOST_DEVICE static void update2(real Q[3][3], real c, real s);
+ 
+     // update Q = Q*H in-place using H = {{1,0,0},{0,c,s},{0,s,-c}}.
+-    static void update3(real Q[3][3], real c, real s);
++    TFEL_HOST_DEVICE static void update3(real Q[3][3], real c, real s);
+ 
+     // Normalize (u,v) robustly, avoiding floating-point overflow in the sqrt
+     // call.  The normalized pair is (cs,sn) with cs <= 0.  If (u,v) = (0,0),
+@@ -82,14 +82,14 @@ namespace tfel::math::internals {
+     // sn = sin(2*theta).  Having a negative cosine for the double-angle
+     // term ensures that the single-angle terms c = cos(theta) and
+     // s = sin(theta) satisfy |c| <= |s|.
+-    static void getCosSin(real u, real v, real& cs, real& sn);
++    TFEL_HOST_DEVICE static void getCosSin(real u, real v, real& cs, real& sn);
+ 
+     // The convergence test.  When 'aggressive' is 'true', the superdiagonal
+     // test is "bSuper == 0".  When 'aggressive' is 'false', the superdiagonal
+     // test is "|bDiag0| + |bDiag1| + |bSuper| == |bDiag0| + |bDiag1|, which
+     // means bSuper is effectively zero compared to the sizes of the diagonal
+     // entries.
+-    static bool converged(bool aggressive,
++    TFEL_HOST_DEVICE static bool converged(bool aggressive,
+                           real bDiag0,
+                           real bDiag1,
+                           real bSuper);
+@@ -98,7 +98,7 @@ namespace tfel::math::internals {
+     // (i0,i1,i2) is a permutation of (0,1,2) so that d[i0] <= d[i1] <= d[i2].
+     // The 'bool' return indicates whether the permutation is odd.  If it is
+     // not, the handedness of the Q matrix must be adjusted.
+-    static bool sort(const tvector<3u, real>& d, int& i0, int& i1, int& i2);
++    TFEL_HOST_DEVICE static bool sort(const tvector<3u, real>& d, int& i0, int& i1, int& i2);
+   };
+ 
+ }  // end of namespace tfel::math::internals
+diff --git a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.ixx b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.ixx
+index 35c5a756a..37756a5ad 100644
+--- a/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.ixx
++++ b/include/TFEL/Math/Stensor/Internals/GteSymmetricEigenSolver.ixx
+@@ -23,7 +23,7 @@
+ namespace tfel::math::internals {
+ 
+   template <typename real>
+-  int GteSymmetricEigensolver3x3<real>::exe(tvector<3u, real>& vp,
++  TFEL_HOST_DEVICE int GteSymmetricEigensolver3x3<real>::exe(tvector<3u, real>& vp,
+                                             tmatrix<3u, 3u, real>& m,
+                                             real a00,
+                                             real a01,
+@@ -190,7 +190,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void GteSymmetricEigensolver3x3<real>::update0(real Q[3][3], real c, real s) {
++  TFEL_HOST_DEVICE void GteSymmetricEigensolver3x3<real>::update0(real Q[3][3], real c, real s) {
+     for (int r = 0; r < 3; ++r) {
+       const auto tmp0 = c * Q[r][0] + s * Q[r][1];
+       const auto tmp1 = Q[r][2];
+@@ -202,7 +202,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void GteSymmetricEigensolver3x3<real>::update1(real Q[3][3], real c, real s) {
++  TFEL_HOST_DEVICE void GteSymmetricEigensolver3x3<real>::update1(real Q[3][3], real c, real s) {
+     for (int r = 0; r < 3; ++r) {
+       const auto tmp0 = c * Q[r][1] - s * Q[r][2];
+       const auto tmp1 = Q[r][0];
+@@ -214,7 +214,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void GteSymmetricEigensolver3x3<real>::update2(real Q[3][3], real c, real s) {
++  TFEL_HOST_DEVICE void GteSymmetricEigensolver3x3<real>::update2(real Q[3][3], real c, real s) {
+     for (int r = 0; r < 3; ++r) {
+       const auto tmp0 = c * Q[r][0] + s * Q[r][1];
+       const auto tmp1 = s * Q[r][0] - c * Q[r][1];
+@@ -224,7 +224,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void GteSymmetricEigensolver3x3<real>::update3(real Q[3][3], real c, real s) {
++  TFEL_HOST_DEVICE void GteSymmetricEigensolver3x3<real>::update3(real Q[3][3], real c, real s) {
+     for (int r = 0; r < 3; ++r) {
+       const auto tmp0 = c * Q[r][1] + s * Q[r][2];
+       const auto tmp1 = s * Q[r][1] - c * Q[r][2];
+@@ -234,7 +234,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void GteSymmetricEigensolver3x3<real>::getCosSin(real u,
++  TFEL_HOST_DEVICE void GteSymmetricEigensolver3x3<real>::getCosSin(real u,
+                                                    real v,
+                                                    real& cs,
+                                                    real& sn) {
+@@ -258,7 +258,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  bool GteSymmetricEigensolver3x3<real>::converged(bool aggressive,
++  TFEL_HOST_DEVICE bool GteSymmetricEigensolver3x3<real>::converged(bool aggressive,
+                                                    real bDiag0,
+                                                    real bDiag1,
+                                                    real bSuper) {
+@@ -273,7 +273,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  bool GteSymmetricEigensolver3x3<real>::sort(const tvector<3u, real>& d,
++  TFEL_HOST_DEVICE bool GteSymmetricEigensolver3x3<real>::sort(const tvector<3u, real>& d,
+                                               int& i0,
+                                               int& i1,
+                                               int& i2) {
+diff --git a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
+index 174b8c50f..db2040f81 100644
+--- a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
++++ b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.hxx
+@@ -44,7 +44,7 @@ namespace tfel::math::internals {
+      * \param[in]  E:  component of the matrix
+      * \param[in]  F:  component of the matrix
+      */
+-    static void computeEigenVectors(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenVectors(tvector<3u, real>&,
+                                     tmatrix<3u, 3u, real>&,
+                                     const real,
+                                     const real,
+@@ -66,7 +66,7 @@ namespace tfel::math::internals {
+      * \param[in]  E:  component of the matrix
+      * \param[in]  F:  component of the matrix
+      */
+-    static void computeEigenValues(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeEigenValues(tvector<3u, real>&,
+                                    const real,
+                                    const real,
+                                    const real,
+@@ -94,7 +94,7 @@ namespace tfel::math::internals {
+      * \param[in]  E:  component of the matrix
+      * \param[in]  F:  component of the matrix
+      */
+-    static void computeProjectionBasis(tvector<3u, real>&,
++    TFEL_HOST_DEVICE static void computeProjectionBasis(tvector<3u, real>&,
+                                        tmatrix<3u, 3u, real>&,
+                                        const real,
+                                        const real,
+diff --git a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.ixx b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.ixx
+index c5d68dd3c..ec5a2566b 100644
+--- a/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.ixx
++++ b/include/TFEL/Math/Stensor/Internals/HarariEigenSolver.ixx
+@@ -25,7 +25,7 @@
+ namespace tfel::math::internals {
+ 
+   template <typename real>
+-  void HarariEigensolver3x3<real>::computeEigenValues(tvector<3u, real>& vp,
++  TFEL_HOST_DEVICE void HarariEigensolver3x3<real>::computeEigenValues(tvector<3u, real>& vp,
+                                                       const real A,
+                                                       const real B,
+                                                       const real C,
+@@ -105,7 +105,7 @@ namespace tfel::math::internals {
+   }
+ 
+   template <typename real>
+-  void HarariEigensolver3x3<real>::computeEigenVectors(tvector<3u, real>& vp,
++  TFEL_HOST_DEVICE void HarariEigensolver3x3<real>::computeEigenVectors(tvector<3u, real>& vp,
+                                                        tmatrix<3u, 3u, real>& m,
+                                                        const real A,
+                                                        const real B,
+diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
+index 08a81178d..7cef776a8 100644
+--- a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
++++ b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
+@@ -35,7 +35,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(T&, T&, T&, const EigenValuesOrdering) {}  // end of exe
++    TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {}  // end of exe
+   };  // end of struct SortEigenValues<1u>
+   //! \brief partial specialisation of the `SortEigenValues` in 1D
+   template <>
+@@ -50,7 +50,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(T& vp0, T& vp1, T&, const EigenValuesOrdering o) {
++    TFEL_HOST_DEVICE static void exe(T& vp0, T& vp1, T&, const EigenValuesOrdering o) {
+       if (o == EigenValuesOrdering::ASCENDING) {
+         if (vp0 > vp1) {
+           std::swap(vp0, vp1);
+@@ -75,7 +75,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(T& vp0, T& vp1, T& vp2, const EigenValuesOrdering o) {
++    TFEL_HOST_DEVICE static void exe(T& vp0, T& vp1, T& vp2, const EigenValuesOrdering o) {
+       auto swap_if_greater = [](T& x, T& y) {
+         if (x > y) {
+           std::swap(x, y);
+diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
+index f8de63985..40bc1af21 100644
+--- a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
++++ b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
+@@ -35,7 +35,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(tfel::math::tvector<3u, T>&,
++    TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>&,
+                     tfel::math::tmatrix<3u, 3u, T>&,
+                     const EigenValuesOrdering) {}  // end of exe
+   };  // end of struct SortEigenVectors<1u>
+@@ -51,7 +51,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(tfel::math::tvector<3u, T>& vp,
++    TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>& vp,
+                     tfel::math::tmatrix<3u, 3u, T>& m,
+                     const EigenValuesOrdering o) {
+       if (o == EigenValuesOrdering::ASCENDING) {
+@@ -81,7 +81,7 @@ namespace tfel::math::internals {
+      * \param[in] o:   eigen value ordering
+      */
+     template <typename T>
+-    static void exe(tfel::math::tvector<3u, T>& vp,
++    TFEL_HOST_DEVICE static void exe(tfel::math::tvector<3u, T>& vp,
+                     tfel::math::tmatrix<3u, 3u, T>& m,
+                     const EigenValuesOrdering o) {
+       using size_type = decltype(vp.size());
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValues.hxx
+index efb30b030..f5e4d0745 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValues.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenValues.hxx
+@@ -31,7 +31,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenValues<1u> {
+     template <typename T>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         const T* const v, T& vp1, T& vp2, T& vp3, const bool) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+@@ -44,7 +44,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenValues<2u> {
+     template <typename T>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         const T* const v, T& vp1, T& vp2, T& vp3, const bool) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+@@ -65,7 +65,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenValues<3u> {
+     template <typename T>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         const T* const v, T& vp1, T& vp2, T& vp3, const bool b) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+index 072edfecc..4e354ce07 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+@@ -36,14 +36,14 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenVectors<1u> {
+     template <typename T>
+-    static bool test(const T* const,
++    TFEL_HOST_DEVICE static bool test(const T* const,
+                      const tfel::math::tvector<3u, T>&,
+                      const tfel::math::rotation_matrix<T>&) {
+       return true;
+     }
+ 
+     template <typename VectorType, typename T>
+-    static bool computeEigenVector(VectorType& v,
++    TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
+                                    const T* const s,
+                                    const T vp) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<
+@@ -70,7 +70,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool exe(const T* const s,
++    TFEL_HOST_DEVICE static bool exe(const T* const s,
+                     tfel::math::tvector<3u, T>& vp,
+                     tfel::math::rotation_matrix<T>& m,
+                     const bool) {
+@@ -85,7 +85,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenVectors<2u> {
+     template <typename T>
+-    static bool test(const T* const s,
++    TFEL_HOST_DEVICE static bool test(const T* const s,
+                      const tfel::math::tvector<3u, T>& vp,
+                      const tfel::math::rotation_matrix<T>& m) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+@@ -110,7 +110,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename VectorType, typename T>
+-    static bool computeEigenVector(VectorType& v,
++    TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
+                                    const T* const s,
+                                    const T vp) {
+       using namespace tfel::typetraits;
+@@ -131,7 +131,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool exe(const T* const s,
++    TFEL_HOST_DEVICE static bool exe(const T* const s,
+                     tfel::math::tvector<3u, T>& vp,
+                     tfel::math::rotation_matrix<T>& vec,
+                     const bool) {
+@@ -162,7 +162,7 @@ namespace tfel::math::internals {
+ 
+    private:
+     template <typename T>
+-    static void computeEigenValues(
++    TFEL_HOST_DEVICE static void computeEigenValues(
+         const T s0, const T s1, const T s3, T& vp1, T& vp2) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+@@ -175,7 +175,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool computeEigenVector(
++    TFEL_HOST_DEVICE static bool computeEigenVector(
+         const T s_0, const T s_1, const T s3, const T& vp, T& x, T& y) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+@@ -223,7 +223,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenVectors<3u> {
+     template <typename T>
+-    static bool test(const T* const s,
++    TFEL_HOST_DEVICE static bool test(const T* const s,
+                      const tfel::math::tvector<3u, T>& vp,
+                      const tfel::math::rotation_matrix<T>& m) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+@@ -266,7 +266,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename VectorType, typename T>
+-    static bool computeEigenVector(VectorType& v,
++    TFEL_HOST_DEVICE static bool computeEigenVector(VectorType& v,
+                                    const T* const src,
+                                    const T vp) {
+       using namespace tfel::typetraits;
+@@ -278,7 +278,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool exe(const T* const s,
++    TFEL_HOST_DEVICE static bool exe(const T* const s,
+                     tfel::math::tvector<3u, T>& vp,
+                     tfel::math::rotation_matrix<T>& vec,
+                     const bool b) {
+@@ -288,7 +288,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool computeEigenVectors(const T* const s,
++    TFEL_HOST_DEVICE static bool computeEigenVectors(const T* const s,
+                                     const tfel::math::tvector<3u, T>& vp,
+                                     tfel::math::rotation_matrix<T>& vec) {
+       using namespace std;
+@@ -409,7 +409,7 @@ namespace tfel::math::internals {
+ 
+    private:
+     template <typename T>
+-    static T conditionning_number(const T a, const T b, const T c) {
++    TFEL_HOST_DEVICE static T conditionning_number(const T a, const T b, const T c) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+       auto tmp = a + b;
+@@ -432,21 +432,21 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static T norm(const T& x0, const T& x1, const T& x2) {
++    TFEL_HOST_DEVICE static T norm(const T& x0, const T& x1, const T& x2) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+       return std::sqrt(x0 * x0 + x1 * x1 + x2 * x2);
+     }
+ 
+     template <typename T>
+-    static T norm2(const T x0, const T x1, const T x2) {
++    TFEL_HOST_DEVICE static T norm2(const T x0, const T x1, const T x2) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+       return x0 * x0 + x1 * x1 + x2 * x2;
+     }
+ 
+     template <typename T>
+-    static void cross_product(T& z0,
++    TFEL_HOST_DEVICE static void cross_product(T& z0,
+                               T& z1,
+                               T& z2,
+                               const T x0,
+@@ -463,7 +463,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static void find_perpendicular_vector(
++    TFEL_HOST_DEVICE static void find_perpendicular_vector(
+         T& y0, T& y1, T& y2, const T x0, const T x1, const T x2) {
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+       static_assert(tfel::typetraits::IsReal<T>::cond);
+@@ -507,7 +507,7 @@ namespace tfel::math::internals {
+     }
+ 
+     template <typename T>
+-    static bool computeEigenVector(
++    TFEL_HOST_DEVICE static bool computeEigenVector(
+         const T* const src, const T vp, T& v0, T& v1, T& v2) {
+       using namespace tfel::math;
+       static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
+index 281bd1c48..3c259a623 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectorsDerivatives.hxx
+@@ -31,7 +31,7 @@ namespace tfel::math::internals {
+     }  // end of regularization
+    protected:
+     template <typename NumType>
+-    TFEL_MATH_INLINE static NumType regularization_function(const NumType x) {
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static NumType regularization_function(const NumType x) {
+       if (tfel::math::abs(x) > 1) {
+         return NumType(1);
+       }
+@@ -42,7 +42,7 @@ namespace tfel::math::internals {
+   template <>
+   struct StensorComputeEigenTensorsDerivatives<1u> {
+     template <ST2toST2Concept ST2toST2Type, typename NumType>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         ST2toST2Type& dn0_ds,
+         ST2toST2Type& dn1_ds,
+         ST2toST2Type& dn2_ds,
+@@ -69,7 +69,7 @@ namespace tfel::math::internals {
+   struct StensorComputeEigenTensorsDerivatives<2u>
+       : public StensorComputeEigenTensorsDerivativesBase {
+     template <ST2toST2Concept ST2toST2Type, typename NumType>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         ST2toST2Type& dn0_ds,
+         ST2toST2Type& dn1_ds,
+         ST2toST2Type& dn2_ds,
+@@ -100,7 +100,7 @@ namespace tfel::math::internals {
+   struct StensorComputeEigenTensorsDerivatives<3u>
+       : public StensorComputeEigenTensorsDerivativesBase {
+     template <ST2toST2Concept ST2toST2Type, typename NumType>
+-    static TFEL_MATH_INLINE2 void exe(
++    TFEL_HOST_DEVICE static TFEL_MATH_INLINE2 void exe(
+         ST2toST2Type& dn0_ds,
+         ST2toST2Type& dn1_ds,
+         ST2toST2Type& dn2_ds,
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx b/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
+index db29ba66f..b12d5695c 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorEigenSolver.hxx
+@@ -40,7 +40,7 @@ namespace tfel::math::internals {
+         tfel::typetraits::IsFundamentalNumericType<base_type<NumType>>::cond);
+     static_assert(tfel::typetraits::IsReal<base_type<NumType>>::cond);
+     //! build a matrix of the base type
+-    static constexpr auto as_base_matrix(const NumType* const v) noexcept {
++    TFEL_HOST_DEVICE static constexpr auto as_base_matrix(const NumType* const v) noexcept {
+       constexpr auto icste = Cste<NumType>::isqrt2;
+       return tmatrix<3u, 3u, base_type<NumType>>{
+           base_type_cast(v[0]),          //
+@@ -76,7 +76,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -97,7 +97,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& vec,
+                                                      const NumType* const v,
+                                                      const bool b) {
+@@ -129,7 +129,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -148,7 +148,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -179,7 +179,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -201,7 +201,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool b) {
+@@ -233,7 +233,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -253,7 +253,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -289,7 +289,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -307,7 +307,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -349,7 +349,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -368,7 +368,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -408,7 +408,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -427,7 +427,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -467,7 +467,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -486,7 +486,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+@@ -527,7 +527,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:   stensor values
+      * \param[in]  b:   refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenValues(NumType& vp0,
+                                                     NumType& vp1,
+                                                     NumType& vp2,
+                                                     const NumType* const v,
+@@ -545,7 +545,7 @@ namespace tfel::math::internals {
+      * \param[in]  v:  stensor values
+      * \param[in]  b:  refine eigenvalues
+      */
+-    TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
++    TFEL_HOST_DEVICE TFEL_MATH_INLINE static void computeEigenVectors(tvector<3u, NumType>& vp,
+                                                      tmatrix<3u, 3u, real>& m,
+                                                      const NumType* const v,
+                                                      const bool) {
+-- 
+2.43.0
+

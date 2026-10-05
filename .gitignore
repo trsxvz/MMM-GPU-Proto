@@ -1,0 +1,21 @@
+# Dépôts des bibliothèques : TFEL est poussé sur la branche `tfel` de ce
+# dépôt, sa série de patchs est dans patches/tfel ; MGIS et mfem-mgis ne sont
+# pas modifiés pour l'instant (commits de base dans README.md).
+/tfel/
+/mgis/
+/mfem-mgis/
+# constructions, installations et dépendances
+/build/
+/install/
+/deps/*
+!/deps/spack-sycl/
+/backups/
+# brouillons : seuls les scripts et documents réutilisés sont suivis
+/scratch/*
+!/scratch/validate.sh
+!/scratch/validate2.sh
+!/scratch/d1-mgis-design.md
+!/scratch/b2/
+/scratch/b2/*
+!/scratch/b2/mfront-dev.sh
+!/scratch/b2/config-dev*.json

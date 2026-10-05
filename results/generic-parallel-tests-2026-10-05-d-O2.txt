@@ -1,0 +1,6 @@
+behaviours           cuda-nvcc                        SUCCESS   280 s (2 passed, 0 skipped)
+behaviours           hip-hipcc                        SUCCESS   283 s (2 passed, 0 skipped)
+behaviours           kokkos                           SUCCESS   411 s (2 passed, 0 skipped)
+behaviours           kokkos-host                      SUCCESS   351 s (2 passed, 0 skipped)
+behaviours           openmp-host-gcc                  SUCCESS   240 s (2 passed, 0 skipped)
+behaviours           openmp-offload-nvhpc-gpu         SKIPPED     0 s (0 passed, 2 skipped)

@@ -1,0 +1,21 @@
+behaviours           cuda-nvcc                        SUCCESS   196 s
+behaviours           hip-hipcc                        SUCCESS   196 s
+behaviours           kokkos                           SUCCESS   338 s
+behaviours           kokkos-host                      SUCCESS   212 s
+behaviours           stlpar-parunseq-gcc              SUCCESS   123 s
+behaviours           stlpar-parunseq-nvhpc-gpu        FAILED    819 s
+behaviours           sycl-default-acpp                SUCCESS   159 s
+behaviours           sycl-default-acpp-omp            FAILED    164 s
+material-properties  cuda-clang                       SUCCESS     0 s
+material-properties  cuda-nvcc                        SUCCESS    13 s
+material-properties  hip-clang-nvidia-platform        SUCCESS     0 s
+material-properties  hip-hipcc                        SUCCESS    10 s
+material-properties  stlpar-parunseq-clang            SUCCESS     0 s
+material-properties  stlpar-parunseq-gcc              SUCCESS     6 s
+material-properties  stlpar-parunseq-icpx             SUCCESS     0 s
+material-properties  stlpar-parunseq-nvhpc-gpu        SUCCESS    28 s
+material-properties  sycl-default-acpp                SUCCESS    26 s
+material-properties  sycl-default-icpx                SUCCESS     0 s
+material-properties  sycl-gpu-acpp                    SUCCESS     0 s
+material-properties  sycl-gpu-acpp-2                  SUCCESS     0 s
+exit=1

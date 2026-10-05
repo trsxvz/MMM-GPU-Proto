@@ -1,0 +1,2477 @@
+From 79eacfee1f990645529acdf240c874e946227fb0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 20:30:34 +0200
+Subject: [PATCH 14/21] MFront: rotation functions, method calls and slip
+ systems usable on GPUs
+
+- `BehaviourRotationFunctions`: description of the rotation functions of
+  orthotropic behaviours and code rotating the values of one point with
+  `change_basis`, shared by the `generic` and `generic-parallel`
+  interfaces. Fixes of the `generic` interface: offset of the point of the
+  second order tensors which are not the first variable in the array
+  variants, scalars not copied, vectors and vector blocks not supported;
+- the drivers of the `generic` interface call initialize functions and
+  post-processings through function objects (`MethodCaller` keeps the
+  pointer to member API on the host): calls through pointers to members
+  are silently ignored by nvc++ in device code;
+- `execute<Name>InitializeFunction` and `execute<Name>PostProcessing` are
+  `TFEL_HOST_DEVICE`;
+- the slip systems classes are built at compile time and accessed through
+  `getConstantObject`, their methods are `TFEL_HOST_DEVICE`;
+- `writeGenericBehaviourTraits` extracted from the generic interface.
+---
+ docs/web/generic-behaviours-interface.md      |    7 +
+ .../MFront/BehaviourRotationFunctions.hxx     |   95 ++
+ .../GreenLagrangeStrainIntegrate.hxx          |   48 +-
+ .../MFront/GenericBehaviour/Integrate.hxx     |  115 +-
+ .../LogarithmicStrainIntegrate.hxx            |   48 +-
+ ...StandardFiniteStrainBehaviourIntegrate.hxx |   53 +-
+ .../MFront/GenericBehaviourInterface.hxx      |   11 +
+ mfront/src/BehaviourCodeGeneratorBase.cxx     |   81 +-
+ mfront/src/BehaviourRotationFunctions.cxx     |  271 ++++
+ mfront/src/CMakeLists.txt                     |    1 +
+ mfront/src/GenericBehaviourInterface.cxx      | 1102 ++---------------
+ 11 files changed, 738 insertions(+), 1094 deletions(-)
+ create mode 100644 mfront/include/MFront/BehaviourRotationFunctions.hxx
+ create mode 100644 mfront/src/BehaviourRotationFunctions.cxx
+
+diff --git a/docs/web/generic-behaviours-interface.md b/docs/web/generic-behaviours-interface.md
+index 781581dfa..59fb40bd5 100644
+--- a/docs/web/generic-behaviours-interface.md
++++ b/docs/web/generic-behaviours-interface.md
+@@ -107,6 +107,13 @@ They all take three arguments:
+ In place rotations are explicitly allowed, i.e. the first and second
+ arguments can be a pointer to the same location.
+ 
++The rotated variables can be scalars (which are copied), vectors,
++symmetric tensors and tensors, as well as arrays of such variables. The
++tangent operator blocks can be the derivatives of those variables with
++respect to scalars, the derivatives of scalars, vectors with respect to
++vectors, and (symmetric) tensors with respect to (symmetric) tensors.
++The generated code can be used in device code.
++
+ The three previous functions work for an integration point. Three other
+ functions are also generated:
+ 
+diff --git a/mfront/include/MFront/BehaviourRotationFunctions.hxx b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+new file mode 100644
+index 000000000..83f5b7da5
+--- /dev/null
++++ b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+@@ -0,0 +1,95 @@
++/*!
++ * \file   mfront/include/MFront/BehaviourRotationFunctions.hxx
++ * \brief  This file declares the description of the rotation functions of
++ * orthotropic behaviours, shared by the `generic` and `generic-parallel`
++ * interfaces.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_BEHAVIOURROTATIONFUNCTIONS_HXX
++#define LIB_MFRONT_BEHAVIOURROTATIONFUNCTIONS_HXX
++
++#include <string>
++#include <vector>
++#include <cstddef>
++#include <iosfwd>
++#include "TFEL/Material/ModellingHypothesis.hxx"
++#include "MFront/MFrontConfig.hxx"
++
++namespace mfront {
++
++  // forward declaration
++  struct BehaviourDescription;
++
++  /*!
++   * \brief description of a function rotating the values of an integration
++   * point (gradients, thermodynamic forces or tangent operator blocks) of an
++   * orthotropic behaviour.
++   *
++   * The rotation matrix `rv` given to those functions is the rotation matrix
++   * from the global frame to the material frame, stored in column-major
++   * format. The
++   * gradients are rotated from the global frame to the material frame, the
++   * thermodynamic forces and the tangent operator blocks from the material
++   * frame to the global frame.
++   */
++  struct MFRONT_VISIBILITY_EXPORT BehaviourRotationFunction {
++    //! \brief a rotated object
++    struct Object {
++      //! \brief type of the object, empty for a scalar
++      std::string type;
++      //! \brief offset of the object in the values of a point
++      std::size_t offset;
++    };
++    //! \brief name of the function, appended to the name of the behaviour
++    std::string name;
++    /*!
++     * \brief name of the function rotating an array of values, appended to
++     * the name of the behaviour
++     */
++    std::string array_name;
++    //! \brief description of the rotated values (used in the documentation)
++    std::string description;
++    //! \brief rotated objects
++    std::vector<Object> objects;
++    //! \brief number of values of a point
++    std::size_t size = 0;
++    //! \brief true if the values are rotated to the material frame
++    bool to_material_frame = false;
++    //! \brief reason why the rotation is not supported, empty if supported
++    std::string error;
++  };
++
++  /*!
++   * \return the rotation functions of a behaviour for the given modelling
++   * hypothesis (empty if the behaviour is not orthotropic)
++   * \param[in] bd: behaviour description
++   * \param[in] h: modelling hypothesis
++   */
++  MFRONT_VISIBILITY_EXPORT std::vector<BehaviourRotationFunction>
++  getBehaviourRotationFunctions(
++      const BehaviourDescription&,
++      const tfel::material::ModellingHypothesis::Hypothesis);
++
++  /*!
++   * \brief write the statements rotating the values of one point. Those
++   * statements use the `dest`, `src` and `rv` pointers, which have the
++   * meaning of the arguments of the rotation functions of the `generic`
++   * interface. `dest` and `src` may be equal. The generated code can be used
++   * in device code. An exception is thrown if the rotation is not supported
++   * (see the `error` member of the rotation function).
++   * \param[out] os: output stream
++   * \param[in] f: rotation function
++   */
++  MFRONT_VISIBILITY_EXPORT void writePointRotation(
++      std::ostream&, const BehaviourRotationFunction&);
++
++}  // end of namespace mfront
++
++#endif /* LIB_MFRONT_BEHAVIOURROTATIONFUNCTIONS_HXX */
+diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+index 10bd64686..07266f21c 100644
+--- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+@@ -1,5 +1,5 @@
+ /*!
+- * \file   mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
++ * \file mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+  * \brief
+  * \author Thomas Helfer
+  * \date   31/01/2022
+@@ -164,8 +164,7 @@ namespace mfront::gb::green_lagrange_strain {
+                     FiniteStrainTangentOperator::DS_DEGL>(K, F0, F1, s);
+         const auto K2 =
+             convert<FiniteStrainTangentOperator::DTAU_DF,
+-                    FiniteStrainTangentOperator::SPATIAL_MODULI>(K1, F0, F1,
+-                                                                 s);
++                    FiniteStrainTangentOperator::SPATIAL_MODULI>(K1, F0, F1, s);
+         tfel::math::map<tfel::math::t2tost2<N, real>>(v) =
+             convert<FiniteStrainTangentOperator::DTAU_DDF,
+                     FiniteStrainTangentOperator::DTAU_DF>(K2, F0, F1, s);
+@@ -184,9 +183,12 @@ namespace mfront::gb::green_lagrange_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the initialize function.
+-   * \tparam m: method implementing the initialize function.
++   * \tparam InitializeFunction: type of the function object calling the
++   * method implementing the initialize function.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * initialize function (see `mfront::gb::executeInitializeFunction`).
+    * \param[in,out] d: behaviour data.
+    * \param[in] initialize_variables: pointer to the values of the
+    * initialize function variables.
+@@ -196,9 +198,10 @@ namespace mfront::gb::green_lagrange_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(const real* const),
++            typename InitializeFunction,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executeInitializeFunction(
++      const InitializeFunction& f,
+       mfront_gb_BehaviourData& d,
+       const real* const initialize_variables,
+       const ComputationOptions& o,
+@@ -227,8 +230,8 @@ namespace mfront::gb::green_lagrange_strain {
+     d.s1.gradients = e0.begin();
+     d.s0.thermodynamic_forces = S0.begin();
+     d.s1.thermodynamic_forces = S0.begin();
+-    const auto r = mfront::gb::executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, p, args...);
++    const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
++        f, d, initialize_variables, p, args...);
+     d.s0.gradients = gradients0_old;
+     d.s1.gradients = gradients1_old;
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+@@ -250,9 +253,9 @@ namespace mfront::gb::green_lagrange_strain {
+   int executeInitializeFunction(mfront_gb_BehaviourData& d,
+                                 const real* const initialize_variables,
+                                 const tfel::material::OutOfBoundsPolicy p) {
+-    return executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, ComputationOptions{d.K[0], d.K[1], d.K[2]},
+-        p);
++    return executeInitializeFunction<Behaviour>(
++        MethodCaller<m>{}, d, initialize_variables,
++        ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -339,12 +342,14 @@ namespace mfront::gb::green_lagrange_strain {
+     const auto s1 =
+         tfel::math::convertSecondPiolaKirchhoffStressToCauchyStress(S1, F1);
+     if (sm == StressMeasure::CAUCHY) {
+-      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) = s1;
++      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) =
++          s1;
+     } else if (sm == StressMeasure::PK1) {
+       tfel::math::map<tfel::math::tensor<N, real>>(d.s1.thermodynamic_forces) =
+           tfel::math::convertCauchyStressToFirstPiolaKirchhoffStress(s1, F1);
+     } else {
+-      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) = S1;
++      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) =
++          S1;
+     }
+     if (o.isTangentOperatorRequested()) {
+       if (!internals::convertTangentOperator(d.K, d, K, F0, F1, s1, smf)) {
+@@ -374,11 +379,14 @@ namespace mfront::gb::green_lagrange_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the post-processing.
+-   * \tparam m: method implementing the post-processing.
+    * \tparam use_initial_state: boolean stating if the postprocessing uses
+    * the initial state of the material.
++   * \tparam PostProcessing: type of the function object calling the method
++   * implementing the post-processing.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * post-processing (see `mfront::gb::executePostProcessing`).
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+    * \param[in,out] d: behaviour data.
+@@ -388,11 +396,11 @@ namespace mfront::gb::green_lagrange_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(real* const,
+-                                 const typename Behaviour::BehaviourData&),
+-            const bool use_initial_state,
++            bool use_initial_state,
++            typename PostProcessing,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executePostProcessing(
++      const PostProcessing& f,
+       real* const post_processing_variables,
+       mfront_gb_BehaviourData& d,
+       const ComputationOptions& o,
+@@ -431,8 +439,8 @@ namespace mfront::gb::green_lagrange_strain {
+     d.s0.thermodynamic_forces = S0.begin();
+     d.s1.thermodynamic_forces = S1.begin();
+     const auto r =
+-        mfront::gb::executePostProcessing<Behaviour, m, use_initial_state>(
+-            post_processing_variables, d, p, args...);
++        mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
++            f, post_processing_variables, d, p, args...);
+     d.s0.gradients = gradients0_old;
+     d.s1.gradients = gradients1_old;
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+@@ -459,8 +467,8 @@ namespace mfront::gb::green_lagrange_strain {
+   int executePostProcessing(real* const post_processing_variables,
+                             mfront_gb_BehaviourData& d,
+                             const tfel::material::OutOfBoundsPolicy p) {
+-    return executePostProcessing<Behaviour, m, use_initial_state>(
+-        post_processing_variables, d,
++    return executePostProcessing<Behaviour, use_initial_state>(
++        MethodCaller<m>{}, post_processing_variables, d,
+         ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executePostProcessing
+ 
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index 9e951e9f3..90682474e 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -194,8 +194,8 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const StressType K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v, const StressType K) {
+     tfel::math::map<StressType>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -207,8 +207,9 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType, unsigned short N>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const tfel::math::tvector<N, StressType>& K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v,
++      const tfel::math::tvector<N, StressType>& K) {
+     tfel::math::map<tfel::math::tvector<N, StressType>>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -220,8 +221,9 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType, unsigned short N>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const tfel::math::tmatrix<N, N, StressType>& K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v,
++      const tfel::math::tmatrix<N, N, StressType>& K) {
+     tfel::math::map<tfel::math::tmatrix<N, N, StressType>>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -233,8 +235,9 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType, unsigned short N>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const tfel::math::t2tost2<N, StressType>& K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v,
++      const tfel::math::t2tost2<N, StressType>& K) {
+     tfel::math::map<tfel::math::t2tost2<N, StressType>>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -246,8 +249,9 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType, unsigned short N>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const tfel::math::t2tot2<N, StressType>& K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v,
++      const tfel::math::t2tot2<N, StressType>& K) {
+     tfel::math::map<tfel::math::t2tot2<N, StressType>>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -260,8 +264,9 @@ namespace mfront::gb {
+    * \param[in] K: computed tangent operator
+    */
+   template <typename StressType, unsigned short N>
+-  TFEL_HOST_DEVICE void exportTangentOperator(tfel::math::base_type<StressType>* const v,
+-                             const tfel::math::st2tost2<N, StressType>& K) {
++  TFEL_HOST_DEVICE void exportTangentOperator(
++      tfel::math::base_type<StressType>* const v,
++      const tfel::math::st2tost2<N, StressType>& K) {
+     tfel::math::map<tfel::math::st2tost2<N, StressType>>(v) = K;
+   }  // end of exportTangentOperator
+ 
+@@ -547,15 +552,39 @@ namespace mfront::gb {
+     return integrate<Behaviour>(d, ComputationOptions{d.K[0]}, f, p);
+   }  // end of integrate
+ 
++  /*!
++   * \brief function object calling a method of a behaviour through a
++   * pointer to member.
++   *
++   * \note calls through pointers to members are not supported in device
++   * code by some compilers (`nvc++` 25.11 silently ignores them). The code
++   * generated for devices uses function objects calling the methods by their
++   * names.
++   *
++   * \tparam m: pointer to the method
++   */
++  template <auto m>
++  struct MethodCaller {
++    //! \brief call the method of the given behaviour
++    template <typename Behaviour, typename... Arguments>
++    TFEL_HOST_DEVICE void operator()(Behaviour& b, Arguments&&... args) const {
++      (b.*m)(std::forward<Arguments>(args)...);
++    }
++  };
++
+   /*!
+    * \brief execute the given initialize function.
+    *
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the initialize function.
+-   * \tparam m: method implementing the initialize function.
++   * \tparam InitializeFunction: type of the function object calling the
++   * method implementing the initialize function.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * initialize function, as `f(b, initialize_variables)` where `b` is the
++   * behaviour.
+    * \param[in,out] d: behaviour data.
+    * \param[in] initialize_variables: pointer to the values of the
+    * initialize function variables.
+@@ -564,9 +593,10 @@ namespace mfront::gb {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(const real* const),
++            typename InitializeFunction,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executeInitializeFunction(
++      const InitializeFunction& f,
+       mfront_gb_BehaviourData& d,
+       const real* const initialize_variables,
+       const tfel::material::OutOfBoundsPolicy p,
+@@ -593,13 +623,30 @@ namespace mfront::gb {
+         reportError(d, "behaviour initialisation failed");
+         return -1;
+       }
+-      (b.*m)(initialize_variables);
++      f(b, initialize_variables);
+       b.exportStateData(d.s1);
+       return EXIT_SUCCESS;
+     };
+     return callAndReportExceptions(d, execute, restore);
+   }  // end of executeInitializeFunction
+ 
++  /*!
++   * \brief execute the given initialize function.
++   * \tparam Behaviour: class describing the initialize function.
++   * \tparam m: method implementing the initialize function.
++   * \param[in,out] d: behaviour data.
++   * \param[in] initialize_variables: pointer to the values of the
++   * initialize function variables.
++   * \param[in] p: out of bounds policy.
++   */
++  template <typename Behaviour, void (Behaviour::*m)(const real* const)>
++  int executeInitializeFunction(mfront_gb_BehaviourData& d,
++                                const real* const initialize_variables,
++                                const tfel::material::OutOfBoundsPolicy p) {
++    return executeInitializeFunction<Behaviour>(MethodCaller<m>{}, d,
++                                                initialize_variables, p);
++  }  // end of executeInitializeFunction
++
+   /*!
+    * \brief execute the given post-processing.
+    *
+@@ -610,11 +657,15 @@ namespace mfront::gb {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the post-processing.
+-   * \tparam m: method implementing the post-processing.
+    * \tparam use_initial_state: boolean stating if the postprocessing uses
+    * the initial state of the material.
++   * \tparam PostProcessing: type of the function object calling the method
++   * implementing the post-processing.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * post-processing, as `f(b, post_processing_variables, initial_state)`
++   * where `b` is the behaviour.
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+    * \param[in] d: behaviour data.
+@@ -623,11 +674,11 @@ namespace mfront::gb {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(real* const,
+-                                 const typename Behaviour::BehaviourData&),
+-            const bool use_initial_state,
++            bool use_initial_state,
++            typename PostProcessing,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executePostProcessing(
++      const PostProcessing& f,
+       real* const post_processing_variables,
+       mfront_gb_BehaviourData& d,
+       const tfel::material::OutOfBoundsPolicy p,
+@@ -659,16 +710,38 @@ namespace mfront::gb {
+         // Here, we can't initialize an `Behaviour::BehaviourData` as it would
+         // not initialize the gradients
+         Behaviour initial_state(d, args...);
+-        (b.*m)(post_processing_variables, initial_state);
++        f(b, post_processing_variables, initial_state);
+       } else {
+         // the initial state is not used
+-        (b.*m)(post_processing_variables, b);
++        f(b, post_processing_variables, b);
+       }
+       return EXIT_SUCCESS;
+     };
+     return callAndReportExceptions(d, execute, restore);
+   }  // end of executePostProcessing
+ 
++  /*!
++   * \brief execute the given post-processing.
++   * \tparam Behaviour: class describing the post-processing.
++   * \tparam m: method implementing the post-processing.
++   * \tparam use_initial_state: boolean stating if the postprocessing uses
++   * the initial state of the material.
++   * \param[out] post_processing_variables: pointer to the values of the
++   * post-processing variables.
++   * \param[in] d: behaviour data.
++   * \param[in] p: out of bounds policy.
++   */
++  template <typename Behaviour,
++            void (Behaviour::*m)(real* const,
++                                 const typename Behaviour::BehaviourData&),
++            const bool use_initial_state>
++  int executePostProcessing(real* const post_processing_variables,
++                            mfront_gb_BehaviourData& d,
++                            const tfel::material::OutOfBoundsPolicy p) {
++    return executePostProcessing<Behaviour, use_initial_state>(
++        MethodCaller<m>{}, post_processing_variables, d, p);
++  }  // end of executePostProcessing
++
+ }  // end of namespace mfront::gb
+ 
+ #endif /* LIB_MFRONT_GENERICBEHAVIOUR_INTEGRATE_HXX */
+diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+index 6ba4706fd..6bc2fead4 100644
+--- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+@@ -41,8 +41,8 @@ namespace mfront::gb::logarithmic_strain {
+      * \param[in] gradients: gradients
+      */
+     template <typename Behaviour, unsigned short N>
+-    TFEL_HOST_DEVICE void getDeformationGradient(
+-        tfel::math::tensor<N, real>& F, const real* const gradients) {
++    TFEL_HOST_DEVICE void getDeformationGradient(tfel::math::tensor<N, real>& F,
++                                                 const real* const gradients) {
+       using namespace tfel::material;
+       using Traits = GenericBehaviourTraits<Behaviour>;
+       constexpr auto TensorSize =
+@@ -199,9 +199,12 @@ namespace mfront::gb::logarithmic_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the initialize function.
+-   * \tparam m: method implementing the initialize function.
++   * \tparam InitializeFunction: type of the function object calling the
++   * method implementing the initialize function.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * initialize function (see `mfront::gb::executeInitializeFunction`).
+    * \param[in,out] d: behaviour data.
+    * \param[in] initialize_variables: pointer to the values of the
+    * initialize function variables.
+@@ -211,9 +214,10 @@ namespace mfront::gb::logarithmic_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(const real* const),
++            typename InitializeFunction,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executeInitializeFunction(
++      const InitializeFunction& f,
+       mfront_gb_BehaviourData& d,
+       const real* const initialize_variables,
+       const ComputationOptions& o,
+@@ -226,8 +230,8 @@ namespace mfront::gb::logarithmic_strain {
+     using LogarithmicStrainHandler = internals::LogarithmicStrainHandler<N>;
+     auto F0 = tfel::math::tensor<N, real>{};
+     internals::getDeformationGradient<Behaviour>(F0, d.s0.gradients);
+-    auto lgh0 = LogarithmicStrainHandler(LogarithmicStrainHandler::LAGRANGIAN,
+-                                         F0);
++    auto lgh0 =
++        LogarithmicStrainHandler(LogarithmicStrainHandler::LAGRANGIAN, F0);
+     auto e0 = lgh0.getHenckyLogarithmicStrain();
+     auto s0 = tfel::math::stensor<N, real>{};
+     auto T0 = tfel::math::stensor<N, real>{};
+@@ -245,8 +249,8 @@ namespace mfront::gb::logarithmic_strain {
+     d.s1.gradients = e0.begin();
+     d.s0.thermodynamic_forces = T0.begin();
+     d.s1.thermodynamic_forces = T0.begin();
+-    const auto r = mfront::gb::executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, p, args...);
++    const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
++        f, d, initialize_variables, p, args...);
+     d.s0.gradients = gradients0_old;
+     d.s1.gradients = gradients1_old;
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+@@ -268,9 +272,9 @@ namespace mfront::gb::logarithmic_strain {
+   int executeInitializeFunction(mfront_gb_BehaviourData& d,
+                                 const real* const initialize_variables,
+                                 const tfel::material::OutOfBoundsPolicy p) {
+-    return executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, ComputationOptions{d.K[0], d.K[1], d.K[2]},
+-        p);
++    return executeInitializeFunction<Behaviour>(
++        MethodCaller<m>{}, d, initialize_variables,
++        ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -361,7 +365,8 @@ namespace mfront::gb::logarithmic_strain {
+     }
+     const auto s1 = lgh1.convertToCauchyStress(T1);
+     if (sm == StressMeasure::CAUCHY) {
+-      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) = s1;
++      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) =
++          s1;
+     } else if (sm == StressMeasure::PK1) {
+       tfel::math::map<tfel::math::tensor<N, real>>(d.s1.thermodynamic_forces) =
+           tfel::math::convertCauchyStressToFirstPiolaKirchhoffStress(s1, F1);
+@@ -398,11 +403,14 @@ namespace mfront::gb::logarithmic_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the post-processing.
+-   * \tparam m: method implementing the post-processing.
+    * \tparam use_initial_state: boolean stating if the postprocessing uses
+    * the initial state of the material.
++   * \tparam PostProcessing: type of the function object calling the method
++   * implementing the post-processing.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * post-processing (see `mfront::gb::executePostProcessing`).
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+    * \param[in,out] d: behaviour data.
+@@ -414,11 +422,11 @@ namespace mfront::gb::logarithmic_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(real* const,
+-                                 const typename Behaviour::BehaviourData&),
+-            const bool use_initial_state,
++            bool use_initial_state,
++            typename PostProcessing,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executePostProcessing(
++      const PostProcessing& f,
+       real* const post_processing_variables,
+       mfront_gb_BehaviourData& d,
+       const ComputationOptions& o,
+@@ -467,8 +475,8 @@ namespace mfront::gb::logarithmic_strain {
+     d.s0.thermodynamic_forces = T0.begin();
+     d.s1.thermodynamic_forces = T1.begin();
+     const auto r =
+-        mfront::gb::executePostProcessing<Behaviour, m, use_initial_state>(
+-            post_processing_variables, d, p, args...);
++        mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
++            f, post_processing_variables, d, p, args...);
+     d.s0.gradients = gradients0_old;
+     d.s1.gradients = gradients1_old;
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+@@ -495,8 +503,8 @@ namespace mfront::gb::logarithmic_strain {
+   int executePostProcessing(real* const post_processing_variables,
+                             mfront_gb_BehaviourData& d,
+                             const tfel::material::OutOfBoundsPolicy p) {
+-    return executePostProcessing<Behaviour, m, use_initial_state>(
+-        post_processing_variables, d,
++    return executePostProcessing<Behaviour, use_initial_state>(
++        MethodCaller<m>{}, post_processing_variables, d,
+         ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executePostProcessing
+ 
+diff --git a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+index 0b18e97c0..32fbf307a 100644
+--- a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+@@ -141,9 +141,12 @@ namespace mfront::gb::finite_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the initialize function.
+-   * \tparam m: method implementing the initialize function.
++   * \tparam InitializeFunction: type of the function object calling the
++   * method implementing the initialize function.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * initialize function (see `mfront::gb::executeInitializeFunction`).
+    * \param[in,out] d: behaviour data.
+    * \param[in] initialize_variables: pointer to the values of the
+    * initialize function variables.
+@@ -153,9 +156,10 @@ namespace mfront::gb::finite_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(const real* const),
++            typename InitializeFunction,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executeInitializeFunction(
++      const InitializeFunction& f,
+       mfront_gb_BehaviourData& d,
+       const real* const initialize_variables,
+       const ComputationOptions& o,
+@@ -177,15 +181,15 @@ namespace mfront::gb::finite_strain {
+       auto F0 = tfel::math::tensor<N, real>{};
+       if ((!internals::getDeformationGradient<Behaviour>(
+               F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(
+-              s0, d, d.s0.thermodynamic_forces, F0, sm))) {
++          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                             F0, sm))) {
+         return -1;
+       }
+       d.s0.thermodynamic_forces = s0.begin();
+       d.s1.thermodynamic_forces = s0.begin();
+     }
+-    const auto r = mfront::gb::executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, p, args...);
++    const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
++        f, d, initialize_variables, p, args...);
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+     d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+     return r;
+@@ -205,9 +209,9 @@ namespace mfront::gb::finite_strain {
+   int executeInitializeFunction(mfront_gb_BehaviourData& d,
+                                 const real* const initialize_variables,
+                                 const tfel::material::OutOfBoundsPolicy p) {
+-    return executeInitializeFunction<Behaviour, m>(
+-        d, initialize_variables, ComputationOptions{d.K[0], d.K[1], d.K[2]},
+-        p);
++    return executeInitializeFunction<Behaviour>(
++        MethodCaller<m>{}, d, initialize_variables,
++        ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -256,8 +260,8 @@ namespace mfront::gb::finite_strain {
+       auto F0 = tfel::math::tensor<N, real>{};
+       if ((!internals::getDeformationGradient<Behaviour>(
+               F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(
+-              s0, d, d.s0.thermodynamic_forces, F0, sm))) {
++          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                             F0, sm))) {
+         return -1;
+       }
+       s1 = s0;
+@@ -301,11 +305,14 @@ namespace mfront::gb::finite_strain {
+    * This function can be called in device code.
+    *
+    * \tparam Behaviour: class describing the post-processing.
+-   * \tparam m: method implementing the post-processing.
+    * \tparam use_initial_state: boolean stating if the postprocessing uses
+    * the initial state of the material.
++   * \tparam PostProcessing: type of the function object calling the method
++   * implementing the post-processing.
+    * \tparam ConstructorArguments: types of the additional arguments of the
+    * constructor of the behaviour
++   * \param[in] f: function object calling the method implementing the
++   * post-processing (see `mfront::gb::executePostProcessing`).
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+    * \param[in,out] d: behaviour data.
+@@ -315,11 +322,11 @@ namespace mfront::gb::finite_strain {
+    * behaviour
+    */
+   template <typename Behaviour,
+-            void (Behaviour::*m)(real* const,
+-                                 const typename Behaviour::BehaviourData&),
+-            const bool use_initial_state,
++            bool use_initial_state,
++            typename PostProcessing,
+             typename... ConstructorArguments>
+   TFEL_HOST_DEVICE int executePostProcessing(
++      const PostProcessing& f,
+       real* const post_processing_variables,
+       mfront_gb_BehaviourData& d,
+       const ComputationOptions& o,
+@@ -345,18 +352,18 @@ namespace mfront::gb::finite_strain {
+               F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+           (!internals::getDeformationGradient<Behaviour>(
+               F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(
+-              s0, d, d.s0.thermodynamic_forces, F0, sm)) ||
+-          (!internals::convertToCauchyStress(
+-              s1, d, d.s1.thermodynamic_forces, F1, sm))) {
++          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                             F0, sm)) ||
++          (!internals::convertToCauchyStress(s1, d, d.s1.thermodynamic_forces,
++                                             F1, sm))) {
+         return -1;
+       }
+       d.s0.thermodynamic_forces = s0.begin();
+       d.s1.thermodynamic_forces = s1.begin();
+     }
+     const auto r =
+-        mfront::gb::executePostProcessing<Behaviour, m, use_initial_state>(
+-            post_processing_variables, d, p, args...);
++        mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
++            f, post_processing_variables, d, p, args...);
+     d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+     d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+     return r;
+@@ -381,8 +388,8 @@ namespace mfront::gb::finite_strain {
+   int executePostProcessing(real* const post_processing_variables,
+                             mfront_gb_BehaviourData& d,
+                             const tfel::material::OutOfBoundsPolicy p) {
+-    return executePostProcessing<Behaviour, m, use_initial_state>(
+-        post_processing_variables, d,
++    return executePostProcessing<Behaviour, use_initial_state>(
++        MethodCaller<m>{}, post_processing_variables, d,
+         ComputationOptions{d.K[0], d.K[1], d.K[2]}, p);
+   }  // end of executePostProcessing
+ 
+diff --git a/mfront/include/MFront/GenericBehaviourInterface.hxx b/mfront/include/MFront/GenericBehaviourInterface.hxx
+index 5e08b4d7d..4c974dbfe 100644
+--- a/mfront/include/MFront/GenericBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericBehaviourInterface.hxx
+@@ -128,6 +128,17 @@ namespace mfront {
+     getBehaviourConstructorTemplateDeclaration() const;
+     //! \return the arguments of the behaviour constructor
+     [[nodiscard]] virtual std::string getBehaviourConstructorArguments() const;
++    /*!
++     * \brief write the specialisations of the
++     * `mfront::gb::GenericBehaviourTraits` class used by the integration
++     * drivers
++     * \param[out] out: output stream
++     * \param[in] bd: behaviour description
++     * \param[in] mhs: modelling hypotheses
++     */
++    void writeGenericBehaviourTraits(std::ostream&,
++                                     const BehaviourDescription&,
++                                     const std::set<Hypothesis>&) const;
+     //! \brief list of selected hypotheses
+     std::optional<std::set<GenericBehaviourInterface::Hypothesis>>
+         selectedHypotheses;
+diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
+index d8dacd960..f1cbad41b 100644
+--- a/mfront/src/BehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
+@@ -412,6 +412,8 @@ namespace mfront {
+         << "#endif /* small */\n"
+         << "#endif /* (defined _WIN32 || defined _WIN64) */\n\n"
+         << "#include\"TFEL/Raise.hxx\"\n"
++        << "#include\"TFEL/ContractViolation.hxx\"\n"
++        << "#include\"TFEL/Utilities/ConstantObject.hxx\"\n"
+         << "#include\"TFEL/Math/tvector.hxx\"\n"
+         << "#include\"TFEL/Math/stensor.hxx\"\n"
+         << "#include\"TFEL/Math/tensor.hxx\"\n\n";
+@@ -490,15 +492,15 @@ namespace mfront {
+           << " * \\param[in] i: slip system family\n"
+           << " * \\param[in] j: local slip system index\n"
+           << " */\n"
+-          << "constexpr unsigned short offset(const unsigned short,\nconst "
+-             "unsigned short) const;\n";
++          << "TFEL_HOST_DEVICE constexpr unsigned short offset("
++             "const unsigned short,\nconst unsigned short) const;\n";
+       for (std::size_t i = 0; i != nb; ++i) {
+         out << "/*!\n"
+             << " * \\return the gobal index of the ith system of " << i
+             << "th family\n"
+             << " * \\param[in] i: local slip system index\n"
+             << " */\n"
+-            << "constexpr unsigned short offset" << i
++            << "TFEL_HOST_DEVICE constexpr unsigned short offset" << i
+             << "(const unsigned short) const;\n";
+       }
+     }
+@@ -507,28 +509,35 @@ namespace mfront {
+         << " * \\param[in] i: first slip system index\n"
+         << " * \\param[in] j: second slip system index\n"
+         << " */\n"
+-        << "bool areCoplanar(const unsigned short,\n"
++        << "TFEL_HOST_DEVICE constexpr bool areCoplanar(const unsigned short,\n"
+         << "                 const unsigned short) const;\n"
+         << "/*!\n"
+         << " * \\return an interaction matrix\n"
+         << " * \\param[in] m: coefficients of the interaction matrix\n"
+         << " */\n"
+-        << "constexpr auto\n"
++        << "TFEL_HOST_DEVICE constexpr auto\n"
+         << "buildInteractionMatrix("
+         << "const tfel::math::fsarray<" << ims.rank() << ", real>&) const\n"
+         << " -> tfel::math::tmatrix<Nss, Nss, real>;\n"
+-        << "//! return the unique instance of the class\n"
+-        << "static const " << cn << "&\n"
+-        << "getSlidingSystems();\n"
+-        << "//! return the unique instance of the class\n"
+-        << "static const " << cn << "&\n"
+-        << "getSlipSystems();\n"
+-        << "//! return the unique instance of the class\n"
+-        << "static const " << cn << "&\n"
+-        << "getGlidingSystems();\n"
+-        << "private:\n"
+-        << "//! Constructor\n"
+-        << cn << "();\n"
++        << "/*!\n"
++        << " * \\return the unique instance of the class, built at compile\n"
++        << " * time. The result must be bound to a constant reference (see\n"
++        << " * `tfel::utilities::getConstantObject`).\n"
++        << " */\n"
++        << "TFEL_HOST_DEVICE static constexpr decltype(auto) "
++        << "getSlidingSystems() noexcept;\n"
++        << "//! \\return the unique instance of the class\n"
++        << "TFEL_HOST_DEVICE static constexpr decltype(auto) "
++        << "getSlipSystems() noexcept;\n"
++        << "//! \\return the unique instance of the class\n"
++        << "TFEL_HOST_DEVICE static constexpr decltype(auto) "
++        << "getGlidingSystems() noexcept;\n"
++        << "/*!\n"
++        << " * \\brief constructor. All the values are evaluated at compile\n"
++        << " * time, so that the unique instance of the class can be used in\n"
++        << " * device code.\n"
++        << " */\n"
++        << "TFEL_HOST_DEVICE constexpr " << cn << "();\n"
+         << "//! move constructor (disabled)\n"
+         << cn << "(" << cn << "&&) = delete;\n"
+         << "//! copy constructor (disabled)\n"
+@@ -576,23 +585,22 @@ namespace mfront {
+     out << "#include\"TFEL/Math/General/MathConstants.hxx\"\n\n";
+     this->writeNamespaceBegin(out);
+     out << "template<typename real>\n"
+-        << "const " << cn << "<real>&\n"
+-        << cn << "<real>::getSlidingSystems(){\n"
+-        << "static const " << cn << " i;\n"
+-        << "return i;\n"
++        << "TFEL_HOST_DEVICE constexpr decltype(auto)\n"
++        << cn << "<real>::getSlidingSystems() noexcept{\n"
++        << "return tfel::utilities::getConstantObject<" << cn << ">();\n"
+         << "} // end of " << cn << "::getSlidingSystems\n\n"
+         << "template<typename real>\n"
+-        << "const " << cn << "<real>&\n"
+-        << cn << "<real>::getSlipSystems(){\n"
++        << "TFEL_HOST_DEVICE constexpr decltype(auto)\n"
++        << cn << "<real>::getSlipSystems() noexcept{\n"
+         << "return " << cn << "<real>::getSlidingSystems();\n"
+         << "} // end of " << cn << "::getSlipSystems\n\n"
+         << "template<typename real>\n"
+-        << "const " << cn << "<real>&\n"
+-        << cn << "<real>::getGlidingSystems(){\n"
++        << "TFEL_HOST_DEVICE constexpr decltype(auto)\n"
++        << cn << "<real>::getGlidingSystems() noexcept{\n"
+         << "return " << cn << "<real>::getSlidingSystems();\n"
+         << "} // end of " << cn << "::getGlidingSystems\n\n"
+         << "template<typename real>\n"
+-        << cn << "<real>::" << cn << "(){\n";
++        << "TFEL_HOST_DEVICE constexpr " << cn << "<real>::" << cn << "(){\n";
+     std::vector<tensor> gots;
+     std::vector<vector> gnss;
+     std::vector<vector> gnps;
+@@ -667,7 +675,7 @@ namespace mfront {
+     out << "} // end of " << cn << "::" << cn << "\n\n";
+     if (nb != 1u) {
+       out << "template<typename real>\n"
+-          << "constexpr unsigned short\n"
++          << "TFEL_HOST_DEVICE constexpr unsigned short\n"
+           << cn << "<real>::offset(const unsigned short i,\n"
+           << "const unsigned short j\n) const{\n"
+           << "const auto oi = [&i]() -> unsigned short{\n"
+@@ -690,16 +698,21 @@ namespace mfront {
+         }
+       }
+       out << "default:\n"
++          << "#ifndef TFEL_DEVICE_CODE\n"
+           << "tfel::raise<std::out_of_range>(\"" << cn
+           << "::offset: :\"\n\"invalid index"
+           << "\");\n"
++          << "#else /* TFEL_DEVICE_CODE */\n"
++          << "tfel::reportContractViolation(\"invalid index\");\n"
++          << "return 0;\n"
++          << "#endif /* TFEL_DEVICE_CODE */\n"
+           << "}\n"
+           << "}();\n"
+           << "return oi+j;\n"
+           << "} // end of offset\n\n";
+       for (std::size_t i = 0; i != nb; ++i) {
+         out << "template<typename real>\n"
+-            << "constexpr unsigned short\n"
++            << "TFEL_HOST_DEVICE constexpr unsigned short\n"
+             << cn << "<real>::offset" << i
+             << "(const unsigned short i) const{\n";
+         if (i != 0) {
+@@ -719,7 +732,8 @@ namespace mfront {
+       }
+     }
+     out << "template<typename real>\n"
+-        << "bool " << cn << "<real>::areCoplanar(const unsigned short i,\n"
++        << "TFEL_HOST_DEVICE constexpr bool " << cn
++        << "<real>::areCoplanar(const unsigned short i,\n"
+         << "                                     const unsigned short j) "
+            "const{\n";
+     std::vector<std::vector<bool>> are_coplanar(nss, std::vector<bool>(nss));
+@@ -760,8 +774,8 @@ namespace mfront {
+         }
+       }
+     }
+-    out << "const auto mi = std::min(i,j);\n"
+-        << "const auto mj = std::max(i,j);\n"
++    out << "const auto mi = i < j ? i : j;\n"
++        << "const auto mj = i < j ? j : i;\n"
+         << "switch(mi){\n";
+     for (i = 0; i != nss; ++i) {
+       out << "case " << i << ":\n";
+@@ -788,7 +802,8 @@ namespace mfront {
+     // buildInteractionMatrix
+     auto count = std::size_t{};  // number of terms of the matrix treated so far
+     out << "template<typename real>\n"
+-        << "constexpr auto " << cn << "<real>::buildInteractionMatrix("
++        << "TFEL_HOST_DEVICE constexpr auto " << cn
++        << "<real>::buildInteractionMatrix("
+         << "const tfel::math::fsarray<" << ims.rank() << ", real>& m) const\n"
+         << "-> tfel::math::tmatrix<Nss,Nss,real>{\n"
+         << "return {";
+@@ -2006,7 +2021,7 @@ namespace mfront {
+     os << "/*!\n"
+        << " * \\brief Update auxiliary state variables at end of integration\n"
+        << " */\n"
+-       << "TFEL_HOST_DEVICE [[nodiscard]] bool updateAuxiliaryStateVariables()"
++       << "[[nodiscard]] TFEL_HOST_DEVICE bool updateAuxiliaryStateVariables()"
+        << "{\n"
+        << "using namespace std;\n"
+        << "using namespace tfel::math;\n";
+diff --git a/mfront/src/BehaviourRotationFunctions.cxx b/mfront/src/BehaviourRotationFunctions.cxx
+new file mode 100644
+index 000000000..9bb777b4e
+--- /dev/null
++++ b/mfront/src/BehaviourRotationFunctions.cxx
+@@ -0,0 +1,271 @@
++/*!
++ * \file   mfront/src/BehaviourRotationFunctions.cxx
++ * \brief  This file implements the description of the rotation functions of
++ * orthotropic behaviours.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "TFEL/Raise.hxx"
++#include "TFEL/Material/ModellingHypothesis.hxx"
++#include "MFront/SupportedTypes.hxx"
++#include "MFront/VariableDescription.hxx"
++#include "MFront/BehaviourDescription.hxx"
++#include "MFront/BehaviourRotationFunctions.hxx"
++
++namespace mfront {
++
++  using Hypothesis = tfel::material::ModellingHypothesis::Hypothesis;
++
++  //! \return true if the behaviour is a finite strain behaviour
++  static bool isFiniteStrainBehaviour(const BehaviourDescription& bd) {
++    return (bd.getBehaviourType() ==
++            BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
++           ((bd.getBehaviourType() ==
++             BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
++            (bd.isStrainMeasureDefined()) &&
++            (bd.getStrainMeasure() != BehaviourDescription::LINEARISED));
++  }  // end of isFiniteStrainBehaviour
++
++  //! \return the type of a mathematical object in the generated code
++  static std::string getObjectType(const std::string& t,
++                                   const unsigned short N) {
++    return "tfel::math::" + t + "<" + std::to_string(N) + ", mfront::gb::real>";
++  }  // end of getObjectType
++
++  //! \return the type of a variable, empty for a scalar
++  static std::string getVariableType(const VariableDescription& v,
++                                     const unsigned short N) {
++    const auto f = SupportedTypes::getTypeFlag(v.type);
++    if (f == SupportedTypes::TVECTOR) {
++      return getObjectType("tvector", N);
++    } else if (f == SupportedTypes::STENSOR) {
++      return getObjectType("stensor", N);
++    } else if (f == SupportedTypes::TENSOR) {
++      return getObjectType("tensor", N);
++    }
++    return "";
++  }  // end of getVariableType
++
++  /*!
++   * \return the type of a tangent operator block, empty for a scalar
++   * \param[out] error: reason why the block can't be rotated
++   * \param[in] v1: first variable (the derivated one)
++   * \param[in] v2: second variable
++   * \param[in] N: space dimension
++   */
++  static std::string getTangentOperatorBlockType(std::string& error,
++                                                 const VariableDescription& v1,
++                                                 const VariableDescription& v2,
++                                                 const unsigned short N) {
++    using Flag = SupportedTypes::TypeFlag;
++    if ((v1.arraySize != 1) || (v2.arraySize != 1)) {
++      error =
++          "tangent operator blocks associated with arrays of variables "
++          "are not supported";
++      return "";
++    }
++    const auto f1 = SupportedTypes::getTypeFlag(v1.type);
++    const auto f2 = SupportedTypes::getTypeFlag(v2.type);
++    if (f1 == SupportedTypes::SCALAR) {
++      return getVariableType(v2, N);
++    }
++    if (f2 == SupportedTypes::SCALAR) {
++      return getVariableType(v1, N);
++    }
++    const auto is = [f1, f2](const Flag a, const Flag b) {
++      return (f1 == a) && (f2 == b);
++    };
++    if (is(SupportedTypes::TVECTOR, SupportedTypes::TVECTOR)) {
++      return "tfel::math::tmatrix<" + std::to_string(N) + ", " +
++             std::to_string(N) + ", mfront::gb::real>";
++    } else if (is(SupportedTypes::STENSOR, SupportedTypes::STENSOR)) {
++      return getObjectType("st2tost2", N);
++    } else if (is(SupportedTypes::STENSOR, SupportedTypes::TENSOR)) {
++      return getObjectType("t2tost2", N);
++    } else if (is(SupportedTypes::TENSOR, SupportedTypes::STENSOR)) {
++      return getObjectType("st2tot2", N);
++    } else if (is(SupportedTypes::TENSOR, SupportedTypes::TENSOR)) {
++      return getObjectType("t2tot2", N);
++    }
++    error = "the tangent operator block 'd" + v1.name + "_d" + v2.name +
++            "' is not supported";
++    return "";
++  }  // end of getTangentOperatorBlockType
++
++  /*!
++   * \brief add the objects associated with a variable or an array of
++   * variables
++   * \param[in,out] f: rotation function
++   * \param[in] v: variable
++   * \param[in] N: space dimension
++   * \param[in] h: modelling hypothesis
++   */
++  static void addVariable(BehaviourRotationFunction& f,
++                          const VariableDescription& v,
++                          const unsigned short N,
++                          const Hypothesis h) {
++    const auto type = getVariableType(v, N);
++    const auto s =
++        static_cast<std::size_t>(SupportedTypes::getTypeSize(v.type, 1u)
++                                     .getValueForModellingHypothesis(h));
++    for (unsigned short i = 0; i != v.arraySize; ++i) {
++      f.objects.push_back({type, f.size});
++      f.size += s;
++    }
++  }  // end of addVariable
++
++  //! \return a rotation function of a single object
++  static BehaviourRotationFunction makeRotationFunction(
++      const std::string& name,
++      const std::string& array_name,
++      const std::string& description,
++      const std::string& type,
++      const std::size_t size) {
++    auto f = BehaviourRotationFunction{};
++    f.name = name;
++    f.array_name = array_name;
++    f.description = description;
++    f.objects.push_back({type, 0});
++    f.size = size;
++    return f;
++  }  // end of makeRotationFunction
++
++  std::vector<BehaviourRotationFunction> getBehaviourRotationFunctions(
++      const BehaviourDescription& bd, const Hypothesis h) {
++    auto functions = std::vector<BehaviourRotationFunction>{};
++    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
++      return functions;
++    }
++    const auto N = tfel::material::getSpaceDimension(h);
++    // gradients
++    auto gradients = BehaviourRotationFunction{};
++    gradients.name = "rotateGradients";
++    gradients.array_name = "rotateArrayOfGradients";
++    gradients.description =
++        "the gradients from the global frame to the material frame";
++    gradients.to_material_frame = true;
++    for (const auto& mv : bd.getMainVariables()) {
++      addVariable(gradients, mv.first, N, h);
++    }
++    functions.push_back(std::move(gradients));
++    if (isFiniteStrainBehaviour(bd)) {
++      const auto S = tfel::material::getStensorSize(h);
++      const auto T = tfel::material::getTensorSize(h);
++      const auto stensor = getObjectType("stensor", N);
++      const auto tensor = getObjectType("tensor", N);
++      functions.push_back(makeRotationFunction(
++          "rotateThermodynamicForces_CauchyStress",
++          "rotateArrayOfThermodynamicForces_CauchyStress",
++          "the Cauchy stress from the material frame to the global frame",
++          stensor, S));
++      functions.push_back(makeRotationFunction(
++          "rotateThermodynamicForces_PK2Stress",
++          "rotateArrayOfThermodynamicForces_PK2Stress",
++          "the second Piola-Kirchhoff stress from the material frame to the "
++          "global frame",
++          stensor, S));
++      functions.push_back(makeRotationFunction(
++          "rotateThermodynamicForces_PK1Stress",
++          "rotateArrayOfThermodynamicForces_PK1Stress",
++          "the first Piola-Kirchhoff stress from the material frame to the "
++          "global frame",
++          tensor, T));
++      functions.push_back(makeRotationFunction(
++          "rotateTangentOperatorBlocks_dsig_dF",
++          "rotateArrayOfTangentOperatorBlocks_dsig_dF",
++          "the derivative of the Cauchy stress with respect to the "
++          "deformation gradient from the material frame to the global frame",
++          getObjectType("t2tost2", N), S * T));
++      functions.push_back(makeRotationFunction(
++          "rotateTangentOperatorBlocks_dPK1_dF",
++          "rotateArrayOfTangentOperatorBlocks_dPK1_dF",
++          "the derivative of the first Piola-Kirchhoff stress with respect to "
++          "the deformation gradient from the material frame to the global "
++          "frame",
++          getObjectType("t2tot2", N), T * T));
++      functions.push_back(makeRotationFunction(
++          "rotateTangentOperatorBlocks_dPK2_dEGL",
++          "rotateArrayOfTangentOperatorBlocks_dPK2_dEGL",
++          "the derivative of the second Piola-Kirchhoff stress with respect "
++          "to the Green-Lagrange strain from the material frame to the global "
++          "frame",
++          getObjectType("st2tost2", N), S * S));
++      functions.push_back(makeRotationFunction(
++          "rotateTangentOperatorBlocks_dtau_ddF",
++          "rotateArrayOfTangentOperatorBlocks_dtau_ddF",
++          "the derivative of the Kirchhoff stress with respect to the spatial "
++          "increment of the deformation gradient from the material frame to "
++          "the global frame",
++          getObjectType("t2tost2", N), S * T));
++      return functions;
++    }
++    // thermodynamic forces
++    auto forces = BehaviourRotationFunction{};
++    forces.name = "rotateThermodynamicForces";
++    forces.array_name = "rotateArrayOfThermodynamicForces";
++    forces.description =
++        "the thermodynamic forces from the material frame to the global "
++        "frame";
++    for (const auto& mv : bd.getMainVariables()) {
++      addVariable(forces, mv.second, N, h);
++    }
++    functions.push_back(std::move(forces));
++    // tangent operator blocks
++    auto blocks = BehaviourRotationFunction{};
++    blocks.name = "rotateTangentOperatorBlocks";
++    blocks.array_name = "rotateArrayOfTangentOperatorBlocks";
++    blocks.description =
++        "the tangent operator blocks from the material frame to the global "
++        "frame";
++    for (const auto& [v1, v2] : bd.getTangentOperatorBlocks()) {
++      const auto type = getTangentOperatorBlockType(blocks.error, v1, v2, N);
++      blocks.objects.push_back({type, blocks.size});
++      blocks.size += static_cast<std::size_t>(
++          SupportedTypes::getTypeSize(v1.type, v1.arraySize)
++              .getValueForModellingHypothesis(h) *
++          SupportedTypes::getTypeSize(v2.type, v2.arraySize)
++              .getValueForModellingHypothesis(h));
++    }
++    functions.push_back(std::move(blocks));
++    return functions;
++  }  // end of getBehaviourRotationFunctions
++
++  void writePointRotation(std::ostream& os,
++                          const BehaviourRotationFunction& f) {
++    tfel::raise_if(!f.error.empty(), "writePointRotation: " + f.error);
++    // the components of the rotation matrix `rv` are read as the components
++    // of the matrix `r` stored by rows, so that `r` is the transpose of the
++    // rotation matrix from the global frame to the material frame, which is
++    // stored in column-major format. `r` is transposed for the rotations to
++    // the global frame.
++    const auto transposed = !f.to_material_frame;
++    os << "const auto r = tfel::math::rotation_matrix<mfront::gb::real>{";
++    for (unsigned short i = 0; i != 3; ++i) {
++      for (unsigned short j = 0; j != 3; ++j) {
++        os << ((i == 0) && (j == 0) ? "" : ", ") << "rv["
++           << (transposed ? 3 * j + i : 3 * i + j) << "]";
++      }
++    }
++    os << "};\n";
++    for (const auto& o : f.objects) {
++      const auto offset = std::to_string(o.offset);
++      if (o.type.empty()) {
++        os << "dest[" << offset << "] = src[" << offset << "];\n";
++      } else {
++        // the source is copied before the destination is written, so that
++        // the destination may be the source
++        os << "tfel::math::map<" << o.type << ">(dest + " << offset
++           << ") = tfel::math::change_basis(" << o.type << "{src + " << offset
++           << "}, r);\n";
++      }
++    }
++  }  // end of writePointRotation
++
++}  // end of namespace mfront
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 66d83c06e..595c0d38a 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -226,6 +226,7 @@ set(TFELMFront_SOURCES
+     GenericParallel/Behaviour/ParallelSTLBackend.cxx
+     GenericParallel/Behaviour/SYCLBackend.cxx
+     GenericBehaviourSymbolsGenerator.cxx
++    BehaviourRotationFunctions.cxx
+     GenericModelInterface.cxx
+     OptionDescription.cxx
+     BrickUtilities.cxx
+diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
+index 2d18518bf..caf9fd332 100644
+--- a/mfront/src/GenericBehaviourInterface.cxx
++++ b/mfront/src/GenericBehaviourInterface.cxx
+@@ -23,6 +23,7 @@
+ #include "MFront/TargetsDescription.hxx"
+ #include "MFront/BehaviourDescription.hxx"
+ #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
++#include "MFront/BehaviourRotationFunctions.hxx"
+ #include "MFront/GenericBehaviourInterface.hxx"
+ 
+ namespace mfront {
+@@ -32,943 +33,78 @@ namespace mfront {
+    * \param[out] os: output stream
+    * \param[in] i: generic behaviour interface
+    * \param[in] bd: behaviour description
+-   * \param[in] n: name of the generated function
++   * \param[in] name: name of the behaviour
+    */
+   static void writeRotationFunctionsDeclarations(
+       std::ostream& os,
+       const GenericBehaviourInterface& i,
+       const BehaviourDescription& bd,
+       const std::string& name) {
+-    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
+-      return;
+-    }
+-    const auto mhs = i.getModellingHypothesesToBeTreated(bd);
+-    const auto is_finite_strain =
+-        (bd.getBehaviourType() ==
+-         BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
+-        ((bd.getBehaviourType() ==
+-          BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
+-         (bd.isStrainMeasureDefined()) &&
+-         (bd.getStrainMeasure() != BehaviourDescription::LINEARISED));
+-    for (const auto h : mhs) {
+-      const auto f = i.getFunctionNameForHypothesis(name, h);
+-      os << "/*!\n"
+-            " * \\brief rotate the gradients from the global frame to the"
+-            " material frame\n"
+-            " * \\param[out] dest: gradients in the material frame\n"
+-            " * \\param[in] src: gradients in the global frame\n"
+-            " * \\param[in] rv: rotation matrix\n"
+-            " */\n"
+-         << "MFRONT_SHAREDOBJ void " << f << "_rotateGradients("
+-         << "mfront_gb_real* const, "
+-         << "const mfront_gb_real* const, "
+-         << "const mfront_gb_real* const);\n\n"
+-         << "/*!\n"
+-            " * \\brief rotate an array of gradients from the global frame to"
+-            " the material frame\n"
+-            " * \\param[out] dest: pointer to the gradients array in the"
+-            " material frame\n"
+-            " * \\param[in] src: pointer to the gradients array in the global"
+-            " frame\n"
+-            " * \\param[in] rv: rotation matrix\n"
+-            " * \\param[in] s: number of entry of the array to be treated\n"
+-            " */\n"
+-         << "MFRONT_SHAREDOBJ void " << f << "_rotateArrayOfGradients("
+-         << "mfront_gb_real* const, "
+-         << "const mfront_gb_real* const, "
+-         << "const mfront_gb_real* const, "
+-         << "const mfront_gb_size_type);\n\n";
+-      if (is_finite_strain) {
+-        os << "/*!\n"
+-              " * \\brief rotate the Cauchy stress from the material "
+-              " frame to the global frame\n"
+-              " * \\param[out] dest: Cauchy stress in the global frame\n"
+-              " * \\param[in] src: Cauchy stress in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateThermodynamicForces_CauchyStress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-              "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of Cauchy stresses from the material"
+-              " frame to the global frame\n"
+-              " * \\param[out] dest: array of Cauchy stresses in the global"
+-              " frame\n"
+-              " * \\param[in] src: array of Cauchy stresses in the material"
+-              " frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfThermodynamicForces_CauchyStress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the second Piola-Kirchhoff stress from the"
+-              " material frame to the global frame\n"
+-              " * \\param[out] dest: second Piola-Kirchhoff stress in the"
+-              " global frame\n"
+-              " * \\param[in] src: second Piola-Kirchhoff stress in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateThermodynamicForces_PK2Stress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of second Piola-Kirchhoff stresses"
+-              " from the material frame to the global frame\n"
+-              " * \\param[out] dest: array of second Piola-Kirchhoff stresses"
+-              " in the global frame\n"
+-              " * \\param[out] src: array of second Piola-Kirchhoff stresses"
+-              " in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfThermodynamicForces_PK2Stress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the first Piola-Kirchhoff stress from the"
+-              " material frame to the global frame\n"
+-              " * \\param[out] dest: first Piola-Kirchhoff stress in the"
+-              " global frame\n"
+-              " * \\param[in] src: first Piola-Kirchhoff stress in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateThermodynamicForces_PK1Stress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of the first Piola-Kirchhoff"
+-              " stresses from the material frame to the global frame\n"
+-              " * \\param[out] dest: array of first Piola-Kirchhoff stresses"
+-              " in the global frame\n"
+-              " * \\param[out] src: array of first Piola-Kirchhoff stresses"
+-              " in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfThermodynamicForces_PK1Stress("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the derivative of the Cauchy stress with"
+-              " respect to the deformation gradient from the material frame"
+-              " to the global frame\n"
+-              " * \\param[out] dest: derivative of the Cauchy stress with"
+-              " respect to the deformation gradient in the global frame\n"
+-              " * \\param[in] src: derivative of the Cauchy stress with"
+-              " respect to the deformation gradient in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateTangentOperatorBlocks_dsig_dF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of derivatives of the Cauchy stress"
+-              " with respect to the deformation gradient from the material"
+-              " frame to the global frame\n"
+-              " * \\param[out] dest: array of derivatives of the Cauchy stress"
+-              " with respect to the deformation gradient in the global "
+-              " frame\n"
+-              " * \\param[in] src: array of derivatives of the Cauchy stress"
+-              " with respect to the deformation gradient in the material"
+-              " frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfTangentOperatorBlocks_dsig_dF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the derivative of the first Piola-Kirchhoff"
+-              " stress with respect to the deformation gradient from the"
+-              " material frame to the global frame\n"
+-              " * \\param[out] dest: derivative of the first Piola-Kirchhoff"
+-              " stress with respect to the deformation gradient in the"
+-              " global frame\n"
+-              " * \\param[in] src: derivative of the first Piola-Kirchhoff"
+-              " stress with respect to the deformation gradient in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateTangentOperatorBlocks_dPK1_dF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of derivatives of the first"
+-              " Piola-Kirchhoff stress with respect to the deformation"
+-              " gradient from the material frame to the global frame\n"
+-              " * \\param[out] dest: array of derivatives of the first"
+-              " Piola-Kirchhoff stress with respect to the deformation"
+-              " gradient in the global frame\n"
+-              " * \\param[in] src: derivative of the first Piola-Kirchhoff"
+-              " stress with respect to the deformation gradient in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfTangentOperatorBlocks_dPK1_dF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the derivative of the second Piola-Kirchhoff"
+-              " stress with respect to the Green-Lagrange strain from the"
+-              " material frame to the global frame\n"
+-              " * \\param[out] dest: derivative of the second Piola-Kirchhoff"
+-              " stress with respect to the Green-Lagrange strain in the"
+-              " global frame\n"
+-              " * \\param[in] src: derivative of the second Piola-Kirchhoff"
+-              " stress with respect to the Green-Lagrange strain in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateTangentOperatorBlocks_dPK2_dEGL("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of the derivatives of the second"
+-              " Piola-Kirchhoff stress with respect to the Green-Lagrange"
+-              " strain from the material frame to the global frame\n"
+-              " * \\param[out] dest: array of derivatives of the second"
+-              " Piola-Kirchhoff stress with respect to the Green-Lagrange"
+-              " strain in the global frame\n"
+-              " * \\param[out] src: array of derivatives of the second"
+-              " Piola-Kirchhoff stress with respect to the Green-Lagrange"
+-              " strain in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfTangentOperatorBlocks_dPK2_dEGL("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate the derivative of the Kirchhoff stress with"
+-              " respect to the spatial increment of the deformation gradient "
+-              "from the material frame"
+-              " to the global frame\n"
+-              " * \\param[out] dest: derivative of the Kirchhoff stress with"
+-              " respect to the spatial increment of the deformation gradient "
+-              "in the global frame\n"
+-              " * \\param[in] src: derivative of the Kirchhoff stress with"
+-              " respect to the spatial increment of the deformation gradient "
+-              "in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateTangentOperatorBlocks_dtau_ddF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of derivatives of the Kirchhoff "
+-              "stress"
+-              " with respect to the spatial increment of the deformation "
+-              "gradient from the material"
+-              " frame to the global frame\n"
+-              " * \\param[out] dest: array of derivatives of the Kirchhoff "
+-              "stress"
+-              " with respect to the spatial increment of the deformation "
+-              "gradient in the global "
+-              " frame\n"
+-              " * \\param[in] src: array of derivatives of the Kirchhoff stress"
+-              " with respect to the spatial increment of the deformation "
+-              "gradient in the material"
+-              " frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfTangentOperatorBlocks_dtau_ddF("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n";
+-      } else {
++    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
++      const auto fn = i.getFunctionNameForHypothesis(name, h);
++      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
+         os << "/*!\n"
+-              " * \\brief rotate the thermodynamic forces from the material "
+-              " * frame to the global frame\n"
+-              " * \\param[out] dest: thermodynamic forces in the global frame\n"
+-              " * \\param[in] src: thermodynamic forces in the material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f << "_rotateThermodynamicForces("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
++           << " * \\brief rotate " << f.description << "\n"
++           << " * \\param[out] dest: rotated values\n"
++           << " * \\param[in] src: values to be rotated\n"
++           << " * \\param[in] rv: rotation matrix\n"
++           << " */\n"
++           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.name
++           << "(mfront_gb_real* const, const mfront_gb_real* const, "
+            << "const mfront_gb_real* const);\n\n"
+            << "/*!\n"
+-              " * \\brief rotate the thermodynamic forces from the material "
+-              " * frame to the global frame\n"
+-              " * \\param[out] dest: array of thermodynamic forces in the"
+-              " global frame\n"
+-              " * \\param[in] src: array of thermodynamic forces in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfThermodynamicForces("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-              "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n";
+-        os << "/*!\n"
+-              " * \\brief rotate the tangent operator blocks from the "
+-              " material frame to the global frame\n"
+-              " * \\param[out] dest: tangent operator blocks in the global"
+-              " frame\n"
+-              " * \\param[in] dest: tangent operator blocks in the material"
+-              " frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f << "_rotateTangentOperatorBlocks("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
+-              " * \\brief rotate an array of tangent operators blocks from the "
+-              " * material frame to the global frame\n"
+-              " * \\param[out] dest: array of tangent operator blocks in the"
+-              " global frame\n"
+-              " * \\param[in] dest: array of tangent operator blocks in the"
+-              " material frame\n"
+-              " * \\param[in] rv: rotation matrix\n"
+-              " * \\param[in] s: number of entry of the array to be treated\n"
+-              " */\n"
+-           << "MFRONT_SHAREDOBJ void " << f
+-           << "_rotateArrayOfTangentOperatorBlocks("
+-           << "mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_real* const, "
+-           << "const mfront_gb_size_type);\n\n";
++           << " * \\brief rotate an array of values: " << f.description << "\n"
++           << " * \\param[out] dest: rotated values\n"
++           << " * \\param[in] src: values to be rotated\n"
++           << " * \\param[in] rv: rotation matrix\n"
++           << " * \\param[in] s: number of entries of the array\n"
++           << " */\n"
++           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.array_name
++           << "(mfront_gb_real* const, const mfront_gb_real* const, "
++           << "const mfront_gb_real* const, const mfront_gb_size_type);\n\n";
+       }
+-    }  // end of for (const auto h : mhs)
+-  }    // end of writeRotationFunctionsDeclarations
+-
+-  static void writeRotationMatrixDefinition(std::ostream& os, const bool b) {
+-    os << "const auto r = [&rv]() -> tfel::math::tmatrix<3,3,mfront::gb::real> "
+-          "{\n";
+-    os << "auto m = tfel::math::tmatrix<3,3,mfront::gb::real>{};\n"
+-       << "tfel::fsalgo::copy<9u>::exe(rv,m.begin());\n";
+-    if (b) {
+-      os << "return tfel::math::transpose(m);\n";
+-    } else {
+-      os << "return m;\n";
+     }
+-    os << "}();\n";
+-  }  // end of writeRotationMatrixDefinition
++  }  // end of writeRotationFunctionsDeclarations
+ 
+-  /*
+-   * \brief a simple helper structure to store the arguments of the functions in
+-   * charge of writing the rotations of tensors.
++  /*!
++   * \brief write the implementation of the rotation functions
++   * \param[out] os: output stream
++   * \param[in] i: generic behaviour interface
++   * \param[in] bd: behaviour description
++   * \param[in] name: name of the behaviour
+    */
+-  struct WriteRotationFunctionArgument {
+-    //! \brief output stream
+-    std::ostream& os;
+-    //! \brief considered modelling hypothesis
+-    const tfel::material::ModellingHypothesis::Hypothesis hypothesis;
+-    //! \brief name of the variable
+-    const std::string variable_name;
+-    //! \brief offset of the variable
+-    size_t variable_offset;
+-    /*!
+-     * \brief string describing an offset when an array of values for multiple
+-     * integration points
+-     */
+-    const std::string array_offset;
+-  };  // end of WriteRotationFunctionArgument
+-
+-  static void writeSecondOrderTensorsRotation(
+-      WriteRotationFunctionArgument& args,
+-      const char* const type,
+-      const char* const view_type) {
+-    const auto d = tfel::material::getSpaceDimension(args.hypothesis);
+-    if ((args.variable_offset == 0) && (args.array_offset.empty())) {
+-      args.os << "const auto " << args.variable_name
+-              << " = tfel::math::" << type << "<" << d
+-              << ",mfront::gb::real>{src};\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest);\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ", r);\n";
+-    } else if (args.variable_offset == 0) {
+-      args.os << "const auto " << args.variable_name
+-              << " = tfel::math::" << type << "<" << d
+-              << ",mfront::gb::real>{src + " << args.array_offset << "};\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest + " << args.array_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ", r);\n";
+-    } else if (args.array_offset.empty()) {
+-      args.os << "const auto " << args.variable_name
+-              << " = tfel::math::" << type << "<" << d
+-              << ",mfront::gb::real>{src + " << args.variable_offset << "};\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest + " << args.variable_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ", r);\n";
+-    } else {
+-      args.os << "const auto " << args.variable_name
+-              << " = tfel::math::" << type << "<" << d
+-              << ",mfront::gb::real>{src + " << args.array_offset << " + "
+-              << args.variable_offset << "};\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest + " << args.variable_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ", r);\n";
+-    }
+-  }  // end of writeSecondOrderTensorsRotation
+-
+-  static void writeStensorRotation(WriteRotationFunctionArgument& args) {
+-    writeSecondOrderTensorsRotation(args, "stensor", "StensorView");
+-  }  // end of writeStensorRotation
+-
+-  static void writeTensorRotation(WriteRotationFunctionArgument& args) {
+-    writeSecondOrderTensorsRotation(args, "tensor", "TensorView");
+-  }  // end of writeTensorRotation
+-
+-  static void writeFourthOrderTensorsRotation(
+-      WriteRotationFunctionArgument& args,
+-      const char* const type,
+-      const char* const view_type) {
+-    const auto d = tfel::material::getSpaceDimension(args.hypothesis);
+-    if ((args.variable_offset == 0) && (args.array_offset.empty())) {
+-      args.os << "auto " << args.variable_name << " = tfel::math::" << type
+-              << "<" << d << ",mfront::gb::real>{};\n"
+-              << "std::copy(src, src + " << args.variable_name << ".size(), "
+-              << args.variable_name << ".begin());\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest);\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ",r);\n";
+-    } else if (args.variable_offset == 0) {
+-      args.os << "auto " << args.variable_name << " = tfel::math::" << type
+-              << "<" << d << ",mfront::gb::real>{};\n"
+-              << "std::copy(src + " << args.array_offset << ", src + "
+-              << args.array_offset << " + " << args.variable_name << ".size(), "
+-              << args.variable_name << ".begin());\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest  + " << args.array_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ",r);\n";
+-    } else if (args.array_offset.empty()) {
+-      args.os << "auto " << args.variable_name << " = tfel::math::" << type
+-              << "<" << d << ",mfront::gb::real>{};\n"
+-              << "std::copy(src + " << args.variable_offset << ", src + "
+-              << args.variable_offset << " + " << args.variable_name
+-              << ".size(), " << args.variable_name << ".begin());\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest + " << args.variable_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ",r);\n";
+-    } else {
+-      args.os << "auto " << args.variable_name << " = tfel::math::" << type
+-              << "<" << d << ",mfront::gb::real>{};\n"
+-              << "std::copy(src + " << args.array_offset << "+"
+-              << args.variable_offset << ", src + " << args.array_offset
+-              << " + " << args.variable_offset << " + " << args.variable_name
+-              << ".size(), " << args.variable_name << ".begin());\n"
+-              << "auto " << args.variable_name
+-              << "_view = tfel::math::" << view_type << "<" << d
+-              << ",mfront::gb::real>(dest + " << args.array_offset << "+"
+-              << args.variable_offset << ");\n"
+-              << args.variable_name << "_view = tfel::math::change_basis("
+-              << args.variable_name << ",r);\n";
+-    }
+-  }  // end of writeFourthOrderTensorsRotation
+-
+-  static void writeST2toST2Rotation(WriteRotationFunctionArgument& args) {
+-    writeFourthOrderTensorsRotation(args, "st2tost2", "ST2toST2View");
+-  }  // end of writeST2toST2Rotation
+-
+-  static void writeT2toST2Rotation(WriteRotationFunctionArgument& args) {
+-    writeFourthOrderTensorsRotation(args, "t2tost2", "T2toST2View");
+-  }  // end of writeT2toST2Rotation
+-
+-  static void writeST2toT2Rotation(WriteRotationFunctionArgument& args) {
+-    writeFourthOrderTensorsRotation(args, "st2tot2", "ST2toT2View");
+-  }  // end of writeST2toT2Rotation
+-
+-  static void writeT2toT2Rotation(WriteRotationFunctionArgument& args) {
+-    writeFourthOrderTensorsRotation(args, "t2tot2", "T2toT2View");
+-  }  // end of writeT2toT2Rotation
+-
+-  static void writeVariableRotation(
+-      std::ostream& os,
+-      const tfel::material::ModellingHypothesis::Hypothesis h,
+-      const VariableDescription& v,
+-      const SupportedTypes::TypeSize& o,
+-      const std::string& ao = "") {
+-    using size_type = size_t;
+-    if (v.arraySize != 1u) {
+-      tfel::raise(
+-          "writeVariableRotation: "
+-          "array of variables are not supported");
+-    }
+-    auto variable_offset =
+-        static_cast<size_type>(o.getValueForModellingHypothesis(h));
+-    auto args =
+-        WriteRotationFunctionArgument{os, h, v.name, variable_offset, ao};
+-    const auto f = SupportedTypes::getTypeFlag(v.type);
+-    if (f == SupportedTypes::SCALAR) {
+-    } else if (f == SupportedTypes::TVECTOR) {
+-      os << "std::cerr << \"rotation of vector is unsupported\";\n"
+-         << "std::exit(-1);\n";
+-    } else if (f == SupportedTypes::STENSOR) {
+-      writeStensorRotation(args);
+-    } else if (f == SupportedTypes::TENSOR) {
+-      writeTensorRotation(args);
+-    } else {
+-      tfel::raise("writeVariableRotation: unsupported variable type");
+-    }
+-  }  // end of writeVariableRotation
+-
+-  static void writeGradientsRotationFunctionsImplementation(
+-      std::ostream& os,
+-      const GenericBehaviourInterface& i,
+-      const BehaviourDescription& bd,
+-      const std::string& name,
+-      const tfel::material::ModellingHypothesis::Hypothesis h) {
+-    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
+-      return;
+-    }
+-    const auto f = i.getFunctionNameForHypothesis(name, h);
+-    os << "void " << f << "_rotateGradients("
+-       << "mfront_gb_real* const dest, "
+-       << "const mfront_gb_real* const src, "
+-          "const mfront_gb_real* const rv){\n";
+-    writeRotationMatrixDefinition(os, false);
+-    // offset of gradient variable
+-    auto og = SupportedTypes::TypeSize{};
+-    for (const auto& mv : bd.getMainVariables()) {
+-      const auto& g = mv.first;
+-      writeVariableRotation(os, h, g, og);
+-      og += SupportedTypes::getTypeSize(g.type, g.arraySize);
+-    }
+-    os << "}\n\n";
+-    os << "void " << f << "_rotateArrayOfGradients("
+-       << "mfront_gb_real* const dest, "
+-       << "const mfront_gb_real* const src, "
+-       << "const mfront_gb_real* const rv, "
+-       << "const mfront_gb_size_type s){\n";
+-    writeRotationMatrixDefinition(os, false);
+-    os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-    auto gsize = SupportedTypes::TypeSize{};
+-    for (const auto& mv : bd.getMainVariables()) {
+-      const auto& g = mv.first;
+-      gsize += SupportedTypes::getTypeSize(g.type, g.arraySize);
+-    }
+-    const auto goffset =
+-        "idx * " + std::to_string(gsize.getValueForModellingHypothesis(h));
+-    og = SupportedTypes::TypeSize{};
+-    for (const auto& mv : bd.getMainVariables()) {
+-      const auto& g = mv.first;
+-      writeVariableRotation(os, h, g, og, goffset);
+-      og += SupportedTypes::getTypeSize(g.type, g.arraySize);
+-    }
+-    os << "}\n";
+-    os << "}\n\n";
+-  }  // end of writeGradientsRotationFunctionsImplementation
+-
+-  static void writeThermodynamicForcesRotationFunctionsImplementation(
++  static void writeRotationFunctionsImplementations(
+       std::ostream& os,
+       const GenericBehaviourInterface& i,
+       const BehaviourDescription& bd,
+-      const std::string& name,
+-      const tfel::material::ModellingHypothesis::Hypothesis h) {
+-    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
+-      return;
+-    }
+-    const auto is_finite_strain =
+-        (bd.getBehaviourType() ==
+-         BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
+-        ((bd.getBehaviourType() ==
+-          BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
+-         (bd.isStrainMeasureDefined()) &&
+-         (bd.getStrainMeasure() != BehaviourDescription::LINEARISED));
+-    const auto f = i.getFunctionNameForHypothesis(name, h);
+-    // rotate thermodynamic forces
+-    if (is_finite_strain) {
+-      const auto stensor_offset =
+-          "idx * " + std::to_string(tfel::material::getStensorSize(h));
+-      const auto tensor_offset =
+-          "idx * " + std::to_string(tfel::material::getTensorSize(h));
+-      os << "void " << f << "_rotateThermodynamicForces_CauchyStress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_cauchy = WriteRotationFunctionArgument{os, h, "sig", 0, ""};
+-      writeStensorRotation(args_cauchy);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfThermodynamicForces_CauchyStress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      auto args_cauchy_2 =
+-          WriteRotationFunctionArgument{os, h, "sig", 0, stensor_offset};
+-      writeStensorRotation(args_cauchy_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateThermodynamicForces_PK2Stress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_pk2 = WriteRotationFunctionArgument{os, h, "pk2", 0, ""};
+-      writeStensorRotation(args_pk2);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfThermodynamicForces_PK2Stress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      auto args_pk2_2 =
+-          WriteRotationFunctionArgument{os, h, "pk2", 0, stensor_offset};
+-      writeStensorRotation(args_pk2_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateThermodynamicForces_PK1Stress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_pk1 = WriteRotationFunctionArgument{os, h, "pk1", 0, ""};
+-      writeTensorRotation(args_pk1);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfThermodynamicForces_PK1Stress("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      auto args_pk1_2 =
+-          WriteRotationFunctionArgument{os, h, "pk1", 0, tensor_offset};
+-      writeTensorRotation(args_pk1_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-    } else {
+-      os << "void " << f << "_rotateThermodynamicForces("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto otf = SupportedTypes::TypeSize{};
+-      for (const auto& mv : bd.getMainVariables()) {
+-        const auto& tf = mv.second;
+-        writeVariableRotation(os, h, tf, otf, "");
+-        otf += SupportedTypes::getTypeSize(tf.type, tf.arraySize);
+-      }
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfThermodynamicForces("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      auto thsize = SupportedTypes::TypeSize{};
+-      for (const auto& mv : bd.getMainVariables()) {
+-        const auto& th = mv.second;
+-        thsize += SupportedTypes::getTypeSize(th.type, th.arraySize);
+-      }
+-      const auto thoffset =
+-          "idx * " + std::to_string(thsize.getValueForModellingHypothesis(h));
+-      otf = SupportedTypes::TypeSize{};
+-      for (const auto& mv : bd.getMainVariables()) {
+-        const auto& tf = mv.second;
+-        writeVariableRotation(os, h, tf, otf, thoffset);
+-        otf += SupportedTypes::getTypeSize(tf.type, tf.arraySize);
+-      }
+-      os << "}\n";
+-      os << "}\n\n";
+-    }
+-  }  // end of writeThermodynamicForcesRotationFunctionsImplementation
+-
+-  static void writeTangentOperatorRotationFunctionsImplementationBody(
+-      std::ostream& os,
+-      const std::string& f,
+-      const BehaviourDescription& bd,
+-      const tfel::material::ModellingHypothesis::Hypothesis h,
+-      const std::string& array_offset = "") {
+-    using size_type = size_t;
+-    auto o = size_type{};
+-    for (const auto& b : bd.getTangentOperatorBlocks()) {
+-      const auto& v1 = b.first;
+-      const auto& v2 = b.second;
+-      if ((v1.arraySize != 1) || (v2.arraySize != 1)) {
+-        os << "std::cerr << \"" << f << ": \"\n"
+-           << "          << \"array of gradients are not supported\";\n"
+-           << "std::exit(-1);\n";
+-      } else {
+-        const auto to_name = "d" + v1.name + "_d" + v2.name;
+-        auto args =
+-            WriteRotationFunctionArgument{os, h, to_name, o, array_offset};
+-        const auto f1 = SupportedTypes::getTypeFlag(v1.type);
+-        const auto f2 = SupportedTypes::getTypeFlag(v2.type);
+-        if (f1 == SupportedTypes::SCALAR) {
+-          if (f2 == SupportedTypes::SCALAR) {
+-          } else if (f2 == SupportedTypes::TVECTOR) {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported tangent operator type\";\n"
+-               << "std::exit(-1);\n";
+-          } else if (f2 == SupportedTypes::STENSOR) {
+-            writeStensorRotation(args);
+-          } else if (f2 == SupportedTypes::TENSOR) {
+-            writeTensorRotation(args);
+-          } else {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported gradient type\";\n"
+-               << "std::exit(-1);\n";
+-          }
+-        } else if (f1 == SupportedTypes::TVECTOR) {
+-          os << "std::cerr << \"" << f << ": \"\n"
+-             << "          << \"unsupported tangent operator type\";\n"
+-             << "std::exit(-1);\n";
+-        } else if (f1 == SupportedTypes::STENSOR) {
+-          if (f2 == SupportedTypes::SCALAR) {
+-            writeStensorRotation(args);
+-          } else if (f2 == SupportedTypes::TVECTOR) {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported tangent operator type\";\n"
+-               << "std::exit(-1);\n";
+-          } else if (f2 == SupportedTypes::STENSOR) {
+-            writeST2toST2Rotation(args);
+-          } else if (f2 == SupportedTypes::TENSOR) {
+-            writeT2toST2Rotation(args);
+-          } else {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported gradient type\";\n"
+-               << "std::exit(-1);\n";
+-          }
+-        } else if (f1 == SupportedTypes::TENSOR) {
+-          if (f2 == SupportedTypes::SCALAR) {
+-            writeTensorRotation(args);
+-          } else if (f2 == SupportedTypes::TVECTOR) {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported tangent operator type\";\n"
+-               << "std::exit(-1);\n";
+-          } else if (f2 == SupportedTypes::STENSOR) {
+-            writeST2toT2Rotation(args);
+-          } else if (f2 == SupportedTypes::TENSOR) {
+-            writeT2toT2Rotation(args);
+-          } else {
+-            os << "std::cerr << \"" << f << ": \"\n"
+-               << "          << \"unsupported gradient type\";\n"
+-               << "std::exit(-1);\n";
+-          }
++      const std::string& name) {
++    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
++      const auto fn = i.getFunctionNameForHypothesis(name, h);
++      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
++        os << "void " << fn << "_" << f.name << "(mfront_gb_real* const dest, "
++           << "const mfront_gb_real* const src, "
++           << "const mfront_gb_real* const rv){\n";
++        if (f.error.empty()) {
++          writePointRotation(os, f);
+         } else {
+-          os << "std::cerr << \"" << f << ": \"\n"
+-             << "          << \"unsupported gradient type\";\n"
+-             << "std::exit(-1);\n";
++          os << "static_cast<void>(dest);\n"
++             << "static_cast<void>(src);\n"
++             << "static_cast<void>(rv);\n"
++             << "tfel::raise(\"" << fn << "_" << f.name << ": " << f.error
++             << "\");\n";
+         }
++        os << "} // end of " << fn << "_" << f.name << "\n\n"
++           << "void " << fn << "_" << f.array_name
++           << "(mfront_gb_real* const dest, "
++           << "const mfront_gb_real* const src, "
++           << "const mfront_gb_real* const rv, "
++           << "const mfront_gb_size_type s){\n"
++           << "for (mfront_gb_size_type i = 0; i != s; ++i) {\n"
++           << fn << "_" << f.name << "(dest + i * " << f.size << ", src + i * "
++           << f.size << ", rv);\n"
++           << "}\n"
++           << "} // end of " << fn << "_" << f.array_name << "\n\n";
+       }
+-      const auto s1 = static_cast<size_type>(
+-          SupportedTypes::getTypeSize(v1.type, v1.arraySize)
+-              .getValueForModellingHypothesis(h));
+-      const auto s2 = static_cast<size_type>(
+-          SupportedTypes::getTypeSize(v2.type, v2.arraySize)
+-              .getValueForModellingHypothesis(h));
+-      o += static_cast<size_type>(s1 * s2);
+-    }
+-  }  // end of writeTangentOperatorRotationFunctionsImplementationBody
+-
+-  static void writeTangentOperatorRotationFunctionsImplementation(
+-      std::ostream& os,
+-      const GenericBehaviourInterface& i,
+-      const BehaviourDescription& bd,
+-      const std::string& name,
+-      const tfel::material::ModellingHypothesis::Hypothesis h) {
+-    using size_type = size_t;
+-    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
+-      return;
+-    }
+-    const auto f = i.getFunctionNameForHypothesis(name, h);
+-    const auto is_finite_strain =
+-        (bd.getBehaviourType() ==
+-         BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
+-        ((bd.getBehaviourType() ==
+-          BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
+-         (bd.isStrainMeasureDefined()) &&
+-         (bd.getStrainMeasure() != BehaviourDescription::LINEARISED));
+-    if (is_finite_strain) {
+-      const auto stsize = tfel::material::getStensorSize(h);
+-      const auto tsize = tfel::material::getTensorSize(h);
+-      os << "void " << f << "_rotateTangentOperatorBlocks_dsig_dF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dsig_dF =
+-          WriteRotationFunctionArgument{os, h, "dsig_dF", 0, ""};
+-      writeT2toST2Rotation(args_dsig_dF);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfTangentOperatorBlocks_dsig_dF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "const mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dsig_dF_2 = WriteRotationFunctionArgument{
+-          os, h, "dsig_dF", 0, "idx * " + std::to_string(stsize * tsize)};
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      writeT2toST2Rotation(args_dsig_dF_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-      //
+-      os << "void " << f << "_rotateTangentOperatorBlocks_dPK1_dF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dPK1_dF =
+-          WriteRotationFunctionArgument{os, h, "dpk1_dF", 0, ""};
+-      writeT2toT2Rotation(args_dPK1_dF);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfTangentOperatorBlocks_dPK1_dF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "const mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      auto args_dPK1_dF_2 = WriteRotationFunctionArgument{
+-          os, h, "dpk1_dF", 0, "idx * " + std::to_string(tsize * tsize)};
+-      writeT2toT2Rotation(args_dPK1_dF_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-      //
+-      os << "void " << f << "_rotateTangentOperatorBlocks_dPK2_dEGL("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dpk2_degl =
+-          WriteRotationFunctionArgument{os, h, "dpk2_degl", 0, ""};
+-      writeST2toST2Rotation(args_dpk2_degl);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfTangentOperatorBlocks_dPK2_dEGL("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real * const rv, "
+-         << "const mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dpk2_degl_2 = WriteRotationFunctionArgument{
+-          os, h, "dpk2_degl", 0, "idx * " + std::to_string(stsize * stsize)};
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      writeST2toST2Rotation(args_dpk2_degl_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateTangentOperatorBlocks_dtau_ddF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dtau_ddF =
+-          WriteRotationFunctionArgument{os, h, "dtau_ddF", 0, ""};
+-      writeT2toST2Rotation(args_dtau_ddF);
+-      os << "}\n\n";
+-      os << "void " << f << "_rotateArrayOfTangentOperatorBlocks_dtau_ddF("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-         << "const mfront_gb_real* const rv, "
+-         << "const mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      auto args_dtau_ddF_2 = WriteRotationFunctionArgument{
+-          os, h, "dtau_ddF", 0, "idx * " + std::to_string(stsize * tsize)};
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      writeT2toST2Rotation(args_dsig_dF_2);
+-      os << "}\n";
+-      os << "}\n\n";
+-    } else {
+-      os << "void " << f << "_rotateTangentOperatorBlocks("
+-         << "mfront_gb_real* const dest,"
+-         << "const mfront_gb_real* const src,"
+-         << "const mfront_gb_real* const rv){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      writeTangentOperatorRotationFunctionsImplementationBody(
+-          os, f + "_rotateTangentOperatorBlocks", bd, h);
+-      os << "}\n\n";
+-      auto tob_size = size_type{};
+-      for (const auto& to : bd.getTangentOperatorBlocks()) {
+-        const auto& v1 = to.first;
+-        const auto& v2 = to.second;
+-        const auto v1size = SupportedTypes::getTypeSize(v1.type, v1.arraySize);
+-        const auto v2size = SupportedTypes::getTypeSize(v2.type, v2.arraySize);
+-        tob_size +=
+-            static_cast<size_type>(v1size.getValueForModellingHypothesis(h) *
+-                                   v2size.getValueForModellingHypothesis(h));
+-      }
+-      const auto tob_offset = "idx * " + std::to_string(tob_size);
+-      os << "void " << f << "_rotateArrayOfTangentOperatorBlocks("
+-         << "mfront_gb_real* const dest, "
+-         << "const mfront_gb_real* const src, "
+-            "const mfront_gb_real* const rv, "
+-         << "const mfront_gb_size_type s){\n";
+-      writeRotationMatrixDefinition(os, true);
+-      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
+-      writeTangentOperatorRotationFunctionsImplementationBody(
+-          os, f + "_rotateArrayOfTangentOperatorBlocks", bd, h, tob_offset);
+-      os << "}\n";
+-      os << "}\n\n";
+-    }
+-  }  // end of writeTangentOperatorRotationFunctionsImplementation
+-
+-  static void writeRotationFunctionsImplementations(
+-      std::ostream& os,
+-      const GenericBehaviourInterface& i,
+-      const BehaviourDescription& bd,
+-      const std::string& name) {
+-    const auto mhs = i.getModellingHypothesesToBeTreated(bd);
+-    for (const auto h : mhs) {
+-      writeGradientsRotationFunctionsImplementation(os, i, bd, name, h);
+-      writeThermodynamicForcesRotationFunctionsImplementation(os, i, bd, name,
+-                                                              h);
+-      writeTangentOperatorRotationFunctionsImplementation(os, i, bd, name, h);
+     }
+   }  // end of writeRotationFunctionsImplementations
+ 
+@@ -1283,63 +419,7 @@ namespace mfront {
+ 
+     this->writeGetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
+ 
+-    // behaviour traits
+-    out << "namespace mfront::gb{\n\n";
+-    for (const auto h : mhs) {
+-      const auto hypothesis = "tfel::material::ModellingHypothesis::" +
+-                              ModellingHypothesis::toUpperCaseString(h);
+-      const auto behaviour = [&hypothesis, &bd] {
+-        if (bd.useQt()) {
+-          return bd.getClassName() + "<" + hypothesis + ", real, true>";
+-        }
+-        return bd.getClassName() + "<" + hypothesis + ", real, false>";
+-      }();
+-      out << "template<>\n"
+-          << "struct GenericBehaviourTraits<"
+-          << "tfel::material::" << behaviour << ">{\n"
+-          << "static constexpr auto hypothesis = " << hypothesis << ";\n"
+-          << "static constexpr auto N = "
+-          << "tfel::material::ModellingHypothesisToSpaceDimension<hypothesis>::"
+-          << "value;\n"
+-          << "static constexpr auto StensorSize = "
+-          << "tfel::material::ModellingHypothesisToStensorSize<hypothesis>::"
+-          << "value;\n"
+-          << "static constexpr auto TensorSize = "
+-          << "tfel::material::ModellingHypothesisToTensorSize<hypothesis>::"
+-          << "value;\n";
+-      if ((h == ModellingHypothesis::PLANESTRESS) ||
+-          (h == ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS)) {
+-        if (is_finite_strain_through_strain_measure) {
+-          const auto as =
+-              this->checkIfAxialStrainIsDefinedAndGetItsOffset(bd, h);
+-          if (as.first) {
+-            out << "static constexpr bool "
+-                << "has_axial_strain_offset = true;\n";
+-            out << "static constexpr size_t axial_strain_offset = "  //
+-                << as.second << ";\n";
+-          } else {
+-            out << "static constexpr bool "
+-                << "has_axial_strain_offset = false;\n";
+-          }
+-        } else if (type ==
+-                   BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) {
+-          const auto as =
+-              this->checkIfAxialDeformationGradientIsDefinedAndGetItsOffset(bd,
+-                                                                            h);
+-          if (as.first) {
+-            out << "static constexpr bool "
+-                << "has_axial_deformation_gradient_offset = true;\n";
+-            out << "static constexpr size_t axial_deformation_gradient_offset "
+-                << "= " << as.second << ";\n";
+-          } else {
+-            out << "static constexpr bool "
+-                << "has_axial_deformation_gradient_offset = false;\n";
+-          }
+-        }
+-      }
+-      out << "};\n\n";
+-    }
+-    out << "} // end of namespace mfront::gb\n\n";
++    this->writeGenericBehaviourTraits(out, bd, mhs);
+ 
+     out << "#ifdef __cplusplus\n"
+         << "extern \"C\"{\n"
+@@ -2419,7 +1499,7 @@ namespace mfront {
+       const auto& initialize_function_variables =
+           c.attributes.at(CodeBlock::used_initialize_function_variables)
+               .get<std::vector<VariableDescription>>();
+-      os << "void execute" << n
++      os << "TFEL_HOST_DEVICE void execute" << n
+          << "InitializeFunction(const NumericType* const ";
+       if (!initialize_function_variables.empty()) {
+         os << "mfront_initialize_function_inputs){\n";
+@@ -2468,7 +1548,8 @@ namespace mfront {
+       const auto& postprocessing_variables =
+           c.attributes.at(CodeBlock::used_postprocessing_variables)
+               .get<std::vector<VariableDescription>>();
+-      os << "void execute" << n << "PostProcessing(NumericType* const "
++      os << "TFEL_HOST_DEVICE void execute" << n
++         << "PostProcessing(NumericType* const "
+          << "mfront_postprocessing_outputs,\n"
+          << "const BehaviourData& initial_state){\n"
+          << "using namespace std;\n"
+@@ -2482,6 +1563,73 @@ namespace mfront {
+     }
+   }  // end of writeBehaviourPostProcessings
+ 
++  void GenericBehaviourInterface::writeGenericBehaviourTraits(
++      std::ostream& out,
++      const BehaviourDescription& bd,
++      const std::set<Hypothesis>& mhs) const {
++    const auto type = bd.getBehaviourType();
++    const auto is_finite_strain_through_strain_measure =
++        (type == BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
++        (bd.isStrainMeasureDefined()) &&
++        (bd.getStrainMeasure() != BehaviourDescription::LINEARISED);
++    out << "namespace mfront::gb{\n\n";
++    for (const auto h : mhs) {
++      const auto hypothesis = "tfel::material::ModellingHypothesis::" +
++                              ModellingHypothesis::toUpperCaseString(h);
++      const auto behaviour = [&hypothesis, &bd] {
++        if (bd.useQt()) {
++          return bd.getClassName() + "<" + hypothesis + ", real, true>";
++        }
++        return bd.getClassName() + "<" + hypothesis + ", real, false>";
++      }();
++      out << "template<>\n"
++          << "struct GenericBehaviourTraits<"
++          << "tfel::material::" << behaviour << ">{\n"
++          << "static constexpr auto hypothesis = " << hypothesis << ";\n"
++          << "static constexpr auto N = "
++          << "tfel::material::ModellingHypothesisToSpaceDimension<hypothesis>::"
++          << "value;\n"
++          << "static constexpr auto StensorSize = "
++          << "tfel::material::ModellingHypothesisToStensorSize<hypothesis>::"
++          << "value;\n"
++          << "static constexpr auto TensorSize = "
++          << "tfel::material::ModellingHypothesisToTensorSize<hypothesis>::"
++          << "value;\n";
++      if ((h == ModellingHypothesis::PLANESTRESS) ||
++          (h == ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS)) {
++        if (is_finite_strain_through_strain_measure) {
++          const auto as =
++              this->checkIfAxialStrainIsDefinedAndGetItsOffset(bd, h);
++          if (as.first) {
++            out << "static constexpr bool "
++                << "has_axial_strain_offset = true;\n";
++            out << "static constexpr size_t axial_strain_offset = "  //
++                << as.second << ";\n";
++          } else {
++            out << "static constexpr bool "
++                << "has_axial_strain_offset = false;\n";
++          }
++        } else if (type ==
++                   BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) {
++          const auto as =
++              this->checkIfAxialDeformationGradientIsDefinedAndGetItsOffset(bd,
++                                                                            h);
++          if (as.first) {
++            out << "static constexpr bool "
++                << "has_axial_deformation_gradient_offset = true;\n";
++            out << "static constexpr size_t axial_deformation_gradient_offset "
++                << "= " << as.second << ";\n";
++          } else {
++            out << "static constexpr bool "
++                << "has_axial_deformation_gradient_offset = false;\n";
++          }
++        }
++      }
++      out << "};\n\n";
++    }
++    out << "} // end of namespace mfront::gb\n\n";
++  }  // end of writeGenericBehaviourTraits
++
+   GenericBehaviourInterface::~GenericBehaviourInterface() = default;
+ 
+ }  // end of namespace mfront
+-- 
+2.43.0
+

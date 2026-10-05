@@ -1,0 +1,17 @@
+interfaces_options: {
+  generic-parallel: {
+    backend: {stlpar: {
+        execution_policy: "parallel_unsequenced_policy"
+      }
+    }
+  }
+},
+compilation_options : {
+  cxx : {
+    compiler: "g++-14",
+    compilation_flags: "-O2 -ftrivial-auto-var-init=pattern -I/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/include -I/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/include"
+  }
+},
+linking_options : {
+  linker_flags: "-ltbb"
+}

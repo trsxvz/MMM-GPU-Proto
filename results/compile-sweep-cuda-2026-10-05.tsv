@@ -1,0 +1,226 @@
+AbaqusAxialGrowth2	OK	
+AbaqusAxialGrowth	OK	
+AbaqusOrthotropicElastic2	OK	
+AbaqusOrthotropicElastic	OK	
+AbaqusOrthotropicSwelling2	OK	
+AbaqusOrthotropicSwelling	OK	
+AgeingBurger	OK	
+AnistropicLemaitreViscoplasticBehaviour	OK	
+ArrayOfScalarGradients	OK	
+ArrayOfStensorGradients	OK	
+AxialGrowth2	OK	
+AxialGrowth3	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/AxialGrowth3.mfront(25): error: device code does not support exception handling
+AxialGrowth	OK	
+BarBehaviour2	OK	
+BarBehaviour3	OK	
+BarBehaviour4	OK	
+BarBehaviour	OK	
+BerveillerZaouiPolyCrystal_DD_CC	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/BerveillerZaouiPolyCrystal_DD_CC.mfront(122): error: device code does not support exception handling
+BerveillerZaouiPolyCrystal_DD_CFC	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/BerveillerZaouiPolyCrystal_DD_CFC.mfront(77): error: dynamic initialization is not supported for a function-scope static __device__ variable within a __device__/__global__ function
+BerveillerZaouiPolyCrystal	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCGenericSlidingSystemsInteractionMatrix<double> ::getInteractionMatrix(double, double, double, double, double, double)") calling a __host__ function("tfel::material::PolyCrystalsSlidingSystems<(unsigned short)30,  ::tfel::material::MetallicCFCSl
+Burger	OK	
+Chaboche2	OK	
+Chaboche	OK	
+CompressibleNeoHookeanBehaviour	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/CompressibleNeoHookeanBehaviour.mfront'
+ComputeStressFreeExpansion	OK	
+ComputeThermalExpansion2	OK	
+ComputeThermalExpansion3	OK	
+ComputeThermalExpansion4	OK	
+ComputeThermalExpansion5	OK	
+ComputeThermalExpansion6	OK	
+ComputeThermalExpansion7	OK	
+ComputeThermalExpansion	OK	
+DDIF2	OK	
+DigitSeparatorTest	OK	
+DruckerPragerEcroLinDefault	OK	
+DruckerPragerEcroLin	OK	
+DruckerPrager	OK	
+DSLOptionsTest	OK	
+Elasticity10	OK	
+Elasticity2	OK	
+Elasticity3	OK	
+Elasticity4	OK	
+Elasticity5	OK	
+Elasticity6	OK	
+Elasticity7	OK	
+Elasticity8	OK	
+Elasticity9	OK	
+Elasticity	OK	
+ElasticityParametersAsStaticVariables	OK	
+ElasticMaterialPropertiesBoundsCheckTest	OK	
+EllipticCreep	OK	
+ExternalModel2	OK	
+ExternalModelCaller2	HOST_CALLS	calling a __host__ function("tfel::material::ExternalModelCaller2<( ::tfel::material::ModellingHypothesis::Hypothesis)0, double, (bool)0> ::MFrontExternalModel2BehaviourVariableFactory_mfront_external_model_ExternalModel2::make()") calling a __host__ function("tfel::material::ExternalModelCaller2<( 
+ExternalModelCaller3	OK	
+ExternalModelCaller4	HOST_CALLS	calling a __host__ function("tfel::material::ExternalModelCaller4<( ::tfel::material::ModellingHypothesis::Hypothesis)0, double, (bool)0> ::MFrontExternalModel2BehaviourVariableFactory_mfront_external_model_ExternalModel2::make()") calling a __host__ function("tfel::material::ExternalModelCaller4<( 
+ExternalModelCaller	OK	
+ExternalModel	NOT_A_BEHAVIOUR	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ExternalModel.mfront'
+ExternalStateVariablesBoundsCheck	OK	
+FiniteRotationSmallStrainElasticity2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/FiniteRotationSmallStrainElasticity2.mfront'
+FiniteRotationSmallStrainElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/FiniteRotationSmallStrainElasticity.mfront'
+FiniteStrainSingleCrystal2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/FiniteStrainSingleCrystal2.mfront'
+FiniteStrainSingleCrystal_NumericalJacobian	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/FiniteStrainSingleCrystal_NumericalJacobian.mfront'
+FiniteStrainSingleCrystal	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/FiniteStrainSingleCrystal.mfront'
+GeneralizedMaxwell	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/GeneralizedMaxwell.mfront(50): error: device code does not support exception handling
+GenerateMTestFileOnFailure	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/GenerateMTestFileOnFailure.mfront'
+GursonTvergaardNeedlemanPlasticFlow_NumericalJacobian	OK	
+GursonTvergaardNeedlemanViscoPlasticFlow_NumericalJacobian	OK	
+Gurson	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/Gurson.mfront(63): error: device code does not support exception handling
+Hayhurst	OK	
+HosfordPerfectPlasticity2	OK	
+HosfordPerfectPlasticity3	OK	
+HosfordPerfectPlasticity	OK	
+ImplicitElasticityParametersAsStaticVariables	OK	
+ImplicitFiniteStrainNorton	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ImplicitFiniteStrainNorton.mfront'
+ImplicitHayhurst	OK	
+ImplicitMonoCrystal	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCGenericSlidingSystemsInteractionMatrix<double> ::getInteractionMatrix(double, double, double, double, double, double)") calling a __host__ function("tfel::material::MetallicCFCSlidingSystems<double> ::getSlidingSystems()") 
+ImplicitNorton2	OK	
+ImplicitNorton3	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ImplicitNorton3.mfront(52): error: device code does not support exception handling
+ImplicitNorton4	OK	
+ImplicitNorton5	OK	
+ImplicitNorton6	OK	
+ImplicitNorton7	OK	
+ImplicitNorton_Broyden2	OK	
+ImplicitNorton_Broyden	OK	
+ImplicitNorton_LevenbergMarquardt	OK	
+ImplicitNorton_NumericallyComputedJacobianBlocks	OK	
+ImplicitNorton	OK	
+ImplicitNorton_PowellDogLegBroyden	OK	
+ImplicitOrthotropicCreep2	OK	
+ImplicitOrthotropicCreep3	OK	
+ImplicitOrthotropicCreep4	OK	
+ImplicitOrthotropicCreep	OK	
+ImplicitSimoMieheElastoPlasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ImplicitSimoMieheElastoPlasticity.mfront'
+IncompressibleMooneyRivlinBehaviour	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/IncompressibleMooneyRivlinBehaviour.mfront'
+IncompressiblePlaneStressGornetDesmoratBehaviour	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/IncompressiblePlaneStressGornetDesmoratBehaviour.mfront'
+IncompressiblePlaneStressMooneyRivlinBehaviour	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/IncompressiblePlaneStressMooneyRivlinBehaviour.mfront'
+InitializationFailureTest	OK	
+IsotropicLinearSwelling2	OK	
+IsotropicLinearSwelling	OK	
+IsotropicVolumeSwelling2	OK	
+IsotropicVolumeSwelling	OK	
+JohnsonCook_s	OK	
+JohnsonCook_ssr	OK	
+JohnsonCook_ssrt	OK	
+LogarithmicStrainAxialGrowth	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainAxialGrowth.mfront'
+LogarithmicStrainElasticity2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainElasticity2.mfront'
+LogarithmicStrainElasticity3	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainElasticity3.mfront'
+LogarithmicStrainElasticity4	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainElasticity4.mfront'
+LogarithmicStrainElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainElasticity.mfront'
+LogarithmicStrainNortonCreep2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainNortonCreep2.mfront'
+LogarithmicStrainNortonCreep	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainNortonCreep.mfront'
+LogarithmicStrainOrthotropicElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainOrthotropicElasticity.mfront'
+LogarithmicStrainPlasticity2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainPlasticity2.mfront'
+LogarithmicStrainPlasticity	OK	
+LogarithmicStrainStandardElasticity2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainStandardElasticity2.mfront'
+LogarithmicStrainStandardElasticity3	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainStandardElasticity3.mfront'
+LogarithmicStrainStandardElasticity4	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainStandardElasticity4.mfront'
+LogarithmicStrainStandardElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/LogarithmicStrainStandardElasticity.mfront'
+Lorentz2	OK	
+Lorentz	OK	
+MaterialPropertiesBoundsCheck	OK	
+Mazars	OK	
+MiehePhaseFieldDisplacementDeviatoricSplit	OK	
+model1	OK	
+MonoCrystal_DD_CC_InteractionMatrix	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_InteractionMatrix.mfront'
+MonoCrystal_DD_CC_Irradiation_NumericalJacobian	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_Irradiation_NumericalJacobian.mfront(85): error: device code does not support exception handling
+MonoCrystal_DD_CC_Irradiation	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_Irradiation.mfront(104): error: device code does not support exception handling
+MonoCrystal_DD_CC_LevenbergMarquardt	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_LevenbergMarquardt.mfront(99): error: device code does not support exception handling
+MonoCrystal_DD_CC_NumericalJacobian	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_NumericalJacobian.mfront(86): error: device code does not support exception handling
+MonoCrystal_DD_CC_SlidingSystems	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC_SlidingSystems.mfront'
+MonoCrystal_DD_CC	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CC.mfront(101): error: device code does not support exception handling
+MonoCrystal_DD_CFC	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCSlidingSystems<double> ::getSlidingSystems()") 
+MonoCrystal_DD_CFC_InteractionMatrix	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystal_DD_CFC_InteractionMatrix.mfront'
+MonoCrystal_DD_CFC_Irradiation	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCSlidingSystems<double> ::getSlidingSystems()") 
+MonoCrystal_DD_CFC_NumericalJacobian	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCSlidingSystems<double> ::getSlidingSystems()") 
+MonoCrystal	HOST_CALLS	calling a __host__ function("tfel::material::MetallicCFCGenericSlidingSystemsInteractionMatrix<double> ::getInteractionMatrix(double, double, double, double, double, double)") calling a __host__ function("tfel::material::MetallicCFCSlidingSystems<double> ::getSlidingSystems()") 
+MonoCrystalNewtonRaphson	MFRONT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/MonoCrystalNewtonRaphson.mfront'
+Norton2	OK	
+Norton3	OK	
+Norton4	OK	
+Norton5	OK	
+Norton_Euler	OK	
+Norton_euler_qt	OK	
+Norton	OK	
+Norton_rk2	OK	
+NortonRK2	OK	
+Norton_rk2_qt	OK	
+NortonRK3	OK	
+Norton_rk42	OK	
+Norton_rk42_qt	OK	
+Norton_rk4	OK	
+NortonRK4	OK	
+Norton_rk4_qt	OK	
+Norton_rk54_qt	OK	
+Norton_rkCastem	OK	
+Norton_rkCastem_qt	OK	
+NortonRK	OK	
+ode_default2	OK	
+ode_default	OK	
+ode_implicit	OK	
+ode_rk54	OK	
+OrthotropicCreep	OK	
+OrthotropicCreep_rk42	OK	
+OrthotropicCreep_rkCastem	OK	
+OrthotropicElastic2	OK	
+OrthotropicElastic3	OK	
+OrthotropicElastic4	OK	
+OrthotropicElastic5	OK	
+OrthotropicElastic6	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/OrthotropicElastic6.mfront(72): error: identifier "std::cout" is undefined in device code
+OrthotropicElastic7	OK	
+OrthotropicElastic8	OK	
+OrthotropicElastic9	OK	
+OrthotropicElastic	OK	
+OrthotropicSaintVenantKirchhoffElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/OrthotropicSaintVenantKirchhoffElasticity.mfront'
+OrthotropicSwelling2	OK	
+OrthotropicSwelling	OK	
+ParameterTest2	HOST_CALLS	calling a __host__ function("void tfel::raise_if<    ::std::runtime_error, const char (&)[36] > (bool, T2 &&...)") 
+ParameterTest	HOST_CALLS	calling a __host__ function("void tfel::raise_if<    ::std::runtime_error, const char (&)[36] > (bool, T2 &&...)") 
+PerfectPlasticity	OK	
+PlasIsoCin	OK	
+Plasticity2	OK	
+Plasticity3	OK	
+Plasticity4	OK	
+Plasticity5	OK	
+Plasticity6	OK	
+Plasticity7	OK	
+Plasticity	OK	
+PlasticityWithoutAutomaticTemperatureDeclaration	OK	
+PolyCrystals_DD_CC	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/PolyCrystals_DD_CC.mfront(119): error: device code does not support exception handling
+PolyCrystals_DD_CFC	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/PolyCrystals_DD_CFC.mfront(78): error: dynamic initialization is not supported for a function-scope static __device__ variable within a __device__/__global__ function
+PolyCrystals	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/PolyCrystals.mfront(126): error: dynamic initialization is not supported for a function-scope static __device__ variable within a __device__/__global__ function
+PoroElasticity	OK	
+PoroPlasticity	OK	
+ProfilerTest2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ProfilerTest2.mfront'
+ProfilerTest3	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/ProfilerTest3.mfront'
+ProfilerTest	OK	
+RelocationTest	OK	
+RungeKuttaElasticityParametersAsStaticVariables	OK	
+RusinekKlepaczko_ssrt	OK	
+SaintVenantKirchhoffElasticity2	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SaintVenantKirchhoffElasticity2.mfront'
+SaintVenantKirchhoffElasticity3	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SaintVenantKirchhoffElasticity3.mfront'
+SaintVenantKirchhoffElasticity4	HOST_CALLS	calling a __host__ function("tfel::material::FiniteStrainBehaviourTangentOperatorType<T1, T3, T4> ::type tfel::material::convert<( ::tfel::material::FiniteStrainBehaviourTangentOperatorBase::Flag)14, ( ::tfel::material::FiniteStrainBehaviourTangentOperatorBase::Flag)12, (unsigned short)1, double> (c
+SaintVenantKirchhoffElasticityTotalLagrangian	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SaintVenantKirchhoffElasticityTotalLagrangian.mfront'
+SaintVenantKirchhoffElasticity	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SaintVenantKirchhoffElasticity.mfront'
+SaintVenantKirchhoffElasticityWithSubStepping	UNSUPPORTED	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SaintVenantKirchhoffElasticityWithSubStepping.mfront'
+SlidingSystemsCC	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/SlidingSystemsCC.mfront'
+StateVariablesBoundsCheck	OK	
+StationaryHeatTransfer2	OK	
+StationaryHeatTransfer	OK	
+StrainHardeningCreep2	OK	
+StrainHardeningCreep3	OK	
+StrainHardeningCreep4	OK	
+StrainHardeningCreep5	OK	
+StrainHardeningCreep6	OK	
+StrainHardeningCreep	OK	
+T91ViscoplasticBehaviour	OK	
+TemperatureUpdateOnSubSteppingCheck	USER_CODE	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel-gpu-proto/mfront/tests/behaviours/TemperatureUpdateOnSubSteppingCheck.mfront(21): error: device code does not support exception handling
+TensorialExternalStateVariableTest	OK	
+ThermalNorton2	OK	
+ThermalNorton	OK	
+ThermoElasticity	OK	
+Tvergaard	OK	
+UnilateralMazars	OK	
+ViscoChaboche	OK	
+ViscoMemoNrad	OK	
+ViscoPlasIsoCin	OK	

@@ -1,0 +1,2413 @@
+From e33bc27e565951e1718712a00ace2ce23ba93a65 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 14:22:36 +0200
+Subject: [PATCH 03/21] MFront: generated code compatible with device code
+
+The code generated for the behaviours, the material properties used by
+the behaviours and the models can be compiled for GPUs. Host code is
+unchanged: device specific code is selected by the TFEL_DEVICE_CODE
+macro and returns failures instead of throwing exceptions.
+
+- Host/device annotations of the generated methods (integration,
+  prediction and tangent operators, stress free expansion, jacobian and
+  tangent operator blocks, isotropic DSLs, Runge-Kutta DSLs, bricks,
+  wrappers of behaviour variables, models).
+- Helpers writing code which differs on the host and in device code.
+- Bounds checks: failure returned in device code (checkBounds returns a
+  boolean, physical bounds checked after integration return FAILURE).
+- Parameters: an interface may give the values of the parameters to its
+  behaviour constructor, since the parameters initializers are host
+  singletons. Parameters treated as static variables are constant
+  members in device code (static data members can't be odr-used).
+- Material properties called by behaviours: the mfront interface also
+  writes an implementation in the mfront::device namespace (no exception,
+  no errno, NaN if a physical bound is violated), used in device code.
+- Interfaces may forbid dynamically allocated vectors.
+- Blocks of code written by several interfaces are only written once, so
+  that interfaces sharing members (generic and generic-parallel) can be
+  used together.
+- Profiling disabled in device code.
+---
+ .../MFront/AbstractBehaviourInterface.hxx     |  19 +
+ .../MFront/BehaviourCodeGeneratorBase.hxx     |  70 ++-
+ .../MFront/CMaterialPropertyInterfaceBase.hxx |  11 +
+ .../include/MFront/CodeGeneratorUtilities.hxx |  21 +-
+ .../MFront/GenericBehaviourInterface.hxx      |  25 ++
+ .../MFrontMaterialPropertyInterface.hxx       |  24 +-
+ mfront/src/AbstractBehaviourInterface.cxx     |  11 +
+ mfront/src/BehaviourCodeGeneratorBase.cxx     | 399 +++++++++++-------
+ mfront/src/BehaviourDSLCommon.cxx             |   9 +-
+ mfront/src/CMaterialPropertyInterfaceBase.cxx |   6 +
+ mfront/src/CodeGeneratorUtilities.cxx         | 118 +++---
+ mfront/src/GenericBehaviourInterface.cxx      |  58 ++-
+ mfront/src/HookeStressPotential.cxx           |  26 +-
+ mfront/src/ImplicitCodeGeneratorBase.cxx      |  53 ++-
+ .../IsotropicBehaviourCodeGeneratorBase.cxx   |  31 +-
+ .../src/IsotropicMisesCreepCodeGenerator.cxx  |  27 +-
+ ...IsotropicMisesPlasticFlowCodeGenerator.cxx |  27 +-
+ ...StrainHardeningMisesCreepCodeGenerator.cxx |  27 +-
+ .../src/MFrontMaterialPropertyInterface.cxx   |  92 ++++
+ mfront/src/MFrontModelInterface.cxx           |  10 +-
+ ...ltipleIsotropicMisesFlowsCodeGenerator.cxx |  36 +-
+ mfront/src/PerformanceProfiling.cxx           |  12 +-
+ mfront/src/RungeKuttaCodeGeneratorBase.cxx    |  93 ++--
+ mfront/src/RungeKuttaDSLBase.cxx              |   6 +
+ .../ScalarDamageHookeStressPotentialBase.cxx  |  26 +-
+ 25 files changed, 846 insertions(+), 391 deletions(-)
+
+diff --git a/mfront/include/MFront/AbstractBehaviourInterface.hxx b/mfront/include/MFront/AbstractBehaviourInterface.hxx
+index 3c0853a91..5e1f18cea 100644
+--- a/mfront/include/MFront/AbstractBehaviourInterface.hxx
++++ b/mfront/include/MFront/AbstractBehaviourInterface.hxx
+@@ -90,6 +90,25 @@ namespace mfront {
+      */
+     [[nodiscard]] virtual bool isBehaviourConstructorRequired(
+         const Hypothesis, const BehaviourDescription &) const = 0;
++    /*!
++     * \return the name of an argument of the behaviour constructor written by
++     * the interface which gives the values of the parameters, or an empty
++     * string if the parameters are taken from the parameters initializers
++     * (default).
++     *
++     * The parameters initializers are global objects which can't be accessed
++     * from device code.
++     * \param[in] mb : behaviour description
++     * \param[in] h  : modelling hypothesis
++     */
++    [[nodiscard]] virtual std::string getParametersSourceInBehaviourConstructor(
++        const BehaviourDescription&, const Hypothesis) const;
++    /*!
++     * \return true if the interface supports dynamically allocated vectors,
++     * which MFront uses by default for large arrays of variables. Those
++     * vectors can't be used in device code.
++     */
++    [[nodiscard]] virtual bool areDynamicallyAllocatedVectorsAllowed() const;
+     /*!
+      * \return the list of modelling hypotheses treated by the interface
+      * \param[in] mb : behaviour description
+diff --git a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
+index 3df9d46fa..8fe6c5c3a 100644
+--- a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
++++ b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
+@@ -275,23 +275,29 @@ namespace mfront {
+      * \param[out] os: output stream
+      * \param[in]  v:  variable description
+      * \param[in]  b:  if true, checks are written also on the variable
+-     * updated with its increment \note if the variable has no bounds, nothing
+-     * is done
++     * updated with its increment
++     * \param[in]  on_failure: code executed if a check fails in device code,
++     * where exceptions are not available (see `BoundsCheckBase`)
++     * \note if the variable has no bounds, nothing is done
+      */
+     virtual void writeBoundsChecks(std::ostream&,
+                                    const VariableDescription&,
+-                                   const bool) const;
++                                   const bool,
++                                   const std::string_view) const;
+     /*!
+      * \brief write the checks associated to a physical bound
+      * \param[out] os: output stream
+      * \param[in]  v:  variable description
+      * \param[in]  b:  if true, checks are written also on the variable
+-     * updated with its increment \note if the variable has no physical
+-     * bounds, nothing is done
++     * updated with its increment
++     * \param[in]  on_failure: code executed if a check fails in device code,
++     * where exceptions are not available (see `BoundsCheckBase`)
++     * \note if the variable has no physical bounds, nothing is done
+      */
+     virtual void writePhysicalBoundsChecks(std::ostream&,
+                                            const VariableDescription&,
+-                                           const bool) const;
++                                           const bool,
++                                           const std::string_view) const;
+     /*!
+      * \brief write the disabled constructors
+      * \param[in] os: output stream
+@@ -562,6 +568,58 @@ namespace mfront {
+ 
+     virtual void writeBehaviourParameterInitialisation(std::ostream&,
+                                                        const Hypothesis) const;
++    /*!
++     * \brief write the initialisation of the parameters in a constructor
++     * \param[in] os: output stream
++     * \param[in] h: modelling hypothesis
++     * \param[in] src: name of an object giving the values of the parameters.
++     * If empty, the values are taken from the parameters initializers.
++     */
++    virtual void writeBehaviourParameterInitialisation(
++        std::ostream&, const Hypothesis, const std::string&) const;
++    /*!
++     * \brief write code which differs on the host and in device code (see
++     * the `TFEL_DEVICE_CODE` macro). This is mostly meant to replace
++     * exceptions, which are not supported in device code.
++     * \param[in] os: output stream
++     * \param[in] host: code executed on the host
++     * \param[in] device: code executed on the device
++     */
++    virtual void writeHostAndDeviceCode(std::ostream&,
++                                        const std::string&,
++                                        const std::string&) const;
++    /*!
++     * \brief write an instruction throwing an exception with the given message
++     * on the host. Exceptions are not supported in device code, where the
++     * given value is returned instead (see the `TFEL_DEVICE_CODE` macro).
++     * \param[in] os: output stream
++     * \param[in] msg: error message
++     * \param[in] v: value returned in device code
++     */
++    virtual void writeDeviceCompatibleRaise(std::ostream&,
++                                            const std::string&,
++                                            const std::string&) const;
++    /*!
++     * \brief write an instruction throwing an exception with the given message
++     * on the host if the given condition is true. Exceptions are not
++     * supported in device code, where the given value is returned instead
++     * (see the `TFEL_DEVICE_CODE` macro).
++     * \param[in] os: output stream
++     * \param[in] c: condition
++     * \param[in] msg: error message
++     * \param[in] v: value returned in device code
++     */
++    virtual void writeDeviceCompatibleRaiseIf(std::ostream&,
++                                              const std::string&,
++                                              const std::string&,
++                                              const std::string&) const;
++    /*!
++     * \return the condition stating that the flag `smflag` is not equal to
++     * `STANDARDTANGENTOPERATOR`. The flag is qualified by the base class of
++     * the behaviour, since it is not imported in all behaviour classes.
++     */
++    [[nodiscard]] virtual std::string
++    getInvalidStandardTangentOperatorFlagCondition() const;
+ 
+     virtual void writeBehaviourParametersInitializers(std::ostream&) const;
+ 
+diff --git a/mfront/include/MFront/CMaterialPropertyInterfaceBase.hxx b/mfront/include/MFront/CMaterialPropertyInterfaceBase.hxx
+index 6406d5de2..b6715fec2 100644
+--- a/mfront/include/MFront/CMaterialPropertyInterfaceBase.hxx
++++ b/mfront/include/MFront/CMaterialPropertyInterfaceBase.hxx
+@@ -223,6 +223,17 @@ namespace mfront {
+      */
+     virtual void writeVariablesBoundsSymbols(
+         std::ostream &, const MaterialPropertyDescription &) const;
++    /*!
++     * \brief write implementations of the material property which can be
++     * called in device code, at the end of the header file. By default,
++     * nothing is written.
++     * \param[out] os:  output file stream
++     * \param[in]  mpd: material property description
++     * \param[in]  fd: file description
++     */
++    virtual void writeDeviceImplementations(std::ostream &,
++                                            const MaterialPropertyDescription &,
++                                            const FileDescription &) const;
+     /*!
+      * \param[out] os:  output file stream
+      * \param[in]  mpd: material property description
+diff --git a/mfront/include/MFront/CodeGeneratorUtilities.hxx b/mfront/include/MFront/CodeGeneratorUtilities.hxx
+index 5b35d290e..260032fbd 100644
+--- a/mfront/include/MFront/CodeGeneratorUtilities.hxx
++++ b/mfront/include/MFront/CodeGeneratorUtilities.hxx
+@@ -336,6 +336,9 @@ namespace mfront {
+    * \param[in] addThis: add "this->" in front of the variables
+    * \param[in] checkEndOfTimeStepValue: also check the value at the end of
+    * the time step given by the value of the variable plus its increment.
++   * \param[in] on_failure: code executed if a check fails. This code is only
++   * meaningful in device code, where checks return false instead of throwing
++   * an exception. If empty, the result of the checks is ignored.
+    */
+   MFRONT_VISIBILITY_EXPORT
+   void writeBoundsChecks(std::ostream&,
+@@ -344,7 +347,8 @@ namespace mfront {
+                          const std::string_view,
+                          const std::string_view,
+                          const bool,
+-                         const bool);
++                         const bool,
++                         const std::string_view = {});
+   /*!
+    * \param[out] os: output stream
+    * \param[in] v: variable description
+@@ -354,6 +358,9 @@ namespace mfront {
+    * \param[in] addThis: add "this->" in front of the variables
+    * \param[in] checkEndOfTimeStepValue: also check the value at the end of
+    * the time step given by the value of the variable plus its increment.
++   * \param[in] on_failure: code executed if a check fails. This code is only
++   * meaningful in device code, where checks return false instead of throwing
++   * an exception. If empty, the result of the checks is ignored.
+    */
+   MFRONT_VISIBILITY_EXPORT
+   void writePhysicalBoundsChecks(std::ostream&,
+@@ -361,7 +368,17 @@ namespace mfront {
+                                  const std::string_view,
+                                  const std::string_view,
+                                  const bool,
+-                                 const bool);
++                                 const bool,
++                                 const std::string_view = {});
++  /*!
++   * \return code which differs on the host and in device code (see the
++   * `TFEL_DEVICE_CODE` macro). This is mostly meant to replace exceptions,
++   * which are not supported in device code.
++   * \param[in] host: code executed on the host
++   * \param[in] device: code executed on the device
++   */
++  MFRONT_VISIBILITY_EXPORT std::string makeHostAndDeviceCode(
++      const std::string_view, const std::string_view);
+   /*!
+    * \brief print a `#line` pragma indicating a line number and a file name
+    *
+diff --git a/mfront/include/MFront/GenericBehaviourInterface.hxx b/mfront/include/MFront/GenericBehaviourInterface.hxx
+index bad0dae08..5e08b4d7d 100644
+--- a/mfront/include/MFront/GenericBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericBehaviourInterface.hxx
+@@ -103,6 +103,31 @@ namespace mfront {
+     virtual void generateMTestFile(std::ostream&,
+                                    const BehaviourDescription&,
+                                    const Hypothesis) const;
++    /*!
++     * \return the arguments of the constructors of the behaviour data and
++     * integration data classes written by this interface.
++     *
++     * The data of the integration point are given by an object of type
++     * `mfront::gb::BehaviourData` named `mgb_d`. Derived interfaces may add
++     * arguments to distinguish their constructors from the ones of this
++     * interface.
++     */
++    [[nodiscard]] virtual std::string getDataConstructorsArguments() const;
++    /*!
++     * \return the values passed by the behaviour constructor to the
++     * constructors of the behaviour data and integration data classes
++     */
++    [[nodiscard]] virtual std::string getDataConstructorsArgumentsValues()
++        const;
++    /*!
++     * \return the template declaration of the behaviour constructor written
++     * by this interface, or an empty string if the constructor is not a
++     * template
++     */
++    [[nodiscard]] virtual std::string
++    getBehaviourConstructorTemplateDeclaration() const;
++    //! \return the arguments of the behaviour constructor
++    [[nodiscard]] virtual std::string getBehaviourConstructorArguments() const;
+     //! \brief list of selected hypotheses
+     std::optional<std::set<GenericBehaviourInterface::Hypothesis>>
+         selectedHypotheses;
+diff --git a/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx b/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx
+index ff8549a1b..b64c58b7a 100644
+--- a/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx
++++ b/mfront/include/MFront/MFrontMaterialPropertyInterface.hxx
+@@ -79,7 +79,29 @@ namespace mfront {
+         std::ostream&, const MaterialPropertyDescription&) const override;
+     void writeVariablesBoundsSymbols(
+         std::ostream&, const MaterialPropertyDescription&) const override;
+-
++    /*!
++     * \brief write, in the `mfront::device` namespace, an implementation of
++     * the material property which can be called in device code by the
++     * behaviours. This implementation does not use exceptions nor `errno`:
++     * an invalid value (NaN) is returned if a physical bound is not
++     * satisfied. Standard bounds are not checked. The parameters have their
++     * default values.
++     */
++    void writeDeviceImplementations(std::ostream&,
++                                    const MaterialPropertyDescription&,
++                                    const FileDescription&) const override;
++    /*!
++     * \brief write the body of the implementation of the material property
++     * which can be called in device code
++     * \param[out] os: output stream
++     * \param[in] mpd: material property description
++     * \param[in] fd: file description
++     * \param[in] t: floating point type
++     */
++    void writeDeviceMaterialPropertyBody(std::ostream&,
++                                         const MaterialPropertyDescription&,
++                                         const FileDescription&,
++                                         const std::string_view) const;
+   };  // end of MFrontMaterialPropertyInterface
+ 
+ }  // end of namespace mfront
+diff --git a/mfront/src/AbstractBehaviourInterface.cxx b/mfront/src/AbstractBehaviourInterface.cxx
+index 7b20d1c88..cbfb986ea 100644
+--- a/mfront/src/AbstractBehaviourInterface.cxx
++++ b/mfront/src/AbstractBehaviourInterface.cxx
+@@ -16,6 +16,17 @@
+ 
+ namespace mfront {
+ 
++  std::string
++  AbstractBehaviourInterface::getParametersSourceInBehaviourConstructor(
++      const BehaviourDescription&, const Hypothesis) const {
++    return "";
++  }  // end of getParametersSourceInBehaviourConstructor
++
++  bool AbstractBehaviourInterface::areDynamicallyAllocatedVectorsAllowed()
++      const {
++    return true;
++  }  // end of areDynamicallyAllocatedVectorsAllowed
++
+   AbstractBehaviourInterface::~AbstractBehaviourInterface() = default;
+ 
+ }  // end of namespace mfront
+diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
+index 641d1b015..4621ad9df 100644
+--- a/mfront/src/BehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
+@@ -11,7 +11,10 @@
+  * project under specific licensing conditions.
+  */
+ 
++#include <vector>
++#include <string>
+ #include <ostream>
++#include <algorithm>
+ #include <fstream>
+ #include <sstream>
+ #include "TFEL/Raise.hxx"
+@@ -41,6 +44,35 @@
+ 
+ namespace mfront {
+ 
++  /*!
++   * \brief write the code generated by the interfaces.
++   *
++   * Identical blocks of code are only written once. This allows interfaces
++   * which add the same members to the generated classes (for instance, the
++   * `generic` and `generic-parallel` interfaces) to be used together.
++   *
++   * \param[out] os: output stream
++   * \param[in] interfaces: interfaces
++   * \param[in] w: function writing the code of one interface
++   */
++  template <typename InterfacesMap, typename Writer>
++  static void writeInterfacesCode(std::ostream& os,
++                                  const InterfacesMap& interfaces,
++                                  const Writer& w) {
++    auto blocks = std::vector<std::string>{};
++    for (const auto& i : interfaces) {
++      auto b = std::ostringstream{};
++      b.copyfmt(os);
++      w(b, *(i.second));
++      auto code = b.str();
++      if (std::find(blocks.begin(), blocks.end(), code) != blocks.end()) {
++        continue;
++      }
++      os << code;
++      blocks.push_back(std::move(code));
++    }
++  }  // end of writeInterfacesCode
++
+   static std::string makeCamelCase(std::string_view s) {
+     const auto words = tfel::utilities::tokenize(s, '_', false);
+     auto upperCaseFirstLetter = [](const std::string& w) -> std::string {
+@@ -1348,11 +1380,12 @@ namespace mfront {
+     }
+     os << "\n{}\n\n";
+     // Creating constructor for external interfaces
+-    for (const auto& i : this->interfaces) {
+-      if (i.second->isBehaviourConstructorRequired(h, this->bd)) {
+-        i.second->writeBehaviourDataConstructor(os, h, this->bd);
+-      }
+-    }
++    writeInterfacesCode(os, this->interfaces,
++                        [this, h](std::ostream& out, const auto& i) {
++                          if (i.isBehaviourConstructorRequired(h, this->bd)) {
++                            i.writeBehaviourDataConstructor(out, h, this->bd);
++                          }
++                        });
+   }  // end of writeBehaviourDataConstructors
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourDataAssignementOperator(
+@@ -1393,9 +1426,10 @@ namespace mfront {
+   void BehaviourCodeGeneratorBase::writeBehaviourDataExport(
+       std::ostream& os, const Hypothesis h) const {
+     this->checkBehaviourDataFile(os);
+-    for (const auto& i : this->interfaces) {
+-      i.second->exportMechanicalData(os, h, this->bd);
+-    }
++    writeInterfacesCode(os, this->interfaces,
++                        [this, h](std::ostream& out, const auto& i) {
++                          i.exportMechanicalData(out, h, this->bd);
++                        });
+   }
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourDataInitializeMethods(
+@@ -2121,10 +2155,10 @@ namespace mfront {
+        << "* \\brief Integrate behaviour  over the time step\n"
+        << "*/\n";
+     if (!this->bd.getTangentOperatorBlocks().empty()) {
+-      os << "[[nodiscard]] IntegrationResult\n"
++      os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+          << "integrate(const SMFlag smflag, const SMType smt) final{\n";
+     } else {
+-      os << "[[nodiscard]] IntegrationResult\n"
++      os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+          << "integrate(const SMFlag, const SMType) final{\n";
+     }
+     os << "using namespace std;\n"
+@@ -2137,16 +2171,9 @@ namespace mfront {
+            BehaviourDescription::COHESIVEZONEMODEL) ||
+           (this->bd.getBehaviourType() ==
+            BehaviourDescription::GENERALBEHAVIOUR)) {
+-        if (this->bd.useQt()) {
+-          os << "raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, "
+-                "use_qt>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid tangent operator flag\");\n";
+-        } else {
+-          os << "raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, false>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid tangent operator flag\");\n";
+-        }
++        this->writeDeviceCompatibleRaiseIf(
++            os, this->getInvalidStandardTangentOperatorFlagCondition(),
++            "invalid tangent operator flag", "FAILURE");
+       }
+       os << "bool computeTangentOperator_ = smt!=NOSTIFFNESSREQUESTED;\n";
+     }
+@@ -2170,11 +2197,11 @@ namespace mfront {
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v :
+            this->bd.getBehaviourData(h).getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v :
+            this->bd.getBehaviourData(h).getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (!this->bd.getTangentOperatorBlocks().empty()) {
+@@ -2253,25 +2280,34 @@ namespace mfront {
+   }  // end of writeBehaviourSetOutOfBoundsPolicy
+ 
+   void BehaviourCodeGeneratorBase::writeBoundsChecks(
+-      std::ostream& os, const VariableDescription& v, const bool b) const {
++      std::ostream& os,
++      const VariableDescription& v,
++      const bool b,
++      const std::string_view on_failure) const {
+     if (v.arraySize == 1u) {
+-      mfront::writeBoundsChecks(os, v, v.name, "N", "policy", true, b);
++      mfront::writeBoundsChecks(os, v, v.name, "N", "policy", true, b,
++                                on_failure);
+     } else {
+       for (unsigned short i = 0; i != v.arraySize; ++i) {
+         mfront::writeBoundsChecks(os, v, v.name + '[' + std::to_string(i) + ']',
+-                                  "N", "policy", true, b);
++                                  "N", "policy", true, b, on_failure);
+       }
+     }
+   }  // end of writeBoundsChecks
+ 
+   void BehaviourCodeGeneratorBase::writePhysicalBoundsChecks(
+-      std::ostream& os, const VariableDescription& v, const bool b) const {
++      std::ostream& os,
++      const VariableDescription& v,
++      const bool b,
++      const std::string_view on_failure) const {
+     if (v.arraySize == 1u) {
+-      mfront::writePhysicalBoundsChecks(os, v, v.name, "N", true, b);
++      mfront::writePhysicalBoundsChecks(os, v, v.name, "N", true, b,
++                                        on_failure);
+     } else {
+       for (unsigned short i = 0; i != v.arraySize; ++i) {
+         mfront::writePhysicalBoundsChecks(
+-            os, v, v.name + '[' + std::to_string(i) + ']', "N", true, b);
++            os, v, v.name + '[' + std::to_string(i) + ']', "N", true, b,
++            on_failure);
+       }
+     }
+   }  // end of writePhysicalBoundsChecks
+@@ -2281,19 +2317,25 @@ namespace mfront {
+     auto write_physical_bounds =
+         [this, &os](const VariableDescriptionContainer& c, const bool b) {
+           for (const auto& v : c) {
+-            this->writePhysicalBoundsChecks(os, v, b);
++            this->writePhysicalBoundsChecks(os, v, b, "return false;");
+           }
+         };
+     auto write_bounds = [this, &os](const VariableDescriptionContainer& c,
+                                     const bool b) {
+       for (const auto& v : c) {
+-        this->writeBoundsChecks(os, v, b);
++        this->writeBoundsChecks(os, v, b, "return false;");
+       }
+     };
+     const auto& md = this->bd.getBehaviourData(h);
+     this->checkBehaviourFile(os);
+-    os << "//! \\brief check physical bounds and standard bounds\n"
+-       << "TFEL_HOST_DEVICE void checkBounds() const{\n";
++    os << "/*!\n"
++       << " * \\brief check physical bounds and standard bounds\n"
++       << " *\n"
++       << " * \\return false if a bound is violated and if this violation\n"
++       << " * is not tolerated by the out of bounds policy. On the host,\n"
++       << " * an exception is thrown in this case.\n"
++       << " */\n"
++       << "TFEL_HOST_DEVICE bool checkBounds() const{\n";
+     write_physical_bounds(md.getMaterialProperties(), false);
+     write_physical_bounds(md.getPersistentVariables(), false);
+     write_physical_bounds(md.getExternalStateVariables(), true);
+@@ -2307,7 +2349,8 @@ namespace mfront {
+       write_bounds(md.getExternalStateVariables(), true);
+       write_bounds(md.getLocalVariables(), false);
+     }
+-    os << "} // end of checkBounds\n\n";
++    os << "return true;\n"
++       << "} // end of checkBounds\n\n";
+   }  // end of writeBehaviourCheckBounds
+ 
+   std::string BehaviourCodeGeneratorBase::getBehaviourConstructorsInitializers(
+@@ -2374,12 +2417,12 @@ namespace mfront {
+   void BehaviourCodeGeneratorBase::writeBehaviourConstructors(
+       std::ostream& os, const Hypothesis h) const {
+     auto tmpnames = std::vector<std::string>{};
+-    auto write_body = [this, &os, h] {
++    auto write_body = [this, &os, h](const std::string& parameters_source) {
+       os << "using namespace std;\n"
+          << "using namespace tfel::math;\n"
+          << "using std::vector;\n";
+       writeMaterialLaws(os, this->bd.getMaterialLaws());
+-      this->writeBehaviourParameterInitialisation(os, h);
++      this->writeBehaviourParameterInitialisation(os, h, parameters_source);
+     };
+     this->checkBehaviourFile(os);
+     // initializers
+@@ -2392,7 +2435,7 @@ namespace mfront {
+         os << "\n: " << init;
+       }
+       os << "\n{";
+-      write_body();
++      write_body("");
+       os << "}\n\n";
+     }
+     os << "/*!\n"
+@@ -2423,14 +2466,15 @@ namespace mfront {
+       os << ",\n" << init;
+     }
+     os << "\n{\n";
+-    write_body();
++    write_body("");
+     os << "}\n\n";
+     // constructor specific to interfaces
+     for (const auto& i : this->interfaces) {
+       if (i.second->isBehaviourConstructorRequired(h, this->bd)) {
+         i.second->writeBehaviourConstructorHeader(os, this->bd, h, init);
+         os << "\n{\n";
+-        write_body();
++        write_body(
++            i.second->getParametersSourceInBehaviourConstructor(this->bd, h));
+         i.second->writeBehaviourConstructorBody(os, this->bd, h);
+         os << "}\n\n";
+       }
+@@ -2637,7 +2681,10 @@ namespace mfront {
+         return;
+       }
+       const auto& n = MFrontMaterialPropertyInterface().getFunctionName(mpd);
+-      out << "{\n // check bounds for material property '" << n << "'\n"
++      // in device code, the material property returns an invalid value if a
++      // physical bound is not satisfied (see the `mfront::device` namespace)
++      out << "#ifndef TFEL_DEVICE_CODE\n"
++          << "{\n // check bounds for material property '" << n << "'\n"
+           << "const auto " << n << "_bounds_check_status = " << n
+           << "_checkBounds";
+       this->writeExternalMFrontMaterialPropertyArguments(out, cmp, f);
+@@ -2662,7 +2709,8 @@ namespace mfront {
+           << "\"when calling the material property '" << n << "'\\n\";\n"
+           << "}\n"
+           << "}\n"
+-          << "}\n";
++          << "}\n"
++          << "#endif /* TFEL_DEVICE_CODE */\n";
+     } else if (!((m.is<BehaviourDescription::ConstantMaterialProperty>()) ||
+                  (m.is<BehaviourDescription::AnalyticMaterialProperty>()))) {
+       this->throwRuntimeError(
+@@ -2908,7 +2956,7 @@ namespace mfront {
+     this->checkBehaviourFile(os);
+     const auto type = this->bd.getBehaviourType();
+     if (type == BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) {
+-      os << "std::pair<StrainStensor, StrainStensor> "
++      os << "TFEL_HOST_DEVICE std::pair<StrainStensor, StrainStensor> "
+             "computeStressFreeStrain(){\n";
+       if (bd.isStrainMeasureDefined()) {
+         const auto ms = bd.getStrainMeasure();
+@@ -2941,7 +2989,7 @@ namespace mfront {
+       }
+       os << "}\n\n";
+     }
+-    os << "[[nodiscard]] std::pair<StressFreeExpansionType, "
++    os << "[[nodiscard]] TFEL_HOST_DEVICE std::pair<StressFreeExpansionType, "
+        << "StressFreeExpansionType>\n"
+        << "computeStressFreeExpansion()\n{\n"
+        << "auto mfront_dl01_l0 = "
+@@ -2949,7 +2997,7 @@ namespace mfront {
+        << "this->computeStressFreeExpansion(mfront_dl01_l0);\n"
+        << "return mfront_dl01_l0;\n"
+        << "}\n\n"
+-       << "void\n"
++       << "TFEL_HOST_DEVICE void\n"
+        << "computeStressFreeExpansion(std::pair<StressFreeExpansionType,"
+        << "StressFreeExpansionType>& mfront_dl01_l0)\n{\n"
+        << "using namespace std;\n"
+@@ -3439,6 +3487,11 @@ namespace mfront {
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourParameterInitialisation(
+       std::ostream& os, const Hypothesis h) const {
++    this->writeBehaviourParameterInitialisation(os, h, "");
++  }  // end of writeBehaviourParameterInitialisation
++
++  void BehaviourCodeGeneratorBase::writeBehaviourParameterInitialisation(
++      std::ostream& os, const Hypothesis h, const std::string& src) const {
+     constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+     const auto use_static_variables =
+         areParametersTreatedAsStaticVariables(this->bd);
+@@ -3482,7 +3535,10 @@ namespace mfront {
+           }
+         }
+       } else {
+-        const auto getter = [this, h, &p] {
++        const auto getter = [this, h, &p, &src] {
++          if (!src.empty()) {
++            return src;
++          }
+           if ((h == uh) || (this->bd.hasParameter(uh, p.name))) {
+             return this->bd.getClassName() + "ParametersInitializer::get()";
+           }
+@@ -3509,22 +3565,55 @@ namespace mfront {
+     }
+   }  // end of writeBehaviourParameterInitialisation
+ 
++  std::string
++  BehaviourCodeGeneratorBase::getInvalidStandardTangentOperatorFlagCondition()
++      const {
++    const auto qt = this->bd.useQt() ? "use_qt" : "false";
++    return "smflag != MechanicalBehaviour<" + this->bd.getBehaviourTypeFlag() +
++           ", hypothesis, NumericType, " + qt + ">::STANDARDTANGENTOPERATOR";
++  }  // end of getInvalidStandardTangentOperatorFlagCondition
++
++  void BehaviourCodeGeneratorBase::writeHostAndDeviceCode(
++      std::ostream& os,
++      const std::string& host,
++      const std::string& device) const {
++    os << makeHostAndDeviceCode(host, device);
++  }  // end of writeHostAndDeviceCode
++
++  void BehaviourCodeGeneratorBase::writeDeviceCompatibleRaise(
++      std::ostream& os, const std::string& msg, const std::string& v) const {
++    this->writeHostAndDeviceCode(os, "tfel::raise(\"" + msg + "\");",
++                                 "return " + v + ";");
++  }  // end of writeDeviceCompatibleRaise
++
++  void BehaviourCodeGeneratorBase::writeDeviceCompatibleRaiseIf(
++      std::ostream& os,
++      const std::string& c,
++      const std::string& msg,
++      const std::string& v) const {
++    os << "if(" << c << "){\n";
++    this->writeDeviceCompatibleRaise(os, msg, v);
++    os << "}\n";
++  }  // end of writeDeviceCompatibleRaiseIf
++
+   void BehaviourCodeGeneratorBase::writeBehaviourDataMainVariablesSetters(
+       std::ostream& os) const {
+     this->checkBehaviourDataFile(os);
+-    for (const auto& i : this->interfaces) {
+-      i.second->writeBehaviourDataMainVariablesSetters(os, this->bd);
+-      os << '\n';
+-    }
++    writeInterfacesCode(
++        os, this->interfaces, [this](std::ostream& out, const auto& i) {
++          i.writeBehaviourDataMainVariablesSetters(out, this->bd);
++          out << '\n';
++        });
+   }  // end of writeBehaviourDataMainVariablesSetters
+ 
+   void BehaviourCodeGeneratorBase::writeIntegrationDataMainVariablesSetters(
+       std::ostream& os) const {
+     this->checkIntegrationDataFile(os);
+-    for (const auto& i : this->interfaces) {
+-      i.second->writeIntegrationDataMainVariablesSetters(os, this->bd);
+-      os << '\n';
+-    }
++    writeInterfacesCode(
++        os, this->interfaces, [this](std::ostream& out, const auto& i) {
++          i.writeIntegrationDataMainVariablesSetters(out, this->bd);
++          out << '\n';
++        });
+   }  // end of writeIntegrationDataMainVariablesSetters
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourGetModellingHypothesis(
+@@ -3559,7 +3648,7 @@ namespace mfront {
+       os << "struct " << wrapper << " final\n: " << bn << "\n"
+          << "{\n"
+          << "//! \\brief default constructor\n"
+-         << wrapper << "()\n"
++         << "TFEL_HOST_DEVICE " << wrapper << "()\n"
+          << ": " << bn << "(){\n"
+          << "}\n"
+          << "//! \\brief copy constructor\n"
+@@ -3569,7 +3658,7 @@ namespace mfront {
+          << "//! \\brief move assignement\n"
+          << wrapper << "& operator=(" << wrapper << "&&) = default;\n"
+          << "//! \\brief destructor\n"
+-         << "~" << wrapper << "() override = default;\n"
++         << "TFEL_HOST_DEVICE ~" << wrapper << "() override = default;\n"
+          << "private:\n"
+          << "friend struct " << this->bd.getClassName() << ";\n"
+          << "};\n\n";
+@@ -3631,43 +3720,52 @@ namespace mfront {
+         printLinePragma(os, p.lineNumber, this->fd.fileName);
+       }
+       if (use_static_variables) {
+-        os << "static constexpr ";
+         if (p.type == "int") {
+-          os << "int " << p.name << " = "
++          os << "static constexpr int " << p.name << " = "
+              << this->bd.getIntegerParameterDefaultValue(h, p.name) << ";\n";
+-        } else if (p.type == "ushort") {
+-          os << "unsigned short " << p.name << " = "
++          continue;
++        }
++        if (p.type == "ushort") {
++          os << "static constexpr unsigned short " << p.name << " = "
+              << this->bd.getUnsignedShortParameterDefaultValue(h, p.name)
+              << ";\n";
+-        } else {
+-          const auto f = SupportedTypes::getTypeFlag(p.type);
+-          if (f != SupportedTypes::SCALAR) {
+-            this->throwRuntimeError(
+-                "BehaviourCodeGeneratorBase::writeBehaviourParameters",
+-                "unsupported parameter type '" + p.type +
+-                    "' "
+-                    "for parameter '" +
+-                    p.name + "'");
+-          }
+-          if (p.arraySize == 1u) {
+-            os << p.type << " " << p.name << " = " << p.type << "("
++          continue;
++        }
++        const auto f = SupportedTypes::getTypeFlag(p.type);
++        if (f != SupportedTypes::SCALAR) {
++          this->throwRuntimeError(
++              "BehaviourCodeGeneratorBase::writeBehaviourParameters",
++              "unsupported parameter type '" + p.type +
++                  "' "
++                  "for parameter '" +
++                  p.name + "'");
++        }
++        auto decl = std::ostringstream{};
++        decl.copyfmt(os);
++        if (p.arraySize == 1u) {
++          decl << p.type << " " << p.name << " = " << p.type << "("
+                << this->bd.getFloattingPointParameterDefaultValue(h, p.name)
+                << ");\n";
+-          } else {
+-            os << "tfel::math::fsarray<" << p.arraySize << ", " << p.type
++        } else {
++          decl << "tfel::math::fsarray<" << p.arraySize << ", " << p.type
+                << "> " << p.name << " = {";
+-            for (unsigned short i = 0; i != p.arraySize;) {
+-              os << p.type << "("
++          for (unsigned short i = 0; i != p.arraySize;) {
++            decl << p.type << "("
+                  << this->bd.getFloattingPointParameterDefaultValue(h, p.name,
+                                                                     i)
+                  << ")";
+-              if (++i != p.arraySize) {
+-                os << ", ";
+-              }
++            if (++i != p.arraySize) {
++              decl << ", ";
+             }
+-            os << "};\n";
+           }
++          decl << "};\n";
+         }
++        // static data members can't be odr-used in device code, which is
++        // the case of scalars used in mathematical expressions
++        os << "#ifdef TFEL_DEVICE_CODE\n"
++           << "const " << decl.str() << "#else /* TFEL_DEVICE_CODE */\n"
++           << "static constexpr " << decl.str()
++           << "#endif /* TFEL_DEVICE_CODE */\n";
+       } else {
+         if (p.arraySize == 1) {
+           os << p.type << " " << p.name << ";\n";
+@@ -3834,8 +3932,8 @@ namespace mfront {
+   void BehaviourCodeGeneratorBase::writeBehaviourDestructor(
+       std::ostream& os) const {
+     this->checkBehaviourFile(os);
+-    os << "//!\n"
+-       << "~" << this->bd.getClassName() << "()\n"
++    os << "//! \\brief destructor\n"
++       << "TFEL_HOST_DEVICE ~" << this->bd.getClassName() << "()\n"
+        << " override = default;\n\n";
+   }
+ 
+@@ -3861,16 +3959,18 @@ namespace mfront {
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourInitializeFunctions(
+       std::ostream& os, const Hypothesis h) const {
+-    for (const auto& i : this->interfaces) {
+-      i.second->writeBehaviourInitializeFunctions(os, this->bd, h);
+-    }
++    writeInterfacesCode(os, this->interfaces,
++                        [this, h](std::ostream& out, const auto& i) {
++                          i.writeBehaviourInitializeFunctions(out, this->bd, h);
++                        });
+   }  // end of writeBehaviourInitializeFunctions
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourPostProcessings(
+       std::ostream& os, const Hypothesis h) const {
+-    for (const auto& i : this->interfaces) {
+-      i.second->writeBehaviourPostProcessings(os, this->bd, h);
+-    }
++    writeInterfacesCode(os, this->interfaces,
++                        [this, h](std::ostream& out, const auto& i) {
++                          i.writeBehaviourPostProcessings(out, this->bd, h);
++                        });
+   }  // end of writeBehaviourPostProcessings
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourIncludes(
+@@ -4514,12 +4614,15 @@ namespace mfront {
+           "defined");
+     }
+     if (!hasUserDefinedPredictionOperatorCode(this->bd, h)) {
+-      os << "[[nodiscard]] IntegrationResult computePredictionOperator("
+-         << "const SMFlag, const SMType) final{\n"
+-         << "tfel::raise(\"" << this->bd.getClassName()
+-         << "::computePredictionOperator: \"\n"
+-         << "\"unsupported prediction operator flag\");\n"
+-         << "}\n\n";
++      os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
++         << "computePredictionOperator(const SMFlag, const SMType) final{\n";
++      this->writeDeviceCompatibleRaise(
++          os,
++          this->bd.getClassName() +
++              "::computePredictionOperator: "
++              "unsupported prediction operator flag",
++          "FAILURE");
++      os << "}\n\n";
+       return;
+     }
+     if (this->bd.getBehaviourType() ==
+@@ -4572,12 +4675,14 @@ namespace mfront {
+                 (h == ModellingHypothesis::PLANESTRESS)) {
+               os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
+                     "computePredictionOperator_"
+-                 << ktype << "(const SMType){\n"
+-                 << "tfel::raise(\"" << this->bd.getClassName()
+-                 << "::computePredictionOperator_" << ktype << ": \"\n"
+-                 << "\"computing the prediction operator '" << ktype
+-                 << "' is not supported\");\n"
+-                 << "}\n\n";
++                 << ktype << "(const SMType){\n";
++              this->writeDeviceCompatibleRaise(
++                  os,
++                  this->bd.getClassName() + "::computePredictionOperator_" +
++                      ktype + ": computing the prediction operator '" + ktype +
++                      "' is not supported",
++                  "FAILURE");
++              os << "}\n\n";
+             } else {
+               const auto path =
+                   FiniteStrainBehaviourTangentOperatorConversionPath::
+@@ -4585,12 +4690,14 @@ namespace mfront {
+               if (path.empty()) {
+                 os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
+                       "computePredictionOperator_"
+-                   << ktype << "(const SMType){\n"
+-                   << "tfel::raise(\"" << this->bd.getClassName()
+-                   << "::computePredictionOperator_" << ktype << ": \"\n"
+-                   << "\"computing the prediction operator '" << ktype
+-                   << "' is not supported\");\n"
+-                   << "}\n\n";
++                   << ktype << "(const SMType){\n";
++                this->writeDeviceCompatibleRaise(
++                    os,
++                    this->bd.getClassName() + "::computePredictionOperator_" +
++                        ktype + ": computing the prediction operator '" +
++                        ktype + "' is not supported",
++                    "FAILURE");
++                os << "}\n\n";
+               } else {
+                 os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
+                       "computePredictionOperator_"
+@@ -4636,11 +4743,14 @@ namespace mfront {
+              << "return this->computePredictionOperator_" << ktype
+              << "(smt);\n";
+         }
+-        os << "}\n"
+-           << "tfel::raise(\"" << this->bd.getClassName()
+-           << "::computePredictionOperator: \"\n"
+-           << "\"unsupported prediction operator flag\");\n"
+-           << "}\n\n";
++        os << "}\n";
++        this->writeDeviceCompatibleRaise(
++            os,
++            this->bd.getClassName() +
++                "::computePredictionOperator: "
++                "unsupported prediction operator flag",
++            "FAILURE");
++        os << "}\n\n";
+       }
+     } else {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+@@ -4656,15 +4766,9 @@ namespace mfront {
+            BehaviourDescription::COHESIVEZONEMODEL) ||
+           (this->bd.getBehaviourType() ==
+            BehaviourDescription::GENERALBEHAVIOUR)) {
+-        if (this->bd.useQt()) {
+-          os << "tfel::raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, use_qt>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid prediction operator flag\");\n";
+-        } else {
+-          os << "tfel::raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, false>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid prediction operator flag\");\n";
+-        }
++        this->writeDeviceCompatibleRaiseIf(
++            os, this->getInvalidStandardTangentOperatorFlagCondition(),
++            "invalid prediction operator flag", "FAILURE");
+       }
+       os << this->bd.getCode(h, BehaviourData::ComputePredictionOperator)
+          << "return SUCCESS;\n"
+@@ -4724,24 +4828,30 @@ namespace mfront {
+                  ModellingHypothesis::AXISYMMETRICALGENERALISEDPLANESTRESS) ||
+                 (h == ModellingHypothesis::PLANESTRESS)) {
+               os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
+-                 << ktype << "(const SMType){\n"
+-                 << "tfel::raise(\"" << this->bd.getClassName()
+-                 << "::computeConsistentTangentOperator_" << ktype << ": \"\n"
+-                 << "\"computing the tangent operator '" << ktype
+-                 << "' is not supported\");\n"
+-                 << "}\n\n";
++                 << ktype << "(const SMType){\n";
++              this->writeDeviceCompatibleRaise(
++                  os,
++                  this->bd.getClassName() +
++                      "::computeConsistentTangentOperator_" + ktype +
++                      ": computing the tangent operator '" + ktype +
++                      "' is not supported",
++                  "false");
++              os << "}\n\n";
+             } else {
+               const auto path =
+                   FiniteStrainBehaviourTangentOperatorConversionPath::
+                       getShortestPath(paths, t);
+               if (path.empty()) {
+                 os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator_"
+-                   << ktype << "(const SMType){\n"
+-                   << "tfel::raise(\"" << this->bd.getClassName()
+-                   << "::computeConsistentTangentOperator_" << ktype << ": \"\n"
+-                   << "\"computing the tangent operator '" << ktype
+-                   << "' is not supported\");\n"
+-                   << "}\n\n";
++                   << ktype << "(const SMType){\n";
++                this->writeDeviceCompatibleRaise(
++                    os,
++                    this->bd.getClassName() +
++                        "::computeConsistentTangentOperator_" + ktype +
++                        ": computing the tangent operator '" + ktype +
++                        "' is not supported",
++                    "false");
++                os << "}\n\n";
+               } else {
+                 auto pc = path.begin();
+                 const auto k =
+@@ -4785,11 +4895,14 @@ namespace mfront {
+              << "return this->computeConsistentTangentOperator_" << ktype
+              << "(smt);\n";
+         }
+-        os << "}\n"
+-           << "tfel::raise(\"" << this->bd.getClassName()
+-           << "::computeConsistentTangentOperator: \"\n"
+-           << "\"unsupported tangent operator flag\");\n"
+-           << "}\n\n";
++        os << "}\n";
++        this->writeDeviceCompatibleRaise(
++            os,
++            this->bd.getClassName() +
++                "::computeConsistentTangentOperator: "
++                "unsupported tangent operator flag",
++            "false");
++        os << "}\n\n";
+       }
+     } else {
+       if (this->bd.hasCode(h, BehaviourData::ComputeTangentOperator)) {
+@@ -4970,7 +5083,8 @@ namespace mfront {
+            << " * \\param[in] mfront_idx: array index relative to " << v1.name
+            << "\n"
+            << " */\n"
+-           << "decltype(auto) " << bn << "(const ushort mfront_idx) noexcept {\n";
++           << "TFEL_HOST_DEVICE decltype(auto) " << bn
++           << "(const ushort mfront_idx) noexcept {\n";
+         if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
+             (v2.getTypeFlag() == SupportedTypes::SCALAR)) {
+           if (bd.useQt()) {
+@@ -5003,7 +5117,7 @@ namespace mfront {
+            << " * \\param[in] mfront_idx2: array index relative to " << v2.name
+            << "\n"
+            << " */\n"
+-           << "decltype(auto) " << bn
++           << "TFEL_HOST_DEVICE decltype(auto) " << bn
+            << "(const ushort mfront_idx, const ushort mfront_idx2) noexcept "
+            << "{\n";
+         if ((v1.getTypeFlag() == SupportedTypes::SCALAR) &&
+@@ -5550,11 +5664,12 @@ namespace mfront {
+     }
+     os << "\n{}\n\n";
+     // Creating constructor for external interfaces
+-    for (const auto& i : this->interfaces) {
+-      if (i.second->isBehaviourConstructorRequired(h, this->bd)) {
+-        i.second->writeIntegrationDataConstructor(os, h, this->bd);
+-      }
+-    }
++    writeInterfacesCode(os, this->interfaces,
++                        [this, h](std::ostream& out, const auto& i) {
++                          if (i.isBehaviourConstructorRequired(h, this->bd)) {
++                            i.writeIntegrationDataConstructor(out, h, this->bd);
++                          }
++                        });
+   }
+ 
+   void BehaviourCodeGeneratorBase::writeIntegrationDataScaleOperators(
+diff --git a/mfront/src/BehaviourDSLCommon.cxx b/mfront/src/BehaviourDSLCommon.cxx
+index 66a75cc81..fbc6a1e3d 100644
+--- a/mfront/src/BehaviourDSLCommon.cxx
++++ b/mfront/src/BehaviourDSLCommon.cxx
+@@ -3250,7 +3250,11 @@ namespace mfront {
+     this->readStringList(inames);
+     for (const auto& i : inames) {
+       if (this->interfaces.count(i) == 0) {
+-        this->interfaces.insert({i, mbif.getInterface(i)});
++        auto ptr = mbif.getInterface(i);
++        if (!ptr->areDynamicallyAllocatedVectorsAllowed()) {
++          this->mb.areDynamicallyAllocatedVectorsAllowed(false);
++        }
++        this->interfaces.insert({i, ptr});
+       }
+     }
+   }  // end of treatInterface
+@@ -3265,6 +3269,9 @@ namespace mfront {
+         if (!opts.empty()) {
+           ptr->setOptions(opts);
+         }
++        if (!ptr->areDynamicallyAllocatedVectorsAllowed()) {
++          this->mb.areDynamicallyAllocatedVectorsAllowed(false);
++        }
+         this->interfaces.insert({i, ptr});
+       }
+     }
+diff --git a/mfront/src/CMaterialPropertyInterfaceBase.cxx b/mfront/src/CMaterialPropertyInterfaceBase.cxx
+index 65e509535..d27ef7f17 100644
+--- a/mfront/src/CMaterialPropertyInterfaceBase.cxx
++++ b/mfront/src/CMaterialPropertyInterfaceBase.cxx
+@@ -223,10 +223,16 @@ namespace mfront {
+       }
+     }
+     this->writeEndHeaderNamespace(os);
++    this->writeDeviceImplementations(os, mpd, fd);
+     os << "#endif /* " << headerGard << " */\n";
+     os.close();
+   }  // end of writeHeaderFile
+ 
++  void CMaterialPropertyInterfaceBase::writeDeviceImplementations(
++      std::ostream&,
++      const MaterialPropertyDescription&,
++      const FileDescription&) const {}  // end of writeDeviceImplementations
++
+   void CMaterialPropertyInterfaceBase::writeInterfaceSpecificVariables(
+       std::ostream& os, const MaterialPropertyDescription& mpd) const {
+     if ((!useQuantities(mpd)) && (!mpd.inputs.empty())) {
+diff --git a/mfront/src/CodeGeneratorUtilities.cxx b/mfront/src/CodeGeneratorUtilities.cxx
+index 461cfdffe..cd53b2b38 100644
+--- a/mfront/src/CodeGeneratorUtilities.cxx
++++ b/mfront/src/CodeGeneratorUtilities.cxx
+@@ -450,10 +450,21 @@ namespace mfront {
+ 
+   void writeMaterialLaws(std::ostream& os,
+                          const std::vector<std::string>& materialLaws) {
++    if (materialLaws.empty()) {
++      return;
++    }
++    // the implementations of the material laws which can be called in device
++    // code are defined in the `mfront::device` namespace
++    os << "#ifdef TFEL_DEVICE_CODE\n";
++    for (const auto& l : materialLaws) {
++      os << "using mfront::device::" << l << ";\n";
++    }
++    os << "#else /* TFEL_DEVICE_CODE */\n";
+     for (const auto& l : materialLaws) {
+       os << "using mfront::" << l << ";\n"
+          << "using mfront::" << l << "_checkBounds;\n";
+     }
++    os << "#endif /* TFEL_DEVICE_CODE */\n";
+   }  // end of writeMaterialLaws
+ 
+   void writeStaticVariables(std::ostream& os,
+@@ -590,7 +601,8 @@ namespace mfront {
+                                 const std::string_view policy,
+                                 const bool addThis,
+                                 const bool checkEndOfTimeStepValue,
+-                                const bool physicalBounds) {
++                                const bool physicalBounds,
++                                const std::string_view on_failure) {
+     if (physicalBounds) {
+       if (!v.hasPhysicalBounds()) {
+         return;
+@@ -607,58 +619,58 @@ namespace mfront {
+       }
+       return "tfel::math::numeric_type<" + v.type + ">";
+     }();
+-    const auto this_pointer = addThis ? "this->" : "";
++    const auto this_pointer = std::string{addThis ? "this->" : ""};
+     const auto policy_argument = [&physicalBounds, &policy]() -> std::string {
+       if (!physicalBounds) {
+         return ", " + std::string{policy};
+       }
+       return "";
+     }();
+-    if (bounds.boundsType == VariableBoundsDescription::LOWER) {
+-      os << "tfel::material::BoundsCheck<" << space_dimension
+-         << ">::lowerBoundCheck(\"" << n << "\", " << this_pointer << n << ","
+-         << "static_cast<" << numeric_type << ">(" << bounds.lowerBound << ")"
+-         << policy_argument << ");\n";
+-      if (checkEndOfTimeStepValue) {
+-        os << "tfel::material::BoundsCheck<" << space_dimension
+-           << ">::lowerBoundCheck(\"" << n << "+d" << n << "\", "
+-           << this_pointer << n << "+this->d" << n << ","
+-           << "static_cast<" << numeric_type << ">(" << bounds.lowerBound << ")"
+-           << policy_argument << ");\n";
++    const auto check = [&bounds]() -> std::string_view {
++      if (bounds.boundsType == VariableBoundsDescription::LOWER) {
++        return "lowerBoundCheck";
++      } else if (bounds.boundsType == VariableBoundsDescription::UPPER) {
++        return "upperBoundCheck";
++      } else if (bounds.boundsType !=
++                 VariableBoundsDescription::LOWERANDUPPER) {
++        tfel::raise(
++            "writeBoundsChecks: internal error (unsupported bounds type)");
+       }
+-    } else if (bounds.boundsType == VariableBoundsDescription::UPPER) {
+-      os << "tfel::material::BoundsCheck<" << space_dimension
+-         << ">::upperBoundCheck(\"" << n << "\", " << this_pointer << n << ","
+-         << "static_cast<" << numeric_type << ">(" << bounds.upperBound << ")"
+-         << policy_argument << ");\n";
+-      if (checkEndOfTimeStepValue) {
+-        os << "tfel::material::BoundsCheck<" << space_dimension
+-           << ">::upperBoundCheck(\"" << n << "+d" << n << "\", "
+-           << this_pointer << n << "+this->d" << n << ","
+-           << "static_cast<" << numeric_type << ">(" << bounds.upperBound << ")"
+-           << policy_argument << ");\n";
++      return "lowerAndUpperBoundsChecks";
++    }();
++    auto write_bounds = [&os, &bounds, &numeric_type] {
++      if (bounds.boundsType != VariableBoundsDescription::UPPER) {
++        os << "static_cast<" << numeric_type << ">(" << bounds.lowerBound
++           << ")";
++      }
++      if (bounds.boundsType == VariableBoundsDescription::LOWERANDUPPER) {
++        os << ",";
+       }
+-    } else if (bounds.boundsType == VariableBoundsDescription::LOWERANDUPPER) {
+-      os << "tfel::material::BoundsCheck<" << space_dimension
+-         << ">::lowerAndUpperBoundsChecks(\"" << n << "\", " << this_pointer
+-         << n << ","
+-         << "static_cast<" << numeric_type << ">(" << bounds.lowerBound << "),"
+-         << "static_cast<" << numeric_type << ">(" << bounds.upperBound << ")"
+-         << policy_argument << ");\n";
+-      if (checkEndOfTimeStepValue) {
+-        os << "tfel::material::BoundsCheck<" << space_dimension
+-           << ">::lowerAndUpperBoundsChecks(\"" << n << "+d" << n << "\", "
+-           << this_pointer << n << "+this->d" << n << ","
+-           << "static_cast<" << numeric_type << ">(" << bounds.lowerBound
+-           << "),"
+-           << "static_cast<" << numeric_type << ">(" << bounds.upperBound << ")"
+-           << policy_argument << ");\n";
++      if (bounds.boundsType != VariableBoundsDescription::LOWER) {
++        os << "static_cast<" << numeric_type << ">(" << bounds.upperBound
++           << ")";
+       }
+-    } else {
+-      tfel::raise(
+-          "writeBoundsChecks: internal error (unsupported bounds type)");
++    };
++    auto write_check = [&](const std::string& name, const std::string& value) {
++      if (!on_failure.empty()) {
++        os << "if(!";
++      }
++      os << "tfel::material::BoundsCheck<" << space_dimension << ">::" << check
++         << "(\"" << name << "\", " << value << ",";
++      write_bounds();
++      os << policy_argument << ")";
++      if (on_failure.empty()) {
++        os << ";\n";
++      } else {
++        os << "){\n" << on_failure << "\n}\n";
++      }
++    };
++    write_check(std::string{n}, this_pointer + std::string{n});
++    if (checkEndOfTimeStepValue) {
++      write_check(std::string{n} + "+d" + std::string{n},
++                  this_pointer + std::string{n} + "+this->d" + std::string{n});
+     }
+-  }
++  }  // end of writeBoundsChecks
+ 
+   void writeBoundsChecks(std::ostream& os,
+                          const VariableDescription& v,
+@@ -666,9 +678,10 @@ namespace mfront {
+                          const std::string_view space_dimension,
+                          const std::string_view policy,
+                          const bool addThis,
+-                         const bool checkEndOfTimeStepValue) {
++                         const bool checkEndOfTimeStepValue,
++                         const std::string_view on_failure) {
+     writeBoundsChecks(os, v, n, space_dimension, policy, addThis,
+-                      checkEndOfTimeStepValue, false);
++                      checkEndOfTimeStepValue, false, on_failure);
+   }  // end of writeBoundsChecks
+ 
+   void writePhysicalBoundsChecks(std::ostream& os,
+@@ -676,11 +689,22 @@ namespace mfront {
+                                  const std::string_view n,
+                                  const std::string_view space_dimension,
+                                  const bool addThis,
+-                                 const bool checkEndOfTimeStepValue) {
++                                 const bool checkEndOfTimeStepValue,
++                                 const std::string_view on_failure) {
+     writeBoundsChecks(os, v, n, space_dimension, "", addThis,
+-                      checkEndOfTimeStepValue, true);
++                      checkEndOfTimeStepValue, true, on_failure);
+   }  // end of writePhysicalBoundsChecks
+ 
++  std::string makeHostAndDeviceCode(const std::string_view host,
++                                    const std::string_view device) {
++    auto r = std::string{"#ifdef TFEL_DEVICE_CODE\n"};
++    r += device;
++    r += "\n#else /* TFEL_DEVICE_CODE */\n";
++    r += host;
++    r += "\n#endif /* TFEL_DEVICE_CODE */\n";
++    return r;
++  }  // end of makeHostAndDeviceCode
++
+   std::string printLinePragma(const std::size_t ln, std::string_view f) {
+     if (ln == 0) {
+       return {};
+diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
+index f4cf7ca28..2d18518bf 100644
+--- a/mfront/src/GenericBehaviourInterface.cxx
++++ b/mfront/src/GenericBehaviourInterface.cxx
+@@ -1797,27 +1797,53 @@ namespace mfront {
+     return n + "_" + ModellingHypothesis::toString(h);
+   }  // end of getFunctionNameForHypothesis
+ 
++  std::string GenericBehaviourInterface::getDataConstructorsArguments() const {
++    return "const mfront::gb::BehaviourData& mgb_d";
++  }  // end of getDataConstructorsArguments
++
++  std::string GenericBehaviourInterface::getDataConstructorsArgumentsValues()
++      const {
++    return "mgb_d";
++  }  // end of getDataConstructorsArgumentsValues
++
++  std::string
++  GenericBehaviourInterface::getBehaviourConstructorTemplateDeclaration()
++      const {
++    return "";
++  }  // end of getBehaviourConstructorTemplateDeclaration
++
++  std::string GenericBehaviourInterface::getBehaviourConstructorArguments()
++      const {
++    return "const mfront::gb::BehaviourData& mgb_d";
++  }  // end of getBehaviourConstructorArguments
++
+   void GenericBehaviourInterface::writeBehaviourConstructorHeader(
+       std::ostream& os,
+       const BehaviourDescription& bd,
+       const Hypothesis,
+       const std::string& initStateVarsIncrements) const {
++    const auto tdecl = this->getBehaviourConstructorTemplateDeclaration();
++    const auto dargs = this->getDataConstructorsArgumentsValues();
+     os << "/*\n"
+        << " * \\brief constructor for the " << this->getInterfaceName()
+        << " interface\n"
+        << " * \\param[in] mgb_d: behaviour data\n"
+-       << " */\n"
+-       << bd.getClassName() << "(const mfront::gb::BehaviourData& mgb_d)\n";
++       << " */\n";
++    if (!tdecl.empty()) {
++      os << tdecl << '\n';
++    }
++    os << "TFEL_HOST_DEVICE " << bd.getClassName() << "("
++       << this->getBehaviourConstructorArguments() << ")\n";
+     if (bd.useQt()) {
+       os << ": " << bd.getClassName()
+-         << "BehaviourData<hypothesis, NumericType, use_qt>(mgb_d),\n"
++         << "BehaviourData<hypothesis, NumericType, use_qt>(" << dargs << "),\n"
+          << bd.getClassName()
+-         << "IntegrationData<hypothesis, NumericType, use_qt>(mgb_d)";
++         << "IntegrationData<hypothesis, NumericType, use_qt>(" << dargs << ")";
+     } else {
+       os << ": " << bd.getClassName()
+-         << "BehaviourData<hypothesis, NumericType, false>(mgb_d),\n"
++         << "BehaviourData<hypothesis, NumericType, false>(" << dargs << "),\n"
+          << bd.getClassName()
+-         << "IntegrationData<hypothesis, NumericType, false>(mgb_d)";
++         << "IntegrationData<hypothesis, NumericType, false>(" << dargs << ")";
+     }
+     if (!initStateVarsIncrements.empty()) {
+       os << ",\n" << initStateVarsIncrements;
+@@ -2065,13 +2091,15 @@ namespace mfront {
+       }
+     };  // end of wvci2
+     const auto& d = bd.getBehaviourData(h);
++    // this constructor is shared with the interfaces derived from the
++    // `generic` interface, so its documentation shall not depend on them
+     os << "/*\n"
+-       << " * \\brief constructor for the " << this->getInterfaceName()
+-       << " interface\n"
++       << " * \\brief constructor for the "
++       << this->GenericBehaviourInterface::getInterfaceName() << " interface\n"
+        << " * \\param[in] mgb_d: behaviour data\n"
+        << " */\n"
+-       << bd.getClassName()
+-       << "BehaviourData(const mfront::gb::BehaviourData& mgb_d)";
++       << "TFEL_HOST_DEVICE " << bd.getClassName() << "BehaviourData("
++       << this->getDataConstructorsArguments() << ")";
+     auto first = true;
+     const auto mprops = this->buildMaterialPropertiesList(bd, h);
+     auto ioffset = mprops.second;
+@@ -2232,13 +2260,15 @@ namespace mfront {
+       const Hypothesis h,
+       const BehaviourDescription& bd) const {
+     const auto& evs = bd.getBehaviourData(h).getExternalStateVariables();
++    // this constructor is shared with the interfaces derived from the
++    // `generic` interface, so its documentation shall not depend on them
+     os << "/*\n"
+-       << " * \\brief constructor for the " << this->getInterfaceName()
+-       << " interface\n"
++       << " * \\brief constructor for the "
++       << this->GenericBehaviourInterface::getInterfaceName() << " interface\n"
+        << " * \\param[in] mgb_d: behaviour data\n"
+        << " */\n"
+-       << bd.getClassName()
+-       << "IntegrationData(const mfront::gb::BehaviourData& mgb_d)\n"
++       << "TFEL_HOST_DEVICE " << bd.getClassName() << "IntegrationData("
++       << this->getDataConstructorsArguments() << ")\n"
+        << ": dt(mgb_d.dt)";
+     auto o = SupportedTypes::TypeSize{};
+     for (const auto& ev : evs) {
+diff --git a/mfront/src/HookeStressPotential.cxx b/mfront/src/HookeStressPotential.cxx
+index 56f99de58..08e20bcfb 100644
+--- a/mfront/src/HookeStressPotential.cxx
++++ b/mfront/src/HookeStressPotential.cxx
+@@ -16,6 +16,7 @@
+ #include "TFEL/Glossary/Glossary.hxx"
+ #include "TFEL/Glossary/GlossaryEntry.hxx"
+ #include "MFront/MFrontLogStream.hxx"
++#include "MFront/CodeGeneratorUtilities.hxx"
+ #include "MFront/LocalDataStructure.hxx"
+ #include "MFront/ImplicitDSLBase.hxx"
+ #include "MFront/AbstractNonLinearSystemSolver.hxx"
+@@ -32,7 +33,7 @@ namespace mfront::bbrick {
+     for (const auto h : bd.getDistinctModellingHypotheses()) {
+       std::string m =
+           "//! \\brief return an elastic prediction of the stresses\n"
+-          "StressStensor computeElasticPrediction() const{\n";
++          "TFEL_HOST_DEVICE StressStensor computeElasticPrediction() const{\n";
+       const auto broken_test = getBrokenTest(bd, false);
+       if (!broken_test.empty()) {
+         m += "if(" + broken_test + "){\n";
+@@ -46,8 +47,11 @@ namespace mfront::bbrick {
+                              false))) {
+           if ((bd.getElasticSymmetryType() != mfront::ISOTROPIC) &&
+               (bd.getElasticSymmetryType() != mfront::ORTHOTROPIC)) {
+-            m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                 "unsupported case\"));\n";
++            m += makeHostAndDeviceCode(
++                "throw(std::runtime_error(\"computeElasticPrediction: "
++                "unsupported case\"));",
++                "return StressStensor(stress(std::numeric_limits<real>::"
++                "quiet_NaN()));");
+           } else {
+             if (bd.hasAttribute(
+                     BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
+@@ -96,8 +100,11 @@ namespace mfront::bbrick {
+                 m += "return prediction_stress;\n";
+               }
+             } else {
+-              m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                   "unsupported case\"));\n";
++              m += makeHostAndDeviceCode(
++                  "throw(std::runtime_error(\"computeElasticPrediction: "
++                  "unsupported case\"));",
++                  "return StressStensor(stress(std::numeric_limits<real>::"
++                  "quiet_NaN()));");
+             }
+           }
+         } else {
+@@ -162,9 +169,12 @@ namespace mfront::bbrick {
+                              false))) {
+           if ((bd.getElasticSymmetryType() != mfront::ISOTROPIC) &&
+               (bd.getElasticSymmetryType() != mfront::ORTHOTROPIC)) {
+-            m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                 "unsupported material symmetry (neither isotropic "
+-                 "or orthotropic)\"));\n";
++            m += makeHostAndDeviceCode(
++                "throw(std::runtime_error(\"computeElasticPrediction: "
++                "unsupported material symmetry (neither isotropic "
++                "or orthotropic)\"));",
++                "return StressStensor(stress(std::numeric_limits<real>::"
++                "quiet_NaN()));");
+           } else {
+             if (bd.hasAttribute(
+                     BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
+diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
+index 170adda5b..32347ba3e 100644
+--- a/mfront/src/ImplicitCodeGeneratorBase.cxx
++++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
+@@ -441,8 +441,9 @@ namespace mfront {
+              << "of variable " << v.name << " by variable " << v2.name << "\n"
+              << " */\n";
+           if ((v.arraySize != 1u) && (v2.arraySize == 1u)) {
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name << "(tfel::math::tmatrix<"
+                << n3 << "," << n3 << ", NumericType>& tjacobian,"
+                << "const ushort mfront_idx){\n"
+@@ -451,8 +452,9 @@ namespace mfront {
+                << SupportedTypes::getTypeSize(v.type, 1u) << "), " << n2
+                << ");\n"
+                << "}\n\n";
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name
+                << "(const ushort mfront_idx){\n"
+                << "return tfel::math::map_derivative<" << v.type << ","
+@@ -461,8 +463,9 @@ namespace mfront {
+                << ");\n"
+                << "}\n\n";
+           } else if ((v.arraySize == 1u) && (v2.arraySize != 1u)) {
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name << "(tfel::math::tmatrix<"
+                << n3 << "," << n3 << ", NumericType>& tjacobian,"
+                << "const ushort mfront_idx){\n"
+@@ -471,8 +474,9 @@ namespace mfront {
+                << " + mfront_idx * ("
+                << SupportedTypes::getTypeSize(v2.type, 1u) << "));\n"
+                << "}\n\n";
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name
+                << "(const ushort mfront_idx){\n"
+                << "return tfel::math::map_derivative<" << v.type << ","
+@@ -481,8 +485,9 @@ namespace mfront {
+                << SupportedTypes::getTypeSize(v2.type, 1u) << "));\n"
+                << "}\n\n";
+           } else {
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name << "(tfel::math::tmatrix<"
+                << n3 << "," << n3 << ", NumericType>& tjacobian,"
+                << "const ushort mfront_idx, "
+@@ -493,8 +498,9 @@ namespace mfront {
+                << " + mfront_idx2 * ("
+                << SupportedTypes::getTypeSize(v2.type, 1u) << "));\n"
+                << "}\n\n";
+-            os << "tfel::math::derivative_view_from_tiny_matrix<" << n3 << ", "
+-               << v.type << "," << v2.type << "> "
++            os << "TFEL_HOST_DEVICE "
++                  "tfel::math::derivative_view_from_tiny_matrix<"
++               << n3 << ", " << v.type << "," << v2.type << "> "
+                << "df" << v.name << "_dd" << v2.name
+                << "(const ushort mfront_idx, "
+                << "const ushort mfront_idx2){\n"
+@@ -1121,15 +1127,9 @@ namespace mfront {
+            BehaviourDescription::COHESIVEZONEMODEL) ||
+           (this->bd.getBehaviourType() ==
+            BehaviourDescription::GENERALBEHAVIOUR)) {
+-        if (this->bd.useQt()) {
+-          os << "tfel::raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, use_qt>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid tangent operator flag\");\n";
+-        } else {
+-          os << "tfel::raise_if(smflag!=MechanicalBehaviour<" << btype
+-             << ",hypothesis, NumericType, false>::STANDARDTANGENTOPERATOR,\n"
+-             << "\"invalid tangent operator flag\");\n";
+-        }
++        this->writeDeviceCompatibleRaiseIf(
++            os, this->getInvalidStandardTangentOperatorFlagCondition(),
++            "invalid tangent operator flag", "FAILURE");
+       }
+     }
+     if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
+@@ -1183,10 +1183,10 @@ namespace mfront {
+     os << "}\n";
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (!this->bd.getTangentOperatorBlocks().empty()) {
+@@ -1208,10 +1208,9 @@ namespace mfront {
+         }
+         os << "}\n";
+       } else {
+-        os << "string msg(\"" << this->bd.getClassName()
+-           << "::integrate : \");\n";
+-        os << "msg +=\"unimplemented feature\";\n";
+-        os << "throw(runtime_error(msg));\n";
++        this->writeDeviceCompatibleRaise(
++            os, this->bd.getClassName() + "::integrate: unimplemented feature",
++            "FAILURE");
+       }
+       os << "}\n";
+     }
+diff --git a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+index 9c74fb626..02838fc71 100644
+--- a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+@@ -145,27 +145,22 @@ namespace mfront {
+          << "computePredictionOperator(const SMFlag smflag, const SMType smt) "
+          << "final {\n";
+       os << "using namespace std;\n";
+-      if (this->bd.useQt()) {
+-        os << "if(smflag!=MechanicalBehaviour<" << btype
+-           << ",hypothesis, NumericType, use_qt>::STANDARDTANGENTOPERATOR){\n";
+-      } else {
+-        os << "if(smflag!=MechanicalBehaviour<" << btype
+-           << ",hypothesis, NumericType, false>::STANDARDTANGENTOPERATOR){\n";
+-      }
+-      os << "throw(runtime_error(\"" << this->bd.getClassName()
+-         << "::computePredictionOperator : "
+-         << "invalid tangent operator flag\"));\n"
+-         << "}\n"
+-         << "if((smt==ELASTIC)||(smt==SECANTOPERATOR)){\n"
++      this->writeDeviceCompatibleRaiseIf(
++          os, this->getInvalidStandardTangentOperatorFlagCondition(),
++          this->bd.getClassName() +
++              "::computePredictionOperator: invalid tangent operator flag",
++          "FAILURE");
++      os << "if((smt==ELASTIC)||(smt==SECANTOPERATOR)){\n"
+          << "Dt = "
+             "(this->lambda_tdt)*Stensor4::IxI()+2*(this->mu_tdt)*Stensor4::Id()"
+             ";\n"
+-         << "} else {\n"
+-         << "string msg(\"" << this->bd.getClassName()
+-         << "::computePredictionOperator : \");\n"
+-         << "msg +=\"unimplemented feature\";\n"
+-         << "throw(runtime_error(msg));\n"
+-         << "}\n\n"
++         << "} else {\n";
++      this->writeDeviceCompatibleRaise(
++          os,
++          this->bd.getClassName() +
++              "::computePredictionOperator: unimplemented feature",
++          "FAILURE");
++      os << "}\n\n"
+          << "return SUCCESS;\n"
+          << "}\n\n";
+     } else {
+diff --git a/mfront/src/IsotropicMisesCreepCodeGenerator.cxx b/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
+index 3025dd33a..2b692d4d6 100644
+--- a/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
++++ b/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
+@@ -35,7 +35,7 @@ namespace mfront {
+           "writeBehaviourParserSpecificMembers",
+           "no flow rule declared (use the @FlowRule directive)");
+     }
+-    os << "bool computeFlow(){\n"
++    os << "TFEL_HOST_DEVICE bool computeFlow(){\n"
+        << "using namespace std;\n"
+        << "using namespace tfel::math;\n"
+        << "using namespace tfel::material;\n"
+@@ -45,7 +45,7 @@ namespace mfront {
+       os << this->bd.getCode(h, BehaviourData::BeforeFlowRule);
+     }
+     os << this->bd.getCode(h, BehaviourData::FlowRule) << "return true;\n}\n\n"
+-       << "bool NewtonIntegration(){\n"
++       << "TFEL_HOST_DEVICE bool NewtonIntegration(){\n"
+        << "constexpr auto newton_epsilon = "
+        << "100*std::numeric_limits<strain>::epsilon();\n"
+        << "bool converged=false;\n"
+@@ -137,20 +137,12 @@ namespace mfront {
+     os << "/*!\n"
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+-       << "[[nodiscard]] IntegrationResult\n"
++       << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+        << "integrate(const SMFlag smflag,const SMType smt) final{\n"
+        << "using namespace std;\n";
+-    if (this->bd.useQt()) {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,use_qt>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    } else {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,false>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    }
++    this->writeDeviceCompatibleRaiseIf(
++        os, this->getInvalidStandardTangentOperatorFlagCondition(),
++        "invalid tangent operator flag", "FAILURE");
+     if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
+       os << this->bd.getCode(h, BehaviourData::ComputePredictor) << '\n';
+     }
+@@ -186,10 +178,10 @@ namespace mfront {
+     this->writeBehaviourIntegratorPostprocessingStep(os);
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (this->bd.useQt()) {
+@@ -204,7 +196,8 @@ namespace mfront {
+ 
+   void IsotropicMisesCreepCodeGenerator::writeBehaviourComputeTangentOperator(
+       std::ostream& os, const Hypothesis) const {
+-    os << "bool computeConsistentTangentOperator(const SMType smt){\n"
++    os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const SMType "
++          "smt){\n"
+        << "using namespace std;\n"
+        << "using tfel::material::computeElasticStiffness;\n"
+        << "using tfel::math::st2tost2;\n"
+diff --git a/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx b/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
+index dc1d13362..fe55997a2 100644
+--- a/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
++++ b/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
+@@ -44,7 +44,7 @@ namespace mfront {
+           "endsInputFileProcessing: ",
+           msg);
+     }
+-    os << "bool computeFlow(){\n"
++    os << "TFEL_HOST_DEVICE bool computeFlow(){\n"
+        << "using namespace std;\n"
+        << "using namespace tfel::math;\n"
+        << "using namespace tfel::material;\n"
+@@ -54,7 +54,7 @@ namespace mfront {
+       os << this->bd.getCode(h, BehaviourData::BeforeFlowRule);
+     }
+     os << this->bd.getCode(h, BehaviourData::FlowRule) << "return true;\n}\n\n";
+-    os << "bool NewtonIntegration(){\n"
++    os << "TFEL_HOST_DEVICE bool NewtonIntegration(){\n"
+        << "constexpr auto newton_epsilon = "
+           "100*std::numeric_limits<strain>::epsilon();\n"
+        << "const auto mfront_internal_3_mu_theta = 3*("
+@@ -159,20 +159,12 @@ namespace mfront {
+     os << "/*!\n"
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+-       << "[[nodiscard]] IntegrationResult\n"
++       << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+        << "integrate(const SMFlag smflag,const SMType smt) override{\n"
+        << "using namespace std;\n";
+-    if (this->bd.useQt()) {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,use_qt>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    } else {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,false>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    }
++    this->writeDeviceCompatibleRaiseIf(
++        os, this->getInvalidStandardTangentOperatorFlagCondition(),
++        "invalid tangent operator flag", "FAILURE");
+     if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
+       os << this->bd.getCode(h, BehaviourData::ComputePredictor) << '\n';
+     }
+@@ -207,10 +199,10 @@ namespace mfront {
+     this->writeBehaviourIntegratorPostprocessingStep(os);
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (this->bd.useQt()) {
+@@ -226,7 +218,8 @@ namespace mfront {
+   void
+   IsotropicMisesPlasticFlowCodeGenerator::writeBehaviourComputeTangentOperator(
+       std::ostream& os, const Hypothesis) const {
+-    os << "bool computeConsistentTangentOperator(const SMType smt){\n"
++    os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const SMType "
++          "smt){\n"
+        << "using namespace std;\n"
+        << "using tfel::material::computeElasticStiffness;\n"
+        << "using tfel::math::st2tost2;\n"
+diff --git a/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx b/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
+index ae30a5a72..780a786a9 100644
+--- a/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
++++ b/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
+@@ -39,7 +39,7 @@ namespace mfront {
+           "no flow rule declared "
+           "(use the @FlowRule directive)");
+     }
+-    os << "bool computeFlow(){\n"
++    os << "TFEL_HOST_DEVICE bool computeFlow(){\n"
+        << "using namespace std;\n"
+        << "using namespace tfel::math;\n"
+        << "using namespace tfel::material;\n"
+@@ -50,7 +50,7 @@ namespace mfront {
+     }
+     os << this->bd.getCode(h, BehaviourData::FlowRule) << "return true;\n"
+        << "}\n\n"
+-       << "bool NewtonIntegration(){\n"
++       << "TFEL_HOST_DEVICE bool NewtonIntegration(){\n"
+        << "bool converge=false;\n"
+        << "strain newton_f;\n"
+        << "strain newton_df;\n"
+@@ -152,20 +152,12 @@ namespace mfront {
+     os << "/*!\n"
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+-       << "[[nodiscard]] IntegrationResult\n"
++       << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+        << "integrate(const SMFlag smflag,const SMType smt) override{\n"
+        << "using namespace std;\n";
+-    if (this->bd.useQt()) {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,use_qt>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    } else {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,false>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    }
++    this->writeDeviceCompatibleRaiseIf(
++        os, this->getInvalidStandardTangentOperatorFlagCondition(),
++        "invalid tangent operator flag", "FAILURE");
+     if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
+       os << this->bd.getCode(h, BehaviourData::ComputePredictor) << '\n';
+     }
+@@ -200,10 +192,10 @@ namespace mfront {
+     this->writeBehaviourIntegratorPostprocessingStep(os);
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (this->bd.useQt()) {
+@@ -219,7 +211,8 @@ namespace mfront {
+   void IsotropicStrainHardeningMisesCreepCodeGenerator::
+       writeBehaviourComputeTangentOperator(std::ostream& os,
+                                            const Hypothesis) const {
+-    os << "bool computeConsistentTangentOperator(const SMType smt){\n"
++    os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const SMType "
++          "smt){\n"
+        << "using tfel::material::computeElasticStiffness;\n"
+        << "using tfel::math::st2tost2;\n"
+        << "if(smt==CONSISTENTTANGENTOPERATOR){\n"
+diff --git a/mfront/src/MFrontMaterialPropertyInterface.cxx b/mfront/src/MFrontMaterialPropertyInterface.cxx
+index d19b24592..cfb3d8230 100644
+--- a/mfront/src/MFrontMaterialPropertyInterface.cxx
++++ b/mfront/src/MFrontMaterialPropertyInterface.cxx
+@@ -19,6 +19,7 @@
+ #include "MFront/CodeGeneratorUtilities.hxx"
+ #include "MFront/MFrontUtilities.hxx"
+ #include "MFront/MFrontHeader.hxx"
++#include "MFront/FileDescription.hxx"
+ #include "MFront/TargetsDescription.hxx"
+ #include "MFront/MaterialPropertyDescription.hxx"
+ #include "MFront/MFrontMaterialPropertyInterface.hxx"
+@@ -171,6 +172,97 @@ namespace mfront {
+       std::ostream&, const MaterialPropertyDescription&) const {
+   }  // end of writeVariablesBoundsSymbols
+ 
++  void MFrontMaterialPropertyInterface::writeDeviceImplementations(
++      std::ostream& os,
++      const MaterialPropertyDescription& mpd,
++      const FileDescription& fd) const {
++    const auto name = this->getFunctionName(mpd);
++    os << "#include <cmath>\n"
++       << "#include <limits>\n"
++       << "#include \"TFEL/Config/TFELConfig.hxx\"\n"
++       << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
++       << "#include \"TFEL/PhysicalConstants.hxx\"\n"
++       << "#include \"TFEL/Math/General/IEEE754.hxx\"\n"
++       << "#include \"TFEL/Math/General/DerivativeType.hxx\"\n";
++    if (useQuantities(mpd)) {
++      os << "#include \"TFEL/Math/qt.hxx\"\n";
++    }
++    if (!mpd.includes.empty()) {
++      os << mpd.includes << "\n";
++    }
++    os << "\nnamespace mfront::device {\n\n"
++       << "/*!\n"
++       << " * \\brief implementation of the " << name
++       << " material property which can be\n"
++       << " * called in device code. This implementation does not use\n"
++       << " * exceptions nor errno: an invalid value (NaN) is returned if\n"
++       << " * a physical bound is not satisfied.\n"
++       << " */\n";
++    if (mpd.inputs.empty()) {
++      os << "template <typename mfront_ValueType = double>\n"
++         << "TFEL_HOST_DEVICE inline mfront_ValueType " << name << "(){\n";
++      this->writeDeviceMaterialPropertyBody(os, mpd, fd, "mfront_ValueType");
++    } else {
++      os << "TFEL_HOST_DEVICE inline double " << name << "(";
++      this->writeArgumentsList(os, mpd, "double", false);
++      os << "){\n";
++      this->writeDeviceMaterialPropertyBody(os, mpd, fd, "double");
++    }
++    os << "} // end of " << name << "\n\n"
++       << "} // end of namespace mfront::device\n\n";
++  }  // end of writeDeviceImplementations
++
++  void MFrontMaterialPropertyInterface::writeDeviceMaterialPropertyBody(
++      std::ostream& os,
++      const MaterialPropertyDescription& mpd,
++      const FileDescription& fd,
++      const std::string_view t) const {
++    const auto nan = "std::numeric_limits<" + std::string{t} + ">::quiet_NaN()";
++    auto write_physical_bounds_check = [&os, &nan](const VariableDescription& v,
++                                                   const std::string& n) {
++      if (!v.hasPhysicalBounds()) {
++        return;
++      }
++      const auto& b = v.getPhysicalBounds();
++      if (b.boundsType == VariableBoundsDescription::LOWER) {
++        os << "if(" << n << " < " << b.lowerBound << "){\n";
++      } else if (b.boundsType == VariableBoundsDescription::UPPER) {
++        os << "if(" << n << " > " << b.upperBound << "){\n";
++      } else {
++        os << "if((" << n << " < " << b.lowerBound << ") || (" << n << " > "
++           << b.upperBound << ")){\n";
++      }
++      os << "return " << nan << ";\n"
++         << "}\n";
++    };
++    writeBeginningOfMaterialPropertyBody(os, mpd, fd, t, true);
++    for (const auto& p : mpd.parameters) {
++      tfel::raise_if(!p.hasAttribute(VariableDescription::defaultValue),
++                     "MFrontMaterialPropertyInterface::"
++                     "writeDeviceMaterialPropertyBody: "
++                     "internal error (can't find value of parameter '" +
++                         p.name + "')");
++      os << "constexpr auto " << p.name << " = " << p.type << "("
++         << p.getAttribute<double>(VariableDescription::defaultValue)
++         << ");\n";
++    }
++    this->writeInterfaceSpecificVariables(os, mpd);
++    const auto use_qt = useQuantities(mpd);
++    if (!areRuntimeChecksDisabled(mpd)) {
++      for (const auto& i : mpd.inputs) {
++        write_physical_bounds_check(i, (use_qt ? "mfront_" : "") + i.name);
++      }
++    }
++    os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n"
++       << mpd.f.body << "\n";
++    const auto output =
++        use_qt ? mpd.output.name + ".getValue()" : mpd.output.name;
++    if (!areRuntimeChecksDisabled(mpd)) {
++      write_physical_bounds_check(mpd.output, output);
++    }
++    os << "return " << output << ";\n";
++  }  // end of writeDeviceMaterialPropertyBody
++
+   MFrontMaterialPropertyInterface::~MFrontMaterialPropertyInterface() = default;
+ 
+ }  // end of namespace mfront
+diff --git a/mfront/src/MFrontModelInterface.cxx b/mfront/src/MFrontModelInterface.cxx
+index ea2529073..90f855247 100644
+--- a/mfront/src/MFrontModelInterface.cxx
++++ b/mfront/src/MFrontModelInterface.cxx
+@@ -200,7 +200,8 @@ namespace mfront {
+       for (const auto& v : md.constantMaterialProperties) {
+         header << " * \\param[in] " << v.name << "_: \n";
+       }
+-      header << " */\n" << md.className << "(";
++      header << " */\n"
++             << "TFEL_HOST_DEVICE " << md.className << "(";
+       for (auto pmp = std::begin(md.constantMaterialProperties);
+            pmp != std::end(md.constantMaterialProperties);) {
+         header << "const real " << pmp->name << "_";
+@@ -251,9 +252,9 @@ namespace mfront {
+       }
+       header << " */\n";
+       if (f.modifiedVariables.size() == 1) {
+-        header << "real ";
++        header << "TFEL_HOST_DEVICE real ";
+       } else {
+-        header << "void ";
++        header << "TFEL_HOST_DEVICE void ";
+       }
+       header << f.name << "(";
+       if (f.modifiedVariables.size() > 1) {
+@@ -329,7 +330,8 @@ namespace mfront {
+            << " * \\brief set the out of bounds policy\n"
+            << " * \\param[in] policy_: new policy\n"
+            << " */\n"
+-           << "void setOutOfBoundsPolicy(const OutOfBoundsPolicy& policy_){\n"
++           << "TFEL_HOST_DEVICE void "
++           << "setOutOfBoundsPolicy(const OutOfBoundsPolicy& policy_){\n"
+            << "this->policy = policy_;\n"
+            << "}\n // end of setOutOfBoundsPolicy\n"
+            << "private:\n"
+diff --git a/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx b/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
+index 6fb759a9a..5186ca9de 100644
+--- a/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
++++ b/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
+@@ -54,14 +54,14 @@ namespace mfront {
+     unsigned short n = 0;
+     for (auto p = this->flows.begin(); p != this->flows.end(); ++p, ++n) {
+       if (p->flow == FlowHandler::PlasticFlow) {
+-        os << "void computeFlow" << n << "(stress& f,\n"
++        os << "TFEL_HOST_DEVICE void computeFlow" << n << "(stress& f,\n"
+            << "real& df_dseq,\n"
+            << "stress& df_dp){\n";
+       } else if (p->flow == FlowHandler::CreepFlow) {
+-        os << "void computeFlow" << n << "(strainrate& f,\n"
++        os << "TFEL_HOST_DEVICE void computeFlow" << n << "(strainrate& f,\n"
+            << "tfel::math::derivative_type<strainrate,stress>& df_dseq){\n";
+       } else if (p->flow == FlowHandler::StrainHardeningCreepFlow) {
+-        os << "void computeFlow" << n << "(strainrate& f,\n"
++        os << "TFEL_HOST_DEVICE void computeFlow" << n << "(strainrate& f,\n"
+            << "tfel::math::derivative_type<strainrate,stress>& df_dseq,\n"
+            << "strainrate& df_dp){\n";
+       }
+@@ -77,7 +77,7 @@ namespace mfront {
+       os << p->flowRule << '\n';
+       os << "}\n\n";
+     }
+-    os << "bool NewtonIntegration(){\n";
++    os << "TFEL_HOST_DEVICE bool NewtonIntegration(){\n";
+     if (has_plastic_flow) {
+       os << "constexpr auto newton_epsilon = "
+             "100 * std::numeric_limits<NumericType>::epsilon();\n";
+@@ -299,20 +299,15 @@ namespace mfront {
+     os << "/*!\n"
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+-       << "[[nodiscard]] IntegrationResult\n"
++       << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+        << "integrate(const SMFlag smflag,const SMType smt) final{\n"
+-       << "using namespace std;\n";
+-    if (this->bd.useQt()) {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,use_qt>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    } else {
+-      os << "if(smflag!=MechanicalBehaviour<" << btype
+-         << ",hypothesis, NumericType,false>::STANDARDTANGENTOPERATOR){\n"
+-         << "throw(runtime_error(\"invalid tangent operator flag\"));\n"
+-         << "}\n";
+-    }
++       << "using namespace std;\n"
++       << "if(" << this->getInvalidStandardTangentOperatorFlagCondition()
++       << "){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(runtime_error(\"invalid tangent operator flag\"));",
++        "return FAILURE;");
++    os << "}\n";
+     if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
+       os << this->bd.getCode(h, BehaviourData::ComputePredictor) << '\n';
+     }
+@@ -382,10 +377,10 @@ namespace mfront {
+     this->writeBehaviourIntegratorPostprocessingStep(os);
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (this->bd.useQt()) {
+@@ -401,7 +396,8 @@ namespace mfront {
+   void MultipleIsotropicMisesFlowsCodeGenerator::
+       writeBehaviourComputeTangentOperator(std::ostream& os,
+                                            const Hypothesis) const {
+-    os << "bool computeConsistentTangentOperator(const SMType smt){\n"
++    os << "TFEL_HOST_DEVICE bool computeConsistentTangentOperator(const SMType "
++          "smt){\n"
+        << "using namespace std;\n"
+        << "using tfel::material::computeElasticStiffness;\n"
+        << "if((smt==ELASTIC)||(smt==SECANTOPERATOR)){\n"
+diff --git a/mfront/src/PerformanceProfiling.cxx b/mfront/src/PerformanceProfiling.cxx
+index 9d0189dbc..da2ae6276 100644
+--- a/mfront/src/PerformanceProfiling.cxx
++++ b/mfront/src/PerformanceProfiling.cxx
+@@ -21,21 +21,26 @@ namespace mfront {
+                                          std::string_view c,
+                                          std::string_view v,
+                                          std::string_view s) {
+-    os << "mfront::BehaviourProfiler::Timer ";
++    // the profiler is not available in device code
++    os << "#ifndef TFEL_DEVICE_CODE\n"
++       << "mfront::BehaviourProfiler::Timer ";
+     if (!s.empty()) {
+       os << "mfront_local_timer_" << s;
+     } else {
+       os << "mfront_local_timer";
+     }
+     os << "(" << c << "Profiler::getProfiler(),"
+-       << "mfront::BehaviourProfiler::" << makeUpperCase(v) << ");\n";
++       << "mfront::BehaviourProfiler::" << makeUpperCase(v) << ");\n"
++       << "#endif /* TFEL_DEVICE_CODE */\n";
+   }  // end of writeStandardPerformanceProfiling
+ 
+   void writeStandardPerformanceProfilingBegin(std::ostream& os,
+                                               std::string_view c,
+                                               std::string_view v,
+                                               std::string_view s) {
++    // the profiler is not available in device code
+     os << "{\n"
++       << "#ifndef TFEL_DEVICE_CODE\n"
+        << "mfront::BehaviourProfiler::Timer ";
+     if (!s.empty()) {
+       os << "mfront_local_timer_" << s;
+@@ -43,7 +48,8 @@ namespace mfront {
+       os << "mfront_local_timer";
+     }
+     os << "(" << c << "Profiler::getProfiler(),"
+-       << "mfront::BehaviourProfiler::" << makeUpperCase(v) << ");\n";
++       << "mfront::BehaviourProfiler::" << makeUpperCase(v) << ");\n"
++       << "#endif /* TFEL_DEVICE_CODE */\n";
+   }  // end of writeStandardPerformanceProfilingBegin
+ 
+   void writeStandardPerformanceProfilingEnd(std::ostream& os) {
+diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+index 0f15ac168..ee9b42289 100644
+--- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
++++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+@@ -318,7 +318,8 @@ namespace mfront {
+       std::ostream& os, const Hypothesis h) const {
+     this->checkBehaviourFile(os);
+     if (this->bd.hasCode(h, BehaviourData::ComputeThermodynamicForces)) {
+-      os << "[[nodiscard]] bool\ncomputeThermodynamicForces(){\n"
++      os << "[[nodiscard]] TFEL_HOST_DEVICE "
++            "bool\ncomputeThermodynamicForces(){\n"
+          << "using namespace std;\n"
+          << "using namespace tfel::math;\n";
+       writeMaterialLaws(os, this->bd.getMaterialLaws());
+@@ -329,7 +330,8 @@ namespace mfront {
+          << "::computeThermodynamicForces\n\n";
+     }
+     if (!this->bd.getMainVariables().empty()) {
+-      os << "[[nodiscard]] bool\ncomputeFinalThermodynamicForces(){\n"
++      os << "[[nodiscard]] TFEL_HOST_DEVICE "
++            "bool\ncomputeFinalThermodynamicForces(){\n"
+          << "using namespace std;\n"
+          << "using namespace tfel::math;\n";
+       writeMaterialLaws(os, this->bd.getMaterialLaws());
+@@ -339,7 +341,7 @@ namespace mfront {
+          << "} // end of " << this->bd.getClassName()
+          << "::computeFinalThermodynamicForces\n\n";
+     }
+-    os << "[[nodiscard]] bool\ncomputeDerivative(){\n"
++    os << "[[nodiscard]] TFEL_HOST_DEVICE bool\ncomputeDerivative(){\n"
+        << "using namespace std;\n"
+        << "using namespace tfel::math;\n";
+     writeMaterialLaws(os, this->bd.getMaterialLaws());
+@@ -985,9 +987,10 @@ namespace mfront {
+           "RungeKuttaCodeGeneratorBase::writeBehaviourRK54Integrator",
+           "internal error, unsupported error evaluation.");
+     }
+-    os << "if(!ieee754::isfinite(error)){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n";
++    os << "if(!ieee754::isfinite(error)){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n";
+     if (getDebugMode()) {
+       os << "cout << \"" << this->bd.getClassName()
+          << "::integrate() : error \" << error << endl;\n";
+@@ -1058,9 +1061,10 @@ namespace mfront {
+     }
+     os << "dt_ *= corrector;\n"
+        << "}\n"
+-       << "if(dt_<dtprec){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++       << "if(dt_<dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "if((tfel::math::abs(this->dt-t-dt_)<2*dtprec)||(t+dt_>this->dt)){\n"
+        << "dt_=this->dt-t;\n"
+        << "}\n"
+@@ -1073,9 +1077,10 @@ namespace mfront {
+     }
+     os << "// failed is true\n"
+        << "dt_ *= real(0.1f);\n"
+-       << "if(dt_<dtprec){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++       << "if(dt_<dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "}\n"
+        << "}\n";
+   }  // end of writeBehaviourRK54Integrator
+@@ -1301,9 +1306,10 @@ namespace mfront {
+          << "::integrate() : failed while computing initial stress\" << endl;\n"
+          << "}\n";
+     }
+-    os << "if(failed){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++    os << "if(failed){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "const auto asig = "
+        << "tfel::math::power<1, 2>((this->sig) | (this->sig));\n";
+     const auto error_normalization_factor =
+@@ -1323,12 +1329,17 @@ namespace mfront {
+          << "::integrate() : beginning of resolution\" << endl;\n";
+     }
+     os << "while(!converged){\n"
+-       << "if(dt_< dtprec){\n"
+-       << "cout<<\" dt \"<<this->dt<<\" t \"<<t<<\" dt_ \"<<dt_<<endl;\n"
+-       << "string msg(\"" << this->bd.getClassName() << "\");\n"
+-       << "msg += \" time step too small \"; \n"
+-       << "throw(runtime_error(msg)); \n"
+-       << "} \n";
++       << "if(dt_< dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os,
++        "cout<<\" dt \"<<this->dt<<\" t \"<<t<<\" dt_ \"<<dt_<<endl;\n"
++        "string msg(\"" +
++            this->bd.getClassName() +
++            "\");\n"
++            "msg += \" time step too small \"; \n"
++            "throw(runtime_error(msg));",
++        "return FAILURE;");
++    os << "} \n";
+     if (getDebugMode()) {
+       os << "cout << \"" << this->bd.getClassName()
+          << "::integrate() : from \" << t <<  \" to \" << t+dt_ << \" with "
+@@ -1660,9 +1671,10 @@ namespace mfront {
+          << this->bd.getClassName() << "::rkcastem_fac) << endl;\n";
+     }
+     os << "}\n"
+-       << "if(dt_<dtprec){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++       << "if(dt_<dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "if(!converged){\n"
+        << "if((tfel::math::abs(this->dt-t-dt_)<2*dtprec) || "
+           "(t+dt_>this->dt)){\n"
+@@ -2013,9 +2025,10 @@ namespace mfront {
+           "RungeKuttaCodeGeneratorBase::writeBehaviourRK42Integrator",
+           "internal error, unsupported error evaluation");
+     }
+-    os << "if(!ieee754::isfinite(error)){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n";
++    os << "if(!ieee754::isfinite(error)){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n";
+     if (getDebugMode()) {
+       os << "cout << \"" << this->bd.getClassName()
+          << "::integrate() : error \" << error << endl;\n";
+@@ -2077,9 +2090,10 @@ namespace mfront {
+       os << "}\n";
+     }
+     os << "}\n"
+-       << "if(dt_<dtprec){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++       << "if(dt_<dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "if((tfel::math::abs(this->dt-t-dt_)<2*dtprec)||(t+dt_>this->dt)){\n"
+        << "dt_=this->dt-t;\n"
+        << "}\n"
+@@ -2087,9 +2101,10 @@ namespace mfront {
+        << "} else {\n"
+        << "// failed is true\n"
+        << "dt_ *= real(0.1f);\n"
+-       << "if(dt_<dtprec){\n"
+-       << "throw(tfel::material::DivergenceException());\n"
+-       << "}\n"
++       << "if(dt_<dtprec){\n";
++    this->writeHostAndDeviceCode(
++        os, "throw(tfel::material::DivergenceException());", "return FAILURE;");
++    os << "}\n"
+        << "}\n"
+        << "}\n";
+   }  // end of writeBehaviourRK42Integrator
+@@ -2216,7 +2231,7 @@ namespace mfront {
+     os << "/*!\n"
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+-       << "[[nodiscard]] IntegrationResult\n";
++       << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n";
+     if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
+       os << "integrate(const SMFlag smflag,const SMType smt) final{\n";
+     } else {
+@@ -2284,10 +2299,10 @@ namespace mfront {
+     os << "}\n";
+     if (!areRuntimeChecksDisabled(this->bd)) {
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writePhysicalBoundsChecks(os, v, false);
++        this->writePhysicalBoundsChecks(os, v, false, "return FAILURE;");
+       }
+       for (const auto& v : d.getPersistentVariables()) {
+-        this->writeBoundsChecks(os, v, false);
++        this->writeBoundsChecks(os, v, false, "return FAILURE;");
+       }
+     }
+     if (this->bd.getAttribute(BehaviourData::profiling, false)) {
+@@ -2304,9 +2319,9 @@ namespace mfront {
+       writeReturnFailure(os, this->bd);
+       os << "}\n";
+     } else {
+-      os << "string msg(\"" << this->bd.getClassName() << "::integrate : \");\n"
+-         << "msg +=\"unimplemented feature\";\n"
+-         << "throw(runtime_error(msg));\n";
++      this->writeDeviceCompatibleRaise(
++          os, this->bd.getClassName() + "::integrate: unimplemented feature",
++          "FAILURE");
+     }
+     os << "}\n";
+     writeReturnSuccess(os, this->bd);
+diff --git a/mfront/src/RungeKuttaDSLBase.cxx b/mfront/src/RungeKuttaDSLBase.cxx
+index 78f51374e..dd8ce52c4 100644
+--- a/mfront/src/RungeKuttaDSLBase.cxx
++++ b/mfront/src/RungeKuttaDSLBase.cxx
+@@ -747,11 +747,17 @@ namespace mfront {
+       ib.code += "this->dt = " + this->mb.getClassName() + "::dtmin;\n";
+       ib.code += "}\n";
+     } else {
++      // this code is inserted in the `initialize` method. Exceptions are not
++      // supported in device code, where `false` is returned
+       ib.code += "if(this->dt < 100 * std::numeric_limits<time>::min()){\n";
++      ib.code += "#ifdef TFEL_DEVICE_CODE\n";
++      ib.code += "return false;\n";
++      ib.code += "#else /* TFEL_DEVICE_CODE */\n";
+       ib.code += "string msg(\"" + this->mb.getClassName() +
+                  "::" + this->mb.getClassName() + "\");\n";
+       ib.code += "msg += \"time step too small.\";\n";
+       ib.code += "throw(runtime_error(msg));\n";
++      ib.code += "#endif /* TFEL_DEVICE_CODE */\n";
+       ib.code += "}\n";
+     }
+     this->mb.setCode(uh, BehaviourData::BeforeInitializeLocalVariables, ib,
+diff --git a/mfront/src/ScalarDamageHookeStressPotentialBase.cxx b/mfront/src/ScalarDamageHookeStressPotentialBase.cxx
+index 8ceaf1294..00345c6f0 100644
+--- a/mfront/src/ScalarDamageHookeStressPotentialBase.cxx
++++ b/mfront/src/ScalarDamageHookeStressPotentialBase.cxx
+@@ -17,6 +17,7 @@
+ #include "TFEL/Glossary/GlossaryEntry.hxx"
+ #include "TFEL/Utilities/Data.hxx"
+ #include "MFront/MFrontLogStream.hxx"
++#include "MFront/CodeGeneratorUtilities.hxx"
+ #include "MFront/ImplicitDSLBase.hxx"
+ #include "MFront/LocalDataStructure.hxx"
+ #include "MFront/AbstractNonLinearSystemSolver.hxx"
+@@ -85,7 +86,7 @@ namespace mfront::bbrick {
+     for (const auto h : bd.getDistinctModellingHypotheses()) {
+       std::string m =
+           "//! \\brief return an elastic prediction of the stresses\n"
+-          "StressStensor computeElasticPrediction() const{\n";
++          "TFEL_HOST_DEVICE StressStensor computeElasticPrediction() const{\n";
+       const auto broken_test = getBrokenTest(bd, false);
+       if (!broken_test.empty()) {
+         m += "if(" + broken_test + "){\n";
+@@ -99,8 +100,11 @@ namespace mfront::bbrick {
+                              false))) {
+           if ((bd.getElasticSymmetryType() != mfront::ISOTROPIC) &&
+               (bd.getElasticSymmetryType() != mfront::ORTHOTROPIC)) {
+-            m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                 "unsupported case\"));\n";
++            m += makeHostAndDeviceCode(
++                "throw(std::runtime_error(\"computeElasticPrediction: "
++                "unsupported case\"));",
++                "return StressStensor(stress(std::numeric_limits<real>::"
++                "quiet_NaN()));");
+           } else {
+             if (bd.hasAttribute(
+                     BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
+@@ -149,8 +153,11 @@ namespace mfront::bbrick {
+                 m += "return prediction_stress;\n";
+               }
+             } else {
+-              m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                   "unsupported case\"));\n";
++              m += makeHostAndDeviceCode(
++                  "throw(std::runtime_error(\"computeElasticPrediction: "
++                  "unsupported case\"));",
++                  "return StressStensor(stress(std::numeric_limits<real>::"
++                  "quiet_NaN()));");
+             }
+           }
+         } else {
+@@ -216,9 +223,12 @@ namespace mfront::bbrick {
+                              false))) {
+           if ((bd.getElasticSymmetryType() != mfront::ISOTROPIC) &&
+               (bd.getElasticSymmetryType() != mfront::ORTHOTROPIC)) {
+-            m += "throw(std::runtime_error(\"computeElasticPrediction: "
+-                 "unsupported material symmetry (neither isotropic "
+-                 "or orthotropic)\"));\n";
++            m += makeHostAndDeviceCode(
++                "throw(std::runtime_error(\"computeElasticPrediction: "
++                "unsupported material symmetry (neither isotropic "
++                "or orthotropic)\"));",
++                "return StressStensor(stress(std::numeric_limits<real>::"
++                "quiet_NaN()));");
+           } else {
+             if (bd.hasAttribute(
+                     BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
+-- 
+2.43.0
+

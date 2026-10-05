@@ -1,0 +1,2515 @@
+From c77e379559da6d7a4d425f30ffcbf4edea97627f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 14:22:36 +0200
+Subject: [PATCH 04/21] MFront: generic-parallel interface for behaviours
+
+Integration of a behaviour over a batch of integration points, equivalent
+to calling the generic interface at each point.
+
+- Batch data described by fields with two strides (point by point or
+  component by component storage), output status summarizing the batch.
+- Per point integration written once in TFEL_HOST_DEVICE templates
+  (MFront/GenericParallelBehaviour/Integrate.hxx); thin generated code.
+- Backends: CUDA, HIP (one thread per point, reduction of the summary per
+  warp, stack size increased if needed) and parallel algorithms of the
+  C++ standard library (counting iterator).
+- Same organisation as the generic-parallel interface for material
+  properties: backend factory, options in configuration files, libraries
+  suffixed by the backend.
+---
+ cmake/modules/tfel.cmake                      |   2 +
+ .../configuration-files/config-cuda-nvcc.json |   2 +-
+ mfront/include/CMakeLists.txt                 |  10 +
+ .../Behaviour/AbstractBackend.hxx             |  65 ++
+ .../Behaviour/BackendFactory.hxx              |  69 ++
+ .../GenericParallel/Behaviour/GPUBackend.hxx  |  69 ++
+ .../Behaviour/ParallelSTLBackend.hxx          |  56 ++
+ .../GenericParallelBehaviour/BatchData.h      | 188 ++++++
+ .../MFront/GenericParallelBehaviour/GPU.hxx   | 300 +++++++++
+ .../GenericParallelBehaviour/Integrate.hxx    | 615 ++++++++++++++++++
+ .../GenericParallelBehaviour/ParallelSTL.hxx  | 150 +++++
+ .../GenericParallelBehaviourInterface.hxx     | 100 +++
+ mfront/src/CMakeLists.txt                     |   5 +
+ .../Behaviour/AbstractBackend.cxx             |  19 +
+ .../Behaviour/BackendFactory.cxx              |  61 ++
+ .../GenericParallel/Behaviour/GPUBackend.cxx  |  52 ++
+ .../Behaviour/ParallelSTLBackend.cxx          |  67 ++
+ .../src/GenericParallelBehaviourInterface.cxx | 473 ++++++++++++++
+ mfront/src/InitInterfaces.cxx                 |   2 +
+ 19 files changed, 2304 insertions(+), 1 deletion(-)
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/BackendFactory.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+ create mode 100644 mfront/src/GenericParallelBehaviourInterface.cxx
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index d0d91f670..08cfdbb1f 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -551,6 +551,8 @@ foreach(conf ${generic-parallel-configurations})
+   if(NOT ${conf} STREQUAL "hip-clang")
+     list(APPEND tfel-check-components
+          "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
++    list(APPEND tfel-check-components
++         "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
+   endif()
+ endforeach()
+ 
+diff --git a/mfront/configuration-files/config-cuda-nvcc.json b/mfront/configuration-files/config-cuda-nvcc.json
+index 8c194d88e..fa30c7b35 100644
+--- a/mfront/configuration-files/config-cuda-nvcc.json
++++ b/mfront/configuration-files/config-cuda-nvcc.json
+@@ -12,6 +12,6 @@ interfaces_options: {
+ compilation_options : {
+   cuda : {
+     compiler: "@TFEL_NVCC_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -diag-suppress 20012 -Xcompiler -fPIC --expt-relaxed-constexpr"
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -arch=native -diag-suppress 20012,20208,2810,3189 -Xcompiler -fPIC --expt-relaxed-constexpr"
+   }
+ }
+\ No newline at end of file
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index dd87fe7db..0e19f0e14 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -122,6 +122,11 @@ install_mfront_header(MFront GenericParallel/MaterialProperty/CUDABackendBase.hx
+ install_mfront_header(MFront GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
++install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
++install_mfront_header(MFront GenericParallel/Behaviour/AbstractBackend.hxx)
++install_mfront_header(MFront GenericParallel/Behaviour/BackendFactory.hxx)
++install_mfront_header(MFront GenericParallel/Behaviour/GPUBackend.hxx)
++install_mfront_header(MFront GenericParallel/Behaviour/ParallelSTLBackend.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+ install_mfront_header(MFront CastemModelInterface.hxx)
+ install_mfront_header(MFront Castem21ModelInterface.hxx)
+@@ -238,6 +243,11 @@ install_mfront_header(MFront/GenericBehaviour LogarithmicStrainIntegrate.hxx)
+ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
+ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+ 
++install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
++install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour ParallelSTL.hxx)
++
+ if(HAVE_CASTEM)
+ install_mfront_header(MFront/Castem Castem.hxx)
+ install_mfront_header(MFront/Castem CastemTraits.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+new file mode 100644
+index 000000000..29a23166c
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+@@ -0,0 +1,65 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
++ * \brief  This file declares the base class of the backends of the
++ * `generic-parallel` behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_ABSTRACTBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_ABSTRACTBACKEND_HXX
++
++#include <iosfwd>
++#include <string>
++#include "MFront/MFrontConfig.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  /*!
++   * \brief base class of the backends of the `generic-parallel` behaviour
++   * interface.
++   *
++   * The integration of a batch is implemented by function templates in the
++   * `MFront/GenericParallelBehaviour` headers. A backend selects those
++   * headers and writes the call to the right function.
++   */
++  struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
++    /*!
++     * \return the name of the backend, which is used as a suffix for the
++     * names of the generated library and files
++     */
++    [[nodiscard]] virtual std::string getName() const = 0;
++    //! \return the extension of the generated source file
++    [[nodiscard]] virtual std::string getSourceFileExtension() const = 0;
++    /*!
++     * \brief write the headers required by the backend
++     * \param[out] os: output stream
++     */
++    virtual void writeSpecificIncludes(std::ostream&) const = 0;
++    /*!
++     * \brief write the statement returning the result of the integration of
++     * a batch. This statement is written in a scope where the following
++     * names are defined:
++     *
++     * - `Behaviour`: the class implementing the behaviour;
++     * - `mfront_sizes`: the sizes of the data of an integration point;
++     * - `mfront_status`: a reference to the output status;
++     * - `mfront_data`: a reference to the batch data;
++     * - `mfront_parameters`: the values of the parameters;
++     * - `mfront_policy`: the out of bounds policy.
++     *
++     * \param[out] os: output stream
++     */
++    virtual void writeIntegrationCall(std::ostream&) const = 0;
++    //! \brief destructor
++    virtual ~AbstractBackend() noexcept;
++  };  // end of AbstractBackend
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_ABSTRACTBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/BackendFactory.hxx b/mfront/include/MFront/GenericParallel/Behaviour/BackendFactory.hxx
+new file mode 100644
+index 000000000..05dd48d3c
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/BackendFactory.hxx
+@@ -0,0 +1,69 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/Behaviour/BackendFactory.hxx
++ * \brief  This file declares the factory of the backends of the
++ * `generic-parallel` behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_BACKENDFACTORY_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_BACKENDFACTORY_HXX
++
++#include <map>
++#include <string>
++#include <memory>
++#include <functional>
++#include <string_view>
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  // forward declaration
++  struct AbstractBackend;
++
++  //! \brief factory of the backends
++  struct MFRONT_VISIBILITY_EXPORT BackendFactory {
++    //! \brief a simple alias
++    using DataMap = tfel::utilities::DataMap;
++    //! \brief a simple alias
++    using Generator =
++        std::function<std::unique_ptr<AbstractBackend>(const DataMap&)>;
++    //! \return the uniq instance of this class
++    static BackendFactory& get() noexcept;
++    /*!
++     * \brief register a backend
++     * \param[in] n: name of the backend
++     * \param[in] g: generator
++     */
++    void add(std::string_view, Generator);
++    /*!
++     * \return a new backend
++     * \param[in] n: name of the backend
++     * \param[in] opts: options passed to the backend
++     */
++    std::unique_ptr<AbstractBackend> generate(std::string_view,
++                                              const DataMap&) const;
++
++   private:
++    //! \brief default constructor
++    BackendFactory();
++    //! \brief destructor
++    ~BackendFactory();
++    //
++    BackendFactory(BackendFactory&&) = delete;
++    BackendFactory(const BackendFactory&) = delete;
++    BackendFactory& operator=(BackendFactory&&) = delete;
++    BackendFactory& operator=(const BackendFactory&) = delete;
++    //! \brief registred generators
++    std::map<std::string, Generator, std::less<>> generators;
++  };
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_BACKENDFACTORY_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+new file mode 100644
+index 000000000..37a7c5d74
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+@@ -0,0 +1,69 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
++ * \brief  This file declares the CUDA and HIP backends of the
++ * `generic-parallel` behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_GPUBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_GPUBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  /*!
++   * \brief base class of the CUDA and HIP backends: one thread per
++   * integration point.
++   *
++   * Options:
++   *
++   * - `number_of_threads_per_block`: number of threads per block, rounded up
++   *   to a multiple of the warp size (128 by default).
++   */
++  struct MFRONT_VISIBILITY_EXPORT GPUBackend : AbstractBackend {
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    GPUBackend(const tfel::utilities::DataMap&);
++    //
++    void writeSpecificIncludes(std::ostream&) const override;
++    void writeIntegrationCall(std::ostream&) const override;
++    //! \brief destructor
++    ~GPUBackend() noexcept override;
++
++   protected:
++    //! \brief number of threads per block
++    int number_of_threads_per_block = 128;
++  };  // end of GPUBackend
++
++  //! \brief CUDA backend
++  struct MFRONT_VISIBILITY_EXPORT CUDABackend final : GPUBackend {
++    using GPUBackend::GPUBackend;
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    //! \brief destructor
++    ~CUDABackend() noexcept override;
++  };  // end of CUDABackend
++
++  //! \brief HIP backend
++  struct MFRONT_VISIBILITY_EXPORT HIPBackend final : GPUBackend {
++    using GPUBackend::GPUBackend;
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    //! \brief destructor
++    ~HIPBackend() noexcept override;
++  };  // end of HIPBackend
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_GPUBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+new file mode 100644
+index 000000000..56505a3f0
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+@@ -0,0 +1,56 @@
++/*!
++ * \file mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
++ * \brief  This file declares the backend of the `generic-parallel` behaviour
++ * interface based on the parallel algorithms of the C++ standard library
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_PARALLELSTLBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_PARALLELSTLBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  /*!
++   * \brief backend based on the parallel algorithms of the C++ standard
++   * library.
++   *
++   * Options:
++   *
++   * - `execution_policy`: `sequenced_policy` (or `seq`),
++   *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
++   *   `parallel_unsequenced_policy` (or `par_unseq`, default).
++   */
++  struct MFRONT_VISIBILITY_EXPORT ParallelSTLBackend final : AbstractBackend {
++    //! \brief default constructor
++    ParallelSTLBackend();
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    ParallelSTLBackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&) const override;
++    void writeIntegrationCall(std::ostream&) const override;
++    //! \brief destructor
++    ~ParallelSTLBackend() noexcept override;
++
++   private:
++    //! \brief execution policy
++    std::string execution_policy = "std::execution::par_unseq";
++  };  // end of ParallelSTLBackend
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_PARALLELSTLBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+new file mode 100644
+index 000000000..8137a68fc
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -0,0 +1,188 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++ * \brief  This file declares the data structures exchanged with the
++ * functions generated by the `generic-parallel` behaviour interface.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
++
++#include "MFront/GenericBehaviour/Types.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif /* __cplusplus */
++
++/*!
++ * \brief values of a group of variables (gradients, internal state
++ * variables, etc.) at all the integration points of a batch.
++ *
++ * The `j`-th component of the group at the `i`-th integration point is
++ * stored at `values[i * point_stride + j * component_stride]`. Common
++ * layouts are:
++ *
++ * - point by point: `point_stride` is the size of the group and
++ *   `component_stride` is one;
++ * - component by component, which gives coalesced memory accesses on GPUs:
++ *   `point_stride` is one and `component_stride` is the number of points;
++ * - uniform values (inputs only): `point_stride` is zero.
++ *
++ * `values` may be null if the group is empty or if an optional output is not
++ * requested.
++ */
++typedef struct {
++  //! \brief pointer to the first value
++  const mfront_gb_real* values;
++  //! \brief stride between two integration points
++  mfront_gb_size_type point_stride;
++  //! \brief stride between two components
++  mfront_gb_size_type component_stride;
++} mfront_gpb_ConstField;
++
++//! \brief mutable version of `mfront_gpb_ConstField`
++typedef struct {
++  //! \brief pointer to the first value
++  mfront_gb_real* values;
++  //! \brief stride between two integration points
++  mfront_gb_size_type point_stride;
++  //! \brief stride between two components
++  mfront_gb_size_type component_stride;
++} mfront_gpb_Field;
++
++//! \brief state of the material at the beginning of the time step
++typedef struct {
++  mfront_gpb_ConstField gradients;
++  mfront_gpb_ConstField thermodynamic_forces;
++  mfront_gpb_ConstField mass_density;
++  mfront_gpb_ConstField material_properties;
++  mfront_gpb_ConstField internal_state_variables;
++  mfront_gpb_ConstField stored_energy;
++  mfront_gpb_ConstField dissipated_energy;
++  mfront_gpb_ConstField external_state_variables;
++} mfront_gpb_InitialState;
++
++//! \brief state of the material at the end of the time step
++typedef struct {
++  mfront_gpb_ConstField gradients;
++  //! \brief output
++  mfront_gpb_Field thermodynamic_forces;
++  mfront_gpb_ConstField mass_density;
++  mfront_gpb_ConstField material_properties;
++  //! \brief output
++  mfront_gpb_Field internal_state_variables;
++  //! \brief output, optional
++  mfront_gpb_Field stored_energy;
++  //! \brief output, optional
++  mfront_gpb_Field dissipated_energy;
++  mfront_gpb_ConstField external_state_variables;
++} mfront_gpb_State;
++
++/*!
++ * \brief description of a batch of integration points.
++ *
++ * Integrating a batch is equivalent to calling the function generated by
++ * the `generic` interface at each integration point, with the same values
++ * of the time increment and of the computation options. All the pointers
++ * must be accessible by the device on which the computations are performed.
++ */
++typedef struct {
++  //! \brief number of integration points
++  mfront_gb_size_type number_of_points;
++  //! \brief time increment
++  mfront_gb_real dt;
++  /*!
++   * \brief computation options. Those options have the same meaning as the
++   * three first values of the array `K` of the `mfront_gb_BehaviourData`
++   * structure (type of computation, stress measure and type of tangent
++   * operator for finite strain behaviours).
++   */
++  mfront_gb_real options[3];
++  /*!
++   * \brief initial value of the time step scaling factor, used at each
++   * integration point
++   */
++  mfront_gb_real rdt;
++  //! \brief tangent or prediction operators (output, optional)
++  mfront_gpb_Field tangent_operators;
++  //! \brief time step scaling factors at each point (output, optional)
++  mfront_gpb_Field rdts;
++  //! \brief speed of sound (output, only used if requested by the options)
++  mfront_gpb_Field speed_of_sound;
++  /*!
++   * \brief status of each integration point (output, optional):
++   *
++   * - `-1`: the integration failed;
++   * - `0`: the integration succeeded but the time step scaling factor is
++   *   lower than 0.99;
++   * - `1`: the integration succeeded.
++   */
++  int* statuses;
++  //! \brief state at the beginning of the time step
++  mfront_gpb_InitialState s0;
++  //! \brief state at the end of the time step
++  mfront_gpb_State s1;
++  /*!
++   * \brief queue on which the computations are performed, if meaningful for
++   * the backend (`cudaStream_t` or `hipStream_t`). A null pointer denotes
++   * the default queue.
++   */
++  void* queue;
++} mfront_gpb_BatchData;
++
++/*!
++ * \brief summary of the integration of a batch. The `status` member is
++ * also the value returned by the functions generated by the interface:
++ *
++ * - `1`: the integration succeeded at all points;
++ * - `0`: the integration succeeded at all points, but the time step scaling
++ *   factor is lower than 0.99 at some points;
++ * - `-1`: the integration failed at some points;
++ * - `-2`: invalid arguments, nothing was computed;
++ * - `-3`: runtime error of the backend (allocation, kernel launch, etc.).
++ */
++typedef struct {
++  //! \brief status
++  int status;
++  //! \brief number of points where the integration failed
++  mfront_gb_size_type number_of_failures;
++  //! \brief number of points where the time step scaling factor is too low
++  mfront_gb_size_type number_of_unreliable_results;
++  //! \brief minimum of the time step scaling factors over the batch
++  mfront_gb_real rdt;
++  //! \brief error message
++  char msg[512];
++} mfront_gpb_OutputStatus;
++
++#ifdef __cplusplus
++}  // end of extern "C"
++#endif /* __cplusplus */
++
++#ifdef __cplusplus
++
++namespace mfront::gpb {
++
++  //! \brief a simple alias
++  using ConstField = ::mfront_gpb_ConstField;
++  //! \brief a simple alias
++  using Field = ::mfront_gpb_Field;
++  //! \brief a simple alias
++  using InitialState = ::mfront_gpb_InitialState;
++  //! \brief a simple alias
++  using State = ::mfront_gpb_State;
++  //! \brief a simple alias
++  using BatchData = ::mfront_gpb_BatchData;
++  //! \brief a simple alias
++  using OutputStatus = ::mfront_gpb_OutputStatus;
++
++}  // end of namespace mfront::gpb
++
++#endif /* __cplusplus */
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+new file mode 100644
+index 000000000..e27270200
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -0,0 +1,300 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++ * \brief  This file implements the integration of a batch of integration
++ * points with CUDA or HIP. This file must be compiled by a CUDA or a HIP
++ * compiler.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
++
++#include <mutex>
++#include <cstring>
++#if defined(__HIPCC__)
++#include <hip/hip_runtime.h>
++#define MFRONT_GPB_GPU_API(f) hip##f
++#else
++#include <cuda_runtime.h>
++#define MFRONT_GPB_GPU_API(f) cuda##f
++#endif
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb::gpu {
++
++  namespace internals {
++
++    /*!
++     * \brief statistics on the integration of a batch, stored on the
++     * device. The time step scaling factor is stored as an ordered key (see
++     * `toOrderedKey`) so that its minimum can be computed with an integer
++     * atomic operation.
++     */
++    struct DeviceStatistics {
++      unsigned long long number_of_failures;
++      unsigned long long number_of_unreliable_results;
++      unsigned long long rdt;
++    };
++
++    /*!
++     * \return an unsigned integer whose ordering is the same as the
++     * ordering of the given floating point values
++     */
++    TFEL_HOST_DEVICE inline unsigned long long toOrderedKey(const double v) {
++#ifdef TFEL_DEVICE_CODE
++      const auto b = static_cast<unsigned long long>(__double_as_longlong(v));
++#else
++      auto b = (unsigned long long){};
++      std::memcpy(&b, &v, sizeof(b));
++#endif
++      constexpr auto sign = 0x8000000000000000ull;
++      return (b & sign) ? ~b : (b | sign);
++    }  // end of toOrderedKey
++
++    //! \brief inverse of `toOrderedKey` (host only)
++    inline double fromOrderedKey(const unsigned long long k) {
++      constexpr auto sign = 0x8000000000000000ull;
++      const auto b = (k & sign) ? (k & ~sign) : ~k;
++      auto v = double{};
++      std::memcpy(&v, &b, sizeof(v));
++      return v;
++    }  // end of fromOrderedKey
++
++    /*!
++     * \brief increase the stack size of the threads if the given kernel
++     * requires it. The default stack size (1024 bytes with CUDA) is too
++     * small for some behaviours and is not increased automatically.
++     * \return the error code of the runtime
++     * \param[in] k: kernel
++     */
++    template <typename Kernel>
++    MFRONT_GPB_GPU_API(Error_t) ensureStackSize(Kernel k) {
++      using Error = MFRONT_GPB_GPU_API(Error_t);
++      // the stack size is a property of the context, shared by all threads
++      static std::mutex m;
++      auto a = MFRONT_GPB_GPU_API(FuncAttributes){};
++      if (const auto e = MFRONT_GPB_GPU_API(FuncGetAttributes)(&a, k);
++          e != MFRONT_GPB_GPU_API(Success)) {
++        return e;
++      }
++      // the static estimate of the local memory of the kernel may be
++      // slightly lower than the actual stack usage (by a few tens of bytes
++      // for a kernel calling the pow function of libdevice), so a margin is
++      // added
++      constexpr auto margin = std::size_t{512};
++      constexpr auto granularity = std::size_t{1024};
++      const auto required =
++          ((a.localSizeBytes + margin + granularity - 1) / granularity) *
++          granularity;
++      auto lock = std::lock_guard<std::mutex>{m};
++      auto l = std::size_t{};
++      if (const auto e = MFRONT_GPB_GPU_API(DeviceGetLimit)(
++              &l, MFRONT_GPB_GPU_API(LimitStackSize));
++          e != MFRONT_GPB_GPU_API(Success)) {
++        return e;
++      }
++      if (required <= l) {
++        return Error{MFRONT_GPB_GPU_API(Success)};
++      }
++      return MFRONT_GPB_GPU_API(DeviceSetLimit)(
++          MFRONT_GPB_GPU_API(LimitStackSize), required);
++    }  // end of ensureStackSize
++
++    //! \brief sum of the values of a warp, in the first thread of the warp
++    template <typename T>
++    __device__ inline T warpSum(T v) {
++      for (int o = warpSize / 2; o > 0; o /= 2) {
++#if defined(__HIP_PLATFORM_AMD__)
++        v += __shfl_down(v, o);
++#else
++        v += __shfl_down_sync(0xffffffffu, v, o);
++#endif
++      }
++      return v;
++    }  // end of warpSum
++
++    //! \brief minimum of the values of a warp, in the first thread of the warp
++    __device__ inline unsigned long long warpMin(unsigned long long v) {
++      for (int o = warpSize / 2; o > 0; o /= 2) {
++#if defined(__HIP_PLATFORM_AMD__)
++        const auto w = __shfl_down(v, o);
++#else
++        const auto w = __shfl_down_sync(0xffffffffu, v, o);
++#endif
++        v = w < v ? w : v;
++      }
++      return v;
++    }  // end of warpMin
++
++    /*!
++     * \brief integrate the behaviour at the points of a batch, one thread
++     * per point. The number of threads per block must be a multiple of the
++     * warp size.
++     *
++     * \param[in] d: batch data
++     * \param[in] parameters: values of the parameters
++     * \param[in] p: out of bounds policy
++     * \param[out] s: statistics
++     * \param[in] rdt0: ordered key of the initial time step scaling factor
++     */
++    template <typename Behaviour,
++              typename Sizes,
++              bool direct,
++              typename ParametersType>
++    __global__ void integrate(const BatchData d,
++                              const ParametersType parameters,
++                              const tfel::material::OutOfBoundsPolicy p,
++                              DeviceStatistics* const s,
++                              const unsigned long long rdt0) {
++      const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
++                     static_cast<size_type>(threadIdx.x);
++      auto failures = 0u;
++      auto unreliable_results = 0u;
++      auto rdt = rdt0;
++      if (i < d.number_of_points) {
++        const auto r = mfront::gpb::integrate<Behaviour, Sizes, direct>(
++            d, i, parameters, p);
++        failures = r.status == -1 ? 1u : 0u;
++        unreliable_results = r.status == 0 ? 1u : 0u;
++        rdt = toOrderedKey(r.rdt);
++      }
++      // the atomic operations are only performed if a point of the warp
++      // failed or decreased the time step scaling factor
++      failures = warpSum(failures);
++      unreliable_results = warpSum(unreliable_results);
++      rdt = warpMin(rdt);
++      if (threadIdx.x % warpSize == 0) {
++        if (failures != 0) {
++          atomicAdd(&(s->number_of_failures),
++                    static_cast<unsigned long long>(failures));
++        }
++        if (unreliable_results != 0) {
++          atomicAdd(&(s->number_of_unreliable_results),
++                    static_cast<unsigned long long>(unreliable_results));
++        }
++        if (rdt < rdt0) {
++          atomicMin(&(s->rdt), rdt);
++        }
++      }
++    }  // end of integrate
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief integrate the behaviour at the points of a batch.
++   *
++   * The kernel is launched on the queue given by the batch data. This
++   * function waits for its completion.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \param[out] s: output status
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \param[in] threads_per_block: number of threads per block, rounded up to
++   * a multiple of the warp size
++   * \return the status
++   */
++  template <typename Behaviour, typename Sizes, typename ParametersType>
++  int integrate(OutputStatus& s,
++                const BatchData& d,
++                const ParametersType& parameters,
++                const tfel::material::OutOfBoundsPolicy p,
++                const unsigned int threads_per_block) {
++    using Stream = MFRONT_GPB_GPU_API(Stream_t);
++    using Error = MFRONT_GPB_GPU_API(Error_t);
++    if (!check<Sizes>(s, d)) {
++      return s.status;
++    }
++    if (d.number_of_points == 0) {
++      return s.status;
++    }
++    // report a runtime error, only the first error is reported
++    auto failed = [&s](const Error e) {
++      if (e == MFRONT_GPB_GPU_API(Success)) {
++        return false;
++      }
++      if (s.status != -3) {
++        report(s, -3, MFRONT_GPB_GPU_API(GetErrorString)(e));
++      }
++      return true;
++    };
++    auto device = 0;
++    auto warp_size = 0;
++    if (failed(MFRONT_GPB_GPU_API(GetDevice)(&device)) ||
++        failed(MFRONT_GPB_GPU_API(DeviceGetAttribute)(
++            &warp_size, MFRONT_GPB_GPU_API(DevAttrWarpSize), device))) {
++      return s.status;
++    }
++    const auto ws = static_cast<unsigned int>(warp_size);
++    const auto nthreads = ((threads_per_block + ws - 1) / ws) * ws;
++    const auto nblocks = (d.number_of_points + nthreads - 1) / nthreads;
++    const auto stream = static_cast<Stream>(d.queue);
++    const auto rdt0 = internals::toOrderedKey(d.rdt);
++    auto statistics =
++        internals::DeviceStatistics{.number_of_failures = 0,
++                                    .number_of_unreliable_results = 0,
++                                    .rdt = rdt0};
++    internals::DeviceStatistics* device_statistics = nullptr;
++    if (failed(MFRONT_GPB_GPU_API(MallocAsync)(
++            reinterpret_cast<void**>(&device_statistics),
++            sizeof(internals::DeviceStatistics), stream))) {
++      return s.status;
++    }
++    const auto launched = [&] {
++      if (failed(MFRONT_GPB_GPU_API(MemcpyAsync)(
++              device_statistics, &statistics, sizeof(statistics),
++              MFRONT_GPB_GPU_API(MemcpyHostToDevice), stream))) {
++        return false;
++      }
++      if (areAllFieldsStoredPointByPoint<Sizes>(d)) {
++        constexpr auto k =
++            internals::integrate<Behaviour, Sizes, true, ParametersType>;
++        if (failed(internals::ensureStackSize(k))) {
++          return false;
++        }
++        k<<<nblocks, nthreads, 0, stream>>>(d, parameters, p,
++                                            device_statistics, rdt0);
++      } else {
++        constexpr auto k =
++            internals::integrate<Behaviour, Sizes, false, ParametersType>;
++        if (failed(internals::ensureStackSize(k))) {
++          return false;
++        }
++        k<<<nblocks, nthreads, 0, stream>>>(d, parameters, p,
++                                            device_statistics, rdt0);
++      }
++      if (failed(MFRONT_GPB_GPU_API(GetLastError)())) {
++        return false;
++      }
++      return !failed(MFRONT_GPB_GPU_API(MemcpyAsync)(
++          &statistics, device_statistics, sizeof(statistics),
++          MFRONT_GPB_GPU_API(MemcpyDeviceToHost), stream));
++    }();
++    const auto freed =
++        !failed(MFRONT_GPB_GPU_API(FreeAsync)(device_statistics, stream));
++    const auto synchronized =
++        !failed(MFRONT_GPB_GPU_API(StreamSynchronize)(stream));
++    if (!(launched && freed && synchronized)) {
++      return s.status;
++    }
++    return report(
++        s, BatchStatistics{.number_of_failures = statistics.number_of_failures,
++                           .number_of_unreliable_results =
++                               statistics.number_of_unreliable_results,
++                           .rdt = internals::fromOrderedKey(statistics.rdt)});
++  }  // end of integrate
++
++}  // end of namespace mfront::gpb::gpu
++
++#undef MFRONT_GPB_GPU_API
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+new file mode 100644
+index 000000000..5dccade5b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -0,0 +1,615 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++ * \brief  This file implements the integration of a behaviour at one point
++ * of a batch, and the utilities shared by all the backends of the
++ * `generic-parallel` behaviour interface.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX
++
++#include <cstring>
++#include <exception>
++#include <string_view>
++#include "TFEL/Config/TFELConfig.hxx"
++#include "TFEL/Math/General/MathObjectTraits.hxx"
++#include "TFEL/Math/Array/View.hxx"
++#include "TFEL/Material/OutOfBoundsPolicy.hxx"
++#include "TFEL/Material/MechanicalBehaviourTraits.hxx"
++#include "MFront/GenericBehaviour/Types.hxx"
++#include "MFront/GenericBehaviour/State.hxx"
++#include "MFront/GenericBehaviour/BehaviourData.hxx"
++#include "MFront/GenericParallelBehaviour/BatchData.h"
++
++namespace mfront::gpb {
++
++  //! \brief a simple alias
++  using real = mfront::gb::real;
++  //! \brief a simple alias
++  using size_type = mfront_gb_size_type;
++
++  /*!
++   * \brief sizes of the data of an integration point, as seen by the
++   * `generic` interface. Those sizes are known when the code is generated.
++   *
++   * The templates of this file take those sizes through a type `Sizes`
++   * whose static member `value` is of type `PointDataSizes`: CUDA compilers
++   * don't support class types as non-type template parameters of kernels.
++   */
++  struct PointDataSizes {
++    size_type gradients = 0;
++    size_type thermodynamic_forces = 0;
++    size_type material_properties = 0;
++    size_type internal_state_variables = 0;
++    size_type external_state_variables = 0;
++    size_type tangent_operator = 0;
++  };
++
++  //! \brief parameters of a behaviour without parameters
++  struct NoParameters {};
++
++  //! \brief result of the integration at one point
++  struct PointResult {
++    //! \brief status, as returned by the `generic` interface
++    int status;
++    //! \brief time step scaling factor
++    real rdt;
++  };
++
++  /*!
++   * \brief decoded computation options (see the documentation of the `K`
++   * member of `mfront_gb_BehaviourData`)
++   */
++  struct ComputationOptions {
++    TFEL_HOST_DEVICE constexpr explicit ComputationOptions(
++        const real* const options) noexcept
++        : speed_of_sound(options[0] > 50),
++          Ke(options[0] > 50 ? options[0] - 100 : options[0]) {}
++    //! \return true if only the prediction operator is requested
++    TFEL_HOST_DEVICE constexpr bool isPredictionRequested() const noexcept {
++      return this->Ke < real{-0.25};
++    }
++    //! \return true if a tangent operator is computed after integration
++    TFEL_HOST_DEVICE constexpr bool isTangentOperatorRequested()
++        const noexcept {
++      return this->Ke > real{0.5};
++    }
++    //! \brief true if the speed of sound is requested
++    bool speed_of_sound;
++    //! \brief type of computation
++    real Ke;
++  };
++
++  /*!
++   * \brief local copy of the values of a group of variables at one point
++   * \tparam N: number of values
++   */
++  template <size_type N>
++  struct LocalValues {
++    TFEL_HOST_DEVICE constexpr real* data() noexcept { return this->values; }
++    //! \brief values, the array has at least one element
++    real values[N == 0 ? 1 : N];
++  };
++
++  namespace internals {
++
++    //! \return the values of a field at the given point
++    template <typename FieldType>
++    TFEL_HOST_DEVICE constexpr auto pointer(const FieldType& f,
++                                            const size_type i) noexcept {
++      return f.values == nullptr ? f.values : f.values + i * f.point_stride;
++    }  // end of pointer
++
++    //! \brief copy the values of a field at the given point
++    template <size_type N>
++    TFEL_HOST_DEVICE constexpr void gather(LocalValues<N>& dest,
++                                           const ConstField& f,
++                                           const size_type i) noexcept {
++      if constexpr (N != 0) {
++        if (f.values == nullptr) {
++          return;
++        }
++        const auto* const p = f.values + i * f.point_stride;
++        for (size_type j = 0; j != N; ++j) {
++          dest.values[j] = p[j * f.component_stride];
++        }
++      }
++    }  // end of gather
++
++    //! \brief copy the given values in a field at the given point
++    template <size_type N>
++    TFEL_HOST_DEVICE constexpr void scatter(
++        const Field& f, const size_type i, const LocalValues<N>& src) noexcept {
++      if constexpr (N != 0) {
++        if (f.values == nullptr) {
++          return;
++        }
++        auto* const p = f.values + i * f.point_stride;
++        for (size_type j = 0; j != N; ++j) {
++          p[j * f.component_stride] = src.values[j];
++        }
++      }
++    }  // end of scatter
++
++    //! \brief copy a scalar value in a field at the given point
++    TFEL_HOST_DEVICE constexpr void scatter(const Field& f,
++                                            const size_type i,
++                                            const real v) noexcept {
++      if (f.values != nullptr) {
++        f.values[i * f.point_stride] = v;
++      }
++    }  // end of scatter
++
++    //! \return the value of a scalar field at the given point, or a default
++    TFEL_HOST_DEVICE constexpr real value(const ConstField& f,
++                                          const size_type i,
++                                          const real v) noexcept {
++      return f.values == nullptr ? v : f.values[i * f.point_stride];
++    }  // end of value
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief export a tangent operator
++   * \param[out] v: exported values
++   * \param[in] K: tangent operator
++   */
++  template <typename TangentOperatorType>
++  TFEL_HOST_DEVICE void exportTangentOperator(real* const v,
++                                              const TangentOperatorType& K) {
++    if constexpr (tfel::math::ScalarConcept<TangentOperatorType>) {
++      *v = tfel::math::base_type_cast(K);
++    } else {
++      tfel::math::map<TangentOperatorType>(v) = K;
++    }
++  }  // end of exportTangentOperator
++
++  /*!
++   * \brief integrate the behaviour over a time step at one point.
++   *
++   * This function is an exception-free equivalent of `mfront::gb::integrate`
++   * which can be called in device code. Error messages are not reported.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \param[in,out] d: behaviour data
++   * \param[in] o: computation options
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \return the same status as `mfront::gb::integrate`
++   */
++  template <typename Behaviour, typename ParametersType>
++  TFEL_HOST_DEVICE int integrate(mfront::gb::BehaviourData& d,
++                                 const ComputationOptions& o,
++                                 const ParametersType& parameters,
++                                 const tfel::material::OutOfBoundsPolicy p) {
++    using MTraits = tfel::material::MechanicalBehaviourTraits<Behaviour>;
++    using speed = typename Behaviour::speed;
++    using massdensity = typename Behaviour::massdensity;
++    constexpr auto f = Behaviour::STANDARDTANGENTOPERATOR;
++    auto& rdt = *(d.rdt);
++    Behaviour b(d, parameters);
++    b.setOutOfBoundsPolicy(p);
++    if (!b.initialize()) {
++      return -1;
++    }
++    if (!b.checkBounds()) {
++      rdt = b.getMinimalTimeStepScalingFactor();
++      return -1;
++    }
++    if (o.isPredictionRequested()) {
++      if (o.speed_of_sound) {
++        *(d.speed_of_sound) = tfel::math::base_type_cast(
++            b.computeSpeedOfSound(massdensity(*(d.s0.mass_density))));
++      }
++      if constexpr (!MTraits::hasPredictionOperator) {
++        return -1;
++      } else {
++        const auto smt = [&o] {
++          if (o.Ke > real{-1.5}) {
++            return Behaviour::ELASTIC;
++          } else if (o.Ke > real{-2.5}) {
++            return Behaviour::SECANTOPERATOR;
++          }
++          return Behaviour::TANGENTOPERATOR;
++        }();
++        if (!b.computePredictionOperator(f, smt)) {
++          return -1;
++        }
++        exportTangentOperator(d.K, b.getTangentOperator());
++        return 1;
++      }
++    }
++    const auto smt = [&o] {
++      if (o.Ke < real{0.5}) {
++        return Behaviour::NOSTIFFNESSREQUESTED;
++      } else if (o.Ke < real{1.5}) {
++        return Behaviour::ELASTIC;
++      } else if (o.Ke < real{2.5}) {
++        return Behaviour::SECANTOPERATOR;
++      } else if (o.Ke < real{3.5}) {
++        return Behaviour::TANGENTOPERATOR;
++      }
++      return Behaviour::CONSISTENTTANGENTOPERATOR;
++    }();
++    if constexpr (!MTraits::hasConsistentTangentOperator) {
++      if (smt != Behaviour::NOSTIFFNESSREQUESTED) {
++        return -1;
++      }
++    }
++    const auto tsf = b.computeAPrioriTimeStepScalingFactor(rdt);
++    rdt = tsf.second;
++    if (!tsf.first) {
++      return -1;
++    }
++    if (b.integrate(f, smt) == Behaviour::FAILURE) {
++      rdt = b.getMinimalTimeStepScalingFactor();
++      return -1;
++    }
++    const auto atsf = b.computeAPosterioriTimeStepScalingFactor(rdt);
++    if (rdt > atsf.second) {
++      rdt = atsf.second;
++    }
++    if (!atsf.first) {
++      return -1;
++    }
++    b.exportStateData(d.s1);
++    if constexpr (MTraits::hasConsistentTangentOperator) {
++      if (o.isTangentOperatorRequested()) {
++        exportTangentOperator(d.K, b.getTangentOperator());
++      }
++    }
++    if constexpr (MTraits::hasComputeInternalEnergy) {
++      if (d.s1.stored_energy != nullptr) {
++        using stress = typename Behaviour::stress;
++        auto e = stress{*(d.s0.stored_energy)};
++        b.computeInternalEnergy(e);
++        *(d.s1.stored_energy) = tfel::math::base_type_cast(e);
++      }
++    }
++    if constexpr (MTraits::hasComputeDissipatedEnergy) {
++      if (d.s1.dissipated_energy != nullptr) {
++        using stress = typename Behaviour::stress;
++        auto e = stress{*(d.s0.dissipated_energy)};
++        b.computeDissipatedEnergy(e);
++        *(d.s1.dissipated_energy) = tfel::math::base_type_cast(e);
++      }
++    }
++    if (o.speed_of_sound) {
++      *(d.speed_of_sound) = tfel::math::base_type_cast(
++          b.computeSpeedOfSound(massdensity(*(d.s1.mass_density))));
++    }
++    return rdt < real{0.99} ? 0 : 1;
++  }  // end of integrate
++
++  /*!
++   * \brief integrate the behaviour at the `i`-th point of a batch.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam direct: if true, all the fields are stored point by point and
++   * the behaviour directly reads and writes them. Otherwise, the values of
++   * the point are gathered in local arrays and the results are scattered
++   * after the integration.
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \param[in] d: batch data
++   * \param[in] i: index of the integration point
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   */
++  template <typename Behaviour,
++            typename Sizes,
++            bool direct,
++            typename ParametersType>
++  TFEL_HOST_DEVICE PointResult
++  integrate(const BatchData& d,
++            const size_type i,
++            const ParametersType& parameters,
++            const tfel::material::OutOfBoundsPolicy p) {
++    using namespace internals;
++    constexpr auto sizes = PointDataSizes{Sizes::value};
++    const auto o = ComputationOptions{d.options};
++    auto r = PointResult{.status = -1, .rdt = d.rdt};
++    auto speed_of_sound = real{};
++    auto energies0 = LocalValues<2>{
++        {value(d.s0.stored_energy, i, 0), value(d.s0.dissipated_energy, i, 0)}};
++    auto energies1 = LocalValues<2>{};
++    auto bd = mfront::gb::BehaviourData{};
++    bd.error_message = nullptr;
++    bd.dt = d.dt;
++    bd.rdt = &(r.rdt);
++    bd.speed_of_sound = &speed_of_sound;
++    bd.s0.mass_density = pointer(d.s0.mass_density, i);
++    bd.s1.mass_density = pointer(d.s1.mass_density, i);
++    bd.s0.stored_energy = energies0.data();
++    bd.s0.dissipated_energy = energies0.data() + 1;
++    bd.s1.stored_energy =
++        d.s1.stored_energy.values == nullptr ? nullptr : energies1.data();
++    bd.s1.dissipated_energy = d.s1.dissipated_energy.values == nullptr
++                                  ? nullptr
++                                  : energies1.data() + 1;
++    if constexpr (direct) {
++      bd.K = pointer(d.tangent_operators, i);
++      bd.s0.gradients = pointer(d.s0.gradients, i);
++      bd.s1.gradients = pointer(d.s1.gradients, i);
++      bd.s0.thermodynamic_forces = pointer(d.s0.thermodynamic_forces, i);
++      bd.s1.thermodynamic_forces = pointer(d.s1.thermodynamic_forces, i);
++      bd.s0.material_properties = pointer(d.s0.material_properties, i);
++      bd.s1.material_properties = pointer(d.s1.material_properties, i);
++      bd.s0.internal_state_variables =
++          pointer(d.s0.internal_state_variables, i);
++      bd.s1.internal_state_variables =
++          pointer(d.s1.internal_state_variables, i);
++      bd.s0.external_state_variables =
++          pointer(d.s0.external_state_variables, i);
++      bd.s1.external_state_variables =
++          pointer(d.s1.external_state_variables, i);
++      r.status = integrate<Behaviour>(bd, o, parameters, p);
++    } else {
++      auto K = LocalValues<sizes.tangent_operator>{};
++      auto g0 = LocalValues<sizes.gradients>{};
++      auto g1 = LocalValues<sizes.gradients>{};
++      auto th0 = LocalValues<sizes.thermodynamic_forces>{};
++      auto th1 = LocalValues<sizes.thermodynamic_forces>{};
++      auto mp0 = LocalValues<sizes.material_properties>{};
++      auto mp1 = LocalValues<sizes.material_properties>{};
++      auto isvs0 = LocalValues<sizes.internal_state_variables>{};
++      auto isvs1 = LocalValues<sizes.internal_state_variables>{};
++      auto esvs0 = LocalValues<sizes.external_state_variables>{};
++      auto esvs1 = LocalValues<sizes.external_state_variables>{};
++      gather(g0, d.s0.gradients, i);
++      gather(g1, d.s1.gradients, i);
++      gather(th0, d.s0.thermodynamic_forces, i);
++      gather(mp0, d.s0.material_properties, i);
++      gather(mp1, d.s1.material_properties, i);
++      gather(isvs0, d.s0.internal_state_variables, i);
++      gather(esvs0, d.s0.external_state_variables, i);
++      gather(esvs1, d.s1.external_state_variables, i);
++      bd.K = K.data();
++      bd.s0.gradients = g0.data();
++      bd.s1.gradients = g1.data();
++      bd.s0.thermodynamic_forces = th0.data();
++      bd.s1.thermodynamic_forces = th1.data();
++      bd.s0.material_properties = mp0.data();
++      bd.s1.material_properties = mp1.data();
++      bd.s0.internal_state_variables = isvs0.data();
++      bd.s1.internal_state_variables = isvs1.data();
++      bd.s0.external_state_variables = esvs0.data();
++      bd.s1.external_state_variables = esvs1.data();
++      r.status = integrate<Behaviour>(bd, o, parameters, p);
++      if (r.status != -1) {
++        if (o.isPredictionRequested() || o.isTangentOperatorRequested()) {
++          scatter(d.tangent_operators, i, K);
++        }
++        if (!o.isPredictionRequested()) {
++          scatter(d.s1.thermodynamic_forces, i, th1);
++          scatter(d.s1.internal_state_variables, i, isvs1);
++        }
++      }
++    }
++    if ((r.status != -1) && (!o.isPredictionRequested())) {
++      scatter(d.s1.stored_energy, i, energies1.values[0]);
++      scatter(d.s1.dissipated_energy, i, energies1.values[1]);
++    }
++    if ((r.status != -1) && (o.speed_of_sound)) {
++      scatter(d.speed_of_sound, i, speed_of_sound);
++    }
++    scatter(d.rdts, i, r.rdt);
++    if (d.statuses != nullptr) {
++      d.statuses[i] = r.status;
++    }
++    return r;
++  }  // end of integrate
++
++  /*!
++   * \brief statistics on the integration of a batch, combined by
++   * parallel reductions
++   */
++  struct BatchStatistics {
++    //! \return the statistics associated with the result at one point
++    TFEL_HOST_DEVICE static constexpr BatchStatistics from(
++        const PointResult& r) noexcept {
++      return {.number_of_failures = r.status == -1 ? 1u : 0u,
++              .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
++              .rdt = r.rdt};
++    }
++    //! \brief combine two statistics
++    TFEL_HOST_DEVICE friend constexpr BatchStatistics combine(
++        const BatchStatistics& a, const BatchStatistics& b) noexcept {
++      return {.number_of_failures = a.number_of_failures + b.number_of_failures,
++              .number_of_unreliable_results = a.number_of_unreliable_results +
++                                              b.number_of_unreliable_results,
++              .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
++    }
++    size_type number_of_failures = 0;
++    size_type number_of_unreliable_results = 0;
++    real rdt = 1;
++  };
++
++  /*!
++   * \brief set the status and the error message of an output status
++   * \param[out] s: output status
++   * \param[in] status: status
++   * \param[in] msg: error message
++   * \return the status
++   */
++  inline int report(OutputStatus& s,
++                    const int status,
++                    const std::string_view msg) noexcept {
++    constexpr auto msize = sizeof(s.msg) - 1;
++    const auto n = msg.size() < msize ? msg.size() : msize;
++    s.status = status;
++    std::memcpy(s.msg, msg.data(), n);
++    s.msg[n] = '\0';
++    return status;
++  }  // end of report
++
++  /*!
++   * \brief fill an output status from the statistics of a batch
++   * \return the status
++   */
++  inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
++    s.number_of_failures = r.number_of_failures;
++    s.number_of_unreliable_results = r.number_of_unreliable_results;
++    s.rdt = r.rdt;
++    if (r.number_of_failures != 0) {
++      return report(s, -1, "integration failed at some integration points");
++    }
++    s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
++    return s.status;
++  }  // end of report
++
++  /*!
++   * \brief check the consistency of the batch data. The output status is
++   * initialized.
++   * \tparam Sizes: sizes of the data of an integration point
++   * \param[out] s: output status
++   * \param[in] d: batch data
++   * \return true if the batch data are valid
++   */
++  template <typename Sizes>
++  bool check(OutputStatus& s, const BatchData& d) noexcept {
++    constexpr auto sizes = PointDataSizes{Sizes::value};
++    s.status = 1;
++    s.number_of_failures = 0;
++    s.number_of_unreliable_results = 0;
++    s.rdt = d.rdt;
++    s.msg[0] = '\0';
++    const auto n = d.number_of_points;
++    auto check_input = [&s](const ConstField& f, const size_type size,
++                            const std::string_view name) {
++      if ((size != 0) && (f.values == nullptr)) {
++        report(s, -2, name);
++        return false;
++      }
++      return true;
++    };
++    auto check_output = [&s, n](const auto& f, const size_type size,
++                                const bool required,
++                                const std::string_view name) {
++      if (size == 0) {
++        return true;
++      }
++      if ((required) && (f.values == nullptr)) {
++        report(s, -2, name);
++        return false;
++      }
++      if ((f.values != nullptr) && (f.point_stride == 0) && (n > 1)) {
++        report(s, -2, name);
++        return false;
++      }
++      return true;
++    };
++    const auto o = ComputationOptions{d.options};
++    const auto tangent_operator_required =
++        o.isPredictionRequested() || o.isTangentOperatorRequested();
++    return check_input(d.s0.gradients, sizes.gradients,
++                       "missing gradients at the beginning of the time "
++                       "step") &&
++           check_input(d.s1.gradients, sizes.gradients,
++                       "missing gradients at the end of the time step") &&
++           check_input(d.s0.thermodynamic_forces, sizes.thermodynamic_forces,
++                       "missing thermodynamic forces at the beginning of the "
++                       "time step") &&
++           check_input(d.s0.material_properties, sizes.material_properties,
++                       "missing material properties at the beginning of the "
++                       "time step") &&
++           check_input(d.s1.material_properties, sizes.material_properties,
++                       "missing material properties at the end of the time "
++                       "step") &&
++           check_input(d.s0.internal_state_variables,
++                       sizes.internal_state_variables,
++                       "missing internal state variables at the beginning "
++                       "of the time step") &&
++           check_input(d.s0.external_state_variables,
++                       sizes.external_state_variables,
++                       "missing external state variables at the beginning "
++                       "of the time step") &&
++           check_input(d.s1.external_state_variables,
++                       sizes.external_state_variables,
++                       "missing external state variables at the end of the "
++                       "time step") &&
++           check_input(d.s0.mass_density, o.speed_of_sound ? 1 : 0,
++                       "missing mass density at the beginning of the time "
++                       "step") &&
++           check_input(d.s1.mass_density, o.speed_of_sound ? 1 : 0,
++                       "missing mass density at the end of the time step") &&
++           check_output(d.s1.thermodynamic_forces, sizes.thermodynamic_forces,
++                        true, "invalid thermodynamic forces") &&
++           check_output(d.s1.internal_state_variables,
++                        sizes.internal_state_variables, true,
++                        "invalid internal state variables") &&
++           check_output(d.tangent_operators, sizes.tangent_operator,
++                        tangent_operator_required,
++                        "invalid tangent operators") &&
++           check_output(d.s1.stored_energy, 1, false,
++                        "invalid stored energies") &&
++           check_output(d.s1.dissipated_energy, 1, false,
++                        "invalid dissipated energies") &&
++           check_output(d.rdts, 1, false,
++                        "invalid time step scaling factors") &&
++           check_output(d.speed_of_sound, 1, o.speed_of_sound,
++                        "invalid speeds of sound");
++  }  // end of check
++
++  /*!
++   * \return true if all the fields are stored point by point, i.e. if the
++   * behaviour can directly read and write the values of a point.
++   * \tparam Sizes: sizes of the data of an integration point
++   * \param[in] d: batch data
++   */
++  template <typename Sizes>
++  constexpr bool areAllFieldsStoredPointByPoint(const BatchData& d) noexcept {
++    constexpr auto sizes = PointDataSizes{Sizes::value};
++    auto is_contiguous = [](const auto& f, const size_type size) {
++      return (size <= 1) || (f.values == nullptr) || (f.component_stride == 1);
++    };
++    return is_contiguous(d.s0.gradients, sizes.gradients) &&
++           is_contiguous(d.s1.gradients, sizes.gradients) &&
++           is_contiguous(d.s0.thermodynamic_forces,
++                         sizes.thermodynamic_forces) &&
++           is_contiguous(d.s1.thermodynamic_forces,
++                         sizes.thermodynamic_forces) &&
++           is_contiguous(d.s0.material_properties, sizes.material_properties) &&
++           is_contiguous(d.s1.material_properties, sizes.material_properties) &&
++           is_contiguous(d.s0.internal_state_variables,
++                         sizes.internal_state_variables) &&
++           is_contiguous(d.s1.internal_state_variables,
++                         sizes.internal_state_variables) &&
++           is_contiguous(d.s0.external_state_variables,
++                         sizes.external_state_variables) &&
++           is_contiguous(d.s1.external_state_variables,
++                         sizes.external_state_variables) &&
++           is_contiguous(d.tangent_operators, sizes.tangent_operator);
++  }  // end of areAllFieldsStoredPointByPoint
++
++  /*!
++   * \brief call the given function and convert exceptions to an error
++   * status. This is meant for the host part of the generated functions.
++   * \param[out] s: output status
++   * \param[in] f: function
++   */
++  template <typename Function>
++  int handleExceptions(OutputStatus* const s, Function&& f) noexcept {
++    if (s == nullptr) {
++      return -2;
++    }
++    try {
++      return f();
++    } catch (std::exception& e) {
++      return report(*s, -3, e.what());
++    } catch (...) {
++      return report(*s, -3, "unknown exception");
++    }
++  }  // end of handleExceptions
++
++}  // end of namespace mfront::gpb
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+new file mode 100644
+index 000000000..956ef7ab7
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -0,0 +1,150 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++ * \brief  This file implements the integration of a batch of integration
++ * points with the parallel algorithms of the C++ standard library.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
++
++#include <compare>
++#include <cstddef>
++#include <iterator>
++#include <numeric>
++#include <execution>
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb::stlpar {
++
++  /*!
++   * \brief a random access iterator over the indices of the integration
++   * points.
++   *
++   * `std::views::iota` can't be used: the category of its iterators is not
++   * `std::random_access_iterator_tag`, and some implementations of the
++   * parallel algorithms (libstdc++) then run sequentially.
++   */
++  struct CountingIterator {
++    using iterator_category = std::random_access_iterator_tag;
++    using value_type = size_type;
++    using difference_type = std::ptrdiff_t;
++    using pointer = void;
++    using reference = size_type;
++    constexpr reference operator*() const noexcept { return this->i; }
++    constexpr reference operator[](const difference_type n) const noexcept {
++      return this->i + n;
++    }
++    constexpr CountingIterator& operator++() noexcept {
++      ++(this->i);
++      return *this;
++    }
++    constexpr CountingIterator operator++(int) noexcept {
++      auto r = *this;
++      ++(this->i);
++      return r;
++    }
++    constexpr CountingIterator& operator--() noexcept {
++      --(this->i);
++      return *this;
++    }
++    constexpr CountingIterator operator--(int) noexcept {
++      auto r = *this;
++      --(this->i);
++      return r;
++    }
++    constexpr CountingIterator& operator+=(const difference_type n) noexcept {
++      this->i += n;
++      return *this;
++    }
++    constexpr CountingIterator& operator-=(const difference_type n) noexcept {
++      this->i -= n;
++      return *this;
++    }
++    friend constexpr CountingIterator operator+(
++        const CountingIterator a, const difference_type n) noexcept {
++      return {a.i + n};
++    }
++    friend constexpr CountingIterator operator+(
++        const difference_type n, const CountingIterator a) noexcept {
++      return {a.i + n};
++    }
++    friend constexpr CountingIterator operator-(
++        const CountingIterator a, const difference_type n) noexcept {
++      return {a.i - n};
++    }
++    friend constexpr difference_type operator-(
++        const CountingIterator a, const CountingIterator b) noexcept {
++      return static_cast<difference_type>(a.i) -
++             static_cast<difference_type>(b.i);
++    }
++    friend constexpr auto operator<=>(const CountingIterator&,
++                                      const CountingIterator&) = default;
++    //! \brief current index
++    size_type i;
++  };
++
++  static_assert(std::random_access_iterator<CountingIterator>);
++
++  /*!
++   * \brief integrate the behaviour at the points of a batch.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \tparam ExecutionPolicy: execution policy
++   * \param[out] s: output status
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \param[in] policy: execution policy
++   * \return the status
++   */
++  template <typename Behaviour,
++            typename Sizes,
++            typename ParametersType,
++            typename ExecutionPolicy>
++  int integrate(OutputStatus& s,
++                const BatchData& d,
++                const ParametersType& parameters,
++                const tfel::material::OutOfBoundsPolicy p,
++                ExecutionPolicy&& policy) {
++    if (!check<Sizes>(s, d)) {
++      return s.status;
++    }
++    const auto first = CountingIterator{0};
++    const auto last = CountingIterator{d.number_of_points};
++    const auto initial_statistics = BatchStatistics{.rdt = d.rdt};
++    auto reduce = [](const BatchStatistics& a, const BatchStatistics& b) {
++      return combine(a, b);
++    };
++    const auto r = [&] {
++      if (areAllFieldsStoredPointByPoint<Sizes>(d)) {
++        return std::transform_reduce(
++            policy, first, last, initial_statistics, reduce,
++            [d, parameters, p](const size_type i) {
++              return BatchStatistics::from(
++                  mfront::gpb::integrate<Behaviour, Sizes, true>(
++                      d, i, parameters, p));
++            });
++      }
++      return std::transform_reduce(
++          policy, first, last, initial_statistics, reduce,
++          [d, parameters, p](const size_type i) {
++            return BatchStatistics::from(
++                mfront::gpb::integrate<Behaviour, Sizes, false>(d, i,
++                                                                parameters, p));
++          });
++    }();
++    return report(s, r);
++  }  // end of integrate
++
++}  // end of namespace mfront::gpb::stlpar
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+new file mode 100644
+index 000000000..0ff1a035d
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+@@ -0,0 +1,100 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviourInterface.hxx
++ * \brief  This file declares the `generic-parallel` behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOURINTERFACE_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOURINTERFACE_HXX
++
++#include <memory>
++#include "MFront/GenericBehaviourInterface.hxx"
++
++namespace mfront {
++
++  namespace generic_parallel::behaviour {
++    // forward declaration
++    struct AbstractBackend;
++  }  // end of namespace generic_parallel::behaviour
++
++  /*!
++   * \brief an interface integrating a behaviour over a batch of integration
++   * points on GPUs (CUDA, HIP) or CPUs (parallel algorithms of the C++
++   * standard library).
++   *
++   * Integrating a batch is equivalent to calling the function generated by
++   * the `generic` interface at each integration point. This interface reuses
++   * the members added by the `generic` interface to the behaviour class and
++   * adds a constructor taking the values of the parameters as an argument,
++   * since the parameters initializers can't be accessed from device code.
++   */
++  struct MFRONT_VISIBILITY_EXPORT GenericParallelBehaviourInterface
++      : public GenericBehaviourInterface {
++    //! \return the interface name
++    [[nodiscard]] static std::string getName();
++    //! \brief default constructor
++    GenericParallelBehaviourInterface();
++    //
++    [[nodiscard]] std::string getInterfaceName() const override;
++    void setOptions(const DataMap&) override;
++    [[nodiscard]] std::pair<bool, tokens_iterator> treatKeyword(
++        BehaviourDescription&,
++        const std::string&,
++        const std::vector<std::string>&,
++        tokens_iterator,
++        const tokens_iterator) override;
++    [[nodiscard]] std::string getParametersSourceInBehaviourConstructor(
++        const BehaviourDescription&, const Hypothesis) const override;
++    [[nodiscard]] bool areDynamicallyAllocatedVectorsAllowed() const override;
++    void endTreatment(const BehaviourDescription&,
++                      const FileDescription&) const override;
++    void getTargetsDescription(TargetsDescription&,
++                               const BehaviourDescription&) override;
++    [[nodiscard]] std::string getLibraryName(
++        const BehaviourDescription&) const override;
++    //! \brief destructor
++    ~GenericParallelBehaviourInterface() override;
++
++   protected:
++    [[nodiscard]] std::string getBehaviourConstructorTemplateDeclaration()
++        const override;
++    [[nodiscard]] std::string getBehaviourConstructorArguments() const override;
++    /*!
++     * \return the name of the generated header file
++     * \param[in] name: name of the behaviour, including the library
++     */
++    [[nodiscard]] virtual std::string getHeaderFileName(
++        const std::string&) const;
++    /*!
++     * \return the name of the generated source file
++     * \param[in] name: name of the behaviour, including the library
++     */
++    [[nodiscard]] virtual std::string getSourceFileName(
++        const std::string&) const;
++    /*!
++     * \brief write the header file
++     * \param[in] bd: behaviour description
++     * \param[in] fd: file description
++     */
++    virtual void writeHeaderFile(const BehaviourDescription&,
++                                 const FileDescription&) const;
++    /*!
++     * \brief write the source file
++     * \param[in] bd: behaviour description
++     * \param[in] fd: file description
++     */
++    virtual void writeSourceFile(const BehaviourDescription&,
++                                 const FileDescription&) const;
++    //! \brief backend
++    std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
++  };  // end of struct GenericParallelBehaviourInterface
++
++}  // end of namespace mfront
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOURINTERFACE_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 9da9b1226..7aded7eef 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -218,6 +218,11 @@ set(TFELMFront_SOURCES
+     GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+     GenericParallel/MaterialProperty/SYCLBackend.cxx
+     GenericBehaviourInterface.cxx
++    GenericParallelBehaviourInterface.cxx
++    GenericParallel/Behaviour/AbstractBackend.cxx
++    GenericParallel/Behaviour/BackendFactory.cxx
++    GenericParallel/Behaviour/GPUBackend.cxx
++    GenericParallel/Behaviour/ParallelSTLBackend.cxx
+     GenericBehaviourSymbolsGenerator.cxx
+     GenericModelInterface.cxx
+     OptionDescription.cxx
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+new file mode 100644
+index 000000000..80254bb83
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -0,0 +1,19 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++ * \brief
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  AbstractBackend::~AbstractBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+new file mode 100644
+index 000000000..ac21be721
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+@@ -0,0 +1,61 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
++ * \brief
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include "TFEL/Raise.hxx"
++#include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
++#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
++#include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  BackendFactory& BackendFactory::get() noexcept {
++    static BackendFactory f;
++    return f;
++  }  // end of get
++
++  BackendFactory::BackendFactory() {
++    this->add("cuda", [](const DataMap& opts) {
++      return std::make_unique<CUDABackend>(opts);
++    });
++    this->add("hip", [](const DataMap& opts) {
++      return std::make_unique<HIPBackend>(opts);
++    });
++    this->add("stlpar", [](const DataMap& opts) {
++      return std::make_unique<ParallelSTLBackend>(opts);
++    });
++  }  // end of BackendFactory
++
++  void BackendFactory::add(std::string_view n, Generator g) {
++    if (!this->generators.insert({std::string{n}, g}).second) {
++      tfel::raise("BackendFactory::add: a backend named '" + std::string{n} +
++                  "' has already been registred");
++    }
++  }  // end of add
++
++  std::unique_ptr<AbstractBackend> BackendFactory::generate(
++      std::string_view n, const DataMap& opts) const {
++    const auto p = this->generators.find(n);
++    if (p == this->generators.end()) {
++      tfel::raise("BackendFactory::generate: no backend named '" +
++                  std::string{n} + "' registred");
++    }
++    try {
++      return p->second(opts);
++    } catch (std::exception& e) {
++      tfel::raise("BackendFactory::generate: error while generating backend '" +
++                  std::string{n} + "'\n" + std::string{e.what()});
++    }
++  }  // end of generate
++
++  BackendFactory::~BackendFactory() = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+new file mode 100644
+index 000000000..5cf92925a
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+@@ -0,0 +1,52 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
++ * \brief
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  GPUBackend::GPUBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addStrictlyPositiveIntegerCheck("number_of_threads_per_block");
++    validator.validate(opts);
++    if (contains(opts, "number_of_threads_per_block")) {
++      this->number_of_threads_per_block =
++          get<int>(opts, "number_of_threads_per_block");
++    }
++  }  // end of GPUBackend
++
++  void GPUBackend::writeSpecificIncludes(std::ostream& os) const {
++    os << "#include \"MFront/GenericParallelBehaviour/GPU.hxx\"\n";
++  }  // end of writeSpecificIncludes
++
++  void GPUBackend::writeIntegrationCall(std::ostream& os) const {
++    os << "return mfront::gpb::gpu::integrate<Behaviour, mfront_sizes>("
++       << "mfront_status, mfront_data, mfront_parameters, mfront_policy, "
++       << this->number_of_threads_per_block << ");\n";
++  }  // end of writeIntegrationCall
++
++  GPUBackend::~GPUBackend() noexcept = default;
++
++  std::string CUDABackend::getName() const { return "cuda"; }
++
++  std::string CUDABackend::getSourceFileExtension() const { return "cu"; }
++
++  CUDABackend::~CUDABackend() noexcept = default;
++
++  std::string HIPBackend::getName() const { return "hip"; }
++
++  std::string HIPBackend::getSourceFileExtension() const { return "hip"; }
++
++  HIPBackend::~HIPBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+new file mode 100644
+index 000000000..cf803fdd2
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+@@ -0,0 +1,67 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
++ * \brief
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "TFEL/Raise.hxx"
++#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  ParallelSTLBackend::ParallelSTLBackend() = default;
++
++  ParallelSTLBackend::ParallelSTLBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<std::string>("execution_policy");
++    validator.validate(opts);
++    if (!contains(opts, "execution_policy")) {
++      return;
++    }
++    const auto p = get<std::string>(opts, "execution_policy");
++    if ((p == "seq") || (p == "sequenced_policy")) {
++      this->execution_policy = "std::execution::seq";
++    } else if ((p == "unseq") || (p == "unsequenced_policy")) {
++      this->execution_policy = "std::execution::unseq";
++    } else if ((p == "par") || (p == "parallel_policy")) {
++      this->execution_policy = "std::execution::par";
++    } else if ((p == "par_unseq") || (p == "parallel_unsequenced_policy")) {
++      this->execution_policy = "std::execution::par_unseq";
++    } else {
++      tfel::raise(
++          "ParallelSTLBackend::ParallelSTLBackend: unsupported execution "
++          "policy '" +
++          p +
++          "'. Valid execution policies are: 'sequenced_policy' (or "
++          "'seq'), 'unsequenced_policy' (or 'unseq'), 'parallel_policy' (or "
++          "'par') and 'parallel_unsequenced_policy' (or 'par_unseq')");
++    }
++  }  // end of ParallelSTLBackend
++
++  std::string ParallelSTLBackend::getName() const { return "stlpar"; }
++
++  std::string ParallelSTLBackend::getSourceFileExtension() const {
++    return "cxx";
++  }  // end of getSourceFileExtension
++
++  void ParallelSTLBackend::writeSpecificIncludes(std::ostream& os) const {
++    os << "#include <execution>\n"
++       << "#include \"MFront/GenericParallelBehaviour/ParallelSTL.hxx\"\n";
++  }  // end of writeSpecificIncludes
++
++  void ParallelSTLBackend::writeIntegrationCall(std::ostream& os) const {
++    os << "return mfront::gpb::stlpar::integrate<Behaviour, mfront_sizes>("
++       << "mfront_status, mfront_data, mfront_parameters, mfront_policy, "
++       << this->execution_policy << ");\n";
++  }  // end of writeIntegrationCall
++
++  ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+new file mode 100644
+index 000000000..e7779e47e
+--- /dev/null
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -0,0 +1,473 @@
++/*!
++ * \file   mfront/src/GenericParallelBehaviourInterface.cxx
++ * \brief  This file implements the `generic-parallel` behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <fstream>
++#include <algorithm>
++#include "TFEL/Raise.hxx"
++#include "TFEL/Config/GetInstallPath.hxx"
++#include "TFEL/System/System.hxx"
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontLogStream.hxx"
++#include "MFront/MFrontUtilities.hxx"
++#include "MFront/CodeGeneratorUtilities.hxx"
++#include "MFront/FileDescription.hxx"
++#include "MFront/LibraryDescription.hxx"
++#include "MFront/TargetsDescription.hxx"
++#include "MFront/BehaviourDescription.hxx"
++#include "MFront/GenericBehaviourSymbolsGenerator.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++#include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
++#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
++#include "MFront/GenericParallelBehaviourInterface.hxx"
++
++namespace mfront {
++
++  //! \brief sizes of the data of an integration point
++  struct GenericParallelBehaviourPointDataSizes {
++    int gradients = 0;
++    int thermodynamic_forces = 0;
++    int material_properties = 0;
++    int internal_state_variables = 0;
++    int external_state_variables = 0;
++    int tangent_operator = 0;
++  };
++
++  /*!
++   * \return the sizes of the data of an integration point, as seen by the
++   * `generic` interface
++   * \param[in] i: interface
++   * \param[in] bd: behaviour description
++   * \param[in] h: modelling hypothesis
++   */
++  static GenericParallelBehaviourPointDataSizes getPointDataSizes(
++      const GenericParallelBehaviourInterface& i,
++      const BehaviourDescription& bd,
++      const tfel::material::ModellingHypothesis::Hypothesis h) {
++    auto size = [h](const SupportedTypes::TypeSize& s) {
++      return s.getValueForModellingHypothesis(h);
++    };
++    auto variables_size = [](const VariableDescriptionContainer& c) {
++      auto s = SupportedTypes::TypeSize{};
++      for (const auto& v : c) {
++        s += SupportedTypes::getTypeSize(v.type, v.arraySize);
++      }
++      return s;
++    };
++    const auto& d = bd.getBehaviourData(h);
++    auto r = GenericParallelBehaviourPointDataSizes{};
++    const auto mvsizes = bd.getMainVariablesSize();
++    r.gradients = size(mvsizes.first);
++    r.thermodynamic_forces = size(mvsizes.second);
++    const auto mprops = i.buildMaterialPropertiesList(bd, h);
++    if (!mprops.first.empty()) {
++      const auto& last = mprops.first.back();
++      auto s = last.offset;
++      s += SupportedTypes::getTypeSize(last.type, last.arraySize);
++      s -= mprops.second;
++      r.material_properties = size(s);
++    }
++    r.internal_state_variables =
++        size(variables_size(d.getPersistentVariables()));
++    r.external_state_variables =
++        size(variables_size(d.getExternalStateVariables()));
++    for (const auto& [v1, v2] : bd.getTangentOperatorBlocks()) {
++      r.tangent_operator +=
++          size(SupportedTypes::getTypeSize(v1.type, v1.arraySize)) *
++          size(SupportedTypes::getTypeSize(v2.type, v2.arraySize));
++    }
++    return r;
++  }  // end of getPointDataSizes
++
++  /*!
++   * \return the name of the structure holding the values of the parameters
++   * for the given hypothesis, or `mfront::gpb::NoParameters` if this
++   * structure is not needed.
++   * \param[in] bd: behaviour description
++   * \param[in] h: modelling hypothesis
++   */
++  static std::string getParametersStructureName(
++      const BehaviourDescription& bd,
++      const tfel::material::ModellingHypothesis::Hypothesis h) {
++    using tfel::material::ModellingHypothesis;
++    if ((areParametersTreatedAsStaticVariables(bd)) ||
++        (bd.getBehaviourData(h).getParameters().empty())) {
++      return "mfront::gpb::NoParameters";
++    }
++    return bd.getClassName() + ModellingHypothesis::toString(h) + "Parameters";
++  }  // end of getParametersStructureName
++
++  /*!
++   * \brief write the structure holding the values of the parameters for the
++   * given hypothesis. The names and the types of the members of this
++   * structure are the ones of the parameters initializers.
++   * \param[out] os: output stream
++   * \param[in] bd: behaviour description
++   * \param[in] h: modelling hypothesis
++   */
++  static void writeParametersStructure(
++      std::ostream& os,
++      const BehaviourDescription& bd,
++      const tfel::material::ModellingHypothesis::Hypothesis h) {
++    const auto n = getParametersStructureName(bd, h);
++    if (n == "mfront::gpb::NoParameters") {
++      return;
++    }
++    os << "//! \\brief values of the parameters\n"
++       << "struct " << n << "{\n";
++    for (const auto& p : bd.getBehaviourData(h).getParameters()) {
++      if (p.type == "int") {
++        os << "int " << p.name << ";\n";
++      } else if (p.type == "ushort") {
++        os << "unsigned short " << p.name << ";\n";
++      } else if (p.arraySize == 1) {
++        os << "double " << p.name << ";\n";
++      } else {
++        os << "tfel::math::fsarray<" << p.arraySize << ", double> " << p.name
++           << ";\n";
++      }
++    }
++    os << "};\n\n";
++  }  // end of writeParametersStructure
++
++  /*!
++   * \brief write the initialisation of the values of the parameters from
++   * the parameters initializers, which are only available on the host.
++   * \param[out] os: output stream
++   * \param[in] bd: behaviour description
++   * \param[in] h: modelling hypothesis
++   */
++  static void writeParametersInitialisation(
++      std::ostream& os,
++      const BehaviourDescription& bd,
++      const tfel::material::ModellingHypothesis::Hypothesis h) {
++    using tfel::material::ModellingHypothesis;
++    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
++    const auto n = getParametersStructureName(bd, h);
++    os << "auto mfront_parameters = " << n << "{};\n";
++    if (n == "mfront::gpb::NoParameters") {
++      return;
++    }
++    for (const auto& p : bd.getBehaviourData(h).getParameters()) {
++      const auto initializer = [&bd, &p, h] {
++        if (bd.hasParameter(uh, p.name)) {
++          return bd.getClassName() + "ParametersInitializer";
++        }
++        return bd.getClassName() + ModellingHypothesis::toString(h) +
++               "ParametersInitializer";
++      }();
++      os << "mfront_parameters." << p.name << " = " << initializer << "::get()."
++         << p.name << ";\n";
++    }
++  }  // end of writeParametersInitialisation
++
++  std::string GenericParallelBehaviourInterface::getName() {
++    return "generic-parallel";
++  }  // end of getName
++
++  GenericParallelBehaviourInterface::GenericParallelBehaviourInterface()
++      : backend(std::make_unique<
++                generic_parallel::behaviour::ParallelSTLBackend>()) {
++  }  // end of GenericParallelBehaviourInterface
++
++  std::string GenericParallelBehaviourInterface::getInterfaceName() const {
++    return "GenericParallel";
++  }  // end of getInterfaceName
++
++  void GenericParallelBehaviourInterface::setOptions(const DataMap& opts) {
++    using generic_parallel::behaviour::BackendFactory;
++    using tfel::utilities::DataStructure;
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<DataStructure>("backend");
++    validator.validate(opts);
++    if (!contains(opts, "backend")) {
++      return;
++    }
++    const auto ds = DataStructure::convert(get(opts, "backend"));
++    if (getVerboseMode() >= VERBOSE_DEBUG) {
++      getLogStream() << "GenericParallelBehaviourInterface::setOptions: "
++                        "creating backend '"
++                     << ds.name << "'\n";
++    }
++    this->backend = BackendFactory::get().generate(ds.name, ds.data);
++  }  // end of setOptions
++
++  std::pair<bool, GenericParallelBehaviourInterface::tokens_iterator>
++  GenericParallelBehaviourInterface::treatKeyword(
++      BehaviourDescription& bd,
++      const std::string& k,
++      const std::vector<std::string>& i,
++      tokens_iterator current,
++      const tokens_iterator end) {
++    const auto is_hypotheses_selection =
++        (k == "@SelectedModellingHypothesis") ||
++        (k == "@SelectedModellingHypotheses");
++    if (!i.empty()) {
++      if (std::find(i.begin(), i.end(), getName()) == i.end()) {
++        return {false, current};
++      }
++      if (!is_hypotheses_selection) {
++        tfel::raise(
++            "GenericParallelBehaviourInterface::treatKeyword: "
++            "unsupported keyword '" +
++            k + "'");
++      }
++    }
++    if (is_hypotheses_selection) {
++      return GenericBehaviourInterface::treatKeyword(bd, k, {}, current, end);
++    }
++    return {false, current};
++  }  // end of treatKeyword
++
++  std::string
++  GenericParallelBehaviourInterface::getParametersSourceInBehaviourConstructor(
++      const BehaviourDescription& bd, const Hypothesis) const {
++    if (areParametersTreatedAsStaticVariables(bd)) {
++      return "";
++    }
++    return "mgpb_parameters";
++  }  // end of getParametersSourceInBehaviourConstructor
++
++  bool
++  GenericParallelBehaviourInterface::areDynamicallyAllocatedVectorsAllowed()
++      const {
++    return false;
++  }  // end of areDynamicallyAllocatedVectorsAllowed
++
++  std::string GenericParallelBehaviourInterface::
++      getBehaviourConstructorTemplateDeclaration() const {
++    return "template <typename ParametersType>";
++  }  // end of getBehaviourConstructorTemplateDeclaration
++
++  std::string
++  GenericParallelBehaviourInterface::getBehaviourConstructorArguments() const {
++    return "const mfront::gb::BehaviourData& mgb_d, "
++           "[[maybe_unused]] const ParametersType& mgpb_parameters";
++  }  // end of getBehaviourConstructorArguments
++
++  std::string GenericParallelBehaviourInterface::getLibraryName(
++      const BehaviourDescription& bd) const {
++    const auto base = [&bd]() -> std::string {
++      if (!bd.getLibrary().empty()) {
++        return bd.getLibrary();
++      }
++      if (!bd.getMaterialName().empty()) {
++        return bd.getMaterialName();
++      }
++      return "Behaviour";
++    }();
++    return this->getInterfaceName() + base + '-' + this->backend->getName();
++  }  // end of getLibraryName
++
++  std::string GenericParallelBehaviourInterface::getHeaderFileName(
++      const std::string& name) const {
++    return name + '-' + getName() + '-' + this->backend->getName() + ".hxx";
++  }  // end of getHeaderFileName
++
++  std::string GenericParallelBehaviourInterface::getSourceFileName(
++      const std::string& name) const {
++    return name + '-' + getName() + '-' + this->backend->getName() + '.' +
++           this->backend->getSourceFileExtension();
++  }  // end of getSourceFileName
++
++  void GenericParallelBehaviourInterface::getTargetsDescription(
++      TargetsDescription& d, const BehaviourDescription& bd) {
++    const auto lib = this->getLibraryName(bd);
++    const auto name = bd.getLibrary() + bd.getClassName();
++    const auto tfel_config = tfel::getTFELConfigExecutableName();
++    auto& l = d.getLibrary(lib);
++    insert_if(l.sources, this->getSourceFileName(name));
++    d.headers.push_back("MFront/GenericParallelBehaviour/" +
++                        this->getHeaderFileName(name));
++    insert_if(l.link_directories,
++              "$(shell " + tfel_config + " --library-path)");
++    insert_if(l.link_libraries, "$(shell " + tfel_config +
++                                    " --library-dependency "
++                                    "--material --mfront-profiling)");
++    for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
++      insert_if(l.epts, this->getFunctionNameForHypothesis(name, h));
++    }
++  }  // end of getTargetsDescription
++
++  void GenericParallelBehaviourInterface::endTreatment(
++      const BehaviourDescription& bd, const FileDescription& fd) const {
++    const auto type = bd.getBehaviourType();
++    const auto is_finite_strain =
++        (type == BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
++        ((type == BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
++         (bd.isStrainMeasureDefined()) &&
++         (bd.getStrainMeasure() != BehaviourDescription::LINEARISED));
++    if (is_finite_strain) {
++      tfel::raise(
++          "GenericParallelBehaviourInterface::endTreatment: "
++          "finite strain behaviours are not supported yet");
++    }
++    tfel::system::systemCall::mkdir("include/MFront");
++    tfel::system::systemCall::mkdir("include/MFront/GenericParallelBehaviour");
++    this->writeHeaderFile(bd, fd);
++    this->writeSourceFile(bd, fd);
++  }  // end of endTreatment
++
++  void GenericParallelBehaviourInterface::writeHeaderFile(
++      const BehaviourDescription& bd, const FileDescription& fd) const {
++    const auto name = bd.getLibrary() + bd.getClassName();
++    const auto header = this->getHeaderFileName(name);
++    const auto fn = "include/MFront/GenericParallelBehaviour/" + header;
++    std::ofstream os(fn);
++    tfel::raise_if(!os,
++                   "GenericParallelBehaviourInterface::writeHeaderFile: "
++                   "could not open file '" +
++                       fn + "'");
++    os.exceptions(std::ios::badbit | std::ios::failbit);
++    os << "/*!\n"
++       << "* \\file   " << header << '\n'
++       << "* \\brief  This file declares the " << getName()
++       << " interface for the " << bd.getClassName() << " behaviour (backend "
++       << this->backend->getName() << ")\n"
++       << "* \\author " << fd.authorName << '\n'
++       << "* \\date   " << fd.date << '\n'
++       << "*/\n\n";
++    const auto hg = this->getHeaderGuard(bd) + "_" +
++                    makeUpperCase(this->backend->getName());
++    os << "#ifndef " << hg << "\n"
++       << "#define " << hg << "\n\n"
++       << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
++       << "#include\"MFront/GenericParallelBehaviour/BatchData.h\"\n\n";
++    this->writeVisibilityDefines(os);
++    os << "#ifdef __cplusplus\n"
++       << "extern \"C\"{\n"
++       << "#endif /* __cplusplus */\n\n";
++    this->writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
++    this->writeSetParametersFunctionsDeclarations(os, bd, name);
++    for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
++      os << "/*!\n"
++         << " * \\brief integrate the behaviour over a batch of integration "
++            "points\n"
++         << " * \\param[out] s: output status\n"
++         << " * \\param[in] d: batch data\n"
++         << " * \\return the status, also stored in the output status\n"
++         << " */\n"
++         << "MFRONT_SHAREDOBJ int "
++         << this->getFunctionNameForHypothesis(name, h)
++         << "(mfront_gpb_OutputStatus* const,\n"
++         << "const mfront_gpb_BatchData* const);\n\n";
++    }
++    os << "#ifdef __cplusplus\n"
++       << "}\n"
++       << "#endif /* __cplusplus */\n\n"
++       << "#endif /* " << hg << " */\n";
++  }  // end of writeHeaderFile
++
++  void GenericParallelBehaviourInterface::writeSourceFile(
++      const BehaviourDescription& bd, const FileDescription& fd) const {
++    using tfel::material::ModellingHypothesis;
++    const auto mhs = this->getModellingHypothesesToBeTreated(bd);
++    const auto name = bd.getLibrary() + bd.getClassName();
++    const auto src = this->getSourceFileName(name);
++    const auto fn = "src/" + src;
++    std::ofstream os(fn);
++    tfel::raise_if(!os,
++                   "GenericParallelBehaviourInterface::writeSourceFile: "
++                   "could not open file '" +
++                       fn + "'");
++    os.exceptions(std::ios::badbit | std::ios::failbit);
++    os << "/*!\n"
++       << "* \\file   " << src << '\n'
++       << "* \\brief  This file implements the " << getName()
++       << " interface for the " << bd.getClassName() << " behaviour (backend "
++       << this->backend->getName() << ")\n"
++       << "* \\author " << fd.authorName << '\n'
++       << "* \\date   " << fd.date << '\n'
++       << "*/\n\n";
++    this->writeVisibilityDefines(os);
++    os << "#include\"TFEL/Material/OutOfBoundsPolicy.hxx\"\n"
++       << "#include\"TFEL/Material/" << bd.getClassName() << ".hxx\"\n"
++       << "#include\"MFront/GenericParallelBehaviour/Integrate.hxx\"\n";
++    this->backend->writeSpecificIncludes(os);
++    os << "#include\"MFront/GenericParallelBehaviour/"
++       << this->getHeaderFileName(name) << "\"\n\n";
++    this->writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
++    os << "namespace {\n\n";
++    for (const auto h : mhs) {
++      const auto sizes = getPointDataSizes(*this, bd, h);
++      os << "//! \\brief sizes of the data of an integration point\n"
++         << "struct " << bd.getClassName() << ModellingHypothesis::toString(h)
++         << "PointDataSizes {\n"
++         << "static constexpr auto value = mfront::gpb::PointDataSizes{"
++         << ".gradients = " << sizes.gradients << ", "
++         << ".thermodynamic_forces = " << sizes.thermodynamic_forces << ", "
++         << ".material_properties = " << sizes.material_properties << ", "
++         << ".internal_state_variables = " << sizes.internal_state_variables
++         << ", "
++         << ".external_state_variables = " << sizes.external_state_variables
++         << ", "
++         << ".tangent_operator = " << sizes.tangent_operator << "};\n"
++         << "};\n\n";
++      writeParametersStructure(os, bd, h);
++    }
++    os << "} // end of anonymous namespace\n\n";
++    os << "#ifdef __cplusplus\n"
++       << "extern \"C\"{\n"
++       << "#endif /* __cplusplus */\n\n";
++    GenericBehaviourSymbolsGenerator sg;
++    sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
++    if (!bd.areAllMechanicalDataSpecialised(mhs)) {
++      const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
++      sg.generateSymbols(os, *this, bd, fd, name, uh);
++    }
++    for (const auto& h : mhs) {
++      if (bd.hasSpecialisedMechanicalData(h)) {
++        sg.generateSymbols(os, *this, bd, fd, name, h);
++      }
++    }
++    this->writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
++    this->writeSetParametersFunctionsImplementations(os, bd, name);
++    for (const auto h : mhs) {
++      const auto f = this->getFunctionNameForHypothesis(name, h);
++      os << "MFRONT_SHAREDOBJ int " << f
++         << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
++         << "const mfront_gpb_BatchData* const mfront_batch_data){\n"
++         << "return mfront::gpb::handleExceptions(mfront_output_status, "
++         << "[mfront_output_status, mfront_batch_data] {\n"
++         << "if (mfront_batch_data == nullptr) {\n"
++         << "return mfront::gpb::report(*mfront_output_status, -2, "
++         << "\"no batch data given\");\n"
++         << "}\n"
++         << "using namespace tfel::material;\n"
++         << "using real = mfront::gb::real;\n"
++         << "constexpr auto h = ModellingHypothesis::"
++         << ModellingHypothesis::toUpperCaseString(h) << ";\n";
++      if (bd.useQt()) {
++        os << "using Behaviour = " << bd.getClassName() << "<h, real, true>;\n";
++      } else {
++        os << "using Behaviour = " << bd.getClassName()
++           << "<h, real, false>;\n";
++      }
++      os << "using mfront_sizes = " << bd.getClassName()
++         << ModellingHypothesis::toString(h) << "PointDataSizes;\n"
++         << "auto& mfront_status = *mfront_output_status;\n"
++         << "const auto& mfront_data = *mfront_batch_data;\n";
++      writeParametersInitialisation(os, bd, h);
++      os << "const auto mfront_policy = " << this->getFunctionNameBasis(name)
++         << "_getOutOfBoundsPolicy();\n";
++      this->backend->writeIntegrationCall(os);
++      os << "});\n"
++         << "} // end of " << f << "\n\n";
++    }
++    os << "#ifdef __cplusplus\n"
++       << "}\n"
++       << "#endif /* __cplusplus */\n\n";
++  }  // end of writeSourceFile
++
++  GenericParallelBehaviourInterface::~GenericParallelBehaviourInterface() =
++      default;
++
++}  // end of namespace mfront
+diff --git a/mfront/src/InitInterfaces.cxx b/mfront/src/InitInterfaces.cxx
+index 73d686b4d..0f0676963 100644
+--- a/mfront/src/InitInterfaces.cxx
++++ b/mfront/src/InitInterfaces.cxx
+@@ -21,6 +21,7 @@
+ #include "MFront/GenericMaterialPropertyInterface.hxx"
+ #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+ #include "MFront/GenericBehaviourInterface.hxx"
++#include "MFront/GenericParallelBehaviourInterface.hxx"
+ #include "MFront/GenericModelInterface.hxx"
+ #include "MFront/CMaterialPropertyInterface.hxx"
+ #include "MFront/ExcelMaterialPropertyInterface.hxx"
+@@ -217,6 +218,7 @@ namespace mfront {
+     MaterialPropertyInterfaceProxy<GenericParallelMaterialPropertyInterface>
+         pgmpProxy;
+     BehaviourInterfaceProxy<GenericBehaviourInterface> gbProxy;
++    BehaviourInterfaceProxy<GenericParallelBehaviourInterface> gpbProxy;
+     ModelInterfaceProxy<GenericModelInterface> gmProxy;
+ 
+     ModelInterfaceProxy<MFrontModelInterface> mmi;
+-- 
+2.43.0
+

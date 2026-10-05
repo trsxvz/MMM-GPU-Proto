@@ -1,0 +1,397 @@
+From 1b621828da6d87783abb6c9a1460535056040f32 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 17:04:52 +0200
+Subject: [PATCH 08/21] TFEL: behaviours without virtual functions
+
+`MechanicalBehaviour` declared the interface of the behaviours as pure
+virtual functions. Behaviours are never manipulated through a reference to
+this class, and the generated classes are final. However, their virtual
+table requires the run-time type information, which is not supported in
+device code by SYCL (AdaptiveCpp fails to load the kernels on GPUs).
+
+- `MechanicalBehaviour` now only defines the types and constants shared by
+  the behaviours. The methods expected from a behaviour are documented and
+  described by the `MechanicalBehaviourConcept` concept, checked by the
+  integration drivers of the `generic` interface;
+- the code generators no longer use `final` and `override` on those
+  methods and on the destructors.
+---
+ include/TFEL/Material/MechanicalBehaviour.hxx | 121 ++++++++----------
+ .../MFront/GenericBehaviour/Integrate.hxx     |   2 +
+ mfront/src/BehaviourCodeGeneratorBase.cxx     |  20 +--
+ mfront/src/ImplicitCodeGeneratorBase.cxx      |   6 +-
+ .../IsotropicBehaviourCodeGeneratorBase.cxx   |   2 +-
+ .../src/IsotropicMisesCreepCodeGenerator.cxx  |   2 +-
+ ...IsotropicMisesPlasticFlowCodeGenerator.cxx |   2 +-
+ ...StrainHardeningMisesCreepCodeGenerator.cxx |   2 +-
+ ...ltipleIsotropicMisesFlowsCodeGenerator.cxx |   2 +-
+ mfront/src/RungeKuttaCodeGeneratorBase.cxx    |   6 +-
+ 10 files changed, 77 insertions(+), 88 deletions(-)
+
+diff --git a/include/TFEL/Material/MechanicalBehaviour.hxx b/include/TFEL/Material/MechanicalBehaviour.hxx
+index 6c26eb747..8cbd0f92d 100644
+--- a/include/TFEL/Material/MechanicalBehaviour.hxx
++++ b/include/TFEL/Material/MechanicalBehaviour.hxx
+@@ -15,6 +15,7 @@
+ #define LIB_TFEL_MATERIAL_MECHANICALBEHAVIOUR_HXX
+ 
+ #include <utility>
++#include <concepts>
+ #include "TFEL/Config/TFELTypes.hxx"
+ #include "TFEL/Material/ModellingHypothesis.hxx"
+ #include "TFEL/Material/FiniteStrainBehaviourTangentOperatorBase.hxx"
+@@ -149,7 +150,29 @@ namespace tfel::material {
+ 
+   /*!
+    * \class MechanicalBehaviour
+-   * \brief This class declares an interface for mechanical behaviours.
++   * \brief This class is the base class of mechanical behaviours. It
++   * defines the types and constants shared by all the behaviours.
++   *
++   * A mechanical behaviour shall provide the following methods (see the
++   * `MechanicalBehaviourConcept` concept):
++   *
++   * - `computePredictionOperator(smflag, smt)`, which only computes a
++   *   prediction operator;
++   * - `integrate(smflag, smt)`, which determines the values of the
++   *   internal state variables at the end of the time step and computes the
++   *   tangent operator if requested;
++   * - `getMinimalTimeStepScalingFactor()`, which returns the minimal
++   *   scaling factor to be used if the integration failed;
++   * - `computeAPrioriTimeStepScalingFactor(rdt)` and
++   *   `computeAPosterioriTimeStepScalingFactor(rdt)`, which return a pair
++   *   containing a boolean (saying if the integration shall be performed,
++   *   or considered a success) and a time step scaling factor proposed by
++   *   the behaviour.
++   *
++   * Those methods are not virtual: behaviours are never manipulated through
++   * a reference to this class and virtual functions are not supported in
++   * device code by some parallel programming models (SYCL).
++   *
+    * \param H, modelling hypothesis
+    * \param NumType, numerical type.
+    * \param bool use_qt, says if one shall use quantities.
+@@ -171,72 +194,36 @@ namespace tfel::material {
+         ModellingHypothesisToSpaceDimension<H>::value;
+     //! \brief a simple alias
+     using TFELTypes = tfel::config::Types<N, NumType, use_qt>;
+-    /*!
+-     * \brief only compute a prediction stiffness matrix.
+-     * The result shall be retrieved through the
+-     * "getTangeOperator" method
+-     * \param[in] smflag : expected tangent operator
+-     * \param[in] smt    : expected tangent operator
+-     * \return SUCCESS if the integration is successfull.
+-     */
+-    TFEL_HOST_DEVICE virtual IntegrationResult computePredictionOperator(
+-        const SMFlag, const SMType) = 0;
+-    /*!
+-     * \return the minimal scaling factor to be used. This scaling
+-     * factor is used to decrease the time step if the integration
+-     * failed.
+-     */
+-    TFEL_HOST_DEVICE virtual typename TFELTypes::real
+-    getMinimalTimeStepScalingFactor() const = 0;
+-    /*!
+-     * \param[in] dt: time step scaling factor proposed by the calling code
+-     * \return a pair containing:
+-     * - a boolean syaing if the behaviour integration shall be
+-     *   performed
+-     * - a scaling factor that can be used to:
+-     *     - increase the time step if the integration was successfull
+-     *     - decrease the time step if the integration failed or if the
+-     *       results were not reliable (time step too large).
+-     *
+-     * Interfaces to behaviour law shall use the
+-     * hasAPrioriTimeStepScalingFactor of the traits class
+-     * MechanicalBehaviourTraits to know if the behaviour is able to
+-     * give such a time step scaling factor. If not, behaviours
+-     * may return the NumType(1) value.
+-     */
+-    TFEL_HOST_DEVICE virtual std::pair<bool, typename TFELTypes::real>
+-    computeAPrioriTimeStepScalingFactor(
+-        const typename TFELTypes::real) const = 0;
+-    /*!
+-     * \brief determine the value of the internal state variables at
+-     * the end of the time step
+-     * \param[in] smflag : expected tangent operator
+-     * \param[in] smt    : expected tangent operator
+-     * \return SUCCESS if the integration is successfull.
+-     */
+-    TFEL_HOST_DEVICE virtual IntegrationResult integrate(const SMFlag,
+-                                                         const SMType) = 0;
+-    /*!
+-     * \param[in] dt: current time step scaling factor
+-     * \return a pair containing:
+-     * - a boolean syaing if the behaviour integration shall be
+-     *   considered a success or a failure
+-     * - a scaling factor that can be used to:
+-     *     - increase the time step if the integration was successfull
+-     *     - decrease the time step if the integration failed or if the
+-     *       results were not reliable (time step too large).
+-     *
+-     * Interfaces to behaviour law shall use the
+-     * hasAPosterioriTimeStepScalingFactor of the traits class
+-     * MechanicalBehaviourTraits to know if the behaviour is able to
+-     * give such a time step scaling factor. If not, behaviours
+-     * may return the NumType(1) value.
+-     */
+-    TFEL_HOST_DEVICE virtual std::pair<bool, typename TFELTypes::real>
+-    computeAPosterioriTimeStepScalingFactor(
+-        const typename TFELTypes::real) const = 0;
+-    //! destructor
+-    TFEL_HOST_DEVICE virtual ~MechanicalBehaviour() noexcept = default;
++  };
++
++  /*!
++   * \brief concept satisfied by the classes implementing a mechanical
++   * behaviour (see the documentation of the `MechanicalBehaviour` class).
++   */
++  template <typename BehaviourType>
++  concept MechanicalBehaviourConcept = requires(
++      BehaviourType & b,
++      const BehaviourType& cb,
++      const typename BehaviourType::SMFlag smflag,
++      const typename BehaviourType::SMType smt,
++      const typename BehaviourType::TFELTypes::real rdt) {
++    {
++      b.computePredictionOperator(smflag, smt)
++      } -> std::same_as<typename BehaviourType::IntegrationResult>;
++    {
++      b.integrate(smflag, smt)
++      } -> std::same_as<typename BehaviourType::IntegrationResult>;
++    {
++      cb.getMinimalTimeStepScalingFactor()
++      } -> std::convertible_to<typename BehaviourType::TFELTypes::real>;
++    {
++      cb.computeAPrioriTimeStepScalingFactor(rdt)
++      } -> std::convertible_to<
++          std::pair<bool, typename BehaviourType::TFELTypes::real>>;
++    {
++      cb.computeAPosterioriTimeStepScalingFactor(rdt)
++      } -> std::convertible_to<
++          std::pair<bool, typename BehaviourType::TFELTypes::real>>;
+   };
+ 
+ }  // end of namespace tfel::material
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index 2adb624fb..c0976d867 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -18,6 +18,7 @@
+ #include <cstring>
+ #include <algorithm>
+ #include "TFEL/Raise.hxx"
++#include "TFEL/Material/MechanicalBehaviour.hxx"
+ #include "TFEL/Math/General/IEEE754.hxx"
+ #include "TFEL/Math/t2tot2.hxx"
+ #include "TFEL/Math/t2tost2.hxx"
+@@ -303,6 +304,7 @@ namespace mfront::gb {
+   int integrate(mfront_gb_BehaviourData& d,
+                 const typename Behaviour::SMFlag f,
+                 const tfel::material::OutOfBoundsPolicy p) {
++    static_assert(tfel::material::MechanicalBehaviourConcept<Behaviour>);
+     using MTraits = tfel::material::MechanicalBehaviourTraits<Behaviour>;
+     using IEnergyComputer =
+         typename std::conditional<MTraits::hasComputeInternalEnergy,
+diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
+index 4621ad9df..d8dacd960 100644
+--- a/mfront/src/BehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
+@@ -2156,10 +2156,10 @@ namespace mfront {
+        << "*/\n";
+     if (!this->bd.getTangentOperatorBlocks().empty()) {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-         << "integrate(const SMFlag smflag, const SMType smt) final{\n";
++         << "integrate(const SMFlag smflag, const SMType smt){\n";
+     } else {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-         << "integrate(const SMFlag, const SMType) final{\n";
++         << "integrate(const SMFlag, const SMType){\n";
+     }
+     os << "using namespace std;\n"
+        << "using namespace tfel::math;\n";
+@@ -3658,7 +3658,7 @@ namespace mfront {
+          << "//! \\brief move assignement\n"
+          << wrapper << "& operator=(" << wrapper << "&&) = default;\n"
+          << "//! \\brief destructor\n"
+-         << "TFEL_HOST_DEVICE ~" << wrapper << "() override = default;\n"
++         << "TFEL_HOST_DEVICE ~" << wrapper << "() = default;\n"
+          << "private:\n"
+          << "friend struct " << this->bd.getClassName() << ";\n"
+          << "};\n\n";
+@@ -3934,7 +3934,7 @@ namespace mfront {
+     this->checkBehaviourFile(os);
+     os << "//! \\brief destructor\n"
+        << "TFEL_HOST_DEVICE ~" << this->bd.getClassName() << "()\n"
+-       << " override = default;\n\n";
++       << " = default;\n\n";
+   }
+ 
+   void BehaviourCodeGeneratorBase::writeBehaviourUpdateExternalStateVariables(
+@@ -4615,7 +4615,7 @@ namespace mfront {
+     }
+     if (!hasUserDefinedPredictionOperatorCode(this->bd, h)) {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
+-         << "computePredictionOperator(const SMFlag, const SMType) final{\n";
++         << "computePredictionOperator(const SMFlag, const SMType){\n";
+       this->writeDeviceCompatibleRaise(
+           os,
+           this->bd.getClassName() +
+@@ -4733,7 +4733,7 @@ namespace mfront {
+         }
+         os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult "
+            << "computePredictionOperator(const SMFlag smflag, "
+-           << "const SMType smt) final{\n"
++           << "const SMType smt){\n"
+            << "using namespace std;\n"
+            << "switch(smflag){\n";
+         for (const auto& t : tos) {
+@@ -4755,7 +4755,7 @@ namespace mfront {
+     } else {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+          << "computePredictionOperator(const SMFlag smflag,const SMType smt) "
+-         << "final{\n"
++         << "{\n"
+          << "using namespace std;\n"
+          << "using namespace tfel::math;\n"
+          << "using std::vector;\n";
+@@ -4941,7 +4941,7 @@ namespace mfront {
+       std::ostream& os) const {
+     this->checkBehaviourFile(os);
+     os << "TFEL_HOST_DEVICE real getMinimalTimeStepScalingFactor() const "
+-          "noexcept final{\n"
++          "noexcept{\n"
+           "  return this->minimal_time_step_scaling_factor;\n"
+           "}\n\n";
+   }
+@@ -4952,7 +4952,7 @@ namespace mfront {
+     this->checkBehaviourFile(os);
+     os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
+           "computeAPrioriTimeStepScalingFactor(const real "
+-          "current_time_step_scaling_factor) const final{\n"
++          "current_time_step_scaling_factor) const{\n"
+           "const auto time_scaling_factor = "
+           "this->computeAPrioriTimeStepScalingFactorII();\n"
+           "return {time_scaling_factor.first,\n"
+@@ -4989,7 +4989,7 @@ namespace mfront {
+     this->checkBehaviourFile(os);
+     os << "TFEL_HOST_DEVICE std::pair<bool, real>\n"
+           "computeAPosterioriTimeStepScalingFactor(const real "
+-          "current_time_step_scaling_factor) const final{\n"
++          "current_time_step_scaling_factor) const{\n"
+           "const auto time_scaling_factor = "
+           "this->computeAPosterioriTimeStepScalingFactorII();\n"
+           "return {time_scaling_factor.first,\n"
+diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
+index 32347ba3e..4a28d218b 100644
+--- a/mfront/src/ImplicitCodeGeneratorBase.cxx
++++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
+@@ -1108,12 +1108,12 @@ namespace mfront {
+        << " */\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult ";
+     if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
+-      os << "integrate(const SMFlag smflag,const SMType smt) final{\n";
++      os << "integrate(const SMFlag smflag,const SMType smt){\n";
+     } else {
+       if (!this->bd.getTangentOperatorBlocks().empty()) {
+-        os << "integrate(const SMFlag smflag,const SMType smt) final{\n";
++        os << "integrate(const SMFlag smflag,const SMType smt){\n";
+       } else {
+-        os << "integrate(const SMFlag,const SMType smt) final{\n";
++        os << "integrate(const SMFlag,const SMType smt){\n";
+       }
+     }
+     os << "using namespace std;\n";
+diff --git a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+index 02838fc71..f9d9718ca 100644
+--- a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+@@ -143,7 +143,7 @@ namespace mfront {
+     if (!this->bd.hasCode(h, BehaviourData::ComputePredictionOperator)) {
+       os << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+          << "computePredictionOperator(const SMFlag smflag, const SMType smt) "
+-         << "final {\n";
++         << "{\n";
+       os << "using namespace std;\n";
+       this->writeDeviceCompatibleRaiseIf(
+           os, this->getInvalidStandardTangentOperatorFlagCondition(),
+diff --git a/mfront/src/IsotropicMisesCreepCodeGenerator.cxx b/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
+index 2b692d4d6..fb61c576e 100644
+--- a/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
++++ b/mfront/src/IsotropicMisesCreepCodeGenerator.cxx
+@@ -138,7 +138,7 @@ namespace mfront {
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-       << "integrate(const SMFlag smflag,const SMType smt) final{\n"
++       << "integrate(const SMFlag smflag,const SMType smt){\n"
+        << "using namespace std;\n";
+     this->writeDeviceCompatibleRaiseIf(
+         os, this->getInvalidStandardTangentOperatorFlagCondition(),
+diff --git a/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx b/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
+index fe55997a2..983ddbc99 100644
+--- a/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
++++ b/mfront/src/IsotropicMisesPlasticFlowCodeGenerator.cxx
+@@ -160,7 +160,7 @@ namespace mfront {
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-       << "integrate(const SMFlag smflag,const SMType smt) override{\n"
++       << "integrate(const SMFlag smflag,const SMType smt){\n"
+        << "using namespace std;\n";
+     this->writeDeviceCompatibleRaiseIf(
+         os, this->getInvalidStandardTangentOperatorFlagCondition(),
+diff --git a/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx b/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
+index 780a786a9..c7864c1b5 100644
+--- a/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
++++ b/mfront/src/IsotropicStrainHardeningMisesCreepCodeGenerator.cxx
+@@ -153,7 +153,7 @@ namespace mfront {
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-       << "integrate(const SMFlag smflag,const SMType smt) override{\n"
++       << "integrate(const SMFlag smflag,const SMType smt){\n"
+        << "using namespace std;\n";
+     this->writeDeviceCompatibleRaiseIf(
+         os, this->getInvalidStandardTangentOperatorFlagCondition(),
+diff --git a/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx b/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
+index 5186ca9de..8658d53cc 100644
+--- a/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
++++ b/mfront/src/MultipleIsotropicMisesFlowsCodeGenerator.cxx
+@@ -300,7 +300,7 @@ namespace mfront {
+        << "* \\brief Integrate behaviour law over the time step\n"
+        << "*/\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n"
+-       << "integrate(const SMFlag smflag,const SMType smt) final{\n"
++       << "integrate(const SMFlag smflag,const SMType smt){\n"
+        << "using namespace std;\n"
+        << "if(" << this->getInvalidStandardTangentOperatorFlagCondition()
+        << "){\n";
+diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+index ee9b42289..41b32885c 100644
+--- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
++++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+@@ -2233,16 +2233,16 @@ namespace mfront {
+        << "*/\n"
+        << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n";
+     if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
+-      os << "integrate(const SMFlag smflag,const SMType smt) final{\n";
++      os << "integrate(const SMFlag smflag,const SMType smt){\n";
+     } else {
+       if ((this->bd.getBehaviourType() ==
+            BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) ||
+           (this->bd.getBehaviourType() ==
+            BehaviourDescription::COHESIVEZONEMODEL)) {
+         os << "integrate(const SMFlag smflag, const SMType smt) "
+-           << "final{\n";
++           << "{\n";
+       } else {
+-        os << "integrate(const SMFlag, const SMType smt) final{\n";
++        os << "integrate(const SMFlag, const SMType smt){\n";
+       }
+     }
+     os << "using namespace std;\n"
+-- 
+2.43.0
+

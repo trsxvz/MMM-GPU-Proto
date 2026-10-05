@@ -1,0 +1,51 @@
+From 9cd913eb21712a54d337640d0ebeac92f2725f56 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 17:28:41 +0200
+Subject: [PATCH 10/21] TFEL: no recursion in the computation of the
+ eigenvectors of stensors
+
+`StensorComputeEigenVectors<3>::computeEigenVector` assumes that the given
+eigenvalue is simple. Otherwise, it computed all the eigenvectors with the
+analytical algorithm, which calls `computeEigenVector`: the call graph had
+a cycle. Recursion is not supported by all parallel programming models in
+device code (AdaptiveCpp loops indefinitely when compiling such kernels for
+CPUs) and makes the stack size of GPU threads unpredictable. The
+eigenvectors of a multiple eigenvalue are now computed by the Jacobi
+algorithm (`fses::syevj3`).
+---
+ .../Stensor/Internals/StensorComputeEigenVectors.hxx   | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+index 4e354ce07..9aa952085 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+@@ -27,6 +27,7 @@
+ #include "TFEL/Math/tvector.hxx"
+ #include "TFEL/Math/tmatrix.hxx"
+ #include "TFEL/Math/stensor.hxx"
++#include "FSES/syevj3.hxx"
+ 
+ namespace tfel::math::internals {
+ 
+@@ -528,9 +529,16 @@ namespace tfel::math::internals {
+                    10 * std::numeric_limits<T>::min());
+       if ((tfel::math::abs(det1) < prec) && (tfel::math::abs(det2) < prec) &&
+           (tfel::math::abs(det3) < prec)) {
++        // vp is a multiple eigenvalue. The eigenvectors are computed by the
++        // Jacobi algorithm, which handles this case without calling the
++        // current function recursively (recursion is not supported by all
++        // parallel programming models in device code)
++        auto sm = tmatrix<3u, 3u, T>{src[0], b,      c,  //
++                                     b,      src[1], e,  //
++                                     c,      e,      src[2]};
+         tvector<3u, T> v;
+         tmatrix<3u, 3u, T> m;
+-        if (!StensorComputeEigenVectors<3u>::exe(src, v, m, true)) {
++        if (fses::syevj3(m, v, sm) != 0) {
+           v0 = v1 = v2 = T(0);
+           return false;
+         }
+-- 
+2.43.0
+
