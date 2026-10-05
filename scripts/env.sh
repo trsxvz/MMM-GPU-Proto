@@ -19,5 +19,10 @@ unset HIP_COMPILER
 unset LD_LIBRARY_PATH
 export PATH=$P/install/tfel/bin:$P/install/adaptivecpp/bin:$PROTO_SPACK_VIEW/bin:$PROTO_NVHPC/compilers/bin:/usr/local/bin:/usr/bin:/bin
 export LD_LIBRARY_PATH=$P/install/tfel/lib:$P/install/kokkos/lib:$PROTO_LLVM/lib/x86_64-unknown-linux-gnu:$PROTO_LLVM/lib:$PROTO_CUDA129/lib64:$PROTO_NVHPC/compilers/lib
+# oneAPI 2026.1 (icpx, SYCL on the CPU): placed last. The OpenCL runtime of
+# the CPU requires the TBB of oneAPI (2023.1), which is backward compatible
+# with the TBB of the system.
+PROTO_ONEAPI=/opt/intel/oneapi
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PROTO_ONEAPI/compiler/2026.1/lib:$PROTO_ONEAPI/umf/1.1/lib:$PROTO_ONEAPI/tbb/2023.1/lib/intel64/gcc4.8
 # OpenMP (Kokkos host execution space, AdaptiveCpp CPU device)
 export OMP_PROC_BIND=spread OMP_PLACES=threads

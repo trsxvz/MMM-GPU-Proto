@@ -1,0 +1,20 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-icpx"};
+
+@Environment {"LD_LIBRARY_PATH": "src"};
+// the generic interface gives the reference results. Using both interfaces
+// in the same call also checks that they can be used together.
+@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+@Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+// comparisons with the `generic` interface, which gives the reference
+// results (see compare-all.sh)
+@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-sycl.so";
+
+// automatic transfers of the fields allocated in host memory
+@Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
+@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
+@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
+@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
+
+@CleanFiles {"compare", "compare-host"};
+@CleanDirectories {"include", "src"};

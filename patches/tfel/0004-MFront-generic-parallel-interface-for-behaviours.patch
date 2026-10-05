@@ -1,7 +1,7 @@
 From c77e379559da6d7a4d425f30ffcbf4edea97627f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
-Subject: [PATCH 04/21] MFront: generic-parallel interface for behaviours
+Subject: [PATCH] MFront: generic-parallel interface for behaviours
 
 Integration of a behaviour over a batch of integration points, equivalent
 to calling the generic interface at each point.

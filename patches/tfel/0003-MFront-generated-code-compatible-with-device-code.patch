@@ -1,7 +1,7 @@
 From e33bc27e565951e1718712a00ace2ce23ba93a65 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
-Subject: [PATCH 03/21] MFront: generated code compatible with device code
+Subject: [PATCH] MFront: generated code compatible with device code
 
 The code generated for the behaviours, the material properties used by
 the behaviours and the models can be compiled for GPUs. Host code is

@@ -1,8 +1,8 @@
 From b401968ce2184459473a4d292cacaad16ea06790 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
-Subject: [PATCH 21/21] generic-parallel: OpenMP backend, Kokkos backend for
- material properties, shared entry points
+Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material
+ properties, shared entry points
 
 - behaviours: entry points shared by the backends (integrateBatch,
   executeInitializeFunctionOnBatch, executePostProcessingOnBatch,

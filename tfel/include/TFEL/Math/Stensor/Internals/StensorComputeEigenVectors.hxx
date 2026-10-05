@@ -15,7 +15,6 @@
 #define LIB_TFEL_MATH_STENSORCOMPUTEEIGENVECTORS_HXX
 
 #include <cmath>
-#include <cassert>
 #include <algorithm>
 #include <type_traits>
 
@@ -373,8 +372,8 @@ namespace tfel::math::internals {
 #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
       } else if ((tfel::math::abs(vp2(1) - vp2(0)) > prec) &&
                  (tfel::math::abs(vp2(1) - vp2(2)) > prec)) {
-        // vp1 is single, vp0 and vp2 are equal
-        assert(tfel::math::abs(vp2(0) - vp2(2)) < prec);
+        // vp1 is single, vp0 and vp2 are equal: as vp0 is not single,
+        // |vp0 - vp2| <= prec
         if (computeEigenVector(s2.begin(), vp2(1), vec(0, 1), vec(1, 1),
                                vec(2, 1)) == false) {
           return false;
@@ -390,9 +389,10 @@ namespace tfel::math::internals {
         return true;
 #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
       }
-      assert((tfel::math::abs(vp2(2) - vp2(0)) > prec) &&
-             (tfel::math::abs(vp2(2) - vp2(1)) > prec));
-      assert(tfel::math::abs(vp2(0) - vp2(1)) < prec);
+      // vp2 is single, vp0 and vp1 are equal: this is the only case left
+      // as the eigenvalues are not all equal and neither vp0 nor vp1 is
+      // single (|vp2 - vp0| > prec, |vp2 - vp1| > prec and
+      // |vp0 - vp1| <= prec)
       if (computeEigenVector(s2.begin(), vp2(2), vec(0, 2), vec(1, 2),
                              vec(2, 2)) == false) {
         return false;

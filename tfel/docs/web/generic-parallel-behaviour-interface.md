@@ -359,15 +359,19 @@ reductions.
 When the computations are offloaded, the fields of the batch must be
 accessible from the device. With `nvc++ -mp=gpu`, the memory mode shall be
 given explicitly by `-gpu=mem:managed`, as with the `stlpar` backend (see
-the `openmp-offload-nvhpc-gpu` configuration). Offloading with `nvc++`
-25.11 is experimental: at `-O2` and `-O3`, the computation of the tangent
-operator of the behaviours based on the implicit DSLs is miscompiled (the
-integration is reported as failed), which is why this configuration is
-compiled at `-O1`, and the device code of some behaviours (for instance the
-`HosfordPerfectPlasticity` behaviour of the tests) references a static
-block which is not emitted, so that the libraries containing them can't be
-loaded on the device. The `openmp-host-gcc` configuration uses the threads
-of the host.
+the `openmp-offload-nvhpc-gpu` configuration). The `openmp-host-gcc`
+configuration uses the threads of the host.
+
+Two constructs lead `nvc++ -mp=gpu` (25.11 to 26.9) to generate wrong
+device code at `-O2` and `-O3`, and are therefore avoided in the generated
+code and in the headers of `TFEL`:
+
+- a local object holding a reference to a local boolean flag. The function
+  objects given to the tangent operator of the implicit DSLs
+  (`getPartialJacobianInvert`) own their status flag.
+- an assertion in device code. Its text is registered as a static block
+  which is not emitted, so that the library can't be loaded on the
+  device.
 
 Options:
 

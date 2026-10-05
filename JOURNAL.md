@@ -1013,3 +1013,44 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   Recommandation : option B (MGIS assemble un champ par groupe, sans copie
   dans les cas courants), mémoire via `std::pmr::memory_resource`, nouvelle
   surcharge `integrate(BatchExecutionPolicy, MaterialDataManager&, ...)`.
+
+### 2026-10-06 (nuit) — versions de NVHPC et de CUDA, défauts d'OpenMP déporté
+
+- Notes de version de NVHPC 26.1 à 26.9 : aucune liste de défauts corrigés.
+  Reproducteurs rejoués avec NVHPC 26.3 et 26.9 installés dans
+  `deps/nvhpc/` (archives vérifiées par les empreintes du paquet spack) :
+  seul `aggregate-zero-init` est corrigé (26.9) ; `run-nvcxx-reproducers.sh`
+  et le nouveau reproducteur `std-variant-visit.cxx` dans
+  `results/nvhpc-bugs/`. Défauts de nvcc présents de 13.0.88 à 13.4.92
+  (compilateurs des paquets pip `nvidia-cuda-nvcc`).
+- **Hosford sous OpenMP déporté** (symbole `_st_…__T1_0` introuvable) : le
+  bloc de 317 octets est le texte `__PRETTY_FUNCTION__` des `assert` de
+  `StensorComputeEigenVectors<3>::computeEigenVectors` ; nvc++ supprime
+  l'`assert` du code device mais garde l'enregistrement du texte. Les trois
+  `assert` étaient redondants (impliqués par les conditions des branches),
+  l'un était faux à l'égalité (`<` au lieu de `<=`) : remplacés par des
+  commentaires énonçant les invariants. Ce sont les seuls `assert` des
+  en-têtes de TFEL utilisés dans du code device.
+- **Opérateur tangent faux à -O2/-O3 sous OpenMP déporté** : ni la LU, ni
+  la pile (cadres identiques à -O1 et -O2, ptxas), ni une variable non
+  initialisée (`-ftrivial-auto-var-init`). Marqueurs distincts de `rdt` sur
+  chaque chemin d'échec : `computeConsistentTangentOperator` renvoie faux
+  sans passer par aucun de ses `return false`. Déclencheur : l'objet local
+  `GetPartialJacobianInvert` généré par MFront, qui garde une référence
+  `bool&` vers le drapeau local `mfront_success` (sa seule construction
+  suffit). Générateur corrigé (`ImplicitCodeGeneratorBase`) : chaque objet
+  (`GetPartialJacobianInvert`, `GetIntegrationVariablesDerivatives_*`)
+  possède son drapeau, combiné dans `mfront_success` après le code de
+  l'utilisateur ; la substitution passe par une variable locale (un échec
+  n'est plus effacé par un appel suivant réussi).
+- icpx (oneAPI 2026.1.1, apt) installé : SYCL sur CPU seulement (greffon
+  NVIDIA retiré depuis 2025.3) ; `libintelocl` exige le TBB de oneAPI
+  (2023.1) : chemins `compiler/2026.1/lib`, `umf/1.1/lib`,
+  `tbb/2023.1/lib/intel64/gcc4.8` à ajouter en fin de `LD_LIBRARY_PATH`.
+- clang CUDA : clang 20 échoue avec CUDA 13.0 (`texture_fetch_functions.h`
+  supprimé) et avec le CUDA 12.9 de NVHPC (en-têtes curand dans
+  `math_libs`). Configurations clang sur GPU reportées au nouvel
+  environnement (LLVM 23, CUDA 13) ; préfixe CUDA regroupant `math_libs`
+  nécessaire si le CUDA vient de NVHPC.
+- Tests des lois ajoutés pour `stlpar-parunseq-clang`,
+  `stlpar-parunseq-icpx` et `sycl-default-icpx` (à valider).

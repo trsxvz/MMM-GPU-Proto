@@ -1,8 +1,8 @@
 From 99612a94158e1a9b6a71b036ab37fd45ece59f0d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
-Subject: [PATCH 05/21] Tests and documentation of the generic-parallel
- interface for behaviours
+Subject: [PATCH] Tests and documentation of the generic-parallel interface for
+ behaviours
 
 Behaviours generated with the generic and generic-parallel interfaces,
 results compared on two time steps of a random loading: J2 plasticity,

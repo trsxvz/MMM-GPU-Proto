@@ -1,8 +1,8 @@
 From 7b1ed663c610229988456b4a6064433f49f27a53 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
-Subject: [PATCH 16/21] TFEL: consistent host and device annotations, device
- code of criteria and solvers
+Subject: [PATCH] TFEL: consistent host and device annotations, device code of
+ criteria and solvers
 
 - definitions annotated as their declarations (clang CUDA refuses the
   mismatch accepted by nvcc): Barlat, Cazacu, Drucker, Mohr-Coulomb,

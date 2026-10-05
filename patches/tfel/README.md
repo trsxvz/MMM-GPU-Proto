@@ -46,4 +46,9 @@ Patches:
 19. device code selected in the whole translation unit with `nvc++ -mp=gpu`;
 20. bounds checks of the generic models reported in all compilation modes;
 21. `generic-parallel`: OpenMP backend, Kokkos backend for material
-    properties, entry points shared by the backends.
+    properties, entry points shared by the backends;
+22. no assertion in the computation of the eigenvectors of 3D stensors;
+23. function objects of the tangent operator of the implicit DSLs owning
+    their status flag;
+24. `generic-parallel`: OpenMP offloading at `-O2`, tests of the
+    behaviours with clang and icpx.

@@ -1,0 +1,9 @@
+behaviours           cuda-nvcc                        SUCCESS   273 s (2 passed, 0 skipped)
+behaviours           hip-hipcc                        SUCCESS   269 s (2 passed, 0 skipped)
+behaviours           kokkos                           SUCCESS   418 s (2 passed, 0 skipped)
+behaviours           kokkos-host                      SUCCESS   370 s (2 passed, 0 skipped)
+behaviours           openmp-host-gcc                  SUCCESS   281 s (2 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json: Aucun fichier ou dossier de ce nom
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json: Aucun fichier ou dossier de ce nom
+behaviours           openmp-offload-nvhpc-gpu         SKIPPED     0 s (0 passed, 2 skipped)
+behaviours           stlpar-parunseq-gcc              SUCCESS   255 s (2 passed, 0 skipped)

@@ -27,10 +27,11 @@ parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
 | `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit de la branche de développement, sans l'historique de TFEL) |
 | `patches/tfel/` | les mêmes modifications sous forme de série de patchs depuis le master `fec0ade99` (`git am`), et son README |
 | `build-tfel.sh` | configuration, construction et installation de TFEL (chemins de la machine de développement) |
-| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
+| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), garde-fou mémoire des longues compilations (`memory-governor.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
 | `results/` | résultats des matrices et des balayages, défauts de compilateurs rencontrés avec leurs reproducteurs (`results/nvhpc-bugs/`) |
 | `scratch/` | scripts de validation, configurations de développement, proposition de conception pour MGIS (`d1-mgis-design.md`) |
-| `deps/spack-sycl/` | spécification spack du LLVM utilisé par AdaptiveCpp |
+| `deps/spack/` | environnement spack du prototype (`mmm-gpu/spack.yaml`) et dépôt de paquets complémentaire (recette d'AdaptiveCpp 25.10) |
+| `deps/spack-sycl/` | spécification spack du LLVM utilisé par AdaptiveCpp dans l'ancien environnement |
 
 La documentation utilisateur des interfaces est dans
 `tfel/docs/web/generic-parallel-behaviour-interface.md` et

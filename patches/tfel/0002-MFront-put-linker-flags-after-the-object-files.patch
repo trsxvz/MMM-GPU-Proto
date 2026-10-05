@@ -1,7 +1,7 @@
 From a1299e3312f0866abbdeb30bf33ffd56e9e9ff5c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:18 +0200
-Subject: [PATCH 02/21] MFront: put linker flags after the object files
+Subject: [PATCH] MFront: put linker flags after the object files
 
 Libraries given in the linker flags (for instance -ltbb) were ignored by
 linkers using the --as-needed policy.

@@ -1,8 +1,8 @@
 From 329a740e979b505bfb1f6a9509113edceb004026 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:28 +0200
-Subject: [PATCH 13/21] TFEL: device code support of finite strain tools,
- rotations and slip systems
+Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
+ and slip systems
 
 - fixed size arrays (`GenericFixedSizeArray`) use the implicit copy and move
   operations, so that tensors are trivially copyable;

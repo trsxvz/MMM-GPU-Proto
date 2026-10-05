@@ -1,8 +1,8 @@
 From 9cd913eb21712a54d337640d0ebeac92f2725f56 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
-Subject: [PATCH 10/21] TFEL: no recursion in the computation of the
- eigenvectors of stensors
+Subject: [PATCH] TFEL: no recursion in the computation of the eigenvectors of
+ stensors
 
 `StensorComputeEigenVectors<3>::computeEigenVector` assumes that the given
 eigenvalue is simple. Otherwise, it computed all the eigenvectors with the

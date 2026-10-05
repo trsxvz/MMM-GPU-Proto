@@ -1,8 +1,8 @@
 From ce90192998c3b637907099eaa2636ec2ea45edbb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:35:40 +0200
-Subject: [PATCH 06/21] MFront: fixes of the generic-parallel interface for
- material properties
+Subject: [PATCH] MFront: fixes of the generic-parallel interface for material
+ properties
 
 - stlpar backend: the points are traversed by a counting iterator. With
   libstdc++, the parallel algorithms ran sequentially on the iterators of

@@ -1,7 +1,7 @@
 From febef30bef942449e69bd3dc96a22878b875fa98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:58 +0200
-Subject: [PATCH 09/21] TFEL: device code selection for single pass compilers
+Subject: [PATCH] TFEL: device code selection for single pass compilers
 
 - `TFEL_DEVICE_CODE` is also defined when the host and the device code are
   compiled in a single pass: `nvc++ -stdpar=gpu`, which may offload any

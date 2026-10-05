@@ -1,0 +1,60 @@
+From a22a3cff6968dcc6ad185ed2b7ef621b8cfbb05b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 01:47:43 +0200
+Subject: [PATCH] TFEL: no assertion in the computation of the eigenvectors of
+ 3D stensors
+
+The three assertions of StensorComputeEigenVectors<3>::computeEigenVectors
+are implied by the conditions of the branches. One of them was wrong when
+the difference of the eigenvalues equals the precision (`<` instead of
+`<=`). They are replaced by comments stating the invariants.
+
+In device code compiled by nvc++ -mp=gpu, the text of an assertion
+(__PRETTY_FUNCTION__) is registered as a static block while the assertion
+itself is removed by the optimizer: the library could then not be loaded
+on the device ("Could not find symbol _st_..."). These were the only
+assertions of TFEL used in device code.
+---
+ .../Stensor/Internals/StensorComputeEigenVectors.hxx | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+index 70bff0dd5..688bf85fd 100644
+--- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
++++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
+@@ -15,7 +15,6 @@
+ #define LIB_TFEL_MATH_STENSORCOMPUTEEIGENVECTORS_HXX
+ 
+ #include <cmath>
+-#include <cassert>
+ #include <algorithm>
+ #include <type_traits>
+ 
+@@ -373,8 +372,8 @@ namespace tfel::math::internals {
+ #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
+       } else if ((tfel::math::abs(vp2(1) - vp2(0)) > prec) &&
+                  (tfel::math::abs(vp2(1) - vp2(2)) > prec)) {
+-        // vp1 is single, vp0 and vp2 are equal
+-        assert(tfel::math::abs(vp2(0) - vp2(2)) < prec);
++        // vp1 is single, vp0 and vp2 are equal: as vp0 is not single,
++        // |vp0 - vp2| <= prec
+         if (computeEigenVector(s2.begin(), vp2(1), vec(0, 1), vec(1, 1),
+                                vec(2, 1)) == false) {
+           return false;
+@@ -390,9 +389,10 @@ namespace tfel::math::internals {
+         return true;
+ #endif /* LIB_TFEL_STENSORCOMPUTEEIGENVECTORS_HXX */
+       }
+-      assert((tfel::math::abs(vp2(2) - vp2(0)) > prec) &&
+-             (tfel::math::abs(vp2(2) - vp2(1)) > prec));
+-      assert(tfel::math::abs(vp2(0) - vp2(1)) < prec);
++      // vp2 is single, vp0 and vp1 are equal: this is the only case left
++      // as the eigenvalues are not all equal and neither vp0 nor vp1 is
++      // single (|vp2 - vp0| > prec, |vp2 - vp1| > prec and
++      // |vp0 - vp1| <= prec)
+       if (computeEigenVector(s2.begin(), vp2(2), vec(0, 2), vec(1, 2),
+                              vec(2, 2)) == false) {
+         return false;
+-- 
+2.43.0
+

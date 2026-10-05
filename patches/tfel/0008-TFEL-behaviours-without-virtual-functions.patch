@@ -1,7 +1,7 @@
 From 1b621828da6d87783abb6c9a1460535056040f32 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:52 +0200
-Subject: [PATCH 08/21] TFEL: behaviours without virtual functions
+Subject: [PATCH] TFEL: behaviours without virtual functions
 
 `MechanicalBehaviour` declared the interface of the behaviours as pure
 virtual functions. Behaviours are never manipulated through a reference to

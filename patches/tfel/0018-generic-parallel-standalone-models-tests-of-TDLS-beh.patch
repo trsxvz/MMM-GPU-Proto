@@ -1,8 +1,8 @@
 From bd55288693267ca5a7961d55fe1bef9386bc54a9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
-Subject: [PATCH 18/21] generic-parallel: standalone models, tests of TDLS,
- behaviour variables and the StandardElastoViscoPlasticity brick
+Subject: [PATCH] generic-parallel: standalone models, tests of TDLS, behaviour
+ variables and the StandardElastoViscoPlasticity brick
 
 - generic-parallel interface for models: same backends and options as
   for behaviours, models executed by ModelIntegrator

@@ -18,7 +18,7 @@ if [ -n "$(git -C tfel status --porcelain --untracked-files=no)" ]; then
 fi
 # patches
 rm -f patches/tfel/*.patch
-git -C tfel format-patch -q "$BASE..HEAD" -o "$PROTO/patches/tfel/"
+git -C tfel format-patch -q --no-numbered "$BASE..HEAD" -o "$PROTO/patches/tfel/"
 git add -A patches/tfel
 # sources: only the objects which are not already known are copied
 tree=$(git -C tfel rev-parse HEAD^{tree})

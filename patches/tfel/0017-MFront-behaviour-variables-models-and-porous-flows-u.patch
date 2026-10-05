@@ -1,8 +1,8 @@
 From 4aa867593214a882d545b7432f36891932d05eae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
-Subject: [PATCH 17/21] MFront: behaviour variables, models and porous flows
- usable in device code
+Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
+ in device code
 
 - behaviour variables: default constructors of the behaviour and of its
   data classes and behaviour variable factories are host and device
