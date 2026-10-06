@@ -1,0 +1,26 @@
+@DSL MultipleIsotropicMisesFlows;
+@Behaviour MultipleIsotropicMisesFlowsTest;
+@Description {
+  "Plasticity with a Voce isotropic hardening and Norton creep written "
+  "with the MultipleIsotropicMisesFlows DSL."
+}
+
+@Epsilon 1e-14;
+@Theta 1;
+@ElasticMaterialProperties {150e9, 0.3};
+
+@IsotropicHardeningRule "Voce" {flow_id : 0, R0 : 125e6, Rinf : 500e6, b : 20};
+
+@FlowRule Plasticity {
+  f = seq - R;
+  df_dseq = 1;
+  df_dp = -dR_dp;
+}
+
+@FlowRule Creep {
+  constexpr auto A = real(1e-28);
+  constexpr auto E = real(3);
+  const auto tmp = A * pow(seq, E - 1);
+  f = tmp * seq;
+  df_dseq = E * tmp;
+}

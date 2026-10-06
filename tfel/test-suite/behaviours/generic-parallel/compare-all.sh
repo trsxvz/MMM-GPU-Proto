@@ -16,6 +16,21 @@ run HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15
 # elastic properties given by a material law evaluated on the device, and
 # quantities
 run StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600
+# isotropic DSLs: creep, and several flows with an isotropic hardening rule.
+# The MultipleIsotropicMisesFlows DSL does not provide a consistent tangent
+# operator: the generic interface rejects the requests of tangent operators.
+run IsotropicMisesCreepTest_Tridimensional 6 6 2 7 1 36 1e-3 8e-67,8.2 293.15
+run IsotropicMisesCreepTest_PlaneStrain 4 4 2 5 1 16 1e-3 8e-67,8.2 293.15
+run MultipleIsotropicMisesFlowsTest_Tridimensional 6 6 0 9 1 36 3e-3 - 293.15 \
+  --tangent-operator=0
+run MultipleIsotropicMisesFlowsTest_Axisymmetrical 4 4 0 7 1 16 3e-3 - 293.15 \
+  --tangent-operator=0
+# implicit DSLs for generic behaviours and for models
+run ImplicitGenericBehaviourTest_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 \
+  293.15
+run ImplicitGenericBehaviourTest_PlaneStrain 4 4 2 5 1 16 1e-3 150e9,0.3 293.15
+run ImplicitModelTest_Tridimensional 0 0 0 1 1 0 0 - 293.15 \
+  --initial-internal-state-variables=1 --tangent-operator=0
 # finite strain behaviours (Hencky strain, Green-Lagrange strain, standard
 # finite strain behaviour)
 fs="1e-3 150e9,0.3 293.15 --finite-strain"
@@ -28,6 +43,13 @@ run GreenLagrangeImplicitNorton_Tridimensional 9 9 2 7 1 81 $fs=PK1,DPK1_DF
 run GreenLagrangeImplicitNorton_PlaneStrain 5 4 2 5 1 20 $fs=CAUCHY,DSIG_DF
 run SaintVenantKirchhoffElasticity_Tridimensional 9 6 2 0 1 54 $fs=CAUCHY,DSIG_DF
 run SaintVenantKirchhoffElasticity_Tridimensional 9 6 2 0 1 36 $fs=PK2,DS_DEGL
+# deformation gradient and first Piola-Kirchhoff stress declared as a
+# gradient and a thermodynamic force (DefaultGenericBehaviour DSL). The
+# --finite-strain option gives deformation gradients close to the identity.
+run DefaultGenericSaintVenantKirchhoffElasticity_Tridimensional 9 9 2 0 1 81 \
+  $fs=PK1,DPK1_DF
+run DefaultGenericSaintVenantKirchhoffElasticity_PlaneStrain 5 5 2 0 1 25 \
+  $fs=PK1,DPK1_DF
 # stored and dissipated energies, speed of sound
 run ImplicitNortonWithEnergies_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 \
   293.15 --speed-of-sound=7800 --energies=true

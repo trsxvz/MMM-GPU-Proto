@@ -20,6 +20,8 @@
 #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
 #include "Inconel600_YoungModulus_qt-generic-parallel-sycl.hxx"
 #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
+#include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
+#include "MaterialLawCallTest-generic-parallel-sycl.hxx"
 
 struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   Iconel600YoungModulusTest()
@@ -39,6 +41,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test9();
     this->test10();
     this->test11();
+    this->test12();
+    this->test13();
     return this->result;
   }  // end of execute
 
@@ -464,6 +468,55 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+    }
+  }
+
+  void test12() {
+    // linear interpolation of data
+    this->checkTemperatureDependentMaterialProperty(
+        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
+        {240e9, 210e9, 175e9, 170e9});
+  }
+
+  void test13() {
+    // material property calling another material property
+    const auto T = std::array<double, 4u>{300, 500, 300, 800};
+    auto G = std::array<double, 4u>{};
+    for (std::size_t i = 0; i != T.size(); ++i) {
+      G[i] = fct(T[i]) / (2 * (1 + 0.3));
+    }
+    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
+  }
+
+  /*!
+   * \brief evaluate a material property depending on the temperature at four
+   * points and compare the results to reference values
+   * \param[in] mp: material property
+   * \param[in] T_values: temperatures
+   * \param[in] references: reference values
+   */
+  void checkTemperatureDependentMaterialProperty(
+      const auto mp,
+      const std::array<double, 4u>& T_values,
+      const std::array<double, 4u>& references) {
+    constexpr auto eps = double{1e-2};
+    auto output = mfront_gmp_OutputStatus{};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    auto Q = sycl::queue{sycl::gpu_selector_v};
+    auto v = usm_vector(T_values.size(), Q);
+    const auto T = usm_vector(T_values.begin(), T_values.end(), Q);
+    auto d_v = to_device(v, Q);
+    auto d_T = to_device(T, Q);
+    const auto args = std::array<const double *, 1u>{d_T.get()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    mp(&output, d_v.get(), 1, &Q, args.data(), args_strides.data(),
+       args.size(), T.size(), policy);
+    to_host(v, d_v, Q);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+    for (std::size_t i = 0; i != v.size(); ++i) {
+      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
     }
   }
 };

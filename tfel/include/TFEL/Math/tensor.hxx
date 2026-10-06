@@ -128,7 +128,7 @@ namespace tfel::math {
      * \param[in] i: row number
      * \param[in] j: column number
      */
-    TFEL_HOST constexpr ValueType operator()(
+    TFEL_HOST_DEVICE constexpr ValueType operator()(
         const typename tensor<N, ValueType>::size_type,
         const typename tensor<N, ValueType>::size_type) const;
     //! \brief write to an external memory location

@@ -303,7 +303,14 @@ the kernel.
 `nvcc` only emits a warning (numbers 20011 and 20014) when device code calls a host
 function, and the resulting library gives wrong results or crashes. The
 configuration files using `nvcc` (`cuda-nvcc`, and `hip-hipcc` on NVIDIA
-GPUs) turn this warning into an error.
+GPUs) turn this warning into an error. `clang` always reports an error,
+including for the `constexpr` host functions that `nvcc` accepts with the
+`--expt-relaxed-constexpr` option.
+
+The configurations using `clang` (`cuda-clang`, and `hip-clang` on NVIDIA
+GPUs) use the `CUDA` toolkit given by the `TFEL_CLANG_CUDA_PATH` variable
+of `cmake`, by default the one of `nvcc`. A version of `clang` only
+supports the versions of `CUDA` released before it.
 
 Options:
 
@@ -493,7 +500,9 @@ The tests are installed in
 the behaviours are generated with the `generic` and `generic-parallel`
 interfaces and the results of the batch integration are compared to the
 results of the `generic` interface on two time steps of a random loading,
-for the two layouts of the fields and three types of computation, including
+for three layouts of the fields (point by point, component by component,
+and component by component with the material properties and the external
+state variables given variable by variable) and three types of computation, including
 the energies, the speed of sound and the statuses of batches where the
 integration fails at some points. The initialize functions, the
 post-processings, the rotation functions and the standalone models are

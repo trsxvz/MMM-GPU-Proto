@@ -1,0 +1,13 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"};
+
+@Environment {"LD_LIBRARY_PATH": "src"};
+// the generic interface gives the reference results. Using both interfaces
+// in the same call also checks that they can be used together.
+@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I@TFEL_HIP_INCLUDE_DIR@ -D__HIP_PLATFORM_NVIDIA__ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+// comparisons with the `generic` interface, which gives the reference
+// results (see compare-all.sh)
+@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src"};

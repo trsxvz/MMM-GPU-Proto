@@ -61,12 +61,13 @@ namespace tfel::math {
   }
 
   template <unsigned short N, typename ValueType>
-  TFEL_HOST constexpr ValueType tensor<N, ValueType>::operator()(
+  TFEL_HOST_DEVICE constexpr ValueType tensor<N, ValueType>::operator()(
       const typename tensor<N, ValueType>::size_type i,
       const typename tensor<N, ValueType>::size_type j) const {
     static_assert((N == 1) || (N == 2) || (N == 3), "invalid space dimension");
     if ((i > 2) || (j > 2)) {
-      throw(TensorInvalidIndexesException());
+      return internals::reportInvalidTensorIndex<TensorInvalidIndexesException,
+                                                 ValueType>();
     }
     if constexpr (N == 1) {
       return (i == j) ? (*this)(i) : ValueType(0);

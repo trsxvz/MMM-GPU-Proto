@@ -449,12 +449,19 @@ namespace mfront {
   }  // end of writeMaterialKnowledgeTypeSymbol
 
   void writeMaterialLaws(std::ostream& os,
-                         const std::vector<std::string>& materialLaws) {
+                         const std::vector<std::string>& materialLaws,
+                         const bool device_code_only) {
     if (materialLaws.empty()) {
       return;
     }
     // the implementations of the material laws which can be called in device
     // code are defined in the `mfront::device` namespace
+    if (device_code_only) {
+      for (const auto& l : materialLaws) {
+        os << "using mfront::device::" << l << ";\n";
+      }
+      return;
+    }
     os << "#ifdef TFEL_DEVICE_CODE\n";
     for (const auto& l : materialLaws) {
       os << "using mfront::device::" << l << ";\n";

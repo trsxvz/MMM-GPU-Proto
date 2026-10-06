@@ -7,8 +7,9 @@
 # install/adaptivecpp), sycl-gpu-acpp, openmp-host-gcc, openmp-offload-nvhpc-gpu
 # (nvc++ -mp=gpu), stlpar-parunseq-clang (clang 20 du LLVM de spack : sa
 # bibliothèque est dans LD_LIBRARY_PATH, le clang du système ne peut donc
-# pas servir), stlpar-parunseq-icpx et sycl-default-icpx (oneAPI 2026.1,
-# SYCL sur CPU) ; TDLS activé. Pour changer
+# pas servir), cuda-clang et hip-clang (même clang, avec le CUDA 12.9 du
+# HPC SDK : clang 20 ne connaît pas CUDA 13), stlpar-parunseq-icpx et
+# sycl-default-icpx (oneAPI 2026.1, SYCL sur CPU) ; TDLS activé. Pour changer
 # les configurations d'un dossier de construction existant :
 # cmake -Dgeneric-parallel-configurations="..." . Les tests s'exécutent dans
 # l'environnement de scripts/env.sh.
@@ -18,7 +19,8 @@ V=/home/t/Bureau/spack/var/spack/environments/tfelgpu_local/.spack-env/view
 export PATH=$V/bin:$PATH
 export HIP_PLATFORM=nvidia
 export CUDA_PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/cuda/12.9
-CONFIGURATIONS="cuda-nvcc;hip-hipcc;stlpar-parunseq-gcc;stlpar-parunseq-nvhpc-gpu"
+CONFIGURATIONS="cuda-nvcc;cuda-clang;hip-hipcc;hip-clang"
+CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-gcc;stlpar-parunseq-nvhpc-gpu"
 CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-clang;stlpar-parunseq-icpx;kokkos"
 CONFIGURATIONS="$CONFIGURATIONS;sycl-default-acpp;sycl-gpu-acpp;sycl-default-icpx"
 CONFIGURATIONS="$CONFIGURATIONS;openmp-host-gcc;openmp-offload-nvhpc-gpu"
@@ -37,6 +39,7 @@ if [ ! -f CMakeCache.txt ]; then
     -DTFEL_ACPP_COMPILER="$P/install/adaptivecpp/bin/acpp" \
     -DTFEL_CLANGXX_COMPILER=/home/t/Bureau/spack/opt/spack/linux-x86_64_v4/llvm-20.1.8-v3gg3rqravuex5zixx6xglsqudvhcnjw/bin/clang++ \
     -DTFEL_ICPX_COMPILER=/opt/intel/oneapi/compiler/2026.1/bin/icpx \
+    -DTFEL_CLANG_CUDA_PATH=/home/t/Bureau/spack-mmm-externals/cuda-12.9.1 \
     -DCUDAToolkit_ROOT=$V
 fi
 make -j16 ${@:-install}

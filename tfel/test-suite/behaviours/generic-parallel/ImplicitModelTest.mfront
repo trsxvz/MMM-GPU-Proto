@@ -1,0 +1,18 @@
+@DSL ImplicitModel;
+@Model ImplicitModelTest;
+@Description {
+  "Linear ordinary differential equation integrated by the ImplicitModel "
+  "DSL."
+}
+
+@Algorithm NewtonRaphson;
+@Epsilon 1e-14;
+@Theta 0.5;
+
+@StateVariable real x;
+@Parameter real A = 1.2;
+
+@Integrator {
+  fx += dt * A * (x + theta * dx);
+  dfx_ddx += theta * A * dt;
+}

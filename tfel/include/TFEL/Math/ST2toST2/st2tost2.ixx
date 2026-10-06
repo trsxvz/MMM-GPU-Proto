@@ -281,7 +281,7 @@ namespace tfel::math {
                        StensorDimeToSize<N>::value>::exe(p, *this);
   }
 
-  TFEL_HOST constexpr auto invert(const ST2toST2Concept auto& s) {
+  TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto& s) {
     using ST2toST2Type = decltype(s);
     constexpr auto N = getSpaceDimension<ST2toST2Type>();
     constexpr auto StensorSize = StensorDimeToSize<N>::value;
@@ -335,10 +335,10 @@ namespace tfel::math {
   }  // end of push_forward
 
   template <ST2toST2Concept ST2toST2Type, TensorConcept TensorType>
-  TFEL_HOST constexpr auto pull_back(
-      const ST2toST2Type& C,
-      const TensorType& F) requires(getSpaceDimension<ST2toST2Type>() ==
-                                    getSpaceDimension<TensorType>()) {
+  TFEL_HOST_DEVICE constexpr auto pull_back(const ST2toST2Type& C,
+                                            const TensorType& F) noexcept
+      requires(getSpaceDimension<ST2toST2Type>() ==
+               getSpaceDimension<TensorType>()) {
     const auto iF = invert(F);
     return push_forward(C, iF);
   }  // end of pull_back

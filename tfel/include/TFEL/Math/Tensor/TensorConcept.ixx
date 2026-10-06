@@ -74,7 +74,8 @@ namespace tfel::math::internals {
       } else if ((i == 2) && (j == 1)) {
         return t(8);
       }
-      throw(TensorInvalidIndexesException());
+      return reportInvalidTensorIndex<TensorInvalidIndexesException,
+                                      numeric_type<TensorType>>();
     }
   };
 
@@ -83,11 +84,12 @@ namespace tfel::math::internals {
 namespace tfel::math {
 
   template <typename T>
-  TFEL_HOST numeric_type<T> TensorConceptBase<T>::operator()(
+  TFEL_HOST_DEVICE numeric_type<T> TensorConceptBase<T>::operator()(
       const unsigned short i, const unsigned short j) const {
     using tfel::math::internals::TensorConceptMatrixAccessOperator;
     if ((i > 2) || (j > 2)) {
-      throw(TensorInvalidIndexesException());
+      return internals::reportInvalidTensorIndex<TensorInvalidIndexesException,
+                                                 numeric_type<T>>();
     }
     return TensorConceptMatrixAccessOperator<getSpaceDimension<T>()>::exe(
         static_cast<const T&>(*this), i, j);

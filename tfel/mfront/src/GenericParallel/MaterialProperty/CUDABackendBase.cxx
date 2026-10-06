@@ -100,10 +100,11 @@ namespace mfront::generic_parallel::material_property {
     }
     for (const auto& v : mpd.inputs) {
       os << ",\nconst " << types.real_type << "* const "  //
-         << "mfront_" << v.name << "_values";
+         << "mfront_" << v.name << "_field";
     }
     os << ",\nconst int mfront_npoints){\n";
-    writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true);
+    // the body of the kernel is only executed in device code
+    writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true, true);
     //
     os << "auto mfront_idx = blockIdx.x * blockDim.x + threadIdx.x;\n"
        << "if(mfront_idx >= mfront_npoints){\n"
@@ -143,12 +144,12 @@ namespace mfront::generic_parallel::material_property {
         if (treatStrides) {
           os << "const auto " << p3->name << " = "  //
              << cast_start                          //
-             << "mfront_" << p3->name << "_values[mfront_argument_strides["
+             << "mfront_" << p3->name << "_field[mfront_argument_strides["
              << idx << "] * mfront_idx]"  //
              << cast_end << ";\n";
         } else {
           os << "const auto " << p3->name << " = " << cast_start;
-          os << "mfront_" << p3->name << "_values[mfront_idx]";
+          os << "mfront_" << p3->name << "_field[mfront_idx]";
           os << cast_end << ";\n";
         }
       }

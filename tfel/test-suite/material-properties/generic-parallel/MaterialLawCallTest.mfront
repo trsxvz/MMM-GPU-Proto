@@ -1,0 +1,20 @@
+@DSL MaterialLaw;
+@Law MaterialLawCallTest;
+@Description {
+  "A material property calling another material property: the shear "
+  "modulus is computed from the Young modulus of Inconel600 and a "
+  "constant Poisson ratio."
+}
+
+@Input TK;
+TK.setGlossaryName("Temperature");
+
+@Output G;
+G.setGlossaryName("ShearModulus");
+
+@MaterialLaw "Inconel600_YoungModulus.mfront";
+
+@Function {
+  const real E = Inconel600_YoungModulus(TK);
+  G = E / (2 * (1 + 0.3));
+}

@@ -34,7 +34,8 @@ namespace mfront {
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd,
       const std::string_view numeric_type,
-      const bool areQuantitiesSupported) {
+      const bool areQuantitiesSupported,
+      const bool device_code_only) {
     const auto use_qt = (areQuantitiesSupported && useQuantities(mpd));
     os << "using namespace std;\n"
        << "using tfel::math::invert_type;\n"
@@ -48,7 +49,7 @@ namespace mfront {
        << "[[maybe_unused]] auto max = [](const auto a, const auto b) "
        << "{ return a > b ? a : b; };\n";
     writeScalarStandardTypedefs(os, mpd, numeric_type, areQuantitiesSupported);
-    writeMaterialLaws(os, mpd.materialLaws);
+    writeMaterialLaws(os, mpd.materialLaws, device_code_only);
     writeStaticVariables(os, mpd.staticVars, fd.fileName);
   }  // end of writeBeginningOfMaterialPropertyBody
 

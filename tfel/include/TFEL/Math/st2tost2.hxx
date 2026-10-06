@@ -270,8 +270,12 @@ namespace tfel::math {
   /*!
    * \return the invert of a st2tost2
    * \param[in] s : st2tost2 to be inverted
+   *
+   * On the host, an exception is thrown if the st2tost2 is singular. In
+   * device code, the result is filled with NaN values (see
+   * `TinyMatrixInvert`).
    */
-  TFEL_HOST constexpr auto invert(const ST2toST2Concept auto&);
+  TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto&);
   /*!
    * \return the push-forward of a fourth order tensor:
    * \f[
@@ -291,10 +295,10 @@ namespace tfel::math {
    * \param[in] F: deformation gradient
    */
   template <ST2toST2Concept ST2toST2Type, TensorConcept TensorType>
-  TFEL_HOST constexpr auto pull_back(
-      const ST2toST2Type&,
-      const TensorType&) requires(getSpaceDimension<ST2toST2Type>() ==
-                                  getSpaceDimension<TensorType>());
+  TFEL_HOST_DEVICE constexpr auto pull_back(const ST2toST2Type&,
+                                            const TensorType&) noexcept
+      requires(getSpaceDimension<ST2toST2Type>() ==
+               getSpaceDimension<TensorType>());
   /*!
    * \brief compute the second derivative of determinant of a
    * \param[in] s: tensor

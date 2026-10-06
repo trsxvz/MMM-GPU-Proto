@@ -1,0 +1,68 @@
+@DSL ImplicitGenericBehaviour;
+@Behaviour ImplicitGenericBehaviourTest;
+@Description {
+  "Norton creep written with the ImplicitGenericBehaviour DSL: the strain "
+  "and the stress are declared as a gradient and a thermodynamic force."
+}
+
+@Epsilon 1e-16;
+
+@Gradient StrainStensor eto;
+eto.setGlossaryName("Strain");
+@ThermodynamicForce StressStensor sig;
+sig.setGlossaryName("Stress");
+@TangentOperatorBlocks{dsig_ddeto};
+
+@StateVariable StrainStensor eel;
+eel.setGlossaryName("ElasticStrain");
+@StateVariable strain p;
+p.setGlossaryName("EquivalentViscoplasticStrain");
+
+@MaterialProperty stress young;
+young.setGlossaryName("YoungModulus");
+@MaterialProperty real nu;
+nu.setGlossaryName("PoissonRatio");
+
+//! first Lamé coefficient
+@LocalVariable stress lambda;
+//! second Lamé coefficient
+@LocalVariable stress mu;
+
+@InitLocalVariables {
+  lambda = computeLambda(young, nu);
+  mu = computeMu(young, nu);
+}
+
+@ComputeThermodynamicForces {
+  sig = lambda * trace(eel) * StrainStensor::Id() + 2 * mu * eel;
+}
+
+@Integrator {
+  constexpr auto eeps = real(1e-14);
+  constexpr auto A = real(8e-67);
+  constexpr auto E = real(8.2);
+  const auto M = Stensor4::M();
+  const auto seps = 2 * mu * eeps;
+  const auto seq = sigmaeq(sig);
+  const auto iseq = 1 / max(seq, seps);
+  const auto n = 3 * deviator(sig) * (iseq / 2);
+  // elasticity
+  feel += dp * n - deto;
+  // viscoplasticity
+  const auto vp = A * pow(seq, E);
+  fp -= dt * vp;
+  // jacobian
+  const auto dvp_dseq = E * vp * iseq;
+  dfeel_ddeel += 2 * mu * theta * dp * iseq * (M - (n ^ n));
+  dfeel_ddp = n;
+  dfp_ddeel = -2 * mu * theta * dvp_dseq * dt * n;
+}
+
+@TangentOperator {
+  static_cast<void>(smt);
+  const auto De = lambda * Stensor4::IxI() + 2 * mu * Stensor4::Id();
+  dfeel_ddeto = -Stensor4::Id();
+  auto deel_ddeto = Stensor4{};
+  getIntegrationVariablesDerivatives_eto(deel_ddeto);
+  dsig_ddeto = De * deel_ddeto;
+}

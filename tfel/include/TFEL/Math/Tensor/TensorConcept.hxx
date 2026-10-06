@@ -14,6 +14,7 @@
 #ifndef LIB_TFEL_MATH_TENSORCONCEPT_HXX
 #define LIB_TFEL_MATH_TENSORCONCEPT_HXX 1
 
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include "TFEL/Config/TFELConfig.hxx"
@@ -94,6 +95,28 @@ namespace tfel::math {
     ~TensorInvalidIndexesException() noexcept override;
   };  // end of struct TensorInvalidIndexesException
 
+  namespace internals {
+
+    /*!
+     * \brief report an invalid index in an access to the values of a tensor
+     *
+     * On the host, an exception of the given type is thrown. Device code
+     * can't throw exceptions: a NaN value is returned.
+     *
+     * \tparam Exception: type of the exception
+     * \tparam ValueType: type of the values of the tensor
+     */
+    template <typename Exception, typename ValueType>
+    TFEL_HOST_DEVICE constexpr ValueType reportInvalidTensorIndex() {
+#ifdef TFEL_DEVICE_CODE
+      return ValueType(std::numeric_limits<base_type<ValueType>>::quiet_NaN());
+#else  /* TFEL_DEVICE_CODE */
+      throw(Exception());
+#endif /* TFEL_DEVICE_CODE */
+    }  // end of reportInvalidTensorIndex
+
+  }  // end of namespace internals
+
   /*!
    * \brief exception thrown if an std::initializer_list with no
    * appropriate size is affected to a tensor.
@@ -120,7 +143,7 @@ namespace tfel::math {
      * \param[in] i: row number
      * \param[in] j: column number
      */
-    [[nodiscard]] TFEL_HOST numeric_type<T> operator()(
+    [[nodiscard]] TFEL_HOST_DEVICE numeric_type<T> operator()(
         const unsigned short, const unsigned short) const;
   };
 

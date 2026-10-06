@@ -91,3 +91,9 @@ substitutions used by `MFront` when reading configuration files and
   `CMake`'s `FindCUDAToolkit` module.
 - `TFEL_CUDA_LIBRARY_DIR`: path to the libraries of the NVIDIA's `CUDA`
   toolkit as found by `CMake`'s `FindCUDAToolkit` module.
+- `TFEL_CLANG_CUDA_PATH`: path to the `CUDA` toolkit used by `clang`
+  (`cuda-clang` and `hip-clang` configurations), given by the
+  `TFEL_CLANG_CUDA_PATH` variable of `cmake`. By default, the toolkit of
+  `nvcc` is used. A version of `clang` only supports the versions of
+  `CUDA` released before it.
+- `TFEL_CLANG_CUDA_LIBRARY_DIR`: path to the libraries of this toolkit.

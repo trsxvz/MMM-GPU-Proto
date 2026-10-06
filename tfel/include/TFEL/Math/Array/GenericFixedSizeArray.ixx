@@ -31,8 +31,15 @@ namespace tfel::math {
             typename ArrayPolicy,
             typename ArrayPolicy::IndexingPolicy::size_type N>
   TFEL_HOST_DEVICE constexpr GenericFixedSizeArray<Child, ArrayPolicy, N>::
-      GenericFixedSizeArray() noexcept
-      : v() {}  // end of GenericFixedSizeArray
+      GenericFixedSizeArray() noexcept {
+    // The values are set to zero by a loop rather than by the
+    // value-initialization of the array: nvc++ 25.11 (-mp=gpu, -O2) implements
+    // the latter in device code by the copy of an uninitialized global array,
+    // after which the optimizer may remove the code of the kernel.
+    for (auto& value : this->v) {
+      value = value_type{};
+    }
+  }  // end of GenericFixedSizeArray
 
   template <typename Child,
             typename ArrayPolicy,

@@ -45,41 +45,25 @@ namespace tfel::math {
     TFEL_HOST_DEVICE constexpr Expr& operator=(const Expr&) = default;
     TFEL_HOST_DEVICE constexpr Expr& operator=(Expr&&) = default;
 
-    [[nodiscard]] TFEL_HOST ValueType operator[](const unsigned short i) const {
+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator[](
+        const unsigned short i) const {
       return this->operator()(i);
     }
 
-    [[nodiscard]] TFEL_HOST ValueType operator()(const unsigned short i) const {
-      constexpr auto icste = Cste<ValueType>::isqrt2;
-      switch (i) {
-        case 0:
-          return this->s(0);
-        case 1:
-          return this->s(1);
-        case 2:
-          return this->s(2);
-        case 3:
-        case 4:
-          if (traits::dime < 2) {
-            throw(TensorInvalidIndexException());
-          }
-          return this->s(3) * icste;
-        case 5:
-        case 6:
-          if (traits::dime < 3) {
-            throw(TensorInvalidIndexException());
-          }
-          return this->s(4) * icste;
-        case 7:
-        case 8:
-          if (traits::dime < 3) {
-            throw(TensorInvalidIndexException());
-          }
-          return this->s(5) * icste;
-        default:
-          break;
+    [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator()(
+        const unsigned short i) const {
+      // component of the symmetric tensor associated with each component of
+      // the tensor, the off-diagonal components being divided by the square
+      // root of two. A switch statement is avoided: nvc++ 25.11 (-mp=gpu,
+      // -O2 and above) fails on it when this operator is inlined in a product
+      // of tensors (internal compiler error).
+      constexpr unsigned short indices[9] = {0, 1, 2, 3, 3, 4, 4, 5, 5};
+      if (i >= TensorDimeToSize<N>::value) {
+        return internals::reportInvalidTensorIndex<TensorInvalidIndexException,
+                                                   ValueType>();
       }
-      throw(TensorInvalidIndexException());
+      const auto v = this->s(indices[i]);
+      return (i < 3) ? v : v * Cste<ValueType>::isqrt2;
     }  // end of operator() const
 
    protected:

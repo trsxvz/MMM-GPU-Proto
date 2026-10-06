@@ -5,6 +5,8 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus-qt.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../UO2_YoungModulus_Martin1989.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../LinearDataInterpolationTest.mfront";
+@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
 @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
 @Command "./test-openmp test-openmp-openmp-host-gcc";

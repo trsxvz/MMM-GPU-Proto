@@ -39,6 +39,8 @@
 #include MFRONT_GPMP_TEST_HEADER(Inconel600_YoungModulus)
 #include MFRONT_GPMP_TEST_HEADER(Inconel600_YoungModulus_qt)
 #include MFRONT_GPMP_TEST_HEADER(UO2_YoungModulus_Martin1989)
+#include MFRONT_GPMP_TEST_HEADER(LinearDataInterpolationTest)
+#include MFRONT_GPMP_TEST_HEADER(MaterialLawCallTest)
 
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
 //! \brief allocator in the shared memory space of Kokkos
@@ -87,6 +89,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test9();
     this->test10();
     this->test11();
+    this->test12();
+    this->test13();
     return this->result;
   }  // end of execute
 
@@ -371,6 +375,51 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+    }
+  }
+
+  void test12() {
+    // linear interpolation of data
+    this->checkTemperatureDependentMaterialProperty(
+        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
+        {240e9, 210e9, 175e9, 170e9});
+  }
+
+  void test13() {
+    // material property calling another material property
+    const auto T = std::array<double, 4u>{300, 500, 300, 800};
+    auto G = std::array<double, 4u>{};
+    for (std::size_t i = 0; i != T.size(); ++i) {
+      G[i] = fct(T[i]) / (2 * (1 + 0.3));
+    }
+    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
+  }
+
+  /*!
+   * \brief evaluate a material property depending on the temperature at four
+   * points and compare the results to reference values
+   * \param[in] mp: material property
+   * \param[in] T_values: temperatures
+   * \param[in] references: reference values
+   */
+  void checkTemperatureDependentMaterialProperty(
+      const auto mp,
+      const std::array<double, 4u>& T_values,
+      const std::array<double, 4u>& references) {
+    constexpr auto eps = double{1e-2};
+    auto output = mfront_gmp_OutputStatus{};
+    auto v = test_vector<double>(T_values.size());
+    const auto T = test_vector<double>(T_values.begin(), T_values.end());
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
+       T.size(), policy);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+    for (std::size_t i = 0; i != v.size(); ++i) {
+      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
     }
   }
 };

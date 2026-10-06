@@ -602,7 +602,8 @@ if(TFEL_REQUIRES_HIP)
    add_tfel_substitution(TFEL_HIPCC_FLAGS "${TFEL_HIPCC_FLAGS}")
    if("hip-clang" IN_LIST generic-parallel-configurations)
     list(APPEND tfel-check-components
-         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
+         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
+         "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
    endif("hip-clang" IN_LIST generic-parallel-configuration)
  elseif(HIP_PLATFORM STREQUAL "amd")
    set(TFEL_HIPCC_FLAGS "-fPIC")
@@ -627,12 +628,30 @@ if(TFEL_REQUIRES_CUDA)
   endif(CUDAToolkit_LIBRARY_ROOT)  
   add_tfel_substitution(TFEL_CUDA_PATH "${TFEL_CUDA_PATH}")
   add_tfel_substitution(TFEL_CUDA_LIBRARY_DIR "${CUDAToolkit_LIBRARY_DIR}")
+  # CUDA used by clang (`cuda-clang` and `hip-clang` configurations): clang
+  # only supports the versions of CUDA released before it, so that another
+  # CUDA than the one of nvcc may be required.
+  set(TFEL_CLANG_CUDA_PATH "${TFEL_CUDA_PATH}" CACHE PATH
+      "CUDA used by clang in the cuda-clang and hip-clang configurations")
+  if(TFEL_CLANG_CUDA_PATH STREQUAL TFEL_CUDA_PATH)
+    set(_tfel_clang_cuda_library_dir "${CUDAToolkit_LIBRARY_DIR}")
+  else()
+    set(_tfel_clang_cuda_library_dir "${TFEL_CLANG_CUDA_PATH}/lib64")
+  endif()
+  add_tfel_substitution(TFEL_CLANG_CUDA_PATH "${TFEL_CLANG_CUDA_PATH}")
+  add_tfel_substitution(TFEL_CLANG_CUDA_LIBRARY_DIR
+                        "${_tfel_clang_cuda_library_dir}")
 endif()
 
 if(TFEL_REQUIRES_HIP)
   find_package(hip REQUIRED)
   set(TFEL_HIP_INCLUDES "${HIP_INCLUDE_DIR}")
   add_tfel_substitution(TFEL_HIP_INCLUDE_DIR "${TFEL_HIP_INCLUDES}")
+  # The configurations based on clang give this directory with `-I`, not
+  # `-isystem`. When HIP is installed in `/usr`, `-isystem /usr/include`
+  # would place `/usr/include` before the headers of the C++ standard
+  # library and break their `#include_next` directives, whereas the
+  # compilers ignore `-I` for a standard system directory.
 endif(TFEL_REQUIRES_HIP)
 
 if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR

@@ -1,0 +1,51 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour DefaultGenericSaintVenantKirchhoffElasticity;
+@Description {
+  "Saint Venant-Kirchhoff hyperelastic behaviour written with the "
+  "DefaultGenericBehaviour DSL: the gradient is the deformation gradient "
+  "and the thermodynamic force is the first Piola-Kirchhoff stress. "
+  "The product of the deformation gradient (a tensor) by the second "
+  "Piola-Kirchhoff stress (a symmetric tensor) uses a tensor view of the "
+  "symmetric tensor. The tangent operator is converted by the tools of "
+  "the finite strain behaviours."
+}
+
+@Gradient DeformationGradientTensor F;
+F.setGlossaryName("DeformationGradient");
+
+@ThermodynamicForce StressTensor pk1;
+pk1.setEntryName("FirstPiolaKirchhoffStress");
+
+@MaterialProperty stress young;
+young.setGlossaryName("YoungModulus");
+@MaterialProperty real nu;
+nu.setGlossaryName("PoissonRatio");
+
+//! first Lamé coefficient
+@LocalVariable stress lambda;
+//! second Lamé coefficient
+@LocalVariable stress mu;
+//! second Piola-Kirchhoff stress
+@LocalVariable StressStensor S;
+
+@InitLocalVariables {
+  lambda = computeLambda(young, nu);
+  mu = computeMu(young, nu);
+}
+
+@Integrator {
+  const auto F1 = F + dF;
+  const auto e = computeGreenLagrangeTensor(F1);
+  S = lambda * trace(e) * StrainStensor::Id() + 2 * mu * e;
+  pk1 = F1 * S;
+}
+
+@TangentOperator {
+  static_cast<void>(smt);
+  const auto F1 = eval(F + dF);
+  const auto sig = convertSecondPiolaKirchhoffStressToCauchyStress(S, F1);
+  const auto De = eval(lambda * Stensor4::IxI() + 2 * mu * Stensor4::Id());
+  Dt = convert<FiniteStrainBehaviourTangentOperatorBase::DPK1_DF,
+               FiniteStrainBehaviourTangentOperatorBase::DS_DEGL>(De, F, F1,
+                                                                   sig);
+}
