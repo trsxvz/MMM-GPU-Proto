@@ -1188,3 +1188,39 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   petits avec clang. Le critère des registres ne s'applique plus qu'aux
   lois et aux modèles.
 - Branche `clang-cuda` : 8 commits au-dessus de la branche validée.
+
+### 2026-10-06 (matin, suite), DSL non exécutés sur GPU et deux défauts de nvc++ OpenMP
+
+- Couverture à l'exécution : quatre DSL de MFront n'étaient que compilés
+  par le balayage, jamais exécutés sur GPU. Lois de test ajoutées à toutes
+  les configurations : `IsotropicMisesCreepTest`,
+  `MultipleIsotropicMisesFlowsTest` (écrouissage de Voce et fluage),
+  `ImplicitGenericBehaviourTest` et `ImplicitModelTest`. CPU, nvcc, clang,
+  hipcc : 60/60 ; SYCL AdaptiveCpp : 84/84.
+- Limite amont, sans lien avec le GPU : le DSL
+  `MultipleIsotropicMisesFlows` ne fournit pas d'opérateur tangent
+  cohérent, et le pilote de l'interface `generic` refuse alors toute
+  demande d'opérateur, même élastique. Aucun test amont n'exécute une loi
+  de ce DSL (elles sont seulement compilées). La comparaison porte sur les
+  intégrations sans opérateur et sur la prédiction.
+- nvc++ 25.11 OpenMP sur GPU, -O2 et -O3, deux défauts trouvés par la
+  loi `DefaultGenericSaintVenantKirchhoffElasticity` (produit `F * S`) :
+  - erreur interne « Computed goto control expression must be a 32-bit
+    integer » : le `switch` de la vue `tensor` d'un `stensor`, inliné dans
+    celui du produit. Contournement : vue écrite avec une table d'indices
+    et une comparaison, sans `switch` ;
+  - code du noyau supprimé, aucun résultat écrit : la mise à zéro d'un
+    membre tableau (`v()`, `v{}`, `= {}`) est réalisée par la copie d'un
+    tableau global `.common` non initialisé. Reproducteur autonome de 30
+    lignes. Contournement : mise à zéro par une boucle dans le
+    constructeur par défaut de `GenericFixedSizeArray`.
+  Reproducteurs et contournements dans `results/nvhpc-bugs/README.md`.
+  Méthode : la sentinelle compte. Avec `map(from:)`, les cases non
+  écrites rendent la mémoire du GPU d'un essai précédent ; seul
+  `map(tofrom:)` avec une valeur sentinelle distingue un noyau vide.
+- Après contournements, les cinq nouvelles lois sur nvc++ : OpenMP sur GPU
+  78/78 à -O1, -O2 et -O3, stdpar 78/78. Tests unitaires `Math` de TFEL
+  (hôte) : 80/80.
+- `scratch/dev-test.sh` : variable `DEVTEST_OPTIMIZATION_LEVEL`, comme la
+  matrice.
+- Branche `clang-cuda` : 10 commits au-dessus de la branche validée.

@@ -5,7 +5,9 @@
 # in the cache of build/tfel.
 # usage: scratch/dev-test.sh configuration[/sub-test] [pattern of compare-all.sh]
 # (for instance cuda-clang or cuda-clang/tdls). DEVTEST_KIND selects the
-# tests: behaviours (default) or material-properties.
+# tests: behaviours (default) or material-properties. DEVTEST_OPTIMIZATION_LEVEL
+# (for instance -O1 or -O3) replaces -O2 in the configuration file and in the
+# commands of the test.
 set -u
 c=$1
 conf=${c%%/*}
@@ -39,6 +41,10 @@ dev_includes="-I$D/mfront/include -I$D/include"
 # configuration file with the headers of the development tree first
 apply "$(cat "$D/mfront/configuration-files/config-$conf.json")" |
   sed "s|compilation_flags: \({\?\)\"|compilation_flags: \1\"$dev_includes |g" > "config-$conf.json"
+level=${DEVTEST_OPTIMIZATION_LEVEL:-}
+if [ -n "$level" ]; then
+  sed -i "s/-O2/$level/g" "config-$conf.json" test.check
+fi
 cat > mfront-dev.sh << EOF
 #!/bin/bash
 LD_LIBRARY_PATH=\$(find "$P/scratch/build-dev2" -name "*.so" -printf "%h\n" | sort -u | paste -sd:):\${LD_LIBRARY_PATH:-} \\
@@ -54,7 +60,7 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I $P/install/tfel/include}
   cmd=${cmd//@TFEL_LIBRARY_DIR@/$P/install/tfel/lib}
   case "$cmd" in
-    *compare-all.sh*) cmd="$cmd $pattern" ;;
+    *compare-all.sh*) cmd="$cmd '$pattern'" ;;
   esac
   if ! sh -c "$cmd" > cmd.log 2>&1; then
     echo "$c: FAILED: ${cmd:0:120}"
