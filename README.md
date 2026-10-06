@@ -10,13 +10,17 @@ parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
     d'initialisation, post-traitements, rotations des lois orthotropes,
     monocristaux, variables de comportement, brique
     StandardElastoViscoPlasticity, solveur TDLS.
-  - Backends : CUDA, HIP, algorithmes parallèles de la bibliothèque
-    standard (g++/TBB, nvc++ sur GPU), Kokkos, SYCL (AdaptiveCpp) et
-    OpenMP.
+  - Backends : CUDA (nvcc, clang), HIP (hipcc, clang ; plateforme
+    NVIDIA), algorithmes parallèles de la bibliothèque standard (g++/TBB,
+    clang, icpx, nvc++ sur GPU), Kokkos, SYCL (AdaptiveCpp, icpx) et
+    OpenMP (g++, nvc++ sur GPU).
 - **Interface `generic-parallel` des propriétés matériau** (existante dans
-  TFEL) : backends Kokkos et OpenMP ajoutés.
+  TFEL) : backends Kokkos et OpenMP ajoutés ; propriétés définies par des
+  données ou appelant d'autres lois corrigées sur CUDA et HIP.
 - **Tests** : comparaison systématique avec l'interface `generic`, qui sert
-  de référence, pour chaque backend.
+  de référence, pour chaque configuration (14 pour les lois) ; balayage de
+  compilation de tous les tests de MFront avec nvcc et avec clang, qui
+  refuse tout appel d'une fonction hôte depuis le code GPU.
 
 ## Contenu
 
@@ -52,7 +56,10 @@ git am ../patches/tfel/*.patch
 
 `build-tfel.sh` et `scripts/env.sh` décrivent les compilateurs et les
 dépendances utilisés : nvcc 13.0, hipcc 5.7 sur la plateforme NVIDIA,
-g++ 14, nvc++ 25.11, Kokkos 5.0.2, AdaptiveCpp 25.10 et TDLS.
+g++ 14, clang 20 (avec le CUDA 12.9 du HPC SDK), nvc++ 25.11, icpx 2026.1,
+Kokkos 5.0.2, AdaptiveCpp 25.10 et TDLS. `scratch/validate3.sh` enchaîne
+l'installation, la régression de TFEL, la matrice des configurations à -O3
+et les balayages de compilation.
 
 ## Bibliothèques suivantes
 
