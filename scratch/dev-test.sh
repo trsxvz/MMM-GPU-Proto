@@ -1,21 +1,27 @@
 #!/bin/bash
-# Runs the behaviour test of a generic-parallel configuration with the
+# Runs the test of a generic-parallel configuration with the
 # development tree (tfel-dev: mfront of scratch/build-dev2 and headers of
 # tfel-dev), without installing it. The substitutions of tfel-check are read
 # in the cache of build/tfel.
 # usage: scratch/dev-test.sh configuration[/sub-test] [pattern of compare-all.sh]
-# (for instance cuda-clang or cuda-clang/tdls)
+# (for instance cuda-clang or cuda-clang/tdls). DEVTEST_KIND selects the
+# tests: behaviours (default) or material-properties.
 set -u
 c=$1
 conf=${c%%/*}
 pattern=${2:-.}
 P=$HOME/Documents/GitHub/mfem-mgis-gpu-proto
 D=$P/tfel-dev
-T=$P/scratch/devtest/$c
+kind=${DEVTEST_KIND:-behaviours}
+if [ "$kind" = behaviours ]; then
+  T=$P/scratch/devtest/$c
+else
+  T=$P/scratch/devtest/$kind/$c
+fi
 source "$P/scripts/env.sh" > /dev/null 2>&1
 export MAKEFLAGS=${MAKEFLAGS:--j3}
 rm -rf "$T" && mkdir -p "$(dirname "$T")"
-cp -r "$D/test-suite/behaviours/generic-parallel" "$T"
+cp -r "$D/test-suite/$kind/generic-parallel" "$T"
 cd "$T/$c" || exit 1
 # substitutions of tfel-check, as KEY%value pairs
 subst=$(grep '^tfel-substitutions:STRING=' "$P/build/tfel/CMakeCache.txt" | cut -d= -f2-)
@@ -45,6 +51,8 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   cmd=${cmd//@mfront@/./mfront-dev.sh}
   # headers of the development tree first (substituted by tfel-check)
   cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I $P/install/tfel/include}
+  cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I $P/install/tfel/include}
+  cmd=${cmd//@TFEL_LIBRARY_DIR@/$P/install/tfel/lib}
   case "$cmd" in
     *compare-all.sh*) cmd="$cmd $pattern" ;;
   esac
@@ -56,4 +64,8 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   fi
   cat cmd.log >> all.log
 done || exit 1
-echo "$c: OK=$(grep -c 'OK$' all.log) FAILED=$(grep -c 'FAILED$' all.log) by-variable-OK=$(grep 'by variable' all.log | grep -c 'OK$')"
+if [ "$kind" = behaviours ]; then
+  echo "$c: OK=$(grep -c 'OK$' all.log) FAILED=$(grep -c 'FAILED$' all.log) by-variable-OK=$(grep 'by variable' all.log | grep -c 'OK$')"
+else
+  echo "$c: $kind OK"
+fi

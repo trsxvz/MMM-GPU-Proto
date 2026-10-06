@@ -1145,3 +1145,46 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   toutes les lois, modèles et propriétés de MFront avec cuda-clang lancé.
 - Branche `clang-cuda` de `tfel-dev` (3 commits), à intégrer après la
   validation en cours.
+
+### 2026-10-06 (matin, suite), balayage clang CUDA de tous les tests de MFront
+
+- Balayage des 608 lois, modèles et propriétés de `mfront/tests` avec
+  cuda-clang (MFront et en-têtes de développement, 21 min) : 458 OK au
+  premier passage. clang refuse tout appel hôte depuis le code GPU, il
+  complète donc le balayage nvcc.
+- Appels hôte (38) : 37 dans le code écrit par l'utilisateur des lois de
+  test (`throw`, `std::cout`, `tfel::raise`). Un seul trou de TFEL : la
+  vue `tensor` d'un `stensor`, utilisée par tout produit ou somme mêlant
+  `tensor` et `stensor` (par exemple `F * S`), et les accesseurs `(i, j)`
+  des tenseurs étaient réservés à l'hôte, car ils lèvent une exception
+  sur un indice invalide. Nouvelle fonction
+  `internals::reportInvalidTensorIndex` : exception sur l'hôte, NaN sur
+  GPU, comme `TinyMatrixInvert`. Plus aucune fonction `constexpr`
+  réservée à l'hôte dans `TFEL/Math`.
+- Loi de test ajoutée à toutes les configurations :
+  `DefaultGenericSaintVenantKirchhoffElasticity` (gradient F, force PK1,
+  produit `tensor` × `stensor`, conversion de l'opérateur tangent).
+  nvcc et clang : 18/18.
+- Erreurs de compilation (32) :
+  - 26 tests unitaires `WarningTest*`, qui ne doivent pas compiler. Le
+    balayage compile désormais aussi l'interface `generic` avant de
+    conclure : ils sont classés `INVALID` ;
+  - propriétés matériau définies par interpolation de données (`@Data`,
+    5 fichiers) : le noyau CUDA/HIP nommait ses champs d'entrée
+    `mfront_<entrée>_values`, nom des abscisses des données. Renommés
+    `mfront_<entrée>_field`. Échouait aussi avec nvcc ;
+  - propriété matériau appelant une autre loi (`@MaterialLaw`) : clang
+    analyse aussi le corps d'un noyau `__global__` pendant la passe hôte,
+    où seules les versions hôte des lois appelées étaient visibles. Les
+    noyaux importent désormais toujours les implémentations
+    `mfront::device`.
+- Tests ajoutés aux 16 configurations des propriétés matériau :
+  `LinearDataInterpolationTest` et `MaterialLawCallTest`, vérifiés par une
+  fonction commune dans chaque programme de test. Défaut latent corrigé :
+  `hipMallocManaged` reçoit une taille en octets (4 octets alloués pour
+  4 réels). Six configurations essayées (nvcc, clang, hipcc, hip-clang,
+  OpenMP, stdpar) : toutes réussissent.
+- « Suspects » (39) : tous des propriétés matériau, dont les noyaux sont
+  petits avec clang. Le critère des registres ne s'applique plus qu'aux
+  lois et aux modèles.
+- Branche `clang-cuda` : 8 commits au-dessus de la branche validée.
