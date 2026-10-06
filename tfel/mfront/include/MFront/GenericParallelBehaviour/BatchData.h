@@ -37,7 +37,7 @@ extern "C" {
  * `values` may be null if the group is empty or if an optional output is not
  * requested.
  */
-typedef struct {
+typedef struct mfront_gpb_ConstField {
   //! \brief pointer to the first value
   const mfront_gb_real* values;
   //! \brief stride between two integration points
@@ -47,7 +47,7 @@ typedef struct {
 } mfront_gpb_ConstField;
 
 //! \brief mutable version of `mfront_gpb_ConstField`
-typedef struct {
+typedef struct mfront_gpb_Field {
   //! \brief pointer to the first value
   mfront_gb_real* values;
   //! \brief stride between two integration points
@@ -56,8 +56,16 @@ typedef struct {
   mfront_gb_size_type component_stride;
 } mfront_gpb_Field;
 
-//! \brief state of the material at the beginning of the time step
-typedef struct {
+/*!
+ * \brief state of the material at the beginning of the time step
+ *
+ * The material properties and the external state variables can be given
+ * either as a group (one field holding all the variables) or variable by
+ * variable (one field per variable, see `material_properties_by_variable`).
+ * The second form allows different layouts for each variable, for instance
+ * uniform values (null point stride) for some variables only.
+ */
+typedef struct mfront_gpb_InitialState {
   mfront_gpb_ConstField gradients;
   mfront_gpb_ConstField thermodynamic_forces;
   mfront_gpb_ConstField mass_density;
@@ -66,10 +74,24 @@ typedef struct {
   mfront_gpb_ConstField stored_energy;
   mfront_gpb_ConstField dissipated_energy;
   mfront_gpb_ConstField external_state_variables;
+  /*!
+   * \brief material properties given variable by variable (optional).
+   *
+   * If not null, this array holds one field per material property, in the
+   * order of the material properties of a point (the elements of an array
+   * being distinct variables), and `material_properties` is ignored. The
+   * array itself is only read on the host.
+   */
+  const mfront_gpb_ConstField* material_properties_by_variable;
+  /*!
+   * \brief external state variables given variable by variable
+   * (optional), see `material_properties_by_variable`
+   */
+  const mfront_gpb_ConstField* external_state_variables_by_variable;
 } mfront_gpb_InitialState;
 
 //! \brief state of the material at the end of the time step
-typedef struct {
+typedef struct mfront_gpb_State {
   mfront_gpb_ConstField gradients;
   //! \brief output
   mfront_gpb_Field thermodynamic_forces;
@@ -82,6 +104,10 @@ typedef struct {
   //! \brief output, optional
   mfront_gpb_Field dissipated_energy;
   mfront_gpb_ConstField external_state_variables;
+  //! \brief see `mfront_gpb_InitialState`
+  const mfront_gpb_ConstField* material_properties_by_variable;
+  //! \brief see `mfront_gpb_InitialState`
+  const mfront_gpb_ConstField* external_state_variables_by_variable;
 } mfront_gpb_State;
 
 /*!
@@ -92,7 +118,7 @@ typedef struct {
  * of the time increment and of the computation options. All the pointers
  * must be accessible by the device on which the computations are performed.
  */
-typedef struct {
+typedef struct mfront_gpb_BatchData {
   //! \brief number of integration points
   mfront_gb_size_type number_of_points;
   //! \brief time increment
@@ -141,7 +167,7 @@ typedef struct {
  * or tangent operator blocks) of a batch of integration points of an
  * orthotropic behaviour.
  */
-typedef struct {
+typedef struct mfront_gpb_RotationData {
   //! \brief number of points
   mfront_gb_size_type number_of_points;
   //! \brief rotated values
@@ -169,7 +195,7 @@ typedef struct {
  * - `-2`: invalid arguments, nothing was computed;
  * - `-3`: runtime error of the backend (allocation, kernel launch, etc.).
  */
-typedef struct {
+typedef struct mfront_gpb_OutputStatus {
   //! \brief status
   int status;
   //! \brief number of points where the integration failed

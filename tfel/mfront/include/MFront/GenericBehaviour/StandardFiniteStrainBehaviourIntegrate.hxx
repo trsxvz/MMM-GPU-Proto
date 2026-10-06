@@ -22,6 +22,7 @@
 #include "TFEL/Material/FiniteStrainBehaviourTangentOperator.hxx"
 #include "MFront/GenericBehaviour/GenericBehaviourTraits.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
+#include "MFront/GenericBehaviour/StressMeasures.hxx"
 
 namespace mfront::gb::finite_strain {
 
@@ -101,38 +102,6 @@ namespace mfront::gb::finite_strain {
       }
       return true;
     }  // end of convertToCauchyStress
-
-    /*!
-     * \brief convert the Cauchy stress to the given stress measure
-     * \return false if the stress measure is invalid
-     * \param[out] v: values of the stress
-     * \param[in,out] d: behaviour data
-     * \param[in] s: Cauchy stress
-     * \param[in] F: deformation gradient
-     * \param[in] sm: stress measure
-     */
-    template <unsigned short N>
-    TFEL_HOST_DEVICE bool convertFromCauchyStress(
-        real* const v,
-        mfront_gb_BehaviourData& d,
-        const tfel::math::stensor<N, real>& s,
-        const tfel::math::tensor<N, real>& F,
-        const StressMeasure sm) {
-      if (sm == StressMeasure::CAUCHY) {
-        tfel::math::map<tfel::math::stensor<N, real>>(v) = s;
-      } else if (sm == StressMeasure::PK1) {
-        tfel::math::map<tfel::math::tensor<N, real>>(v) =
-            tfel::math::convertCauchyStressToFirstPiolaKirchhoffStress(s, F);
-      } else if (sm == StressMeasure::PK2) {
-        tfel::math::map<tfel::math::stensor<N, real>>(v) =
-            tfel::math::convertCauchyStressToSecondPiolaKirchhoffStress(s, F);
-      } else {
-        reportError(d, "invalid choice for the stress measure");
-        return false;
-      }
-      return true;
-    }  // end of convertFromCauchyStress
-
   }  // end of namespace internals
 
   /*!
@@ -174,24 +143,35 @@ namespace mfront::gb::finite_strain {
       reportError(d, "invalid choice for the stress measure");
       return -1;
     }
-    auto s0 = tfel::math::stensor<N, real>{};
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    if (sm != StressMeasure::CAUCHY) {
-      auto F0 = tfel::math::tensor<N, real>{};
-      if ((!internals::getDeformationGradient<Behaviour>(
-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
-                                             F0, sm))) {
-        return -1;
-      }
-      d.s0.thermodynamic_forces = s0.begin();
-      d.s1.thermodynamic_forces = s0.begin();
+    if (sm == StressMeasure::CAUCHY) {
+      return mfront::gb::executeInitializeFunction<Behaviour>(
+          f, d, initialize_variables, p, args...);
     }
+    // the behaviour works with the Cauchy stress: the initialize function is
+    // executed with a copy of the behaviour data referring to local Cauchy
+    // stresses, and the stress it computes is converted. The initialize
+    // function uses the state at the beginning of the time step.
+    auto F0 = tfel::math::tensor<N, real>{};
+    auto s0 = tfel::math::stensor<N, real>{};
+    if ((!internals::getDeformationGradient<Behaviour>(
+            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces, F0,
+                                           sm))) {
+      return -1;
+    }
+    auto s1 = s0;
+    auto dc = d;
+    dc.s0.thermodynamic_forces = s0.begin();
+    dc.s1.thermodynamic_forces = s1.begin();
     const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
-        f, d, initialize_variables, p, args...);
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+        f, dc, initialize_variables, p, args...);
+    if (r == -1) {
+      return r;
+    }
+    if (!mfront::gb::internals::convertFromCauchyStress(
+            d.s1.thermodynamic_forces, d, s1, F0, sm)) {
+      return -1;
+    }
     return r;
   }  // end of executeInitializeFunction
 
@@ -252,34 +232,33 @@ namespace mfront::gb::finite_strain {
       reportError(d, "invalid choice for consistent tangent operator");
       return -1;
     }
-    auto s0 = tfel::math::stensor<N, real>{};
-    auto s1 = tfel::math::stensor<N, real>{};
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    if (sm != StressMeasure::CAUCHY) {
-      auto F0 = tfel::math::tensor<N, real>{};
-      if ((!internals::getDeformationGradient<Behaviour>(
-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
-                                             F0, sm))) {
-        return -1;
-      }
-      s1 = s0;
-      d.s0.thermodynamic_forces = s0.begin();
-      d.s1.thermodynamic_forces = s1.begin();
+    if (sm == StressMeasure::CAUCHY) {
+      return mfront::gb::integrate<Behaviour>(d, o, smf, p, args...);
     }
-    const auto r = mfront::gb::integrate<Behaviour>(d, o, smf, p, args...);
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
-    if ((r == -1) || (o.isPredictionRequested()) ||
-        (sm == StressMeasure::CAUCHY)) {
+    // the behaviour works with the Cauchy stress: the behaviour is
+    // integrated with a copy of the behaviour data referring to local Cauchy
+    // stresses, and the stress at the end of the time step is converted
+    auto F0 = tfel::math::tensor<N, real>{};
+    auto s0 = tfel::math::stensor<N, real>{};
+    if ((!internals::getDeformationGradient<Behaviour>(
+            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces, F0,
+                                           sm))) {
+      return -1;
+    }
+    auto s1 = s0;
+    auto dc = d;
+    dc.s0.thermodynamic_forces = s0.begin();
+    dc.s1.thermodynamic_forces = s1.begin();
+    const auto r = mfront::gb::integrate<Behaviour>(dc, o, smf, p, args...);
+    if ((r == -1) || (o.isPredictionRequested())) {
       return r;
     }
     auto F1 = tfel::math::tensor<N, real>{};
     if ((!internals::getDeformationGradient<Behaviour>(
             F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
-        (!internals::convertFromCauchyStress(d.s1.thermodynamic_forces, d, s1,
-                                             F1, sm))) {
+        (!mfront::gb::internals::convertFromCauchyStress(
+            d.s1.thermodynamic_forces, d, s1, F1, sm))) {
       return -1;
     }
     return r;
@@ -341,32 +320,32 @@ namespace mfront::gb::finite_strain {
       reportError(d, "invalid choice for the stress measure");
       return -1;
     }
+    if (sm == StressMeasure::CAUCHY) {
+      return mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
+          f, post_processing_variables, d, p, args...);
+    }
+    // the behaviour works with the Cauchy stress: the post-processing is
+    // executed with a copy of the behaviour data referring to local Cauchy
+    // stresses
+    auto F0 = tfel::math::tensor<N, real>{};
+    auto F1 = tfel::math::tensor<N, real>{};
     auto s0 = tfel::math::stensor<N, real>{};
     auto s1 = tfel::math::stensor<N, real>{};
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    if (sm != StressMeasure::CAUCHY) {
-      auto F0 = tfel::math::tensor<N, real>{};
-      auto F1 = tfel::math::tensor<N, real>{};
-      if ((!internals::getDeformationGradient<Behaviour>(
-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
-          (!internals::getDeformationGradient<Behaviour>(
-              F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
-                                             F0, sm)) ||
-          (!internals::convertToCauchyStress(s1, d, d.s1.thermodynamic_forces,
-                                             F1, sm))) {
-        return -1;
-      }
-      d.s0.thermodynamic_forces = s0.begin();
-      d.s1.thermodynamic_forces = s1.begin();
+    if ((!internals::getDeformationGradient<Behaviour>(
+            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+        (!internals::getDeformationGradient<Behaviour>(
+            F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
+        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces, F0,
+                                           sm)) ||
+        (!internals::convertToCauchyStress(s1, d, d.s1.thermodynamic_forces, F1,
+                                           sm))) {
+      return -1;
     }
-    const auto r =
-        mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
-            f, post_processing_variables, d, p, args...);
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
-    return r;
+    auto dc = d;
+    dc.s0.thermodynamic_forces = s0.begin();
+    dc.s1.thermodynamic_forces = s1.begin();
+    return mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
+        f, post_processing_variables, dc, p, args...);
   }  // end of executePostProcessing
 
   /*!

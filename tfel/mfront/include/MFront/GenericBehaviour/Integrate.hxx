@@ -601,24 +601,17 @@ namespace mfront::gb {
       const real* const initialize_variables,
       const tfel::material::OutOfBoundsPolicy p,
       const ConstructorArguments&... args) {
-    // the behaviour is initialized with the state at the beginning of the
-    // time step
-    auto* const gradients_old = d.s1.gradients;
-    auto* const material_properties_old = d.s1.material_properties;
-    auto* const external_state_variables_old = d.s1.external_state_variables;
-    d.s1.gradients = d.s0.gradients;
-    d.s1.material_properties = d.s0.material_properties;
-    d.s1.external_state_variables = d.s0.external_state_variables;
-    const auto restore = [&d, gradients_old, material_properties_old,
-                          external_state_variables_old] {
-      d.s1.gradients = gradients_old;
-      d.s1.material_properties = material_properties_old;
-      d.s1.external_state_variables = external_state_variables_old;
-    };
+    // the behaviour is built from the state at the beginning of the time
+    // step: a copy of the behaviour data, whose gradients, material
+    // properties and external state variables at the end of the time step
+    // are the ones at the beginning of the time step
+    auto d0 = d;
+    d0.s1.gradients = d.s0.gradients;
+    d0.s1.material_properties = d.s0.material_properties;
+    d0.s1.external_state_variables = d.s0.external_state_variables;
     const auto execute = [&]() -> int {
-      Behaviour b(d, args...);
+      Behaviour b(d0, args...);
       b.setOutOfBoundsPolicy(p);
-      restore();
       if (!b.initialize()) {
         reportError(d, "behaviour initialisation failed");
         return -1;
@@ -627,7 +620,7 @@ namespace mfront::gb {
       b.exportStateData(d.s1);
       return EXIT_SUCCESS;
     };
-    return callAndReportExceptions(d, execute, restore);
+    return callAndReportExceptions(d, execute, [] {});
   }  // end of executeInitializeFunction
 
   /*!
@@ -683,24 +676,19 @@ namespace mfront::gb {
       mfront_gb_BehaviourData& d,
       const tfel::material::OutOfBoundsPolicy p,
       const ConstructorArguments&... args) {
-    auto* const thermodynamic_forces_old = d.s0.thermodynamic_forces;
-    auto* const internal_state_variables_old = d.s0.internal_state_variables;
-    const auto restore = [&d, thermodynamic_forces_old,
-                          internal_state_variables_old] {
-      d.s0.thermodynamic_forces = thermodynamic_forces_old;
-      d.s0.internal_state_variables = internal_state_variables_old;
-    };
+    // the behaviour is built from the thermodynamic forces and the internal
+    // state variables at the end of the time step: a copy of the behaviour
+    // data, whose thermodynamic forces and internal state variables at the
+    // beginning of the time step are the ones at the end of the time step
+    auto d1 = d;
+    d1.s0.thermodynamic_forces = d.s1.thermodynamic_forces;
+    d1.s0.internal_state_variables = d.s1.internal_state_variables;
     const auto execute = [&]() -> int {
-      // a little trick to initialize the behaviour with the thermodynamic
-      // forces and internal state variables at the end of the time step
-      d.s0.thermodynamic_forces = d.s1.thermodynamic_forces;
-      d.s0.internal_state_variables = d.s1.internal_state_variables;
-      Behaviour b(d, args...);
+      Behaviour b(d1, args...);
       b.setOutOfBoundsPolicy(p);
       // This call sets the values of the gradients and external state
       // variables at the end of the time step
       b.updateExternalStateVariables();
-      restore();
       if (!b.initialize()) {
         reportError(d, "behaviour initialisation failed");
         return -1;
@@ -717,7 +705,7 @@ namespace mfront::gb {
       }
       return EXIT_SUCCESS;
     };
-    return callAndReportExceptions(d, execute, restore);
+    return callAndReportExceptions(d, execute, [] {});
   }  // end of executePostProcessing
 
   /*!

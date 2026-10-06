@@ -51,4 +51,13 @@ Patches:
 23. function objects of the tangent operator of the implicit DSLs owning
     their status flag;
 24. `generic-parallel`: OpenMP offloading at `-O2`, tests of the
-    behaviours with clang and icpx.
+    behaviours with clang and icpx;
+25. tag names of the C structures of the batch data;
+26. material properties and external state variables given variable by
+    variable;
+27. symbols identifying the interface and the backend;
+28. integration drivers of the generic interface working on copies of the
+    behaviour data;
+29. stress computed by the initialize functions exported for all stress
+    measures;
+30. formatting.

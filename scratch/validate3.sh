@@ -13,7 +13,7 @@ cd "$P/build/tfel" || exit 1
 CONFS=$(grep '^CONFIGURATIONS=' "$P/build-tfel.sh" | sed 's/^CONFIGURATIONS="\(.*\)"$/\1/' | sed 's/\$CONFIGURATIONS;//' | paste -sd';')
 (export PATH=/home/t/Bureau/spack/var/spack/environments/tfelgpu_local/.spack-env/view/bin:$PATH HIP_PLATFORM=nvidia CUDA_PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/cuda/12.9
  cmake -Dgeneric-parallel-configurations="$CONFS" \
-   -DTFEL_CLANGXX_COMPILER=/usr/bin/clang++-20 \
+   -DTFEL_CLANGXX_COMPILER=/home/t/Bureau/spack/opt/spack/linux-x86_64_v4/llvm-20.1.8-v3gg3rqravuex5zixx6xglsqudvhcnjw/bin/clang++ \
    -DTFEL_ICPX_COMPILER=/opt/intel/oneapi/compiler/2026.1/bin/icpx \
    -U "tfel-substitutions*" . > "$P/scratch/validate3-cmake.log" 2>&1); echo "cmake=$? ($CONFS)"
 cd "$P" || exit 1

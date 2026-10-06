@@ -100,7 +100,11 @@ to the material frame, stored in column-major format).
 The library also exports the same symbols as the `generic` interface
 (names and types of the variables, parameters, etc.) and the functions
 changing the parameters and the out of bounds policy. The `mfront_interface`
-symbol is equal to `GenericParallel`.
+symbol is equal to `GenericParallel`, for the behaviours and for the
+standalone models. The `generic_parallel_backend` symbol gives the backend
+of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
+which tells the calling code where the fields must be allocated (see the
+section of each backend).
 
 The data structures are declared in
 `MFront/GenericParallelBehaviour/BatchData.h`.
@@ -131,6 +135,34 @@ The `j`-th component at the `i`-th point is stored at
 `mfront_gpb_Field` is the mutable version of `mfront_gpb_ConstField`. The
 group of variables of a point are the ones of the `generic` interface: for
 instance, the temperature is the first external state variable.
+
+### Material properties and external state variables given variable by variable
+
+The material properties and the external state variables can also be given
+variable by variable, with one field per variable. This allows a different
+layout for each variable, for instance uniform values for some material
+properties only, as in `MGIS`:
+
+~~~~{.cxx}
+mfront_gpb_ConstField mps[2];
+mps[0] = {&young_modulus, 0, 1};       // uniform value
+mps[1] = {poisson_ratios, 1, 1};       // one value per point
+d.s0.material_properties_by_variable = mps;
+d.s1.material_properties_by_variable = mps;
+~~~~
+
+The variables follow the order of the material properties (or of the
+external state variables) of a point, the elements of an array being
+distinct variables. The components of a variable are given by the
+`component_stride` of its field. If `material_properties_by_variable` (or
+`external_state_variables_by_variable`) is null, the group field
+`material_properties` (or `external_state_variables`) is used.
+
+The arrays of fields are only read on the host: only the values must be
+accessible by the device. Both forms are converted on the host in the same
+description, so that the code executed at each point does not depend on
+the form. The material properties and the external state variables of a
+point are always copied in local arrays.
 
 ## Batch data
 

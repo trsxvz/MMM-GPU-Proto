@@ -11,6 +11,8 @@
  */
 
 #include <set>
+#include <vector>
+#include <string_view>
 #include <fstream>
 #include <functional>
 #include <algorithm>
@@ -107,6 +109,43 @@ namespace mfront {
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
    */
+  /*!
+   * \brief write the declaration of an array giving the number of
+   * components of the variables of a group
+   * \param[out] os: output stream
+   * \param[in] name: name of the array
+   * \param[in] sizes: number of components of each variable
+   */
+  static void writeVariablesSizes(std::ostream& os,
+                                  const std::string_view name,
+                                  const std::vector<int>& sizes) {
+    os << "static constexpr std::array<mfront::gpb::size_type, "
+       << sizes.size() << "> " << name << " = {";
+    for (std::size_t i = 0; i != sizes.size(); ++i) {
+      os << (i == 0 ? "" : ", ") << sizes[i];
+    }
+    os << "};\n";
+  }  // end of writeVariablesSizes
+
+  /*!
+   * \return the number of components of each variable of a list, the
+   * elements of an array being distinct variables
+   * \param[in] variables: variables
+   * \param[in] h: modelling hypothesis
+   */
+  template <typename VariablesContainer>
+  static std::vector<int> getVariablesSizes(
+      const VariablesContainer& variables,
+      const tfel::material::ModellingHypothesis::Hypothesis h) {
+    auto sizes = std::vector<int>{};
+    for (const auto& v : variables) {
+      const auto s = SupportedTypes::getTypeSize(v.type, 1)
+                         .getValueForModellingHypothesis(h);
+      sizes.insert(sizes.end(), v.arraySize, s);
+    }
+    return sizes;
+  }  // end of getVariablesSizes
+
   static GenericParallelBehaviourPointDataSizes getPointDataSizes(
       const GenericParallelBehaviourInterface& i,
       const BehaviourDescription& bd,
@@ -627,8 +666,22 @@ namespace mfront {
          << ", "
          << ".external_state_variables = " << sizes.external_state_variables
          << ", "
-         << ".tangent_operator = " << sizes.tangent_operator << "};\n"
-         << "//! \\brief integration strategy\n"
+         << ".tangent_operator = " << sizes.tangent_operator << "};\n";
+      // the material properties of a point (including the elastic
+      // properties added when the behaviour requires the stiffness tensor)
+      // and the external state variables, variable by variable
+      os << "//! \\brief number of components of each material property\n";
+      writeVariablesSizes(
+          os, "material_properties_sizes",
+          getVariablesSizes(this->buildMaterialPropertiesList(bd, h).first,
+                            h));
+      os << "//! \\brief number of components of each external state "
+            "variable\n";
+      writeVariablesSizes(
+          os, "external_state_variables_sizes",
+          getVariablesSizes(
+              bd.getBehaviourData(h).getExternalStateVariables(), h));
+      os << "//! \\brief integration strategy\n"
          << "using Integrator = " << getIntegrator(bd) << ";\n"
          << "};\n\n";
       writeParametersStructure(os, bd, h);
@@ -640,6 +693,10 @@ namespace mfront {
        << "#endif /* __cplusplus */\n\n";
     GenericBehaviourSymbolsGenerator sg;
     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
+    // backend of the library, to select the memory of the fields
+    os << "MFRONT_EXPORT_SYMBOL(const char*, "
+       << this->getFunctionNameBasis(name) << "_generic_parallel_backend, \""
+       << this->backend->getName() << "\");\n\n";
     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
       const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
       sg.generateSymbols(os, *this, bd, fd, name, uh);

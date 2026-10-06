@@ -11,6 +11,7 @@
  */
 
 #include <fstream>
+#include <string_view>
 #include <algorithm>
 #include "TFEL/Raise.hxx"
 #include "TFEL/Config/GetInstallPath.hxx"
@@ -24,7 +25,7 @@
 #include "MFront/ModelDescription.hxx"
 #include "MFront/BehaviourDescription.hxx"
 #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
-#include "MFront/GenericBehaviourInterface.hxx"
+#include "MFront/GenericParallelBehaviourInterface.hxx"
 #include "MFront/GenericModelInterface.hxx"
 #include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
 #include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
@@ -217,14 +218,19 @@ namespace mfront {
     if (!md.includes.empty()) {
       os << md.includes << "\n\n";
     }
-    // symbols: the same as the ones of the `generic` interface
     const auto mhs = ModellingHypothesis::getModellingHypotheses();
     const auto hypotheses =
         std::set<ModellingHypothesis::Hypothesis>{mhs.begin(), mhs.end()};
     const auto bd = convertToBehaviourDescription(md);
     GenericBehaviourSymbolsGenerator sg;
-    GenericBehaviourInterface bi;
+    // the symbols are the ones of a behaviour of the `generic-parallel`
+    // interface: in particular, the interface name tells that the entry
+    // points integrate a batch
+    GenericParallelBehaviourInterface bi;
     sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
+    os << "MFRONT_EXPORT_SYMBOL(const char*, "
+       << bi.getFunctionNameBasis(name) << "_generic_parallel_backend, \""
+       << this->backend->getName() << "\");\n";
     os << '\n';
     sg.generateSymbols(os, bi, bd, fd, name, uh);
     if (!md.sources.empty()) {
@@ -260,8 +266,23 @@ namespace mfront {
        << ".material_properties = " << md.constantMaterialProperties.size()
        << ", .internal_state_variables = " << md.outputs.size()
        << ", .external_state_variables = " << md.inputs.size()
-       << ", .tangent_operator = 0};\n"
-       << "//! \\brief integration strategy\n"
+       << ", .tangent_operator = 0};\n";
+    // the material properties and the inputs of a model are scalars
+    auto write_scalars = [&os](const std::string_view n,
+                               const std::size_t size) {
+      os << "static constexpr std::array<mfront::gpb::size_type, " << size
+         << "> " << n << " = {";
+      for (std::size_t i = 0; i != size; ++i) {
+        os << (i == 0 ? "1" : ", 1");
+      }
+      os << "};\n";
+    };
+    os << "//! \\brief number of components of each material property\n";
+    write_scalars("material_properties_sizes",
+                  md.constantMaterialProperties.size());
+    os << "//! \\brief number of components of each input\n";
+    write_scalars("external_state_variables_sizes", md.inputs.size());
+    os << "//! \\brief integration strategy\n"
        << "using Integrator = mfront::gpb::ModelIntegrator;\n"
        << "};\n\n"
        << "} // end of anonymous namespace\n\n";

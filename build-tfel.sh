@@ -5,8 +5,10 @@
 # stlpar-parunseq-nvhpc-gpu (nvc++ du HPC SDK), kokkos (Kokkos partagé de
 # install/kokkos, CUDA + OpenMP), sycl-default-acpp (AdaptiveCpp de
 # install/adaptivecpp), sycl-gpu-acpp, openmp-host-gcc, openmp-offload-nvhpc-gpu
-# (nvc++ -mp=gpu), stlpar-parunseq-clang (clang 20), stlpar-parunseq-icpx et
-# sycl-default-icpx (oneAPI 2026.1, SYCL sur CPU) ; TDLS activé. Pour changer
+# (nvc++ -mp=gpu), stlpar-parunseq-clang (clang 20 du LLVM de spack : sa
+# bibliothèque est dans LD_LIBRARY_PATH, le clang du système ne peut donc
+# pas servir), stlpar-parunseq-icpx et sycl-default-icpx (oneAPI 2026.1,
+# SYCL sur CPU) ; TDLS activé. Pour changer
 # les configurations d'un dossier de construction existant :
 # cmake -Dgeneric-parallel-configurations="..." . Les tests s'exécutent dans
 # l'environnement de scripts/env.sh.
@@ -33,7 +35,7 @@ if [ ! -f CMakeCache.txt ]; then
     -DKokkos_ROOT="$P/install/kokkos" \
     -DTFEL_NVHPC_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/compilers/bin/nvc++ \
     -DTFEL_ACPP_COMPILER="$P/install/adaptivecpp/bin/acpp" \
-    -DTFEL_CLANGXX_COMPILER=/usr/bin/clang++-20 \
+    -DTFEL_CLANGXX_COMPILER=/home/t/Bureau/spack/opt/spack/linux-x86_64_v4/llvm-20.1.8-v3gg3rqravuex5zixx6xglsqudvhcnjw/bin/clang++ \
     -DTFEL_ICPX_COMPILER=/opt/intel/oneapi/compiler/2026.1/bin/icpx \
     -DCUDAToolkit_ROOT=$V
 fi

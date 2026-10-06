@@ -23,6 +23,7 @@
 #include "TFEL/Material/FiniteStrainBehaviourTangentOperator.hxx"
 #include "MFront/GenericBehaviour/GenericBehaviourTraits.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
+#include "MFront/GenericBehaviour/StressMeasures.hxx"
 
 namespace mfront::gb::green_lagrange_strain {
 
@@ -222,20 +223,31 @@ namespace mfront::gb::green_lagrange_strain {
             S0, s0, d, d.s0.thermodynamic_forces, F0, o.stress_measure))) {
       return -1;
     }
-    auto* const gradients0_old = d.s0.gradients;
-    auto* const gradients1_old = d.s1.gradients;
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    d.s0.gradients = e0.begin();
-    d.s1.gradients = e0.begin();
-    d.s0.thermodynamic_forces = S0.begin();
-    d.s1.thermodynamic_forces = S0.begin();
+    // the initialize function uses the state at the beginning of the time
+    // step: the second Piola-Kirchhoff stress it computes is converted with
+    // the deformation gradient at the beginning of the time step
+    auto S1 = S0;
+    auto dc = d;
+    dc.s0.gradients = e0.begin();
+    dc.s1.gradients = e0.begin();
+    dc.s0.thermodynamic_forces = S0.begin();
+    dc.s1.thermodynamic_forces = S1.begin();
     const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
-        f, d, initialize_variables, p, args...);
-    d.s0.gradients = gradients0_old;
-    d.s1.gradients = gradients1_old;
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+        f, dc, initialize_variables, p, args...);
+    if (r == -1) {
+      return r;
+    }
+    if (o.stress_measure == StressMeasure::PK2) {
+      tfel::math::map<tfel::math::stensor<N, real>>(d.s1.thermodynamic_forces) =
+          S1;
+      return r;
+    }
+    const auto s1 =
+        tfel::math::convertSecondPiolaKirchhoffStressToCauchyStress(S1, F0);
+    if (!mfront::gb::internals::convertFromCauchyStress(
+            d.s1.thermodynamic_forces, d, s1, F0, o.stress_measure)) {
+      return -1;
+    }
     return r;
   }  // end of executeInitializeFunction
 
@@ -307,23 +319,14 @@ namespace mfront::gb::green_lagrange_strain {
             S0, s0, d, d.s0.thermodynamic_forces, F0, sm))) {
       return -1;
     }
-    auto* const gradients0_old = d.s0.gradients;
-    auto* const gradients1_old = d.s1.gradients;
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    auto* const K_old = d.K;
-    d.s0.gradients = e0.begin();
-    d.s1.gradients = e1.begin();
-    d.s0.thermodynamic_forces = S0.begin();
-    d.s1.thermodynamic_forces = S1.begin();
-    d.K = K.begin();
+    auto dc = d;
+    dc.s0.gradients = e0.begin();
+    dc.s1.gradients = e1.begin();
+    dc.s0.thermodynamic_forces = S0.begin();
+    dc.s1.thermodynamic_forces = S1.begin();
+    dc.K = K.begin();
     const auto r = mfront::gb::integrate<Behaviour>(
-        d, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
-    d.s0.gradients = gradients0_old;
-    d.s1.gradients = gradients1_old;
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
-    d.K = K_old;
+        dc, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
     if (r == -1) {
       return r;
     }
@@ -430,21 +433,14 @@ namespace mfront::gb::green_lagrange_strain {
             S1, s1, d, d.s1.thermodynamic_forces, F1, o.stress_measure))) {
       return -1;
     }
-    auto* const gradients0_old = d.s0.gradients;
-    auto* const gradients1_old = d.s1.gradients;
-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
-    d.s0.gradients = e0.begin();
-    d.s1.gradients = e1.begin();
-    d.s0.thermodynamic_forces = S0.begin();
-    d.s1.thermodynamic_forces = S1.begin();
+    auto dc = d;
+    dc.s0.gradients = e0.begin();
+    dc.s1.gradients = e1.begin();
+    dc.s0.thermodynamic_forces = S0.begin();
+    dc.s1.thermodynamic_forces = S1.begin();
     const auto r =
         mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
-            f, post_processing_variables, d, p, args...);
-    d.s0.gradients = gradients0_old;
-    d.s1.gradients = gradients1_old;
-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+            f, post_processing_variables, dc, p, args...);
     return r;
   }  // end of executePostProcessing
 

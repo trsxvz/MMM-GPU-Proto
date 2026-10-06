@@ -375,6 +375,31 @@ static void integrateReference(States& st,
  * \brief a field of the batch, stored point by point or component by
  * component
  */
+/*!
+ * \brief storages of the fields of a batch:
+ *
+ * - `by_point`: the values of a point are contiguous;
+ * - `by_component`: the values of a component are contiguous;
+ * - `by_variable`: as `by_component`, but the material properties and the
+ *   external state variables are given variable by variable, with uniform
+ *   values (null point stride). This storage assumes that the material
+ *   properties and the external state variables are scalars and uniform,
+ *   as in all the tests.
+ */
+enum struct Storage { by_point, by_component, by_variable };
+
+//! \return a description of a storage
+static const char* toString(const Storage s) {
+  if (s == Storage::by_point) {
+    return "by point";
+  }
+  return s == Storage::by_component ? "by component" : "by variable";
+}
+
+//! \brief all the storages
+static constexpr Storage storages[] = {Storage::by_point, Storage::by_component,
+                                       Storage::by_variable};
+
 struct BatchField {
   BatchField(const std::vector<double>& v,
              const std::size_t n_,
@@ -410,6 +435,11 @@ struct BatchField {
     const auto f = this->field();
     return {f.values, f.point_stride, f.component_stride};
   }
+  //! \return a field giving the values of the `j`-th component of the first
+  //! point at all points
+  mfront_gpb_ConstField uniform(const std::size_t j) const {
+    return {this->values + this->index(0, j), 0, 1};
+  }
 
  private:
   std::size_t index(const std::size_t i, const std::size_t j) const {
@@ -431,8 +461,9 @@ struct BatchFields {
               const std::size_t n,
               const double dt,
               const double K0,
-              const bool by_component)
-      : g0(st.g0, n, s.g, by_component),
+              const Storage storage)
+      : by_component(storage != Storage::by_point),
+        g0(st.g0, n, s.g, by_component),
         g1(st.g1, n, s.g, by_component),
         th0(st.th0, n, s.th, by_component),
         th1(st.th1, n, s.th, by_component),
@@ -479,6 +510,22 @@ struct BatchFields {
     d.s0.dissipated_energy = this->dissipated_energy0.const_field();
     d.s1.dissipated_energy = this->dissipated_energy1.field();
     d.speed_of_sound = this->speed_of_sound.field();
+    if (storage == Storage::by_variable) {
+      for (std::size_t j = 0; j != s.mp; ++j) {
+        this->mps.push_back(this->mp.uniform(j));
+      }
+      for (std::size_t j = 0; j != s.esv; ++j) {
+        this->esvs0.push_back(this->esv0.uniform(j));
+        this->esvs1.push_back(this->esv1.uniform(j));
+      }
+      // the group fields are ignored
+      d.s0.material_properties = d.s1.material_properties = {};
+      d.s0.external_state_variables = d.s1.external_state_variables = {};
+      d.s0.material_properties_by_variable = this->mps.data();
+      d.s1.material_properties_by_variable = this->mps.data();
+      d.s0.external_state_variables_by_variable = this->esvs0.data();
+      d.s1.external_state_variables_by_variable = this->esvs1.data();
+    }
     if (st.mass_density > 0) {
       // uniform mass density
       d.s0.mass_density = d.s1.mass_density = this->mass_density.const_field();
@@ -500,9 +547,14 @@ struct BatchFields {
     std::copy(this->status, this->status + this->number_of_points,
               st.status.begin());
   }
+  const bool by_component;
   const BatchField g0, g1, th0, th1, mp, isv0, isv1, esv0, esv1, K, rdt,
       stored_energy0, stored_energy1, dissipated_energy0, dissipated_energy1,
       speed_of_sound, mass_density;
+  //! \brief fields of the material properties, variable by variable
+  std::vector<mfront_gpb_ConstField> mps;
+  //! \brief fields of the external state variables, variable by variable
+  std::vector<mfront_gpb_ConstField> esvs0, esvs1;
   int* const status;
   const std::size_t number_of_points;
   mfront_gpb_BatchData data = {};
@@ -531,10 +583,10 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
                                               const std::size_t n,
                                               const double dt,
                                               const double K0,
-                                              const bool by_component,
+                                              const Storage storage,
                                               BatchFunction f,
                                               double& ms) {
-  const auto b = BatchFields(st, s, fs, n, dt, K0, by_component);
+  const auto b = BatchFields(st, s, fs, n, dt, K0, storage);
   const auto o =
       measure(ms, [&b, f](mfront_gpb_OutputStatus& r) { f(&r, &b.data); });
   b.copyResults(st);
@@ -747,7 +799,7 @@ struct Test {
 
 //! \brief print the results of a comparison
 static bool print(const char* const what,
-                  const bool by_component,
+                  const Storage storage,
                   const bool pass,
                   const mfront_gpb_OutputStatus& o,
                   const std::vector<int>& status,
@@ -756,7 +808,7 @@ static bool print(const char* const what,
   std::printf(
       "%-12s %-12s status=%2d failures=%6ld | relative difference %.1e | "
       "%.2f ms | %s\n",
-      what, by_component ? "by component" : "by point", o.status,
+      what, toString(storage), o.status,
       static_cast<long>(std::count(status.begin(), status.end(), -1)), d, ms,
       pass ? "OK" : "FAILED");
   return pass;
@@ -784,14 +836,14 @@ static bool testIntegration(const Test& t) {
     if ((s.K == 0) && (K0 < -0.25)) {
       continue;
     }
-    for (const auto by_component : {false, true}) {
+    for (const auto storage : storages) {
       // first step from the initial state, second step from its results
       auto ref = t.initial;
       auto batch = t.initial;
       auto ms1 = 0., ms2 = 0.;
       integrateReference(ref, s, fs, n, t.dt, Kt + o0, fg);
       const auto o1 =
-          integrateBatch(batch, s, fs, n, t.dt, Kt + o0, by_component, fb, ms1);
+          integrateBatch(batch, s, fs, n, t.dt, Kt + o0, storage, fb, ms1);
       // the test is meaningless if the integration fails at all points
       const auto pass1 = (ref.status == batch.status) &&
                          isConsistent(o1, batch.status) &&
@@ -812,7 +864,7 @@ static bool testIntegration(const Test& t) {
       }
       integrateReference(ref, s, fs, n, t.dt, K0 + o0, fg);
       const auto o2 =
-          integrateBatch(batch, s, fs, n, t.dt, K0 + o0, by_component, fb, ms2);
+          integrateBatch(batch, s, fs, n, t.dt, K0 + o0, storage, fb, ms2);
       const auto nfailures =
           std::count(ref.status.begin(), ref.status.end(), -1);
       const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
@@ -863,7 +915,7 @@ static bool testIntegration(const Test& t) {
           "K0=%4.1f %-12s status=%2d/%2d failures=%6ld same statuses=%d | "
           "relative differences: forces %.1e, isvs %.1e, K %.1e, energies "
           "%.1e, speed of sound %.1e | %.2f ms, %.2f ms | %s\n",
-          K0, by_component ? "by component" : "by point", o1.status, o2.status,
+          K0, toString(storage), o1.status, o2.status,
           static_cast<long>(nfailures), same_status, dth, disv, dK, de, dsos,
           ms1, ms2, pass ? "OK" : "FAILED");
     }
@@ -902,7 +954,7 @@ static bool testInitializeFunction(const Test& t) {
   auto inputs = std::vector<double>(t.n * ni);
   std::generate(inputs.begin(), inputs.end(), [&] { return u(rng); });
   auto ok = true;
-  for (const auto by_component : {false, true}) {
+  for (const auto storage : storages) {
     auto ref = t.initial;
     auto batch = t.initial;
     forEachReferencePoint(
@@ -913,8 +965,8 @@ static bool testInitializeFunction(const Test& t) {
     convertReferenceStatuses(ref.status);
     auto ms = 0.;
     const auto b = BatchFields(batch, s, t.options.finite_strain, t.n, t.dt, 0,
-                               by_component);
-    const auto in = BatchField(inputs, t.n, ni, by_component);
+                               storage);
+    const auto in = BatchField(inputs, t.n, ni, b.by_component);
     const auto in_field = in.const_field();
     const auto o = measure(ms, [&](mfront_gpb_OutputStatus& r) {
       // no field is given if the function has no input
@@ -929,7 +981,7 @@ static bool testInitializeFunction(const Test& t) {
         (ref.th1 != t.initial.th1) || (ref.isv1 != t.initial.isv1);
     const auto pass = changed && (ref.status == batch.status) &&
                       isConsistent(o, batch.status) && (d < tolerance);
-    ok = print("initialize", by_component, pass, o, batch.status, d, ms) && ok;
+    ok = print("initialize", storage, pass, o, batch.status, d, ms) && ok;
   }
   return ok;
 }  // end of testInitializeFunction
@@ -951,7 +1003,7 @@ static bool testPostProcessing(const Test& t) {
   const auto& s = t.sizes;
   const auto no = t.options.number_of_values;
   auto ok = true;
-  for (const auto by_component : {false, true}) {
+  for (const auto storage : storages) {
     auto ref = t.initial;
     auto batch = t.initial;
     auto ref_outputs = std::vector<double>(t.n * no);
@@ -963,9 +1015,9 @@ static bool testPostProcessing(const Test& t) {
     convertReferenceStatuses(ref.status);
     auto ms = 0.;
     const auto b = BatchFields(batch, s, t.options.finite_strain, t.n, t.dt, 0,
-                               by_component);
+                               storage);
     const auto out =
-        BatchField(std::vector<double>(t.n * no), t.n, no, by_component);
+        BatchField(std::vector<double>(t.n * no), t.n, no, b.by_component);
     const auto out_field = out.field();
     const auto o = measure(
         ms, [&](mfront_gpb_OutputStatus& r) { fb(&r, &out_field, &b.data); });
@@ -979,7 +1031,7 @@ static bool testPostProcessing(const Test& t) {
                                       [](const double v) { return v != 0; });
     const auto pass = computed && (ref.status == batch.status) &&
                       isConsistent(o, batch.status) && (d < tolerance);
-    ok = print("post-processing", by_component, pass, o, batch.status, d, ms) &&
+    ok = print("post-processing", storage, pass, o, batch.status, d, ms) &&
          ok;
   }
   return ok;

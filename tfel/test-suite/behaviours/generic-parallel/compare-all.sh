@@ -75,6 +75,12 @@ run GreenLagrangeImplicitNorton_Tridimensional_InitializeFunction_ElasticStrainF
   9 6 2 7 1 36 $fs=PK2,DS_DEGL --initialize-function=0
 run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
   9 6 2 0 1 54 $fs=CAUCHY,DSIG_DF --initialize-function=1
+# the stress computed by an initialize function is converted to the stress
+# measure of the caller
+run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
+  9 6 2 0 1 36 $fs=PK2,DS_DEGL --initialize-function=1
+run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
+  9 9 2 0 1 81 $fs=PK1,DPK1_DF --initialize-function=1
 # post-processings
 run PostProcessingTest_Tridimensional_PostProcessing_PrincipalStrain \
   6 6 2 0 1 36 1e-3 150e9,0.3 293.15 --post-processing=3

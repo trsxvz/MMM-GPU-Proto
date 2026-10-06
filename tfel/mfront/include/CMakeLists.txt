@@ -249,6 +249,7 @@ install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
 install_mfront_header(MFront/GenericBehaviour StandardFiniteStrainBehaviourIntegrate.hxx)
 install_mfront_header(MFront/GenericBehaviour GreenLagrangeStrainIntegrate.hxx)
 install_mfront_header(MFront/GenericBehaviour LogarithmicStrainIntegrate.hxx)
+install_mfront_header(MFront/GenericBehaviour StressMeasures.hxx)
 install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
 install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
 

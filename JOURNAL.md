@@ -1082,3 +1082,37 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `batchdata-by-variable`) pendant la validation de `tfel/` ; MFront de
   développement dans `scratch/build-dev2`, tests par
   `scratch/dev-test.sh <configuration>`.
+
+### 2026-10-06 (nuit, suite), pilotes de l'interface generic, OpenMP en mode direct
+
+- Test de développement OpenMP sur GPU (-O2) des champs par variable : un
+  seul échec, la fonction d'initialisation de SaintVenantKirchhoffElasticity
+  en mode direct (champs point par point). La contrainte écrite est perdue
+  (le lot garde la contrainte initiale). Juste à -O1. Déplacer une copie
+  dans `PointView` fait échouer les trois rangements : défaut de
+  l'optimiseur sensible à la forme du code, comme celui de nvcc 13.0 sur la
+  même fonction.
+- Déclencheur : les pilotes de l'interface `generic` (intégration,
+  fonctions d'initialisation, post-traitements des lois en petites
+  déformations, en grandes déformations, en déformation de Green-Lagrange
+  et logarithmique) modifiaient temporairement les pointeurs des données
+  de la loi données par l'appelant, puis les restauraient. Ils travaillent
+  désormais sur une copie locale des données dont les pointeurs désignent
+  les valeurs locales ; pour la contrainte de Cauchy, les pilotes en
+  grandes déformations appellent directement ceux des petites
+  déformations. Résultats inchangés ; OpenMP sur GPU -O2 : 396/396.
+- Défaut latent corrigé au passage : la contrainte calculée par une
+  fonction d'initialisation n'était exportée que pour la contrainte de
+  Cauchy des lois en grandes déformations standard. Elle est maintenant
+  convertie dans la mesure de l'appelant (gradient de la transformation
+  du début du pas) pour toutes les mesures et les lois écrites en
+  déformation de Green-Lagrange ou logarithmique. Conversion commune dans
+  `MFront/GenericBehaviour/StressMeasures.hxx`. Tests ajoutés (PK2, PK1).
+- Structures C de `BatchData.h` nommées (`typedef struct nom {...} nom;`) :
+  cudafe (nvcc 13.0) plantait sur le destructeur d'un `std::vector` de
+  champs anonymes.
+- Matrice -O2 de la nuit (commits du 05/10 soir et des corrections OpenMP) :
+  OpenMP sur GPU et stdpar icpx réussissent ; stdpar clang échoue à cause
+  de l'environnement : le clang du système charge la bibliothèque du LLVM
+  de spack (`LD_LIBRARY_PATH`), construite sans la cible AArch64. Le clang
+  de ce LLVM est désormais utilisé.

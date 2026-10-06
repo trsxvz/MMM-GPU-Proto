@@ -198,6 +198,17 @@ namespace mfront::gpb::sycl {
                        sizes.external_state_variables, false);
         this->transfer(s1.external_state_variables,
                        sizes.external_state_variables, false);
+        constexpr const auto& mps = PointTraits::material_properties_sizes;
+        constexpr const auto& esvs =
+            PointTraits::external_state_variables_sizes;
+        this->transferVariables(s0.material_properties_by_variable, mps,
+                                this->material_properties0);
+        this->transferVariables(s1.material_properties_by_variable, mps,
+                                this->material_properties1);
+        this->transferVariables(s0.external_state_variables_by_variable, esvs,
+                                this->external_state_variables0);
+        this->transferVariables(s1.external_state_variables_by_variable, esvs,
+                                this->external_state_variables1);
         this->transfer(this->data.tangent_operators, sizes.tangent_operator,
                        true);
         this->transfer(this->data.rdts, 1, true);
@@ -207,6 +218,34 @@ namespace mfront::gpb::sycl {
       }
       //! \brief batch data whose fields are accessible by the device
       BatchData data;
+
+     private:
+      /*!
+       * \brief copy in device memory the fields of the variables of a group
+       * given variable by variable which are not accessible by the device
+       * \param[in,out] fields: fields of the variables, replaced by the
+       * fields referring to the copies (this array is only read on the host)
+       * \param[in] sizes: number of components of each variable
+       * \param[out] copies: storage of the fields referring to the copies
+       */
+      template <std::size_t N>
+      void transferVariables(const ConstField*& fields,
+                             const std::array<size_type, N>& sizes,
+                             std::vector<ConstField>& copies) {
+        if (fields == nullptr) {
+          return;
+        }
+        copies.assign(fields, fields + N);
+        for (std::size_t v = 0; v != N; ++v) {
+          this->transfer(copies[v], sizes[v], false);
+        }
+        fields = copies.data();
+      }
+      //! \brief fields of the material properties, variable by variable
+      std::vector<ConstField> material_properties0, material_properties1;
+      //! \brief fields of the external state variables, variable by variable
+      std::vector<ConstField> external_state_variables0,
+          external_state_variables1;
     };
 
     //! \brief a simple alias

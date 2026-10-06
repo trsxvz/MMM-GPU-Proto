@@ -1,0 +1,86 @@
+From 264e9574c49fc7e9897c66fd6a84a67e97a691f7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 02:26:18 +0200
+Subject: [PATCH] generic-parallel: tag names of the C structures of the batch
+ data
+
+The structures of BatchData.h are declared as `typedef struct name {...}
+name;` instead of anonymous structures. This is the same C API. With
+anonymous structures, the front end of nvcc 13.0 crashed ("internal
+error ... find_allocated_name_reference") when instantiating the
+destructor of a std::vector of fields, as done by the calling code to
+give the fields variable by variable.
+---
+ .../MFront/GenericParallelBehaviour/BatchData.h    | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index 8974edff1..5fa0c81c2 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -37,7 +37,7 @@ extern "C" {
+  * `values` may be null if the group is empty or if an optional output is not
+  * requested.
+  */
+-typedef struct {
++typedef struct mfront_gpb_ConstField {
+   //! \brief pointer to the first value
+   const mfront_gb_real* values;
+   //! \brief stride between two integration points
+@@ -47,7 +47,7 @@ typedef struct {
+ } mfront_gpb_ConstField;
+ 
+ //! \brief mutable version of `mfront_gpb_ConstField`
+-typedef struct {
++typedef struct mfront_gpb_Field {
+   //! \brief pointer to the first value
+   mfront_gb_real* values;
+   //! \brief stride between two integration points
+@@ -57,7 +57,7 @@ typedef struct {
+ } mfront_gpb_Field;
+ 
+ //! \brief state of the material at the beginning of the time step
+-typedef struct {
++typedef struct mfront_gpb_InitialState {
+   mfront_gpb_ConstField gradients;
+   mfront_gpb_ConstField thermodynamic_forces;
+   mfront_gpb_ConstField mass_density;
+@@ -69,7 +69,7 @@ typedef struct {
+ } mfront_gpb_InitialState;
+ 
+ //! \brief state of the material at the end of the time step
+-typedef struct {
++typedef struct mfront_gpb_State {
+   mfront_gpb_ConstField gradients;
+   //! \brief output
+   mfront_gpb_Field thermodynamic_forces;
+@@ -92,7 +92,7 @@ typedef struct {
+  * of the time increment and of the computation options. All the pointers
+  * must be accessible by the device on which the computations are performed.
+  */
+-typedef struct {
++typedef struct mfront_gpb_BatchData {
+   //! \brief number of integration points
+   mfront_gb_size_type number_of_points;
+   //! \brief time increment
+@@ -141,7 +141,7 @@ typedef struct {
+  * or tangent operator blocks) of a batch of integration points of an
+  * orthotropic behaviour.
+  */
+-typedef struct {
++typedef struct mfront_gpb_RotationData {
+   //! \brief number of points
+   mfront_gb_size_type number_of_points;
+   //! \brief rotated values
+@@ -169,7 +169,7 @@ typedef struct {
+  * - `-2`: invalid arguments, nothing was computed;
+  * - `-3`: runtime error of the backend (allocation, kernel launch, etc.).
+  */
+-typedef struct {
++typedef struct mfront_gpb_OutputStatus {
+   //! \brief status
+   int status;
+   //! \brief number of points where the integration failed
+-- 
+2.43.0
+
