@@ -51,7 +51,17 @@ LD_LIBRARY_PATH=\$(find "$P/scratch/build-dev2" -name "*.so" -printf "%h\n" | so
   exec "$P/scratch/build-dev2/mfront/src/mfront" "\$@"
 EOF
 chmod +x mfront-dev.sh
-export LD_LIBRARY_PATH=src:$LD_LIBRARY_PATH
+# reference library built with the headers of the development tree too (see
+# build-libraries.sh)
+cat > config-reference.json << EOF
+compilation_options : {
+  cxx : {
+    compilation_flags: "$dev_includes -O2 -std=c++20"
+  }
+}
+EOF
+export MFRONT_GPB_REFERENCE_CONFIGURATION_FILE=$PWD/config-reference.json
+export LD_LIBRARY_PATH=src:reference/src:$LD_LIBRARY_PATH
 grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd; do
   cmd=$(apply "$cmd")
   cmd=${cmd//@mfront@/./mfront-dev.sh}
