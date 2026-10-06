@@ -7,3 +7,28 @@ sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfe
 sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json: Aucun fichier ou dossier de ce nom
 behaviours           openmp-offload-nvhpc-gpu         SKIPPED     0 s (0 passed, 2 skipped)
 behaviours           stlpar-parunseq-gcc              SUCCESS   255 s (2 passed, 0 skipped)
+behaviours           stlpar-parunseq-nvhpc-gpu        SUCCESS  6301 s (2 passed, 0 skipped)
+behaviours           sycl-default-acpp                SUCCESS   468 s (2 passed, 0 skipped)
+behaviours           sycl-default-acpp-omp            SUCCESS   432 s (2 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-cuda-clang.json: Aucun fichier ou dossier de ce nom
+material-properties  cuda-clang                       SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  cuda-nvcc                        SUCCESS    10 s (1 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-hip-clang-nvidia-platform.json: Aucun fichier ou dossier de ce nom
+material-properties  hip-clang-nvidia-platform        SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  hip-hipcc                        SUCCESS     7 s (1 passed, 0 skipped)
+material-properties  kokkos                           SUCCESS    16 s (1 passed, 0 skipped)
+material-properties  kokkos-host                      SUCCESS    17 s (1 passed, 0 skipped)
+material-properties  openmp-host-gcc                  SUCCESS     2 s (1 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-openmp-offload-nvhpc-gpu.json: Aucun fichier ou dossier de ce nom
+material-properties  openmp-offload-nvhpc-gpu         SKIPPED     0 s (0 passed, 1 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-stlpar-parunseq-clang.json: Aucun fichier ou dossier de ce nom
+material-properties  stlpar-parunseq-clang            SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  stlpar-parunseq-gcc              SUCCESS     3 s (1 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-stlpar-parunseq-icpx.json: Aucun fichier ou dossier de ce nom
+material-properties  stlpar-parunseq-icpx             SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  stlpar-parunseq-nvhpc-gpu        SUCCESS    12 s (1 passed, 0 skipped)
+material-properties  sycl-default-acpp                SUCCESS    25 s (1 passed, 0 skipped)
+sed: impossible de lire /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/share/tfel/mfront/configuration-files/config-sycl-default-icpx.json: Aucun fichier ou dossier de ce nom
+material-properties  sycl-default-icpx                SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  sycl-gpu-acpp                    SKIPPED     0 s (0 passed, 1 skipped)
+material-properties  sycl-gpu-acpp-2                  SKIPPED     0 s (0 passed, 1 skipped)

@@ -176,7 +176,7 @@ D. Intégration
 
 ## Entrées
 
-### 2026-10-05 — état des lieux de TFEL master
+### 2026-10-05, état des lieux de TFEL master
 
 - Interface `generic-parallel` des propriétés matériau (#966) :
   backends CUDA, HIP, C++ standard, SYCL ; deux prototypes (avec et sans pas
@@ -188,7 +188,7 @@ D. Intégration
   `411-introduce-a-derived-generic-interface-for-gpus` : ébauche de 2023,
   abandonnée.
 
-### 2026-10-05 — sonde J2 (DSL par défaut) dans un kernel CUDA
+### 2026-10-05, sonde J2 (DSL par défaut) dans un kernel CUDA
 
 Erreurs ou avertissements trouvés, dans l'ordre :
 1. `integrate` généré par le DSL par défaut non annoté `TFEL_HOST_DEVICE`.
@@ -205,7 +205,7 @@ sur l'hôte, ce qui changerait le comportement CPU. Décision : macro
 `TFEL_DEVICE_CODE` (compilation du code GPU seulement) et branche dans le
 code généré, le CPU restant identique.
 
-### 2026-10-05 — jalon 1 terminé : code généré compilable pour le GPU
+### 2026-10-05, jalon 1 terminé : code généré compilable pour le GPU
 
 - `integrate`, `computePredictionOperator`, constructeurs et destructeur
   annotés `TFEL_HOST_DEVICE` ; erreurs « impossibles » (`raise`) remplacées
@@ -224,7 +224,7 @@ code généré, le CPU restant identique.
   interfaces (constructeurs des données, `exportStateData`...) : `generic` et
   `generic-parallel` peuvent être utilisées ensemble.
 
-### 2026-10-05 — jalon 2 : interface `generic-parallel` des lois
+### 2026-10-05, jalon 2 : interface `generic-parallel` des lois
 
 - Conception (voir DESIGN.md) : même squelette que l'interface des
   propriétés matériau (fabrique de backends, options dans les
@@ -270,7 +270,7 @@ Mesures indicatives (RTX 5080, double précision bridée à 1/64), 100 003
 points, appel complet (allocation, copie, synchronisation) : J2 0,3-0,4 ms,
 Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
 
-### 2026-10-05 — jalon 3 et balayage des lois de test
+### 2026-10-05, jalon 3 et balayage des lois de test
 
 - Tests `tfel-check` : `compare.cxx` compilable par nvcc (mémoire managée)
   ou g++ ; les deux interfaces générées par le même appel de `mfront`
@@ -300,7 +300,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `raise_if`, `static const` initialisé à l'exécution. Sur GPU, utiliser
   `return false;` ou `return FAILURE;`. À documenter.
 
-### 2026-10-05 — lois de matériau, valeurs propres et pile sur GPU
+### 2026-10-05, lois de matériau, valeurs propres et pile sur GPU
 
 - Lois de matériau appelées par les lois (`@MaterialLaw`,
   `@ElasticMaterialProperties`, `@ComputeThermalExpansion`...) :
@@ -333,7 +333,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   bilan du premier pas (au lieu d'exiger son succès).
 - Documentation : `docs/web/generic-parallel-behaviour-interface.md`.
 
-### 2026-10-05 — réorganisation, commits locaux, piège d'environnement
+### 2026-10-05, réorganisation, commits locaux, piège d'environnement
 
 - Dossiers `tfel/` (ex `tfel-gpu-proto`), `mgis/`, `mfem-mgis/`, chacun
   avec `patches/`. 5 commits locaux dans `tfel/` (auteur t), série
@@ -370,7 +370,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   ma série l'avait remplacé. Restauré ; la série du proto est dans
   `proto-patches/` (dans les trois bibliothèques).
 
-### 2026-10-05 — HIP sur GPU NVIDIA (C1, commit 0007)
+### 2026-10-05, HIP sur GPU NVIDIA (C1, commit 0007)
 
 - `hipcc` sur plateforme NVIDIA appelle `nvcc` et ne définit ni `__HIP__`
   ni `__HIPCC__` : `GPU.hxx` prenait silencieusement le chemin CUDA. Le
@@ -393,7 +393,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `PATH=install/tfel/bin:...` et, pour HIP,
   `HIP_PLATFORM=nvidia HIP_COMPILER=nvcc CUDA_PATH=<SDK>/cuda/12.9`.
 
-### 2026-10-05 — `stlpar` sur GPU avec nvc++ 25.11 (C2, en cours)
+### 2026-10-05, `stlpar` sur GPU avec nvc++ 25.11 (C2, en cours)
 
 - `nvc++ -stdpar=gpu` compile hôte et GPU en une passe, sans `__CUDA_ARCH__` :
   `TFEL_DEVICE_CODE` est maintenant aussi défini si `__NVCOMPILER_STDPAR_GPU`
@@ -427,7 +427,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `NV_ACC_CUDA_STACKSIZE=8192`. `-O1` : Hosford encore en échec à 8 Ko (à
   voir).
 
-### 2026-10-05 — backends Kokkos et SYCL, factorisation, corrections CMake
+### 2026-10-05, backends Kokkos et SYCL, factorisation, corrections CMake
 
 - Factorisation : `PointIntegrator` (objet fonction trivialement copiable
   intégrant la loi en un point et renvoyant les statistiques),
@@ -477,7 +477,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   destructeur. Sur CPU (OpenMP) : plantage dans le JIT d'AdaptiveCpp
   (`SubCfgFormationPass`), à revoir après ces changements.
 
-### 2026-10-05 — matrice complète des backends, corrections
+### 2026-10-05, matrice complète des backends, corrections
 
 - Une seule matrice de tests : `scripts/run-generic-parallel-tests.sh`
   (copie des tests installés dans `scratch/tc`, `tfel-check` par
@@ -533,7 +533,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
      ignorait le décalage de la vitesse du son, pointeurs non restaurés si
      une fonction d'initialisation lève une exception.
 
-### 2026-10-05 (soir) — B5 grandes déformations, B2 initialisations et post-traitements
+### 2026-10-05 (soir), B5 grandes déformations, B2 initialisations et post-traitements
 
 - **B5** (non commité au moment de l'écriture) : stratégies d'intégration
   `FiniteStrainIntegrator`, `GreenLagrangeStrainIntegrator`,
@@ -606,7 +606,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
 - Balayage CUDA à refaire après installation (les 33 « UNSUPPORTED »
   étaient des lois grandes déformations).
 
-### 2026-10-05 (soir, suite) — B3 rotations des lois orthotropes
+### 2026-10-05 (soir, suite), B3 rotations des lois orthotropes
 
 - Module partagé `MFront/BehaviourRotationFunctions.{hxx,cxx}` :
   description des fonctions de rotation d'une loi orthotrope (nom, objets
@@ -649,7 +649,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   dossier de test, où MFront les cherche en premier) et
   `GPB_TESTS_DIRECTORY`.
 
-### 2026-10-05 (nuit) — B4 monocristaux, défauts trouvés par nvcc
+### 2026-10-05 (nuit), B4 monocristaux, défauts trouvés par nvcc
 
 - **Méthodes générées non annotées** : `execute<Nom>InitializeFunction` et
   `execute<Nom>PostProcessing` n'étaient pas `TFEL_HOST_DEVICE` (invisible
@@ -694,7 +694,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
 - stlpar/g++ : 220/220 comparaisons. Réinstallation, régression et matrice
   relancées.
 
-### 2026-10-05 (nuit, suite) — B1 couverture numérique, nouveaux défauts nvcc et clang
+### 2026-10-05 (nuit, suite), B1 couverture numérique, nouveaux défauts nvcc et clang
 
 - Harnais : énergies stockée et dissipée comparées à chaque intégration
   (`--energies=true` exige qu'elles soient non nulles), vitesse du son
@@ -725,7 +725,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   relues par les pointeurs des données de la loi (`PointView` possède
   désormais `rdt`, accesseur `getTimeStepScalingFactor()`).
 
-### 2026-10-05 (nuit, suite) — B6 modèles autonomes
+### 2026-10-05 (nuit, suite), B6 modèles autonomes
 
 - Nouvelle interface de modèles `generic-parallel`
   (`GenericParallelModelInterface`, enregistrée à côté de `generic`) :
@@ -774,7 +774,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   (testé par `GenericParallelModelWithQuantitiesTest`, valeur correcte sur
   GPU).
 
-### 2026-10-05 (nuit, suite) — B7 solveur TDLS sur GPU
+### 2026-10-05 (nuit, suite), B7 solveur TDLS sur GPU
 
 - `@LinearSystemSolver TDLS` (bibliothèque TDLS, construite dans
   `~/Documents/GitHub/tdls/build-install`, TFEL configuré avec
@@ -804,7 +804,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   paramètres de patron de type classe de TDLS et lambdas dans des
   initialiseurs de membres statiques).
 
-### 2026-10-05 (nuit, suite) — variables de comportement et balayage complet
+### 2026-10-05 (nuit, suite), variables de comportement et balayage complet
 
 - Constat : le balayage de compilation (`scripts/compile-sweep.sh`) ne
   couvrait que les 226 fichiers à la racine de `mfront/tests/behaviours`.
@@ -835,7 +835,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   statiques) et `ExternalModelCallerTest` (Runge-Kutta rk54 + modèle
   externe à paramètre).
 
-### 2026-10-05 (nuit, suite) — brique StandardElastoViscoPlasticity et en-têtes de TFEL
+### 2026-10-05 (nuit, suite), brique StandardElastoViscoPlasticity et en-têtes de TFEL
 
 - Balayage CUDA (mfront de développement) des 140 lois de
   `StandardElastoViscoPlasticity` : 118 OK au premier passage, 140/140
@@ -891,7 +891,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   Chu-Needleman, schéma étagé, porosité initiale 0,005) : robustes (FMA)
   et identiques à 1e-15 près sur CUDA.
 
-### 2026-10-05 (nuit, suite) — commits 0016 à 0018
+### 2026-10-05 (nuit, suite), commits 0016 à 0018
 
 - Régression TFEL : 6965/6965 avec tout ce qui précède (installation
   fraîche). Commits locaux : 7b1ed663c (TFEL : annotations cohérentes,
@@ -904,7 +904,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
 - Script `scripts/clang-cuda-header-scan.sh` : contrôle des annotations
   hôte/device de tous les en-têtes par clang CUDA (0 incohérence).
 
-### 2026-10-05 (soir) — C5 backend OpenMP, points d'entrée factorisés
+### 2026-10-05 (soir), C5 backend OpenMP, points d'entrée factorisés
 
 - Points d'entrée communs dans `Integrate.hxx` : `integrateBatch`,
   `executeInitializeFunctionOnBatch`, `executePostProcessingOnBatch`,
@@ -934,7 +934,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   peut pas servir de compilateur de référence ici : le LLVM 20 de spack
   est construit sans le support du déport OpenMP (`offload=False`).
 
-### 2026-10-05 (soir, suite) — propriétés matériau : backends Kokkos et OpenMP
+### 2026-10-05 (soir, suite), propriétés matériau : backends Kokkos et OpenMP
 
 - L'interface `generic-parallel` des propriétés matériau
   n'avait que CUDA, HIP, stlpar et SYCL. Ajout de `kokkos` (option
@@ -957,7 +957,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `kokkos`, `kokkos-host`, `openmp-host-gcc`, `openmp-offload-nvhpc-gpu`
   ajoutés ; plus aucune configuration réservée aux lois.
 
-### 2026-10-05 (soir, suite) — matrice c, OpenMP, modèles compilés par nvc++
+### 2026-10-05 (soir, suite), matrice c, OpenMP, modèles compilés par nvc++
 
 - Matrice O2 (`results/generic-parallel-tests-2026-10-05-c.txt`, état des
   commits 0016-0018) : CUDA, HIP, Kokkos, Kokkos hôte, stlpar g++ réussis
@@ -1014,7 +1014,7 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   dans les cas courants), mémoire via `std::pmr::memory_resource`, nouvelle
   surcharge `integrate(BatchExecutionPolicy, MaterialDataManager&, ...)`.
 
-### 2026-10-06 (nuit) — versions de NVHPC et de CUDA, défauts d'OpenMP déporté
+### 2026-10-06 (nuit), versions de NVHPC et de CUDA, défauts d'OpenMP déporté
 
 - Notes de version de NVHPC 26.1 à 26.9 : aucune liste de défauts corrigés.
   Reproducteurs rejoués avec NVHPC 26.3 et 26.9 installés dans
@@ -1054,3 +1054,31 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   nécessaire si le CUDA vient de NVHPC.
 - Tests des lois ajoutés pour `stlpar-parunseq-clang`,
   `stlpar-parunseq-icpx` et `sycl-default-icpx` (à valider).
+
+### 2026-10-06 (nuit, suite), champs par variable, symboles, rôles
+
+- `BatchData` : les propriétés matériau et les variables externes peuvent
+  être données par groupe (un champ) ou par variable (un champ par
+  variable, membres optionnels `material_properties_by_variable` et
+  `external_state_variables_by_variable`). Une structure initialisée
+  comme avant garde son sens. Les deux formes sont converties côté hôte
+  dans `InputFields` (champs et nombres de composantes), passé par valeur
+  aux noyaux : un seul chemin de code par point. Les propriétés matériau
+  et les variables externes d'un point sont toujours copiées, le mode
+  direct ne dépend plus que des autres champs (une propriété uniforme ne
+  le désactive plus). SYCL copie chaque variable si nécessaire.
+  `PointTraits` donne le nombre de composantes de chaque variable (lois
+  et modèles), lu seulement côté hôte.
+- `compare.cxx` : troisième rangement « par variable » (valeurs
+  uniformes, pas nul) pour toutes les comparaisons : 396 au lieu de 284
+  avec stdpar g++.
+- Symboles : `<loi>_generic_parallel_backend` (lois et modèles).
+  Défaut corrigé : les modèles `generic-parallel` exportaient
+  `mfront_interface = "Generic"`.
+- Rôles de TFEL/MFront, MGIS et mfem-mgis : section de `DESIGN.md`.
+  Conception MGIS (`scratch/d1-mgis-design.md`, 2.3) : MGIS passe un champ
+  par variable, sans espace de travail.
+- Développement dans l'arbre de travail `tfel-dev` (branche
+  `batchdata-by-variable`) pendant la validation de `tfel/` ; MFront de
+  développement dans `scratch/build-dev2`, tests par
+  `scratch/dev-test.sh <configuration>`.

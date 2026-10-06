@@ -1,4 +1,4 @@
-# D1 — MGIS : intégration d'un lot avec une bibliothèque `generic-parallel` (proposition de conception)
+# D1, MGIS : intégration d'un lot avec une bibliothèque `generic-parallel` (proposition de conception)
 
 Statut : proposition, aucune modification de code. Bases : MGIS master `818f0f9` (`mgis/`), TFEL proto branche `generic-parallel-behaviours` (`tfel/`). Date : 2026-10-05. Rédigé par un agent d'étude (lecture seule), recopié tel quel.
 
@@ -82,11 +82,11 @@ Dans `GenericParallelBehaviourInterface::writeSourceFile` (près de 641-651) :
 
 | Champ `BatchData` | Source MGIS | Mappage |
 |---|---|---|
-| `number_of_points` | `m.n` (`MaterialDataManager.hxx:238`) ou `e-b` | — |
-| `dt` | argument | — |
-| `options[0]` | `encodeBehaviourIntegrationOptions(opts)` (`Integrate.cxx:40-46`, +100 si vitesse du son) | — |
+| `number_of_points` | `m.n` (`MaterialDataManager.hxx:238`) ou `e-b` |  |
+| `dt` | argument |  |
+| `options[0]` | `encodeBehaviourIntegrationOptions(opts)` (`Integrate.cxx:40-46`, +100 si vitesse du son) |  |
 | `options[1..2]` | `b.options` (`Behaviour.hxx:160`) | 0 si vide |
-| `rdt` | `opts.rdt` (défaut 10, 4.4) | — |
+| `rdt` | `opts.rdt` (défaut 10, 4.4) |  |
 | `tangent_operators` | `m.K`, `K_stride` | zc `{K+b*Ks, Ks, 1}` ; nul si pas d'opérateur |
 | `rdts` | nouveau `m.time_step_scaling_factors` (optionnel) | zc |
 | `speed_of_sound` | `m.speed_of_sound` | zc si demandée |
@@ -96,7 +96,7 @@ Dans `GenericParallelBehaviourInterface::writeSourceFile` (près de 641-651) :
 | `mass_density` | `optional<MutableFieldHolder>` (208) | uniforme : espace de travail (`ps=0`) ; `span` : zc ; `vector` : zc si mémoire hôte acceptée sinon copie |
 | `material_properties` | map par variable (199), scalaires | planificateur 2.2 |
 | `external_state_variables` | map par variable (226), uniformes ou champs | planificateur 2.2 |
-| `queue` | `policy.queue` | — |
+| `queue` | `policy.queue` |  |
 
 ### 2.2 Planificateur par groupe (mps0, mps1, esvs0, esvs1)
 
@@ -122,7 +122,15 @@ Espace de travail `BatchIntegrationWorkSpace` propre au `MaterialDataManager`, a
 
 Ordres de grandeur (RTX 5080, 100 003 points) : cas 5 avec 4 propriétés matériau et 1 variable externe en champs ≈ 8 Mo par appel, ~1-2 ms séquentiel, ~0,3-0,6 ms PCIe : ×5-10 sur J2 GPU, +20-40 % sur Norton GPU. Cas 2-4 ≈ 0. Sur CPU, pas de régression par rapport au chemin par point (qui copie déjà ces valeurs, `Integrate.cxx:154-168`).
 
-**Recommandation : B pour D1**, A (ou le cas 4 généralisé) décidé en D2 sur mesure dans mfem-mgis.
+**Décision : les deux formes cohabitent dans TFEL.** Le champ par groupe
+reste valable. Les champs par variable sont optionnels
+(`material_properties_by_variable`, `external_state_variables_by_variable`).
+Les deux formes sont converties côté hôte dans la même description
+(`VariableFields`), passée par valeur aux noyaux : un seul chemin de code
+par point. Pour MGIS, chaque `FieldHolder` devient directement un champ
+(uniforme : pas nul ; en place : `{p+b*s, s, 1}`), sans espace de travail
+ni copie. Le planificateur du 2.2 n'est plus nécessaire pour les
+propriétés matériau et les variables externes.
 
 ## 3. Résidence mémoire
 

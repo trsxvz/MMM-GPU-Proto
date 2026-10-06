@@ -4,6 +4,7 @@
 # MGIS et mfem-mgis ne sont pas modifiés pour l'instant (commits de base dans
 # README.md).
 /tfel/
+/tfel-dev/
 /mgis/
 /mfem-mgis/
 # constructions, installations et dépendances

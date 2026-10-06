@@ -2,7 +2,12 @@
 # of spack-packages, commit 3b7fdffc24).
 #
 # NVIDIA HPC SDK 25.11 and its CUDA 13.0.2 are external: the CUDA used by the
-# packages is the one of the SDK (drivers >= 580, e.g. A100 nodes). The GPU
+# packages is the one of the SDK (drivers >= 580, e.g. A100 nodes), seen
+# through a prefix with the layout of the standalone toolkit, built by
+#   deps/spack/make-nvhpc-cuda-prefix.sh \
+#     /opt/nvidia/hpc_sdk/Linux_x86_64/25.11 13.0 \
+#     ~/Bureau/spack-mmm-externals/cuda-13.0.2
+# (the mathematical libraries of the SDK are in a separate directory). The GPU
 # architecture is given by `cuda_arch`: 120 (Blackwell, RTX 5080) here, 80
 # for A100 (Kokkos supports one architecture per build).
 spack:
@@ -56,4 +61,4 @@ spack:
       buildable: false
       externals:
       - spec: cuda@13.0.2
-        prefix: /opt/nvidia/hpc_sdk/Linux_x86_64/25.11/cuda/13.0
+        prefix: /home/t/Bureau/spack-mmm-externals/cuda-13.0.2

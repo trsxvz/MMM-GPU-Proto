@@ -1,7 +1,7 @@
 #!/bin/bash
-# Compile all the test behaviours and models of MFront (sub-directories
-# included) with the generic-parallel interface and the given configuration
-# file, and summarize the results.
+# Compile all the test behaviours, models and material properties of MFront
+# (sub-directories included) with the generic-parallel interface and the
+# given configuration file, and summarize the results.
 # usage: scripts/compile-sweep.sh [configuration file] [number of jobs]
 #        [pattern selecting the files]
 # The MFRONT variable selects the mfront executable (for instance
@@ -88,7 +88,7 @@ compile() {
 }
 export -f compile
 export OUT CONF TESTS MFRONT
-find "$TESTS/behaviours" "$TESTS/models" -name "*.mfront" | sort |
+find "$TESTS/behaviours" "$TESTS/models" "$TESTS/properties" -name "*.mfront" | sort |
   grep -E "$PATTERN" | xargs -P "$JOBS" -I{} bash -c 'compile {}'
 cat "$OUT"/*/status | sort > "$OUT/summary.tsv"
 cut -f2 "$OUT/summary.tsv" | sort | uniq -c

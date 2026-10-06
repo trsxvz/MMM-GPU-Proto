@@ -30,7 +30,7 @@ parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
 | `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), garde-fou mémoire des longues compilations (`memory-governor.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
 | `results/` | résultats des matrices et des balayages, défauts de compilateurs rencontrés avec leurs reproducteurs (`results/nvhpc-bugs/`) |
 | `scratch/` | scripts de validation, configurations de développement, proposition de conception pour MGIS (`d1-mgis-design.md`) |
-| `deps/spack/` | environnement spack du prototype (`mmm-gpu/spack.yaml`) et dépôt de paquets complémentaire (recette d'AdaptiveCpp 25.10) |
+| `deps/spack/` | environnement spack du prototype (`mmm-gpu/spack.yaml`), dépôt de paquets complémentaire (recette d'AdaptiveCpp 25.10), préfixe CUDA tiré du HPC SDK ; voir son README |
 | `deps/spack-sycl/` | spécification spack du LLVM utilisé par AdaptiveCpp dans l'ancien environnement |
 
 La documentation utilisateur des interfaces est dans

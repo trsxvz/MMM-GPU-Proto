@@ -231,6 +231,39 @@ Kokkos is initialized; it never initializes it. The batch summary is
 reduced by `Kokkos::parallel_reduce` with a reduction functor. The execution
 space instance may be given through the `queue` member of the batch data.
 
+## Roles of TFEL/MFront, MGIS and mfem-mgis
+
+The three libraries share the work as follows. Each one only knows the
+interface of the previous one.
+
+| | TFEL/MFront | MGIS | mfem-mgis |
+|---|---|---|---|
+| Role | code of a material point, processing of a batch | material data, loading, dispatch | finite elements, solvers, orchestration |
+| GPU code | kernels of the batch functions (one backend per library) | none in the core | assembly and solvers on the device (MFEM, hypre, Ginkgo) |
+| Memory | never allocates (except the SYCL copies of inaccessible fields) | allocates the material data in the requested memory space | owns the finite element data, decides where they live |
+| Interface | `mfront_gpb_BatchData` (C), metadata symbols | `MaterialDataManager`, batch integration functions | `PartialQuadratureSpace`, nonlinear forms |
+
+Principles:
+
+- TFEL/MFront exposes a C data contract: fields (pointer and strides) for
+  each group or each variable, a queue, statuses. The kernels receive
+  everything by value. TFEL does not choose the device nor the memory
+  space: the caller gives pointers accessible by the device.
+- MGIS maps its data (`MaterialDataManager`, uniform or per point values)
+  to this contract without copies when possible (per variable fields for
+  the material properties and the external state variables). MGIS selects
+  the `generic` or the `generic-parallel` function and falls back to the
+  `generic` interface if needed. MGIS has no dependency on a GPU toolkit:
+  memory spaces are provided by the caller or by optional components.
+- mfem-mgis decides which parts run on the device: integration only,
+  integration and assembly, or everything. It moves the finite element
+  data with the memory manager of MFEM and calls MGIS on the points of
+  each partial quadrature space. It never calls TFEL directly.
+- A backend of TFEL is a property of a generated library. Several
+  libraries (for instance `cuda` and `stlpar`) can be loaded together, so
+  that the choice between the host and the device is made at run time by
+  MGIS or mfem-mgis.
+
 ## Milestones
 
 1. Generated code compilable for GPUs: `TFEL_HOST_DEVICE` annotations, device
