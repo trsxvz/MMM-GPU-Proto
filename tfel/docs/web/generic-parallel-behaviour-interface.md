@@ -489,9 +489,12 @@ worked around in the generated code and the headers (see the comments of
   generated function reports an error).
 - the slip systems of polycrystals read from a file at runtime
   (`PolyCrystalsSlidingSystems`) are not available in device code.
+- the comparison of the jacobian to a numerical jacobian
+  (`@CompareToNumericalJacobian`) prints its results on the standard
+  output: it is only performed on the host.
 - the `HIP` backend has not been tested on AMD GPUs.
-- the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU),
-  not with Intel's DPC++.
+- the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU)
+  and with Intel's `icpx` (CPU).
 
 # Tests
 

@@ -1224,3 +1224,26 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
 - `scratch/dev-test.sh` : variable `DEVTEST_OPTIMIZATION_LEVEL`, comme la
   matrice.
 - Branche `clang-cuda` : 10 commits au-dessus de la branche validée.
+
+### 2026-10-06 (matin, fin), validation de la branche fusionnée
+
+- Les matrices ne tournent plus qu'à -O3 : quand -O3 passe, -O1 et -O2
+  passent dans la très grande majorité des cas. `VALIDATE_LEVELS` choisit
+  d'autres niveaux si besoin.
+- Branche `clang-cuda` fusionnée dans `generic-parallel-behaviours`
+  (9cae5c235). `scratch/validate3.sh 2026-10-06c` :
+  - régression de TFEL : 6965/6965 ;
+  - matrice -O3 : les 31 tests réussissent (15 configurations de lois,
+    toutes avec leur sous-test TDLS, 16 de propriétés matériau), aucun
+    sauté (`results/generic-parallel-tests-2026-10-06c-O3.txt`) ;
+  - balayages de compilation des 608 lois, modèles et propriétés,
+    identiques avec nvcc et clang : 504 OK, 36 code utilisateur, 60
+    invalides (dont 26 tests unitaires qui ne doivent pas compiler), 7
+    fragments, 1 appel hôte (`results/compile-sweep-*-2026-10-06.tsv`).
+- Le dernier appel hôte venait de MFront : la comparaison à la jacobienne
+  numérique (`@CompareToNumericalJacobian`) affiche ses résultats avec
+  `std::cout`. Elle n'est plus générée que pour l'hôte (53d30ff6c).
+- Les 36 cas de code utilisateur sont tous dans les lois de test :
+  `throw`, `tfel::raise`, `std::cout`, statiques initialisés à
+  l'exécution, systèmes de glissement des polycristaux lus dans un
+  fichier (limite documentée).

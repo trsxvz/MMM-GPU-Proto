@@ -1280,10 +1280,14 @@ namespace mfront {
       NonLinearSystemSolverBase::writeEvaluateNumericallyComputedBlocks(
           os, this->bd, h);
       if (this->bd.hasAttribute(h, BehaviourData::compareToNumericalJacobian)) {
-        os << "tfel::math::tmatrix<" << n2 << ", " << n2
+        // the results of the comparison are printed on the standard output,
+        // which is not available in device code
+        os << "#ifndef TFEL_DEVICE_CODE\n"
+           << "tfel::math::tmatrix<" << n2 << ", " << n2
            << ", NumericType> njacobian;\n";
         NonLinearSystemSolverBase::writeComparisonToNumericalJacobian(
             os, this->bd, h, "njacobian");
+        os << "#endif /* TFEL_DEVICE_CODE */\n";
       }
     }
     os << "}\n"

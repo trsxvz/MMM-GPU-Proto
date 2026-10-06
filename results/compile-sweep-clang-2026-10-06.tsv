@@ -1,0 +1,608 @@
+behaviours/AbaqusAxialGrowth2.mfront	OK	
+behaviours/AbaqusAxialGrowth.mfront	OK	
+behaviours/AbaqusOrthotropicElastic2.mfront	OK	
+behaviours/AbaqusOrthotropicElastic.mfront	OK	
+behaviours/AbaqusOrthotropicSwelling2.mfront	OK	
+behaviours/AbaqusOrthotropicSwelling.mfront	OK	
+behaviours/AgeingBurger.mfront	OK	
+behaviours/AnistropicLemaitreViscoplasticBehaviour.mfront	OK	
+behaviours/ArrayOfScalarGradients.mfront	OK	
+behaviours/ArrayOfStensorGradients.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModel1.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModelTest1.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModelTest2.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModelTest3.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModelTest4.mfront	OK	
+behaviours/AuxiliaryModels/AuxiliaryModelTest5.mfront	OK	
+behaviours/AuxiliaryModels/VonMisesStress.mfront	OK	
+behaviours/AxialGrowth2.mfront	OK	
+behaviours/AxialGrowth3.mfront	USER_CODE	reference to __host__ function '~DivergenceException' 
+behaviours/AxialGrowth.mfront	OK	
+behaviours/BarBehaviour2.mfront	OK	
+behaviours/BarBehaviour3.mfront	OK	
+behaviours/BarBehaviour4.mfront	OK	
+behaviours/BarBehaviour.mfront	OK	
+behaviours/BehaviourVariables/BehaviourVariable1.mfront	OK	
+behaviours/BehaviourVariables/BehaviourVariableFactory1.mfront	OK	
+behaviours/BehaviourVariables/BehaviourVariableFactory2.mfront	OK	
+behaviours/BehaviourVariables/BehaviourVariablePlasticity.mfront	OK	
+behaviours/BerveillerZaouiPolyCrystal_DD_CC.mfront	USER_CODE	reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' reference to __host__ function '__destroy<tfel::math::stensor<3> *>' 
+behaviours/BerveillerZaouiPolyCrystal_DD_CFC.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function '__assign_one<tfel::math::stensor<3>, tfel::math::stensor<3>>' reference to __host__ function 'deallocate' 
+behaviours/BerveillerZaouiPolyCrystal.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function '__assign_one<tfel::math::stensor<3>, tfel::math::stensor<3>>' reference to __host__ function 'deallocate' 
+behaviours/Burger.mfront	OK	
+behaviours/Chaboche2.mfront	OK	
+behaviours/Chaboche.mfront	OK	
+behaviours/CompressibleNeoHookeanBehaviour.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function 'operator new' 
+behaviours/ComputeStressFreeExpansion.mfront	OK	
+behaviours/ComputeThermalExpansion2.mfront	OK	
+behaviours/ComputeThermalExpansion3.mfront	OK	
+behaviours/ComputeThermalExpansion4.mfront	OK	
+behaviours/ComputeThermalExpansion5.mfront	OK	
+behaviours/ComputeThermalExpansion6.mfront	OK	
+behaviours/ComputeThermalExpansion7.mfront	OK	
+behaviours/ComputeThermalExpansion.mfront	OK	
+behaviours/DDIF2/DDIF2_2.mfront	OK	
+behaviours/DDIF2/DDIF2_3.mfront	OK	
+behaviours/DDIF2/DDIF2_4.mfront	OK	
+behaviours/DDIF2/DDIF2_5.mfront	OK	
+behaviours/DDIF2/DDIF2_6.mfront	OK	
+behaviours/DDIF2/DDIF2.mfront	OK	
+behaviours/DDIF2.mfront	OK	
+behaviours/DigitSeparatorTest.mfront	OK	
+behaviours/DruckerPragerEcroLinDefault.mfront	OK	
+behaviours/DruckerPragerEcroLin.mfront	OK	
+behaviours/DruckerPrager.mfront	OK	
+behaviours/DSLOptionsTest.mfront	OK	
+behaviours/Elasticity10.mfront	OK	
+behaviours/Elasticity2.mfront	OK	
+behaviours/Elasticity3.mfront	OK	
+behaviours/Elasticity4.mfront	OK	
+behaviours/Elasticity5.mfront	OK	
+behaviours/Elasticity6.mfront	OK	
+behaviours/Elasticity7.mfront	OK	
+behaviours/Elasticity8.mfront	OK	
+behaviours/Elasticity9.mfront	OK	
+behaviours/Elasticity.mfront	OK	
+behaviours/ElasticityParametersAsStaticVariables.mfront	OK	
+behaviours/ElasticMaterialPropertiesBoundsCheckTest.mfront	OK	
+behaviours/EllipticCreep.mfront	OK	
+behaviours/ExternalModel2.mfront	OK	
+behaviours/ExternalModelCaller2.mfront	OK	
+behaviours/ExternalModelCaller3.mfront	OK	
+behaviours/ExternalModelCaller4.mfront	OK	
+behaviours/ExternalModelCaller.mfront	OK	
+behaviours/ExternalModel.mfront	OK	
+behaviours/ExternalStateVariablesBoundsCheck.mfront	OK	
+behaviours/FiniteRotationSmallStrainElasticity2.mfront	USER_CODE	reference to __host__ function 'endl<char, std::char_traits<char>>' reference to __host__ function 'operator<<' reference to __host__ function 'operator<<<std::char_traits<char>>' 
+behaviours/FiniteRotationSmallStrainElasticity.mfront	OK	
+behaviours/FiniteStrainSingleCrystal2.mfront	USER_CODE	reference to __host__ function '~DivergenceException' 
+behaviours/FiniteStrainSingleCrystal/FiniteStrainSingleCrystal.mfront	OK	
+behaviours/FiniteStrainSingleCrystal/FiniteStrainSingleCrystal_NumericalJacobian.mfront	OK	
+behaviours/FiniteStrainSingleCrystal.mfront	OK	
+behaviours/FiniteStrainSingleCrystal_NumericalJacobian.mfront	OK	
+behaviours/GeneralizedMaxwell.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function 'operator new' 
+behaviours/GenerateMTestFileOnFailure.mfront	OK	
+behaviours/Gurson.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function 'operator new' 
+behaviours/GursonTvergaardNeedlemanPlasticFlow_NumericalJacobian.mfront	OK	
+behaviours/GursonTvergaardNeedlemanViscoPlasticFlow_NumericalJacobian.mfront	OK	
+behaviours/Hayhurst.mfront	OK	
+behaviours/HosfordPerfectPlasticity2.mfront	OK	
+behaviours/HosfordPerfectPlasticity3.mfront	OK	
+behaviours/HosfordPerfectPlasticity.mfront	OK	
+behaviours/ImplicitElasticityParametersAsStaticVariables.mfront	OK	
+behaviours/ImplicitFiniteStrainNorton.mfront	OK	
+behaviours/ImplicitHayhurst.mfront	OK	
+behaviours/ImplicitMonoCrystal.mfront	OK	
+behaviours/ImplicitNorton2.mfront	OK	
+behaviours/ImplicitNorton3.mfront	USER_CODE	reference to __host__ function '~DivergenceException' 
+behaviours/ImplicitNorton4.mfront	OK	
+behaviours/ImplicitNorton5.mfront	OK	
+behaviours/ImplicitNorton6.mfront	OK	
+behaviours/ImplicitNorton7.mfront	OK	
+behaviours/ImplicitNorton_Broyden2.mfront	OK	
+behaviours/ImplicitNorton_Broyden.mfront	OK	
+behaviours/ImplicitNorton_LevenbergMarquardt.mfront	OK	
+behaviours/ImplicitNorton.mfront	OK	
+behaviours/ImplicitNorton_NumericallyComputedJacobianBlocks.mfront	OK	
+behaviours/ImplicitNorton_PowellDogLegBroyden.mfront	OK	
+behaviours/ImplicitOrthotropicCreep2.mfront	OK	
+behaviours/ImplicitOrthotropicCreep3.mfront	OK	
+behaviours/ImplicitOrthotropicCreep4.mfront	OK	
+behaviours/ImplicitOrthotropicCreep.mfront	OK	
+behaviours/ImplicitSimoMieheElastoPlasticity.mfront	USER_CODE	reference to __host__ function '~runtime_error' reference to __host__ function 'runtime_error' 
+behaviours/IncompressibleMooneyRivlinBehaviour.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function 'operator new' 
+behaviours/IncompressiblePlaneStressGornetDesmoratBehaviour.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' 
+behaviours/IncompressiblePlaneStressMooneyRivlinBehaviour.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function 'operator new' 
+behaviours/InitializationFailureTest.mfront	OK	
+behaviours/IsotropicDSLs/MultipleFlows1.mfront	OK	
+behaviours/IsotropicDSLs/MultipleFlows2.mfront	OK	
+behaviours/IsotropicDSLs/MultipleFlows3.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity1.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity2.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity3.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity4.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity5.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity6.mfront	OK	
+behaviours/IsotropicDSLs/Plasticity7.mfront	OK	
+behaviours/IsotropicLinearSwelling2.mfront	OK	
+behaviours/IsotropicLinearSwelling.mfront	OK	
+behaviours/IsotropicVolumeSwelling2.mfront	OK	
+behaviours/IsotropicVolumeSwelling.mfront	OK	
+behaviours/JohnsonCook_s.mfront	OK	
+behaviours/JohnsonCook_ssr.mfront	OK	
+behaviours/JohnsonCook_ssrt.mfront	OK	
+behaviours/LogarithmicStrainAxialGrowth.mfront	OK	
+behaviours/LogarithmicStrainElasticity2.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'deallocate' reference to __host__ function '_M_disjunct' 
+behaviours/LogarithmicStrainElasticity3.mfront	OK	
+behaviours/LogarithmicStrainElasticity4.mfront	OK	
+behaviours/LogarithmicStrainElasticity.mfront	OK	
+behaviours/LogarithmicStrainNortonCreep2.mfront	OK	
+behaviours/LogarithmicStrainNortonCreep.mfront	OK	
+behaviours/LogarithmicStrainOrthotropicElasticity.mfront	OK	
+behaviours/LogarithmicStrainPlasticity2.mfront	OK	
+behaviours/LogarithmicStrainPlasticity.mfront	OK	
+behaviours/LogarithmicStrainStandardElasticity2.mfront	USER_CODE	reference to __host__ function 'raise<std::runtime_error, const char (&)[26]>' 
+behaviours/LogarithmicStrainStandardElasticity3.mfront	USER_CODE	reference to __host__ function 'raise<std::runtime_error, const char (&)[26]>' 
+behaviours/LogarithmicStrainStandardElasticity4.mfront	USER_CODE	reference to __host__ function 'raise<std::runtime_error, const char (&)[26]>' 
+behaviours/LogarithmicStrainStandardElasticity.mfront	USER_CODE	reference to __host__ function 'raise<std::runtime_error, const char (&)[26]>' 
+behaviours/Lorentz2.mfront	OK	
+behaviours/Lorentz.mfront	OK	
+behaviours/MaterialPropertiesBoundsCheck.mfront	OK	
+behaviours/Mazars.mfront	OK	
+behaviours/MiehePhaseFieldDisplacementDeviatoricSplit.mfront	OK	
+behaviours/model1.mfront	OK	
+behaviours/MonoCrystal_DD_CC_InteractionMatrix.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/MonoCrystal_DD_CC_InteractionMatrix.mfront'
+behaviours/MonoCrystal_DD_CC_Irradiation.mfront	USER_CODE	reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' reference to __host__ function 'operator<<' 
+behaviours/MonoCrystal_DD_CC_Irradiation_NumericalJacobian.mfront	USER_CODE	reference to __host__ function 'endl<char, std::char_traits<char>>' reference to __host__ function 'operator<<' reference to __host__ function 'operator<<<std::char_traits<char>>' 
+behaviours/MonoCrystal_DD_CC_LevenbergMarquardt.mfront	USER_CODE	reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' reference to __host__ function 'operator<<' 
+behaviours/MonoCrystal_DD_CC.mfront	USER_CODE	reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' reference to __host__ function 'operator<<' 
+behaviours/MonoCrystal_DD_CC_NumericalJacobian.mfront	USER_CODE	reference to __host__ function 'endl<char, std::char_traits<char>>' reference to __host__ function 'operator<<' reference to __host__ function 'operator<<<std::char_traits<char>>' 
+behaviours/MonoCrystal_DD_CC_SlidingSystems.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/MonoCrystal_DD_CC_SlidingSystems.mfront'
+behaviours/MonoCrystal_DD_CFC_InteractionMatrix.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/MonoCrystal_DD_CFC_InteractionMatrix.mfront'
+behaviours/MonoCrystal_DD_CFC_Irradiation.mfront	OK	
+behaviours/MonoCrystal_DD_CFC.mfront	OK	
+behaviours/MonoCrystal_DD_CFC_NumericalJacobian.mfront	OK	
+behaviours/MonoCrystal.mfront	OK	
+behaviours/MonoCrystalNewtonRaphson.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/MonoCrystalNewtonRaphson.mfront'
+behaviours/Norton2.mfront	OK	
+behaviours/Norton3.mfront	OK	
+behaviours/Norton4.mfront	OK	
+behaviours/Norton5.mfront	OK	
+behaviours/Norton_Euler.mfront	OK	
+behaviours/Norton_euler_qt.mfront	OK	
+behaviours/Norton.mfront	OK	
+behaviours/Norton_rk2.mfront	OK	
+behaviours/NortonRK2.mfront	OK	
+behaviours/Norton_rk2_qt.mfront	OK	
+behaviours/NortonRK3.mfront	OK	
+behaviours/Norton_rk42.mfront	OK	
+behaviours/Norton_rk42_qt.mfront	OK	
+behaviours/Norton_rk4.mfront	OK	
+behaviours/NortonRK4.mfront	OK	
+behaviours/Norton_rk4_qt.mfront	OK	
+behaviours/Norton_rk54_qt.mfront	OK	
+behaviours/Norton_rkCastem.mfront	OK	
+behaviours/Norton_rkCastem_qt.mfront	OK	
+behaviours/NortonRK.mfront	OK	
+behaviours/ode_default2.mfront	OK	
+behaviours/ode_default.mfront	OK	
+behaviours/ode_implicit.mfront	OK	
+behaviours/ode_rk54.mfront	OK	
+behaviours/OrthotropicCreep.mfront	OK	
+behaviours/OrthotropicCreep_rk42.mfront	OK	
+behaviours/OrthotropicCreep_rkCastem.mfront	OK	
+behaviours/OrthotropicElastic2.mfront	OK	
+behaviours/OrthotropicElastic3.mfront	OK	
+behaviours/OrthotropicElastic4.mfront	OK	
+behaviours/OrthotropicElastic5.mfront	OK	
+behaviours/OrthotropicElastic6.mfront	USER_CODE	reference to __host__ function 'operator<<' reference to __host__ function 'operator<<<std::char_traits<char>>' reference to __host__ function 'operator<<<tfel::math::st2tost2<1>>' 
+behaviours/OrthotropicElastic7.mfront	OK	
+behaviours/OrthotropicElastic8.mfront	OK	
+behaviours/OrthotropicElastic9.mfront	OK	
+behaviours/OrthotropicElastic.mfront	OK	
+behaviours/OrthotropicSaintVenantKirchhoffElasticity.mfront	OK	
+behaviours/OrthotropicSwelling2.mfront	OK	
+behaviours/OrthotropicSwelling.mfront	OK	
+behaviours/ParameterTest2.mfront	USER_CODE	reference to __host__ function 'raise_if<std::runtime_error, const char (&)[36]>' 
+behaviours/ParameterTest.mfront	USER_CODE	reference to __host__ function 'raise_if<std::runtime_error, const char (&)[36]>' 
+behaviours/PerfectPlasticity.mfront	OK	
+behaviours/PlasIsoCin.mfront	OK	
+behaviours/Plasticity2.mfront	OK	
+behaviours/Plasticity3.mfront	OK	
+behaviours/Plasticity4.mfront	OK	
+behaviours/Plasticity5.mfront	OK	
+behaviours/Plasticity6.mfront	OK	
+behaviours/Plasticity7.mfront	OK	
+behaviours/Plasticity.mfront	OK	
+behaviours/PlasticityWithoutAutomaticTemperatureDeclaration.mfront	OK	
+behaviours/PolyCrystals_DD_CC.mfront	USER_CODE	reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' reference to __host__ function '__destroy<tfel::math::stensor<3> *>' 
+behaviours/PolyCrystals_DD_CFC.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function '__assign_one<tfel::math::stensor<3>, tfel::math::stensor<3>>' reference to __host__ function 'deallocate' 
+behaviours/PolyCrystals.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function '__assign_one<tfel::math::stensor<3>, tfel::math::stensor<3>>' reference to __host__ function 'deallocate' 
+behaviours/PoroElasticity.mfront	OK	
+behaviours/PoroPlasticity.mfront	OK	
+behaviours/ProfilerTest2.mfront	OK	
+behaviours/ProfilerTest3.mfront	OK	
+behaviours/ProfilerTest.mfront	OK	
+behaviours/RelocationTest.mfront	OK	
+behaviours/RungeKuttaElasticityParametersAsStaticVariables.mfront	OK	
+behaviours/RusinekKlepaczko_ssrt.mfront	OK	
+behaviours/SaintVenantKirchhoffElasticity2.mfront	USER_CODE	reference to __host__ function '~runtime_error' reference to __host__ function 'runtime_error' 
+behaviours/SaintVenantKirchhoffElasticity3.mfront	OK	
+behaviours/SaintVenantKirchhoffElasticity4.mfront	OK	
+behaviours/SaintVenantKirchhoffElasticity.mfront	OK	
+behaviours/SaintVenantKirchhoffElasticityTotalLagrangian.mfront	OK	
+behaviours/SaintVenantKirchhoffElasticityWithSubStepping.mfront	USER_CODE	reference to __host__ function '~DivergenceException' reference to __host__ function 'DivergenceException' 
+behaviours/SlidingSystemsCC.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/SlidingSystemsCC.mfront'
+behaviours/StandardElasticity/IsotropicJ2Plasticity.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity10.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity11.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity12.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity13.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity14.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity2.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity3.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity4.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity5.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity6.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity7.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity8.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity9.mfront	OK	
+behaviours/StandardElasticity/IsotropicStandardElasticity.mfront	OK	
+behaviours/StandardElasticity/OrthotropicStandardElasticity2.mfront	OK	
+behaviours/StandardElasticity/OrthotropicStandardElasticity3.mfront	OK	
+behaviours/StandardElasticity/OrthotropicStandardElasticity.mfront	OK	
+behaviours/StandardElasticity/SingleCrystal_DD_FCC.mfront	OK	
+behaviours/StandardElasticity/TestComputeElasticPrediction2.mfront	USER_CODE	reference to __host__ function '~runtime_error' reference to __host__ function 'runtime_error' 
+behaviours/StandardElasticity/TestComputeElasticPrediction.mfront	USER_CODE	reference to __host__ function '~runtime_error' reference to __host__ function 'runtime_error' 
+behaviours/StandardElastoViscoPlasticity/ChuNeedleman1980StrainBasedNucleationModelTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/ChuNeedleman1980StressBasedNucleationModelTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/ElasticContributionToPorosityGrowth.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/GursonTvergaardNeedleman1982.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HarmonicSumOfNortonHoffViscoplasticFlowsTest2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HarmonicSumOfNortonHoffViscoplasticFlowsTest2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HarmonicSumOfNortonHoffViscoplasticFlowsTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HarmonicSumOfNortonHoffViscoplasticFlowsTest_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HyperbolicSineTest2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HyperbolicSineTest2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HyperbolicSineTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/HyperbolicSineTest_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/IsotropicDamageHookeLaw2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/IsotropicDamageHookeLaw2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/IsotropicDamageHookeLaw.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/IsotropicDamageHookeLaw_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest3.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest3_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest4.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest4_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest5.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest5_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest6.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest6_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest7.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest7_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest8.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest8_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest9.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest9_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/NortonTest_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/OrthotropicNortonTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/OrthotropicNortonTest_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/OrthotropicNortonTest_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/OrthotropicNortonTest_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest10.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest10_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest10_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest10_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest11.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest11_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest11_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest11_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest12.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest12_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest12_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest12_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest13.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest13_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest13_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest13_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest14.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest14_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest14_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest14_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest15.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest15_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest15_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest15_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest16.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest16_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest17.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest17_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest18.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest18_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest18_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest18_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest19.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest19_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest19_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest19_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest20.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest20_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest20_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest20_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest21.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest21_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest21_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest21_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest22.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest22_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest22_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest22_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest23.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest23_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest23_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest23_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest24.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest24_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest24_qt.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest24_qt_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest3.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest3_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest4.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest4_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest5.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest5_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest6.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest6_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest7.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest7_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest8.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest8_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest9.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest9_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest9_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest9_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest_na.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest_nanj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PlasticityTest_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PowerLawStrainBasedNucleationModelTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/PowerLawStressBasedNucleationModelTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/RousselierTanguyBesson2002.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test10.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test11.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test12.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test13.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test14.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test15.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test1.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test3.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test4.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test5.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test6.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test7.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test8.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/Test9.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest2.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest2_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest3.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest3_nj.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest.mfront	OK	
+behaviours/StandardElastoViscoPlasticity/UserDefinedViscoplasticityTest_nj.mfront	OK	
+behaviours/StateVariablesBoundsCheck.mfront	OK	
+behaviours/StationaryHeatTransfer2.mfront	OK	
+behaviours/StationaryHeatTransfer.mfront	OK	
+behaviours/StrainHardeningCreep2.mfront	OK	
+behaviours/StrainHardeningCreep3.mfront	OK	
+behaviours/StrainHardeningCreep4.mfront	OK	
+behaviours/StrainHardeningCreep5.mfront	OK	
+behaviours/StrainHardeningCreep6.mfront	OK	
+behaviours/StrainHardeningCreep.mfront	OK	
+behaviours/T91ViscoplasticBehaviour.mfront	OK	
+behaviours/tdls/TDLSElasticity10.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity10.mfront'
+behaviours/tdls/TDLSElasticity11.mfront	OK	
+behaviours/tdls/TDLSElasticity2.mfront	OK	
+behaviours/tdls/TDLSElasticity3.mfront	OK	
+behaviours/tdls/TDLSElasticity4.mfront	OK	
+behaviours/tdls/TDLSElasticity5.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity5.mfront'
+behaviours/tdls/TDLSElasticity6.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity6.mfront'
+behaviours/tdls/TDLSElasticity7.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity7.mfront'
+behaviours/tdls/TDLSElasticity8.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity8.mfront'
+behaviours/tdls/TDLSElasticity9.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity9.mfront'
+behaviours/tdls/TDLSElasticity-common.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/tdls/TDLSElasticity-common.mfront'
+behaviours/tdls/TDLSElasticity.mfront	OK	
+behaviours/TemperatureUpdateOnSubSteppingCheck.mfront	USER_CODE	reference to __host__ function '~DivergenceException' reference to __host__ function '~runtime_error' reference to __host__ function 'runtime_error' 
+behaviours/TensorialExternalStateVariableTest.mfront	OK	
+behaviours/ThermalNorton2.mfront	OK	
+behaviours/ThermalNorton.mfront	OK	
+behaviours/ThermoElasticity.mfront	OK	
+behaviours/Tvergaard.mfront	OK	
+behaviours/UnilateralMazars.mfront	OK	
+behaviours/unit-tests/AuxiliaryModel1.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/AuxiliaryModel1.mfront'
+behaviours/unit-tests/BehaviourVariable10.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable10.mfront'
+behaviours/unit-tests/BehaviourVariable11.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable11.mfront'
+behaviours/unit-tests/BehaviourVariable12.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable12.mfront'
+behaviours/unit-tests/BehaviourVariable13.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable13.mfront'
+behaviours/unit-tests/BehaviourVariable14.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable14.mfront'
+behaviours/unit-tests/BehaviourVariable15.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable15.mfront'
+behaviours/unit-tests/BehaviourVariable16.mfront	FRAGMENT	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable16.mfront'
+behaviours/unit-tests/BehaviourVariable1.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable1.mfront'
+behaviours/unit-tests/BehaviourVariable2.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable2.mfront'
+behaviours/unit-tests/BehaviourVariable3.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable3.mfront'
+behaviours/unit-tests/BehaviourVariable4.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable4.mfront'
+behaviours/unit-tests/BehaviourVariable5.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable5.mfront'
+behaviours/unit-tests/BehaviourVariable6.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable6.mfront'
+behaviours/unit-tests/BehaviourVariable7.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable7.mfront'
+behaviours/unit-tests/BehaviourVariable8.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable8.mfront'
+behaviours/unit-tests/BehaviourVariable9.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/BehaviourVariable9.mfront'
+behaviours/unit-tests/ComputeStiffnessTensor2.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeStiffnessTensor2.mfront'
+behaviours/unit-tests/ComputeStiffnessTensor3.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeStiffnessTensor3.mfront'
+behaviours/unit-tests/ComputeStiffnessTensor.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeStiffnessTensor.mfront'
+behaviours/unit-tests/ComputeThermalExpansion2.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeThermalExpansion2.mfront'
+behaviours/unit-tests/ComputeThermalExpansion3.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeThermalExpansion3.mfront'
+behaviours/unit-tests/ComputeThermalExpansion4.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeThermalExpansion4.mfront'
+behaviours/unit-tests/ComputeThermalExpansion5.mfront	OK	
+behaviours/unit-tests/ComputeThermalExpansion6.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeThermalExpansion6.mfront'
+behaviours/unit-tests/ComputeThermalExpansion.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/ComputeThermalExpansion.mfront'
+behaviours/unit-tests/InvalidExternalBehaviour1.mfront	OK	
+behaviours/unit-tests/InvalidExternalBehaviour2.mfront	OK	
+behaviours/unit-tests/InvalidExternalBehaviour3.mfront	OK	
+behaviours/unit-tests/MisesCreep1.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/MisesCreep1.mfront'
+behaviours/unit-tests/MultipleFlows1.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/MultipleFlows1.mfront'
+behaviours/unit-tests/MultipleFlows2.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/MultipleFlows2.mfront'
+behaviours/unit-tests/Plasticity1.mfront	OK	
+behaviours/unit-tests/Plasticity2.mfront	INVALID	Error while treating file '/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/Plasticity2.mfront'
+behaviours/unit-tests/WarningTest10.mfront	OK	
+behaviours/unit-tests/WarningTest11.mfront	OK	
+behaviours/unit-tests/WarningTest12.mfront	OK	
+behaviours/unit-tests/WarningTest13.mfront	OK	
+behaviours/unit-tests/WarningTest14.mfront	OK	
+behaviours/unit-tests/WarningTest15.mfront	OK	
+behaviours/unit-tests/WarningTest16.mfront	OK	
+behaviours/unit-tests/WarningTest17.mfront	OK	
+behaviours/unit-tests/WarningTest18.mfront	OK	
+behaviours/unit-tests/WarningTest19.mfront	OK	
+behaviours/unit-tests/WarningTest1.mfront	OK	
+behaviours/unit-tests/WarningTest20.mfront	OK	
+behaviours/unit-tests/WarningTest21.mfront	HOST_CALLS	reference to __host__ function 'operator<<' reference to __host__ function 'operator<<<std::char_traits<char>>' reference to __host__ function 'operator<<<tfel::math::Expr<tfel::math::st2tost2<1>, tfel::math::BinaryOperation<tfel::math::View<tfel::math::st2tost2<1>, tfel::math::FixedSizeIndexingPoli
+behaviours/unit-tests/WarningTest22.mfront	OK	
+behaviours/unit-tests/WarningTest23.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest23.mfront:14:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest24.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest24.mfront:15:63: error: use of undeclared identifier 'Id'
+behaviours/unit-tests/WarningTest25.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest25.mfront:14:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest26.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest26.mfront:14:19: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest27.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest27.mfront:15:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest28.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest28.mfront:14:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest29.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest29.mfront:15:34: error: use of undeclared identifier 'Id'
+behaviours/unit-tests/WarningTest2.mfront	OK	
+behaviours/unit-tests/WarningTest30.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest30.mfront:14:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest31.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest31.mfront:14:19: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest32.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest32.mfront:15:13: error: use of undeclared identifier 'yg'
+behaviours/unit-tests/WarningTest33.mfront	OK	
+behaviours/unit-tests/WarningTest34.mfront	OK	
+behaviours/unit-tests/WarningTest35.mfront	OK	
+behaviours/unit-tests/WarningTest36.mfront	OK	
+behaviours/unit-tests/WarningTest37.mfront	OK	
+behaviours/unit-tests/WarningTest38.mfront	OK	
+behaviours/unit-tests/WarningTest39.mfront	OK	
+behaviours/unit-tests/WarningTest3.mfront	OK	
+behaviours/unit-tests/WarningTest40.mfront	OK	
+behaviours/unit-tests/WarningTest41.mfront	OK	
+behaviours/unit-tests/WarningTest42.mfront	OK	
+behaviours/unit-tests/WarningTest43.mfront	OK	
+behaviours/unit-tests/WarningTest44.mfront	OK	
+behaviours/unit-tests/WarningTest45.mfront	OK	
+behaviours/unit-tests/WarningTest46.mfront	OK	
+behaviours/unit-tests/WarningTest47.mfront	OK	
+behaviours/unit-tests/WarningTest48.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/tfel/mfront/tests/behaviours/unit-tests/WarningTest48.mfront:12:9: error: expected ';' after expression
+behaviours/unit-tests/WarningTest49.mfront	OK	
+behaviours/unit-tests/WarningTest4.mfront	OK	
+behaviours/unit-tests/WarningTest50.mfront	OK	
+behaviours/unit-tests/WarningTest51.mfront	OK	
+behaviours/unit-tests/WarningTest52.mfront	OK	
+behaviours/unit-tests/WarningTest53.mfront	OK	
+behaviours/unit-tests/WarningTest54.mfront	OK	
+behaviours/unit-tests/WarningTest55.mfront	OK	
+behaviours/unit-tests/WarningTest56.mfront	OK	
+behaviours/unit-tests/WarningTest57.mfront	OK	
+behaviours/unit-tests/WarningTest58.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest59.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest5.mfront	OK	
+behaviours/unit-tests/WarningTest60.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest61.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest62.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest63.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest64.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest65.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest66.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest67.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest68.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest69.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest6.mfront	OK	
+behaviours/unit-tests/WarningTest70.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest71.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest72.mfront	INVALID	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/tfel/include/TFEL/Math/Array/MutableFixedSizeArrayBase.hxx:36:19: error: static assertion failed due to requirement 'getArrayPolicyMinimalDataSize<tfel::math::FixedSizeVectorPolicy<0, double>>() != 0': invalid minimal container size
+behaviours/unit-tests/WarningTest73.mfront	OK	
+behaviours/unit-tests/WarningTest74.mfront	OK	
+behaviours/unit-tests/WarningTest75.mfront	OK	
+behaviours/unit-tests/WarningTest76.mfront	OK	
+behaviours/unit-tests/WarningTest77.mfront	OK	
+behaviours/unit-tests/WarningTest78.mfront	OK	
+behaviours/unit-tests/WarningTest79.mfront	OK	
+behaviours/unit-tests/WarningTest7.mfront	OK	
+behaviours/unit-tests/WarningTest80.mfront	OK	
+behaviours/unit-tests/WarningTest81.mfront	OK	
+behaviours/unit-tests/WarningTest82.mfront	OK	
+behaviours/unit-tests/WarningTest83.mfront	OK	
+behaviours/unit-tests/WarningTest8.mfront	OK	
+behaviours/unit-tests/WarningTest9.mfront	OK	
+behaviours/ViscoChaboche.mfront	OK	
+behaviours/ViscoMemoNrad.mfront	OK	
+behaviours/ViscoPlasIsoCin.mfront	OK	
+models/B4C_ConcentrationModel.mfront	OK	
+models/FastNeutronFluence.mfront	OK	
+models/NeutronFluence.mfront	OK	
+models/NickelAlloyPK33_ThermalExpansion_MechAlloy33.mfront	OK	
+models/SiC_IrradiationSwellingModel_GoFaster.mfront	USER_CODE	reference to __host__ function 'allocate' reference to __host__ function 'basic_ostringstream' reference to __host__ function 'deallocate' 
+models/UO2_Shrinkage_RAPHAEL2008.mfront	OK	
+models/Zircaloy4_AxialGrowth_BISON2014.mfront	OK	
+properties/CubicSplineDataInterpolationTest2.mfront	OK	
+properties/CubicSplineDataInterpolationTest3.mfront	OK	
+properties/CubicSplineDataInterpolationTest4.mfront	OK	
+properties/CubicSplineDataInterpolationTest5.mfront	OK	
+properties/CubicSplineDataInterpolationTest.mfront	OK	
+properties/ErrnoHandlingCheck.mfront	OK	
+properties/Inconel600_YoungModulus.mfront	OK	
+properties/LinearDataInterpolationTest2.mfront	OK	
+properties/LinearDataInterpolationTest3.mfront	OK	
+properties/LinearDataInterpolationTest4.mfront	OK	
+properties/LinearDataInterpolationTest5.mfront	OK	
+properties/LinearDataInterpolationTest.mfront	OK	
+properties/MaterialLawDSLOptionsTest.mfront	OK	
+properties/PoissonRatioTest_12.mfront	OK	
+properties/PoissonRatioTest_13.mfront	OK	
+properties/PoissonRatioTest_23.mfront	OK	
+properties/PoissonRatioTest.mfront	OK	
+properties/ShearModulusTest_12.mfront	OK	
+properties/ShearModulusTest_13.mfront	OK	
+properties/ShearModulusTest_23.mfront	OK	
+properties/T91AusteniticSteel_b_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_F_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_Kvisc_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_Nexp_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_Rinf_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_ThermalExpansion_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_YieldStress_ROUX2007.mfront	OK	
+properties/T91AusteniticSteel_YoungModulus_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_b_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_C1_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_C2_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_F_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_gamma1_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_growth_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_Kvisc_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_Nexp_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_Rinf_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_ThermalExpansion_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_YieldStress_ROUX2007.mfront	OK	
+properties/T91MartensiticSteel_YoungModulus_ROUX2007.mfront	OK	
+properties/ThermalExpansionCoefficientTest_1.mfront	OK	
+properties/ThermalExpansionCoefficientTest_2.mfront	OK	
+properties/ThermalExpansionCoefficientTest2.mfront	OK	
+properties/ThermalExpansionCoefficientTest_3.mfront	OK	
+properties/ThermalExpansionCoefficientTest.mfront	OK	
+properties/VanadiumAlloy_PoissonRatio_SRMA.mfront	OK	
+properties/VanadiumAlloy_ShearModulus_SRMA.mfront	OK	
+properties/VanadiumAlloy_SpecificHeat_SRMA.mfront	OK	
+properties/VanadiumAlloy_ThermalConductivity_SRMA.mfront	OK	
+properties/VanadiumAlloy_ThermalExpansion_SRMA.mfront	OK	
+properties/VanadiumAlloy_YoungModulus_SRMA.mfront	OK	
+properties/YoungModulusBoundsCheckTest.mfront	OK	
+properties/YoungModulusTest_1.mfront	OK	
+properties/YoungModulusTest_2.mfront	OK	
+properties/YoungModulusTest_3.mfront	OK	
+properties/YoungModulusTest.mfront	OK	
