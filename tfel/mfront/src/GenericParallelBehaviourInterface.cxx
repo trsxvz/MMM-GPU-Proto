@@ -190,9 +190,22 @@ namespace mfront {
   }  // end of getPointDataSizes
 
   /*!
+   * \return true if the values of the parameters are given to the
+   * constructor of the behaviour
+   * \param[in] bd: behaviour description
+   * \param[in] h: modelling hypothesis
+   */
+  static bool areParametersGivenToTheConstructor(
+      const BehaviourDescription& bd,
+      const tfel::material::ModellingHypothesis::Hypothesis h) {
+    return (!areParametersTreatedAsStaticVariables(bd)) &&
+           (!bd.getBehaviourData(h).getParameters().empty());
+  }  // end of areParametersGivenToTheConstructor
+
+  /*!
    * \return the name of the structure holding the values of the parameters
-   * for the given hypothesis, or `mfront::gpb::NoParameters` if this
-   * structure is not needed.
+   * and the device copies of the shared data for the given hypothesis, or
+   * `mfront::gpb::NoParameters` if this structure is not needed.
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
    */
@@ -200,8 +213,8 @@ namespace mfront {
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
     using tfel::material::ModellingHypothesis;
-    if ((areParametersTreatedAsStaticVariables(bd)) ||
-        (bd.getBehaviourData(h).getParameters().empty())) {
+    if ((!areParametersGivenToTheConstructor(bd, h)) &&
+        (bd.getSharedData().empty())) {
       return "mfront::gpb::NoParameters";
     }
     return bd.getClassName() + ModellingHypothesis::toString(h) + "Parameters";
@@ -223,19 +236,28 @@ namespace mfront {
     if (n == "mfront::gpb::NoParameters") {
       return;
     }
-    os << "//! \\brief values of the parameters\n"
+    os << "//! \\brief values of the parameters and copies of the shared "
+       << "data\n"
        << "struct " << n << "{\n";
-    for (const auto& p : bd.getBehaviourData(h).getParameters()) {
-      if (p.type == "int") {
-        os << "int " << p.name << ";\n";
-      } else if (p.type == "ushort") {
-        os << "unsigned short " << p.name << ";\n";
-      } else if (p.arraySize == 1) {
-        os << "double " << p.name << ";\n";
-      } else {
-        os << "tfel::math::fsarray<" << p.arraySize << ", double> " << p.name
-           << ";\n";
+    if (areParametersGivenToTheConstructor(bd, h)) {
+      for (const auto& p : bd.getBehaviourData(h).getParameters()) {
+        if (p.type == "int") {
+          os << "int " << p.name << ";\n";
+        } else if (p.type == "ushort") {
+          os << "unsigned short " << p.name << ";\n";
+        } else if (p.arraySize == 1) {
+          os << "double " << p.name << ";\n";
+        } else {
+          os << "tfel::math::fsarray<" << p.arraySize << ", double> "
+             << p.name << ";\n";
+        }
       }
+    }
+    // the shared data may have a type defined in the behaviour class
+    for (const auto& d : bd.getSharedData()) {
+      os << "//! \\brief copy of the shared data `" << d.name
+         << "` accessible by the device\n"
+         << "const void* " << d.name << ";\n";
     }
     os << "};\n\n";
   }  // end of writeParametersStructure
@@ -338,7 +360,7 @@ namespace mfront {
     constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
     const auto n = getParametersStructureName(bd, h);
     os << "auto mfront_parameters = " << n << "{};\n";
-    if (n == "mfront::gpb::NoParameters") {
+    if (!areParametersGivenToTheConstructor(bd, h)) {
       return;
     }
     for (const auto& p : bd.getBehaviourData(h).getParameters()) {
@@ -536,6 +558,21 @@ namespace mfront {
     return "template <typename ParametersType>";
   }  // end of getBehaviourConstructorTemplateDeclaration
 
+  void GenericParallelBehaviourInterface::writeBehaviourConstructorHeader(
+      std::ostream& os,
+      const BehaviourDescription& bd,
+      const Hypothesis h,
+      const std::string& initStateVarsIncrements) const {
+    GenericBehaviourInterface::writeBehaviourConstructorHeader(
+        os, bd, h, initStateVarsIncrements);
+    // the shared data are read from their copies accessible by the device
+    for (const auto& d : bd.getSharedData()) {
+      os << ",\n"
+         << d.name << "(*static_cast<const " << d.type
+         << "*>(mgpb_parameters." << d.name << "))";
+    }
+  }  // end of writeBehaviourConstructorHeader
+
   std::string
   GenericParallelBehaviourInterface::getBehaviourConstructorArguments() const {
     // as in the `generic` interface, the names of the arguments start with
@@ -590,8 +627,37 @@ namespace mfront {
     }
   }  // end of getTargetsDescription
 
+  /*!
+   * \brief check that the behaviour variables (and their own behaviour
+   * variables) have no shared data: behaviour variables are built by their
+   * default constructor in device code, which can't build shared data.
+   * \param[in] bd: behaviour description
+   */
+  static void checkSharedDataOfBehaviourVariables(
+      const BehaviourDescription& bd) {
+    auto check = [](const BehaviourVariableDescription& v) {
+      tfel::raise_if(!v.behaviour.getSharedData().empty(),
+                     "GenericParallelBehaviourInterface: the behaviour "
+                     "variable '" +
+                         v.name +
+                         "' has shared data, which are not supported in "
+                         "behaviour variables");
+      checkSharedDataOfBehaviourVariables(v.behaviour);
+    };
+    for (const auto h : bd.getDistinctModellingHypotheses()) {
+      const auto& d = bd.getBehaviourData(h);
+      for (const auto& v : d.getBehaviourVariables()) {
+        check(v);
+      }
+      for (const auto& v : d.getBehaviourVariableFactories()) {
+        check(v);
+      }
+    }
+  }  // end of checkSharedDataOfBehaviourVariables
+
   void GenericParallelBehaviourInterface::endTreatment(
       const BehaviourDescription& bd, const FileDescription& fd) const {
+    checkSharedDataOfBehaviourVariables(bd);
     tfel::system::systemCall::mkdir("include/MFront");
     tfel::system::systemCall::mkdir("include/MFront/GenericParallelBehaviour");
     this->writeHeaderFile(bd, fd);
@@ -820,6 +886,17 @@ namespace mfront {
          << "auto& mfront_status = *mfront_output_status;\n"
          << "const auto& mfront_data = *mfront_batch_data;\n";
       writeParametersInitialisation(os, bd, h);
+      // the shared data are copied in a memory accessible by the device at
+      // the first call
+      for (const auto& d : bd.getSharedData()) {
+        const auto v = "mfront_shared_data_" + d.name;
+        os << "static const auto* const " << v << " = "
+           << this->backend->getSharedDataCopy(
+                  "Behaviour::mfront_get_shared_data_" + d.name + "()",
+                  "mfront_data.execution")
+           << ";\n"
+           << "mfront_parameters." << d.name << " = " << v << ";\n";
+      }
       writeBehaviourVariablesParametersChecks(os, bd, h);
       os << "const auto mfront_policy = " << this->getFunctionNameBasis(name)
          << "_getOutOfBoundsPolicy();\n";

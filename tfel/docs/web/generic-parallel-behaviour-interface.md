@@ -480,7 +480,11 @@ reductions.
 When the computations are offloaded, the fields of the batch must be
 accessible from the device. With `nvc++ -mp=gpu`, the memory mode shall be
 given explicitly by `-gpu=mem:managed`, as with the `stlpar` backend (see
-the `openmp-offload-nvhpc-gpu` configuration). The `openmp-host-gcc`
+the `openmp-offload-nvhpc-gpu` configuration). A program compiled by
+`nvc++ -mp=gpu -gpu=mem:managed` which loads libraries compiled by other
+compilers must be linked with `libnvhpcmanaux` (`-lnvhpcmanaux`), whose
+`free` function handles the managed memory: `nvc++` 25.11 links it with
+`-stdpar=gpu` but not with `-mp=gpu`. The `openmp-host-gcc`
 configuration uses the threads of the host.
 
 Two constructs lead `nvc++ -mp=gpu` (25.11 to 26.9) to generate wrong
@@ -522,11 +526,57 @@ virtual functions are not supported in device code by SYCL.
 
 The following rules apply to the code blocks written by the user:
 
-- exceptions are not supported in device code: return `false` (in
-  `@InitLocalVariables`, `@Integrator` of the default DSL, etc.) or
-  `FAILURE` instead of throwing an exception. The `raise` and `raise_if`
-  functions can't be used either.
-- the standard streams (`std::cout`) can't be used.
+- exceptions are not supported in device code. The `tfel::fail` function
+  reports an error in host and device code: on the host, it throws an
+  exception of the given type, as before; in device code, it returns
+  `false`, which must be returned by the code block:
+
+  ~~~~{.cxx}
+  if (q3 > q1) {
+    return tfel::fail<std::runtime_error>("q3 is greater than q1");
+  }
+  ~~~~
+
+  The `raise` and `raise_if` functions can't be used in device code.
+- returning `false` from the `@Integrator` code block of the implicit DSLs
+  (or from `@Derivative` in the Runge-Kutta DSLs) does not make the
+  integration fail: the correction of the Newton algorithm (or the time
+  step) is reduced. An exception, on the contrary, makes the integration
+  fail. The same result is obtained in device code by calling
+  `this->abortResolution()` (implicit DSLs) or `this->abortIntegration()`
+  (Runge-Kutta DSLs) before `tfel::fail`:
+
+  ~~~~{.cxx}
+  if (omega < 0) {
+    this->abortResolution();
+    return tfel::fail<std::runtime_error>("negative value of omega");
+  }
+  ~~~~
+- data built on the host at runtime, for instance the slip systems of the
+  grains of a polycrystal read from a file, are declared by the
+  `@SharedData` keyword:
+
+  ~~~~{.cxx}
+  @SharedData PCSlidingSystems gs =
+      PCSlidingSystems::getPolyCrystalsSlidingSystems("PolyCrystalsAngles.txt");
+  ~~~~
+
+  The expression is evaluated once on the host. The `generic-parallel`
+  interface copies the result in a memory accessible by the device at the
+  first call of a function of the generated library (device memory of the
+  current device with the `CUDA`, `HIP`, `SYCL` and `Kokkos` backends,
+  heap otherwise), which is never freed. The type of the data must be
+  trivially copyable.
+- the standard streams (`std::cout`) can't be used in device code. They
+  can be kept on the host:
+
+  ~~~~{.cxx}
+  #ifndef TFEL_DEVICE_CODE
+  std::cout << "sig: " << sig << '\n';
+  #endif /* TFEL_DEVICE_CODE */
+  ~~~~
+- error messages built at runtime (`std::ostringstream`, `std::to_string`)
+  are only available on the host, in the same way.
 - function scope static variables must be constant expressions. Constant
   objects built at compile time must be accessed through
   `tfel::utilities::getConstantObject` (`nvcc` does not initialize the
@@ -581,8 +631,6 @@ worked around in the generated code and the headers (see the comments of
 - the rotation of tangent operator blocks associated with arrays of
   variables, or between a vector and a tensor, is not supported (the
   generated function reports an error).
-- the slip systems of polycrystals read from a file at runtime
-  (`PolyCrystalsSlidingSystems`) are not available in device code.
 - the comparison of the jacobian to a numerical jacobian
   (`@CompareToNumericalJacobian`) prints its results on the standard
   output: it is only performed on the host.

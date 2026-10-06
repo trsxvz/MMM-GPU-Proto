@@ -546,6 +546,8 @@ namespace mfront {
     void treatPrivate() override;
     //! \brief treat the `@Members` keyword
     void treatMembers() override;
+    //! \brief treat the `@SharedData` keyword
+    virtual void treatSharedData();
     //! \brief treat the `@InitializeFunction` keyword
     virtual void treatInitializeFunction();
     //! \brief treat the `@PostProcessing` keyword

@@ -33,11 +33,13 @@ ps.setEntryName("PreviousStress");
   lambda = computeLambda(young,nu);
   mu = computeMu(young,nu);
   if(sqrt((sig-ps)|(sig-ps))>10*young*numeric_limits<stress>::epsilon()){
+#ifndef TFEL_DEVICE_CODE
     cout << "ps  : " << ps << endl;
     cout << "sig : " << sig << endl;
     cout << "nr  : " << sqrt((sig-ps)|(sig-ps)) << endl;
-    throw(runtime_error("invalid stress value at the beginning "
-			"of the time step"));
+#endif /* TFEL_DEVICE_CODE */
+    return tfel::fail<runtime_error>("invalid stress value at the beginning "
+                                     "of the time step");
   }
 }
 

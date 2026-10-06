@@ -45,8 +45,11 @@ level=${DEVTEST_OPTIMIZATION_LEVEL:-}
 if [ -n "$level" ]; then
   sed -i "s/-O2/$level/g" "config-$conf.json" test.check
 fi
+# the headers of the development tree are also used by the sources compiled
+# by the C++ compiler (INCLUDES precedes the other include paths)
 cat > mfront-dev.sh << EOF
 #!/bin/bash
+INCLUDES="$dev_includes \${INCLUDES:-}" \\
 LD_LIBRARY_PATH=\$(find "$P/scratch/build-dev2" -name "*.so" -printf "%h\n" | sort -u | paste -sd:):\${LD_LIBRARY_PATH:-} \\
   exec "$P/scratch/build-dev2/mfront/src/mfront" "\$@"
 EOF

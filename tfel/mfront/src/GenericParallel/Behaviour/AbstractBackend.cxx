@@ -25,6 +25,11 @@ namespace mfront::generic_parallel::behaviour {
                  "MFRONT_GPB_API_VERSION");
   }  // end of writeSymbols
 
+  std::string AbstractBackend::getSharedDataCopy(const std::string_view value,
+                                                 const std::string_view) const {
+    return "mfront::gpb::copyToHeap(" + std::string{value} + ")";
+  }  // end of getSharedDataCopy
+
   void AbstractBackend::writeCall(std::ostream& os,
                                   const std::string_view f,
                                   const std::string_view template_arguments,

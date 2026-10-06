@@ -30,8 +30,7 @@ namespace tfel::material {
 
   template <unsigned short Np, typename GS, typename NumType>
   PolyCrystalsSlidingSystems<Np, GS, NumType>::PolyCrystalsSlidingSystems(
-      const std::string& f)
-      : mus(Np) {
+      const std::string& f) {
     using namespace std;
     using namespace tfel::math;
     using namespace tfel::utilities;
@@ -40,7 +39,6 @@ namespace tfel::material {
     if (f.empty()) {
       for (unsigned short i = 0; i != Np; i++) {
         // allocting memory
-        this->mus[i].resize(Nss);
         // rotation matrix
         tmatrix<3u, 3u, real> drot = getRandomRotationMatrix<real>();
         for (unsigned short j = 0; j != Nss; j++) {
@@ -59,7 +57,6 @@ namespace tfel::material {
       CxxTokenizer::const_iterator p = file.begin();
       const CxxTokenizer::const_iterator pe = file.end();
       for (unsigned short i = 0; i != Np; i++) {
-        this->mus[i].resize(Nss);
         tmatrix<3u, 3u, real> drot;
         const real psi = CxxTokenizer::readDouble(p, pe) * pi / 180.0;
         const real the = CxxTokenizer::readDouble(p, pe) * pi / 180.0;
@@ -98,8 +95,7 @@ namespace tfel::material {
 
   template <unsigned short Np, typename GS, typename NumType>
   ExtendedPolyCrystalsSlidingSystems<Np, GS, NumType>::
-      ExtendedPolyCrystalsSlidingSystems(const std::string& f)
-      : mus(Np), volume_fractions(Np) {
+      ExtendedPolyCrystalsSlidingSystems(const std::string& f) {
     using namespace std;
     using namespace tfel::math;
     using namespace tfel::utilities;
@@ -112,7 +108,6 @@ namespace tfel::material {
     CxxTokenizer::const_iterator p = file.begin();
     const CxxTokenizer::const_iterator pe = file.end();
     for (unsigned short i = 0; i != Np; i++) {
-      this->mus[i].resize(Nss);
       tmatrix<3u, 3u, real> drot;
       const real psi = CxxTokenizer::readDouble(p, pe) * pi / 180.0;
       const real the = CxxTokenizer::readDouble(p, pe) * pi / 180.0;

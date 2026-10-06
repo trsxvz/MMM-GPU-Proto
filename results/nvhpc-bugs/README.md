@@ -43,3 +43,17 @@ nvcc accepte une définition sans `__host__ __device__` quand la
 déclaration en porte (et inversement), clang CUDA la refuse. Ce n'est pas
 un défaut de nvcc mais une incohérence de TFEL, corrigée dans 85
 définitions (balayage clang de tous les en-têtes, voir le journal).
+
+Défauts d'édition de liens et d'environnement (NVHPC 25.11) :
+
+- `libnvcpumath.so` utilise `sincos` de `libm.so.6` sans en dépendre : un
+  programme qui ne charge pas la bibliothèque mathématique ne peut pas
+  charger une bibliothèque compilée par nvc++
+  (`dlopen-without-libm.cxx`). Sans effet sur les programmes C++ qui
+  utilisent `<cmath>`, comme MGIS.
+- `nvc++ -mp=gpu -gpu=mem:managed` ne lie pas `libnvhpcmanaux`, dont la
+  fonction `free` reconnaît la mémoire gérée, alors que `-stdpar=gpu` la
+  lie. Un programme compilé ainsi qui charge des bibliothèques compilées par
+  g++ peut s'arrêter sur `free(): invalid pointer` (lecture d'un fichier par
+  `CxxTokenizer` dans une loi de polycristal). Contournement : lier le
+  programme avec `-lnvhpcmanaux`.

@@ -14,6 +14,7 @@
 #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_KOKKOS_HXX
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_KOKKOS_HXX
 
+#include <stdexcept>
 #include <type_traits>
 #include <Kokkos_Core.hpp>
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
@@ -183,6 +184,33 @@ namespace mfront::gpb::kokkos {
                             internals::Reduction<PointFunction>{f, rdt0}, r);
     return report(s, r);
   }  // end of apply
+
+  /*!
+   * \return a copy in the memory space of the execution space of a data
+   * shared by all the integration points (see the `@SharedData` keyword).
+   * The copy is made at the first call of a generated function and is freed
+   * when Kokkos is finalized.
+   * \tparam ExecutionSpace: execution space
+   * \param[in] v: data
+   */
+  template <typename ExecutionSpace, typename T>
+  const T* copyToDevice(const T& v) {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "the shared data must be trivially copyable");
+    using MemorySpace = typename ExecutionSpace::memory_space;
+    using Bytes = Kokkos::View<char*, MemorySpace, Kokkos::MemoryUnmanaged>;
+    using HostBytes =
+        Kokkos::View<const char*, Kokkos::HostSpace, Kokkos::MemoryUnmanaged>;
+    if (!Kokkos::is_initialized()) {
+      throw std::runtime_error("Kokkos is not initialized");
+    }
+    auto* const p = static_cast<T*>(Kokkos::kokkos_malloc<MemorySpace>(
+        "mfront::gpb::kokkos::copyToDevice", sizeof(T)));
+    Kokkos::deep_copy(Bytes(reinterpret_cast<char*>(p), sizeof(T)),
+                      HostBytes(reinterpret_cast<const char*>(&v), sizeof(T)));
+    Kokkos::push_finalize_hook([p] { Kokkos::kokkos_free<MemorySpace>(p); });
+    return p;
+  }  // end of copyToDevice
 
   /*!
    * \return the primitive of the backend, as expected by

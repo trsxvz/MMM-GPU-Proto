@@ -54,6 +54,17 @@ namespace mfront::generic_parallel::behaviour {
      */
     void writeSymbols(std::ostream&, std::string_view) const;
     /*!
+     * \return an expression returning a pointer to a copy of a data shared
+     * by all the integration points (see the `@SharedData` keyword), in a
+     * memory accessible by the device. By default, the copy is allocated on
+     * the heap, which is accessible by the device if the memory is unified
+     * or managed.
+     * \param[in] value: expression giving the data
+     * \param[in] execution: expression giving the execution options
+     */
+    [[nodiscard]] virtual std::string getSharedDataCopy(std::string_view,
+                                                        std::string_view) const;
+    /*!
      * \return an expression building the primitive of the backend (see the
      * `makeApply` functions of the `MFront/GenericParallelBehaviour`
      * headers)

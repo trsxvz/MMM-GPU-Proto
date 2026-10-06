@@ -341,14 +341,31 @@ namespace mfront {
          << "} // end of " << this->bd.getClassName()
          << "::computeFinalThermodynamicForces\n\n";
     }
+    // once the integration is aborted, all the evaluations of the
+    // derivatives fail, so that the time step is reduced until the
+    // integration fails
     os << "[[nodiscard]] TFEL_HOST_DEVICE bool\ncomputeDerivative(){\n"
        << "using namespace std;\n"
-       << "using namespace tfel::math;\n";
+       << "using namespace tfel::math;\n"
+       << "if(this->mfront_aborted_integration){\n"
+       << "return false;\n"
+       << "}\n";
     writeMaterialLaws(os, this->bd.getMaterialLaws());
     os << this->bd.getCode(h, BehaviourData::ComputeDerivative) << '\n'
        << "return true;\n"
        << "} // end of " << this->bd.getClassName()
        << "::computeDerivative\n\n";
+    os << "/*!\n"
+       << " * \\brief abort the integration: the integration fails,\n"
+       << " * whereas a failure of the evaluation of the derivatives only\n"
+       << " * reduces the time step. This allows to report errors in device\n"
+       << " * code, where exceptions are not supported (see `tfel::fail`).\n"
+       << " */\n"
+       << "TFEL_HOST_DEVICE void abortIntegration() noexcept {\n"
+       << "this->mfront_aborted_integration = true;\n"
+       << "}\n\n"
+       << "//! \\brief boolean stating if the integration was aborted\n"
+       << "bool mfront_aborted_integration = false;\n\n";
   }  // end of writeBehaviourParserSpecificMembers
 
   void RungeKuttaCodeGeneratorBase::writeBehaviourUpdateStateVariables(

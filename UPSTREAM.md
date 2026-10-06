@@ -17,7 +17,8 @@ the branch, file by file, rather than by cherry-picking.
      post-processings, initialize functions of the Green-Lagrange and
      Hencky strategies, speed of sound with the prediction operator,
      pointers restored after an exception, stress of the initialize
-     functions for all stress measures;
+     functions for all stress measures, exceptions of the constructor of
+     the behaviour reported as failures;
    - fixes of the rotation functions of the `generic` interface (offsets,
      scalars, vectors);
    - bounds checks of the generic models in all compilation modes.

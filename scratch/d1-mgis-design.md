@@ -1,13 +1,38 @@
 # D1, MGIS : intégration d'un lot avec une bibliothèque `generic-parallel` (proposition de conception)
 
-Statut : proposition, aucune modification de code. Bases : MGIS master `818f0f9` (`mgis/`), TFEL proto branche `generic-parallel-behaviours` (`tfel/`). Date : 2026-10-05. Rédigé par un agent d'étude (lecture seule), recopié tel quel.
+Statut : proposition, aucune modification de code. Bases : MGIS master `818f0f9` (`mgis/`), TFEL proto branche `generic-parallel-behaviours` (`tfel/`). Rédigée le 2026-10-05, mise à jour le 2026-10-06 avec l'état de TFEL (section 0).
+
+## 0. Ce que TFEL fournit (mise à jour du 2026-10-06)
+
+- Propriétés matériau et variables externes **variable par variable**
+  (`material_properties_by_variable`, `external_state_variables_by_variable`) :
+  chaque `FieldHolder` de MGIS devient directement un champ (uniforme : pas
+  nul ; en place : `{p+b*s, s, 1}`). Le planificateur du 2.2 et l'espace de
+  travail ne sont plus nécessaires.
+- Symboles : `<b>_mfront_interface` = "GenericParallel",
+  `<b>_generic_parallel_backend` (nom du backend),
+  `<b>_generic_parallel_api_version` (= `MFRONT_GPB_API_VERSION`). Le
+  symbole d'accessibilité de la mémoire hôte proposé au 1.6 n'est pas
+  nécessaire : le backend suffit (table du 3.1).
+- Options d'exécution (`mfront_gpb_ExecutionOptions`, membre `execution`
+  du lot et des rotations) : file, statistiques asynchrones
+  (`mfront_gpb_BatchStatistics`, fonctions C d'initialisation et de
+  décodage), `preserve_stack_size`. `BatchExecutionPolicy` (4.1) les
+  reprend.
+- Messages d'erreur par point non transmis (décision documentée) : la
+  bibliothèque `generic` compagnon les donne (question 5).
+- Données partagées (`@SharedData`) gérées par la bibliothèque générée :
+  rien à faire dans MGIS.
+- Chargement depuis un programme compilé par g++ : les bibliothèques nvc++
+  exigent que `libm` soit chargée (toujours le cas d'un programme C++
+  utilisant `<cmath>`, défaut d'empaquetage de NVHPC 25.11).
 
 ## Résumé
 
 1. **Chargement.** MGIS détecte la bibliothèque par le symbole `<b>_mfront_interface` == "GenericParallel" (`LibrariesManager::getInterface`, `src/LibrariesManager.cxx:655-662`, jamais appelé aujourd'hui).
    - C'est indispensable : aujourd'hui MGIS charge sans erreur une bibliothèque `generic-parallel` isotrope. Les points d'entrée portent les mêmes noms mais pas la même signature, donc l'intégration plante (comportement indéfini). Une bibliothèque orthotrope échoue au chargement (pas de `rotateArrayOf*`).
    - Pour une telle bibliothèque, `Behaviour` reçoit des pointeurs de lot (`batch_b`, `batch_f`, trois rotations) et `b` reste nul.
-2. **Données.** Mappage direct, sans copie, de tous les blocs. Pour les propriétés matériau et les variables externes, option B : MGIS assemble un champ par groupe, avec une copie de taille n seulement si un groupe mélange plusieurs variables dont au moins une non uniforme. L'option A (un champ par variable dans `BatchData`, changement d'ABI TFEL) est reportée à D2 sur mesure. L'API MGIS ne change pas entre A et B.
+2. **Données.** Mappage direct, sans copie, de tous les blocs, propriétés matériau et variables externes comprises (champs par variable de TFEL, section 0).
 3. **Mémoire.** Phase 1 : `std::pmr::memory_resource*` dans les initialiseurs, stockage privé en `std::pmr::vector`, aucune rupture d'API, mémoire accessible depuis l'hôte (managée, USM partagée, Kokkos `SharedSpace`). Phase 2 : mémoire uniquement device, avec copie et remplissage fournis par la ressource.
 4. **API.** `integrate(const BatchExecutionPolicy&, MaterialDataManager&, const BatchIntegrationOptions&, real dt)`, variantes avec intervalle et `Context`. Statuts -2/-3 levés comme erreurs (pas des échecs de convergence). rdt initial 10 comme le chemin par point. Basculement automatique des surcharges existantes.
 
@@ -69,12 +94,10 @@ Nouvelles fonctions : `getBatchBehaviour(l, b, h)`, `getBatchBehaviourInitialize
 - Gardes du chemin par point : `Integrate.ixx:22-25` (`if (b.b == nullptr) raise("...use the batch API")`), `executeInitializeFunction`/`executePostProcessing` par point (`Integrate.cxx:555-582, 1006-1018`), rotations par point (`Behaviour.cxx:387-394, 492-499, 607-614`).
 - `setParameter` (`LibrariesManager.cxx:931-1002`) fonctionne tel quel ; chaque bibliothèque a sa copie des paramètres (à fixer dans les deux dans les tests).
 
-### 1.6 Symboles TFEL proposés (petit commit TFEL, optionnel mais conseillé)
+### 1.6 Symboles TFEL
 
-Dans `GenericParallelBehaviourInterface::writeSourceFile` (près de 641-651) :
-- `<b>_mfront_gpb_backend` (chaîne) ;
-- `<b>_mfront_gpb_host_memory_accessible` (1 : stlpar gcc/clang, openmp hôte, Kokkos avec espace accessible depuis l'hôte, sycl avec transferts automatiques ; 0 : cuda, hip, stlpar nvc++ GPU, openmp déporté), pour une erreur claire avant l'appel ;
-- `<b>_mfront_gpb_api_version` : version du format de `BatchData`.
+Faits (section 0) : `_generic_parallel_backend` et
+`_generic_parallel_api_version`.
 
 ## 2. Correspondance des données
 
@@ -94,20 +117,14 @@ Dans `GenericParallelBehaviourInterface::writeSourceFile` (près de 641-651) :
 | `s0/s1.gradients`, `thermodynamic_forces`, `internal_state_variables` | `MaterialStateManager.hxx:176-216` | zc |
 | `stored_energy`, `dissipated_energy` | 186-190 si `b.computes*` | zc sinon nul |
 | `mass_density` | `optional<MutableFieldHolder>` (208) | uniforme : espace de travail (`ps=0`) ; `span` : zc ; `vector` : zc si mémoire hôte acceptée sinon copie |
-| `material_properties` | map par variable (199), scalaires | planificateur 2.2 |
-| `external_state_variables` | map par variable (226), uniformes ou champs | planificateur 2.2 |
+| `material_properties_by_variable` | map par variable (199), scalaires | un champ par variable (2.2) |
+| `external_state_variables_by_variable` | map par variable (226), uniformes ou champs | un champ par variable (2.2) |
 | `queue` | `policy.queue` |  |
 
-### 2.2 Planificateur par groupe (mps0, mps1, esvs0, esvs1)
+### 2.2 Propriétés matériau et variables externes
 
-Classification d'un `FieldHolder` reprise de `buildEvaluators` (`Integrate.cxx:57-121`, à factoriser). Choix du moins cher au plus cher :
-1. Groupe vide : `{nullptr, 0, 0}`.
-2. Toutes les variables uniformes : petit bloc dans l'espace de travail, `{u, 0, 1}` (cas typique des propriétés matériau).
-3. Une seule variable, non uniforme, en place : zc `{p+b*s, s, 1}` (cas typique : la température).
-4. Variables scalaires non uniformes en place dans un bloc SoA (`p_k == p_0 + k*n`) : zc `{p_0+b, 1, n}` (désactive le mode direct de TFEL).
-5. Sinon : rassemblement point par point dans un bloc W `(e-b)×nvals`, `{W, nvals, 1}`.
-
-Espace de travail `BatchIntegrationWorkSpace` propre au `MaterialDataManager`, alloué paresseusement avec la ressource mémoire et réutilisé (non sûr entre threads pour un même gestionnaire).
+Champs par variable de TFEL (section 0) : pas de planificateur ni d'espace
+de travail. La masse volumique uniforme reste un champ de pas nul.
 
 ### 2.3 Options A et B (`JOURNAL.md`, D1)
 
@@ -224,7 +241,7 @@ Compilation des `.mfront` de test avec `--interface=generic-parallel` par config
 
 1. `GenericParallelLoadTest` : interface, backend, pointeurs, métadonnées, rotations, API par point en erreur.
 2. `BatchIntegrateTest` : deux gestionnaires (`generic` et `generic-parallel`), états aléatoires, deux pas, trois types d'intégration ; s1, K, `exit_status`, `rdt` à 1e-12 ; lois Plasticity, Norton, Gurson, TensorialExternalStateVariableTest, ComputeSpeedOfSound, ImplicitNortonWithEnergies, FiniteStrainSingleCrystal, `ode_rk54`.
-3. `BatchDataMappingTest` : chaque cas du planificateur (diagnostic `describeBatchData()`).
+3. `BatchDataMappingTest` : champs uniformes, en place et mixtes pour les propriétés matériau et les variables externes.
 4. Plages `[b, e)`.
 5. Échecs (`NortonFailure.mfront`).
 6. Erreurs (variable non définie, SYCL sans file, pas de confusion avec -1).
@@ -243,7 +260,7 @@ Compilation des `.mfront` de test avec `--interface=generic-parallel` par config
 2. MGIS : en-tête C `BatchBehaviourFctPtr.hxx` ; test 11.
 3. MGIS : interface et backend dans `BehaviourDescription`, membres lot de `Behaviour`, fonctions lot de `LibrariesManager`, branches de `load`, gardes du chemin par point ; test 1.
 4. MGIS : `std::pmr` ; test 9 ; suite complète.
-5. MGIS : `BatchIntegrate` (politique, options, résultat, planificateur, espace de travail) ; tests 2-6 avec stlpar-gcc.
+5. MGIS : `BatchIntegrate` (politique, options d'exécution, résultat, champs par variable) ; tests 2-6 avec stlpar-gcc.
 6. MGIS : basculement des surcharges existantes ; test 12.
 7. MGIS : initialisation et post-traitements en lot ; test 7.
 8. MGIS : rotations en lot ; test 8.

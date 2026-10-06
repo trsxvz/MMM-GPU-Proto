@@ -72,8 +72,8 @@ nu.setGlossaryName("PoissonRatio");
       Dt = convert<FiniteStrainBehaviourTangentOperatorBase::ABAQUS,
 		   FiniteStrainBehaviourTangentOperatorBase::SPATIAL_MODULI,N,stress>(Cs,F0,F1,sig);
     } else {
-      throw(runtime_error("SaintVenantKirchhoffElasticity : "
-			  "unsupported tangent operator"));
+      return tfel::fail<runtime_error>("SaintVenantKirchhoffElasticity : "
+                                       "unsupported tangent operator");
     }
   }
 }

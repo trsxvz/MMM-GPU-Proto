@@ -4,8 +4,9 @@
 # given configuration file, and summarize the results.
 # usage: scripts/compile-sweep.sh [configuration file] [number of jobs]
 #        [pattern selecting the files]
-# The MFRONT variable selects the mfront executable (for instance
-# scratch/b2/mfront-dev.sh to use the build tree).
+# The TESTS variable selects the directory of the tests (mfront/tests of
+# TFEL by default). The MFRONT variable selects the mfront executable (for
+# instance scratch/b2/mfront-dev.sh to use the build tree).
 # The results are written in scratch/sweep-<configuration>/summary.tsv: one
 # line per file (path relative to mfront/tests, status, first error).
 # Statuses:
@@ -32,7 +33,7 @@ P=$PROTO
 CONF=${1:-config-cuda-nvcc.json}
 JOBS=${2:-12}
 PATTERN=${3:-.}
-TESTS=$P/tfel/mfront/tests
+TESTS=${TESTS:-$P/tfel/mfront/tests}
 MFRONT=${MFRONT:-mfront}
 OUT=$P/scratch/sweep-$(basename "${CONF%.json}")
 rm -rf "$OUT" && mkdir -p "$OUT"

@@ -483,10 +483,15 @@ namespace mfront::gb {
     using speed = typename Behaviour::speed;
     using massdensity = typename Behaviour::massdensity;
     using behaviour_real_type = typename Behaviour::real;
-    Behaviour b(d, args...);
-    b.setOutOfBoundsPolicy(p);
     auto&& rdt = tfel::math::map<behaviour_real_type>(d.rdt);
+    // time step scaling factor reported if an exception is thrown. The
+    // behaviour is built in the protected region, since its constructor may
+    // throw on the host (for instance while building shared data).
+    auto rdt_on_exception = behaviour_real_type{rdt};
     const auto integrate = [&]() -> int {
+      Behaviour b(d, args...);
+      rdt_on_exception = b.getMinimalTimeStepScalingFactor();
+      b.setOutOfBoundsPolicy(p);
       if (!b.initialize()) {
         reportError(d, "behaviour initialisation failed");
         return -1;
@@ -546,9 +551,8 @@ namespace mfront::gb {
       }
       return rdt < behaviour_real_type{0.99} ? 0 : 1;
     };
-    return callAndReportExceptions(d, integrate, [&rdt, &b] {
-      rdt = b.getMinimalTimeStepScalingFactor();
-    });
+    return callAndReportExceptions(
+        d, integrate, [&rdt, &rdt_on_exception] { rdt = rdt_on_exception; });
   }  // end of integrate
 
   /*!

@@ -46,7 +46,7 @@ sej.setEntryName("ViscoelasticStress");
     }
   }
   if(computeTangentOperator_){
-    string msg("GenMaxwell : no tangent operator available");
-    throw(runtime_error(msg));
+    return tfel::fail<runtime_error>(
+        "GenMaxwell : no tangent operator available");
   }
 }

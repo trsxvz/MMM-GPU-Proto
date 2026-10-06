@@ -37,6 +37,12 @@ namespace mfront::generic_parallel::behaviour {
            std::string{status} + ")";
   }  // end of getApply
 
+  std::string KokkosBackend::getSharedDataCopy(const std::string_view value,
+                                               const std::string_view) const {
+    return "mfront::gpb::kokkos::copyToDevice<" + this->execution_space + ">(" +
+           std::string{value} + ")";
+  }  // end of getSharedDataCopy
+
   KokkosBackend::~KokkosBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

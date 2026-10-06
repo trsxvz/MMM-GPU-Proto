@@ -980,6 +980,16 @@ namespace mfront {
     return this->getBehaviourData(h).getMembers();
   }  // end of getMembers
 
+  void BehaviourDescription::addSharedData(const SharedData& d) {
+    this->registerMemberName(ModellingHypothesis::UNDEFINEDHYPOTHESIS, d.name);
+    this->shared_data.push_back(d);
+  }  // end of addSharedData
+
+  const std::vector<BehaviourDescription::SharedData>&
+  BehaviourDescription::getSharedData() const {
+    return this->shared_data;
+  }  // end of getSharedData
+
   void BehaviourDescription::appendToPrivateCode(const Hypothesis h,
                                                  const std::string& c,
                                                  const bool b) {

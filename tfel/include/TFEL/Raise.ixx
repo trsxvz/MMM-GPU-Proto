@@ -42,6 +42,15 @@ namespace tfel {
     }
   }  // end of raise
 
+  template <typename Exception, typename... Args>
+  TFEL_HOST_DEVICE bool fail([[maybe_unused]] Args&&... a) {
+#ifdef TFEL_DEVICE_CODE
+    return false;
+#else  /* TFEL_DEVICE_CODE */
+    raise<Exception>(std::forward<Args>(a)...);
+#endif /* TFEL_DEVICE_CODE */
+  }  // end of fail
+
 }  // end of namespace tfel
 
 #endif /* LIB_TFEL_RAISE_IXX */

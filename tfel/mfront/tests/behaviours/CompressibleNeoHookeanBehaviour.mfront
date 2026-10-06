@@ -13,7 +13,6 @@
   const stress eg = 2*C1*pow(J,real(5)/real(3));
   sig = eg*b+pr*Stensor::Id();
   if(computeTangentOperator_){
-    string msg("tangent operator not yet available");
-    throw(runtime_error(msg));
+    return tfel::fail<runtime_error>("tangent operator not yet available");
   }
 }

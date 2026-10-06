@@ -88,6 +88,12 @@ run FiniteStrainSingleCrystal_Tridimensional \
   --material-properties=208000,208000,208000,0.3,0.3,0.3,208000,208000,208000,10,25,14363,66.62,11.43,2.1,494 \
   --finite-strain=CAUCHY,DSIG_DF \
   --initial-internal-state-variables=$z12,1,1,1,0,0,0,0,0,0,$z12,$z12
+# data shared by all the integration points (@SharedData): slip systems
+# of the grains of a polycrystal, read in a file on the host and copied in
+# the memory of the device
+run PolyCrystalSharedDataTest_Tridimensional \
+  --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 \
+  --amplitude=1e-4 --tangent-operator=1
 # initialize functions, with and without inputs
 run InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure
 run InitializeFunctionTest_PlaneStrain_InitializeFunction_ElasticStrainFromInitialStress

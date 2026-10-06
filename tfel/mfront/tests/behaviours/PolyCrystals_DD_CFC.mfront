@@ -53,6 +53,9 @@ omega.setErrorNormalisationFactor(1.e-7);
   typedef PolyCrystalsSlidingSystems<Np,MCSlidingSystems,real> PCSlidingSystems;
 }
 
+@SharedData PCSlidingSystems gs =
+    PCSlidingSystems::getPolyCrystalsSlidingSystems("PolyCrystalsAngles.txt");
+
 
 //! fraction volumique
 @LocalVariable real  fv[Np];
@@ -72,13 +75,11 @@ omega.setErrorNormalisationFactor(1.e-7);
 
 @Derivative{
   using tfel::math::stdfunctions::power;
-  static const real rhoref = 1.e6;
-  static const real alpha  = 0.35;
-  static const real beta   = 2.54e-7;
-  static const real tmp1   = log(alpha);
-  static const real tmp2   = log(alpha*beta*sqrt(rhoref));
-  const PCSlidingSystems& gs =
-    PCSlidingSystems::getPolyCrystalsSlidingSystems("PolyCrystalsAngles.txt");
+  const real rhoref = 1.e6;
+  const real alpha  = 0.35;
+  const real beta   = 2.54e-7;
+  const real tmp1   = log(alpha);
+  const real tmp2   = log(alpha*beta*sqrt(rhoref));
   real ppomega[Nss];
   real Dp ;
   real h ;

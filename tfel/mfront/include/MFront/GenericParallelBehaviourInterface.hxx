@@ -65,6 +65,10 @@ namespace mfront {
     [[nodiscard]] std::string getBehaviourConstructorTemplateDeclaration()
         const override;
     [[nodiscard]] std::string getBehaviourConstructorArguments() const override;
+    void writeBehaviourConstructorHeader(std::ostream&,
+                                         const BehaviourDescription&,
+                                         const Hypothesis,
+                                         const std::string&) const override;
     /*!
      * \return the name of the generated header file
      * \param[in] name: name of the behaviour, including the library

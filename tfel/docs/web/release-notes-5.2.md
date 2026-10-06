@@ -529,9 +529,31 @@ details](generic-parallel-material-property-interface.html).
 
 ### Available backends
 
-#### `STLPar`
+- `stlpar`: parallel algorithms of the C++ standard library, on CPUs or on
+  NVIDIA GPUs with `nvc++ -stdpar=gpu`;
+- `cuda` and `hip`;
+- `sycl`;
+- `kokkos`;
+- `openmp`: threads of the host or offloading to a device.
 
-#### `CUDA`
+## The `generic-parallel` interface for behaviours
+
+The `generic-parallel` interface integrates a behaviour, or executes a
+standalone model, over a batch of integration points, on GPUs or on CPUs,
+with the backends of the interface for material properties. See [this page
+for details](generic-parallel-behaviour-interface.html).
+
+## Writing behaviours usable on GPUs
+
+- `tfel::fail` reports an error in host and device code: it throws an
+  exception on the host and returns `false` in device code.
+- `abortResolution` (implicit DSLs) and `abortIntegration` (Runge-Kutta
+  DSLs) make the integration fail in device code, as an exception does on
+  the host.
+- the `@SharedData` keyword declares a data shared by all the integration
+  points, built once on the host, for instance the slip systems of the
+  grains of a polycrystal read from a file. The `generic-parallel`
+  interface copies it in the memory of the device.
 
 ## Improvements to the `Cast3M` interface
 

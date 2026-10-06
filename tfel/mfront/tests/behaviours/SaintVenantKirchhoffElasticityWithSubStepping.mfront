@@ -22,7 +22,7 @@ nu.setGlossaryName("PoissonRatio");
 
 @InitLocalVariables{
   if(dt>0.025){
-    throw(DivergenceException("invalid time step"));
+    return tfel::fail<DivergenceException>("invalid time step");
   }
   lambda = computeLambda(young,nu);
   mu     = computeMu(young,nu);

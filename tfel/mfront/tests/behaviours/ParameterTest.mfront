@@ -21,12 +21,14 @@ nu.setGlossaryName("PoissonRatio");
   constexpr const auto eps = real(1.e-12);
   const auto dy = young-stress(100e9);
   const auto dn = nu-real(0.2);
-  raise_if(abs(dy)>eps*young,
-	   "invalid value for the "
-	   "Young modulus");
-  raise_if(abs(dn)>eps*nu,
-	   "invalid value for the "
-	   "Poisson ratio");
+  if (abs(dy) > eps * young) {
+    return tfel::fail("invalid value for the "
+                      "Young modulus");
+  }
+  if (abs(dn) > eps * nu) {
+    return tfel::fail("invalid value for the "
+                      "Poisson ratio");
+  }
   lambda = computeLambda(young,nu);
   mu = computeMu(young,nu);
 }

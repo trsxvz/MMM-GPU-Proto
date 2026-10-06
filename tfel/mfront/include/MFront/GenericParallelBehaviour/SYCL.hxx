@@ -391,6 +391,30 @@ namespace mfront::gpb::sycl {
     };
   }  // end of makeApply
 
+  /*!
+   * \return a copy in device memory of a data shared by all the integration
+   * points (see the `@SharedData` keyword). The copy is made at the first
+   * call of a generated function, in the context of the queue given by the
+   * execution options, and is never freed.
+   * \param[in] v: data
+   * \param[in] o: execution options
+   */
+  template <typename T>
+  const T* copyToDevice(const T& v, const ExecutionOptions& o) {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "the shared data must be trivially copyable");
+    if (o.queue == nullptr) {
+      throw std::runtime_error("no SYCL queue given");
+    }
+    auto& q = *static_cast<::sycl::queue*>(o.queue);
+    auto* const p = ::sycl::malloc_device<T>(1, q);
+    if (p == nullptr) {
+      throw std::runtime_error("memory allocation failed on the SYCL device");
+    }
+    q.copy(&v, p, 1).wait_and_throw();
+    return p;
+  }  // end of copyToDevice
+
   namespace internals {
 
     /*!

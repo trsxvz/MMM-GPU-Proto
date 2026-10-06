@@ -19,7 +19,9 @@
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
 
 #include <mutex>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #if defined(__HIPCC__) || defined(__HIP__)
 #include <hip/hip_runtime.h>
 #define MFRONT_GPB_GPU_API(f) hip##f
@@ -266,6 +268,31 @@ namespace mfront::gpb::gpu {
     }
     return report(s, getBatchStatistics(statistics));
   }  // end of apply
+
+  /*!
+   * \return a copy in device memory of a data shared by all the integration
+   * points (see the `@SharedData` keyword), on the current device. The copy
+   * is made at the first call of a generated function and is never freed.
+   * \param[in] v: data
+   */
+  template <typename T>
+  const T* copyToDevice(const T& v) {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "the shared data must be trivially copyable");
+    constexpr auto success = MFRONT_GPB_GPU_API(Success);
+    T* p = nullptr;
+    if (MFRONT_GPB_GPU_API(Malloc)(reinterpret_cast<void**>(&p), sizeof(T)) !=
+        success) {
+      throw std::runtime_error("memory allocation failed on the device");
+    }
+    if (MFRONT_GPB_GPU_API(Memcpy)(p, &v, sizeof(T),
+                                   MFRONT_GPB_GPU_API(MemcpyHostToDevice)) !=
+        success) {
+      static_cast<void>(MFRONT_GPB_GPU_API(Free)(p));
+      throw std::runtime_error("copy to the device failed");
+    }
+    return p;
+  }  // end of copyToDevice
 
   /*!
    * \return the primitive of the backend, as expected by

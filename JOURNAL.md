@@ -150,7 +150,7 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
         bibliothèques, rotations sans arguments factices ;
   - [x] B7 gain du mode direct mesuré : aucun, mode retiré ;
   - [x] C tous les points mineurs.
-- [ ] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
+- [x] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
       n'est pas utilisable sur GPU portables CPU et GPU, sans changer leurs
       résultats ni leur sémantique.
 - [ ] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
@@ -1338,3 +1338,55 @@ openmp-offload-nvhpc-gpu, stlpar-parunseq-gcc,
 stlpar-parunseq-nvhpc-gpu ; 513/513 pour sycl-default-acpp (avec les
 copies depuis la mémoire hôte) ; TDLS 18/18 ; propriétés matériau OK sur
 cinq configurations.
+
+### 2026-10-06 (soir), lois de test portables (R2)
+
+Branche `portable-test-laws` de TFEL, au-dessus de 7c1427f57.
+
+- `tfel::fail<Exception>(...)` : lance l'exception sur l'hôte comme avant,
+  renvoie `false` sur GPU. Le bloc de code renvoie cette valeur.
+- Renvoyer `false` ne fait pas échouer l'intégration partout : dans
+  `@Integrator` des DSL implicites, la correction de Newton est divisée
+  par deux ; dans `@Derivative` des DSL Runge-Kutta, le pas de temps est
+  réduit. Une exception, elle, arrête tout. Sur GPU, le même effet
+  s'obtient par `this->abortResolution()` (solveur non linéaire de TFEL,
+  compteur d'itérations au maximum) et `this->abortIntegration()` (lois
+  Runge-Kutta, générée par MFront).
+- `@SharedData Type nom = expression;` : donnée construite une fois sur
+  l'hôte (orientations des grains d'un polycristal lues dans un fichier).
+  La loi y accède par un membre référence. L'interface generic-parallel
+  la copie au premier appel dans une mémoire accessible au GPU (mémoire du
+  GPU pour CUDA, HIP, SYCL et Kokkos, tas sinon) et passe son adresse aux
+  noyaux par la structure des paramètres. `PolyCrystalsSlidingSystems` en
+  tableaux de taille fixe. Interdite dans les variables de comportement.
+- 36 lois de `mfront/tests` converties sans changer leurs résultats sur
+  l'hôte (mêmes exceptions, mêmes messages) : 30 à exceptions ou `cout`,
+  6 polycristaux. Les messages construits à l'exécution et les `cout`
+  restent sur l'hôte (`#ifndef TFEL_DEVICE_CODE`).
+- Nouveau test de comparaison : polycristal de Berveiller-Zaoui à quatre
+  grains (`PolyCrystalSharedDataTest`).
+- Défauts d'environnement de NVHPC 25.11 trouvés en chemin (dans
+  `results/nvhpc-bugs/README.md`) : `-mp=gpu -gpu=mem:managed` ne lie pas
+  `libnvhpcmanaux` (contrairement à `-stdpar=gpu`), d'où un
+  `free(): invalid pointer` quand du code g++ libère de la mémoire gérée ;
+  `libnvcpumath.so` ne dépend pas de `libm` : un programme qui ne charge
+  pas `libm` ne peut pas charger une bibliothèque nvc++ (sans effet sur
+  MGIS).
+- Balayages de compilation des 608 fichiers avec nvcc et clang : 541 OK,
+  0 code utilisateur, 0 appel hôte (contre 504 OK, 36 code utilisateur et
+  1 appel hôte le 06/10 au matin), 60 invalides et 7 fragments inchangés.
+- Le pilote de l'interface `generic` construisait la loi hors de la zone
+  qui convertit les exceptions en échecs. Avec `@SharedData`, la lecture
+  du fichier d'orientations a lieu dans le constructeur : un fichier
+  manquant aurait fait sortir l'exception de la fonction générée au lieu
+  de renvoyer un échec comme avant. La loi est maintenant construite dans
+  la zone protégée (vérifié : statut -1 et message de l'exception).
+- `compare` accepte le pas de temps et les valeurs des variables externes
+  (pour R3).
+- Validation à -O3 : 498/498 sur cuda-nvcc, cuda-clang, hip-hipcc, kokkos,
+  kokkos-host, openmp-host-gcc, openmp-offload-nvhpc-gpu,
+  stlpar-parunseq-gcc, stlpar-parunseq-nvhpc-gpu ; 522/522 sur
+  sycl-default-acpp ; TDLS 18/18 ; propriétés matériau OK sur cinq
+  configurations. Après le correctif du pilote `generic` : openmp-host-gcc,
+  cuda-nvcc et openmp-offload-nvhpc-gpu à nouveau 498/498,
+  sycl-default-acpp 522/522.

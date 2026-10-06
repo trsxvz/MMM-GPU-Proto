@@ -59,8 +59,7 @@ q3.setEntryName("ThirdGursonParameter");
   delta = ((ffb-fc)/(fmax-fc));
   const real feq = (f<fc ? f : fc+delta*(f-fc));
   if(q3>q1){
-    string msg("gurson : q3 is greater than q1 !");
-    throw(runtime_error(msg));
+    return tfel::fail<runtime_error>("gurson : q3 is greater than q1 !");
   }
   flim   = min(fc+delta*(fmax-fc),0.95*(q1-sqrt(q1*q1-q3*q3))/(q3*q3));
   broken = (feq>=flim);

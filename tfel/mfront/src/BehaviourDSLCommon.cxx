@@ -181,6 +181,7 @@ namespace mfront {
     add("@TFELLibraries", &BehaviourDSLCommon::treatTFELLibraries);
     add("@Includes", &BehaviourDSLCommon::treatIncludes);
     add("@Members", &BehaviourDSLCommon::treatMembers);
+    add("@SharedData", &BehaviourDSLCommon::treatSharedData);
     add("@UnitSystem", &BehaviourDSLCommon::treatUnitSystem);
     add("@Coef", &BehaviourDSLCommon::treatCoef);
     add("@MaterialProperty", &BehaviourDSLCommon::treatCoef);
@@ -1857,6 +1858,31 @@ namespace mfront {
       this->mb.appendToMembers(h, this->readNextBlock(o).code, true);
     }
   }  // end of treatMembers
+
+  void BehaviourDSLCommon::treatSharedData() {
+    const auto m = std::string{"BehaviourDSLCommon::treatSharedData"};
+    this->checkNotEndOfFile(m, "Expected the type of the shared data.");
+    auto d = BehaviourDescription::SharedData{};
+    d.type = this->readType();
+    this->checkNotEndOfFile(m, "Expected the name of the shared data.");
+    d.name = this->current->value;
+    if (!isValidUserDefinedVariableName(d.name)) {
+      this->throwRuntimeError(m, "invalid name '" + d.name + "'.");
+    }
+    ++(this->current);
+    this->readSpecifiedToken(m, "=");
+    // the tokens of the expression are copied as is, strings included
+    while ((this->current != this->tokens.end()) &&
+           (this->current->value != ";")) {
+      d.expression += this->current->value + ' ';
+      ++(this->current);
+    }
+    this->readSpecifiedToken(m, ";");
+    if (d.expression.empty()) {
+      this->throwRuntimeError(m, "no expression given for '" + d.name + "'.");
+    }
+    this->mb.addSharedData(d);
+  }  // end of treatSharedData
 
   void BehaviourDSLCommon::treatBrick() {
     using Parameters = AbstractBehaviourBrick::Parameters;

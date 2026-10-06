@@ -35,7 +35,8 @@ behaviours=${*:-"
   InitializeFunctionTest PostProcessingTest OrthotropicElastic
   OrthotropicSaintVenantKirchhoffElasticity
   OrthotropicStationaryHeatTransfer SingleCrystal_DD_FCC
-  FiniteStrainSingleCrystal ImplicitNortonWithEnergies Norton_rk42
+  FiniteStrainSingleCrystal PolyCrystalSharedDataTest
+  ImplicitNortonWithEnergies Norton_rk42
   Tvergaard BehaviourVariableTest ExternalModelCallerTest
   StandardElastoViscoPlasticityTest
   OrthotropicStandardElastoViscoPlasticityTest

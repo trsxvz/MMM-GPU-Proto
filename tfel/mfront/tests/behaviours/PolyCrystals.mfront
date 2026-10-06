@@ -52,6 +52,9 @@
   typedef MetallicCFCGenericSlidingSystemsInteractionMatrix<real> InteractionMatrix;
 }
 
+@SharedData PCSlidingSystems gs =
+    PCSlidingSystems::getPolyCrystalsSlidingSystems("PolyCrystalsAngles.txt");
+
 //! fraction volumique
 @LocalVariable real  fv[Np];
 //! interaction matrix
@@ -78,8 +81,6 @@
 }
 
 @Derivative{
-  const PCSlidingSystems& gs =
-    PCSlidingSystems::getPolyCrystalsSlidingSystems("PolyCrystalsAngles.txt");
   StressStensor sigg(real(0)) ;
   depsp=Stensor(real(0)) ;
   // boucle sur le nombre de phases (ou grains) 
@@ -123,6 +124,6 @@
 }
 
 @UpdateAuxiliaryStateVars{
-  static const real INV_SQRT_3_2 = real(1)/sqrt(real(3)/real(2));
+  const real INV_SQRT_3_2 = real(1)/sqrt(real(3)/real(2));
   pg+=dt_*sqrt(depsp|depsp)*INV_SQRT_3_2;
 }

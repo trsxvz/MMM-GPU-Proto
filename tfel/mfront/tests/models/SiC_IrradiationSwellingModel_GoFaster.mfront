@@ -43,10 +43,14 @@ n.setDepth(1);
   if((0<=theta)&&(theta<=1500)){
     swellingSaturation = 0.04*exp(-theta/370);
   } else {
+#ifndef TFEL_DEVICE_CODE
     ostringstream msg;
     msg << "SIC_SwellingModel::computeSwellingIncrement : ";
     msg << "temperature is out of bounds (" << theta << ")";
     throw(runtime_error(msg.str()));
+#else  /* TFEL_DEVICE_CODE */
+    return false;
+#endif /* TFEL_DEVICE_CODE */
   }
   incr  = swellingSaturation/Phi0;
   incr *= exp(-Phi/Phi0);

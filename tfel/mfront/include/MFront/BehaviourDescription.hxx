@@ -451,6 +451,23 @@ namespace mfront {
     void appendToMembers(const Hypothesis, const std::string&, const bool);
     //! \return the aditional members
     std::string getMembers(const Hypothesis) const;
+    //! \brief description of a data shared by all the integration points
+    struct SharedData {
+      //! \brief type of the data
+      std::string type;
+      //! \brief name of the data
+      std::string name;
+      //! \brief expression giving the data, evaluated on the host
+      std::string expression;
+    };
+    /*!
+     * \brief add a data shared by all the integration points (see the
+     * `@SharedData` keyword)
+     * \param[in] d: description of the data
+     */
+    void addSharedData(const SharedData&);
+    //! \return the data shared by all the integration points
+    const std::vector<SharedData>& getSharedData() const;
     /*!
      * \brief append the given code to the members
      * \param[in] h: hypothesis
@@ -2105,6 +2122,8 @@ namespace mfront {
     IntegrationScheme ischeme = UNDEFINEDINTEGRATIONSCHEME;
     //! \brief list of material laws used
     std::vector<std::string> materialLaws;
+    //! \brief data shared by all the integration points
+    std::vector<SharedData> shared_data;
     /*!
      * \brief list of behaviour variables waiting to be treated
      * \note this intermediate structure is required since

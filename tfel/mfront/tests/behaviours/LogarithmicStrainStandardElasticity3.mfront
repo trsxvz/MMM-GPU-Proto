@@ -41,6 +41,6 @@
 @UpdateAuxiliaryStateVariables {
   const auto ds = eval(theta * sig + (1 - theta) * sig0 - sigel);
   if (sqrt(ds | ds) > 10 * epsilon * D(0,0)) {
-    tfel::raise("invalid stress prediction");
+    return tfel::fail("invalid stress prediction");
   }
 }

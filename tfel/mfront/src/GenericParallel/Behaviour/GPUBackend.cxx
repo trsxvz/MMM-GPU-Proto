@@ -34,6 +34,11 @@ namespace mfront::generic_parallel::behaviour {
            std::to_string(this->number_of_threads_per_block) + ")";
   }  // end of getApply
 
+  std::string GPUBackend::getSharedDataCopy(const std::string_view value,
+                                            const std::string_view) const {
+    return "mfront::gpb::gpu::copyToDevice(" + std::string{value} + ")";
+  }  // end of getSharedDataCopy
+
   GPUBackend::~GPUBackend() noexcept = default;
 
   std::string CUDABackend::getName() const { return "cuda"; }

@@ -66,6 +66,30 @@ namespace tfel {
   template <typename Exception = std::runtime_error, typename... Args>
   TFEL_VISIBILITY_LOCAL TFEL_INLINE void raise_if(const bool, Args&&...);
 
+  /*!
+   * \brief report a failure in a function returning a boolean, or a type
+   * which can be built from a boolean, in host and device code:
+   *
+   * - on the host, an exception of the given type is thrown;
+   * - in device code, where exceptions are not supported, `false` is
+   *   returned. The caller shall return this value.
+   *
+   * \code{.cpp}
+   * if (q3 > q1) {
+   *   return tfel::fail<std::runtime_error>("q3 is greater than q1");
+   * }
+   * \endcode
+   *
+   * \tparam Exception: type of the exception thrown on the host.
+   * \tparam Args: type of the arguments passed to the exception'
+   * constructor.
+   * \param[in] a: arguments passed to the exception' constructor, which
+   * are only used on the host.
+   */
+  template <typename Exception = std::runtime_error, typename... Args>
+  [[nodiscard]] TFEL_VISIBILITY_LOCAL TFEL_HOST_DEVICE TFEL_INLINE bool fail(
+      Args&&...);
+
 }  // end of namespace tfel
 
 #include "TFEL/Raise.ixx"

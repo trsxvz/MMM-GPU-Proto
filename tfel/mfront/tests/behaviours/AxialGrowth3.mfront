@@ -22,7 +22,7 @@ ag.setGlossaryName("AxialGrowth");
 /* Initialize Lame coefficients */
 @InitLocalVariables{
   if(dt>100){
-    throw(DivergenceException());
+    return tfel::fail<DivergenceException>();
   }
 } // end of @InitLocalVars
 

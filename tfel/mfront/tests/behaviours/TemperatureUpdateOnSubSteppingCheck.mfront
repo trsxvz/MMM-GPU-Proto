@@ -18,7 +18,7 @@
 
 @InitLocalVariables{
   if(dt>1){
-    throw(DivergenceException());
+    return tfel::fail<DivergenceException>();
   }
   constexpr const auto e  = numeric_limits<real>::epsilon();
   constexpr const auto Ti = 293.15;
@@ -26,7 +26,7 @@
   constexpr const auto te = 3600;
   const auto Tt = Ti+(Te-Ti)*(ct/te);
   if(std::abs(T-Tt)>100*Te*e){
-    throw(runtime_error("invalid temperature value"));
+    return tfel::fail<runtime_error>("invalid temperature value");
   }
 }
 

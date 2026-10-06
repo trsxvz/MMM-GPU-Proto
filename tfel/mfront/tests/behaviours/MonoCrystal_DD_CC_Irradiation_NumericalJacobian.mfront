@@ -81,8 +81,11 @@
   for (unsigned short k = 0; k != 12; ++k) {
     omegap[k] = omega[k] + theta * domega[k];
     if (omegap[k] < 0.) {
+#ifndef TFEL_DEVICE_CODE
       cout << " k" << k << " omega " << omegap[k] << endl;
-      throw(runtime_error("omega négatif"));
+#endif /* TFEL_DEVICE_CODE */
+      this->abortResolution();
+      return tfel::fail<runtime_error>("omega négatif");
     }
   }
 
@@ -114,7 +117,8 @@
     }
     alpha_AT += a_irr * omega_irr[i];
     if (alpha_AT < 0.) {
-      throw(runtime_error("alpha_AT négatif"));
+      this->abortResolution();
+      return tfel::fail<runtime_error>("alpha_AT négatif");
     }
     alpha_AT = sqrt(alpha_AT / omega_tot);
     real ls = max((lambda - 2.0 * alpha_AT * Rs), Lc);
@@ -134,8 +138,11 @@
     }
 
     if (tau_eff > tau_0) {
+#ifndef TFEL_DEVICE_CODE
       cout << "tau_eff " << tau_eff << " tau_0 " << tau_0 << endl;
-      throw(runtime_error("tau_eff > tau_0"));
+#endif /* TFEL_DEVICE_CODE */
+      this->abortResolution();
+      return tfel::fail<runtime_error>("tau_eff > tau_0");
     }
     real DG_eff = DeltaG_0;
     if (tau_eff > 0.0) {
@@ -144,9 +151,14 @@
     real gamma_nuc = omega_mob / b * H * ls * exp(-DG_eff / k_b / T) * sgn_tau;
 
     if (abs(tau_c) < 1.e-50) {
+#ifndef TFEL_DEVICE_CODE
       ostringstream msg;
       msg << "invalid value for tau_c (" << tau_c << ")";
       throw(runtime_error(msg.str()));
+#else  /* TFEL_DEVICE_CODE */
+      this->abortResolution();
+      return false;
+#endif /* TFEL_DEVICE_CODE */
     }
     real gamma_prob = gamma0 * pow((abs(tau[i]) / tau_c), pn) * sgn_tau;
 

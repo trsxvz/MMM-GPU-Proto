@@ -236,6 +236,25 @@ namespace tfel::math {
      */
     TFEL_HOST_DEVICE constexpr void reportStandardIteration(
         const NumericType) const noexcept {}
+    /*!
+     * \brief abort the resolution: the solver reports a failure as soon as
+     * the current evaluation of the residual or of the correction fails.
+     * This allows to abort the resolution in device code, where exceptions
+     * are not supported (see `tfel::fail`):
+     *
+     * \code{.cpp}
+     * if (omega < 0) {
+     *   this->abortResolution();
+     *   return tfel::fail("negative value of omega");
+     * }
+     * \endcode
+     *
+     * On the host, `tfel::fail` throws an exception, which aborts the
+     * resolution anyway.
+     */
+    TFEL_HOST_DEVICE constexpr void abortResolution() noexcept {
+      this->iter = this->iterMax;
+    }
     //! \brief criterion value
     NumericType epsilon;
     /*!

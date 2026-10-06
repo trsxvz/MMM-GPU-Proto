@@ -28,8 +28,7 @@
   sig = eg1*c-eg2*c2+pr*Stensor::Id();
   // no tangent operator yet
   if(computeTangentOperator_){
-    string msg("tangent operator not yet available");
-    throw(runtime_error(msg));
+    return tfel::fail<runtime_error>("tangent operator not yet available");
   }
 }
 

@@ -49,7 +49,7 @@ p.setGlossaryName("EquivalentViscoplasticStrain");
   lambda = computeLambda(young,nu);
   mu = computeMu(young,nu);
   if(dt>0.1){
-    throw(DivergenceException());
+    return tfel::fail<DivergenceException>();
   }
 } // end of @InitLocalVars
 

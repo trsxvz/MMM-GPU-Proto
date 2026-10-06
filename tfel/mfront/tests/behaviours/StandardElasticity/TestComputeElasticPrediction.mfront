@@ -21,7 +21,7 @@
 
 @UpdateAuxiliaryStateVariables{
   if(abs(sigel-sig)>10*std::numeric_limits<real>::epsilon()*young){
-    throw(runtime_error("TestComputeElasticPrediction: "
-			"computeElasticPrediction failed"));
+    return tfel::fail<runtime_error>("TestComputeElasticPrediction: "
+                                     "computeElasticPrediction failed");
   }
 }

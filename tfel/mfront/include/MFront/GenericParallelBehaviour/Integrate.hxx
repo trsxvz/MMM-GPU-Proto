@@ -1310,6 +1310,19 @@ namespace mfront::gpb {
   }  // end of rotateBatch
 
   /*!
+   * \return a copy of a data shared by all the integration points (see the
+   * `@SharedData` keyword), allocated on the heap. The heap is accessible by
+   * the device if the memory is unified or managed (`stlpar` and `openmp`
+   * backends). The copy is made at the first call of a generated function
+   * and is never freed.
+   * \param[in] v: data
+   */
+  template <typename T>
+  const T* copyToHeap(const T& v) {
+    return new T(v);
+  }  // end of copyToHeap
+
+  /*!
    * \brief call the given function and convert exceptions to an error
    * status. This is meant for the host part of the generated functions.
    * \param[out] s: output status

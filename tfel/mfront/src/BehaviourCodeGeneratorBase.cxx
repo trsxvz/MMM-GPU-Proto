@@ -4082,6 +4082,28 @@ namespace mfront {
     if (!m.empty()) {
       os << m << "\n\n";
     }
+    // the shared data are built on the host by a function returning a
+    // reference to a copy of the result of the expression. Interfaces may
+    // initialize the member differently (see the `generic-parallel`
+    // interface).
+    for (const auto& d : this->bd.getSharedData()) {
+      // the function building the data is called by the interfaces
+      os << "public:\n\n"
+         << "/*!\n"
+         << " * \\return the shared data `" << d.name << "`, built once on\n"
+         << " * the host\n"
+         << " */\n"
+         << "static const " << d.type << "& mfront_get_shared_data_" << d.name
+         << "(){\n"
+         << "static const " << d.type << " mfront_shared_data = "
+         << d.expression << ";\n"
+         << "return mfront_shared_data;\n"
+         << "}\n\n"
+         << "private:\n\n"
+         << "//! \\brief shared data\n"
+         << "const " << d.type << "& " << d.name
+         << " = mfront_get_shared_data_" << d.name << "();\n\n";
+    }
   }
 
   void BehaviourCodeGeneratorBase::writeBehaviourPrivate(

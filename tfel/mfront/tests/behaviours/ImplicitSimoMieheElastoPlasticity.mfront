@@ -132,7 +132,7 @@ Tref.setDefaultValue(293.15);
       x = x2;
     }
   } else {
-    throw(runtime_error("CubicRoots::exe : failed"));
+    return tfel::fail<runtime_error>("CubicRoots::exe : failed");
   }
   // elastic strain
   be = x*StrainStensor::Id()+dev_tK/mu;
