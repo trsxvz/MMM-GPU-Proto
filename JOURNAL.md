@@ -127,6 +127,35 @@ C. Backends
   `results/generic-parallel-tests-2026-10-05.txt`) : 8 tests de lois et
   6 de propriétés matériau actifs, tous OK après les corrections ci-dessous
   (dernière passe en cours au moment de l'écriture).
+R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
+   dans cet ordre
+- [ ] R1 Corriger tous les constats de la relecture :
+  - [ ] A4 même définition de la classe de loi sur l'hôte et le GPU ;
+  - [ ] A1 référence `generic` des tests compilée par le compilateur hôte ;
+  - [ ] A2 paramètres des lois matériau appelées et des variables de
+        comportement transmis au GPU, ou écart détecté ;
+  - [ ] A3 variante asynchrone, réglage explicite de la pile, mutex commun ;
+  - [ ] A5 principe 4 de DESIGN.md corrigé, résultats CPU inchangés
+        (vecteurs propres), plan de découpage en PR amont ;
+  - [ ] B1 options et conventions de statut communes aux propriétés
+        matériau et aux lois ;
+  - [ ] B2 points d'entrée, `dispatch*`, `gather`/`scatter`, intégrateurs
+        de grandes déformations et SYCL factorisés ;
+  - [ ] B3 mécanismes implicites du générateur rendus explicites ;
+  - [ ] B4 version du contrat C, premier message d'erreur conservé ;
+  - [ ] B5 liste des lois de test centralisée, tailles lues dans les
+        bibliothèques, rotations sans arguments factices ;
+  - [ ] B7 gain du mode direct mesuré, décision ;
+  - [ ] C tous les points mineurs.
+- [ ] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
+      n'est pas utilisable sur GPU portables CPU et GPU, sans changer leurs
+      résultats ni leur sémantique.
+- [ ] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
+      que compilées (balayage d'exécution) ; balayages de compilation avec
+      nvc++ (OpenMP, stdpar) et AdaptiveCpp.
+- [ ] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
+      (MFEM 4.10 reporté à mfem-mgis : compilation CUDA de plusieurs
+      heures, jusqu'à 22 Go pour un fichier).
 D. Intégration
 - [ ] D1 MGIS (proposition de conception détaillée :
       `scratch/d1-mgis-design.md`, 10 questions ouvertes) :
