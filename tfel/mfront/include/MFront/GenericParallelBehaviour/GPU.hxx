@@ -19,6 +19,7 @@
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
 
 #include <mutex>
+#include <string>
 #if defined(__HIPCC__) || defined(__HIP__)
 #include <hip/hip_runtime.h>
 #define MFRONT_GPB_GPU_API(f) hip##f
@@ -26,6 +27,7 @@
 #include <cuda_runtime.h>
 #define MFRONT_GPB_GPU_API(f) cuda##f
 #endif
+#include "MFront/GenericParallel/DeviceStackSize.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::gpu {
@@ -40,24 +42,40 @@ namespace mfront::gpb::gpu {
 #endif
 
     /*!
+     * \brief report an error of the runtime. Only the first error is
+     * reported.
+     * \return true if the given code denotes an error
+     * \param[in,out] s: output status
+     * \param[in] e: error code
+     */
+    inline bool failed(OutputStatus& s,
+                       const MFRONT_GPB_GPU_API(Error_t) e) noexcept {
+      if (e == MFRONT_GPB_GPU_API(Success)) {
+        return false;
+      }
+      if (s.status != -3) {
+        report(s, -3, MFRONT_GPB_GPU_API(GetErrorString)(e));
+      }
+      return true;
+    }  // end of failed
+
+    /*!
      * \brief increase the stack size of the threads if the given kernel
      * requires it. The default stack size (1024 bytes with CUDA) is too
      * small for some behaviours and is not increased automatically.
-     * \return the error code of the runtime
+     * \return true on success
+     * \param[in,out] s: output status
      * \param[in] k: kernel
+     * \param[in] preserve: if true, the stack size is not modified and an
+     * error is reported if it is too small
      */
     template <typename Kernel>
-    MFRONT_GPB_GPU_API(Error_t)
-    ensureStackSize(Kernel k) {
-      using Error = MFRONT_GPB_GPU_API(Error_t);
-      // the stack size is a property of the context, shared by all threads
-      static std::mutex m;
+    bool ensureStackSize(OutputStatus& s, Kernel k, const bool preserve) {
       auto a = MFRONT_GPB_GPU_API(FuncAttributes){};
       // the HIP runtime only provides the untyped overload
-      if (const auto e = MFRONT_GPB_GPU_API(FuncGetAttributes)(
-              &a, reinterpret_cast<const void*>(k));
-          e != MFRONT_GPB_GPU_API(Success)) {
-        return e;
+      if (failed(s, MFRONT_GPB_GPU_API(FuncGetAttributes)(
+                        &a, reinterpret_cast<const void*>(k)))) {
+        return false;
       }
       // the static estimate of the local memory of the kernel may be
       // slightly lower than the actual stack usage (by a few tens of bytes
@@ -68,18 +86,26 @@ namespace mfront::gpb::gpu {
       const auto required =
           ((a.localSizeBytes + margin + granularity - 1) / granularity) *
           granularity;
-      auto lock = std::lock_guard<std::mutex>{m};
+      auto lock = std::lock_guard<std::mutex>{
+          mfront::generic_parallel::getStackSizeMutex()};
       auto l = std::size_t{};
-      if (const auto e = MFRONT_GPB_GPU_API(DeviceGetLimit)(
-              &l, MFRONT_GPB_GPU_API(LimitStackSize));
-          e != MFRONT_GPB_GPU_API(Success)) {
-        return e;
+      if (failed(s, MFRONT_GPB_GPU_API(DeviceGetLimit)(
+                        &l, MFRONT_GPB_GPU_API(LimitStackSize)))) {
+        return false;
       }
       if (required <= l) {
-        return Error{MFRONT_GPB_GPU_API(Success)};
+        return true;
       }
-      return MFRONT_GPB_GPU_API(DeviceSetLimit)(
-          MFRONT_GPB_GPU_API(LimitStackSize), required);
+      if (preserve) {
+        report(s, -3,
+               "the stack size of the threads of the device must be at "
+               "least " +
+                   std::to_string(required) +
+                   " bytes, but it is preserved by the execution options");
+        return false;
+      }
+      return !failed(s, MFRONT_GPB_GPU_API(DeviceSetLimit)(
+                            MFRONT_GPB_GPU_API(LimitStackSize), required));
     }  // end of ensureStackSize
 
     //! \brief sum of the values of a warp, in the first thread of the warp
@@ -161,14 +187,16 @@ namespace mfront::gpb::gpu {
    * \brief apply a function at the points of a batch, one thread per point,
    * and report the statistics of the batch.
    *
-   * The kernel is launched on the given queue. This function waits for its
-   * completion.
+   * The kernel is launched on the queue given by the execution options. If
+   * the execution options give statistics, this function returns once the
+   * kernel is launched. Otherwise, it waits for its completion.
    *
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] queue: stream (default stream if null)
+   * \param[in] o: execution options. The queue is a stream (default stream
+   * if null).
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] threads_per_block: number of threads per block, rounded up to
@@ -178,190 +206,81 @@ namespace mfront::gpb::gpu {
   template <typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            void* const queue,
+            const ExecutionOptions& o,
             const real rdt0,
             const PointFunction& f,
             const unsigned int threads_per_block) {
     using Stream = MFRONT_GPB_GPU_API(Stream_t);
-    using Error = MFRONT_GPB_GPU_API(Error_t);
+    using internals::failed;
     if (n == 0) {
       return s.status;
     }
-    // report a runtime error, only the first error is reported
-    auto failed = [&s](const Error e) {
-      if (e == MFRONT_GPB_GPU_API(Success)) {
-        return false;
-      }
-      if (s.status != -3) {
-        report(s, -3, MFRONT_GPB_GPU_API(GetErrorString)(e));
-      }
-      return true;
-    };
+    constexpr auto k = internals::apply<PointFunction>;
+    if (!internals::ensureStackSize(s, k, o.preserve_stack_size != 0)) {
+      return s.status;
+    }
     auto device = 0;
     auto warp_size = 0;
-    if (failed(MFRONT_GPB_GPU_API(GetDevice)(&device)) ||
-        failed(MFRONT_GPB_GPU_API(DeviceGetAttribute)(
-            &warp_size, internals::warp_size_attribute, device))) {
+    if (failed(s, MFRONT_GPB_GPU_API(GetDevice)(&device)) ||
+        failed(s, MFRONT_GPB_GPU_API(DeviceGetAttribute)(
+                      &warp_size, internals::warp_size_attribute, device))) {
       return s.status;
     }
     const auto ws = static_cast<unsigned int>(warp_size);
     const auto nthreads = ((threads_per_block + ws - 1) / ws) * ws;
     const auto nblocks = (n + nthreads - 1) / nthreads;
-    const auto stream = static_cast<Stream>(queue);
-    auto statistics = AtomicBatchStatistics::initial(rdt0);
+    const auto stream = static_cast<Stream>(o.queue);
+    const auto rdt_key = toOrderedKey(rdt0);
+    if (o.statistics != nullptr) {
+      k<<<nblocks, nthreads, 0, stream>>>(f, n, o.statistics, rdt_key);
+      failed(s, MFRONT_GPB_GPU_API(GetLastError)());
+      return s.status;
+    }
+    auto statistics = makeAtomicBatchStatistics(rdt0);
     AtomicBatchStatistics* device_statistics = nullptr;
-    if (failed(MFRONT_GPB_GPU_API(MallocAsync)(
-            reinterpret_cast<void**>(&device_statistics),
-            sizeof(AtomicBatchStatistics), stream))) {
+    if (failed(s, MFRONT_GPB_GPU_API(MallocAsync)(
+                      reinterpret_cast<void**>(&device_statistics),
+                      sizeof(AtomicBatchStatistics), stream))) {
       return s.status;
     }
     const auto launched = [&] {
-      if (failed(MFRONT_GPB_GPU_API(MemcpyAsync)(
-              device_statistics, &statistics, sizeof(statistics),
-              MFRONT_GPB_GPU_API(MemcpyHostToDevice), stream))) {
+      if (failed(s, MFRONT_GPB_GPU_API(MemcpyAsync)(
+                        device_statistics, &statistics, sizeof(statistics),
+                        MFRONT_GPB_GPU_API(MemcpyHostToDevice), stream))) {
         return false;
       }
-      constexpr auto k = internals::apply<PointFunction>;
-      if (failed(internals::ensureStackSize(k))) {
+      k<<<nblocks, nthreads, 0, stream>>>(f, n, device_statistics, rdt_key);
+      if (failed(s, MFRONT_GPB_GPU_API(GetLastError)())) {
         return false;
       }
-      k<<<nblocks, nthreads, 0, stream>>>(f, n, device_statistics,
-                                          statistics.rdt);
-      if (failed(MFRONT_GPB_GPU_API(GetLastError)())) {
-        return false;
-      }
-      return !failed(MFRONT_GPB_GPU_API(MemcpyAsync)(
-          &statistics, device_statistics, sizeof(statistics),
-          MFRONT_GPB_GPU_API(MemcpyDeviceToHost), stream));
+      return !failed(s, MFRONT_GPB_GPU_API(MemcpyAsync)(
+                            &statistics, device_statistics, sizeof(statistics),
+                            MFRONT_GPB_GPU_API(MemcpyDeviceToHost), stream));
     }();
     const auto freed =
-        !failed(MFRONT_GPB_GPU_API(FreeAsync)(device_statistics, stream));
+        !failed(s, MFRONT_GPB_GPU_API(FreeAsync)(device_statistics, stream));
     const auto synchronized =
-        !failed(MFRONT_GPB_GPU_API(StreamSynchronize)(stream));
+        !failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream));
     if (!(launched && freed && synchronized)) {
       return s.status;
     }
-    return report(s, statistics.get());
+    return report(s, getBatchStatistics(statistics));
   }  // end of apply
 
-  namespace internals {
-
-    /*!
-     * \return the primitive of the backend, as expected by
-     * `mfront::gpb::integrateBatch` and the similar functions
-     * \param[in,out] s: output status
-     * \param[in] threads_per_block: number of threads per block
-     */
-    inline auto makeApply(OutputStatus& s,
-                          const unsigned int threads_per_block) {
-      return [&s, threads_per_block](const size_type n, void* const queue,
-                                     const real rdt0, const auto& f) {
-        return gpu::apply(s, n, queue, rdt0, f, threads_per_block);
-      };
-    }  // end of makeApply
-
-  }  // end of namespace internals
-
   /*!
-   * \brief integrate the behaviour at the points of a batch (see
-   * `mfront::gpb::integrateBatch`).
-   *
-   * The kernel is launched on the queue given by the batch data. This
-   * function waits for its completion.
-   *
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \param[in] threads_per_block: number of threads per block, rounded up to
-   * a multiple of the warp size
-   * \return the status
-   */
-  template <typename Behaviour, typename PointTraits, typename ParametersType>
-  int integrate(OutputStatus& s,
-                const BatchData& d,
-                const ParametersType& parameters,
-                const tfel::material::OutOfBoundsPolicy p,
-                const unsigned int threads_per_block) {
-    return integrateBatch<Behaviour, PointTraits>(
-        s, d, parameters, p, internals::makeApply(s, threads_per_block));
-  }  // end of integrate
-
-  /*!
-   * \brief execute an initialize function at the points of a batch (see
-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
-   *
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] inputs: values of the inputs of the initialize function
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
+   * \return the primitive of the backend, as expected by
+   * `mfront::gpb::integrateBatch` and the similar functions of
+   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
+   * functions
+   * \param[in,out] s: output status
    * \param[in] threads_per_block: number of threads per block
-   * \return the status
    */
-  template <typename Behaviour,
-            typename PointTraits,
-            typename InitializeFunction,
-            size_type number_of_inputs,
-            typename ParametersType>
-  int executeInitializeFunction(OutputStatus& s,
-                                const BatchData& d,
-                                const ConstField& inputs,
-                                const ParametersType& parameters,
-                                const tfel::material::OutOfBoundsPolicy p,
-                                const unsigned int threads_per_block) {
-    return executeInitializeFunctionOnBatch<
-        Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
-        s, d, inputs, parameters, p,
-        internals::makeApply(s, threads_per_block));
-  }  // end of executeInitializeFunction
-
-  /*!
-   * \brief execute a post-processing at the points of a batch (see
-   * `mfront::gpb::executePostProcessingOnBatch`).
-   *
-   * \param[out] s: output status
-   * \param[out] outputs: values of the outputs of the post-processing
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \param[in] threads_per_block: number of threads per block
-   * \return the status
-   */
-  template <typename Behaviour,
-            typename PointTraits,
-            typename PostProcessing,
-            bool use_initial_state,
-            size_type number_of_outputs,
-            typename ParametersType>
-  int executePostProcessing(OutputStatus& s,
-                            const Field& outputs,
-                            const BatchData& d,
-                            const ParametersType& parameters,
-                            const tfel::material::OutOfBoundsPolicy p,
-                            const unsigned int threads_per_block) {
-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
-                                        use_initial_state, number_of_outputs>(
-        s, outputs, d, parameters, p,
-        internals::makeApply(s, threads_per_block));
-  }  // end of executePostProcessing
-
-  /*!
-   * \brief rotate the values of the points of a batch of an orthotropic
-   * behaviour (see `mfront::gpb::rotateBatch`).
-   *
-   * \param[out] s: output status
-   * \param[in] d: rotation data
-   * \param[in] threads_per_block: number of threads per block
-   * \return the status
-   */
-  template <typename PointRotation>
-  int rotate(OutputStatus& s,
-             const RotationData& d,
-             const unsigned int threads_per_block) {
-    return rotateBatch<PointRotation>(
-        s, d, internals::makeApply(s, threads_per_block));
-  }  // end of rotate
+  inline auto makeApply(OutputStatus& s, const unsigned int threads_per_block) {
+    return [&s, threads_per_block](const size_type n, const ExecutionOptions& o,
+                                   const real rdt0, const auto& f) {
+      return gpu::apply(s, n, o, rdt0, f, threads_per_block);
+    };
+  }  // end of makeApply
 
 }  // end of namespace mfront::gpb::gpu
 

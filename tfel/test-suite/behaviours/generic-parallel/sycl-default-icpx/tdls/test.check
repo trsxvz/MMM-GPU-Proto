@@ -1,11 +1,11 @@
 @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-icpx",
             "mfront::linear_system_solver::tdls"};
 
-@Environment {"LD_LIBRARY_PATH": "src"};
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../../ImplicitNortonTDLS.mfront";
+@Command "sh ../../build-libraries.sh @mfront@ config-sycl-default-icpx.json ImplicitNortonTDLS";
 @Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "reference"};

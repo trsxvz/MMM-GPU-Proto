@@ -532,16 +532,23 @@ namespace tfel::math::internals {
                    10 * std::numeric_limits<T>::min());
       if ((tfel::math::abs(det1) < prec) && (tfel::math::abs(det2) < prec) &&
           (tfel::math::abs(det3) < prec)) {
-        // vp is a multiple eigenvalue. The eigenvectors are computed by the
-        // Jacobi algorithm, which handles this case without calling the
-        // current function recursively (recursion is not supported by all
-        // parallel programming models in device code)
+        // vp is a multiple eigenvalue
+        tvector<3u, T> v;
+        tmatrix<3u, 3u, T> m;
+#ifdef TFEL_DEVICE_CODE
+        // the eigenvectors are computed by the Jacobi algorithm, which
+        // handles this case without calling the current function
+        // recursively. Recursion is not supported by all parallel
+        // programming models in device code.
         auto sm = tmatrix<3u, 3u, T>{src[0], b,      c,  //
                                      b,      src[1], e,  //
                                      c,      e,      src[2]};
-        tvector<3u, T> v;
-        tmatrix<3u, 3u, T> m;
-        if (fses::syevj3(m, v, sm) != 0) {
+        const auto failed = fses::syevj3(m, v, sm) != 0;
+#else  /* TFEL_DEVICE_CODE */
+        const auto failed =
+            !StensorComputeEigenVectors<3u>::exe(src, v, m, true);
+#endif /* TFEL_DEVICE_CODE */
+        if (failed) {
           v0 = v1 = v2 = T(0);
           return false;
         }

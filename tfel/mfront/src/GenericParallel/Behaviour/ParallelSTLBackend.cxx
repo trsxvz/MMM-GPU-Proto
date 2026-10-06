@@ -11,7 +11,7 @@
  */
 
 #include <ostream>
-#include "TFEL/Raise.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
 
 namespace mfront::generic_parallel::behaviour {
@@ -20,33 +20,11 @@ namespace mfront::generic_parallel::behaviour {
 
   ParallelSTLBackend::ParallelSTLBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("execution_policy");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareExecutionPolicyOption(validator);
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
-    if (!contains(opts, "execution_policy")) {
-      return;
-    }
-    const auto p = get<std::string>(opts, "execution_policy");
-    if ((p == "seq") || (p == "sequenced_policy")) {
-      this->execution_policy = "std::execution::seq";
-    } else if ((p == "unseq") || (p == "unsequenced_policy")) {
-      this->execution_policy = "std::execution::unseq";
-    } else if ((p == "par") || (p == "parallel_policy")) {
-      this->execution_policy = "std::execution::par";
-    } else if ((p == "par_unseq") || (p == "parallel_unsequenced_policy")) {
-      this->execution_policy = "std::execution::par_unseq";
-    } else {
-      tfel::raise(
-          "ParallelSTLBackend::ParallelSTLBackend: unsupported execution "
-          "policy '" +
-          p +
-          "'. Valid execution policies are: 'sequenced_policy' (or "
-          "'seq'), 'unsequenced_policy' (or 'unseq'), 'parallel_policy' (or "
-          "'par') and 'parallel_unsequenced_policy' (or 'par_unseq')");
-    }
+    this->execution_policy = getExecutionPolicy(opts);
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of ParallelSTLBackend
 
   std::string ParallelSTLBackend::getName() const { return "stlpar"; }
@@ -60,17 +38,15 @@ namespace mfront::generic_parallel::behaviour {
        << "#include \"MFront/GenericParallelBehaviour/ParallelSTL.hxx\"\n";
   }  // end of writeSpecificIncludes
 
-  void ParallelSTLBackend::writeCall(std::ostream& os,
-                                     const std::string_view f,
-                                     const std::string_view template_arguments,
-                                     const std::string_view arguments) const {
-    os << "return mfront::gpb::stlpar::" << f << "<" << template_arguments
-       << ">(" << arguments << ", " << this->execution_policy;
+  std::string ParallelSTLBackend::getApply(
+      const std::string_view status) const {
+    auto apply = "mfront::gpb::stlpar::makeApply(" + std::string{status} +
+                 ", " + this->execution_policy;
     if (this->device_stack_size != 0) {
-      os << ", " << this->device_stack_size;
+      apply += ", " + std::to_string(this->device_stack_size);
     }
-    os << ");\n";
-  }  // end of writeCall
+    return apply + ")";
+  }  // end of getApply
 
   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
 

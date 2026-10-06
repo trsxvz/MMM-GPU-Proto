@@ -84,6 +84,7 @@ namespace mfront {
             BehaviourDescription::internalNamespace)
         .addDataTypeValidator<bool>(BehaviourDescription::defaultConstructor)
         .addDataTypeValidator<bool>(BehaviourDescription::finalClass)
+        .addDataTypeValidator<bool>(BehaviourDescription::deviceCompatibleClass)
         .addDataTypeValidator<std::vector<tfel::utilities::Data>>(
             BehaviourDescription::modellingHypotheses);
   }  // end of getDSLOptionsValidator
@@ -128,6 +129,7 @@ namespace mfront {
              BehaviourDescription::modellingHypotheses,
              BehaviourDescription::defaultConstructor,
              BehaviourDescription::finalClass,
+             BehaviourDescription::deviceCompatibleClass,
              BehaviourDescription::internalNamespace})),
         explicitlyDeclaredUsableInPurelyImplicitResolution(false) {
     //
@@ -970,9 +972,13 @@ namespace mfront {
     }
     //
     const auto path = SearchPathsHandler::search(f);
+    // the class of the behaviour variable is used by the class of this
+    // behaviour, and must be usable in device code if this one is
     const auto dsl_options = tfel::utilities::DataMap{
         {BehaviourDescription::defaultConstructor, true},
         {BehaviourDescription::finalClass, false},
+        {BehaviourDescription::deviceCompatibleClass,
+         this->mb.isDeviceCompatibleClassRequired()},
         {BehaviourDescription::internalNamespace,
          std::string{"mfront_internal_behaviours"}}};
     // a simple test to fix Issue #524
@@ -3251,8 +3257,8 @@ namespace mfront {
     for (const auto& i : inames) {
       if (this->interfaces.count(i) == 0) {
         auto ptr = mbif.getInterface(i);
-        if (!ptr->areDynamicallyAllocatedVectorsAllowed()) {
-          this->mb.areDynamicallyAllocatedVectorsAllowed(false);
+        if (ptr->requiresDeviceCompatibleBehaviourClass()) {
+          this->mb.requireDeviceCompatibleClass();
         }
         this->interfaces.insert({i, ptr});
       }
@@ -3269,8 +3275,8 @@ namespace mfront {
         if (!opts.empty()) {
           ptr->setOptions(opts);
         }
-        if (!ptr->areDynamicallyAllocatedVectorsAllowed()) {
-          this->mb.areDynamicallyAllocatedVectorsAllowed(false);
+        if (ptr->requiresDeviceCompatibleBehaviourClass()) {
+          this->mb.requireDeviceCompatibleClass();
         }
         this->interfaces.insert({i, ptr});
       }

@@ -10,9 +10,30 @@
  * project under specific licensing conditions.
  */
 
+#include <ostream>
+#include "MFront/CodeGeneratorUtilities.hxx"
 #include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
 
 namespace mfront::generic_parallel::behaviour {
+
+  void AbstractBackend::writeSymbols(std::ostream& os,
+                                     const std::string_view f) const {
+    const auto n = std::string{f} + "_generic_parallel_";
+    exportStringSymbol(os, n + "backend", this->getName());
+    // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
+    exportSymbol(os, "unsigned short", n + "api_version",
+                 "MFRONT_GPB_API_VERSION");
+  }  // end of writeSymbols
+
+  void AbstractBackend::writeCall(std::ostream& os,
+                                  const std::string_view f,
+                                  const std::string_view template_arguments,
+                                  const std::string_view status,
+                                  const std::string_view arguments) const {
+    os << "return mfront::gpb::" << f << "<" << template_arguments << ">("
+       << status << ", " << arguments << ", " << this->getApply(status)
+       << ");\n";
+  }  // end of writeCall
 
   AbstractBackend::~AbstractBackend() noexcept = default;
 

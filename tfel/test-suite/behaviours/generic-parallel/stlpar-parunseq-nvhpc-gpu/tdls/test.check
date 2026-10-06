@@ -1,11 +1,11 @@
 @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-nvhpc-gpu",
             "mfront::linear_system_solver::tdls"};
 
-@Environment {"LD_LIBRARY_PATH": "src"};
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../../ImplicitNortonTDLS.mfront";
+@Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-nvhpc-gpu.json ImplicitNortonTDLS";
 @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "reference"};

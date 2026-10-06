@@ -15,7 +15,6 @@
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
 
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -49,9 +48,15 @@ namespace mfront::gpb::sycl {
        * \brief constructor
        * \param[in] q: queue
        * \param[in] n: number of points of the fields
+       * \param[in] p: policy for the transfer of the fields. With the `NONE`
+       * policy, no copy is made.
        */
-      DeviceCopies(::sycl::queue& q, const size_type n)
-          : number_of_points(n), queue(q) {}
+      DeviceCopies(::sycl::queue& q,
+                   const size_type n,
+                   const DataTransferPolicy p)
+          : number_of_points(n),
+            queue(q),
+            enabled(p == DataTransferPolicy::AUTOMATIC) {}
       DeviceCopies(DeviceCopies&&) = delete;
       DeviceCopies(const DeviceCopies&) = delete;
       DeviceCopies& operator=(DeviceCopies&&) = delete;
@@ -68,8 +73,8 @@ namespace mfront::gpb::sycl {
       template <typename FieldType>
       void transfer(FieldType& f, const size_type size, const bool output) {
         const auto n = this->number_of_points;
-        if ((f.values == nullptr) || (size == 0) || (n == 0) ||
-            (this->isAccessible(f.values))) {
+        if ((!this->enabled) || (f.values == nullptr) || (size == 0) ||
+            (n == 0) || (this->isAccessible(f.values))) {
           return;
         }
         const auto extent =
@@ -85,21 +90,28 @@ namespace mfront::gpb::sycl {
        */
       template <typename ValueType>
       void transfer(ValueType*& p, const size_type size, const bool output) {
-        if ((p == nullptr) || (size == 0) || (this->isAccessible(p))) {
+        if ((!this->enabled) || (p == nullptr) || (size == 0) ||
+            (this->isAccessible(p))) {
           return;
         }
         using value_type = std::remove_const_t<ValueType>;
         p = static_cast<value_type*>(
             this->copy(p, size * sizeof(value_type), output));
       }
-      //! \brief copy the outputs back to their original locations
+      /*!
+       * \brief copy the outputs back to their original locations, once the
+       * computations submitted to the queue are completed
+       */
       void copyOutputs() {
-        for (const auto& c : this->copies) {
-          if (c.output) {
-            this->queue.memcpy(c.host, c.device, c.size);
-          }
+        if (this->copies.empty()) {
+          return;
         }
         this->queue.wait_and_throw();
+        for (const auto& c : this->copies) {
+          if (c.output) {
+            this->queue.memcpy(c.host, c.device, c.size).wait_and_throw();
+          }
+        }
       }
       //! \brief destructor
       ~DeviceCopies() {
@@ -144,7 +156,7 @@ namespace mfront::gpb::sycl {
               "memory allocation failed on the SYCL device");
         }
         this->copies.push_back(Copy{const_cast<void*>(p), c, size, output});
-        this->queue.memcpy(c, p, size);
+        this->queue.memcpy(c, p, size).wait_and_throw();
         return c;
       }
       //! \brief number of points of the fields
@@ -153,13 +165,15 @@ namespace mfront::gpb::sycl {
       std::vector<Copy> copies;
       //! \brief queue
       ::sycl::queue& queue;
+      //! \brief if false, no copy is made
+      const bool enabled;
     };
 
     /*!
      * \brief batch data whose fields are accessible by the device
-     * associated with a queue. The fields which are not accessible are
-     * copied in device memory. The outputs must be copied back by calling
-     * the `copyOutputs` method.
+     * associated with a queue. With the `AUTOMATIC` data transfer policy,
+     * the fields which are not accessible are copied in device memory. The
+     * outputs must be copied back by calling the `copyOutputs` method.
      * \tparam PointTraits: description of the data of an integration point
      */
     template <typename PointTraits>
@@ -168,9 +182,12 @@ namespace mfront::gpb::sycl {
        * \brief constructor
        * \param[in] q: queue
        * \param[in] d: batch data
+       * \param[in] p: policy for the transfer of the fields
        */
-      DeviceBatchData(::sycl::queue& q, const BatchData& d)
-          : DeviceCopies(q, d.number_of_points), data(d) {
+      DeviceBatchData(::sycl::queue& q,
+                      const BatchData& d,
+                      const DataTransferPolicy p)
+          : DeviceCopies(q, d.number_of_points, p), data(d) {
         constexpr auto sizes = PointDataSizes{PointTraits::value};
         auto& s0 = this->data.s0;
         auto& s1 = this->data.s1;
@@ -214,7 +231,7 @@ namespace mfront::gpb::sycl {
         this->transfer(this->data.rdts, 1, true);
         this->transfer(this->data.speed_of_sound, 1, true);
         this->transfer(this->data.statuses, this->data.number_of_points, true);
-        q.wait_and_throw();
+        this->transfer(this->data.execution.statistics, 1, true);
       }
       //! \brief batch data whose fields are accessible by the device
       BatchData data;
@@ -285,7 +302,7 @@ namespace mfront::gpb::sycl {
       }
       //! \brief function object applied at one point
       PointFunction f;
-      //! \brief statistics, allocated on the device
+      //! \brief statistics, accessible by the device
       AtomicBatchStatistics* statistics;
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long initial_rdt;
@@ -295,14 +312,18 @@ namespace mfront::gpb::sycl {
 
   /*!
    * \brief apply a function at the points of a batch and report the
-   * statistics of the batch. This function waits for the completion of the
-   * computations.
+   * statistics of the batch.
+   *
+   * If the execution options give statistics, this function returns once
+   * the computations are submitted to the queue. Otherwise, it waits for
+   * their completion.
    *
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] q: queue
+   * \param[in] o: execution options. The queue must point to a
+   * `sycl::queue`.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] device_stack_size: minimal stack size, in bytes, of the
@@ -315,17 +336,29 @@ namespace mfront::gpb::sycl {
   template <typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            ::sycl::queue& q,
+            const ExecutionOptions& o,
             const real rdt0,
             const PointFunction& f,
             const std::size_t device_stack_size = 0) {
     if (n == 0) {
       return s.status;
     }
-    if (!mfront::generic_parallel::setMinimalCUDAStackSize(device_stack_size)) {
-      return report(s, -3, "unable to set the stack size of the threads");
+    if (o.queue == nullptr) {
+      return report(s, -2, "no SYCL queue given");
     }
-    auto statistics = AtomicBatchStatistics::initial(rdt0);
+    if (!mfront::generic_parallel::setMinimalCUDAStackSize(
+            device_stack_size, o.preserve_stack_size != 0)) {
+      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
+    }
+    auto& q = *static_cast<::sycl::queue*>(o.queue);
+    const auto range = ::sycl::range<1>{n};
+    const auto rdt_key = toOrderedKey(rdt0);
+    using Kernel = internals::Kernel<PointFunction>;
+    if (o.statistics != nullptr) {
+      q.parallel_for(range, Kernel{f, o.statistics, rdt_key});
+      return s.status;
+    }
+    auto statistics = makeAtomicBatchStatistics(rdt0);
     const auto deleter = [&q](AtomicBatchStatistics* const ptr) {
       ::sycl::free(ptr, q);
     };
@@ -336,247 +369,175 @@ namespace mfront::gpb::sycl {
       return report(s, -3, "memory allocation failed on the SYCL device");
     }
     q.copy(&statistics, device_statistics.get(), 1).wait_and_throw();
-    q.parallel_for(::sycl::range<1>{n},
-                   internals::Kernel<PointFunction>{f, device_statistics.get(),
-                                                    statistics.rdt})
+    q.parallel_for(range, Kernel{f, device_statistics.get(), rdt_key})
         .wait_and_throw();
     q.copy(device_statistics.get(), &statistics, 1).wait_and_throw();
-    return report(s, statistics.get());
+    return report(s, getBatchStatistics(statistics));
   }  // end of apply
 
   /*!
-   * \brief integrate the behaviour at the points of a batch.
-   *
-   * The `queue` member of the batch data must point to a `sycl::queue`. With
-   * the `NONE` data transfer policy, the fields must be accessible by the
-   * device associated with this queue (shared, device or host USM
-   * allocations, or any memory if the device is the host). This function
-   * waits for the completion of the computations.
-   *
-   * \tparam Behaviour: class implementing the behaviour
-   * \tparam PointTraits: description of the data of an integration point
-   * \tparam ParametersType: type of the structure holding the parameters
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \param[in] transfers: policy for the transfer of the fields
-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
-   * threads of the device when the computations are performed on an NVIDIA
-   * GPU through the CUDA runtime (see
-   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
-   * not modified if this value is null.
-   * \return the status
-   */
-  template <typename Behaviour, typename PointTraits, typename ParametersType>
-  int integrate(
-      OutputStatus& s,
-      const BatchData& d,
-      const ParametersType& parameters,
-      const tfel::material::OutOfBoundsPolicy p,
-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
-      const std::size_t device_stack_size = 0) {
-    if (!check<PointTraits>(s, d)) {
-      return s.status;
-    }
-    if (d.queue == nullptr) {
-      return report(s, -2, "no SYCL queue given");
-    }
-    if (d.number_of_points == 0) {
-      return s.status;
-    }
-    auto& q = *static_cast<::sycl::queue*>(d.queue);
-    auto transferred =
-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
-    if (transfers == DataTransferPolicy::AUTOMATIC) {
-      transferred =
-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
-    }
-    const auto& dd = transferred == nullptr ? d : transferred->data;
-    const auto r = dispatch<Behaviour, PointTraits>(
-        dd, parameters, p, [&](const auto& integrator) {
-          return apply(s, dd.number_of_points, q, dd.rdt, integrator,
-                       device_stack_size);
-        });
-    if (transferred != nullptr) {
-      transferred->copyOutputs();
-    }
-    return r;
-  }  // end of integrate
-
-  /*!
-   * \brief execute an initialize function at the points of a batch.
-   *
-   * \tparam Behaviour: class implementing the behaviour
-   * \tparam PointTraits: description of the data of an integration point
-   * \tparam InitializeFunction: function object calling the method
-   * implementing the initialize function
-   * \tparam number_of_inputs: number of values of the inputs
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] inputs: values of the inputs of the initialize function
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \param[in] transfers: policy for the transfer of the fields
+   * \return the primitive of the backend, as expected by
+   * `mfront::gpb::integrateBatch` and the similar functions of
+   * `MFront/GenericParallelBehaviour/Integrate.hxx`
+   * \param[in,out] s: output status
    * \param[in] device_stack_size: minimal stack size of the threads of the
    * device (see `apply`)
-   * \return the status
+   */
+  inline auto makeApply(OutputStatus& s,
+                        const std::size_t device_stack_size = 0) {
+    return [&s, device_stack_size](const size_type n, const ExecutionOptions& o,
+                                   const real rdt0, const auto& f) {
+      return sycl::apply(s, n, o, rdt0, f, device_stack_size);
+    };
+  }  // end of makeApply
+
+  namespace internals {
+
+    /*!
+     * \brief call a function with batch data whose fields are accessible by
+     * the device associated with the queue of the batch (see
+     * `DeviceBatchData`), and copy the outputs back. If some fields were
+     * copied, this function waits for the completion of the computations.
+     * \param[out] s: output status
+     * \param[in] d: batch data
+     * \param[in] transfers: policy for the transfer of the fields
+     * \param[in] call: function called with the batch data and the copies,
+     * which allow to transfer additional fields
+     * \return the status
+     */
+    template <typename PointTraits, typename Function>
+    int callWithDeviceData(OutputStatus& s,
+                           const BatchData& d,
+                           const DataTransferPolicy transfers,
+                           Function&& call) {
+      if (d.execution.queue == nullptr) {
+        initialize(s, d.rdt);
+        return report(s, -2, "no SYCL queue given");
+      }
+      auto& q = *static_cast<::sycl::queue*>(d.execution.queue);
+      auto dd = DeviceBatchData<PointTraits>(q, d, transfers);
+      const auto r = call(dd.data, static_cast<DeviceCopies&>(dd));
+      dd.copyOutputs();
+      return r;
+    }  // end of callWithDeviceData
+
+  }  // end of namespace internals
+
+  /*!
+   * \brief integrate the behaviour at the points of a batch (see
+   * `mfront::gpb::integrateBatch`).
+   *
+   * The queue given by the execution options must point to a `sycl::queue`.
+   * With the `NONE` data transfer policy, the fields must be accessible by
+   * the device associated with this queue (shared, device or host USM
+   * allocations, or any memory if the device is the host). The computations
+   * are asynchronous if the execution options give statistics and if no
+   * field is copied.
+   *
+   * \param[in] transfers: policy for the transfer of the fields
+   * \param[in] apply: primitive of the backend (see `makeApply`)
+   */
+  template <typename Behaviour,
+            typename PointTraits,
+            typename ParametersType,
+            typename Apply>
+  int integrateBatch(OutputStatus& s,
+                     const BatchData& d,
+                     const ParametersType& parameters,
+                     const tfel::material::OutOfBoundsPolicy p,
+                     const DataTransferPolicy transfers,
+                     const Apply& apply) {
+    return internals::callWithDeviceData<PointTraits>(
+        s, d, transfers, [&](const BatchData& dd, internals::DeviceCopies&) {
+          return mfront::gpb::integrateBatch<Behaviour, PointTraits>(
+              s, dd, parameters, p, apply);
+        });
+  }  // end of integrateBatch
+
+  /*!
+   * \brief execute an initialize function at the points of a batch (see
+   * `mfront::gpb::executeInitializeFunctionOnBatch` and `integrateBatch`)
    */
   template <typename Behaviour,
             typename PointTraits,
             typename InitializeFunction,
             size_type number_of_inputs,
-            typename ParametersType>
-  int executeInitializeFunction(
+            typename ParametersType,
+            typename Apply>
+  int executeInitializeFunctionOnBatch(
       OutputStatus& s,
       const BatchData& d,
       const ConstField& inputs,
       const ParametersType& parameters,
       const tfel::material::OutOfBoundsPolicy p,
-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
-      const std::size_t device_stack_size = 0) {
-    if ((!check<PointTraits>(s, d)) ||
-        (!checkValues(s, inputs, number_of_inputs, "invalid inputs"))) {
-      return s.status;
-    }
-    if (d.queue == nullptr) {
-      return report(s, -2, "no SYCL queue given");
-    }
-    auto& q = *static_cast<::sycl::queue*>(d.queue);
-    auto transferred =
-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
-    auto dinputs = inputs;
-    if (transfers == DataTransferPolicy::AUTOMATIC) {
-      transferred =
-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
-      transferred->transfer(dinputs, number_of_inputs, false);
-      q.wait_and_throw();
-    }
-    const auto& dd = transferred == nullptr ? d : transferred->data;
-    const auto r =
-        dispatchInitializeFunction<Behaviour, PointTraits, InitializeFunction,
-                                   number_of_inputs>(
-            dd, dinputs, parameters, p, [&](const auto& f) {
-              return apply(s, dd.number_of_points, q, dd.rdt, f,
-                           device_stack_size);
-            });
-    if (transferred != nullptr) {
-      transferred->copyOutputs();
-    }
-    return r;
-  }  // end of executeInitializeFunction
+      const DataTransferPolicy transfers,
+      const Apply& apply) {
+    return internals::callWithDeviceData<PointTraits>(
+        s, d, transfers,
+        [&](const BatchData& dd, internals::DeviceCopies& copies) {
+          auto dinputs = inputs;
+          copies.transfer(dinputs, number_of_inputs, false);
+          return mfront::gpb::executeInitializeFunctionOnBatch<
+              Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
+              s, dd, dinputs, parameters, p, apply);
+        });
+  }  // end of executeInitializeFunctionOnBatch
 
   /*!
-   * \brief execute a post-processing at the points of a batch.
-   *
-   * \tparam Behaviour: class implementing the behaviour
-   * \tparam PointTraits: description of the data of an integration point
-   * \tparam PostProcessing: function object calling the method
-   * implementing the post-processing
-   * \tparam use_initial_state: boolean stating if the post-processing uses
-   * the initial state of the material
-   * \tparam number_of_outputs: number of values of the outputs
-   * \param[out] s: output status
-   * \param[out] outputs: values of the outputs of the post-processing
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \param[in] transfers: policy for the transfer of the fields
-   * \param[in] device_stack_size: minimal stack size of the threads of the
-   * device (see `apply`)
-   * \return the status
+   * \brief execute a post-processing at the points of a batch (see
+   * `mfront::gpb::executePostProcessingOnBatch` and `integrateBatch`)
    */
   template <typename Behaviour,
             typename PointTraits,
             typename PostProcessing,
             bool use_initial_state,
             size_type number_of_outputs,
-            typename ParametersType>
-  int executePostProcessing(
-      OutputStatus& s,
-      const Field& outputs,
-      const BatchData& d,
-      const ParametersType& parameters,
-      const tfel::material::OutOfBoundsPolicy p,
-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
-      const std::size_t device_stack_size = 0) {
-    if ((!check<PointTraits>(s, d)) ||
-        (!checkValues(s, outputs, number_of_outputs, "invalid outputs"))) {
-      return s.status;
-    }
-    if (d.queue == nullptr) {
-      return report(s, -2, "no SYCL queue given");
-    }
-    auto& q = *static_cast<::sycl::queue*>(d.queue);
-    auto transferred =
-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
-    auto doutputs = outputs;
-    if (transfers == DataTransferPolicy::AUTOMATIC) {
-      transferred =
-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
-      transferred->transfer(doutputs, number_of_outputs, true);
-      q.wait_and_throw();
-    }
-    const auto& dd = transferred == nullptr ? d : transferred->data;
-    const auto r =
-        dispatchPostProcessing<Behaviour, PointTraits, PostProcessing,
-                               use_initial_state, number_of_outputs>(
-            doutputs, dd, parameters, p, [&](const auto& f) {
-              return apply(s, dd.number_of_points, q, dd.rdt, f,
-                           device_stack_size);
-            });
-    if (transferred != nullptr) {
-      transferred->copyOutputs();
-    }
-    return r;
-  }  // end of executePostProcessing
+            typename ParametersType,
+            typename Apply>
+  int executePostProcessingOnBatch(OutputStatus& s,
+                                   const Field& outputs,
+                                   const BatchData& d,
+                                   const ParametersType& parameters,
+                                   const tfel::material::OutOfBoundsPolicy p,
+                                   const DataTransferPolicy transfers,
+                                   const Apply& apply) {
+    return internals::callWithDeviceData<PointTraits>(
+        s, d, transfers,
+        [&](const BatchData& dd, internals::DeviceCopies& copies) {
+          auto doutputs = outputs;
+          copies.transfer(doutputs, number_of_outputs, true);
+          return mfront::gpb::executePostProcessingOnBatch<
+              Behaviour, PointTraits, PostProcessing, use_initial_state,
+              number_of_outputs>(s, doutputs, dd, parameters, p, apply);
+        });
+  }  // end of executePostProcessingOnBatch
 
   /*!
    * \brief rotate the values of the points of a batch of an orthotropic
-   * behaviour.
-   *
-   * \tparam PointRotation: function object rotating the values of a point
-   * (see `RotationExecutor`)
-   * \param[out] s: output status
-   * \param[in] d: rotation data
-   * \param[in] transfers: policy for the transfer of the fields
-   * \param[in] device_stack_size: minimal stack size of the threads of the
-   * device (see `apply`)
-   * \return the status
+   * behaviour (see `mfront::gpb::rotateBatch` and `integrateBatch`)
    */
-  template <typename PointRotation>
-  int rotate(OutputStatus& s,
-             const RotationData& d,
-             const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
-             const std::size_t device_stack_size = 0) {
-    if (!checkRotationData(s, d)) {
-      return s.status;
-    }
-    if (d.queue == nullptr) {
+  template <typename PointRotation, typename Apply>
+  int rotateBatch(OutputStatus& s,
+                  const RotationData& d,
+                  const DataTransferPolicy transfers,
+                  const Apply& apply) {
+    if (d.execution.queue == nullptr) {
+      initialize(s, 1);
       return report(s, -2, "no SYCL queue given");
     }
-    if (d.number_of_points == 0) {
-      return s.status;
-    }
     constexpr auto n = static_cast<size_type>(PointRotation::size);
-    auto& q = *static_cast<::sycl::queue*>(d.queue);
-    auto copies = std::optional<internals::DeviceCopies>{};
+    auto copies =
+        internals::DeviceCopies(*static_cast<::sycl::queue*>(d.execution.queue),
+                                d.number_of_points, transfers);
     auto dd = d;
-    if (transfers == DataTransferPolicy::AUTOMATIC) {
-      copies.emplace(q, d.number_of_points);
-      copies->transfer(dd.source, n, false);
-      copies->transfer(dd.rotation_matrices, 9, false);
-      copies->transfer(dd.destination, n, true);
-      q.wait_and_throw();
-    }
-    const auto r =
-        apply(s, dd.number_of_points, q, 1, RotationExecutor<PointRotation>{dd},
-              device_stack_size);
-    if (copies.has_value()) {
-      copies->copyOutputs();
-    }
+    copies.transfer(dd.source, n, false);
+    copies.transfer(dd.rotation_matrices, 9, false);
+    copies.transfer(dd.destination, n, true);
+    copies.transfer(dd.execution.statistics, 1, true);
+    const auto r = mfront::gpb::rotateBatch<PointRotation>(s, dd, apply);
+    copies.copyOutputs();
     return r;
-  }  // end of rotate
+  }  // end of rotateBatch
 
 }  // end of namespace mfront::gpb::sycl
 

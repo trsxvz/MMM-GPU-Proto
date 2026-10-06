@@ -29,13 +29,10 @@ namespace mfront::generic_parallel::behaviour {
     os << "#include \"MFront/GenericParallelBehaviour/GPU.hxx\"\n";
   }  // end of writeSpecificIncludes
 
-  void GPUBackend::writeCall(std::ostream& os,
-                             const std::string_view f,
-                             const std::string_view template_arguments,
-                             const std::string_view arguments) const {
-    os << "return mfront::gpb::gpu::" << f << "<" << template_arguments << ">("
-       << arguments << ", " << this->number_of_threads_per_block << ");\n";
-  }  // end of writeCall
+  std::string GPUBackend::getApply(const std::string_view status) const {
+    return "mfront::gpb::gpu::makeApply(" + std::string{status} + ", " +
+           std::to_string(this->number_of_threads_per_block) + ")";
+  }  // end of getApply
 
   GPUBackend::~GPUBackend() noexcept = default;
 

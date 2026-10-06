@@ -12,17 +12,16 @@
  */
 
 #include <ostream>
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
 
 namespace mfront::generic_parallel::behaviour {
 
   KokkosBackend::KokkosBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("execution_space");
+    declareKokkosExecutionSpaceOption(validator);
     validator.validate(opts);
-    if (contains(opts, "execution_space")) {
-      this->execution_space = get<std::string>(opts, "execution_space");
-    }
+    this->execution_space = getKokkosExecutionSpace(opts);
   }  // end of KokkosBackend
 
   std::string KokkosBackend::getName() const { return "kokkos"; }
@@ -33,13 +32,10 @@ namespace mfront::generic_parallel::behaviour {
     os << "#include \"MFront/GenericParallelBehaviour/Kokkos.hxx\"\n";
   }  // end of writeSpecificIncludes
 
-  void KokkosBackend::writeCall(std::ostream& os,
-                                const std::string_view f,
-                                const std::string_view template_arguments,
-                                const std::string_view arguments) const {
-    os << "return mfront::gpb::kokkos::" << f << "<" << template_arguments
-       << ", " << this->execution_space << ">(" << arguments << ");\n";
-  }  // end of writeCall
+  std::string KokkosBackend::getApply(const std::string_view status) const {
+    return "mfront::gpb::kokkos::makeApply<" + this->execution_space + ">(" +
+           std::string{status} + ")";
+  }  // end of getApply
 
   KokkosBackend::~KokkosBackend() noexcept = default;
 

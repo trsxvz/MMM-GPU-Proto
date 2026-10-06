@@ -14,6 +14,7 @@
 #include <ostream>
 #include "MFront/MaterialPropertyDescription.hxx"
 #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx"
 
 namespace mfront::generic_parallel::material_property {
@@ -23,14 +24,12 @@ namespace mfront::generic_parallel::material_property {
   OpenMPBackend::OpenMPBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
     validator.addDataTypeValidator<bool>("offload");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
     if (contains(opts, "offload")) {
       this->offload = get<bool>(opts, "offload");
     }
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of OpenMPBackend
 
   std::string OpenMPBackend::getName() const { return "openmp"; }

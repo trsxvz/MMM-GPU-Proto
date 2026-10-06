@@ -37,10 +37,7 @@ namespace mfront::generic_parallel::behaviour {
     GPUBackend(const tfel::utilities::DataMap&);
     //
     void writeSpecificIncludes(std::ostream&) const override;
-    void writeCall(std::ostream&,
-                   std::string_view,
-                   std::string_view,
-                   std::string_view) const override;
+    [[nodiscard]] std::string getApply(std::string_view) const override;
     //! \brief destructor
     ~GPUBackend() noexcept override;
 

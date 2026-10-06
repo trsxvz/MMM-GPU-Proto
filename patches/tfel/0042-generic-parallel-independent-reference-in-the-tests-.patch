@@ -1,0 +1,840 @@
+From 0f2a9c6f0bf5fcaff92d1d012b97105308b7240b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 15:29:52 +0200
+Subject: [PATCH] generic-parallel: independent reference in the tests, shared
+ build script
+
+The reference library of the `generic` interface was built in the same
+call of MFront as the tested library, with the tested compiler. The
+compilers translating host and device code in a single pass (nvc++
+-stdpar=gpu and -mp=gpu, AdaptiveCpp) define TFEL_DEVICE_CODE in host
+code too: for those configurations, the tests compared the device code
+paths to themselves.
+
+The new build-libraries.sh script, shared by the tests of all the
+configurations:
+- builds the reference library with the `generic` interface and the
+  default compiler of MFront, in the `reference` directory (the
+  MFRONT_GPB_REFERENCE_CONFIGURATION_FILE environment variable may give
+  another configuration file);
+- builds the tested libraries with the `generic` and `generic-parallel`
+  interfaces and the configuration file of the tested configuration,
+  which checks that both interfaces can be used together.
+
+The list of the test behaviours is now given once, in this script,
+instead of being repeated in the fifteen test files.
+---
+ .../generic-parallel-behaviour-interface.md   | 10 +++-
+ .../generic-parallel/build-libraries.sh       | 55 +++++++++++++++++++
+ .../generic-parallel/compare-all.sh           |  2 +-
+ .../generic-parallel/compare-functions.sh     |  2 +-
+ .../cuda-clang/tdls/test.check                |  6 +-
+ .../generic-parallel/cuda-clang/test.check    | 10 ++--
+ .../cuda-nvcc/tdls/test.check                 |  6 +-
+ .../generic-parallel/cuda-nvcc/test.check     | 10 ++--
+ .../hip-clang-nvidia-platform/tdls/test.check |  6 +-
+ .../hip-clang-nvidia-platform/test.check      | 10 ++--
+ .../hip-hipcc/tdls/test.check                 |  6 +-
+ .../generic-parallel/hip-hipcc/test.check     | 10 ++--
+ .../kokkos-host/tdls/test.check               |  6 +-
+ .../generic-parallel/kokkos-host/test.check   | 10 ++--
+ .../generic-parallel/kokkos/tdls/test.check   |  6 +-
+ .../generic-parallel/kokkos/test.check        | 10 ++--
+ .../openmp-host-gcc/tdls/test.check           |  6 +-
+ .../openmp-host-gcc/test.check                | 10 ++--
+ .../openmp-offload-nvhpc-gpu/tdls/test.check  |  6 +-
+ .../openmp-offload-nvhpc-gpu/test.check       | 10 ++--
+ .../stlpar-parunseq-clang/tdls/test.check     |  6 +-
+ .../stlpar-parunseq-clang/test.check          | 10 ++--
+ .../stlpar-parunseq-gcc/tdls/test.check       |  6 +-
+ .../stlpar-parunseq-gcc/test.check            | 10 ++--
+ .../stlpar-parunseq-icpx/tdls/test.check      |  6 +-
+ .../stlpar-parunseq-icpx/test.check           | 10 ++--
+ .../stlpar-parunseq-nvhpc-gpu/tdls/test.check |  6 +-
+ .../stlpar-parunseq-nvhpc-gpu/test.check      | 10 ++--
+ .../sycl-default-acpp-omp/tdls/test.check     |  6 +-
+ .../sycl-default-acpp-omp/test.check          | 18 +++---
+ .../sycl-default-acpp/tdls/test.check         |  6 +-
+ .../sycl-default-acpp/test.check              | 18 +++---
+ .../sycl-default-icpx/tdls/test.check         |  6 +-
+ .../sycl-default-icpx/test.check              | 18 +++---
+ 34 files changed, 196 insertions(+), 137 deletions(-)
+ create mode 100644 test-suite/behaviours/generic-parallel/build-libraries.sh
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 4aba2c98c..843a1d394 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -503,9 +503,13 @@ worked around in the generated code and the headers (see the comments of
+ 
+ The tests are installed in
+ `share/tfel/test-suite/behaviours/generic-parallel`. For each configuration,
+-the behaviours are generated with the `generic` and `generic-parallel`
+-interfaces and the results of the batch integration are compared to the
+-results of the `generic` interface on two time steps of a random loading,
++the `build-libraries.sh` script builds the test behaviours twice: with the
++`generic` interface and the default compiler of `MFront` (reference), and
++with the `generic` and `generic-parallel` interfaces and the tested
++configuration (which checks that both interfaces can be used together). The
++reference then does not depend on the tested compiler. The results of the
++batch integration are compared to the results of the reference on two time
++steps of a random loading,
+ for three layouts of the fields (point by point, component by component,
+ and component by component with the material properties and the external
+ state variables given variable by variable) and three types of computation, including
+diff --git a/test-suite/behaviours/generic-parallel/build-libraries.sh b/test-suite/behaviours/generic-parallel/build-libraries.sh
+new file mode 100644
+index 000000000..a7a7d8ac7
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/build-libraries.sh
+@@ -0,0 +1,55 @@
++# Generation and compilation of the libraries compared by the tests of a
++# configuration, shared by the tests of all the configurations.
++#
++# usage: sh ../build-libraries.sh mfront configuration_file [behaviours]
++#
++# - the reference library of the `generic` interface is built in the
++#   `reference` directory with the default compiler of MFront, or with the
++#   configuration file given by the MFRONT_GPB_REFERENCE_CONFIGURATION_FILE
++#   environment variable. The reference then does not depend on the tested
++#   compiler: the compilers translating host and device code in a single
++#   pass (nvc++, AdaptiveCpp) define `TFEL_DEVICE_CODE` in host code too;
++# - the libraries of the `generic` and `generic-parallel` interfaces are built
++#   in the current directory with the configuration file of the tested
++#   configuration. Using both interfaces in the same call checks that they
++#   can be used together.
++#
++# The behaviours (names of the MFront files of the directory of this script,
++# without extension) are all the test behaviours by default.
++set -e
++mfront=$1
++configuration=$2
++shift 2
++case "$mfront" in
++  /*) ;;
++  */*) mfront=$PWD/$mfront ;;
++esac
++directory=$(cd "$(dirname "$0")" && pwd)
++behaviours=${*:-"
++  IsotropicLinearHardeningPlasticity ImplicitNorton
++  HosfordPerfectPlasticity StrainHardeningCreep3 HenckyImplicitNorton
++  GreenLagrangeImplicitNorton SaintVenantKirchhoffElasticity
++  DefaultGenericSaintVenantKirchhoffElasticity IsotropicMisesCreepTest
++  MultipleIsotropicMisesFlowsTest ImplicitGenericBehaviourTest
++  ImplicitModelTest ParametersAsStaticVariablesTest
++  InitializeFunctionTest PostProcessingTest OrthotropicElastic
++  OrthotropicSaintVenantKirchhoffElasticity
++  OrthotropicStationaryHeatTransfer SingleCrystal_DD_FCC
++  FiniteStrainSingleCrystal ImplicitNortonWithEnergies Norton_rk42
++  Tvergaard BehaviourVariableTest ExternalModelCallerTest
++  StandardElastoViscoPlasticityTest
++  OrthotropicStandardElastoViscoPlasticityTest
++  PorousStandardElastoViscoPlasticityTest GenericParallelModelTest
++  GenericParallelModelWithQuantitiesTest
++"}
++files=$(for b in $behaviours; do echo "$directory/$b.mfront"; done)
++reference_configuration=""
++if [ -n "${MFRONT_GPB_REFERENCE_CONFIGURATION_FILE:-}" ]; then
++  reference_configuration="--configuration-file=$MFRONT_GPB_REFERENCE_CONFIGURATION_FILE"
++fi
++mkdir -p reference
++(cd reference &&
++  "$mfront" --obuild --search-path="$directory" --interface=generic \
++    $reference_configuration $files)
++"$mfront" --obuild --search-path="$directory" --interface=generic \
++  --interface=generic-parallel --configuration-file="$configuration" $files
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index d0d360aea..29a23d834 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -168,7 +168,7 @@ run ExternalModelCallerTest_Tridimensional 0 0 0 2 1 0 0 - 293.15 \
+ # are internal state variables, the inputs are external state variables.
+ # The model fails at the points where the initial value of its first output
+ # is negative (physical bound).
+-reference=src/libModel.so
++reference=reference/src/libModel.so
+ batch=$(echo "$library" | sed 's/GenericParallelBehaviour/GenericParallelModel/')
+ run GenericParallelModelTest_Tridimensional 0 0 1 2 1 0 0 500 600
+ run GenericParallelModelTest_PlaneStress 0 0 1 2 1 0 0 500 600 \
+diff --git a/test-suite/behaviours/generic-parallel/compare-functions.sh b/test-suite/behaviours/generic-parallel/compare-functions.sh
+index 4421c39cd..1d64cc4b4 100644
+--- a/test-suite/behaviours/generic-parallel/compare-functions.sh
++++ b/test-suite/behaviours/generic-parallel/compare-functions.sh
+@@ -19,7 +19,7 @@ library=$2
+ pattern=${3:-.}
+ status=0
+ # libraries generated by the `generic` and `generic-parallel` interfaces
+-reference=src/libBehaviour.so
++reference=reference/src/libBehaviour.so
+ batch=$library
+ run() {
+   echo "$1" | grep -qE "$pattern" || return 0
+diff --git a/test-suite/behaviours/generic-parallel/cuda-clang/tdls/test.check b/test-suite/behaviours/generic-parallel/cuda-clang/tdls/test.check
+index 2dc05c55d..688f13c30 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-clang/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-clang/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-clang",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-clang.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-cuda-clang.json ImplicitNortonTDLS";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/cuda-clang/test.check b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+index 436cad054..a955d8851 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-clang/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-clang"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-clang.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-cuda-clang.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check b/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
+index 9e6ec09bb..98e6f2cfd 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-nvcc",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-cuda-nvcc.json ImplicitNortonTDLS";
+ @Command "@TFEL_NVCC_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -arch=native -x cu -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+index 63baa5211..4bf25da02 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-nvcc"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-cuda-nvcc.json";
+ @Command "@TFEL_NVCC_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -arch=native -x cu -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/tdls/test.check b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/tdls/test.check
+index c0f4f57dd..b56c1f811 100644
+--- a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-hip-clang-nvidia-platform.json ImplicitNortonTDLS";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I@TFEL_HIP_INCLUDE_DIR@ -D__HIP_PLATFORM_NVIDIA__ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+index 35f2bdf1f..3af7458ae 100644
+--- a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-hip-clang-nvidia-platform.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I@TFEL_HIP_INCLUDE_DIR@ -D__HIP_PLATFORM_NVIDIA__ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
+index 11ad6f0ea..bf4e5b39f 100644
+--- a/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-hipcc",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-hip-hipcc.json ImplicitNortonTDLS";
+ @Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+index 5c85fbd80..83b000ffd 100644
+--- a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-hipcc"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-hip-hipcc.json";
+ @Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
+index 91a9eb0e0..96bd0cdae 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-kokkos-host.json ImplicitNortonTDLS";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+index 20e11e79c..5ddebd91e 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos-host/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-kokkos-host.json";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check b/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
+index c2d5e7db3..8c6dea21c 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-kokkos.json ImplicitNortonTDLS";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/test.check b/test-suite/behaviours/generic-parallel/kokkos/test.check
+index 56bad15b4..8ae7ccc4f 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-kokkos.json";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-host-gcc/tdls/test.check b/test-suite/behaviours/generic-parallel/openmp-host-gcc/tdls/test.check
+index 2a3ff4c66..0cab001d0 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-host-gcc/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-host-gcc/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openmp-host-gcc",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-openmp-host-gcc.json ImplicitNortonTDLS";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check b/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
+index 430298f93..0955f6985 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openmp-host-gcc"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-openmp-host-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/tdls/test.check b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/tdls/test.check
+index 50f7c008b..296889855 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openmp-offload-nvhpc-gpu",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-openmp-offload-nvhpc-gpu.json ImplicitNortonTDLS";
+ @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+index 71108c9ba..fc31c2b12 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openmp-offload-nvhpc-gpu"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-openmp-offload-nvhpc-gpu.json";
+ @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/tdls/test.check
+index 42b7cb616..b6a9c1e93 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-clang",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-clang.json ImplicitNortonTDLS";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
+index 7952e4847..8abf680c5 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-clang"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-clang.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
+index fbdec35a5..2de1fdb4b 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-gcc",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-gcc.json ImplicitNortonTDLS";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+index 60375be4f..cb2621429 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-gcc"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/tdls/test.check
+index 5edc81fd1..b804dcc11 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-icpx",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-icpx.json ImplicitNortonTDLS";
+ @Command "@TFEL_ICPX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
+index a6134b32e..370ba1eab 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-icpx"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-icpx.json";
+ @Command "@TFEL_ICPX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
+index e6c0c665e..b48aae1c7 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-nvhpc-gpu",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-nvhpc-gpu.json ImplicitNortonTDLS";
+ @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+index 56628c26b..5b70f63f9 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -1,13 +1,13 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-nvhpc-gpu"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-nvhpc-gpu.json";
+ @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
+index 6973c4d15..0bd685ab4 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
+@@ -1,12 +1,12 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ @Environment {"ACPP_VISIBILITY_MASK": "omp"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-sycl-default-acpp.json ImplicitNortonTDLS";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+index 93c6c3e50..fa9dc8155 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // computations on the CPU (OpenMP backend of AdaptiveCpp)
+ @Environment {"ACPP_VISIBILITY_MASK": "omp"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp.json";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+@@ -13,10 +13,10 @@
+ 
+ // automatic transfers of the fields allocated in host memory
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
+ 
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
+index e77b7ddd9..a5899810d 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-sycl-default-acpp.json ImplicitNortonTDLS";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+index c49f8cfe5..f9a7baec3 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+@@ -1,9 +1,9 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp.json";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+@@ -11,10 +11,10 @@
+ 
+ // automatic transfers of the fields allocated in host memory
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
+ 
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-icpx/tdls/test.check b/test-suite/behaviours/generic-parallel/sycl-default-icpx/tdls/test.check
+index 3102028e6..c80f3c4d1 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-icpx/tdls/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-icpx/tdls/test.check
+@@ -1,11 +1,11 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-icpx",
+             "mfront::linear_system_solver::tdls"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+ // behaviours using the TDLS linear system solver
+-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../../ImplicitNortonTDLS.mfront";
++@Command "sh ../../build-libraries.sh @mfront@ config-sycl-default-icpx.json ImplicitNortonTDLS";
+ @Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+ @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
+ 
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check b/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
+index 1937651a9..faac95e77 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
+@@ -1,9 +1,9 @@
+ @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-icpx"};
+ 
+-@Environment {"LD_LIBRARY_PATH": "src"};
+-// the generic interface gives the reference results. Using both interfaces
+-// in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../ParametersAsStaticVariablesTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// libraries of the reference (`generic` interface, host compiler) and of the
++// tested configuration (see build-libraries.sh)
++@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-icpx.json";
+ @Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+@@ -11,10 +11,10 @@
+ 
+ // automatic transfers of the fields allocated in host memory
+ @Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
+-@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure 6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1";
++@Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain 4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2";
+ 
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src"};
++@CleanDirectories {"include", "src", "reference"};
+-- 
+2.43.0
+

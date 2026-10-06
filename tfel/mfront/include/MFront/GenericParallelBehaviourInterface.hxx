@@ -51,7 +51,7 @@ namespace mfront {
         const tokens_iterator) override;
     [[nodiscard]] std::string getParametersSourceInBehaviourConstructor(
         const BehaviourDescription&, const Hypothesis) const override;
-    [[nodiscard]] bool areDynamicallyAllocatedVectorsAllowed() const override;
+    [[nodiscard]] bool requiresDeviceCompatibleBehaviourClass() const override;
     void endTreatment(const BehaviourDescription&,
                       const FileDescription&) const override;
     void getTargetsDescription(TargetsDescription&,

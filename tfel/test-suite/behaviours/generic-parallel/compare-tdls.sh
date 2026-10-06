@@ -7,6 +7,6 @@
 # See compare-functions.sh for the arguments.
 . "$(dirname "$0")/compare-functions.sh"
 # consistent tangent operator computed from the inverse of the jacobian
-run ImplicitNortonTDLS_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15
-run ImplicitNortonTDLS_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15
+run ImplicitNortonTDLS_Tridimensional --material-properties=150e9,0.3
+run ImplicitNortonTDLS_PlaneStress --material-properties=150e9,0.3
 exit $status

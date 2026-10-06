@@ -1,11 +1,11 @@
 @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openmp-host-gcc",
             "mfront::linear_system_solver::tdls"};
 
-@Environment {"LD_LIBRARY_PATH": "src"};
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../../ImplicitNortonTDLS.mfront";
+@Command "sh ../../build-libraries.sh @mfront@ config-openmp-host-gcc.json ImplicitNortonTDLS";
 @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-openmp.so";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "reference"};

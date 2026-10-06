@@ -49,7 +49,10 @@ namespace mfront {
    *
    * Identical blocks of code are only written once. This allows interfaces
    * which add the same members to the generated classes (for instance, the
-   * `generic` and `generic-parallel` interfaces) to be used together.
+   * `generic` and `generic-parallel` interfaces) to be used together. The
+   * blocks which differ are all written: if two interfaces define the same
+   * member differently, the generated code does not compile, so the
+   * deduplication can't silently select the code of one interface.
    *
    * \param[out] os: output stream
    * \param[in] interfaces: interfaces
@@ -3808,11 +3811,14 @@ namespace mfront {
           decl << "};\n";
         }
         // static data members can't be odr-used in device code, which is
-        // the case of scalars used in mathematical expressions
-        os << "#ifdef TFEL_DEVICE_CODE\n"
-           << "const " << decl.str() << "#else /* TFEL_DEVICE_CODE */\n"
-           << "static constexpr " << decl.str()
-           << "#endif /* TFEL_DEVICE_CODE */\n";
+        // the case of scalars used in mathematical expressions: the class
+        // usable in device code declares constant data members, in host and
+        // device code
+        if (this->bd.isDeviceCompatibleClassRequired()) {
+          os << "const " << decl.str();
+        } else {
+          os << "static constexpr " << decl.str();
+        }
       } else {
         if (p.arraySize == 1) {
           os << p.type << " " << p.name << ";\n";

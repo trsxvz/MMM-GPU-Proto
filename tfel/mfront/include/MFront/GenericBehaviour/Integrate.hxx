@@ -372,6 +372,20 @@ namespace mfront::gb {
   }  // end of callAndReportExceptions
 
   /*!
+   * \brief call the given function. On the host, the exceptions thrown by the
+   * function are reported as errors.
+   * \return the value returned by the function, or -1 if an exception has
+   * been thrown
+   * \param[in,out] d: behaviour data
+   * \param[in] f: function
+   */
+  template <typename Function>
+  TFEL_HOST_DEVICE int callAndReportExceptions(mfront_gb_BehaviourData& d,
+                                               const Function& f) {
+    return callAndReportExceptions(d, f, [] {});
+  }  // end of callAndReportExceptions
+
+  /*!
    * \brief compute the prediction operator
    * \tparam Behaviour: class implementing the behaviour
    * \param[in,out] b: behaviour
@@ -620,7 +634,7 @@ namespace mfront::gb {
       b.exportStateData(d.s1);
       return EXIT_SUCCESS;
     };
-    return callAndReportExceptions(d, execute, [] {});
+    return callAndReportExceptions(d, execute);
   }  // end of executeInitializeFunction
 
   /*!
@@ -705,7 +719,7 @@ namespace mfront::gb {
       }
       return EXIT_SUCCESS;
     };
-    return callAndReportExceptions(d, execute, [] {});
+    return callAndReportExceptions(d, execute);
   }  // end of executePostProcessing
 
   /*!

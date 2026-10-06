@@ -24,6 +24,22 @@
 namespace mfront::generic_parallel {
 
   /*!
+   * \return a mutex protecting the modifications of the stack size of the
+   * threads of the device. The stack size is a property of the context of
+   * the device, shared by all the threads of the process: concurrent
+   * modifications by other libraries are not protected.
+   */
+  inline std::mutex& getStackSizeMutex() noexcept {
+    static std::mutex m;
+    return m;
+  }  // end of getStackSizeMutex
+
+  //! \brief error message associated with `setMinimalCUDAStackSize`
+  inline constexpr const char* stack_size_error_message =
+      "unable to set the stack size of the threads of the device, or the "
+      "stack size is too small and must be preserved";
+
+  /*!
    * \brief increase the stack size of the threads of the current CUDA
    * device, if the CUDA runtime is loaded by the process. Otherwise, the
    * computations are not performed on an NVIDIA GPU through the CUDA runtime
@@ -41,12 +57,16 @@ namespace mfront::generic_parallel {
    * The CUDA runtime is looked up among the loaded libraries, so that this
    * function does not require the CUDA headers nor the CUDA runtime.
    *
-   * \return true on success, false if the stack size could not be set
+   * \return true on success, false if the stack size could not be set or
+   * is too small and must be preserved
    * \param[in] stack_size: minimal stack size, in bytes
+   * \param[in] preserve: if true, the stack size is only checked
    */
-  inline bool setMinimalCUDAStackSize(const std::size_t stack_size) noexcept {
+  inline bool setMinimalCUDAStackSize(const std::size_t stack_size,
+                                      const bool preserve = false) noexcept {
 #if defined(_WIN32)
     static_cast<void>(stack_size);
+    static_cast<void>(preserve);
     return true;
 #else
     // `cudaLimitStackSize` in `cudaLimit` and `cudaSuccess` in `cudaError_t`
@@ -69,13 +89,12 @@ namespace mfront::generic_parallel {
           reinterpret_cast<SetLimit>(::dlsym(h, "cudaDeviceSetLimit"));
       auto r = (get_limit != nullptr) && (set_limit != nullptr);
       if (r) {
-        // the stack size is a property of the context, shared by all threads
-        static std::mutex m;
-        auto lock = std::lock_guard<std::mutex>{m};
+        auto lock = std::lock_guard<std::mutex>{getStackSizeMutex()};
         auto current = std::size_t{};
         r = get_limit(&current, stack_size_limit) == success;
         if ((r) && (current < stack_size)) {
-          r = set_limit(stack_size_limit, stack_size) == success;
+          r = (!preserve) &&
+              (set_limit(stack_size_limit, stack_size) == success);
         }
       }
       ::dlclose(h);

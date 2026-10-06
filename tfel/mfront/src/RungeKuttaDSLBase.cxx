@@ -19,6 +19,7 @@
 #include "TFEL/Glossary/GlossaryEntry.hxx"
 #include "TFEL/Utilities/StringAlgorithms.hxx"
 #include "MFront/DSLFactory.hxx"
+#include "MFront/CodeGeneratorUtilities.hxx"
 #include "MFront/PedanticMode.hxx"
 #include "MFront/MFrontDebugMode.hxx"
 #include "MFront/MFrontLogStream.hxx"
@@ -750,14 +751,13 @@ namespace mfront {
       // this code is inserted in the `initialize` method. Exceptions are not
       // supported in device code, where `false` is returned
       ib.code += "if(this->dt < 100 * std::numeric_limits<time>::min()){\n";
-      ib.code += "#ifdef TFEL_DEVICE_CODE\n";
-      ib.code += "return false;\n";
-      ib.code += "#else /* TFEL_DEVICE_CODE */\n";
-      ib.code += "string msg(\"" + this->mb.getClassName() +
-                 "::" + this->mb.getClassName() + "\");\n";
-      ib.code += "msg += \"time step too small.\";\n";
-      ib.code += "throw(runtime_error(msg));\n";
-      ib.code += "#endif /* TFEL_DEVICE_CODE */\n";
+      ib.code += makeHostAndDeviceCode(
+          "string msg(\"" + this->mb.getClassName() +
+              "::" + this->mb.getClassName() +
+              "\");\n"
+              "msg += \"time step too small.\";\n"
+              "throw(runtime_error(msg));",
+          "return false;");
       ib.code += "}\n";
     }
     this->mb.setCode(uh, BehaviourData::BeforeInitializeLocalVariables, ib,

@@ -43,6 +43,8 @@ namespace mfront {
   const char* const BehaviourDescription::defaultConstructor =
       "default_constructor";
   const char* const BehaviourDescription::finalClass = "final";
+  const char* const BehaviourDescription::deviceCompatibleClass =
+      "device_compatible_class";
   const char* const BehaviourDescription::internalNamespace =
       "internal_namespace";
   const char* const BehaviourDescription::saveThermalExpansion =
@@ -494,6 +496,18 @@ namespace mfront {
       }
       this->setAttribute(BehaviourDescription::finalClass, opt.get<bool>(),
                          false);
+    }
+    if (opts.contains(BehaviourDescription::deviceCompatibleClass)) {
+      const auto& opt = opts.at(BehaviourDescription::deviceCompatibleClass);
+      if (!opt.is<bool>()) {
+        tfel::raise(
+            "BehaviourDescription::BehaviourDescription: "
+            "invalid data type in option '" +
+            std::string{BehaviourDescription::deviceCompatibleClass} + "'");
+      }
+      if (opt.get<bool>()) {
+        this->requireDeviceCompatibleClass();
+      }
     }
     if (opts.contains(BehaviourDescription::internalNamespace)) {
       const auto& ns_opt = opts.at(BehaviourDescription::internalNamespace);
@@ -3817,6 +3831,15 @@ namespace mfront {
     }
     this->areDynamicallyAllocatedVectorsAllowed_ = b;
   }  // end of SupportedTypes::areDynamicallyAllocatedVectorsAllowed
+
+  void BehaviourDescription::requireDeviceCompatibleClass() {
+    this->areDynamicallyAllocatedVectorsAllowed(false);
+    this->deviceCompatibleClassRequired = true;
+  }  // end of requireDeviceCompatibleClass
+
+  bool BehaviourDescription::isDeviceCompatibleClassRequired() const {
+    return this->deviceCompatibleClassRequired;
+  }  // end of isDeviceCompatibleClassRequired
 
   void BehaviourDescription::setStrainMeasure(const StrainMeasure sm) {
     tfel::raise_if(

@@ -130,23 +130,26 @@ C. Backends
 R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
    dans cet ordre
 - [ ] R1 Corriger tous les constats de la relecture :
-  - [ ] A4 même définition de la classe de loi sur l'hôte et le GPU ;
-  - [ ] A1 référence `generic` des tests compilée par le compilateur hôte ;
-  - [ ] A2 paramètres des lois matériau appelées et des variables de
-        comportement transmis au GPU, ou écart détecté ;
-  - [ ] A3 variante asynchrone, réglage explicite de la pile, mutex commun ;
-  - [ ] A5 principe 4 de DESIGN.md corrigé, résultats CPU inchangés
-        (vecteurs propres), plan de découpage en PR amont ;
-  - [ ] B1 options et conventions de statut communes aux propriétés
-        matériau et aux lois ;
-  - [ ] B2 points d'entrée, `dispatch*`, `gather`/`scatter`, intégrateurs
+  - [x] A4 même définition de la classe de loi sur l'hôte et le GPU ;
+  - [x] A1 référence `generic` des tests compilée par le compilateur hôte ;
+  - [x] A2 paramètres des variables de comportement vérifiés sur l'hôte
+        (les lois matériau n'étaient pas concernées) ;
+  - [x] A3 variante asynchrone, réglage explicite de la pile, mutex commun ;
+  - [x] A5 principe 4 de DESIGN.md corrigé, résultats CPU inchangés
+        (vecteurs propres), incompatibilités dans les notes de version,
+        plan de découpage en PR amont (`UPSTREAM.md`) ;
+  - [x] B1 options communes aux propriétés matériau et aux lois,
+        conventions de statut documentées ;
+  - [x] B2 points d'entrée, `dispatch*`, `gather`/`scatter`, intégrateurs
         de grandes déformations et SYCL factorisés ;
-  - [ ] B3 mécanismes implicites du générateur rendus explicites ;
-  - [ ] B4 version du contrat C, premier message d'erreur conservé ;
-  - [ ] B5 liste des lois de test centralisée, tailles lues dans les
+  - [x] B3 déduplication du générateur documentée, propriété d'interface
+        explicite (A4) ;
+  - [x] B4 version du contrat C ; messages par point non transmis
+        (décision documentée) ;
+  - [x] B5 liste des lois de test centralisée, tailles lues dans les
         bibliothèques, rotations sans arguments factices ;
-  - [ ] B7 gain du mode direct mesuré, décision ;
-  - [ ] C tous les points mineurs.
+  - [x] B7 gain du mode direct mesuré : aucun, mode retiré ;
+  - [x] C tous les points mineurs.
 - [ ] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
       n'est pas utilisable sur GPU portables CPU et GPU, sans changer leurs
       résultats ni leur sémantique.
@@ -1276,3 +1279,62 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   `throw`, `tfel::raise`, `std::cout`, statiques initialisés à
   l'exécution, systèmes de glissement des polycristaux lus dans un
   fichier (limite documentée).
+
+### 2026-10-06 (après-midi), corrections de la relecture (R1)
+
+Branche `review-fixes` de TFEL, au-dessus de 53d30ff6c :
+
+- A4 : la classe de loi a la même définition sur l'hôte et le GPU
+  (propriété d'interface `requiresDeviceCompatibleBehaviourClass`, option
+  de DSL `device_compatible_class` propagée aux variables de comportement).
+- A1 : la référence des tests est compilée par le compilateur par défaut
+  de MFront (`build-libraries.sh`), indépendamment de la configuration
+  testée.
+- A2 : les paramètres des variables de comportement sont comparés sur
+  l'hôte à leur valeur par défaut, utilisée sur le GPU (statut -2 sinon).
+  Les paramètres des lois matériau appelées sont des constantes sur l'hôte
+  et le GPU : ce point de la relecture était faux.
+- B2 : une seule implémentation des points d'entrée. Le code généré
+  appelle `integrateBatch` (et les trois autres) avec la primitive
+  `makeApply` du backend ; SYCL ajoute ses transferts. 677 lignes de moins.
+- A3 : options d'exécution (`mfront_gpb_ExecutionOptions`) : file,
+  statistiques asynchrones (CUDA, HIP, Kokkos, SYCL sans copie),
+  `preserve_stack_size`. Un seul mutex de pile par bibliothèque. Le second
+  pas des comparaisons est asynchrone.
+- B4 : `MFRONT_GPB_API_VERSION`, exporté par les bibliothèques. Les
+  messages par point ne sont pas transmis (pas d'exceptions ni de tampon
+  par thread sur GPU) : la loi `generic` donne le message d'un point.
+- B1 : options communes aux deux interfaces (`BackendOptions`), espace
+  d'exécution Kokkos validé, conventions de statut documentées.
+- B5 : `compare` lit les tailles dans la bibliothèque de référence et
+  déduit la fonction testée de son nom. Les tailles lues sont identiques
+  aux tailles données à la main pour les 75 comparaisons.
+- A5 : vecteurs propres d'une valeur propre multiple par Jacobi sur GPU
+  seulement (résultats CPU inchangés), incompatibilités dans les notes de
+  version, effet des compilateurs à passe unique documenté, principe 4 de
+  DESIGN.md corrigé, plan de découpage en PR (`UPSTREAM.md`).
+- B3 et C : déduplication du générateur documentée, statut initialisé
+  pour un lot nul, politique hors bornes des modèles, `GenTypeBase`
+  restauré, surcharge de `callAndReportExceptions`, utilitaire hôte/GPU
+  dans le DSL Runge-Kutta, liste CMake vide retirée.
+  `getConstantObject` garde son type de retour : copie imposée par nvc++,
+  référence ailleurs, API inchangée pour les autres compilateurs.
+
+- B7 : accès directs aux champs rangés point par point contre copies
+  locales seules (`scratch/b7-measure.sh`, couche point par point) :
+
+  | | compilation nvcc | compilation gcc | exécution |
+  |---|---|---|---|
+  | SingleCrystal_DD_FCC | 7,9 s contre 5,8 s | 2,6 s contre 2,6 s | identique |
+  | ImplicitNorton | 16,8 s contre 10,6 s | 5,3 s contre 4,4 s | identique |
+
+  Le temps d'exécution est le même à 1 % près sur GPU (RTX 5080) ; sur
+  CPU, le bruit d'OpenMP (16 fils) masque toute différence. Le mode direct
+  est retiré : une seule variante des noyaux.
+
+Tests à -O3 (`scratch/dev-test.sh`) : 489/489 pour cuda-nvcc, cuda-clang,
+hip-hipcc, kokkos, kokkos-host, openmp-host-gcc,
+openmp-offload-nvhpc-gpu, stlpar-parunseq-gcc,
+stlpar-parunseq-nvhpc-gpu ; 513/513 pour sycl-default-acpp (avec les
+copies depuis la mémoire hôte) ; TDLS 18/18 ; propriétés matériau OK sur
+cinq configurations.

@@ -133,8 +133,7 @@ namespace tfel::utilities {
     GenTypeBase(const GenTypeBase&) = default;
     //! \brief constructor from a value
     template <typename T1>
-    TFEL_HOST_DEVICE explicit(false) GenTypeBase(T1&& value)
-      requires(isValidType<T1>)
+    explicit(false) GenTypeBase(T1&& value) requires(isValidType<T1>)
         : variant(std::forward<T1>(value)) {}
     // \brief assignement operator
     GenTypeBase& operator=(GenTypeBase&&) = default;
@@ -142,14 +141,12 @@ namespace tfel::utilities {
     GenTypeBase& operator=(const GenTypeBase&) = default;
     // \brief assignement operator from a value
     template <typename T1>
-    TFEL_HOST_DEVICE GenTypeBase& operator=(T1&& value)
-      requires(isValidType<T1>)
-    {
+    GenTypeBase& operator=(T1&& value) requires(isValidType<T1>) {
       variant::operator=(std::forward<T1>(value));
       return *this;
     }
     //! \return true if empty
-    [[nodiscard]] TFEL_HOST_DEVICE bool empty() const {
+    [[nodiscard]] bool empty() const {
       return std::holds_alternative<std::monostate>(*this);
     }
     /*!
@@ -166,62 +163,37 @@ namespace tfel::utilities {
      * \pre   T1 must be a type that the GenType can hold.
      */
     template <typename T1>
-    TFEL_HOST_DEVICE TFEL_INLINE void set(T1&& src)
-      requires(isValidType<T1>)
-    {
+    TFEL_INLINE void set(T1&& src) requires(isValidType<T1>) {
       this->operator=(std::forward<T1>(src));
     }
     //
     template <typename T1>
-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE bool is() const
-      requires(isValidType<T1>)
-    {
+    [[nodiscard]] TFEL_INLINE bool is() const requires(isValidType<T1>) {
       return std::holds_alternative<T1>(*this);
     }
-    /*!
-     * \return the value hold by the `GenTypeBase`.
-     * \note the type of the value is only checked on the host (an exception
-     * is thrown if the value is not of the given type).
-     */
+    //! \return the value hold by the `GenTypeBase`.
     template <typename T1>
-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE const T1& get() const
-      requires(isValidType<T1>)
-    {
-#ifndef TFEL_DEVICE_CODE
+    [[nodiscard]] TFEL_INLINE const T1& get() const requires(isValidType<T1>) {
       tfel::raise_if<GenTypeCastError>(!this->template is<T1>());
-#endif /* TFEL_DEVICE_CODE */
-      return *(std::get_if<T1>(static_cast<const variant*>(this)));
+      return std::get<T1>(*this);
     }
-    /*!
-     * \return the value hold by the `GenTypeBase`.
-     * \note the type of the value is only checked on the host (an exception
-     * is thrown if the value is not of the given type).
-     */
+    //! \return the value hold by the `GenTypeBase`.
     template <typename T1>
-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE T1& get()
-      requires(isValidType<T1>)
-    {
-#ifndef TFEL_DEVICE_CODE
+    [[nodiscard]] TFEL_INLINE T1& get() requires(isValidType<T1>) {
       tfel::raise_if<GenTypeCastError>(!this->template is<T1>());
-#endif /* TFEL_DEVICE_CODE */
-      return *(std::get_if<T1>(static_cast<variant*>(this)));
+      return std::get<T1>(*this);
     }
     //! \return the type index of the object
-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE unsigned short getTypeIndex()
-        const {
+    [[nodiscard]] TFEL_INLINE unsigned short getTypeIndex() const {
       return this->index();
     }
 
    protected:
     //! \brief clear the GenType
-    TFEL_HOST_DEVICE TFEL_INLINE void clear() {
-      variant::operator=(std::monostate());
-    }
+    TFEL_INLINE void clear() { variant::operator=(std::monostate()); }
     //! \brief set the value of the GenType.
     template <typename T1>
-    TFEL_HOST_DEVICE TFEL_INLINE void set_uninitialised()
-      requires(isValidType<T1>)
-    {
+    TFEL_INLINE void set_uninitialised() requires(isValidType<T1>) {
       this->operator=(T1());
     }
   };

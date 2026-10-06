@@ -228,10 +228,7 @@ namespace mfront {
     // points integrate a batch
     GenericParallelBehaviourInterface bi;
     sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
-    os << "MFRONT_EXPORT_SYMBOL(const char*, "
-       << bi.getFunctionNameBasis(name) << "_generic_parallel_backend, \""
-       << this->backend->getName() << "\");\n";
-    os << '\n';
+    this->backend->writeSymbols(os, bi.getFunctionNameBasis(name));
     sg.generateSymbols(os, bi, bd, fd, name, uh);
     if (!md.sources.empty()) {
       os << md.sources << "\n\n";
@@ -318,6 +315,7 @@ namespace mfront {
          << "return mfront::gpb::handleExceptions(mfront_output_status, "
          << "[mfront_output_status, mfront_batch_data] {\n"
          << "if (mfront_batch_data == nullptr) {\n"
+         << "mfront::gpb::initialize(*mfront_output_status, 1);\n"
          << "return mfront::gpb::report(*mfront_output_status, -2, "
          << "\"no batch data given\");\n"
          << "}\n"
@@ -341,14 +339,14 @@ namespace mfront {
       } else {
         os << "const auto mfront_parameters = " << parameters << "{};\n";
       }
-      // unused: the bounds are checked with the default out of bounds policy
-      // of the model, as in the `generic` interface
-      os << "const auto mfront_policy = tfel::material::None;\n";
+      // the bounds are checked by the model with its default out of bounds
+      // policy, as in the `generic` interface
+      os << "const auto mfront_policy = tfel::material::"
+         << getDefaultOutOfBoundsPolicyAsString(md) << ";\n";
       this->backend->writeCall(
-          os, "integrate",
+          os, "integrateBatch",
           "mfront::gm::" + md.className + ", mfront_point_traits",
-          "mfront_status, mfront_data, "
-          "mfront_parameters, mfront_policy");
+          "mfront_status", "mfront_data, mfront_parameters, mfront_policy");
       os << "});\n"
          << "} // end of " << f << "\n\n";
     }

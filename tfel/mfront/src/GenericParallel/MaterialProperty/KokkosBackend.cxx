@@ -14,6 +14,7 @@
 #include <ostream>
 #include "MFront/MaterialPropertyDescription.hxx"
 #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx"
 
 namespace mfront::generic_parallel::material_property {
@@ -22,11 +23,9 @@ namespace mfront::generic_parallel::material_property {
 
   KokkosBackend::KokkosBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("execution_space");
+    declareKokkosExecutionSpaceOption(validator);
     validator.validate(opts);
-    if (contains(opts, "execution_space")) {
-      this->execution_space = get<std::string>(opts, "execution_space");
-    }
+    this->execution_space = getKokkosExecutionSpace(opts);
   }  // end of KokkosBackend
 
   std::string KokkosBackend::getName() const { return "kokkos"; }

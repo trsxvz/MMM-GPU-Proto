@@ -12,32 +12,18 @@
  */
 
 #include <ostream>
-#include "TFEL/Raise.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/Behaviour/SYCLBackend.hxx"
 
 namespace mfront::generic_parallel::behaviour {
 
   SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("data_transfer_policy");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareDataTransferPolicyOption(validator);
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
-    if (contains(opts, "data_transfer_policy")) {
-      const auto p = get<std::string>(opts, "data_transfer_policy");
-      if ((p == "auto") || (p == "automatic")) {
-        this->automatic_data_transfers = true;
-      } else if (p == "none") {
-        this->automatic_data_transfers = false;
-      } else {
-        tfel::raise("SYCLBackend::SYCLBackend: invalid data transfer policy '" +
-                    p +
-                    "'. Valid policies are 'automatic' (or 'auto') and "
-                    "'none'");
-      }
-    }
+    this->automatic_data_transfers = areDataTransfersAutomatic(opts);
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of SYCLBackend
 
   std::string SYCLBackend::getName() const { return "sycl"; }
@@ -48,17 +34,26 @@ namespace mfront::generic_parallel::behaviour {
     os << "#include \"MFront/GenericParallelBehaviour/SYCL.hxx\"\n";
   }  // end of writeSpecificIncludes
 
+  std::string SYCLBackend::getApply(const std::string_view status) const {
+    auto apply = "mfront::gpb::sycl::makeApply(" + std::string{status};
+    if (this->device_stack_size != 0) {
+      apply += ", " + std::to_string(this->device_stack_size);
+    }
+    return apply + ")";
+  }  // end of getApply
+
   void SYCLBackend::writeCall(std::ostream& os,
                               const std::string_view f,
                               const std::string_view template_arguments,
+                              const std::string_view status,
                               const std::string_view arguments) const {
+    // the functions of the SYCL backend transfer the fields which are not
+    // accessible by the device before calling the generic ones
     os << "return mfront::gpb::sycl::" << f << "<" << template_arguments << ">("
-       << arguments << ", mfront::gpb::sycl::DataTransferPolicy::"
-       << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE");
-    if (this->device_stack_size != 0) {
-      os << ", " << this->device_stack_size;
-    }
-    os << ");\n";
+       << status << ", " << arguments
+       << ", mfront::gpb::sycl::DataTransferPolicy::"
+       << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE") << ", "
+       << this->getApply(status) << ");\n";
   }  // end of writeCall
 
   SYCLBackend::~SYCLBackend() noexcept = default;

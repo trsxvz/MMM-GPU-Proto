@@ -14,11 +14,77 @@
 #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 
+#include <string.h>
 #include "MFront/GenericBehaviour/Types.h"
+
+/*!
+ * \brief version of the data structures declared in this file, exported by
+ * the generated libraries (`<name>_generic_parallel_api_version` symbol).
+ * It is incremented at each incompatible change of those structures.
+ */
+#define MFRONT_GPB_API_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+/*!
+ * \brief statistics of the computations on a batch, accumulated on the
+ * device when the computations are asynchronous (see
+ * `mfront_gpb_ExecutionOptions`). They must be initialized by
+ * `mfront_gpb_initializeBatchStatistics`, on the host. They can then be
+ * copied in device memory.
+ */
+typedef struct mfront_gpb_BatchStatistics {
+  //! \brief number of points where the integration failed
+  unsigned long long number_of_failures;
+  //! \brief number of points where the time step scaling factor is too low
+  unsigned long long number_of_unreliable_results;
+  /*!
+   * \brief minimum of the time step scaling factors, stored as an unsigned
+   * integer with the same ordering (see
+   * `mfront_gpb_getTimeStepScalingFactor`), so that the device can update
+   * it with an integer atomic operation
+   */
+  unsigned long long rdt;
+} mfront_gpb_BatchStatistics;
+
+/*!
+ * \brief options of the execution of the computations on a batch
+ */
+typedef struct mfront_gpb_ExecutionOptions {
+  /*!
+   * \brief queue on which the computations are submitted. Its meaning
+   * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
+   * `sycl::queue` or to an instance of a Kokkos execution space). A null
+   * pointer denotes the default queue, if meaningful for the backend.
+   */
+  void* queue;
+  /*!
+   * \brief statistics of the computations, or null.
+   *
+   * If null, the computations are synchronous: the function returns once
+   * they are completed and the statistics are reported in the output
+   * status.
+   *
+   * Otherwise, the statistics are accumulated in the given structure, which
+   * must be accessible by the device as the fields of the batch. The
+   * computations may then be asynchronous (CUDA, HIP and Kokkos backends,
+   * SYCL backend if no field is transferred): the function returns once
+   * they are submitted to the queue, and the caller must synchronize the
+   * queue before reading the outputs and the statistics. The output status
+   * only reports invalid arguments and runtime errors.
+   */
+  mfront_gpb_BatchStatistics* statistics;
+  /*!
+   * \brief if not null, the stack size of the threads of the device is
+   * never modified and a runtime error is reported if it is too small.
+   * Otherwise, the stack size is increased if required. This affects all
+   * the computations of the process on the device, since the stack size is
+   * a property of the context of the device (CUDA and HIP runtimes).
+   */
+  int preserve_stack_size;
+} mfront_gpb_ExecutionOptions;
 
 /*!
  * \brief values of a group of variables (gradients, internal state
@@ -154,12 +220,8 @@ typedef struct mfront_gpb_BatchData {
   mfront_gpb_InitialState s0;
   //! \brief state at the end of the time step
   mfront_gpb_State s1;
-  /*!
-   * \brief queue on which the computations are performed, if meaningful for
-   * the backend (`cudaStream_t` or `hipStream_t`). A null pointer denotes
-   * the default queue.
-   */
-  void* queue;
+  //! \brief options of the execution of the computations
+  mfront_gpb_ExecutionOptions execution;
 } mfront_gpb_BatchData;
 
 /*!
@@ -180,8 +242,11 @@ typedef struct mfront_gpb_RotationData {
    * interface). The rotation matrix is uniform if the point stride is null.
    */
   mfront_gpb_ConstField rotation_matrices;
-  //! \brief backend specific queue, see the documentation of the backends
-  void* queue;
+  /*!
+   * \brief options of the execution of the computations. The rotations
+   * never fail: the statistics, if given, are not modified.
+   */
+  mfront_gpb_ExecutionOptions execution;
 } mfront_gpb_RotationData;
 
 /*!
@@ -208,6 +273,47 @@ typedef struct mfront_gpb_OutputStatus {
   char msg[512];
 } mfront_gpb_OutputStatus;
 
+/*!
+ * \brief initialize the statistics of a batch
+ * \param[out] s: statistics
+ * \param[in] rdt: initial value of the time step scaling factor
+ */
+static inline void mfront_gpb_initializeBatchStatistics(
+    mfront_gpb_BatchStatistics* const s, const mfront_gb_real rdt) {
+  const unsigned long long sign = 0x8000000000000000ull;
+  unsigned long long b;
+  memcpy(&b, &rdt, sizeof(b));
+  s->number_of_failures = 0;
+  s->number_of_unreliable_results = 0;
+  s->rdt = (b & sign) ? ~b : (b | sign);
+} /* end of mfront_gpb_initializeBatchStatistics */
+
+/*!
+ * \return the minimum of the time step scaling factors
+ * \param[in] s: statistics
+ */
+static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
+    const mfront_gpb_BatchStatistics* const s) {
+  const unsigned long long sign = 0x8000000000000000ull;
+  const unsigned long long b = (s->rdt & sign) ? (s->rdt & ~sign) : ~(s->rdt);
+  mfront_gb_real rdt;
+  memcpy(&rdt, &b, sizeof(rdt));
+  return rdt;
+} /* end of mfront_gpb_getTimeStepScalingFactor */
+
+/*!
+ * \return the status associated with the statistics of a batch, as defined
+ * for the `status` member of `mfront_gpb_OutputStatus` (`1`, `0` or `-1`)
+ * \param[in] s: statistics
+ */
+static inline int mfront_gpb_getStatus(
+    const mfront_gpb_BatchStatistics* const s) {
+  if (s->number_of_failures != 0) {
+    return -1;
+  }
+  return s->number_of_unreliable_results != 0 ? 0 : 1;
+} /* end of mfront_gpb_getStatus */
+
 #ifdef __cplusplus
 }  // end of extern "C"
 #endif /* __cplusplus */
@@ -216,6 +322,10 @@ typedef struct mfront_gpb_OutputStatus {
 
 namespace mfront::gpb {
 
+  //! \brief a simple alias
+  using AtomicBatchStatistics = ::mfront_gpb_BatchStatistics;
+  //! \brief a simple alias
+  using ExecutionOptions = ::mfront_gpb_ExecutionOptions;
   //! \brief a simple alias
   using ConstField = ::mfront_gpb_ConstField;
   //! \brief a simple alias

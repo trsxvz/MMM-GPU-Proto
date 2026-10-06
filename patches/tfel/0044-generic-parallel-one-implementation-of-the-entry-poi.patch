@@ -1,0 +1,2239 @@
+From 0ae0fc3526967cf2c2a2eff9231b05f7dab98652 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 15:51:26 +0200
+Subject: [PATCH] generic-parallel: one implementation of the entry points for
+ all backends
+
+The generated functions now call the generic functions of
+`MFront/GenericParallelBehaviour/Integrate.hxx` (`integrateBatch`,
+`executeInitializeFunctionOnBatch`, `executePostProcessingOnBatch` and
+`rotateBatch`) with the primitive of the backend, built by its public
+`makeApply` function. The four entry points written for each backend are
+removed.
+
+- `AbstractBackend::getApply` returns the expression building the
+  primitive. The default `writeCall` appends it to the arguments.
+- The SYCL backend keeps its own entry points, which transfer the fields
+  before calling the generic functions. They share one helper
+  (`callWithDeviceData`). The copies are now synchronous and the transfer
+  policy is handled by `DeviceCopies`.
+- The function objects applied at one point share their data
+  (`PointFunctionData`). The choice between direct accesses and local
+  copies is made by one function (`dispatchStorage`).
+- `gather` and `scatter` call `gatherValues` and `scatterValues`.
+- The three integration strategies of finite strain behaviours are one
+  class template, parametrised by the formulation.
+---
+ .../Behaviour/AbstractBackend.hxx             |  29 +-
+ .../GenericParallel/Behaviour/GPUBackend.hxx  |   5 +-
+ .../Behaviour/KokkosBackend.hxx               |   5 +-
+ .../Behaviour/OpenMPBackend.hxx               |   5 +-
+ .../Behaviour/ParallelSTLBackend.hxx          |   5 +-
+ .../GenericParallel/Behaviour/SYCLBackend.hxx |   2 +
+ .../FiniteStrainIntegrators.hxx               | 297 +++++---------
+ .../MFront/GenericParallelBehaviour/GPU.hxx   | 127 +-----
+ .../GenericParallelBehaviour/Integrate.hxx    | 278 +++++--------
+ .../GenericParallelBehaviour/Kokkos.hxx       | 123 +-----
+ .../GenericParallelBehaviour/OpenMP.hxx       | 138 +------
+ .../GenericParallelBehaviour/ParallelSTL.hxx  | 145 +------
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  | 366 ++++++++----------
+ .../Behaviour/AbstractBackend.cxx             |  11 +
+ .../GenericParallel/Behaviour/GPUBackend.cxx  |  11 +-
+ .../Behaviour/KokkosBackend.cxx               |  11 +-
+ .../Behaviour/OpenMPBackend.cxx               |  16 +-
+ .../Behaviour/ParallelSTLBackend.cxx          |  16 +-
+ .../GenericParallel/Behaviour/SYCLBackend.cxx |  23 +-
+ .../src/GenericParallelBehaviourInterface.cxx |  21 +-
+ mfront/src/GenericParallelModelInterface.cxx  |   5 +-
+ 21 files changed, 481 insertions(+), 1158 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+index c02a8e557..1eae8526d 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+@@ -26,8 +26,9 @@ namespace mfront::generic_parallel::behaviour {
+    * interface.
+    *
+    * The integration of a batch is implemented by function templates in the
+-   * `MFront/GenericParallelBehaviour` headers. A backend selects those
+-   * headers and writes the call to the right function.
++   * `MFront/GenericParallelBehaviour/Integrate.hxx` header, which take the
++   * primitive of a backend as last argument. A backend selects its header
++   * and writes the expression building its primitive.
+    */
+   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
+     /*!
+@@ -43,21 +44,31 @@ namespace mfront::generic_parallel::behaviour {
+      */
+     virtual void writeSpecificIncludes(std::ostream&) const = 0;
+     /*!
+-     * \brief write the statement returning the result of a function of the
+-     * backend, defined in the `MFront/GenericParallelBehaviour` headers
+-     * (`integrate`, `executeInitializeFunction` or `executePostProcessing`).
+-     * The template arguments and the arguments specific to the backend are
+-     * appended to the given ones.
++     * \return an expression building the primitive of the backend (see the
++     * `makeApply` functions of the `MFront/GenericParallelBehaviour`
++     * headers)
++     * \param[in] status: name of the output status
++     */
++    [[nodiscard]] virtual std::string getApply(std::string_view) const = 0;
++    /*!
++     * \brief write the statement returning the result of a function defined
++     * in the `MFront/GenericParallelBehaviour/Integrate.hxx` header
++     * (`integrateBatch`, `executeInitializeFunctionOnBatch`,
++     * `executePostProcessingOnBatch` or `rotateBatch`). The primitive of the
++     * backend is appended to the given arguments.
+      *
+      * \param[out] os: output stream
+      * \param[in] f: name of the function
+      * \param[in] template_arguments: template arguments
+-     * \param[in] arguments: arguments
++     * \param[in] status: name of the output status, which is the first
++     * argument
++     * \param[in] arguments: other arguments
+      */
+     virtual void writeCall(std::ostream&,
+                            std::string_view,
+                            std::string_view,
+-                           std::string_view) const = 0;
++                           std::string_view,
++                           std::string_view) const;
+     //! \brief destructor
+     virtual ~AbstractBackend() noexcept;
+   };  // end of AbstractBackend
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+index f288a5473..6092398dc 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+@@ -37,10 +37,7 @@ namespace mfront::generic_parallel::behaviour {
+     GPUBackend(const tfel::utilities::DataMap&);
+     //
+     void writeSpecificIncludes(std::ostream&) const override;
+-    void writeCall(std::ostream&,
+-                   std::string_view,
+-                   std::string_view,
+-                   std::string_view) const override;
++    [[nodiscard]] std::string getApply(std::string_view) const override;
+     //! \brief destructor
+     ~GPUBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+index e3ef1236b..7237eca41 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+@@ -42,10 +42,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+-    void writeCall(std::ostream&,
+-                   std::string_view,
+-                   std::string_view,
+-                   std::string_view) const override;
++    [[nodiscard]] std::string getApply(std::string_view) const override;
+     //! \brief destructor
+     ~KokkosBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+index 17ce75587..a3f33a1e9 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+@@ -44,10 +44,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+-    void writeCall(std::ostream&,
+-                   std::string_view,
+-                   std::string_view,
+-                   std::string_view) const override;
++    [[nodiscard]] std::string getApply(std::string_view) const override;
+     //! \brief destructor
+     ~OpenMPBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+index 8b0baab70..eec09f0fc 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+@@ -46,10 +46,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+-    void writeCall(std::ostream&,
+-                   std::string_view,
+-                   std::string_view,
+-                   std::string_view) const override;
++    [[nodiscard]] std::string getApply(std::string_view) const override;
+     //! \brief destructor
+     ~ParallelSTLBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+index f21ff0bc4..84de859ef 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+@@ -45,7 +45,9 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
++    [[nodiscard]] std::string getApply(std::string_view) const override;
+     void writeCall(std::ostream&,
++                   std::string_view,
+                    std::string_view,
+                    std::string_view,
+                    std::string_view) const override;
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/FiniteStrainIntegrators.hxx b/mfront/include/MFront/GenericParallelBehaviour/FiniteStrainIntegrators.hxx
+index 4a64d36e2..9f42a45ce 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/FiniteStrainIntegrators.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/FiniteStrainIntegrators.hxx
+@@ -22,132 +22,63 @@
+ 
+ namespace mfront::gpb {
+ 
+-  namespace internals {
+-
++  //! \brief formulations of the finite strain behaviours
++  enum struct FiniteStrainFormulation {
++    //! \brief standard finite strain behaviours (`mfront::gb::finite_strain`)
++    STANDARD,
+     /*!
+-     * \brief base class of the integration strategies of finite strain
+-     * behaviours. The gradients are the deformation gradient. The
+-     * thermodynamic forces are the stress measure selected by the computation
+-     * options (Cauchy stress, first or second Piola-Kirchhoff stress) and the
+-     * tangent operator is the one selected by the computation options.
++     * \brief strain based behaviours written in the Green-Lagrange strain
++     * (`mfront::gb::green_lagrange_strain`)
+      */
+-    struct FiniteStrainIntegratorBase {
+-      /*!
+-       * \return the sizes of the data of a point. The generated maximal sizes
+-       * of the thermodynamic forces and of the tangent operator are the sizes
+-       * of a tensor and of a fourth order tensor.
+-       * \tparam PointTraits: description of the data of a point
+-       * \param[in] o: computation options
+-       */
+-      template <typename PointTraits>
+-      TFEL_HOST_DEVICE static constexpr PointDataSizes getPointDataSizes(
+-          const ComputationOptions& o) noexcept {
+-        using mfront::gb::FiniteStrainTangentOperator;
+-        using mfront::gb::StressMeasure;
+-        auto sizes = PointDataSizes{PointTraits::value};
+-        // size of a tensor
+-        const auto T = sizes.gradients;
+-        // size of a symmetric tensor (3, 5 and 9 for tensors in 1D, 2D and
+-        // 3D)
+-        const auto S = T == 9 ? size_type{6} : (T == 5 ? size_type{4} : T);
+-        sizes.thermodynamic_forces =
+-            o.stress_measure == StressMeasure::PK1 ? T : S;
+-        if (o.tangent_operator == FiniteStrainTangentOperator::DS_DEGL) {
+-          sizes.tangent_operator = S * S;
+-        } else if (o.tangent_operator == FiniteStrainTangentOperator::DPK1_DF) {
+-          sizes.tangent_operator = T * T;
+-        } else {
+-          sizes.tangent_operator = S * T;
+-        }
+-        return sizes;
+-      }  // end of getPointDataSizes
+-    };
+-
+-  }  // end of namespace internals
+-
+-  /*!
+-   * \brief integration strategy of standard finite strain behaviours, based
+-   * on `mfront::gb::finite_strain::integrate`.
+-   */
+-  struct FiniteStrainIntegrator : internals::FiniteStrainIntegratorBase {
++    GREEN_LAGRANGE_STRAIN,
+     /*!
+-     * \brief integrate the behaviour at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[in,out] d: behaviour data
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
++     * \brief strain based behaviours written in the Hencky strain
++     * (`mfront::gb::logarithmic_strain`)
+      */
+-    template <typename Behaviour, typename ParametersType>
+-    TFEL_HOST_DEVICE static int integrate(
+-        mfront::gb::BehaviourData& d,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::finite_strain::integrate<Behaviour>(d, o, p,
+-                                                             parameters);
+-    }  // end of integrate
+-    /*!
+-     * \brief execute an initialize function at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam InitializeFunction: function object calling the method
+-     * implementing the initialize function
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[in,out] d: behaviour data
+-     * \param[in] values: values of the inputs of the initialize function
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
+-     */
+-    template <typename Behaviour,
+-              typename InitializeFunction,
+-              typename ParametersType>
+-    TFEL_HOST_DEVICE static int executeInitializeFunction(
+-        mfront::gb::BehaviourData& d,
+-        const real* const values,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::finite_strain::executeInitializeFunction<Behaviour>(
+-          InitializeFunction{}, d, values, o, p, parameters);
+-    }  // end of executeInitializeFunction
+-    /*!
+-     * \brief execute a post-processing at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam PostProcessing: function object calling the method
+-     * implementing the post-processing
+-     * \tparam use_initial_state: boolean stating if the post-processing uses
+-     * the initial state of the material
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[out] outputs: values of the outputs of the post-processing
+-     * \param[in,out] d: behaviour data
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
+-     */
+-    template <typename Behaviour,
+-              typename PostProcessing,
+-              bool use_initial_state,
+-              typename ParametersType>
+-    TFEL_HOST_DEVICE static int executePostProcessing(
+-        real* const outputs,
+-        mfront::gb::BehaviourData& d,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::finite_strain::executePostProcessing<
+-          Behaviour, use_initial_state>(PostProcessing{}, outputs, d, o, p,
+-                                        parameters);
+-    }  // end of executePostProcessing
++    LOGARITHMIC_STRAIN
+   };
+ 
+   /*!
+-   * \brief integration strategy of strain based behaviours written in the
+-   * Green-Lagrange strain, based on
+-   * `mfront::gb::green_lagrange_strain::integrate`.
++   * \brief integration strategy of finite strain behaviours (see
++   * `StandardIntegrator`). The gradients are the deformation gradient. The
++   * thermodynamic forces are the stress measure selected by the computation
++   * options (Cauchy stress, first or second Piola-Kirchhoff stress) and the
++   * tangent operator is the one selected by the computation options.
++   *
++   * \tparam formulation: formulation of the behaviour, which selects the
++   * functions of the `generic` interface called at one point
+    */
+-  struct GreenLagrangeStrainIntegrator : internals::FiniteStrainIntegratorBase {
++  template <FiniteStrainFormulation formulation>
++  struct FiniteStrainIntegratorBase {
++    /*!
++     * \return the sizes of the data of a point. The generated maximal sizes
++     * of the thermodynamic forces and of the tangent operator are the sizes
++     * of a tensor and of a fourth order tensor.
++     * \tparam PointTraits: description of the data of a point
++     * \param[in] o: computation options
++     */
++    template <typename PointTraits>
++    TFEL_HOST_DEVICE static constexpr PointDataSizes getPointDataSizes(
++        const ComputationOptions& o) noexcept {
++      using mfront::gb::FiniteStrainTangentOperator;
++      using mfront::gb::StressMeasure;
++      auto sizes = PointDataSizes{PointTraits::value};
++      // size of a tensor
++      const auto T = sizes.gradients;
++      // size of a symmetric tensor (3, 5 and 9 for tensors in 1D, 2D and
++      // 3D)
++      const auto S = T == 9 ? size_type{6} : (T == 5 ? size_type{4} : T);
++      sizes.thermodynamic_forces =
++          o.stress_measure == StressMeasure::PK1 ? T : S;
++      if (o.tangent_operator == FiniteStrainTangentOperator::DS_DEGL) {
++        sizes.tangent_operator = S * S;
++      } else if (o.tangent_operator == FiniteStrainTangentOperator::DPK1_DF) {
++        sizes.tangent_operator = T * T;
++      } else {
++        sizes.tangent_operator = S * T;
++      }
++      return sizes;
++    }  // end of getPointDataSizes
+     /*!
+      * \brief integrate the behaviour at one point
+      * \tparam Behaviour: class implementing the behaviour
+@@ -163,8 +94,16 @@ namespace mfront::gpb {
+         const ComputationOptions& o,
+         const tfel::material::OutOfBoundsPolicy p,
+         const ParametersType& parameters) {
+-      return mfront::gb::green_lagrange_strain::integrate<Behaviour>(
+-          d, o, p, parameters);
++      using namespace mfront::gb;
++      if constexpr (formulation == FiniteStrainFormulation::STANDARD) {
++        return finite_strain::integrate<Behaviour>(d, o, p, parameters);
++      } else if constexpr (formulation ==
++                           FiniteStrainFormulation::GREEN_LAGRANGE_STRAIN) {
++        return green_lagrange_strain::integrate<Behaviour>(d, o, p,
++                                                           parameters);
++      } else {
++        return logarithmic_strain::integrate<Behaviour>(d, o, p, parameters);
++      }
+     }  // end of integrate
+     /*!
+      * \brief execute an initialize function at one point
+@@ -187,8 +126,19 @@ namespace mfront::gpb {
+         const ComputationOptions& o,
+         const tfel::material::OutOfBoundsPolicy p,
+         const ParametersType& parameters) {
+-      return mfront::gb::green_lagrange_strain::executeInitializeFunction<
+-          Behaviour>(InitializeFunction{}, d, values, o, p, parameters);
++      using namespace mfront::gb;
++      const auto f = InitializeFunction{};
++      if constexpr (formulation == FiniteStrainFormulation::STANDARD) {
++        return finite_strain::executeInitializeFunction<Behaviour>(
++            f, d, values, o, p, parameters);
++      } else if constexpr (formulation ==
++                           FiniteStrainFormulation::GREEN_LAGRANGE_STRAIN) {
++        return green_lagrange_strain::executeInitializeFunction<Behaviour>(
++            f, d, values, o, p, parameters);
++      } else {
++        return logarithmic_strain::executeInitializeFunction<Behaviour>(
++            f, d, values, o, p, parameters);
++      }
+     }  // end of executeInitializeFunction
+     /*!
+      * \brief execute a post-processing at one point
+@@ -214,88 +164,39 @@ namespace mfront::gpb {
+         const ComputationOptions& o,
+         const tfel::material::OutOfBoundsPolicy p,
+         const ParametersType& parameters) {
+-      return mfront::gb::green_lagrange_strain::executePostProcessing<
+-          Behaviour, use_initial_state>(PostProcessing{}, outputs, d, o, p,
+-                                        parameters);
++      using namespace mfront::gb;
++      const auto f = PostProcessing{};
++      if constexpr (formulation == FiniteStrainFormulation::STANDARD) {
++        return finite_strain::executePostProcessing<Behaviour,
++                                                    use_initial_state>(
++            f, outputs, d, o, p, parameters);
++      } else if constexpr (formulation ==
++                           FiniteStrainFormulation::GREEN_LAGRANGE_STRAIN) {
++        return green_lagrange_strain::executePostProcessing<
++            Behaviour, use_initial_state>(f, outputs, d, o, p, parameters);
++      } else {
++        return logarithmic_strain::executePostProcessing<Behaviour,
++                                                         use_initial_state>(
++            f, outputs, d, o, p, parameters);
++      }
+     }  // end of executePostProcessing
+   };
+ 
++  //! \brief integration strategy of standard finite strain behaviours
++  using FiniteStrainIntegrator =
++      FiniteStrainIntegratorBase<FiniteStrainFormulation::STANDARD>;
+   /*!
+    * \brief integration strategy of strain based behaviours written in the
+-   * Hencky strain, based on `mfront::gb::logarithmic_strain::integrate`.
++   * Green-Lagrange strain
+    */
+-  struct LogarithmicStrainIntegrator : internals::FiniteStrainIntegratorBase {
+-    /*!
+-     * \brief integrate the behaviour at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[in,out] d: behaviour data
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
+-     */
+-    template <typename Behaviour, typename ParametersType>
+-    TFEL_HOST_DEVICE static int integrate(
+-        mfront::gb::BehaviourData& d,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::logarithmic_strain::integrate<Behaviour>(d, o, p,
+-                                                                  parameters);
+-    }  // end of integrate
+-    /*!
+-     * \brief execute an initialize function at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam InitializeFunction: function object calling the method
+-     * implementing the initialize function
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[in,out] d: behaviour data
+-     * \param[in] values: values of the inputs of the initialize function
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
+-     */
+-    template <typename Behaviour,
+-              typename InitializeFunction,
+-              typename ParametersType>
+-    TFEL_HOST_DEVICE static int executeInitializeFunction(
+-        mfront::gb::BehaviourData& d,
+-        const real* const values,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::logarithmic_strain::executeInitializeFunction<
+-          Behaviour>(InitializeFunction{}, d, values, o, p, parameters);
+-    }  // end of executeInitializeFunction
+-    /*!
+-     * \brief execute a post-processing at one point
+-     * \tparam Behaviour: class implementing the behaviour
+-     * \tparam PostProcessing: function object calling the method
+-     * implementing the post-processing
+-     * \tparam use_initial_state: boolean stating if the post-processing uses
+-     * the initial state of the material
+-     * \tparam ParametersType: type of the structure holding the parameters
+-     * \param[out] outputs: values of the outputs of the post-processing
+-     * \param[in,out] d: behaviour data
+-     * \param[in] o: computation options
+-     * \param[in] p: out of bounds policy
+-     * \param[in] parameters: values of the parameters
+-     */
+-    template <typename Behaviour,
+-              typename PostProcessing,
+-              bool use_initial_state,
+-              typename ParametersType>
+-    TFEL_HOST_DEVICE static int executePostProcessing(
+-        real* const outputs,
+-        mfront::gb::BehaviourData& d,
+-        const ComputationOptions& o,
+-        const tfel::material::OutOfBoundsPolicy p,
+-        const ParametersType& parameters) {
+-      return mfront::gb::logarithmic_strain::executePostProcessing<
+-          Behaviour, use_initial_state>(PostProcessing{}, outputs, d, o, p,
+-                                        parameters);
+-    }  // end of executePostProcessing
+-  };
++  using GreenLagrangeStrainIntegrator = FiniteStrainIntegratorBase<
++      FiniteStrainFormulation::GREEN_LAGRANGE_STRAIN>;
++  /*!
++   * \brief integration strategy of strain based behaviours written in the
++   * Hencky strain
++   */
++  using LogarithmicStrainIntegrator =
++      FiniteStrainIntegratorBase<FiniteStrainFormulation::LOGARITHMIC_STRAIN>;
+ 
+ }  // end of namespace mfront::gpb
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+index 829510f9e..e86b2b09c 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -244,124 +244,21 @@ namespace mfront::gpb::gpu {
+     return report(s, statistics.get());
+   }  // end of apply
+ 
+-  namespace internals {
+-
+-    /*!
+-     * \return the primitive of the backend, as expected by
+-     * `mfront::gpb::integrateBatch` and the similar functions
+-     * \param[in,out] s: output status
+-     * \param[in] threads_per_block: number of threads per block
+-     */
+-    inline auto makeApply(OutputStatus& s,
+-                          const unsigned int threads_per_block) {
+-      return [&s, threads_per_block](const size_type n, void* const queue,
+-                                     const real rdt0, const auto& f) {
+-        return gpu::apply(s, n, queue, rdt0, f, threads_per_block);
+-      };
+-    }  // end of makeApply
+-
+-  }  // end of namespace internals
+-
+-  /*!
+-   * \brief integrate the behaviour at the points of a batch (see
+-   * `mfront::gpb::integrateBatch`).
+-   *
+-   * The kernel is launched on the queue given by the batch data. This
+-   * function waits for its completion.
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] threads_per_block: number of threads per block, rounded up to
+-   * a multiple of the warp size
+-   * \return the status
+-   */
+-  template <typename Behaviour, typename PointTraits, typename ParametersType>
+-  int integrate(OutputStatus& s,
+-                const BatchData& d,
+-                const ParametersType& parameters,
+-                const tfel::material::OutOfBoundsPolicy p,
+-                const unsigned int threads_per_block) {
+-    return integrateBatch<Behaviour, PointTraits>(
+-        s, d, parameters, p, internals::makeApply(s, threads_per_block));
+-  }  // end of integrate
+-
+   /*!
+-   * \brief execute an initialize function at the points of a batch (see
+-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] threads_per_block: number of threads per block
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename InitializeFunction,
+-            size_type number_of_inputs,
+-            typename ParametersType>
+-  int executeInitializeFunction(OutputStatus& s,
+-                                const BatchData& d,
+-                                const ConstField& inputs,
+-                                const ParametersType& parameters,
+-                                const tfel::material::OutOfBoundsPolicy p,
+-                                const unsigned int threads_per_block) {
+-    return executeInitializeFunctionOnBatch<
+-        Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
+-        s, d, inputs, parameters, p,
+-        internals::makeApply(s, threads_per_block));
+-  }  // end of executeInitializeFunction
+-
+-  /*!
+-   * \brief execute a post-processing at the points of a batch (see
+-   * `mfront::gpb::executePostProcessingOnBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[out] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
++   * \return the primitive of the backend, as expected by
++   * `mfront::gpb::integrateBatch` and the similar functions of
++   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
++   * functions
++   * \param[in,out] s: output status
+    * \param[in] threads_per_block: number of threads per block
+-   * \return the status
+    */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename PostProcessing,
+-            bool use_initial_state,
+-            size_type number_of_outputs,
+-            typename ParametersType>
+-  int executePostProcessing(OutputStatus& s,
+-                            const Field& outputs,
+-                            const BatchData& d,
+-                            const ParametersType& parameters,
+-                            const tfel::material::OutOfBoundsPolicy p,
+-                            const unsigned int threads_per_block) {
+-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
+-                                        use_initial_state, number_of_outputs>(
+-        s, outputs, d, parameters, p,
+-        internals::makeApply(s, threads_per_block));
+-  }  // end of executePostProcessing
+-
+-  /*!
+-   * \brief rotate the values of the points of a batch of an orthotropic
+-   * behaviour (see `mfront::gpb::rotateBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: rotation data
+-   * \param[in] threads_per_block: number of threads per block
+-   * \return the status
+-   */
+-  template <typename PointRotation>
+-  int rotate(OutputStatus& s,
+-             const RotationData& d,
+-             const unsigned int threads_per_block) {
+-    return rotateBatch<PointRotation>(
+-        s, d, internals::makeApply(s, threads_per_block));
+-  }  // end of rotate
++  inline auto makeApply(OutputStatus& s,
++                        const unsigned int threads_per_block) {
++    return [&s, threads_per_block](const size_type n, void* const queue,
++                                   const real rdt0, const auto& f) {
++      return gpu::apply(s, n, queue, rdt0, f, threads_per_block);
++    };
++  }  // end of makeApply
+ 
+ }  // end of namespace mfront::gpb::gpu
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 2b714be46..cc630c436 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -106,29 +106,6 @@ namespace mfront::gpb {
+       return f.values == nullptr ? f.values : f.values + i * f.point_stride;
+     }  // end of pointer
+ 
+-    /*!
+-     * \brief copy the values of a field at the given point
+-     * \param[out] dest: local copy
+-     * \param[in] f: field
+-     * \param[in] i: index of the point
+-     * \param[in] n: number of values, lower than the capacity of `dest`
+-     */
+-    template <size_type N>
+-    TFEL_HOST_DEVICE constexpr void gather(LocalValues<N>& dest,
+-                                           const ConstField& f,
+-                                           const size_type i,
+-                                           const size_type n) noexcept {
+-      if constexpr (N != 0) {
+-        if (f.values == nullptr) {
+-          return;
+-        }
+-        const auto* const p = f.values + i * f.point_stride;
+-        for (size_type j = 0; j != n; ++j) {
+-          dest.values[j] = p[j * f.component_stride];
+-        }
+-      }
+-    }  // end of gather
+-
+     /*!
+      * \brief copy the values of a field at the given point in an array
+      * \param[out] dest: array
+@@ -170,14 +147,21 @@ namespace mfront::gpb {
+       }
+     }  // end of scatterValues
+ 
+-    //! \brief copy the values of a field at the given point
+-    template <size_type N>
++    /*!
++     * \brief copy the values of a field at the given point
++     * \param[out] dest: local copy
++     * \param[in] f: field
++     * \param[in] i: index of the point
++     * \param[in] n: number of values, lower than the capacity of `dest`
++     */
++    template <size_type N, typename FieldType>
+     TFEL_HOST_DEVICE constexpr void gather(LocalValues<N>& dest,
+-                                           const Field& f,
++                                           const FieldType& f,
+                                            const size_type i,
+                                            const size_type n) noexcept {
+-      gather(dest, ConstField{f.values, f.point_stride, f.component_stride}, i,
+-             n);
++      if constexpr (N != 0) {
++        gatherValues(dest.values, f, i, n);
++      }
+     }  // end of gather
+ 
+     /*!
+@@ -193,13 +177,7 @@ namespace mfront::gpb {
+                                             const LocalValues<N>& src,
+                                             const size_type n) noexcept {
+       if constexpr (N != 0) {
+-        if (f.values == nullptr) {
+-          return;
+-        }
+-        auto* const p = f.values + i * f.point_stride;
+-        for (size_type j = 0; j != n; ++j) {
+-          p[j * f.component_stride] = src.values[j];
+-        }
++        scatterValues(f, i, src.values, n);
+       }
+     }  // end of scatter
+ 
+@@ -1031,27 +1009,15 @@ namespace mfront::gpb {
+   }  // end of areAllFieldsStoredPointByPoint
+ 
+   /*!
+-   * \brief function object integrating the behaviour at one point of a batch
+-   * and returning the associated statistics. This class is trivially
+-   * copyable (if the parameters are), so it can be passed by value to the
+-   * kernels of all the backends, which do not need to support extended
+-   * lambdas.
++   * \brief data shared by the function objects applied at the points of a
++   * batch (see `PointIntegrator`, `InitializeFunctionExecutor`,
++   * `PostProcessingExecutor`).
+    *
+-   * \tparam Behaviour: class implementing the behaviour
+    * \tparam PointTraits: description of the data of an integration point
+-   * \tparam direct: if true, all the fields are stored point by point
+    * \tparam ParametersType: type of the structure holding the parameters
+    */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            bool direct,
+-            typename ParametersType>
+-  struct PointIntegrator {
+-    //! \return the statistics of the integration at the `i`-th point
+-    TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+-      return BatchStatistics::from(integrate<Behaviour, PointTraits, direct>(
+-          this->data, this->input_fields, i, this->parameters, this->policy));
+-    }
++  template <typename PointTraits, typename ParametersType>
++  struct PointFunctionData {
+     //! \brief batch data
+     BatchData data;
+     //! \brief fields of the material properties and of the external state
+@@ -1064,32 +1030,56 @@ namespace mfront::gpb {
+   };
+ 
+   /*!
+-   * \brief call the given function with the point integrator adapted to the
+-   * storage of the fields of the batch.
++   * \brief function object integrating the behaviour at one point of a batch
++   * and returning the associated statistics.
+    *
+    * \tparam Behaviour: class implementing the behaviour
+    * \tparam PointTraits: description of the data of an integration point
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] f: function taking a point integrator
++   * \tparam direct: if true, all the fields are stored point by point
++   * \tparam ParametersType: type of the structure holding the parameters
+    */
+   template <typename Behaviour,
+             typename PointTraits,
+-            typename ParametersType,
+-            typename Function>
+-  decltype(auto) dispatch(const BatchData& d,
+-                          const ParametersType& parameters,
+-                          const tfel::material::OutOfBoundsPolicy p,
+-                          Function&& f) {
+-    const auto inputs = makeInputFields<PointTraits>(d);
++            bool direct,
++            typename ParametersType>
++  struct PointIntegrator : PointFunctionData<PointTraits, ParametersType> {
++    //! \return the statistics of the integration at the `i`-th point
++    TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
++      return BatchStatistics::from(integrate<Behaviour, PointTraits, direct>(
++          this->data, this->input_fields, i, this->parameters, this->policy));
++    }
++  };
++
++  /*!
++   * \brief call the given function with `std::true_type` if all the fields
++   * of the batch are stored point by point, `std::false_type` otherwise. The
++   * function objects applied at each point are specialised for both cases
++   * (see `PointView`).
++   * \param[in] d: batch data
++   * \param[in] f: function
++   */
++  template <typename PointTraits, typename Function>
++  decltype(auto) dispatchStorage(const BatchData& d, Function&& f) {
+     if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+-      return f(PointIntegrator<Behaviour, PointTraits, true, ParametersType>{
+-          d, inputs, parameters, p});
++      return f(std::true_type{});
+     }
+-    return f(PointIntegrator<Behaviour, PointTraits, false, ParametersType>{
+-        d, inputs, parameters, p});
+-  }  // end of dispatch
++    return f(std::false_type{});
++  }  // end of dispatchStorage
++
++  /*!
++   * \return the data shared by the function objects applied at the points of
++   * a batch
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   */
++  template <typename PointTraits, typename ParametersType>
++  PointFunctionData<PointTraits, ParametersType> makePointFunctionData(
++      const BatchData& d,
++      const ParametersType& parameters,
++      const tfel::material::OutOfBoundsPolicy p) {
++    return {d, makeInputFields<PointTraits>(d), parameters, p};
++  }  // end of makePointFunctionData
+ 
+   /*!
+    * \brief function object executing an initialize function at one point of
+@@ -1112,7 +1102,8 @@ namespace mfront::gpb {
+             size_type number_of_inputs,
+             bool direct,
+             typename ParametersType>
+-  struct InitializeFunctionExecutor {
++  struct InitializeFunctionExecutor
++      : PointFunctionData<PointTraits, ParametersType> {
+     //! \return the statistics of the execution at the `i`-th point
+     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+       using Integrator = typename PointTraits::Integrator;
+@@ -1139,17 +1130,8 @@ namespace mfront::gpb {
+       record(d, i, r);
+       return BatchStatistics::from(r);
+     }
+-    //! \brief batch data
+-    BatchData data;
+-    //! \brief fields of the material properties and of the external state
+-    //! variables
+-    InputFields<PointTraits> input_fields;
+     //! \brief values of the inputs of the initialize function
+     ConstField inputs;
+-    //! \brief values of the parameters
+-    ParametersType parameters;
+-    //! \brief out of bounds policy
+-    tfel::material::OutOfBoundsPolicy policy;
+   };
+ 
+   /*!
+@@ -1174,7 +1156,8 @@ namespace mfront::gpb {
+             size_type number_of_outputs,
+             bool direct,
+             typename ParametersType>
+-  struct PostProcessingExecutor {
++  struct PostProcessingExecutor
++      : PointFunctionData<PointTraits, ParametersType> {
+     //! \return the statistics of the execution at the `i`-th point
+     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+       using Integrator = typename PointTraits::Integrator;
+@@ -1204,104 +1187,8 @@ namespace mfront::gpb {
+     }
+     //! \brief values of the outputs of the post-processing
+     Field outputs;
+-    //! \brief batch data
+-    BatchData data;
+-    //! \brief fields of the material properties and of the external state
+-    //! variables
+-    InputFields<PointTraits> input_fields;
+-    //! \brief values of the parameters
+-    ParametersType parameters;
+-    //! \brief out of bounds policy
+-    tfel::material::OutOfBoundsPolicy policy;
+   };
+ 
+-  /*!
+-   * \brief call the given function with the function object executing the
+-   * given initialize function, adapted to the storage of the fields of the
+-   * batch.
+-   *
+-   * \tparam Behaviour: class implementing the behaviour
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \tparam InitializeFunction: function object calling the method
+-   * implementing the initialize function
+-   * \tparam number_of_inputs: number of values of the inputs of the
+-   * initialize function
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] f: function taking the function object
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename InitializeFunction,
+-            size_type number_of_inputs,
+-            typename ParametersType,
+-            typename Function>
+-  decltype(auto) dispatchInitializeFunction(
+-      const BatchData& d,
+-      const ConstField& inputs,
+-      const ParametersType& parameters,
+-      const tfel::material::OutOfBoundsPolicy p,
+-      Function&& f) {
+-    const auto input_fields = makeInputFields<PointTraits>(d);
+-    if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+-      return f(
+-          InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
+-                                     number_of_inputs, true, ParametersType>{
+-              d, input_fields, inputs, parameters, p});
+-    }
+-    return f(
+-        InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
+-                                   number_of_inputs, false, ParametersType>{
+-            d, input_fields, inputs, parameters, p});
+-  }  // end of dispatchInitializeFunction
+-
+-  /*!
+-   * \brief call the given function with the function object executing the
+-   * given post-processing, adapted to the storage of the fields of the
+-   * batch.
+-   *
+-   * \tparam Behaviour: class implementing the behaviour
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \tparam PostProcessing: function object calling the method
+-   * implementing the post-processing
+-   * \tparam use_initial_state: boolean stating if the post-processing uses
+-   * the initial state of the material
+-   * \tparam number_of_outputs: number of values of the outputs of the
+-   * post-processing
+-   * \param[in] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] f: function taking the function object
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename PostProcessing,
+-            bool use_initial_state,
+-            size_type number_of_outputs,
+-            typename ParametersType,
+-            typename Function>
+-  decltype(auto) dispatchPostProcessing(
+-      const Field& outputs,
+-      const BatchData& d,
+-      const ParametersType& parameters,
+-      const tfel::material::OutOfBoundsPolicy p,
+-      Function&& f) {
+-    const auto input_fields = makeInputFields<PointTraits>(d);
+-    if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+-      return f(PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
+-                                      use_initial_state, number_of_outputs,
+-                                      true, ParametersType>{
+-          outputs, d, input_fields, parameters, p});
+-    }
+-    return f(PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
+-                                    use_initial_state, number_of_outputs, false,
+-                                    ParametersType>{outputs, d, input_fields,
+-                                                    parameters, p});
+-  }  // end of dispatchPostProcessing
+-
+   /*!
+    * \brief function object rotating the values of the `i`-th point of a
+    * batch and returning the associated statistics.
+@@ -1381,10 +1268,13 @@ namespace mfront::gpb {
+     if (!check<PointTraits>(s, d)) {
+       return s.status;
+     }
+-    return dispatch<Behaviour, PointTraits>(
+-        d, parameters, p, [&](const auto& integrator) {
+-          return apply(d.number_of_points, d.queue, d.rdt, integrator);
+-        });
++    const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
++    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
++      using Integrator = PointIntegrator<Behaviour, PointTraits,
++                                         decltype(direct)::value,
++                                         ParametersType>;
++      return apply(d.number_of_points, d.queue, d.rdt, Integrator{data});
++    });
+   }  // end of integrateBatch
+ 
+   /*!
+@@ -1421,11 +1311,14 @@ namespace mfront::gpb {
+         (!checkValues(s, inputs, number_of_inputs, "invalid inputs"))) {
+       return s.status;
+     }
+-    return dispatchInitializeFunction<Behaviour, PointTraits,
+-                                      InitializeFunction, number_of_inputs>(
+-        d, inputs, parameters, p, [&](const auto& f) {
+-          return apply(d.number_of_points, d.queue, d.rdt, f);
+-        });
++    const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
++    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
++      using Executor =
++          InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
++                                     number_of_inputs, decltype(direct)::value,
++                                     ParametersType>;
++      return apply(d.number_of_points, d.queue, d.rdt, Executor{data, inputs});
++    });
+   }  // end of executeInitializeFunctionOnBatch
+ 
+   /*!
+@@ -1464,11 +1357,14 @@ namespace mfront::gpb {
+         (!checkValues(s, outputs, number_of_outputs, "invalid outputs"))) {
+       return s.status;
+     }
+-    return dispatchPostProcessing<Behaviour, PointTraits, PostProcessing,
+-                                  use_initial_state, number_of_outputs>(
+-        outputs, d, parameters, p, [&](const auto& f) {
+-          return apply(d.number_of_points, d.queue, d.rdt, f);
+-        });
++    const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
++    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
++      using Executor =
++          PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
++                                 use_initial_state, number_of_outputs,
++                                 decltype(direct)::value, ParametersType>;
++      return apply(d.number_of_points, d.queue, d.rdt, Executor{data, outputs});
++    });
+   }  // end of executePostProcessingOnBatch
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+index ec28f51c0..1c9abf4e1 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+@@ -142,120 +142,21 @@ namespace mfront::gpb::kokkos {
+     return report(s, r);
+   }  // end of apply
+ 
+-  namespace internals {
+-
+-    /*!
+-     * \return the primitive of the backend, as expected by
+-     * `mfront::gpb::integrateBatch` and the similar functions
+-     * \tparam ExecutionSpace: execution space
+-     * \param[in,out] s: output status
+-     */
+-    template <typename ExecutionSpace>
+-    auto makeApply(OutputStatus& s) {
+-      return [&s](const size_type n, void* const queue, const real rdt0,
+-                  const auto& f) {
+-        return kokkos::apply<ExecutionSpace>(s, n, queue, rdt0, f);
+-      };
+-    }  // end of makeApply
+-
+-  }  // end of namespace internals
+-
+-  /*!
+-   * \brief integrate the behaviour at the points of a batch (see
+-   * `mfront::gpb::integrateBatch`).
+-   *
+-   * \tparam ExecutionSpace: execution space
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename ExecutionSpace,
+-            typename ParametersType>
+-  int integrate(OutputStatus& s,
+-                const BatchData& d,
+-                const ParametersType& parameters,
+-                const tfel::material::OutOfBoundsPolicy p) {
+-    return integrateBatch<Behaviour, PointTraits>(
+-        s, d, parameters, p, internals::makeApply<ExecutionSpace>(s));
+-  }  // end of integrate
+-
+-  /*!
+-   * \brief execute an initialize function at the points of a batch (see
+-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
+-   *
+-   * \tparam ExecutionSpace: execution space
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename InitializeFunction,
+-            size_type number_of_inputs,
+-            typename ExecutionSpace,
+-            typename ParametersType>
+-  int executeInitializeFunction(OutputStatus& s,
+-                                const BatchData& d,
+-                                const ConstField& inputs,
+-                                const ParametersType& parameters,
+-                                const tfel::material::OutOfBoundsPolicy p) {
+-    return executeInitializeFunctionOnBatch<
+-        Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
+-        s, d, inputs, parameters, p, internals::makeApply<ExecutionSpace>(s));
+-  }  // end of executeInitializeFunction
+-
+-  /*!
+-   * \brief execute a post-processing at the points of a batch (see
+-   * `mfront::gpb::executePostProcessingOnBatch`).
+-   *
+-   * \tparam ExecutionSpace: execution space
+-   * \param[out] s: output status
+-   * \param[out] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename PostProcessing,
+-            bool use_initial_state,
+-            size_type number_of_outputs,
+-            typename ExecutionSpace,
+-            typename ParametersType>
+-  int executePostProcessing(OutputStatus& s,
+-                            const Field& outputs,
+-                            const BatchData& d,
+-                            const ParametersType& parameters,
+-                            const tfel::material::OutOfBoundsPolicy p) {
+-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
+-                                        use_initial_state, number_of_outputs>(
+-        s, outputs, d, parameters, p, internals::makeApply<ExecutionSpace>(s));
+-  }  // end of executePostProcessing
+-
+   /*!
+-   * \brief rotate the values of the points of a batch of an orthotropic
+-   * behaviour (see `mfront::gpb::rotateBatch`).
+-   *
+-   * \tparam PointRotation: function object rotating the values of a point
+-   * (see `RotationExecutor`)
++   * \return the primitive of the backend, as expected by
++   * `mfront::gpb::integrateBatch` and the similar functions of
++   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
++   * functions
+    * \tparam ExecutionSpace: execution space
+-   * \param[out] s: output status
+-   * \param[in] d: rotation data
+-   * \return the status
++   * \param[in,out] s: output status
+    */
+-  template <typename PointRotation, typename ExecutionSpace>
+-  int rotate(OutputStatus& s, const RotationData& d) {
+-    return rotateBatch<PointRotation>(s, d,
+-                                      internals::makeApply<ExecutionSpace>(s));
+-  }  // end of rotate
++  template <typename ExecutionSpace>
++  auto makeApply(OutputStatus& s) {
++    return [&s](const size_type n, void* const queue, const real rdt0,
++                const auto& f) {
++      return kokkos::apply<ExecutionSpace>(s, n, queue, rdt0, f);
++    };
++  }  // end of makeApply
+ 
+ }  // end of namespace mfront::gpb::kokkos
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+index 42f6db99e..7ad2a0e0b 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+@@ -87,137 +87,23 @@ namespace mfront::gpb::openmp {
+                                      .rdt = rdt});
+   }  // end of apply
+ 
+-  namespace internals {
+-
+-    /*!
+-     * \return the primitive of the backend, as expected by
+-     * `mfront::gpb::integrateBatch` and the similar functions
+-     * \tparam offload: if true, the computations are offloaded
+-     * \param[in,out] s: output status
+-     * \param[in] device_stack_size: minimal stack size of the threads of the
+-     * device (see `apply`)
+-     */
+-    template <bool offload>
+-    auto makeApply(OutputStatus& s, const std::size_t device_stack_size) {
+-      return [&s, device_stack_size](const size_type n, void* const,
+-                                     const real rdt0, const auto& f) {
+-        return openmp::apply<offload>(s, n, rdt0, f, device_stack_size);
+-      };
+-    }  // end of makeApply
+-
+-  }  // end of namespace internals
+-
+   /*!
+-   * \brief integrate the behaviour at the points of a batch (see
+-   * `mfront::gpb::integrateBatch`).
+-   *
++   * \return the primitive of the backend, as expected by
++   * `mfront::gpb::integrateBatch` and the similar functions of
++   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
++   * functions
+    * \tparam offload: if true, the computations are offloaded
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
++   * \param[in,out] s: output status
+    * \param[in] device_stack_size: minimal stack size of the threads of the
+    * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            bool offload,
+-            typename ParametersType>
+-  int integrate(OutputStatus& s,
+-                const BatchData& d,
+-                const ParametersType& parameters,
+-                const tfel::material::OutOfBoundsPolicy p,
+-                const std::size_t device_stack_size = 0) {
+-    return integrateBatch<Behaviour, PointTraits>(
+-        s, d, parameters, p,
+-        internals::makeApply<offload>(s, device_stack_size));
+-  }  // end of integrate
+-
+-  /*!
+-   * \brief execute an initialize function at the points of a batch (see
+-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
+-   *
+-   * \tparam offload: if true, the computations are offloaded
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename InitializeFunction,
+-            size_type number_of_inputs,
+-            bool offload,
+-            typename ParametersType>
+-  int executeInitializeFunction(OutputStatus& s,
+-                                const BatchData& d,
+-                                const ConstField& inputs,
+-                                const ParametersType& parameters,
+-                                const tfel::material::OutOfBoundsPolicy p,
+-                                const std::size_t device_stack_size = 0) {
+-    return executeInitializeFunctionOnBatch<Behaviour, PointTraits,
+-                                            InitializeFunction,
+-                                            number_of_inputs>(
+-        s, d, inputs, parameters, p,
+-        internals::makeApply<offload>(s, device_stack_size));
+-  }  // end of executeInitializeFunction
+-
+-  /*!
+-   * \brief execute a post-processing at the points of a batch (see
+-   * `mfront::gpb::executePostProcessingOnBatch`).
+-   *
+-   * \tparam offload: if true, the computations are offloaded
+-   * \param[out] s: output status
+-   * \param[out] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename PostProcessing,
+-            bool use_initial_state,
+-            size_type number_of_outputs,
+-            bool offload,
+-            typename ParametersType>
+-  int executePostProcessing(OutputStatus& s,
+-                            const Field& outputs,
+-                            const BatchData& d,
+-                            const ParametersType& parameters,
+-                            const tfel::material::OutOfBoundsPolicy p,
+-                            const std::size_t device_stack_size = 0) {
+-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
+-                                        use_initial_state, number_of_outputs>(
+-        s, outputs, d, parameters, p,
+-        internals::makeApply<offload>(s, device_stack_size));
+-  }  // end of executePostProcessing
+-
+-  /*!
+-   * \brief rotate the values of the points of a batch of an orthotropic
+-   * behaviour (see `mfront::gpb::rotateBatch`).
+-   *
+-   * \tparam offload: if true, the computations are offloaded
+-   * \param[out] s: output status
+-   * \param[in] d: rotation data
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+    */
+-  template <typename PointRotation, bool offload>
+-  int rotate(OutputStatus& s,
+-             const RotationData& d,
+-             const std::size_t device_stack_size = 0) {
+-    return rotateBatch<PointRotation>(
+-        s, d, internals::makeApply<offload>(s, device_stack_size));
+-  }  // end of rotate
++  template <bool offload>
++  auto makeApply(OutputStatus& s, const std::size_t device_stack_size = 0) {
++    return [&s, device_stack_size](const size_type n, void* const,
++                                   const real rdt0, const auto& f) {
++      return openmp::apply<offload>(s, n, rdt0, f, device_stack_size);
++    };
++  }  // end of makeApply
+ 
+ }  // end of namespace mfront::gpb::openmp
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+index fd6f15280..1536b9531 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -65,142 +65,25 @@ namespace mfront::gpb::stlpar {
+     return report(s, r);
+   }  // end of apply
+ 
+-  namespace internals {
+-
+-    /*!
+-     * \return the primitive of the backend, as expected by
+-     * `mfront::gpb::integrateBatch` and the similar functions
+-     * \param[in,out] s: output status
+-     * \param[in] policy: execution policy
+-     * \param[in] device_stack_size: minimal stack size of the threads of the
+-     * device (see `apply`)
+-     */
+-    template <typename ExecutionPolicy>
+-    auto makeApply(OutputStatus& s,
+-                   const ExecutionPolicy policy,
+-                   const std::size_t device_stack_size) {
+-      return [&s, policy, device_stack_size](const size_type n, void* const,
+-                                             const real rdt0, const auto& f) {
+-        return stlpar::apply(s, n, rdt0, f, policy, device_stack_size);
+-      };
+-    }  // end of makeApply
+-
+-  }  // end of namespace internals
+-
+   /*!
+-   * \brief integrate the behaviour at the points of a batch (see
+-   * `mfront::gpb::integrateBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
++   * \return the primitive of the backend, as expected by
++   * `mfront::gpb::integrateBatch` and the similar functions of
++   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
++   * functions
++   * \param[in,out] s: output status
+    * \param[in] policy: execution policy
+    * \param[in] device_stack_size: minimal stack size of the threads of the
+    * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename ParametersType,
+-            typename ExecutionPolicy>
+-  int integrate(OutputStatus& s,
+-                const BatchData& d,
+-                const ParametersType& parameters,
+-                const tfel::material::OutOfBoundsPolicy p,
+-                ExecutionPolicy&& policy,
+-                const std::size_t device_stack_size = 0) {
+-    return integrateBatch<Behaviour, PointTraits>(
+-        s, d, parameters, p,
+-        internals::makeApply(s, policy, device_stack_size));
+-  }  // end of integrate
+-
+-  /*!
+-   * \brief execute an initialize function at the points of a batch (see
+-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] policy: execution policy
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename InitializeFunction,
+-            size_type number_of_inputs,
+-            typename ExecutionPolicy,
+-            typename ParametersType>
+-  int executeInitializeFunction(OutputStatus& s,
+-                                const BatchData& d,
+-                                const ConstField& inputs,
+-                                const ParametersType& parameters,
+-                                const tfel::material::OutOfBoundsPolicy p,
+-                                ExecutionPolicy&& policy,
+-                                const std::size_t device_stack_size = 0) {
+-    return executeInitializeFunctionOnBatch<
+-        Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
+-        s, d, inputs, parameters, p,
+-        internals::makeApply(s, policy, device_stack_size));
+-  }  // end of executeInitializeFunction
+-
+-  /*!
+-   * \brief execute a post-processing at the points of a batch (see
+-   * `mfront::gpb::executePostProcessingOnBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[out] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] policy: execution policy
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+-   */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            typename PostProcessing,
+-            bool use_initial_state,
+-            size_type number_of_outputs,
+-            typename ExecutionPolicy,
+-            typename ParametersType>
+-  int executePostProcessing(OutputStatus& s,
+-                            const Field& outputs,
+-                            const BatchData& d,
+-                            const ParametersType& parameters,
+-                            const tfel::material::OutOfBoundsPolicy p,
+-                            ExecutionPolicy&& policy,
+-                            const std::size_t device_stack_size = 0) {
+-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
+-                                        use_initial_state, number_of_outputs>(
+-        s, outputs, d, parameters, p,
+-        internals::makeApply(s, policy, device_stack_size));
+-  }  // end of executePostProcessing
+-
+-  /*!
+-   * \brief rotate the values of the points of a batch of an orthotropic
+-   * behaviour (see `mfront::gpb::rotateBatch`).
+-   *
+-   * \param[out] s: output status
+-   * \param[in] d: rotation data
+-   * \param[in] policy: execution policy
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
+    */
+-  template <typename PointRotation, typename ExecutionPolicy>
+-  int rotate(OutputStatus& s,
+-             const RotationData& d,
+-             ExecutionPolicy&& policy,
+-             const std::size_t device_stack_size = 0) {
+-    return rotateBatch<PointRotation>(
+-        s, d, internals::makeApply(s, policy, device_stack_size));
+-  }  // end of rotate
++  template <typename ExecutionPolicy>
++  auto makeApply(OutputStatus& s,
++                 const ExecutionPolicy policy,
++                 const std::size_t device_stack_size = 0) {
++    return [&s, policy, device_stack_size](const size_type n, void* const,
++                                           const real rdt0, const auto& f) {
++      return stlpar::apply(s, n, rdt0, f, policy, device_stack_size);
++    };
++  }  // end of makeApply
+ 
+ }  // end of namespace mfront::gpb::stlpar
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+index a8e8a75bf..179714798 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -15,7 +15,6 @@
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
+ 
+ #include <memory>
+-#include <optional>
+ #include <stdexcept>
+ #include <type_traits>
+ #include <vector>
+@@ -49,9 +48,15 @@ namespace mfront::gpb::sycl {
+        * \brief constructor
+        * \param[in] q: queue
+        * \param[in] n: number of points of the fields
++       * \param[in] p: policy for the transfer of the fields. With the `NONE`
++       * policy, no copy is made.
+        */
+-      DeviceCopies(::sycl::queue& q, const size_type n)
+-          : number_of_points(n), queue(q) {}
++      DeviceCopies(::sycl::queue& q,
++                   const size_type n,
++                   const DataTransferPolicy p)
++          : number_of_points(n),
++            queue(q),
++            enabled(p == DataTransferPolicy::AUTOMATIC) {}
+       DeviceCopies(DeviceCopies&&) = delete;
+       DeviceCopies(const DeviceCopies&) = delete;
+       DeviceCopies& operator=(DeviceCopies&&) = delete;
+@@ -68,8 +73,8 @@ namespace mfront::gpb::sycl {
+       template <typename FieldType>
+       void transfer(FieldType& f, const size_type size, const bool output) {
+         const auto n = this->number_of_points;
+-        if ((f.values == nullptr) || (size == 0) || (n == 0) ||
+-            (this->isAccessible(f.values))) {
++        if ((!this->enabled) || (f.values == nullptr) || (size == 0) ||
++            (n == 0) || (this->isAccessible(f.values))) {
+           return;
+         }
+         const auto extent =
+@@ -85,21 +90,28 @@ namespace mfront::gpb::sycl {
+        */
+       template <typename ValueType>
+       void transfer(ValueType*& p, const size_type size, const bool output) {
+-        if ((p == nullptr) || (size == 0) || (this->isAccessible(p))) {
++        if ((!this->enabled) || (p == nullptr) || (size == 0) ||
++            (this->isAccessible(p))) {
+           return;
+         }
+         using value_type = std::remove_const_t<ValueType>;
+         p = static_cast<value_type*>(
+             this->copy(p, size * sizeof(value_type), output));
+       }
+-      //! \brief copy the outputs back to their original locations
++      /*!
++       * \brief copy the outputs back to their original locations, once the
++       * computations submitted to the queue are completed
++       */
+       void copyOutputs() {
++        if (this->copies.empty()) {
++          return;
++        }
++        this->queue.wait_and_throw();
+         for (const auto& c : this->copies) {
+           if (c.output) {
+-            this->queue.memcpy(c.host, c.device, c.size);
++            this->queue.memcpy(c.host, c.device, c.size).wait_and_throw();
+           }
+         }
+-        this->queue.wait_and_throw();
+       }
+       //! \brief destructor
+       ~DeviceCopies() {
+@@ -144,7 +156,7 @@ namespace mfront::gpb::sycl {
+               "memory allocation failed on the SYCL device");
+         }
+         this->copies.push_back(Copy{const_cast<void*>(p), c, size, output});
+-        this->queue.memcpy(c, p, size);
++        this->queue.memcpy(c, p, size).wait_and_throw();
+         return c;
+       }
+       //! \brief number of points of the fields
+@@ -153,13 +165,15 @@ namespace mfront::gpb::sycl {
+       std::vector<Copy> copies;
+       //! \brief queue
+       ::sycl::queue& queue;
++      //! \brief if false, no copy is made
++      const bool enabled;
+     };
+ 
+     /*!
+      * \brief batch data whose fields are accessible by the device
+-     * associated with a queue. The fields which are not accessible are
+-     * copied in device memory. The outputs must be copied back by calling
+-     * the `copyOutputs` method.
++     * associated with a queue. With the `AUTOMATIC` data transfer policy,
++     * the fields which are not accessible are copied in device memory. The
++     * outputs must be copied back by calling the `copyOutputs` method.
+      * \tparam PointTraits: description of the data of an integration point
+      */
+     template <typename PointTraits>
+@@ -168,9 +182,12 @@ namespace mfront::gpb::sycl {
+        * \brief constructor
+        * \param[in] q: queue
+        * \param[in] d: batch data
++       * \param[in] p: policy for the transfer of the fields
+        */
+-      DeviceBatchData(::sycl::queue& q, const BatchData& d)
+-          : DeviceCopies(q, d.number_of_points), data(d) {
++      DeviceBatchData(::sycl::queue& q,
++                      const BatchData& d,
++                      const DataTransferPolicy p)
++          : DeviceCopies(q, d.number_of_points, p), data(d) {
+         constexpr auto sizes = PointDataSizes{PointTraits::value};
+         auto& s0 = this->data.s0;
+         auto& s1 = this->data.s1;
+@@ -214,7 +231,6 @@ namespace mfront::gpb::sycl {
+         this->transfer(this->data.rdts, 1, true);
+         this->transfer(this->data.speed_of_sound, 1, true);
+         this->transfer(this->data.statuses, this->data.number_of_points, true);
+-        q.wait_and_throw();
+       }
+       //! \brief batch data whose fields are accessible by the device
+       BatchData data;
+@@ -345,238 +361,168 @@ namespace mfront::gpb::sycl {
+   }  // end of apply
+ 
+   /*!
+-   * \brief integrate the behaviour at the points of a batch.
++   * \return the primitive of the backend, as expected by
++   * `mfront::gpb::integrateBatch` and the similar functions of
++   * `MFront/GenericParallelBehaviour/Integrate.hxx`. The queue must point to
++   * a `sycl::queue`.
++   * \param[in,out] s: output status
++   * \param[in] device_stack_size: minimal stack size of the threads of the
++   * device (see `apply`)
++   */
++  inline auto makeApply(OutputStatus& s,
++                        const std::size_t device_stack_size = 0) {
++    return [&s, device_stack_size](const size_type n, void* const queue,
++                                   const real rdt0, const auto& f) {
++      if (queue == nullptr) {
++        return report(s, -2, "no SYCL queue given");
++      }
++      return sycl::apply(s, n, *static_cast<::sycl::queue*>(queue), rdt0, f,
++                         device_stack_size);
++    };
++  }  // end of makeApply
++
++  namespace internals {
++
++    /*!
++     * \brief call a function with batch data whose fields are accessible by
++     * the device associated with the queue of the batch (see
++     * `DeviceBatchData`), and copy the outputs back.
++     * \param[out] s: output status
++     * \param[in] d: batch data
++     * \param[in] transfers: policy for the transfer of the fields
++     * \param[in] call: function called with the batch data and the copies,
++     * which allow to transfer additional fields
++     * \return the status
++     */
++    template <typename PointTraits, typename Function>
++    int callWithDeviceData(OutputStatus& s,
++                           const BatchData& d,
++                           const DataTransferPolicy transfers,
++                           Function&& call) {
++      if (d.queue == nullptr) {
++        initialize(s, d.rdt);
++        return report(s, -2, "no SYCL queue given");
++      }
++      auto& q = *static_cast<::sycl::queue*>(d.queue);
++      auto dd = DeviceBatchData<PointTraits>(q, d, transfers);
++      const auto r = call(dd.data, static_cast<DeviceCopies&>(dd));
++      dd.copyOutputs();
++      return r;
++    }  // end of callWithDeviceData
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief integrate the behaviour at the points of a batch (see
++   * `mfront::gpb::integrateBatch`).
+    *
+    * The `queue` member of the batch data must point to a `sycl::queue`. With
+    * the `NONE` data transfer policy, the fields must be accessible by the
+    * device associated with this queue (shared, device or host USM
+-   * allocations, or any memory if the device is the host). This function
+-   * waits for the completion of the computations.
++   * allocations, or any memory if the device is the host).
+    *
+-   * \tparam Behaviour: class implementing the behaviour
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \tparam ParametersType: type of the structure holding the parameters
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+    * \param[in] transfers: policy for the transfer of the fields
+-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
+-   * threads of the device when the computations are performed on an NVIDIA
+-   * GPU through the CUDA runtime (see
+-   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
+-   * not modified if this value is null.
+-   * \return the status
++   * \param[in] apply: primitive of the backend (see `makeApply`)
+    */
+-  template <typename Behaviour, typename PointTraits, typename ParametersType>
+-  int integrate(
+-      OutputStatus& s,
+-      const BatchData& d,
+-      const ParametersType& parameters,
+-      const tfel::material::OutOfBoundsPolicy p,
+-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
+-      const std::size_t device_stack_size = 0) {
+-    if (!check<PointTraits>(s, d)) {
+-      return s.status;
+-    }
+-    if (d.queue == nullptr) {
+-      return report(s, -2, "no SYCL queue given");
+-    }
+-    if (d.number_of_points == 0) {
+-      return s.status;
+-    }
+-    auto& q = *static_cast<::sycl::queue*>(d.queue);
+-    auto transferred =
+-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
+-    if (transfers == DataTransferPolicy::AUTOMATIC) {
+-      transferred =
+-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
+-    }
+-    const auto& dd = transferred == nullptr ? d : transferred->data;
+-    const auto r = dispatch<Behaviour, PointTraits>(
+-        dd, parameters, p, [&](const auto& integrator) {
+-          return apply(s, dd.number_of_points, q, dd.rdt, integrator,
+-                       device_stack_size);
++  template <typename Behaviour,
++            typename PointTraits,
++            typename ParametersType,
++            typename Apply>
++  int integrateBatch(OutputStatus& s,
++                     const BatchData& d,
++                     const ParametersType& parameters,
++                     const tfel::material::OutOfBoundsPolicy p,
++                     const DataTransferPolicy transfers,
++                     const Apply& apply) {
++    return internals::callWithDeviceData<PointTraits>(
++        s, d, transfers, [&](const BatchData& dd, internals::DeviceCopies&) {
++          return mfront::gpb::integrateBatch<Behaviour, PointTraits>(
++              s, dd, parameters, p, apply);
+         });
+-    if (transferred != nullptr) {
+-      transferred->copyOutputs();
+-    }
+-    return r;
+-  }  // end of integrate
++  }  // end of integrateBatch
+ 
+   /*!
+-   * \brief execute an initialize function at the points of a batch.
+-   *
+-   * \tparam Behaviour: class implementing the behaviour
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \tparam InitializeFunction: function object calling the method
+-   * implementing the initialize function
+-   * \tparam number_of_inputs: number of values of the inputs
+-   * \param[out] s: output status
+-   * \param[in] d: batch data
+-   * \param[in] inputs: values of the inputs of the initialize function
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] transfers: policy for the transfer of the fields
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
++   * \brief execute an initialize function at the points of a batch (see
++   * `mfront::gpb::executeInitializeFunctionOnBatch` and `integrateBatch`)
+    */
+   template <typename Behaviour,
+             typename PointTraits,
+             typename InitializeFunction,
+             size_type number_of_inputs,
+-            typename ParametersType>
+-  int executeInitializeFunction(
++            typename ParametersType,
++            typename Apply>
++  int executeInitializeFunctionOnBatch(
+       OutputStatus& s,
+       const BatchData& d,
+       const ConstField& inputs,
+       const ParametersType& parameters,
+       const tfel::material::OutOfBoundsPolicy p,
+-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
+-      const std::size_t device_stack_size = 0) {
+-    if ((!check<PointTraits>(s, d)) ||
+-        (!checkValues(s, inputs, number_of_inputs, "invalid inputs"))) {
+-      return s.status;
+-    }
+-    if (d.queue == nullptr) {
+-      return report(s, -2, "no SYCL queue given");
+-    }
+-    auto& q = *static_cast<::sycl::queue*>(d.queue);
+-    auto transferred =
+-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
+-    auto dinputs = inputs;
+-    if (transfers == DataTransferPolicy::AUTOMATIC) {
+-      transferred =
+-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
+-      transferred->transfer(dinputs, number_of_inputs, false);
+-      q.wait_and_throw();
+-    }
+-    const auto& dd = transferred == nullptr ? d : transferred->data;
+-    const auto r =
+-        dispatchInitializeFunction<Behaviour, PointTraits, InitializeFunction,
+-                                   number_of_inputs>(
+-            dd, dinputs, parameters, p, [&](const auto& f) {
+-              return apply(s, dd.number_of_points, q, dd.rdt, f,
+-                           device_stack_size);
+-            });
+-    if (transferred != nullptr) {
+-      transferred->copyOutputs();
+-    }
+-    return r;
+-  }  // end of executeInitializeFunction
++      const DataTransferPolicy transfers,
++      const Apply& apply) {
++    return internals::callWithDeviceData<PointTraits>(
++        s, d, transfers,
++        [&](const BatchData& dd, internals::DeviceCopies& copies) {
++          auto dinputs = inputs;
++          copies.transfer(dinputs, number_of_inputs, false);
++          return mfront::gpb::executeInitializeFunctionOnBatch<
++              Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
++              s, dd, dinputs, parameters, p, apply);
++        });
++  }  // end of executeInitializeFunctionOnBatch
+ 
+   /*!
+-   * \brief execute a post-processing at the points of a batch.
+-   *
+-   * \tparam Behaviour: class implementing the behaviour
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \tparam PostProcessing: function object calling the method
+-   * implementing the post-processing
+-   * \tparam use_initial_state: boolean stating if the post-processing uses
+-   * the initial state of the material
+-   * \tparam number_of_outputs: number of values of the outputs
+-   * \param[out] s: output status
+-   * \param[out] outputs: values of the outputs of the post-processing
+-   * \param[in] d: batch data
+-   * \param[in] parameters: values of the parameters
+-   * \param[in] p: out of bounds policy
+-   * \param[in] transfers: policy for the transfer of the fields
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
++   * \brief execute a post-processing at the points of a batch (see
++   * `mfront::gpb::executePostProcessingOnBatch` and `integrateBatch`)
+    */
+   template <typename Behaviour,
+             typename PointTraits,
+             typename PostProcessing,
+             bool use_initial_state,
+             size_type number_of_outputs,
+-            typename ParametersType>
+-  int executePostProcessing(
+-      OutputStatus& s,
+-      const Field& outputs,
+-      const BatchData& d,
+-      const ParametersType& parameters,
+-      const tfel::material::OutOfBoundsPolicy p,
+-      const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
+-      const std::size_t device_stack_size = 0) {
+-    if ((!check<PointTraits>(s, d)) ||
+-        (!checkValues(s, outputs, number_of_outputs, "invalid outputs"))) {
+-      return s.status;
+-    }
+-    if (d.queue == nullptr) {
+-      return report(s, -2, "no SYCL queue given");
+-    }
+-    auto& q = *static_cast<::sycl::queue*>(d.queue);
+-    auto transferred =
+-        std::unique_ptr<internals::DeviceBatchData<PointTraits>>{};
+-    auto doutputs = outputs;
+-    if (transfers == DataTransferPolicy::AUTOMATIC) {
+-      transferred =
+-          std::make_unique<internals::DeviceBatchData<PointTraits>>(q, d);
+-      transferred->transfer(doutputs, number_of_outputs, true);
+-      q.wait_and_throw();
+-    }
+-    const auto& dd = transferred == nullptr ? d : transferred->data;
+-    const auto r =
+-        dispatchPostProcessing<Behaviour, PointTraits, PostProcessing,
+-                               use_initial_state, number_of_outputs>(
+-            doutputs, dd, parameters, p, [&](const auto& f) {
+-              return apply(s, dd.number_of_points, q, dd.rdt, f,
+-                           device_stack_size);
+-            });
+-    if (transferred != nullptr) {
+-      transferred->copyOutputs();
+-    }
+-    return r;
+-  }  // end of executePostProcessing
++            typename ParametersType,
++            typename Apply>
++  int executePostProcessingOnBatch(OutputStatus& s,
++                                   const Field& outputs,
++                                   const BatchData& d,
++                                   const ParametersType& parameters,
++                                   const tfel::material::OutOfBoundsPolicy p,
++                                   const DataTransferPolicy transfers,
++                                   const Apply& apply) {
++    return internals::callWithDeviceData<PointTraits>(
++        s, d, transfers,
++        [&](const BatchData& dd, internals::DeviceCopies& copies) {
++          auto doutputs = outputs;
++          copies.transfer(doutputs, number_of_outputs, true);
++          return mfront::gpb::executePostProcessingOnBatch<
++              Behaviour, PointTraits, PostProcessing, use_initial_state,
++              number_of_outputs>(s, doutputs, dd, parameters, p, apply);
++        });
++  }  // end of executePostProcessingOnBatch
+ 
+   /*!
+    * \brief rotate the values of the points of a batch of an orthotropic
+-   * behaviour.
+-   *
+-   * \tparam PointRotation: function object rotating the values of a point
+-   * (see `RotationExecutor`)
+-   * \param[out] s: output status
+-   * \param[in] d: rotation data
+-   * \param[in] transfers: policy for the transfer of the fields
+-   * \param[in] device_stack_size: minimal stack size of the threads of the
+-   * device (see `apply`)
+-   * \return the status
++   * behaviour (see `mfront::gpb::rotateBatch` and `integrateBatch`)
+    */
+-  template <typename PointRotation>
+-  int rotate(OutputStatus& s,
+-             const RotationData& d,
+-             const DataTransferPolicy transfers = DataTransferPolicy::AUTOMATIC,
+-             const std::size_t device_stack_size = 0) {
+-    if (!checkRotationData(s, d)) {
+-      return s.status;
+-    }
++  template <typename PointRotation, typename Apply>
++  int rotateBatch(OutputStatus& s,
++                  const RotationData& d,
++                  const DataTransferPolicy transfers,
++                  const Apply& apply) {
+     if (d.queue == nullptr) {
++      initialize(s, 1);
+       return report(s, -2, "no SYCL queue given");
+     }
+-    if (d.number_of_points == 0) {
+-      return s.status;
+-    }
+     constexpr auto n = static_cast<size_type>(PointRotation::size);
+-    auto& q = *static_cast<::sycl::queue*>(d.queue);
+-    auto copies = std::optional<internals::DeviceCopies>{};
++    auto copies = internals::DeviceCopies(
++        *static_cast<::sycl::queue*>(d.queue), d.number_of_points, transfers);
+     auto dd = d;
+-    if (transfers == DataTransferPolicy::AUTOMATIC) {
+-      copies.emplace(q, d.number_of_points);
+-      copies->transfer(dd.source, n, false);
+-      copies->transfer(dd.rotation_matrices, 9, false);
+-      copies->transfer(dd.destination, n, true);
+-      q.wait_and_throw();
+-    }
+-    const auto r =
+-        apply(s, dd.number_of_points, q, 1, RotationExecutor<PointRotation>{dd},
+-              device_stack_size);
+-    if (copies.has_value()) {
+-      copies->copyOutputs();
+-    }
++    copies.transfer(dd.source, n, false);
++    copies.transfer(dd.rotation_matrices, 9, false);
++    copies.transfer(dd.destination, n, true);
++    const auto r = mfront::gpb::rotateBatch<PointRotation>(s, dd, apply);
++    copies.copyOutputs();
+     return r;
+-  }  // end of rotate
++  }  // end of rotateBatch
+ 
+ }  // end of namespace mfront::gpb::sycl
+ 
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+index 80254bb83..a41f5e235 100644
+--- a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -10,10 +10,21 @@
+  * project under specific licensing conditions.
+  */
+ 
++#include <ostream>
+ #include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
+ 
+ namespace mfront::generic_parallel::behaviour {
+ 
++  void AbstractBackend::writeCall(std::ostream& os,
++                                  const std::string_view f,
++                                  const std::string_view template_arguments,
++                                  const std::string_view status,
++                                  const std::string_view arguments) const {
++    os << "return mfront::gpb::" << f << "<" << template_arguments << ">("
++       << status << ", " << arguments << ", " << this->getApply(status)
++       << ");\n";
++  }  // end of writeCall
++
+   AbstractBackend::~AbstractBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+index 369cf7814..4d37fdf13 100644
+--- a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+@@ -29,13 +29,10 @@ namespace mfront::generic_parallel::behaviour {
+     os << "#include \"MFront/GenericParallelBehaviour/GPU.hxx\"\n";
+   }  // end of writeSpecificIncludes
+ 
+-  void GPUBackend::writeCall(std::ostream& os,
+-                             const std::string_view f,
+-                             const std::string_view template_arguments,
+-                             const std::string_view arguments) const {
+-    os << "return mfront::gpb::gpu::" << f << "<" << template_arguments << ">("
+-       << arguments << ", " << this->number_of_threads_per_block << ");\n";
+-  }  // end of writeCall
++  std::string GPUBackend::getApply(const std::string_view status) const {
++    return "mfront::gpb::gpu::makeApply(" + std::string{status} + ", " +
++           std::to_string(this->number_of_threads_per_block) + ")";
++  }  // end of getApply
+ 
+   GPUBackend::~GPUBackend() noexcept = default;
+ 
+diff --git a/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+index 2ec53b4c0..42b5d322e 100644
+--- a/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+@@ -33,13 +33,10 @@ namespace mfront::generic_parallel::behaviour {
+     os << "#include \"MFront/GenericParallelBehaviour/Kokkos.hxx\"\n";
+   }  // end of writeSpecificIncludes
+ 
+-  void KokkosBackend::writeCall(std::ostream& os,
+-                                const std::string_view f,
+-                                const std::string_view template_arguments,
+-                                const std::string_view arguments) const {
+-    os << "return mfront::gpb::kokkos::" << f << "<" << template_arguments
+-       << ", " << this->execution_space << ">(" << arguments << ");\n";
+-  }  // end of writeCall
++  std::string KokkosBackend::getApply(const std::string_view status) const {
++    return "mfront::gpb::kokkos::makeApply<" + this->execution_space + ">(" +
++           std::string{status} + ")";
++  }  // end of getApply
+ 
+   KokkosBackend::~KokkosBackend() noexcept = default;
+ 
+diff --git a/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx b/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
+index d73a2cf79..d34ff8242 100644
+--- a/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
+@@ -41,20 +41,18 @@ namespace mfront::generic_parallel::behaviour {
+     os << "#include \"MFront/GenericParallelBehaviour/OpenMP.hxx\"\n";
+   }  // end of writeSpecificIncludes
+ 
+-  void OpenMPBackend::writeCall(std::ostream& os,
+-                                const std::string_view f,
+-                                const std::string_view template_arguments,
+-                                const std::string_view arguments) const {
++  std::string OpenMPBackend::getApply(const std::string_view status) const {
+     // the offload option is a template argument, so that the code
+     // executed on the host does not depend on the support of offloading by
+     // the OpenMP runtime
+-    os << "return mfront::gpb::openmp::" << f << "<" << template_arguments
+-       << ", " << (this->offload ? "true" : "false") << ">(" << arguments;
++    auto apply = std::string{"mfront::gpb::openmp::makeApply<"} +
++                 (this->offload ? "true" : "false") + ">(" +
++                 std::string{status};
+     if (this->device_stack_size != 0) {
+-      os << ", " << this->device_stack_size;
++      apply += ", " + std::to_string(this->device_stack_size);
+     }
+-    os << ");\n";
+-  }  // end of writeCall
++    return apply + ")";
++  }  // end of getApply
+ 
+   OpenMPBackend::~OpenMPBackend() noexcept = default;
+ 
+diff --git a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+index 0ae8b5e59..24cafa4f3 100644
+--- a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+@@ -60,17 +60,15 @@ namespace mfront::generic_parallel::behaviour {
+        << "#include \"MFront/GenericParallelBehaviour/ParallelSTL.hxx\"\n";
+   }  // end of writeSpecificIncludes
+ 
+-  void ParallelSTLBackend::writeCall(std::ostream& os,
+-                                     const std::string_view f,
+-                                     const std::string_view template_arguments,
+-                                     const std::string_view arguments) const {
+-    os << "return mfront::gpb::stlpar::" << f << "<" << template_arguments
+-       << ">(" << arguments << ", " << this->execution_policy;
++  std::string ParallelSTLBackend::getApply(
++      const std::string_view status) const {
++    auto apply = "mfront::gpb::stlpar::makeApply(" + std::string{status} +
++                 ", " + this->execution_policy;
+     if (this->device_stack_size != 0) {
+-      os << ", " << this->device_stack_size;
++      apply += ", " + std::to_string(this->device_stack_size);
+     }
+-    os << ");\n";
+-  }  // end of writeCall
++    return apply + ")";
++  }  // end of getApply
+ 
+   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
+ 
+diff --git a/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+index 2da561403..300acce3c 100644
+--- a/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+@@ -48,17 +48,26 @@ namespace mfront::generic_parallel::behaviour {
+     os << "#include \"MFront/GenericParallelBehaviour/SYCL.hxx\"\n";
+   }  // end of writeSpecificIncludes
+ 
++  std::string SYCLBackend::getApply(const std::string_view status) const {
++    auto apply = "mfront::gpb::sycl::makeApply(" + std::string{status};
++    if (this->device_stack_size != 0) {
++      apply += ", " + std::to_string(this->device_stack_size);
++    }
++    return apply + ")";
++  }  // end of getApply
++
+   void SYCLBackend::writeCall(std::ostream& os,
+                               const std::string_view f,
+                               const std::string_view template_arguments,
++                              const std::string_view status,
+                               const std::string_view arguments) const {
+-    os << "return mfront::gpb::sycl::" << f << "<" << template_arguments << ">("
+-       << arguments << ", mfront::gpb::sycl::DataTransferPolicy::"
+-       << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE");
+-    if (this->device_stack_size != 0) {
+-      os << ", " << this->device_stack_size;
+-    }
+-    os << ");\n";
++    // the functions of the SYCL backend transfer the fields which are not
++    // accessible by the device before calling the generic ones
++    os << "return mfront::gpb::sycl::" << f << "<" << template_arguments
++       << ">(" << status << ", " << arguments
++       << ", mfront::gpb::sycl::DataTransferPolicy::"
++       << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE") << ", "
++       << this->getApply(status) << ");\n";
+   }  // end of writeCall
+ 
+   SYCLBackend::~SYCLBackend() noexcept = default;
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index e6bf71e08..0c7fe1992 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -841,9 +841,9 @@ namespace mfront {
+                      "const mfront_gpb_BatchData* const mfront_batch_data",
+                      ", mfront_batch_data", [this, &os] {
+                        this->backend->writeCall(
+-                           os, "integrate", "Behaviour, mfront_point_traits",
+-                           "mfront_status, mfront_data, mfront_parameters, "
+-                           "mfront_policy");
++                           os, "integrateBatch",
++                           "Behaviour, mfront_point_traits", "mfront_status",
++                           "mfront_data, mfront_parameters, mfront_policy");
+                      });
+       const auto& d = bd.getBehaviourData(h);
+       for (const auto& [ifct, c] : d.getInitializeFunctions()) {
+@@ -856,11 +856,12 @@ namespace mfront {
+                        [this, &os, &bd, &ifct, n] {
+                          // the inputs may be null if the function has no input
+                          this->backend->writeCall(
+-                             os, "executeInitializeFunction",
++                             os, "executeInitializeFunctionOnBatch",
+                              "Behaviour, mfront_point_traits, " +
+                                  getInitializeFunctionCallerName(bd, ifct) +
+                                  ", " + std::to_string(n),
+-                             "mfront_status, mfront_data, "
++                             "mfront_status",
++                             "mfront_data, "
+                              "mfront::gpb::getField(mfront_inputs), "
+                              "mfront_parameters, mfront_policy");
+                        });
+@@ -874,11 +875,12 @@ namespace mfront {
+             "const mfront_gpb_BatchData* const mfront_batch_data",
+             ", mfront_outputs, mfront_batch_data", [this, &os, &bd, &pp, n] {
+               this->backend->writeCall(
+-                  os, "executePostProcessing",
++                  os, "executePostProcessingOnBatch",
+                   "Behaviour, mfront_point_traits, " +
+                       getPostProcessingCallerName(bd, pp) + ", true, " +
+                       std::to_string(n),
+-                  "mfront_status, mfront::gpb::getField(mfront_outputs), "
++                  "mfront_status",
++                  "mfront::gpb::getField(mfront_outputs), "
+                   "mfront_data, mfront_parameters, mfront_policy");
+             });
+       }
+@@ -911,8 +913,9 @@ namespace mfront {
+          << "}\n";
+       if (f.error.empty()) {
+         os << "const auto& mfront_data = *mfront_rotation_data;\n";
+-        this->backend->writeCall(os, "rotate", getPointRotationName(bd, h, f),
+-                                 "mfront_status, mfront_data");
++        this->backend->writeCall(os, "rotateBatch",
++                                 getPointRotationName(bd, h, f),
++                                 "mfront_status", "mfront_data");
+       } else {
+         os << "mfront::gpb::initialize(mfront_status, 1);\n"
+            << "return mfront::gpb::report(mfront_status, -2, \"" << f.error
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 06e403e98..b94a11eb3 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -345,10 +345,9 @@ namespace mfront {
+       // of the model, as in the `generic` interface
+       os << "const auto mfront_policy = tfel::material::None;\n";
+       this->backend->writeCall(
+-          os, "integrate",
++          os, "integrateBatch",
+           "mfront::gm::" + md.className + ", mfront_point_traits",
+-          "mfront_status, mfront_data, "
+-          "mfront_parameters, mfront_policy");
++          "mfront_status", "mfront_data, mfront_parameters, mfront_policy");
+       os << "});\n"
+          << "} // end of " << f << "\n\n";
+     }
+-- 
+2.43.0
+

@@ -6,169 +6,169 @@
 # The library of the standalone models is deduced from the library of the
 # behaviours. See compare-functions.sh for the arguments.
 . "$(dirname "$0")/compare-functions.sh"
-run IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15
-run IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15
-run ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15
-run ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15
+run IsotropicLinearHardeningPlasticity_Tridimensional --amplitude=3e-3
+run IsotropicLinearHardeningPlasticity_PlaneStrain --amplitude=3e-3
+run ImplicitNorton_Tridimensional --material-properties=150e9,0.3
+run ImplicitNorton_PlaneStress --material-properties=150e9,0.3
 # Hosford criterion: eigen values, local memory larger than the default
 # stack size of CUDA threads
-run HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15
+run HosfordPerfectPlasticity_Tridimensional --amplitude=5e-4
 # elastic properties given by a material law evaluated on the device, and
 # quantities
-run StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600
+run StrainHardeningCreep3_Tridimensional --temperature=600
 # isotropic DSLs: creep, and several flows with an isotropic hardening rule.
 # The MultipleIsotropicMisesFlows DSL does not provide a consistent tangent
 # operator: the generic interface rejects the requests of tangent operators.
-run IsotropicMisesCreepTest_Tridimensional 6 6 2 7 1 36 1e-3 8e-67,8.2 293.15
-run IsotropicMisesCreepTest_PlaneStrain 4 4 2 5 1 16 1e-3 8e-67,8.2 293.15
-run MultipleIsotropicMisesFlowsTest_Tridimensional 6 6 0 9 1 36 3e-3 - 293.15 \
+run IsotropicMisesCreepTest_Tridimensional --material-properties=8e-67,8.2
+run IsotropicMisesCreepTest_PlaneStrain --material-properties=8e-67,8.2
+run MultipleIsotropicMisesFlowsTest_Tridimensional --amplitude=3e-3 \
   --tangent-operator=0
-run MultipleIsotropicMisesFlowsTest_Axisymmetrical 4 4 0 7 1 16 3e-3 - 293.15 \
+run MultipleIsotropicMisesFlowsTest_Axisymmetrical --amplitude=3e-3 \
   --tangent-operator=0
 # implicit DSLs for generic behaviours and for models
-run ImplicitGenericBehaviourTest_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 \
-  293.15
-run ImplicitGenericBehaviourTest_PlaneStrain 4 4 2 5 1 16 1e-3 150e9,0.3 293.15
-run ImplicitModelTest_Tridimensional 0 0 0 1 1 0 0 - 293.15 \
+run ImplicitGenericBehaviourTest_Tridimensional --material-properties=150e9,0.3
+run ImplicitGenericBehaviourTest_PlaneStrain --material-properties=150e9,0.3
+run ImplicitModelTest_Tridimensional --amplitude=0 \
   --initial-internal-state-variables=1 --tangent-operator=0
+# parameters treated as static variables
+run ParametersAsStaticVariablesTest_Tridimensional \
+  --material-properties=150e9,0.3
 # finite strain behaviours (Hencky strain, Green-Lagrange strain, standard
 # finite strain behaviour)
-fs="1e-3 150e9,0.3 293.15 --finite-strain"
-run HenckyImplicitNorton_Tridimensional 9 6 2 7 1 54 $fs=CAUCHY,DSIG_DF
-run HenckyImplicitNorton_Tridimensional 9 9 2 7 1 81 $fs=PK1,DPK1_DF
-run HenckyImplicitNorton_Tridimensional 9 6 2 7 1 36 $fs=PK2,DS_DEGL
-run HenckyImplicitNorton_Tridimensional 9 6 2 7 1 54 $fs=CAUCHY,DTAU_DDF
-run HenckyImplicitNorton_PlaneStress 5 4 2 6 1 20 $fs=CAUCHY,DSIG_DF
-run GreenLagrangeImplicitNorton_Tridimensional 9 9 2 7 1 81 $fs=PK1,DPK1_DF
-run GreenLagrangeImplicitNorton_PlaneStrain 5 4 2 5 1 20 $fs=CAUCHY,DSIG_DF
-run SaintVenantKirchhoffElasticity_Tridimensional 9 6 2 0 1 54 $fs=CAUCHY,DSIG_DF
-run SaintVenantKirchhoffElasticity_Tridimensional 9 6 2 0 1 36 $fs=PK2,DS_DEGL
+fs="--material-properties=150e9,0.3 --finite-strain"
+run HenckyImplicitNorton_Tridimensional $fs=CAUCHY,DSIG_DF
+run HenckyImplicitNorton_Tridimensional $fs=PK1,DPK1_DF
+run HenckyImplicitNorton_Tridimensional $fs=PK2,DS_DEGL
+run HenckyImplicitNorton_Tridimensional $fs=CAUCHY,DTAU_DDF
+run HenckyImplicitNorton_PlaneStress $fs=CAUCHY,DSIG_DF
+run GreenLagrangeImplicitNorton_Tridimensional $fs=PK1,DPK1_DF
+run GreenLagrangeImplicitNorton_PlaneStrain $fs=CAUCHY,DSIG_DF
+run SaintVenantKirchhoffElasticity_Tridimensional $fs=CAUCHY,DSIG_DF
+run SaintVenantKirchhoffElasticity_Tridimensional $fs=PK2,DS_DEGL
 # deformation gradient and first Piola-Kirchhoff stress declared as a
 # gradient and a thermodynamic force (DefaultGenericBehaviour DSL). The
 # --finite-strain option gives deformation gradients close to the identity.
-run DefaultGenericSaintVenantKirchhoffElasticity_Tridimensional 9 9 2 0 1 81 \
-  $fs=PK1,DPK1_DF
-run DefaultGenericSaintVenantKirchhoffElasticity_PlaneStrain 5 5 2 0 1 25 \
-  $fs=PK1,DPK1_DF
+run DefaultGenericSaintVenantKirchhoffElasticity_Tridimensional $fs=PK1,DPK1_DF
+run DefaultGenericSaintVenantKirchhoffElasticity_PlaneStrain $fs=PK1,DPK1_DF
 # stored and dissipated energies, speed of sound
-run ImplicitNortonWithEnergies_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 \
-  293.15 --speed-of-sound=7800 --energies=true
+run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
+  --speed-of-sound=7800 --energies=true
 # failures at some points of the batch: physical bounds of the initial
 # internal state variables, standard bounds with the strict policy
-run ImplicitNortonWithEnergies_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 \
-  293.15 --perturbation-of-internal-state-variables=1e-4 \
-  --out-of-bounds-policy=ImplicitNortonWithEnergies,Strict
+run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
+  --perturbation-of-internal-state-variables=1e-4 --out-of-bounds-policy=Strict
 # Runge-Kutta algorithm (no consistent tangent operator)
-run Norton_rk42_Tridimensional 6 6 4 13 1 36 1e-4 150e9,0.3,8e-67,8.2 293.15 \
-  --tangent-operator=3
+run Norton_rk42_Tridimensional --material-properties=150e9,0.3,8e-67,8.2 \
+  --amplitude=1e-4 --tangent-operator=3
 # cohesive zone model
-run Tvergaard_Tridimensional 3 3 4 2 1 9 1e-6 2e16,2e16,200e6,3e-6 293.15
+run Tvergaard_Tridimensional --material-properties=2e16,2e16,200e6,3e-6 \
+  --amplitude=1e-6
 # orthotropic behaviours: elastic properties given as material properties
 # (stiffness tensor required by the behaviour), standard finite strain
 # behaviour and heat transfer (vectors)
-oe="1e-3 200e9,150e9,100e9,0.3,0.25,0.2,70e9,60e9,50e9 293.15"
-run OrthotropicElastic_Tridimensional 6 6 9 0 1 36 $oe
-run OrthotropicElastic_PlaneStrain 4 4 7 0 1 16 1e-3 \
-  200e9,150e9,100e9,0.3,0.25,0.2,70e9 293.15
+oe="--material-properties=200e9,150e9,100e9,0.3,0.25,0.2,70e9,60e9,50e9"
+run OrthotropicElastic_Tridimensional $oe
+run OrthotropicElastic_PlaneStrain \
+  --material-properties=200e9,150e9,100e9,0.3,0.25,0.2,70e9
 run OrthotropicSaintVenantKirchhoffElasticity_Tridimensional \
-  9 9 0 0 1 81 1e-3 - 293.15 --finite-strain=PK1,DPK1_DF
-run OrthotropicStationaryHeatTransfer_Tridimensional 3 3 3 0 1 9 1e2 1,2,3 293.15
-run OrthotropicStationaryHeatTransfer_PlaneStrain 2 2 3 0 1 4 1e2 1,2,3 293.15
+  --finite-strain=PK1,DPK1_DF
+run OrthotropicStationaryHeatTransfer_Tridimensional \
+  --material-properties=1,2,3 --amplitude=1e2
+run OrthotropicStationaryHeatTransfer_PlaneStrain --material-properties=1,2,3 \
+  --amplitude=1e2
 # single crystals: slip systems generated by MFront, with an initial
 # dislocation density, and slip systems and interaction matrix given by TFEL
 # for a finite strain behaviour (the elastic part of the deformation gradient
 # is initially the identity)
-run SingleCrystal_DD_FCC_Tridimensional 6 6 19 54 1 36 2e-3 \
-  208000,208000,208000,0.3,0.3,0.3,80000,80000,80000,105,2.5e-7,5,1e-3,0.13,0.005,1e6,0.35,2.54e-7,80000 \
-  293.15 --initial-internal-state-variables=6.45e-8
+run SingleCrystal_DD_FCC_Tridimensional \
+  --material-properties=208000,208000,208000,0.3,0.3,0.3,80000,80000,80000,105,2.5e-7,5,1e-3,0.13,0.005,1e6,0.35,2.54e-7,80000 \
+  --amplitude=2e-3 --initial-internal-state-variables=6.45e-8
 z12=0,0,0,0,0,0,0,0,0,0,0,0
-run FiniteStrainSingleCrystal_Tridimensional 9 6 16 45 1 54 1e-3 \
-  208000,208000,208000,0.3,0.3,0.3,208000,208000,208000,10,25,14363,66.62,11.43,2.1,494 \
-  293.15 --finite-strain=CAUCHY,DSIG_DF \
+run FiniteStrainSingleCrystal_Tridimensional \
+  --material-properties=208000,208000,208000,0.3,0.3,0.3,208000,208000,208000,10,25,14363,66.62,11.43,2.1,494 \
+  --finite-strain=CAUCHY,DSIG_DF \
   --initial-internal-state-variables=$z12,1,1,1,0,0,0,0,0,0,$z12,$z12
 # initialize functions, with and without inputs
-run InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure \
-  6 6 0 13 1 36 1e-3 - 293.15 --initialize-function=1
-run InitializeFunctionTest_PlaneStrain_InitializeFunction_ElasticStrainFromInitialStress \
-  4 4 0 9 1 16 1e-3 - 293.15 --initialize-function=0
+run InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure
+run InitializeFunctionTest_PlaneStrain_InitializeFunction_ElasticStrainFromInitialStress
 run HenckyImplicitNorton_Tridimensional_InitializeFunction_ElasticStrainFromInitialStress \
-  9 9 2 7 1 81 $fs=PK1,DPK1_DF --initialize-function=0
+  $fs=PK1,DPK1_DF
 run GreenLagrangeImplicitNorton_Tridimensional_InitializeFunction_ElasticStrainFromInitialStress \
-  9 6 2 7 1 36 $fs=PK2,DS_DEGL --initialize-function=0
+  $fs=PK2,DS_DEGL
 run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
-  9 6 2 0 1 54 $fs=CAUCHY,DSIG_DF --initialize-function=1
+  $fs=CAUCHY,DSIG_DF
 # the stress computed by an initialize function is converted to the stress
 # measure of the caller
 run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
-  9 6 2 0 1 36 $fs=PK2,DS_DEGL --initialize-function=1
+  $fs=PK2,DS_DEGL
 run SaintVenantKirchhoffElasticity_Tridimensional_InitializeFunction_StressFromInitialPressure \
-  9 9 2 0 1 81 $fs=PK1,DPK1_DF --initialize-function=1
+  $fs=PK1,DPK1_DF
 # post-processings
 run PostProcessingTest_Tridimensional_PostProcessing_PrincipalStrain \
-  6 6 2 0 1 36 1e-3 150e9,0.3 293.15 --post-processing=3
+  --material-properties=150e9,0.3
 # post-processings using the thermodynamic forces and the internal state
 # variables at the end of the time step
 run ImplicitNorton_Tridimensional_PostProcessing_EquivalentStressAndStrain \
-  6 6 2 7 1 36 1e-3 150e9,0.3 293.15 --post-processing=2
+  --material-properties=150e9,0.3
 run ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain \
-  4 4 2 6 1 16 1e-3 150e9,0.3 293.15 --post-processing=2
+  --material-properties=150e9,0.3
 run HenckyImplicitNorton_Tridimensional_PostProcessing_EquivalentStressAndStrain \
-  9 9 2 7 1 81 $fs=PK1,DPK1_DF --post-processing=2
+  $fs=PK1,DPK1_DF
 run GreenLagrangeImplicitNorton_Tridimensional_PostProcessing_EquivalentStressAndStrain \
-  9 6 2 7 1 36 $fs=PK2,DS_DEGL --post-processing=2
+  $fs=PK2,DS_DEGL
 run SaintVenantKirchhoffElasticity_Tridimensional_PostProcessing_EquivalentStress \
-  9 9 2 0 1 81 $fs=PK1,DPK1_DF --post-processing=1
+  $fs=PK1,DPK1_DF
 run HenckyImplicitNorton_PlaneStress_PostProcessing_PrincipalStrain \
-  5 4 2 6 1 20 $fs=CAUCHY,DSIG_DF --post-processing=3
+  $fs=CAUCHY,DSIG_DF
 run GreenLagrangeImplicitNorton_Tridimensional_PostProcessing_PrincipalStrain \
-  9 9 2 7 1 81 $fs=PK1,DPK1_DF --post-processing=3
+  $fs=PK1,DPK1_DF
 run SaintVenantKirchhoffElasticity_Tridimensional_PostProcessing_PrincipalGreenLagrangeStrain \
-  9 6 2 0 1 36 $fs=PK2,DS_DEGL --post-processing=3
-# rotation functions of orthotropic behaviours: the arguments describing the
-# behaviour are not used
-r="0 0 0 0 0 0 0 - 0 --rotation"
-run OrthotropicElastic_Tridimensional_rotateGradients $r=6
-run OrthotropicElastic_PlaneStress_rotateThermodynamicForces $r=4
-run OrthotropicElastic_Tridimensional_rotateTangentOperatorBlocks $r=36
+  $fs=PK2,DS_DEGL
+# rotation functions of orthotropic behaviours
+run OrthotropicElastic_Tridimensional_rotateGradients
+run OrthotropicElastic_PlaneStress_rotateThermodynamicForces
+run OrthotropicElastic_Tridimensional_rotateTangentOperatorBlocks
 osvk=OrthotropicSaintVenantKirchhoffElasticity_Tridimensional
-run ${osvk}_rotateGradients $r=9
-run ${osvk}_rotateThermodynamicForces_CauchyStress $r=6
-run ${osvk}_rotateThermodynamicForces_PK2Stress $r=6
-run ${osvk}_rotateThermodynamicForces_PK1Stress $r=9
-run ${osvk}_rotateTangentOperatorBlocks_dsig_dF $r=54
-run ${osvk}_rotateTangentOperatorBlocks_dPK1_dF $r=81
-run ${osvk}_rotateTangentOperatorBlocks_dPK2_dEGL $r=36
-run ${osvk}_rotateTangentOperatorBlocks_dtau_ddF $r=54
+run ${osvk}_rotateGradients
+run ${osvk}_rotateThermodynamicForces_CauchyStress
+run ${osvk}_rotateThermodynamicForces_PK2Stress
+run ${osvk}_rotateThermodynamicForces_PK1Stress
+run ${osvk}_rotateTangentOperatorBlocks_dsig_dF
+run ${osvk}_rotateTangentOperatorBlocks_dPK1_dF
+run ${osvk}_rotateTangentOperatorBlocks_dPK2_dEGL
+run ${osvk}_rotateTangentOperatorBlocks_dtau_ddF
 ohs=OrthotropicStationaryHeatTransfer
-run ${ohs}_Tridimensional_rotateGradients $r=3
-run ${ohs}_PlaneStrain_rotateThermodynamicForces $r=2
-run ${ohs}_Tridimensional_rotateTangentOperatorBlocks $r=9
-run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks $r=4
+run ${ohs}_Tridimensional_rotateGradients
+run ${ohs}_PlaneStrain_rotateThermodynamicForces
+run ${ohs}_Tridimensional_rotateTangentOperatorBlocks
+run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks
 # StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
 # defined by data and kinematic hardening rules, Norton flow with the Hill
 # criterion, porous flow (Gurson-Tvergaard-Needleman criterion, nucleation,
 # staggered scheme for the porosity, initial porosity of 0.005)
-run StandardElastoViscoPlasticityTest_Tridimensional 6 6 0 19 1 36 5e-3 - \
-  293.15
+run StandardElastoViscoPlasticityTest_Tridimensional --amplitude=5e-3
 run OrthotropicStandardElastoViscoPlasticityTest_Tridimensional \
-  6 6 0 7 1 36 5e-3 - 293.15
-run PorousStandardElastoViscoPlasticityTest_Tridimensional 6 6 0 9 1 36 \
-  3e-3 - 293.15 --initial-internal-state-variables=0,0,0,0,0,0,0.005,0,0
+  --amplitude=5e-3
+run PorousStandardElastoViscoPlasticityTest_Tridimensional --amplitude=3e-3 \
+  --initial-internal-state-variables=0,0,0,0,0,0,0.005,0,0
 # behaviour variables: integration delegated to a behaviour variable created
 # by a factory (whose parameters take their default values in device code),
 # external model integrated by a model using a Runge-Kutta algorithm
-run BehaviourVariableTest_Tridimensional 6 6 4 19 1 36 3e-3 \
-  1e9,300e6,200e9,0.3 293.15
-run ExternalModelCallerTest_Tridimensional 0 0 0 2 1 0 0 - 293.15 \
+run BehaviourVariableTest_Tridimensional \
+  --material-properties=1e9,300e6,200e9,0.3 --amplitude=3e-3
+run ExternalModelCallerTest_Tridimensional --amplitude=0 \
   --initial-internal-state-variables=1,2 --tangent-operator=0
 # standalone models, treated as behaviours without gradients: the outputs
 # are internal state variables, the inputs are external state variables.
 # The model fails at the points where the initial value of its first output
 # is negative (physical bound).
-reference=src/libModel.so
+reference=reference/src/libModel.so
 batch=$(echo "$library" | sed 's/GenericParallelBehaviour/GenericParallelModel/')
-run GenericParallelModelTest_Tridimensional 0 0 1 2 1 0 0 500 600
-run GenericParallelModelTest_PlaneStress 0 0 1 2 1 0 0 500 600 \
+run GenericParallelModelTest_Tridimensional --material-properties=500 \
+  --amplitude=0 --temperature=600
+run GenericParallelModelTest_PlaneStress --material-properties=500 \
+  --amplitude=0 --temperature=600 \
   --perturbation-of-internal-state-variables=1e-4
-run GenericParallelModelWithQuantitiesTest_Axisymmetrical 0 0 0 1 1 0 0 - 600
+run GenericParallelModelWithQuantitiesTest_Axisymmetrical --amplitude=0 \
+  --temperature=600
 exit $status

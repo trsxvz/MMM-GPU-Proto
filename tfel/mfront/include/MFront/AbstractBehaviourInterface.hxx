@@ -104,11 +104,14 @@ namespace mfront {
     [[nodiscard]] virtual std::string getParametersSourceInBehaviourConstructor(
         const BehaviourDescription&, const Hypothesis) const;
     /*!
-     * \return true if the interface supports dynamically allocated vectors,
-     * which MFront uses by default for large arrays of variables. Those
-     * vectors can't be used in device code.
+     * \return true if the interface uses the behaviour class in device code.
+     *
+     * The behaviour class is shared by all the interfaces: if one interface
+     * requires a class usable in device code, the class is written
+     * accordingly for all of them (see
+     * `BehaviourDescription::requireDeviceCompatibleClass`).
      */
-    [[nodiscard]] virtual bool areDynamicallyAllocatedVectorsAllowed() const;
+    [[nodiscard]] virtual bool requiresDeviceCompatibleBehaviourClass() const;
     /*!
      * \return the list of modelling hypotheses treated by the interface
      * \param[in] mb : behaviour description

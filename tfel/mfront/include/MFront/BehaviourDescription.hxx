@@ -73,6 +73,11 @@ namespace mfront {
     static const char* const defaultConstructor;
     //! \brief standard option and attribute
     static const char* const finalClass;
+    /*!
+     * \brief standard option requiring a behaviour class usable in device
+     * code (see `requireDeviceCompatibleClass`)
+     */
+    static const char* const deviceCompatibleClass;
     //! \brief standard attribute
     static const char* const saveThermalExpansion;
     //! \brief a simple alias
@@ -298,6 +303,17 @@ namespace mfront {
     void areDynamicallyAllocatedVectorsAllowed(const bool);
     //! \return true if dynamically allocated vectors are allowed
     bool areDynamicallyAllocatedVectorsAllowed() const;
+    /*!
+     * \brief require a behaviour class which can be used in device code,
+     * with the same definition in host and device code.
+     *
+     * Dynamically allocated vectors are not allowed and the parameters
+     * treated as static variables are declared as constant data members,
+     * since static data members can't be odr-used in device code.
+     */
+    void requireDeviceCompatibleClass();
+    //! \return true if a behaviour class usable in device code is required
+    bool isDeviceCompatibleClassRequired() const;
     //! \return true of the parser shall declare a dynamically
     bool useDynamicallyAllocatedVector(const unsigned short) const;
     //! \return if the behaviour name is defined
@@ -2111,6 +2127,8 @@ namespace mfront {
      * dynamically allocated vectors.
      */
     tfel::utilities::GenType<bool> areDynamicallyAllocatedVectorsAllowed_;
+    //! \brief a behaviour class usable in device code is required
+    bool deviceCompatibleClassRequired = false;
   };  // end of struct BehaviourDescription
   /*!
    * \return the name of a text file allowing the change the name of the

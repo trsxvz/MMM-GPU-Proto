@@ -1,13 +1,13 @@
 @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos"};
 
-@Environment {"LD_LIBRARY_PATH": "src"};
-// the generic interface gives the reference results. Using both interfaces
-// in the same call also checks that they can be used together.
-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../DefaultGenericSaintVenantKirchhoffElasticity.mfront ../IsotropicMisesCreepTest.mfront ../MultipleIsotropicMisesFlowsTest.mfront ../ImplicitGenericBehaviourTest.mfront ../ImplicitModelTest.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// libraries of the reference (`generic` interface, host compiler) and of the
+// tested configuration (see build-libraries.sh)
+@Command "sh ../build-libraries.sh @mfront@ config-kokkos-host.json";
 @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "reference"};

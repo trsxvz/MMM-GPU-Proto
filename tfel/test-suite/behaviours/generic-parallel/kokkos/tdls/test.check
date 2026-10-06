@@ -1,11 +1,11 @@
 @Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos",
             "mfront::linear_system_solver::tdls"};
 
-@Environment {"LD_LIBRARY_PATH": "src"};
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
-@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../../ImplicitNortonTDLS.mfront";
+@Command "sh ../../build-libraries.sh @mfront@ config-kokkos.json ImplicitNortonTDLS";
 @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "reference"};

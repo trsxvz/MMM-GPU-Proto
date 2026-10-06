@@ -26,8 +26,9 @@ namespace mfront::generic_parallel::behaviour {
    * interface.
    *
    * The integration of a batch is implemented by function templates in the
-   * `MFront/GenericParallelBehaviour` headers. A backend selects those
-   * headers and writes the call to the right function.
+   * `MFront/GenericParallelBehaviour/Integrate.hxx` header, which take the
+   * primitive of a backend as last argument. A backend selects its header
+   * and writes the expression building its primitive.
    */
   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
     /*!
@@ -43,21 +44,41 @@ namespace mfront::generic_parallel::behaviour {
      */
     virtual void writeSpecificIncludes(std::ostream&) const = 0;
     /*!
-     * \brief write the statement returning the result of a function of the
-     * backend, defined in the `MFront/GenericParallelBehaviour` headers
-     * (`integrate`, `executeInitializeFunction` or `executePostProcessing`).
-     * The template arguments and the arguments specific to the backend are
-     * appended to the given ones.
+     * \brief write the symbols describing the generated library: name of
+     * the backend (`<f>_generic_parallel_backend`), which tells the calling
+     * code where the fields must be allocated, and version of the data
+     * structures exchanged with the generated functions
+     * (`<f>_generic_parallel_api_version`, see `MFRONT_GPB_API_VERSION`)
+     * \param[out] os: output stream
+     * \param[in] f: basis of the names of the symbols
+     */
+    void writeSymbols(std::ostream&, std::string_view) const;
+    /*!
+     * \return an expression building the primitive of the backend (see the
+     * `makeApply` functions of the `MFront/GenericParallelBehaviour`
+     * headers)
+     * \param[in] status: name of the output status
+     */
+    [[nodiscard]] virtual std::string getApply(std::string_view) const = 0;
+    /*!
+     * \brief write the statement returning the result of a function defined
+     * in the `MFront/GenericParallelBehaviour/Integrate.hxx` header
+     * (`integrateBatch`, `executeInitializeFunctionOnBatch`,
+     * `executePostProcessingOnBatch` or `rotateBatch`). The primitive of the
+     * backend is appended to the given arguments.
      *
      * \param[out] os: output stream
      * \param[in] f: name of the function
      * \param[in] template_arguments: template arguments
-     * \param[in] arguments: arguments
+     * \param[in] status: name of the output status, which is the first
+     * argument
+     * \param[in] arguments: other arguments
      */
     virtual void writeCall(std::ostream&,
                            std::string_view,
                            std::string_view,
-                           std::string_view) const = 0;
+                           std::string_view,
+                           std::string_view) const;
     //! \brief destructor
     virtual ~AbstractBackend() noexcept;
   };  // end of AbstractBackend

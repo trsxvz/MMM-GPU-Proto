@@ -52,6 +52,38 @@ namespace mfront::gpb::kokkos {
       real initial_rdt;
     };
 
+    /*!
+     * \brief functor applying a function at one point and accumulating the
+     * statistics of the batch by atomic operations, which are only performed
+     * if the point failed, gave an unreliable result or decreased the time
+     * step scaling factor.
+     * \tparam PointFunction: function object applied at one point
+     */
+    template <typename PointFunction>
+    struct AtomicUpdate {
+      //! \brief apply the function at the `i`-th point
+      KOKKOS_FUNCTION void operator()(const size_type i) const {
+        const auto r = this->f(i);
+        if (r.number_of_failures != 0) {
+          Kokkos::atomic_add(&(this->statistics->number_of_failures), 1ull);
+        }
+        if (r.number_of_unreliable_results != 0) {
+          Kokkos::atomic_add(&(this->statistics->number_of_unreliable_results),
+                             1ull);
+        }
+        const auto rdt = toOrderedKey(r.rdt);
+        if (rdt < this->initial_rdt) {
+          Kokkos::atomic_min(&(this->statistics->rdt), rdt);
+        }
+      }
+      //! \brief function object applied at one point
+      PointFunction f;
+      //! \brief statistics
+      AtomicBatchStatistics* statistics;
+      //! \brief ordered key of the initial time step scaling factor
+      unsigned long long initial_rdt;
+    };
+
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 
     /*!
@@ -72,9 +104,11 @@ namespace mfront::gpb::kokkos {
      * execution space.
      * \return true on success
      * \param[out] s: output status
+     * \param[in] preserve_stack_size: if true, the stack size of the
+     * threads of the device is not modified
      */
     template <typename ExecutionSpace, typename PointFunction>
-    bool prepare(OutputStatus& s) {
+    bool prepare(OutputStatus& s, const bool preserve_stack_size) {
 #if defined(KOKKOS_ENABLE_CUDA)
       constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::Cuda>;
 #elif defined(KOKKOS_ENABLE_HIP)
@@ -83,14 +117,11 @@ namespace mfront::gpb::kokkos {
       constexpr auto device = false;
 #endif
       if constexpr (device) {
-        const auto e =
-            gpu::internals::ensureStackSize(stackSizeProbe<PointFunction>);
-        if (e != decltype(e){}) {
-          report(s, -3, "unable to set the stack size of the threads");
-          return false;
-        }
+        return gpu::internals::ensureStackSize(s, stackSizeProbe<PointFunction>,
+                                               preserve_stack_size);
       }
       static_cast<void>(s);
+      static_cast<void>(preserve_stack_size);
       return true;
     }  // end of prepare
 
@@ -100,16 +131,20 @@ namespace mfront::gpb::kokkos {
    * \brief apply a function at the points of a batch and report the
    * statistics of the batch.
    *
-   * Kokkos must have been initialized by the calling code. This function
-   * waits for the completion of the computations.
+   * Kokkos must have been initialized by the calling code. If the execution
+   * options give statistics, the statistics are accumulated by atomic
+   * operations and this function returns once the computations are
+   * submitted. Otherwise, the statistics are computed by a parallel
+   * reduction and this function waits for the completion of the
+   * computations.
    *
    * \tparam ExecutionSpace: execution space
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] queue: instance of the execution space (default instance if
-   * null)
+   * \param[in] o: execution options. The queue is a pointer to an instance
+   * of the execution space (default instance if null).
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \return the status
@@ -117,7 +152,7 @@ namespace mfront::gpb::kokkos {
   template <typename ExecutionSpace, typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            void* const queue,
+            const ExecutionOptions& o,
             const real rdt0,
             const PointFunction& f) {
     if (!Kokkos::is_initialized()) {
@@ -126,15 +161,22 @@ namespace mfront::gpb::kokkos {
     if (n == 0) {
       return s.status;
     }
-    if (!internals::prepare<ExecutionSpace, PointFunction>(s)) {
+    if (!internals::prepare<ExecutionSpace, PointFunction>(
+            s, o.preserve_stack_size != 0)) {
       return s.status;
     }
-    const auto space = queue == nullptr
+    const auto space = o.queue == nullptr
                            ? ExecutionSpace{}
-                           : *static_cast<const ExecutionSpace*>(queue);
+                           : *static_cast<const ExecutionSpace*>(o.queue);
     const auto range =
         Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(space,
                                                                           0, n);
+    if (o.statistics != nullptr) {
+      Kokkos::parallel_for("mfront::gpb::kokkos::apply", range,
+                           internals::AtomicUpdate<PointFunction>{
+                               f, o.statistics, toOrderedKey(rdt0)});
+      return s.status;
+    }
     // the reduction in a scalar is synchronous
     auto r = BatchStatistics{};
     Kokkos::parallel_reduce("mfront::gpb::kokkos::apply", range,
@@ -142,120 +184,21 @@ namespace mfront::gpb::kokkos {
     return report(s, r);
   }  // end of apply
 
-  namespace internals {
-
-    /*!
-     * \return the primitive of the backend, as expected by
-     * `mfront::gpb::integrateBatch` and the similar functions
-     * \tparam ExecutionSpace: execution space
-     * \param[in,out] s: output status
-     */
-    template <typename ExecutionSpace>
-    auto makeApply(OutputStatus& s) {
-      return [&s](const size_type n, void* const queue, const real rdt0,
-                  const auto& f) {
-        return kokkos::apply<ExecutionSpace>(s, n, queue, rdt0, f);
-      };
-    }  // end of makeApply
-
-  }  // end of namespace internals
-
   /*!
-   * \brief integrate the behaviour at the points of a batch (see
-   * `mfront::gpb::integrateBatch`).
-   *
+   * \return the primitive of the backend, as expected by
+   * `mfront::gpb::integrateBatch` and the similar functions of
+   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
+   * functions
    * \tparam ExecutionSpace: execution space
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \return the status
+   * \param[in,out] s: output status
    */
-  template <typename Behaviour,
-            typename PointTraits,
-            typename ExecutionSpace,
-            typename ParametersType>
-  int integrate(OutputStatus& s,
-                const BatchData& d,
-                const ParametersType& parameters,
-                const tfel::material::OutOfBoundsPolicy p) {
-    return integrateBatch<Behaviour, PointTraits>(
-        s, d, parameters, p, internals::makeApply<ExecutionSpace>(s));
-  }  // end of integrate
-
-  /*!
-   * \brief execute an initialize function at the points of a batch (see
-   * `mfront::gpb::executeInitializeFunctionOnBatch`).
-   *
-   * \tparam ExecutionSpace: execution space
-   * \param[out] s: output status
-   * \param[in] d: batch data
-   * \param[in] inputs: values of the inputs of the initialize function
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \return the status
-   */
-  template <typename Behaviour,
-            typename PointTraits,
-            typename InitializeFunction,
-            size_type number_of_inputs,
-            typename ExecutionSpace,
-            typename ParametersType>
-  int executeInitializeFunction(OutputStatus& s,
-                                const BatchData& d,
-                                const ConstField& inputs,
-                                const ParametersType& parameters,
-                                const tfel::material::OutOfBoundsPolicy p) {
-    return executeInitializeFunctionOnBatch<
-        Behaviour, PointTraits, InitializeFunction, number_of_inputs>(
-        s, d, inputs, parameters, p, internals::makeApply<ExecutionSpace>(s));
-  }  // end of executeInitializeFunction
-
-  /*!
-   * \brief execute a post-processing at the points of a batch (see
-   * `mfront::gpb::executePostProcessingOnBatch`).
-   *
-   * \tparam ExecutionSpace: execution space
-   * \param[out] s: output status
-   * \param[out] outputs: values of the outputs of the post-processing
-   * \param[in] d: batch data
-   * \param[in] parameters: values of the parameters
-   * \param[in] p: out of bounds policy
-   * \return the status
-   */
-  template <typename Behaviour,
-            typename PointTraits,
-            typename PostProcessing,
-            bool use_initial_state,
-            size_type number_of_outputs,
-            typename ExecutionSpace,
-            typename ParametersType>
-  int executePostProcessing(OutputStatus& s,
-                            const Field& outputs,
-                            const BatchData& d,
-                            const ParametersType& parameters,
-                            const tfel::material::OutOfBoundsPolicy p) {
-    return executePostProcessingOnBatch<Behaviour, PointTraits, PostProcessing,
-                                        use_initial_state, number_of_outputs>(
-        s, outputs, d, parameters, p, internals::makeApply<ExecutionSpace>(s));
-  }  // end of executePostProcessing
-
-  /*!
-   * \brief rotate the values of the points of a batch of an orthotropic
-   * behaviour (see `mfront::gpb::rotateBatch`).
-   *
-   * \tparam PointRotation: function object rotating the values of a point
-   * (see `RotationExecutor`)
-   * \tparam ExecutionSpace: execution space
-   * \param[out] s: output status
-   * \param[in] d: rotation data
-   * \return the status
-   */
-  template <typename PointRotation, typename ExecutionSpace>
-  int rotate(OutputStatus& s, const RotationData& d) {
-    return rotateBatch<PointRotation>(s, d,
-                                      internals::makeApply<ExecutionSpace>(s));
-  }  // end of rotate
+  template <typename ExecutionSpace>
+  auto makeApply(OutputStatus& s) {
+    return [&s](const size_type n, const ExecutionOptions& o, const real rdt0,
+                const auto& f) {
+      return kokkos::apply<ExecutionSpace>(s, n, o, rdt0, f);
+    };
+  }  // end of makeApply
 
 }  // end of namespace mfront::gpb::kokkos
 

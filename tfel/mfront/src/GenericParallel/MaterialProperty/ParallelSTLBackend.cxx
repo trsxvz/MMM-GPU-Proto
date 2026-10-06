@@ -15,6 +15,7 @@
 #include "MFront/MaterialPropertyDescription.hxx"
 #include "MFront/MaterialPropertyParametersHandler.hxx"
 #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx"
 
 namespace mfront::generic_parallel::material_property {
@@ -23,33 +24,13 @@ namespace mfront::generic_parallel::material_property {
       : execution_policy("std::execution::par_unseq") {
   }  // end of ParallelSTLBackend
 
-  ParallelSTLBackend::ParallelSTLBackend(const tfel::utilities::DataMap& opts)
-      : execution_policy("std::execution::par_unseq") {
+  ParallelSTLBackend::ParallelSTLBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("execution_policy");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareExecutionPolicyOption(validator);
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
-    if (contains(opts, "execution_policy")) {
-      const auto p = get<std::string>(opts, "execution_policy");
-      if ((p == "par") || (p == "parallel_policy")) {
-        this->execution_policy = "std::execution::par";
-      } else if ((p == "seq") || (p == "sequenced_policy")) {
-        this->execution_policy = "std::execution::seq";
-      } else if ((p == "unseq") || (p == "unsequenced_policy")) {
-        this->execution_policy = "std::execution::unseq";
-      } else if ((p == "par_unseq") || (p == "parallel_unsequenced_policy")) {
-        this->execution_policy = "std::execution::par_unseq";
-      } else {
-        tfel::raise(
-            "unsuported execution policy '" + p +
-            "'. Valid execution policy are: 'sequenced_policy' (or "
-            "'seq'), 'unsequenced_policy' (or 'unseq'), 'parallel_policy' (or "
-            "'par') and 'parallel_unsequenced_policy' (or 'par_unseq')");
-      }
-    }
+    this->execution_policy = getExecutionPolicy(opts);
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of ParallelSTLBackend
 
   std::string ParallelSTLBackend::getName() const {

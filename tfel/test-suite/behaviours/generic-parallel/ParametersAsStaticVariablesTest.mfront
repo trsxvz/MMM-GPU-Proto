@@ -1,0 +1,63 @@
+@DSL Implicit{parameters_as_static_variables : true};
+@Behaviour ParametersAsStaticVariablesTest;
+@Description {
+  "Norton creep whose parameters are treated as static variables. The "
+  "parameters are bound to references (std::max), which is not allowed for "
+  "static data members in device code."
+}
+
+@Epsilon 1e-16;
+
+@MaterialProperty stress young;
+young.setGlossaryName("YoungModulus");
+@MaterialProperty real nu;
+nu.setGlossaryName("PoissonRatio");
+
+//! Norton coefficient
+@Parameter real A = 8e-67;
+//! Norton exponent
+@Parameter real E = 8.2;
+
+@StateVariable strain p;
+p.setGlossaryName("EquivalentViscoplasticStrain");
+
+@LocalVariable stress lambda;
+@LocalVariable stress mu;
+
+@InitLocalVariables {
+  lambda = computeLambda(young, nu);
+  mu = computeMu(young, nu);
+}
+
+@ComputeStress {
+  sig = lambda * trace(eel) * Stensor::Id() + 2 * mu * eel;
+}
+
+@Integrator {
+  const auto seq = sigmaeq(sig);
+  const auto iseq = 1 / std::max(seq, real(1e-12) * young);
+  const auto n = 3 * deviator(sig) * (iseq / 2);
+  const auto exponent = std::max(E, real(1));
+  const auto tmp = A * pow(seq, exponent - 1);
+  const auto df_dseq = exponent * tmp;
+  feel += dp * n - deto;
+  fp -= tmp * seq * dt;
+  // jacobian
+  dfeel_ddeel += 2 * mu * theta * dp * iseq * (Stensor4::M() - (n ^ n));
+  dfeel_ddp = n;
+  dfp_ddeel = -2 * mu * theta * df_dseq * dt * n;
+}
+
+@TangentOperator {
+  if ((smt == ELASTIC) || (smt == SECANTOPERATOR)) {
+    computeElasticStiffness<N, Type>::exe(Dt, lambda, mu);
+  } else if (smt == CONSISTENTTANGENTOPERATOR) {
+    StiffnessTensor De;
+    Stensor4 Je;
+    computeElasticStiffness<N, Type>::exe(De, lambda, mu);
+    getPartialJacobianInvert(Je);
+    Dt = De * Je;
+  } else {
+    return false;
+  }
+}

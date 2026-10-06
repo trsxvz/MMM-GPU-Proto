@@ -22,10 +22,10 @@ namespace mfront {
     return "";
   }  // end of getParametersSourceInBehaviourConstructor
 
-  bool AbstractBehaviourInterface::areDynamicallyAllocatedVectorsAllowed()
+  bool AbstractBehaviourInterface::requiresDeviceCompatibleBehaviourClass()
       const {
-    return true;
-  }  // end of areDynamicallyAllocatedVectorsAllowed
+    return false;
+  }  // end of requiresDeviceCompatibleBehaviourClass
 
   AbstractBehaviourInterface::~AbstractBehaviourInterface() = default;
 

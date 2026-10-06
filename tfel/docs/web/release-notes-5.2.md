@@ -49,6 +49,26 @@ library, see below.
 
 - `MFront`' interfaces have to implement a method named `setOptions`.
 
+The support of device code by `TFEL` and `MFront` (see the
+`generic-parallel` interface for behaviours) leads to the following
+changes:
+
+- `MechanicalBehaviour` no longer declares the interface of the behaviours
+  as pure virtual functions: a behaviour can't be manipulated through a
+  reference to this class. The virtual table requires the run-time type
+  information, which is not supported in device code. The generated code
+  never used this class this way.
+- the functions of `BoundsCheck` take the name of the variable as a
+  `const char*` and return a boolean in device code, where exceptions are
+  not supported.
+- the implementation of `LogarithmicStrainHandler` is defined in its header:
+  the `TFELMaterial` library no longer exports its functions.
+- the slip systems of single crystals (`getSlidingSystems` and the
+  associated methods) are built at compile time. Their result must be bound
+  to a constant reference: it is a copy with `nvc++ -stdpar=gpu` and
+  `nvc++ -mp=gpu`, which do not allow device code to access global
+  variables.
+
 # Improvements to the build system
 
 ## New `cmake` options

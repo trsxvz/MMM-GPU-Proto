@@ -66,8 +66,8 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   cmd=$(apply "$cmd")
   cmd=${cmd//@mfront@/./mfront-dev.sh}
   # headers of the development tree first (substituted by tfel-check)
-  cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I $P/install/tfel/include}
-  cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I $P/install/tfel/include}
+  cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I$P/install/tfel/include}
+  cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I$P/install/tfel/include}
   cmd=${cmd//@TFEL_LIBRARY_DIR@/$P/install/tfel/lib}
   case "$cmd" in
     *compare-all.sh*) cmd="$cmd '$pattern'" ;;

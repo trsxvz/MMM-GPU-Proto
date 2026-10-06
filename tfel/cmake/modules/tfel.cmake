@@ -550,9 +550,6 @@ set(_tfel-generic-parallel_supported_configurations
     "openmp-host-gcc"
     "openmp-offload-nvhpc-gpu")
 
-# configurations only supported by the behaviours
-set(_tfel-generic-parallel_behaviours_only_configurations)
-
 foreach(conf ${generic-parallel-configurations})
   if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
     message(FATAL_ERROR "unsupported configuration '${conf}' for the tests of the generic-parallel interface. "
@@ -560,10 +557,8 @@ foreach(conf ${generic-parallel-configurations})
   endif()
   set(_tfel-enable-generic-parallel-${conf}-configuration ON)
   if(NOT ${conf} STREQUAL "hip-clang")
-    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_behaviours_only_configurations)
-      list(APPEND tfel-check-components
-           "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
-    endif()
+    list(APPEND tfel-check-components
+         "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
     list(APPEND tfel-check-components
          "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
   endif()

@@ -14,6 +14,7 @@
 #include <vector>
 #include <string_view>
 #include <fstream>
+#include <sstream>
 #include <functional>
 #include <algorithm>
 #include "TFEL/Raise.hxx"
@@ -27,6 +28,7 @@
 #include "MFront/LibraryDescription.hxx"
 #include "MFront/TargetsDescription.hxx"
 #include "MFront/BehaviourDescription.hxx"
+#include "MFront/BehaviourVariableDescription.hxx"
 #include "MFront/BehaviourRotationFunctions.hxx"
 #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
 #include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
@@ -99,16 +101,6 @@ namespace mfront {
     return "mfront::gpb::StandardIntegrator";
   }  // end of getIntegrator
 
-  /*!
-   * \return the sizes of the data of an integration point, as seen by the
-   * `generic` interface. For finite strain behaviours, the sizes of the
-   * thermodynamic forces and of the tangent operator are the maximal sizes
-   * (first Piola-Kirchhoff stress, derivative of the first Piola-Kirchhoff
-   * stress with respect to the deformation gradient)
-   * \param[in] i: interface
-   * \param[in] bd: behaviour description
-   * \param[in] h: modelling hypothesis
-   */
   /*!
    * \brief write the declaration of an array giving the number of
    * components of the variables of a group
@@ -247,6 +239,89 @@ namespace mfront {
     }
     os << "};\n\n";
   }  // end of writeParametersStructure
+
+  /*!
+   * \brief write the checks of the parameters of the behaviour variables
+   * (and of their own behaviour variables).
+   *
+   * In device code, behaviour variables are built by their default
+   * constructor, which uses the default values of their parameters: their
+   * parameters initializers, which may read a parameters file, are only
+   * available on the host. The generated code reports an error if the value
+   * of a parameter given by an initializer differs from its default value.
+   * \param[out] os: output stream
+   * \param[in] bd: behaviour description
+   * \param[in] h: modelling hypothesis
+   */
+  static void writeBehaviourVariablesParametersChecks(
+      std::ostream& os,
+      const BehaviourDescription& bd,
+      const tfel::material::ModellingHypothesis::Hypothesis h) {
+    using tfel::material::ModellingHypothesis;
+    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+    const auto& d = bd.getBehaviourData(h);
+    auto check = [&os, h](const BehaviourVariableDescription& v,
+                          const std::string& kind) {
+      const auto& ib = v.behaviour;
+      if (!areParametersTreatedAsStaticVariables(ib)) {
+        const auto ns = ib.getAttribute<std::string>(
+            BehaviourDescription::internalNamespace, "");
+        const auto prefix = ns.empty() ? std::string{"tfel::material::"}
+                                       : "tfel::material::" + ns + "::";
+        // default values are written as in the code generated for the
+        // behaviour variable
+        const auto precision = os.precision(14);
+        for (const auto& p : ib.getBehaviourData(h).getParameters()) {
+          const auto initializer =
+              prefix + ib.getClassName() +
+              (ib.hasParameter(uh, p.name) ? ""
+                                           : ModellingHypothesis::toString(h)) +
+              "ParametersInitializer::get()." + p.name;
+          auto conditions = std::vector<std::string>{};
+          if (p.type == "int") {
+            conditions.push_back(
+                initializer + " != " +
+                std::to_string(ib.getIntegerParameterDefaultValue(h, p.name)));
+          } else if (p.type == "ushort") {
+            conditions.push_back(
+                initializer + " != " +
+                std::to_string(
+                    ib.getUnsignedShortParameterDefaultValue(h, p.name)));
+          } else {
+            for (unsigned short i = 0; i != p.arraySize; ++i) {
+              auto c = std::ostringstream{};
+              c.copyfmt(os);
+              c << initializer
+                << (p.arraySize == 1 ? "" : "[" + std::to_string(i) + "]")
+                << " != double("
+                << (p.arraySize == 1
+                        ? ib.getFloattingPointParameterDefaultValue(h, p.name)
+                        : ib.getFloattingPointParameterDefaultValue(h, p.name,
+                                                                    i))
+                << ")";
+              conditions.push_back(c.str());
+            }
+          }
+          for (const auto& c : conditions) {
+            os << "if (" << c << ") {\n"
+               << "return mfront::gpb::report(mfront_status, -2, \"the "
+               << "parameter '" << p.name << "' of the " << kind << " '"
+               << v.name << "' differs from its default value, which is "
+               << "used in device code\");\n"
+               << "}\n";
+          }
+        }
+        os.precision(precision);
+      }
+      writeBehaviourVariablesParametersChecks(os, ib, h);
+    };
+    for (const auto& v : d.getBehaviourVariables()) {
+      check(v, "behaviour variable");
+    }
+    for (const auto& v : d.getBehaviourVariableFactories()) {
+      check(v, "behaviour variable factory");
+    }
+  }  // end of writeBehaviourVariablesParametersChecks
 
   /*!
    * \brief write the initialisation of the values of the parameters from
@@ -451,10 +526,10 @@ namespace mfront {
   }  // end of getParametersSourceInBehaviourConstructor
 
   bool
-  GenericParallelBehaviourInterface::areDynamicallyAllocatedVectorsAllowed()
+  GenericParallelBehaviourInterface::requiresDeviceCompatibleBehaviourClass()
       const {
-    return false;
-  }  // end of areDynamicallyAllocatedVectorsAllowed
+    return true;
+  }  // end of requiresDeviceCompatibleBehaviourClass
 
   std::string GenericParallelBehaviourInterface::
       getBehaviourConstructorTemplateDeclaration() const {
@@ -463,6 +538,10 @@ namespace mfront {
 
   std::string
   GenericParallelBehaviourInterface::getBehaviourConstructorArguments() const {
+    // as in the `generic` interface, the names of the arguments start with
+    // the `mgb_` prefix (`mgpb_` for the arguments specific to this
+    // interface), whereas the local variables of the generated functions
+    // start with the `mfront_` prefix
     return "const mfront::gb::BehaviourData& mgb_d, "
            "[[maybe_unused]] const ParametersType& mgpb_parameters";
   }  // end of getBehaviourConstructorArguments
@@ -693,10 +772,7 @@ namespace mfront {
        << "#endif /* __cplusplus */\n\n";
     GenericBehaviourSymbolsGenerator sg;
     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
-    // backend of the library, to select the memory of the fields
-    os << "MFRONT_EXPORT_SYMBOL(const char*, "
-       << this->getFunctionNameBasis(name) << "_generic_parallel_backend, \""
-       << this->backend->getName() << "\");\n\n";
+    this->backend->writeSymbols(os, this->getFunctionNameBasis(name));
     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
       const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
       sg.generateSymbols(os, *this, bd, fd, name, uh);
@@ -725,6 +801,7 @@ namespace mfront {
          << "return mfront::gpb::handleExceptions(mfront_output_status, "
          << "[mfront_output_status" << captures << "] {\n"
          << "if (mfront_batch_data == nullptr) {\n"
+         << "mfront::gpb::initialize(*mfront_output_status, 1);\n"
          << "return mfront::gpb::report(*mfront_output_status, -2, "
          << "\"no batch data given\");\n"
          << "}\n"
@@ -743,6 +820,7 @@ namespace mfront {
          << "auto& mfront_status = *mfront_output_status;\n"
          << "const auto& mfront_data = *mfront_batch_data;\n";
       writeParametersInitialisation(os, bd, h);
+      writeBehaviourVariablesParametersChecks(os, bd, h);
       os << "const auto mfront_policy = " << this->getFunctionNameBasis(name)
          << "_getOutOfBoundsPolicy();\n";
       call();
@@ -755,9 +833,9 @@ namespace mfront {
                      "const mfront_gpb_BatchData* const mfront_batch_data",
                      ", mfront_batch_data", [this, &os] {
                        this->backend->writeCall(
-                           os, "integrate", "Behaviour, mfront_point_traits",
-                           "mfront_status, mfront_data, mfront_parameters, "
-                           "mfront_policy");
+                           os, "integrateBatch",
+                           "Behaviour, mfront_point_traits", "mfront_status",
+                           "mfront_data, mfront_parameters, mfront_policy");
                      });
       const auto& d = bd.getBehaviourData(h);
       for (const auto& [ifct, c] : d.getInitializeFunctions()) {
@@ -770,11 +848,12 @@ namespace mfront {
                        [this, &os, &bd, &ifct, n] {
                          // the inputs may be null if the function has no input
                          this->backend->writeCall(
-                             os, "executeInitializeFunction",
+                             os, "executeInitializeFunctionOnBatch",
                              "Behaviour, mfront_point_traits, " +
                                  getInitializeFunctionCallerName(bd, ifct) +
                                  ", " + std::to_string(n),
-                             "mfront_status, mfront_data, "
+                             "mfront_status",
+                             "mfront_data, "
                              "mfront::gpb::getField(mfront_inputs), "
                              "mfront_parameters, mfront_policy");
                        });
@@ -788,11 +867,12 @@ namespace mfront {
             "const mfront_gpb_BatchData* const mfront_batch_data",
             ", mfront_outputs, mfront_batch_data", [this, &os, &bd, &pp, n] {
               this->backend->writeCall(
-                  os, "executePostProcessing",
+                  os, "executePostProcessingOnBatch",
                   "Behaviour, mfront_point_traits, " +
                       getPostProcessingCallerName(bd, pp) + ", true, " +
                       std::to_string(n),
-                  "mfront_status, mfront::gpb::getField(mfront_outputs), "
+                  "mfront_status",
+                  "mfront::gpb::getField(mfront_outputs), "
                   "mfront_data, mfront_parameters, mfront_policy");
             });
       }
@@ -825,8 +905,9 @@ namespace mfront {
          << "}\n";
       if (f.error.empty()) {
         os << "const auto& mfront_data = *mfront_rotation_data;\n";
-        this->backend->writeCall(os, "rotate", getPointRotationName(bd, h, f),
-                                 "mfront_status, mfront_data");
+        this->backend->writeCall(os, "rotateBatch",
+                                 getPointRotationName(bd, h, f),
+                                 "mfront_status", "mfront_data");
       } else {
         os << "mfront::gpb::initialize(mfront_status, 1);\n"
            << "return mfront::gpb::report(mfront_status, -2, \"" << f.error

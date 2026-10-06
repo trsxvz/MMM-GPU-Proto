@@ -50,6 +50,8 @@ namespace mfront::gpb {
      * \tparam ParametersType: type of the structure holding the parameters
      * \param[in,out] d: behaviour data
      * \param[in] o: computation options
+     * \param[in] p: out of bounds policy, which is the default policy of the
+     * model, applied by the model itself
      * \param[in] parameters: values of the parameters
      */
     template <typename Model, typename ParametersType>
@@ -63,13 +65,11 @@ namespace mfront::gpb {
       }
       // on the host, the exceptions thrown by the model (bounds checks,
       // material laws) are reported as failures
-      const auto status = mfront::gb::callAndReportExceptions(
-          d,
-          [&d, &parameters] {
+      const auto status =
+          mfront::gb::callAndReportExceptions(d, [&d, &parameters] {
             const auto m = Model(d, parameters);
             return m.execute(d) ? 1 : -1;
-          },
-          [] {});
+          });
       if (status == -1) {
         *(d.rdt) = real{0.1};
       }

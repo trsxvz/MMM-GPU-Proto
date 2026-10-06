@@ -12,6 +12,7 @@
  */
 
 #include <ostream>
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/Behaviour/OpenMPBackend.hxx"
 
 namespace mfront::generic_parallel::behaviour {
@@ -21,14 +22,12 @@ namespace mfront::generic_parallel::behaviour {
   OpenMPBackend::OpenMPBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
     validator.addDataTypeValidator<bool>("offload");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
     if (contains(opts, "offload")) {
       this->offload = get<bool>(opts, "offload");
     }
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of OpenMPBackend
 
   std::string OpenMPBackend::getName() const { return "openmp"; }
@@ -41,20 +40,18 @@ namespace mfront::generic_parallel::behaviour {
     os << "#include \"MFront/GenericParallelBehaviour/OpenMP.hxx\"\n";
   }  // end of writeSpecificIncludes
 
-  void OpenMPBackend::writeCall(std::ostream& os,
-                                const std::string_view f,
-                                const std::string_view template_arguments,
-                                const std::string_view arguments) const {
+  std::string OpenMPBackend::getApply(const std::string_view status) const {
     // the offload option is a template argument, so that the code
     // executed on the host does not depend on the support of offloading by
     // the OpenMP runtime
-    os << "return mfront::gpb::openmp::" << f << "<" << template_arguments
-       << ", " << (this->offload ? "true" : "false") << ">(" << arguments;
+    auto apply = std::string{"mfront::gpb::openmp::makeApply<"} +
+                 (this->offload ? "true" : "false") + ">(" +
+                 std::string{status};
     if (this->device_stack_size != 0) {
-      os << ", " << this->device_stack_size;
+      apply += ", " + std::to_string(this->device_stack_size);
     }
-    os << ");\n";
-  }  // end of writeCall
+    return apply + ")";
+  }  // end of getApply
 
   OpenMPBackend::~OpenMPBackend() noexcept = default;
 

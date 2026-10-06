@@ -18,9 +18,13 @@ master, #966), and usable by MGIS and mfem-mgis.
    strided data, building the behaviour, integrating, exporting) is written
    once in `MFront/GenericParallelBehaviour/*.hxx` as `TFEL_HOST_DEVICE`
    templates. Backends only write kernels or parallel loops that call it.
-4. **No change of the CPU behaviour of existing interfaces.** Device-specific
-   branches use the `TFEL_DEVICE_CODE` macro, defined only when compiling
-   device code.
+4. **No change of the CPU behaviour of existing interfaces**, except bug
+   fixes, each in its own commit. Device-specific branches use the
+   `TFEL_DEVICE_CODE` macro, defined only when compiling device code. With
+   single pass compilers (nvc++, AdaptiveCpp), this macro is defined in the
+   whole translation unit: only the `generic-parallel` libraries built by
+   those compilers follow the rules of device code on the host. The API
+   changes required by device code are listed in the release notes.
 5. **Same infrastructure as material properties**: backend factory and
    options, configuration files, library names suffixed by the backend,
    exported metadata, tests in the installation directory.
@@ -51,20 +55,23 @@ A batch is described by `mfront_gpb_BatchData`: number of points, time
 increment, computation options (the three first values of `K` in the
 `generic` interface), initial `rdt`, optional per point `rdt` and
 statuses, the fields of the states at the beginning and at the end of the
-time step, and the queue (CUDA or HIP stream). A C structure is used rather
-than a long argument list: behaviours have a dozen groups of variables and
-the structure can evolve without breaking the prototype of the generated
-functions. The summary is returned in `mfront_gpb_OutputStatus` (status,
+time step, and the execution options (queue, statistics of an asynchronous
+execution, stack size policy). A C structure is used rather than a long
+argument list: behaviours have a dozen groups of variables and the
+structure can evolve without breaking the prototype of the generated
+functions. Its version (`MFRONT_GPB_API_VERSION`) is exported by the
+libraries. The summary is returned in `mfront_gpb_OutputStatus` (status,
 number of failures and of unreliable results, minimum `rdt`, message).
 
 ## Per point execution
 
 For each point, the kernel (`MFront/GenericParallelBehaviour/Integrate.hxx`):
 
-1. builds a `mfront_gb_BehaviourData` view of the point. When all fields are
-   stored point by point, the view points directly to global memory.
-   Otherwise the values are gathered into local arrays, whose (maximal)
-   sizes are known at code generation;
+1. builds a `mfront_gb_BehaviourData` view of the point: the values are
+   gathered into local arrays, whose (maximal) sizes are known at code
+   generation. Direct accesses to the fields stored point by point were
+   measured: no gain at run time, 25 to 40% more compilation time with
+   nvcc. They were removed;
 2. calls the integration strategy of the behaviour (see below) with the
    computation options of the batch and the parameters of the behaviour,
    passed by value to the kernel;
@@ -93,14 +100,16 @@ initialize functions, post-processings) are split into:
 
 The `generic-parallel` interface has no integration code of its own: the
 per point kernel only adapts the batch data. Integration strategies are
-types (`mfront::gb::StandardIntegrator`, `finite_strain::Integrator`, ...)
-selected by the generated code.
+types selected by the generated code (`mfront::gpb::StandardIntegrator`,
+`FiniteStrainIntegrator`, `GreenLagrangeStrainIntegrator`,
+`LogarithmicStrainIntegrator`, `ModelIntegrator`), which call the cores of
+the `generic` drivers.
 
 ### Point view, functions applied at each point
 
-`PointView<PointTraits, direct>` builds the `generic` behaviour data of a
-point: pointers to the fields if all of them are stored point by point,
-local copies otherwise. All the inputs are copied by the constructor
+`PointView<PointTraits>` builds the `generic` behaviour data of a point
+from local copies of its values. All the inputs are copied by the
+constructor
 (including, on request, the state at the end of the time step, read by
 post-processings and only partially written by some initialize functions),
 and the outputs are read back through the pointers of the behaviour data.
@@ -108,13 +117,15 @@ and the outputs are read back through the pointers of the behaviour data.
 The functions applied at each point are trivially copyable function objects
 returning the statistics of the point: `PointIntegrator`,
 `InitializeFunctionExecutor`, `PostProcessingExecutor`, `RotationExecutor`.
-Each backend provides a single primitive, `apply(status, n, queue, rdt0, f,
-...)`. The entry points (`integrateBatch`, `executeInitializeFunctionOnBatch`,
-`executePostProcessingOnBatch`, `rotateBatch` in `Integrate.hxx`) check the
-data, choose the function object (`dispatch*`) and call the primitive of
-the backend, given as a callable object; the functions of a backend only
-bind its primitive to its options. The SYCL backend keeps its own entry
-points, since it copies the fields to the device before the dispatch.
+Each backend provides a single primitive, `apply`, and a `makeApply`
+function binding it to the options of the backend. The resulting callable
+object, `apply(n, o, rdt0, f)`, applies `f` at the `n` points of a batch
+with the execution options `o`. The entry points (`integrateBatch`,
+`executeInitializeFunctionOnBatch`, `executePostProcessingOnBatch`,
+`rotateBatch` in `Integrate.hxx`) check the data, build the function
+object and call the primitive. The generated functions call those entry points with the
+primitive of their backend. The SYCL backend adds its own entry points,
+which copy the fields to the device before calling the generic ones.
 
 Initialize functions and post-processings are called through named function
 objects generated by MFront (`<Behaviour>InitializeFunction_<name>`),
@@ -183,14 +194,24 @@ unchanged; device code returns failures instead of throwing exceptions.
 Material properties called by behaviours have an implementation in the
 `mfront::device` namespace, generated by the `mfront` material property
 interface in its header. The CUDA backend increases the stack size of the
-threads if a kernel requires it.
+threads if a kernel requires it, unless the execution options ask to
+preserve it (the stack size is shared by all the computations of the
+process).
 
 ## Errors
 
 The entry point reports, through an output status, the number of points
 where the integration failed and whether some results are unreliable
 (`rdt` < 0.99). An optional per point status array gives the location of the
-failures.
+failures. The error messages of the points are not reported (no exceptions
+and no message buffer per thread in device code): the `generic` interface
+gives the message of a failed point.
+
+If the execution options give statistics, they are accumulated in this
+device accessible structure and the CUDA, HIP, Kokkos and SYCL backends
+return once the computations are submitted. The caller synchronizes the
+queue. Several batches and the assembly can thus be submitted before a
+single synchronization.
 
 ## Backends
 
@@ -228,8 +249,9 @@ then share the same instance of Kokkos (initialization, execution spaces,
 memory pools): Kokkos must be a **shared** library, built **without
 relocatable device code** with CUDA. The generated function checks that
 Kokkos is initialized; it never initializes it. The batch summary is
-reduced by `Kokkos::parallel_reduce` with a reduction functor. The execution
-space instance may be given through the `queue` member of the batch data.
+reduced by `Kokkos::parallel_reduce` with a reduction functor, or by atomic
+operations in an asynchronous execution. The execution space instance may
+be given through the queue of the execution options.
 
 ## Roles of TFEL/MFront, MGIS and mfem-mgis
 
@@ -245,9 +267,10 @@ interface of the previous one.
 
 Principles:
 
-- TFEL/MFront exposes a C data contract: fields (pointer and strides) for
-  each group or each variable, a queue, statuses. The kernels receive
-  everything by value. TFEL does not choose the device nor the memory
+- TFEL/MFront exposes a versioned C data contract: fields (pointer and
+  strides) for each group or each variable, execution options (queue,
+  asynchronous statistics, stack size policy), statuses. The kernels
+  receive everything by value. TFEL does not choose the device nor the memory
   space: the caller gives pointers accessible by the device.
 - MGIS maps its data (`MaterialDataManager`, uniform or per point values)
   to this contract without copies when possible (per variable fields for

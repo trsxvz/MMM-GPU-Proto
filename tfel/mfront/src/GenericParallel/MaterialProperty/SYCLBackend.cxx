@@ -15,6 +15,7 @@
 #include "MFront/MaterialPropertyDescription.hxx"
 #include "MFront/MaterialPropertyParametersHandler.hxx"
 #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+#include "MFront/GenericParallel/BackendOptions.hxx"
 #include "MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx"
 
 namespace mfront::generic_parallel::material_property {
@@ -23,24 +24,13 @@ namespace mfront::generic_parallel::material_property {
 
   SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
     auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<std::string>("data_transfer_policy");
-    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+    declareDataTransferPolicyOption(validator);
+    declareDeviceStackSizeOption(validator);
     validator.validate(opts);
-    if (contains(opts, "device_stack_size")) {
-      this->device_stack_size = get<int>(opts, "device_stack_size");
-    }
-    if (contains(opts, "data_transfer_policy")) {
-      const auto dl = get<std::string>(opts, "data_transfer_policy");
-      if ((dl == "auto") || (dl == "automatic")) {
-        this->data_transfer_policy = DataTransferPolicy::AUTOMATIC;
-      } else if (dl == "none") {
-        this->data_transfer_policy = DataTransferPolicy::NONE;
-      } else {
-        tfel::raise(
-            "unsuported data transfer policy '" + dl +
-            "'. The only valid value is: 'automatic' (or 'auto') and 'none'");
-      }
-    }
+    this->data_transfer_policy = areDataTransfersAutomatic(opts)
+                                     ? DataTransferPolicy::AUTOMATIC
+                                     : DataTransferPolicy::NONE;
+    this->device_stack_size = getDeviceStackSize(opts);
   }  // end of SYCLBackend
 
   std::string SYCLBackend::getName() const { return "sycl"; }  // end of getName
