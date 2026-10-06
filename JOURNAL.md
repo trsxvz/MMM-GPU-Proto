@@ -1116,3 +1116,32 @@ Norton 6-7 ms ; `stlpar` 16 threads : J2 1,6-2,6 ms, Norton 17-21 ms.
   de l'environnement : le clang du système charge la bibliothèque du LLVM
   de spack (`LD_LIBRARY_PATH`), construite sans la cible AArch64. Le clang
   de ce LLVM est désormais utilisé.
+
+### 2026-10-06 (matin), configurations clang CUDA et HIP
+
+- Les lois sont maintenant testées avec `cuda-clang` et `hip-clang`
+  (plateforme NVIDIA). Seules les propriétés matériau l'étaient.
+- clang 20 ne connaît que les CUDA sortis avant lui (jusqu'à 12.8). La
+  variable CMake `TFEL_CLANG_CUDA_PATH` choisit le CUDA de clang (par
+  défaut celui de nvcc). Ici : CUDA 12.9 du HPC SDK (préfixe fusionné de
+  `deps/spack/make-nvhpc-cuda-prefix.sh`).
+- clang refuse tout appel d'une fonction hôte depuis le code GPU. nvcc
+  accepte les fonctions hôte `constexpr` avec `--expt-relaxed-constexpr`.
+  Deux trous trouvés ainsi : `pull_back` et `invert(st2tost2)`, appelés par
+  les conversions des lois en grandes déformations. Ils sont désormais
+  `TFEL_HOST_DEVICE` (`invert` s'appuie sur `TinyMatrixInvert`, déjà
+  utilisable sur GPU). Il ne reste qu'une fonction hôte `constexpr` dans
+  TFEL : `tensor::operator()(i, j)`, qui lève une exception.
+- HIP du système dans `/usr` : `-isystem /usr/include` plaçait ce dossier
+  avant les en-têtes de libstdc++ et cassait leurs `#include_next`. Les
+  configurations clang passent le dossier de HIP avec `-I`, que les
+  compilateurs ignorent pour un dossier système.
+- Sous-tests TDLS ajoutés aux cinq configurations qui n'en avaient pas
+  (cuda-clang, hip-clang, stlpar clang, stlpar icpx, SYCL icpx).
+- Résultats (arbre de développement, -O2) : cuda-clang et hip-clang
+  402/402 chacun, dont 114 avec les champs par variable ; TDLS 18/18 pour
+  les cinq configurations.
+- `scripts/compile-sweep.sh` reconnaît les erreurs de clang. Balayage de
+  toutes les lois, modèles et propriétés de MFront avec cuda-clang lancé.
+- Branche `clang-cuda` de `tfel-dev` (3 commits), à intégrer après la
+  validation en cours.

@@ -2,7 +2,11 @@
 # Pauses a process tree (SIGSTOP) when the available memory falls below a
 # low mark, and resumes it (SIGCONT) above a high mark, so that a long
 # background build does not lead the kernel to kill other processes.
-# usage: scratch/memory-governor.sh root-pid [low MiB] [high MiB]
+# A paused process keeps its memory: this only helps against transient
+# peaks. A build whose processes need a lot of memory (for instance the
+# CUDA kernels of MFEM, about 10 GB per ptxas process) must rather be run
+# with fewer parallel jobs, or alone.
+# usage: scripts/memory-governor.sh root-pid [low MiB] [high MiB]
 root=$1
 low=${2:-3500}
 high=${3:-7000}

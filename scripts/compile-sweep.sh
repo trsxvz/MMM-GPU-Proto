@@ -11,7 +11,7 @@
 # Statuses:
 # - OK: compiled, no call to a host function from device code;
 # - HOST_CALLS: calls to host functions from device code (nvcc removes them
-#   with a warning, so the results would be wrong);
+#   with a warning, so the results would be wrong; clang reports an error);
 # - SUSPICIOUS: a kernel uses very few registers (code removed silently);
 # - USER_CODE: the code written by the user can't be used on GPUs
 #   (exceptions, standard streams, etc.);
@@ -31,6 +31,11 @@ TESTS=$P/tfel/mfront/tests
 MFRONT=${MFRONT:-mfront}
 OUT=$P/scratch/sweep-$(basename "${CONF%.json}")
 rm -rf "$OUT" && mkdir -p "$OUT"
+# host functions called from device code (messages of nvcc and clang)
+host_calls() {
+  grep -oE "calling a __host__ function\(\"[^\"]*\"\)|reference to __host__ function '[^']*'" build.log |
+    sort -u | head -3 | tr '\n' ' ' | cut -c1-300
+}
 compile() {
   f=$1
   r=${f#"$TESTS"/}
@@ -49,7 +54,7 @@ compile() {
     e=""
     if grep -q "calling a __host__ function" build.log; then
       s=HOST_CALLS
-      e=$(grep -o 'calling a __host__ function("[^"]*")' build.log | sort -u | head -3 | tr '\n' ' ' | cut -c1-300)
+      e=$(host_calls)
     elif [ -n "$(ls src/*-cuda.so 2>/dev/null)" ]; then
       g=$(cuobjdump --dump-resource-usage src/*-cuda.so 2>/dev/null |
             sed -n 's/.*REG:\([0-9]*\).*/\1/p' | sort -n | head -1)
@@ -59,8 +64,9 @@ compile() {
       fi
     fi
   else
-    # calls to host functions may be reported as errors (`-diag-error`)
-    if grep -q "calling a __host__ function" build.log; then
+    # calls to host functions may be reported as errors (`-diag-error` of
+    # nvcc, always with clang)
+    if grep -qE "calling a __host__ function|reference to __host__ function" build.log; then
       s=HOST_CALLS
     elif grep -q "not supported yet" build.log; then
       s=UNSUPPORTED
@@ -79,14 +85,14 @@ compile() {
       s=MFRONT
     fi
     if [ "$s" = HOST_CALLS ]; then
-      e=$(grep -o 'calling a __host__ function("[^"]*")' build.log | sort -u | head -3 | tr '\n' ' ' | cut -c1-300)
+      e=$(host_calls)
     else
       e=$(grep -m1 -E "error|Error|ERROR|raise|unsupported" build.log | cut -c1-300)
     fi
   fi
   echo -e "$r\t$s\t$e" > status
 }
-export -f compile
+export -f host_calls compile
 export OUT CONF TESTS MFRONT
 find "$TESTS/behaviours" "$TESTS/models" "$TESTS/properties" -name "*.mfront" | sort |
   grep -E "$PATTERN" | xargs -P "$JOBS" -I{} bash -c 'compile {}'
