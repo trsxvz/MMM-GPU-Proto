@@ -50,7 +50,10 @@ Statuses:
 - MISMATCH: different statuses or larger differences;
 - INCONCLUSIVE: the integration fails at all the points of the first step,
   for all the tested types of tangent operator and all the tested loadings;
-- CRASH: the comparison program crashed or was stopped after a timeout;
+- TIMEOUT: a comparison was stopped after 600 seconds (for instance, an
+  adaptive integration with a large amplitude), the other comparisons
+  being OK or inconclusive;
+- CRASH: the comparison program crashed;
 - BUILD: the build of the libraries failed;
 - UNSUPPORTED: modelling hypothesis or variable not handled by the
   comparison program.
@@ -393,7 +396,7 @@ def compare(args, directory, reference, batch, function, options):
             r = subprocess.run(cmd, cwd=directory, capture_output=True,
                                text=True, timeout=600, env=env)
     except subprocess.TimeoutExpired:
-        return "CRASH", "timeout", header
+        return "TIMEOUT", "", header + "timeout\n"
     out = header + r.stdout + r.stderr
     lines = [l for l in out.splitlines() if l.startswith("K0=")]
     if r.returncode not in (0, 1) or not lines:
@@ -533,7 +536,7 @@ def check(args, law_path):
         return result
 
     # statuses from the best to the worst
-    ranks = ["INCONCLUSIVE", "OK", "ROUNDOFF", "MISMATCH", "CRASH"]
+    ranks = ["INCONCLUSIVE", "OK", "TIMEOUT", "ROUNDOFF", "MISMATCH", "CRASH"]
     status, logs = "INCONCLUSIVE", []
     for default in defaults:
         mps_options = material_properties(default) if mps else []

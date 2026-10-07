@@ -1390,3 +1390,132 @@ Branche `portable-test-laws` de TFEL, au-dessus de 7c1427f57.
   configurations. Après le correctif du pilote `generic` : openmp-host-gcc,
   cuda-nvcc et openmp-offload-nvhpc-gpu à nouveau 498/498,
   sycl-default-acpp 522/522.
+
+### 2026-10-07 (nuit), essais d'exécution de toutes les lois de test (R3)
+
+Les lois de `mfront/tests` qui compilent avec l'interface `generic-parallel`
+sont maintenant comparées à l'exécution, et plus seulement compilées :
+
+- `scripts/runtime-sweep.py` (lois de comportement et modèles) : pour
+  chaque loi, bibliothèques `generic` (référence) et `generic-parallel`,
+  données lues dans le fichier MTest de la loi (propriétés matériau,
+  variables externes, valeurs initiales des variables internes,
+  paramètres, pas de temps, amplitude du chargement ; définitions évaluées
+  dans n'importe quel ordre, évolutions comprises), puis `compare`. Sans
+  MTest, les propriétés matériau prennent des valeurs synthétiques
+  choisies d'après leur nom. Si la référence échoue en tous les points,
+  des pas de temps et des amplitudes plus petits sont essayés ;
+- `scripts/property-sweep.py` (propriétés matériau) : fonction `generic`
+  appelée point par point contre les deux prototypes `generic-parallel`,
+  avec un argument uniforme, et avec des valeurs hors bornes et la
+  politique stricte ;
+- `scripts/roundoff-check.sh` : confirme qu'un petit écart vient des
+  arrondis (bibliothèque du lot compilée sur l'hôte avec contraction FMA,
+  comme nvcc sur le GPU, contre une référence sans FMA).
+
+Configurations : openmp-host-gcc et cuda-nvcc (comparaisons une par une
+sur le GPU).
+
+Défauts de TFEL trouvés et corrigés :
+
+- tableaux de gradients et de forces thermodynamiques (`@Gradient Stensor
+  a[2]`) : la taille d'un point ignorait la taille des tableaux, seule la
+  première composante était recopiée (`getPointDataSizes`) ;
+- conversion de l'opérateur tangent des lois en grandes transformations :
+  le code généré lit l'opérateur calculé par l'utilisateur avec
+  `Dt.template get<T>()`, qui ne vérifie le type que sur l'hôte. Si le
+  bloc de l'utilisateur ne calcule pas le bon opérateur, l'hôte échoue
+  (exception GenTypeCastError), mais le GPU renvoyait un succès avec une
+  matrice fausse. Le type est maintenant testé avant la lecture : même
+  exception sur l'hôte, échec sur le GPU ;
+- paramètres des modèles partagés entre bibliothèques (code amont de
+  l'interface `generic`) : le singleton des paramètres est la variable
+  statique d'une fonction inline, que GCC émet comme symbole unique
+  (STB_GNU_UNIQUE) et que le chargeur unifie entre bibliothèques, même
+  chargées avec RTLD_LOCAL. Les bibliothèques `generic` et
+  `generic-parallel` d'un même modèle partageaient leurs paramètres. Le
+  code généré des modèles est maintenant dans un espace de noms anonyme ;
+- bornes physiques des arguments des propriétés matériau (code amont,
+  toutes les interfaces) : non exportées quand l'argument n'avait pas de
+  bornes standard ;
+- interpolation par spline cubique sur GPU (nvcc) : NaN entre et après les
+  points de collocation, pour les propriétés matériau comme pour les
+  écrouissages définis par des données (dès qu'il y a de la plasticité).
+  Cause : nvcc 13.0 compile sans diagnostic, en fonction vide, toute
+  fonction `constexpr` utilisant `__builtin_constant_p`, que libstdc++ 14
+  appelle dans `std::advance` ; `std::advance`, `std::next` et `std::prev`
+  ne font donc rien sur GPU (reproducteur
+  `results/nvhpc-bugs/nvcc-builtin-constant-p.cu`). Fonctions internes
+  dans `CubicSpline.ixx`, seul code device de TFEL concerné ;
+- DigitSeparatorTest : la règle d'écoulement ne calculait pas `df_dseq`,
+  que le Newton lisait sans initialisation. Le résultat dépendait des
+  restes de la pile (écart en OpenMP à plusieurs fils, avec compare compilé
+  en -O3). Démontré avec `-ftrivial-auto-var-init=zero` et `pattern`.
+
+Défauts du programme de comparaison, corrigés : variables externes
+vectorielles ou tensorielles données variable par variable (un champ par
+composante au lieu d'un champ par variable). Nouveau : option
+`--parameters` (paramètres changés dans les deux bibliothèques).
+
+Couverture ajoutée à la suite `generic-parallel` :
+
+- `TensorialVariablesTest` : tableaux de gradients et de forces, variables
+  externes et internes de tous les types (scalaires, vecteurs, tenseurs
+  symétriques, tenseurs, tableaux) ;
+- paramètres changés à l'exécution pour un comportement et un modèle ;
+- `CubicSplineHardeningTest` : écrouissage interpolé par une spline
+  cubique, chargement plastique.
+
+Chaque nouveau test a été vérifié dans les deux sens : il passe avec les
+correctifs et échoue sans (ancien programme de comparaison, anciennes
+tailles, paramètres fixés dans la seule référence).
+
+Les écarts restants viennent des arrondis : `scripts/roundoff-triage.py`
+rejoue sur l'hôte la comparaison la plus défavorable de chaque écart, la
+bibliothèque du lot compilée avec et sans contraction FMA. Pour chacun,
+aucun écart sans FMA, un écart du même ordre avec. Aux grandes amplitudes,
+certaines lois sont à la limite de convergence de leur solveur local :
+une différence d'arrondi y fait échouer un point d'un côté et pas de
+l'autre (par exemple Chaboche2 à l'amplitude 1e-2 : 101 échecs sur 1009
+dans la référence, 2 de plus sur GPU, 4 statuts différents sur l'hôte avec
+FMA). Même sur l'hôte, g++ contracte différemment les deux bibliothèques
+d'une loi : quelques écarts apparaissent aussi en OpenMP, et disparaissent
+sans FMA.
+
+Cas non concluants restants : échecs voulus (MaterialPropertiesBoundsCheck,
+ExternalStateVariablesBoundsCheck, StateVariablesBoundsCheck,
+InitializationFailureTest : même statut dans la référence et le lot), et
+lois dont les valeurs synthétiques font diverger la référence (certaines
+sont couvertes par la suite avec des valeurs physiques). Les tests des
+avertissements de MFront WarningTest80 à 82 nomment `f` et `df_dseq` sans
+les calculer : résultats indéfinis par construction.
+
+Partage d'un GPU entre processus : PolyCrystals demande 113 à 121 Ko de
+pile par fil, soit 14,8 à 15,9 Go réservés sur la RTX 5080 quel que soit le
+nombre de points. Un autre processus (même son seul contexte CUDA) suffit
+à manquer de mémoire : l'interface renvoie proprement -3 « out of
+memory ». Six processus simultanés sur une loi ordinaire (pile de 3,4 Ko,
+100 003 points chacun) : aucune erreur. Question ouverte pour MGIS : 7
+« illegal memory access » sur environ 1000 lancements, uniquement quand 6
+processus réservaient chacun environ 15 Go de pile sur 16 Go ; jamais
+seul, jamais sous compute-sanitizer. Une loi dont la pile occupe presque
+tout le GPU doit l'avoir pour elle seule.
+
+Résultats :
+
+- passe d'exécution finale, amplitudes 1e-4, 1e-3 et 1e-2 (105 min) :
+  openmp-host-gcc 467 OK sur 485, cuda-nvcc 401 OK sur 485 ; tous les
+  autres résultats expliqués (76 écarts d'arrondi confirmés par le tri,
+  72 sur GPU et 4 sur l'hôte,
+  WarningTest80 à 82, 10 cas non concluants identiques dans les deux
+  configurations, un délai dépassé à l'amplitude 1e-2, un manque de
+  mémoire GPU passager) ;
+- propriétés matériau : 56/56 sur openmp-host-gcc et cuda-nvcc ;
+- suite `generic-parallel` à -O3 : openmp-host-gcc, stlpar-parunseq-gcc
+  et kokkos-host 531/531 (avant l'ajout de CubicSplineHardeningTest),
+  cuda-nvcc 540/540 (avec) ;
+- balayage de compilation AdaptiveCpp : 541 OK, 60 fichiers invalides et
+  7 fragments, comme nvcc et clang, fichier par fichier ;
+- balayages de compilation nvc++ (stdpar et OpenMP) : en cours.
+  BerveillerZaouiPolyCrystal (30 grains) demande plus de 2 h 45 et 5 Go
+  au seul front-end de nvc++ -mp=gpu.
