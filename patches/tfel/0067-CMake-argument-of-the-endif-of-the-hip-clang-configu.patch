@@ -1,0 +1,27 @@
+From 9acaac8020e6a6636a4a5079b75e4a9e7efd3ca4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 7 Oct 2026 16:33:15 +0200
+Subject: [PATCH] CMake: argument of the endif of the hip-clang configuration
+
+The argument of the endif did not match the one of the if, which CMake
+reports by a warning at each configuration.
+---
+ cmake/modules/tfel.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 5c61e4518..28e7a96d6 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -598,7 +598,7 @@ if(TFEL_REQUIRES_HIP)
+     list(APPEND tfel-check-components
+          "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
+          "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
+-   endif("hip-clang" IN_LIST generic-parallel-configuration)
++   endif("hip-clang" IN_LIST generic-parallel-configurations)
+  elseif(HIP_PLATFORM STREQUAL "amd")
+    set(TFEL_HIPCC_FLAGS "-fPIC")
+  else()
+-- 
+2.43.0
+

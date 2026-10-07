@@ -598,7 +598,7 @@ if(TFEL_REQUIRES_HIP)
     list(APPEND tfel-check-components
          "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
          "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
-   endif("hip-clang" IN_LIST generic-parallel-configuration)
+   endif("hip-clang" IN_LIST generic-parallel-configurations)
  elseif(HIP_PLATFORM STREQUAL "amd")
    set(TFEL_HIPCC_FLAGS "-fPIC")
  else()

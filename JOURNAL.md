@@ -156,7 +156,7 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
 - [x] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
       que compilées (balayage d'exécution) ; balayages de compilation avec
       nvc++ (OpenMP, stdpar) et AdaptiveCpp.
-- [ ] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
+- [x] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
       (MFEM 4.10 reporté à mfem-mgis : compilation CUDA de plusieurs
       heures, jusqu'à 22 Go pour un fichier).
 D. Intégration
@@ -1581,3 +1581,33 @@ Puis, si tout passe : mmm-gpu par défaut dans `scripts/env.sh`, R4 cochée.
 Ensuite : campagne de performance (grands lots, CPU multicœur contre GPU,
 plusieurs familles de lois), clang-tidy et relecture indépendante, puis D1
 (MGIS).
+
+### 2026-10-07 (soir), environnement mmm-gpu validé (fin de R4)
+
+Validation complète dans l'environnement spack mmm-gpu, après les
+correctifs de l'après-midi (bibliothèques de CUDA 12.9 dans
+`LD_LIBRARY_PATH`, en-têtes de HIP donnés à hipcc) :
+
+- ctest complet de TFEL : 6965 tests sur 6965 ;
+- matrice des tests `generic-parallel` à -O3
+  (`results/generic-parallel-tests-2026-10-07-mmm-gpu-O3.txt`) : 15
+  configurations de lois et 16 de propriétés matériau, toutes réussies,
+  dont hip-hipcc et hip-clang avec HIP 7.2.3, kokkos avec Kokkos 5.2.2 et
+  sycl-default-acpp avec l'AdaptiveCpp de spack ;
+- balayages de compilation nvcc et clang : 541 OK, identiques fichier par
+  fichier au balayage de référence.
+
+Correctif amont supplémentaire de TFEL (patch 0067) : argument du `endif`
+de la configuration hip-clang dans `tfel.cmake` (avertissement de CMake à
+chaque configuration). Remarque : les substitutions de TFEL sont dans le
+cache de CMake ; une reconfiguration qui en change une valeur demande
+`cmake -U "tfel-substitutions*" .` (fait par `scratch/validate3.sh`).
+
+mmm-gpu est maintenant l'environnement par défaut de `scripts/env.sh` et
+de `build-tfel.sh` ; `PROTO_ENVIRONMENT=tfelgpu_local` garde l'ancien
+(validé lui aussi le 07/10 au matin). TFEL est donc validé dans les deux
+environnements.
+
+Suite proposée : campagne de performance (grands lots, CPU multicœur
+contre GPU, plusieurs familles de lois), clang-tidy et relecture
+indépendante, puis D1 (MGIS).

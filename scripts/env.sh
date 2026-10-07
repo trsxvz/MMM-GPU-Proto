@@ -2,11 +2,11 @@
 #
 # PROTO_ENVIRONMENT selects the spack environment providing the compilers
 # and the libraries:
-# - tfelgpu_local (default): view of the spack environment of the shell,
-#   with Kokkos and AdaptiveCpp built in install/ and HIP 5.7 (CUDA 12.9);
-# - mmm-gpu: environment of deps/spack/mmm-gpu (Kokkos 5.2.2, AdaptiveCpp
-#   25.10, HIP 7.2.3 and LLVM 20.1.8 built by spack, CUDA 13.0.2 of the
-#   NVIDIA HPC SDK for nvcc and HIP).
+# - mmm-gpu (default): environment of deps/spack/mmm-gpu (Kokkos 5.2.2,
+#   AdaptiveCpp 25.10, HIP 7.2.3 and LLVM 20.1.8 built by spack, CUDA
+#   13.0.2 of the NVIDIA HPC SDK for nvcc and HIP);
+# - tfelgpu_local: view of the spack environment of the shell, with Kokkos
+#   and AdaptiveCpp built in install/ and HIP 5.7 (CUDA 12.9).
 # TFEL is built in build/<tfel> and installed in install/<tfel>, where
 # <tfel> is `tfel` for tfelgpu_local and `tfel-mmm-gpu` for mmm-gpu
 # (PROTO_TFEL_BUILD and PROTO_TFEL_INSTALL).
@@ -15,7 +15,7 @@
 # not appear in LD_LIBRARY_PATH or before the installed TFEL in PATH.
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export PROTO=$P
-export PROTO_ENVIRONMENT=${PROTO_ENVIRONMENT:-tfelgpu_local}
+export PROTO_ENVIRONMENT=${PROTO_ENVIRONMENT:-mmm-gpu}
 # NVIDIA HPC SDK: nvc++
 export PROTO_NVHPC=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11
 case "$PROTO_ENVIRONMENT" in
