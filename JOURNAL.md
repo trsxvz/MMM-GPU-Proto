@@ -1541,3 +1541,43 @@ validé par `scratch/validate3.sh` :
 
 Reste de R4 : passage à l'environnement spack mmm-gpu (tout y est
 installé sauf MFEM, reporté), puis nouvelle validation.
+
+### 2026-10-07 (après-midi), passage à l'environnement spack mmm-gpu (R4, en cours)
+
+`scripts/env.sh` choisit l'environnement selon `PROTO_ENVIRONMENT` :
+`tfelgpu_local` (défaut, validé) ou `mmm-gpu` (deps/spack/mmm-gpu :
+Kokkos 5.2.2, AdaptiveCpp 25.10, HIP 7.2.3 et LLVM 20.1.8 de spack, CUDA
+13.0.2 du HPC SDK pour nvcc et HIP). TFEL est construit dans
+`build/tfel-mmm-gpu` et installé dans `install/tfel-mmm-gpu` ;
+`build-tfel.sh`, `scripts/run-generic-parallel-tests.sh`,
+`scratch/dev-test.sh` et `scratch/validate3.sh` suivent cette variable. Vue
+de mmm-gpu régénérée (`spack env view regenerate` : `acpp` manquait). MFEM
+reste reporté.
+
+Validation dans mmm-gpu (interrompue à 14:40, arrêt de la machine) :
+
+- ctest complet de TFEL : 6965 tests sur 6965 ;
+- matrice à -O3 (`results/generic-parallel-tests-2026-10-07-mmm-gpu-O3.txt`,
+  partielle) : cuda-nvcc, kokkos, kokkos-host, openmp-host-gcc,
+  openmp-offload-nvhpc-gpu, stlpar-parunseq-clang, stlpar-parunseq-gcc et
+  stlpar-parunseq-icpx réussis ;
+- cuda-clang et hip-clang : `libcudart.so.12` introuvable (clang 20 compile
+  avec CUDA 12.9). Corrigé dans `scripts/env.sh` (bibliothèques de CUDA
+  12.9 après celles de CUDA 13) ;
+- hip-hipcc : en-têtes de HIP 5.7 du système pris à la place de ceux de
+  HIP 7.2 (hipcc ne donne pas les en-têtes de HIP à nvcc sur la plateforme
+  NVIDIA). Défaut de TFEL corrigé (`cmake/modules/tfel.cmake`, patch 0066) :
+  dossier des en-têtes de HIP ajouté aux options de hipcc s'il n'est pas un
+  dossier implicite du compilateur C++ (inchangé pour HIP dans /usr).
+
+Reprise :
+
+```bash
+PROTO_ENVIRONMENT=mmm-gpu ./build-tfel.sh install -j12   # reconfiguration (patch 0066)
+PROTO_ENVIRONMENT=mmm-gpu scratch/validate3.sh 2026-10-07-mmm-gpu
+```
+
+Puis, si tout passe : mmm-gpu par défaut dans `scripts/env.sh`, R4 cochée.
+Ensuite : campagne de performance (grands lots, CPU multicœur contre GPU,
+plusieurs familles de lois), clang-tidy et relecture indépendante, puis D1
+(MGIS).

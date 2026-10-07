@@ -2,7 +2,7 @@
 # Runs the test of a generic-parallel configuration with the
 # development tree (tfel-dev: mfront of scratch/build-dev2 and headers of
 # tfel-dev), without installing it. The substitutions of tfel-check are read
-# in the cache of build/tfel.
+# in the cache of the build directory of TFEL (see scripts/env.sh).
 # usage: scratch/dev-test.sh configuration[/sub-test] [pattern of compare-all.sh]
 # (for instance cuda-clang or cuda-clang/tdls). DEVTEST_KIND selects the
 # tests: behaviours (default) or material-properties. DEVTEST_OPTIMIZATION_LEVEL
@@ -26,7 +26,7 @@ rm -rf "$T" && mkdir -p "$(dirname "$T")"
 cp -r "$D/test-suite/$kind/generic-parallel" "$T"
 cd "$T/$c" || exit 1
 # substitutions of tfel-check, as KEY%value pairs
-subst=$(grep '^tfel-substitutions:STRING=' "$P/build/tfel/CMakeCache.txt" | cut -d= -f2-)
+subst=$(grep '^tfel-substitutions:STRING=' "$PROTO_TFEL_BUILD/CMakeCache.txt" | cut -d= -f2-)
 # additional substitutions, as KEY%value pairs separated by semicolons
 subst="$subst${DEVTEST_SUBSTITUTIONS:+;$DEVTEST_SUBSTITUTIONS}"
 apply() {
@@ -69,9 +69,9 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   cmd=$(apply "$cmd")
   cmd=${cmd//@mfront@/./mfront-dev.sh}
   # headers of the development tree first (substituted by tfel-check)
-  cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I$P/install/tfel/include}
-  cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I$P/install/tfel/include}
-  cmd=${cmd//@TFEL_LIBRARY_DIR@/$P/install/tfel/lib}
+  cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I$PROTO_TFEL_INSTALL/include}
+  cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I$PROTO_TFEL_INSTALL/include}
+  cmd=${cmd//@TFEL_LIBRARY_DIR@/$PROTO_TFEL_INSTALL/lib}
   case "$cmd" in
     *compare-all.sh*) cmd="$cmd '$pattern'" ;;
   esac

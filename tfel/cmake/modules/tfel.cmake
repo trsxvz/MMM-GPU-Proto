@@ -594,7 +594,6 @@ if(TFEL_REQUIRES_HIP)
    set(TFEL_REQUIRES_CUDA ON)
    # hipcc calls nvcc
    set(TFEL_HIPCC_FLAGS "-x cu -arch=native --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014")
-   add_tfel_substitution(TFEL_HIPCC_FLAGS "${TFEL_HIPCC_FLAGS}")
    if("hip-clang" IN_LIST generic-parallel-configurations)
     list(APPEND tfel-check-components
          "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
@@ -602,7 +601,6 @@ if(TFEL_REQUIRES_HIP)
    endif("hip-clang" IN_LIST generic-parallel-configuration)
  elseif(HIP_PLATFORM STREQUAL "amd")
    set(TFEL_HIPCC_FLAGS "-fPIC")
-   add_tfel_substitution(TFEL_HIPCC_FLAGS "${TFEL_HIPCC_FLAGS}")
  else()
    message(FATAL_ERROR "unsupported value of HIP_PLATFORM. Expected 'amd' or 'nvidia', got '${HIP_PLATFORM}'")
  endif()
@@ -647,6 +645,15 @@ if(TFEL_REQUIRES_HIP)
   # would place `/usr/include` before the headers of the C++ standard
   # library and break their `#include_next` directives, whereas the
   # compilers ignore `-I` for a standard system directory.
+  if(HIP_PLATFORM STREQUAL "nvidia")
+    # On the NVIDIA platform, hipcc does not give the headers of HIP to
+    # nvcc: they must be given if they are not in a directory searched by
+    # default (HIP installed by spack, for instance).
+    if(NOT "${HIP_INCLUDE_DIR}" IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+      string(APPEND TFEL_HIPCC_FLAGS " -I${HIP_INCLUDE_DIR}")
+    endif()
+  endif()
+  add_tfel_substitution(TFEL_HIPCC_FLAGS "${TFEL_HIPCC_FLAGS}")
 endif(TFEL_REQUIRES_HIP)
 
 if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR

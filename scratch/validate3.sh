@@ -6,22 +6,29 @@
 # behaviours, models and material properties of MFront for CUDA with nvcc
 # and clang.
 # MAKEFLAGS is lowered to -j4 to leave memory to other builds.
+# The environment is the one selected by PROTO_ENVIRONMENT (see
+# scripts/env.sh): a new build directory is configured by build-tfel.sh.
 # usage: scratch/validate3.sh tag   (results/generic-parallel-tests-<tag>-*.txt)
 tag=${1:-$(date +%F)}
 P=$HOME/Documents/GitHub/mfem-mgis-gpu-proto
 R=$P/results
+source "$P/scripts/env.sh" > /dev/null 2>&1 || exit 1
+echo "environment=$PROTO_ENVIRONMENT"
 export MAKEFLAGS=-j4
-cd "$P/build/tfel" || exit 1
-CONFS=$(grep '^CONFIGURATIONS=' "$P/build-tfel.sh" | sed 's/^CONFIGURATIONS="\(.*\)"$/\1/' | sed 's/\$CONFIGURATIONS;//' | paste -sd';')
-(export PATH=/home/t/Bureau/spack/var/spack/environments/tfelgpu_local/.spack-env/view/bin:$PATH HIP_PLATFORM=nvidia CUDA_PATH=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/cuda/12.9
- cmake -Dgeneric-parallel-configurations="$CONFS" \
-   -DTFEL_CLANGXX_COMPILER=/home/t/Bureau/spack/opt/spack/linux-x86_64_v4/llvm-20.1.8-v3gg3rqravuex5zixx6xglsqudvhcnjw/bin/clang++ \
-   -DTFEL_ICPX_COMPILER=/opt/intel/oneapi/compiler/2026.1/bin/icpx \
-   -DTFEL_CLANG_CUDA_PATH=/home/t/Bureau/spack-mmm-externals/cuda-12.9.1 \
-   -U "tfel-substitutions*" . > "$P/scratch/validate3-cmake.log" 2>&1); echo "cmake=$? ($CONFS)"
+B=$PROTO_TFEL_BUILD
+if [ -f "$B/CMakeCache.txt" ]; then
+  cd "$B" || exit 1
+  CONFS=$(grep '^CONFIGURATIONS=' "$P/build-tfel.sh" | sed 's/^CONFIGURATIONS="\(.*\)"$/\1/' | sed 's/\$CONFIGURATIONS;//' | paste -sd';')
+  (export PATH=$PROTO_SPACK_VIEW/bin:$PROTO_CUDA/bin:$PATH HIP_PLATFORM=nvidia CUDA_PATH=$PROTO_HIP_CUDA
+   cmake -Dgeneric-parallel-configurations="$CONFS" \
+     -DTFEL_CLANGXX_COMPILER=$PROTO_LLVM/bin/clang++ \
+     -DTFEL_ICPX_COMPILER=/opt/intel/oneapi/compiler/2026.1/bin/icpx \
+     -DTFEL_CLANG_CUDA_PATH=/home/t/Bureau/spack-mmm-externals/cuda-12.9.1 \
+     -U "tfel-substitutions*" . > "$P/scratch/validate3-cmake.log" 2>&1); echo "cmake=$? ($CONFS)"
+fi
 cd "$P" || exit 1
 ./build-tfel.sh > scratch/validate3-install.log 2>&1; echo "install=$?"
-cd "$P/build/tfel" || exit 1
+cd "$B" || exit 1
 CLEANPATH=$(echo "$PATH" | tr ':' '\n' | grep -v spack | paste -sd:)
 env -u LD_LIBRARY_PATH PATH="$CLEANPATH" make -k -j8 build-tests > "$P/scratch/validate3-build-tests.log" 2>&1; echo "build-tests=$?"
 env -u LD_LIBRARY_PATH PATH="$CLEANPATH" ctest -j8 > "$P/scratch/validate3-ctest.log" 2>&1; echo "ctest=$?"

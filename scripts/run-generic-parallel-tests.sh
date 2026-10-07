@@ -15,10 +15,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 export MAKEFLAGS=${MAKEFLAGS:--j6}
 T=${GPB_TESTS_DIRECTORY:-$PROTO/scratch/tc}
 level=${GPB_OPTIMIZATION_LEVEL:-}
-configurations=$PROTO/install/tfel/share/tfel/mfront/configuration-files
+configurations=$PROTO_TFEL_INSTALL/share/tfel/mfront/configuration-files
 rm -rf "$T" && mkdir -p "$T"
-cp -r "$PROTO/install/tfel/share/tfel/test-suite/behaviours/generic-parallel" "$T/behaviours"
-cp -r "$PROTO/install/tfel/share/tfel/test-suite/material-properties/generic-parallel" "$T/material-properties"
+cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/behaviours/generic-parallel" "$T/behaviours"
+cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/material-properties/generic-parallel" "$T/material-properties"
 pattern=${1:-.}
 status=0
 for kind in behaviours material-properties; do
