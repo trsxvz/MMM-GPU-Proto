@@ -1,0 +1,45 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour TensorialVariablesTest;
+@Description {
+  "Arrays of gradients and of thermodynamic forces, and external and "
+  "internal state variables of all the supported types: scalars, vectors, "
+  "symmetric tensors, tensors and arrays. The thermodynamic forces and the "
+  "internal state variables depend on the external state variables, so that "
+  "a wrong layout of any of those variables changes the results."
+}
+
+@Gradient Stensor a[2];
+@Flux Stensor b[2];
+@ProvidesSymmetricTangentOperator;
+
+@ExternalStateVariable real r_esv;
+@ExternalStateVariable tvector<N, real> v_esv;
+@ExternalStateVariable Stensor s_esv[2];
+@ExternalStateVariable Tensor t_esv;
+
+@StateVariable real r_isv;
+@StateVariable tvector<N, real> v_isv;
+@StateVariable Stensor s_isv[2];
+@StateVariable Tensor t_isv;
+
+@Integrator {
+  for (unsigned short i = 0; i != 2u; ++i) {
+    b[i] = 2 * (a[i] + da[i]) + s_esv[i] + ds_esv[i];
+    if (computeTangentOperator_) {
+      static_cast<void>(smt);  // discard the stiffness matrix type
+      for (unsigned short j = 0; j != 2u; ++j) {
+        if (i == j) {
+          db_dda(i, j) = 2 * Stensor4::Id();
+        } else {
+          db_dda(i, j) = Stensor4(real(0));
+        }
+      }
+    }
+  }
+  dr_isv = r_esv + dr_esv - r_isv;
+  dv_isv = v_esv + dv_esv - v_isv;
+  for (unsigned short i = 0; i != 2u; ++i) {
+    ds_isv[i] = s_esv[i] + ds_esv[i] - s_isv[i];
+  }
+  dt_isv = t_esv + dt_esv - t_isv;
+}

@@ -1,0 +1,29 @@
+From 1deb2df3339a6d91a0e7738840e04cb5f0ac8fe2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 7 Oct 2026 03:25:57 +0200
+Subject: [PATCH] MFront tests: derivative of the flow rule of
+ DigitSeparatorTest
+
+The flow rule of the DigitSeparatorTest behaviour computed the flow rate
+`f` but not its derivative `df_dseq` (MFront reports it by a warning). The
+local Newton solver and the consistent tangent operator read this
+uninitialized member, so that the results depended on the content of the
+stack. The derivative is now computed.
+---
+ mfront/tests/behaviours/DigitSeparatorTest.mfront | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/mfront/tests/behaviours/DigitSeparatorTest.mfront b/mfront/tests/behaviours/DigitSeparatorTest.mfront
+index 8a74d3444..137c375d4 100644
+--- a/mfront/tests/behaviours/DigitSeparatorTest.mfront
++++ b/mfront/tests/behaviours/DigitSeparatorTest.mfront
+@@ -11,4 +11,5 @@
+ 
+ @FlowRule{
+   f = de0 * pow(seq / s0, E);
++  df_dseq = de0 * E * pow(seq / s0, E - 1) / s0;
+ }
+\ No newline at end of file
+-- 
+2.43.0
+

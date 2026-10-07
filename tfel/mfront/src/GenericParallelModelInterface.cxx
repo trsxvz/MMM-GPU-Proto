@@ -234,7 +234,11 @@ namespace mfront {
       os << md.sources << "\n\n";
     }
     const auto parameters = getParametersStructureName(md);
-    os << "namespace mfront::gm{\n\n";
+    // the generated classes have internal linkage: two libraries
+    // generated for the same model do not share their parameters
+    // (static variables of inline functions are unique symbols)
+    os << "namespace mfront::gm{\n\n"
+       << "namespace {\n\n";
     if (hasGenericModelParametersInitializer(md)) {
       // structure holding the values of the parameters, filled on the host
       // and passed by value to the device
@@ -251,7 +255,8 @@ namespace mfront {
     writeGenericModelClass(os, fd, md,
                            GenericModelClassOptions{
                                .device = true, .parameters_type = parameters});
-    os << "} // end of namespace mfront::gm\n\n";
+    os << "} // end of namespace\n\n"
+       << "} // end of namespace mfront::gm\n\n";
     // description of the data of a point
     const auto point_traits = md.className + "PointTraits";
     os << "namespace {\n\n"

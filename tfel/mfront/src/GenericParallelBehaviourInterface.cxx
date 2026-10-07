@@ -154,9 +154,13 @@ namespace mfront {
     };
     const auto& d = bd.getBehaviourData(h);
     auto r = GenericParallelBehaviourPointDataSizes{};
-    const auto mvsizes = bd.getMainVariablesSize();
-    r.gradients = size(mvsizes.first);
-    r.thermodynamic_forces = size(mvsizes.second);
+    // arrays of gradients and of thermodynamic forces are taken into account
+    // (`BehaviourDescription::getMainVariablesSize` ignores them)
+    for (const auto& [g, th] : bd.getMainVariables()) {
+      r.gradients += size(SupportedTypes::getTypeSize(g.type, g.arraySize));
+      r.thermodynamic_forces +=
+          size(SupportedTypes::getTypeSize(th.type, th.arraySize));
+    }
     // the material properties read by the behaviour start with the elastic
     // properties and the thermal expansion coefficients if the behaviour
     // requires the stiffness tensor or the thermal expansion coefficient

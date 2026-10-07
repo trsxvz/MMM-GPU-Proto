@@ -4788,7 +4788,15 @@ namespace mfront {
                 os << "if(this->computePredictionOperator_" << k
                    << "(smt) != SUCCESS){\n"
                    << "return FAILURE;\n"
-                   << "}\n"
+                   << "}\n";
+                // the type of the operator computed by the user is only
+                // checked by the `get` method on the host
+                os << "if(!this->Dt.template is<" << from_type_flag
+                   << "<N,stress>>()){\n";
+                this->writeHostAndDeviceCode(
+                    os, "tfel::raise<tfel::utilities::GenTypeCastError>();",
+                    "return FAILURE;");
+                os << "}\n"
                    << "const " << from_type_flag << "<N,stress> "
                    << "tangentOperator_" << k << " = this->Dt.template get<"
                    << from_type_flag << "<N,stress> >();\n";
@@ -4941,7 +4949,15 @@ namespace mfront {
                 os << "if(!this->computeConsistentTangentOperator_" << k
                    << "(smt)){\n"
                    << "return false;\n"
-                   << "}\n"
+                   << "}\n";
+                // the type of the operator computed by the user is only
+                // checked by the `get` method on the host
+                os << "if(!this->Dt.template is<" << k_type_flag
+                   << "<N,stress>>()){\n";
+                this->writeHostAndDeviceCode(
+                    os, "tfel::raise<tfel::utilities::GenTypeCastError>();",
+                    "return false;");
+                os << "}\n"
                    << "const " << k_type_flag << "<N,stress> "
                    << "tangentOperator_" << k << " = this->Dt.template get<"
                    << k_type_flag << "<N,stress>>();\n";

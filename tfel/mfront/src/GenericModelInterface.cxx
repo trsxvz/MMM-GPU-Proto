@@ -559,7 +559,11 @@ namespace mfront {
       os << md.sources << "\n\n";
     }
     //
-    os << "namespace mfront::gm{\n\n";
+    // the generated classes have internal linkage: two libraries
+    // generated for the same model do not share their parameters
+    // (static variables of inline functions are unique symbols)
+    os << "namespace mfront::gm{\n\n"
+       << "namespace {\n\n";
     writeGenericModelClass(os, fd, md, GenericModelClassOptions{});
     //
 
@@ -583,7 +587,8 @@ namespace mfront {
        << "}\n"
        << "return 1;\n"
        << "}\n\n";
-    os << "} // end of namespace mfront::gm\n\n";
+    os << "} // end of namespace\n\n"
+       << "} // end of namespace mfront::gm\n\n";
     //
     if ((hasRealParameters(md)) &&
         (!areParametersTreatedAsStaticVariables(md))) {

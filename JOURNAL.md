@@ -129,7 +129,7 @@ C. Backends
   (dernière passe en cours au moment de l'écriture).
 R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
    dans cet ordre
-- [ ] R1 Corriger tous les constats de la relecture :
+- [x] R1 Corriger tous les constats de la relecture :
   - [x] A4 même définition de la classe de loi sur l'hôte et le GPU ;
   - [x] A1 référence `generic` des tests compilée par le compilateur hôte ;
   - [x] A2 paramètres des variables de comportement vérifiés sur l'hôte

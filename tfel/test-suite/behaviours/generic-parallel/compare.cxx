@@ -33,6 +33,9 @@
  * sets the out of bounds policy in both libraries: those options allow to
  * test batches where the integration fails at some points.
  *
+ * The `--parameters=<name>=<value>,...` option changes the values of some
+ * parameters in both libraries.
+ *
  * The `--initial-internal-state-variables=<values>` option gives the initial
  * values of the internal state variables of a point (null by default), as a
  * comma separated list, a single value being used for all the internal state
@@ -100,6 +103,8 @@ using BatchFunction = int (*)(mfront_gpb_OutputStatus*,
 //! \brief sizes of the data of an integration point
 struct Sizes {
   std::size_t g, th, mp, isv, esv, K;
+  //! \brief sizes of the external state variables, temperature first
+  std::vector<std::size_t> esvs;
 };
 
 /*!
@@ -472,7 +477,11 @@ static Sizes readSizes(const std::string& lib,
                  .mp = getVariables(lib, f, "MaterialProperties").size(),
                  .isv = getSize(isvs),
                  .esv = 1 + getSize(esvs),
-                 .K = 0};
+                 .K = 0,
+                 .esvs = {1}};
+  for (const auto& v : esvs) {
+    s.esvs.push_back(v.size);
+  }
   // the elastic material properties and the thermal expansion coefficients
   // are the first material properties if the behaviour requires the
   // stiffness tensor or the thermal expansion coefficients tensor (see
@@ -633,8 +642,9 @@ static void integrateReference(States& st,
  * - `by_variable`: as `by_component`, but the material properties and the
  *   external state variables are given variable by variable, with uniform
  *   values (null point stride). This storage assumes that the material
- *   properties and the external state variables are scalars and uniform,
- *   as in all the tests.
+ *   properties and the external state variables are uniform, as in all
+ *   the tests. The material properties are scalars. The external state
+ *   variables may be vectors or tensors.
  */
 enum struct Storage { by_point, by_component, by_variable };
 
@@ -685,10 +695,13 @@ struct BatchField {
     const auto f = this->field();
     return {f.values, f.point_stride, f.component_stride};
   }
-  //! \return a field giving the values of the `j`-th component of the first
-  //! point at all points
+  /*!
+   * \return a field giving the values of the first point at all points,
+   * starting from the `j`-th component
+   */
   mfront_gpb_ConstField uniform(const std::size_t j) const {
-    return {this->values + this->index(0, j), 0, 1};
+    return {this->values + this->index(0, j), 0,
+            this->by_component ? this->n : 1};
   }
 
  private:
@@ -764,9 +777,11 @@ struct BatchFields {
       for (std::size_t j = 0; j != s.mp; ++j) {
         this->mps.push_back(this->mp.uniform(j));
       }
-      for (std::size_t j = 0; j != s.esv; ++j) {
+      // one field per external state variable
+      for (std::size_t j = 0; const auto size : s.esvs) {
         this->esvs0.push_back(this->esv0.uniform(j));
         this->esvs1.push_back(this->esv1.uniform(j));
+        j += size;
       }
       // the group fields are ignored
       d.s0.material_properties = d.s1.material_properties = {};
@@ -911,6 +926,26 @@ static std::vector<double> parseList(const std::string& l) {
 }
 
 /*!
+ * \return the names and values of parameters
+ * \param[in] l: comma separated list of `name=value` pairs
+ */
+static std::vector<std::pair<std::string, double>> parseParameters(
+    const std::string& l) {
+  auto r = std::vector<std::pair<std::string, double>>{};
+  for (auto v = l; !v.empty();) {
+    const auto c = v.find(',');
+    const auto p = v.substr(0, c);
+    const auto e = p.find('=');
+    if (e == std::string::npos) {
+      fail("invalid parameter '" + p + "'");
+    }
+    r.emplace_back(p.substr(0, e), std::stod(p.substr(e + 1)));
+    v = c == std::string::npos ? "" : v.substr(c + 1);
+  }
+  return r;
+}
+
+/*!
  * \return the options of finite strain behaviours
  * \param[in] o: stress measure and tangent operator, separated by a comma
  */
@@ -1003,6 +1038,8 @@ struct Options {
   //! \brief out of bounds policy (0: None, 1: Warning, 2: Strict), if
   //! positive
   int out_of_bounds_policy = -1;
+  //! \brief names and values of the parameters changed in both libraries
+  std::vector<std::pair<std::string, double>> parameters;
 };
 
 //! \return the optional arguments
@@ -1045,6 +1082,8 @@ static Options parseOptions(const int argc,
       r.mass_density = std::stod(v);
     } else if (o == "--initial-internal-state-variables") {
       r.initial_internal_state_variables = parseList(v);
+    } else if (o == "--parameters") {
+      r.parameters = parseParameters(v);
     } else {
       fail("invalid option '" + o + "'");
     }
@@ -1469,7 +1508,8 @@ int main(const int argc, const char* const* const argv) {
          "[--speed-of-sound=mass_density] [--energies=true] "
          "[--tangent-operator=type] "
          "[--perturbation-of-internal-state-variables=amplitude] "
-         "[--out-of-bounds-policy=policy]");
+         "[--out-of-bounds-policy=policy] "
+         "[--parameters=name=value,...]");
   }
   [[maybe_unused]] const auto runtime = Runtime{};
   const auto name = parseFunctionName(argv[3]);
@@ -1548,6 +1588,21 @@ int main(const int argc, const char* const* const argv) {
       const auto f = reinterpret_cast<SetOutOfBoundsPolicy>(
           load(l, t.name.behaviour + "_setOutOfBoundsPolicy"));
       f(t.options.out_of_bounds_policy);
+    }
+  }
+  // parameters, changed in both libraries (the setter is specific to the
+  // modelling hypothesis if the behaviour does not support all of them)
+  using SetParameter = int (*)(const char* const, const double);
+  for (const auto& [pname, pvalue] : t.options.parameters) {
+    for (const auto& l : {t.generic_library, t.batch_library}) {
+      const auto f = reinterpret_cast<SetParameter>(
+          const_cast<void*>(findSymbol(l, t.name, "setParameter")));
+      if (f == nullptr) {
+        fail("no function changing the parameters in '" + l + "'");
+      }
+      if (f(pname.c_str(), pvalue) == 0) {
+        fail("can't set the parameter '" + pname + "'");
+      }
     }
   }
   if (t.mode != Mode::INTEGRATION) {

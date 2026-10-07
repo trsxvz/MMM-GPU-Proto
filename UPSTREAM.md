@@ -21,7 +21,15 @@ the branch, file by file, rather than by cherry-picking.
      the behaviour reported as failures;
    - fixes of the rotation functions of the `generic` interface (offsets,
      scalars, vectors);
-   - bounds checks of the generic models in all compilation modes.
+   - bounds checks of the generic models in all compilation modes;
+   - generated classes of the generic models given internal linkage: the
+     parameters of a model were shared by all the libraries of this model
+     loaded in a process (static variable of an inline function, emitted
+     as a unique symbol);
+   - flow rule of the `DigitSeparatorTest` test behaviour, which read an
+     uninitialized derivative;
+   - physical bounds of the arguments of the material properties exported
+     even if those arguments have no standard bounds.
 
    Those fixes may change the results on CPUs. Each one is covered by an
    existing test or by a new one.
@@ -30,15 +38,19 @@ the branch, file by file, rather than by cherry-picking.
    host and device annotations, `TFEL_DEVICE_CODE` for single pass
    compilers, behaviours without virtual functions, `TrivialGenTypeBase`,
    `getConstantObject`, eigenvectors without recursion in device code,
-   compiler workarounds. The results on CPUs are unchanged. The API
+   compiler workarounds (for instance, iterators of the cubic splines
+   advanced without `std::advance` and `std::prev`, which nvcc compiles as
+   functions doing nothing in device code). The results on CPUs are unchanged. The API
    changes are listed in the release notes.
 
 3. **Device compatible generated code in MFront**: annotations of the
    generated classes, device compatible behaviour class (interface
    property and DSL option), drivers of the `generic` interface split in a
    host and device core and the historical host functions, rotation
-   functions and method callers usable on GPUs. The results of the
-   existing interfaces are unchanged.
+   functions and method callers usable on GPUs, type of the tangent
+   operator computed by the user checked before its conversion (the
+   `get` method of `TrivialGenTypeBase` only checks it on the host). The
+   results of the existing interfaces are unchanged.
 
 4. **The `generic-parallel` interface for behaviours** with a first set of
    backends: CUDA, HIP, C++ parallel algorithms and OpenMP on the host.

@@ -31,7 +31,7 @@ parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
 | `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit de la branche de développement, sans l'historique de TFEL) |
 | `patches/tfel/` | les mêmes modifications sous forme de série de patchs depuis le master `fec0ade99` (`git am`), et son README |
 | `build-tfel.sh` | configuration, construction et installation de TFEL (chemins de la machine de développement) |
-| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), garde-fou mémoire des longues compilations (`memory-governor.sh`), matrice des backends, balayage de compilation de tous les tests MFront, contrôle des annotations hôte/device par clang CUDA |
+| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), garde-fou mémoire des longues compilations (`memory-governor.sh`), matrice des backends, balayage de compilation de tous les tests MFront, balayages d'exécution (comparaison de toutes les lois de test et de toutes les propriétés matériau de test aux résultats de l'interface `generic`) et contrôle des écarts d'arrondi, contrôle des annotations hôte/device par clang CUDA |
 | `results/` | résultats des matrices et des balayages, défauts de compilateurs rencontrés avec leurs reproducteurs (`results/nvhpc-bugs/`) |
 | `scratch/` | scripts de validation, configurations de développement, proposition de conception pour MGIS (`d1-mgis-design.md`) |
 | `deps/spack/` | environnement spack du prototype (`mmm-gpu/spack.yaml`), dépôt de paquets complémentaire (recette d'AdaptiveCpp 25.10), préfixe CUDA tiré du HPC SDK ; voir son README |

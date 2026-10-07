@@ -16,6 +16,10 @@ run HosfordPerfectPlasticity_Tridimensional --amplitude=5e-4
 # elastic properties given by a material law evaluated on the device, and
 # quantities
 run StrainHardeningCreep3_Tridimensional --temperature=600
+# parameters changed in both libraries: the generated functions read their
+# values on the host at each call
+run IsotropicLinearHardeningPlasticity_Tridimensional --amplitude=3e-3 \
+  --parameters=YoungModulus=150e9,PoissonRatio=0.3,HardeningSlope=5e9,YieldStrength=200e6
 # isotropic DSLs: creep, and several flows with an isotropic hardening rule.
 # The MultipleIsotropicMisesFlows DSL does not provide a consistent tangent
 # operator: the generic interface rejects the requests of tangent operators.
@@ -60,6 +64,13 @@ run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
 # Runge-Kutta algorithm (no consistent tangent operator)
 run Norton_rk42_Tridimensional --material-properties=150e9,0.3,8e-67,8.2 \
   --amplitude=1e-4 --tangent-operator=3
+# arrays of gradients and of thermodynamic forces, external and internal
+# state variables of all the types (one value per component, the
+# temperature being the first external state variable)
+tv="--external-state-variables=1,2,3,4,5,6,7,8,9,10,11,12,\
+13,14,15,16,17,18,19,20,21,22,23,24,25"
+run TensorialVariablesTest_Tridimensional $tv
+run TensorialVariablesTest_PlaneStrain $tv
 # cohesive zone model
 run Tvergaard_Tridimensional --material-properties=2e16,2e16,200e6,3e-6 \
   --amplitude=1e-6
@@ -148,6 +159,8 @@ run ${ohs}_Tridimensional_rotateGradients
 run ${ohs}_PlaneStrain_rotateThermodynamicForces
 run ${ohs}_Tridimensional_rotateTangentOperatorBlocks
 run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks
+# isotropic hardening interpolated by a cubic spline (plastic loading)
+run CubicSplineHardeningTest_Tridimensional --amplitude=3e-3
 # StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
 # defined by data and kinematic hardening rules, Norton flow with the Hill
 # criterion, porous flow (Gurson-Tvergaard-Needleman criterion, nucleation,
@@ -175,6 +188,8 @@ run GenericParallelModelTest_Tridimensional --material-properties=500 \
 run GenericParallelModelTest_PlaneStress --material-properties=500 \
   --amplitude=0 --temperature=600 \
   --perturbation-of-internal-state-variables=1e-4
+run GenericParallelModelTest_Tridimensional --material-properties=500 \
+  --amplitude=0 --temperature=600 --parameters=SwellingCoefficient=1e-3
 run GenericParallelModelWithQuantitiesTest_Axisymmetrical --amplitude=0 \
   --temperature=600
 exit $status
