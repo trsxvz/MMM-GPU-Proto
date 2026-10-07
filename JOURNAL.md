@@ -153,7 +153,7 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
 - [x] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
       n'est pas utilisable sur GPU portables CPU et GPU, sans changer leurs
       résultats ni leur sémantique.
-- [ ] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
+- [x] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
       que compilées (balayage d'exécution) ; balayages de compilation avec
       nvc++ (OpenMP, stdpar) et AdaptiveCpp.
 - [ ] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
@@ -1514,8 +1514,10 @@ Résultats :
 - suite `generic-parallel` à -O3 : openmp-host-gcc, stlpar-parunseq-gcc
   et kokkos-host 531/531 (avant l'ajout de CubicSplineHardeningTest),
   cuda-nvcc 540/540 (avec) ;
-- balayage de compilation AdaptiveCpp : 541 OK, 60 fichiers invalides et
-  7 fragments, comme nvcc et clang, fichier par fichier ;
-- balayages de compilation nvc++ (stdpar et OpenMP) : en cours.
-  BerveillerZaouiPolyCrystal (30 grains) demande plus de 2 h 45 et 5 Go
-  au seul front-end de nvc++ -mp=gpu.
+- balayages de compilation des 608 fichiers avec AdaptiveCpp (28 min),
+  nvc++ -stdpar=gpu (329 min) et nvc++ -mp=gpu (335 min) : 541 OK, 60
+  fichiers invalides et 7 fragments, comme nvcc et clang, fichier par
+  fichier. Avec nvc++ -mp=gpu, les polycristaux de 30 grains
+  (BerveillerZaouiPolyCrystal, PolyCrystals) demandent environ 4 h et
+  5 Go au front-end : `compile-sweep.sh` a maintenant un délai maximal
+  par loi (`COMPILE_TIMEOUT`, 6 h par défaut, statut TIMEOUT).

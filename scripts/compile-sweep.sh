@@ -22,6 +22,9 @@
 #   located in the MFront file;
 # - COMPILATION: compilation error in the generated code or in TFEL;
 # - UNSUPPORTED: feature reported as not supported by MFront;
+# - TIMEOUT: compilation stopped after COMPILE_TIMEOUT seconds (6 hours by
+#   default: nvc++ -mp=gpu takes about 4 hours for the polycrystals of 30
+#   grains);
 # - FRAGMENT: file meant to be imported by other files;
 # - INVALID: the `generic` interface fails too, at the generation or at the
 #   compilation of the sources (for instance the unit tests of MFront which
@@ -55,7 +58,8 @@ compile() {
   mkdir -p "$d" && cd "$d" || exit 1
   search="--search-path=$(dirname "$f") --search-path=$TESTS/behaviours"
   search="$search --search-path=$TESTS/properties --search-path=$TESTS/models"
-  if $MFRONT --obuild --interface=generic-parallel --configuration-file="$CONF" \
+  if timeout "${COMPILE_TIMEOUT:-21600}" \
+      $MFRONT --obuild --interface=generic-parallel --configuration-file="$CONF" \
       $search "$f" > build.log 2>&1; then
     # calls to host functions from device code are removed by nvcc (with a
     # warning), so the results would be wrong. A kernel with very few
@@ -77,6 +81,9 @@ compile() {
         e="a kernel uses only $g registers"
       fi
     fi
+  elif [ $? -eq 124 ]; then
+    s=TIMEOUT
+    e="compilation stopped after ${COMPILE_TIMEOUT:-21600} seconds"
   else
     # calls to host functions may be reported as errors (`-diag-error` of
     # nvcc, always with clang)
