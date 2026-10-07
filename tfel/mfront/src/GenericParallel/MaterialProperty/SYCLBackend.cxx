@@ -107,6 +107,9 @@ namespace mfront::generic_parallel::material_property {
          << "  return this->device_ptr != nullptr;\n"
          << "}\n"
          << "~DataBuffer() noexcept{\n"
+         << "try{\n"
+         << "this->cleanup();\n"
+         << "} catch(...){}\n"
          << "}\n"
          << "void cleanup(){\n"
          << "if(this->device_ptr != nullptr) {\n"
@@ -187,7 +190,7 @@ namespace mfront::generic_parallel::material_property {
           } else {
             os << "mfront_queue->copy<" << types.real_type
                << ">(mfront_output_ptr.data(), mfront_output_host, "  //
-               << npoints << " * mfront_output_stride, "
+               << "(" << npoints << " - 1) * mfront_output_stride + 1, "
                << "mfront_sycl_kernel_event).wait();\n";
           }
         } else {
@@ -242,7 +245,8 @@ namespace mfront::generic_parallel::material_property {
              << "mfront_sycl_copy_events.push_back("
              << "mfront_arg" << idx << "_ptr.acquire("
              << "mfront_args_host[" << idx << "], "
-             << "mfront_npoints * mfront_args_strides[" << idx << "], true));\n"
+             << "(mfront_npoints - 1) * mfront_args_strides[" << idx
+             << "] + 1, true));\n"
              << "}\n";
         } else {
           os << "mfront_sycl_copy_events.push_back("
@@ -259,13 +263,17 @@ namespace mfront::generic_parallel::material_property {
        << "::mfront::gpmp::sycl::DataBuffer<" << types.real_type
        << ">{*mfront_queue};\n";
     if (treatStrides) {
+      // with a stride greater than one, the values between the values of
+      // the output are copied, so that copying the output back preserves
+      // them
       os << "if (mfront_output_stride == 0) {\n"
          << "mfront_sycl_copy_events.push_back("
          << "mfront_output_ptr.acquire(mfront_output_host,  1, false));\n"
          << "} else {\n"
          << "mfront_sycl_copy_events.push_back("
          << "mfront_output_ptr.acquire(mfront_output_host, "
-         << "mfront_npoints * mfront_output_stride, false));\n"
+         << "(mfront_npoints - 1) * mfront_output_stride + 1, "
+         << "mfront_output_stride > 1));\n"
          << "}\n";
     } else {
       os << "mfront_sycl_copy_events.push_back("

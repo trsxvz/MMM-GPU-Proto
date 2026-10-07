@@ -39,6 +39,7 @@ for o in -O0 -O1 -O2 -O3; do
   check empty-kernel-default empty-kernel-stdpar.cxx "$o -stdpar=gpu" '^23\.6 '
   check aggregate-zero-init aggregate-zero-init.cxx "$o -stdpar=gpu -gpu=mem:managed" '^2 '
   check omp-array-value-init omp-array-value-init.cxx "$o -mp=gpu" '^2 4 6 8 10 12 14 16 18 '
+  check omp-lambda-pointer-array omp-lambda-pointer-array.cxx "$o -mp=gpu -gpu=mem:managed" ' OK$'
   check member-function-pointer member-function-pointer.cxx "$o -stdpar=gpu -gpu=mem:managed" '^2 '
   check std-variant-visit std-variant-visit.cxx "$o -stdpar=gpu -gpu=mem:managed" '^5 '
 done

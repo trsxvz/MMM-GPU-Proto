@@ -250,7 +250,6 @@ namespace mfront::generic_parallel::material_property {
     const auto nname = i.getInterfaceInternalNamespace();
     const auto types = i.getTypesDescription();
     const auto& params = mpd.parameters;
-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
     os << "MFRONT_SHAREDOBJ void " << name;
     if (!treatStrides) {
       os << "2";
@@ -298,9 +297,11 @@ namespace mfront::generic_parallel::material_property {
          << "}\n"
          << "}\n"
          << "return true;\n"
-         << "};\n"
-         << "const int mfront_errno_old = errno;\n";
+         << "};\n";
     }
+    // errno is restored before returning, even if the runtime checks are
+    // disabled (checks of the strides)
+    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
     os << "mfront_output_status->status = 0;\n"
        << "mfront_output_status->bounds_status = 0;\n"
        << "mfront_output_status->c_error_number = 0;\n";
@@ -328,7 +329,8 @@ namespace mfront::generic_parallel::material_property {
              << "mfront_output_status->status = -5;\n"
              << "mfront_report(\"negative stride given for variable '"
              << mpd.inputs[idx].getExternalName()
-             << "' (\"+std::to_string(mfront_output_stride)+\" given\");\n"
+             << "' (\"+std::to_string(mfront_args_strides[" << idx
+             << "])+\" given)\");\n"
              << "errno = mfront_errno_old;\n"
              << "return;\n"
              << "}\n";
@@ -418,7 +420,7 @@ namespace mfront::generic_parallel::material_property {
       if (uniform) {
         os << "<<<1, 1>>>(mfront_output, ";
       } else {
-        os << "<<<((mfront_npoints + " << block_size + 1 << ") / ( "
+        os << "<<<((mfront_npoints + " << block_size - 1 << ") / ( "
            << block_size << ")), " << block_size << ">>>(mfront_output, ";
       }
       if (handleStrides) {

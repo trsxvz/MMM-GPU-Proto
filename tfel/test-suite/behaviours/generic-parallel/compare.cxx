@@ -186,9 +186,12 @@ static void* queue() { return nullptr; }
 //! \brief nothing to initialize
 struct Runtime {};
 
-//! \return the SYCL queue used by all the computations
+/*!
+ * \return the SYCL queue used by all the computations. The asynchronous
+ * computations require an in-order queue.
+ */
 static ::sycl::queue& getQueue() {
-  static auto q = ::sycl::queue{};
+  static auto q = ::sycl::queue{::sycl::property::queue::in_order{}};
   return q;
 }
 
@@ -1134,6 +1137,64 @@ static bool print(const char* const what,
 }
 
 /*!
+ * \return true if the integration of an empty batch whose fields are null
+ * succeeds. The data of an empty `std::vector` may be null, for instance on
+ * a process which has no point of a material.
+ * \param[in] f: batch function
+ * \param[in] fs: options of the finite strain behaviours
+ * \param[in] K0: type of computation
+ */
+static bool testEmptyBatch(BatchFunction f,
+                           const FiniteStrainOptions& fs,
+                           const double K0) {
+  auto d = mfront_gpb_BatchData{};
+  d.number_of_points = 0;
+  d.dt = 1;
+  d.options[0] = K0;
+  d.options[1] = fs.stress_measure;
+  d.options[2] = fs.tangent_operator;
+  d.rdt = 1;
+  d.execution.queue = queue();
+  auto o = mfront_gpb_OutputStatus{};
+  f(&o, &d);
+  const auto pass = o.status == 1;
+  std::printf("%-12s %-12s status=%2d | %s\n", "empty batch", "null fields",
+              o.status, pass ? "OK" : "FAILED");
+  return pass;
+}
+
+/*!
+ * \return true if an invalid stress measure given to a finite strain
+ * behaviour is reported as an invalid argument (status `-2`) for the whole
+ * batch, and not as an integration failure at every point. General
+ * behaviours, which do not use those options, are not tested.
+ * \param[in] t: test
+ * \param[in] f: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testInvalidComputationOptions(const Test& t,
+                                          BatchFunction f,
+                                          const double K0) {
+  const auto* const type = static_cast<const unsigned short*>(
+      findSymbol(t.batch_library, t.name, "BehaviourType"));
+  if ((type == nullptr) || (*type == 0)) {
+    return true;
+  }
+  auto fs = t.options.finite_strain;
+  // no stress measure is associated with this value
+  fs.stress_measure = 3;
+  auto st = t.initial;
+  auto b = BatchFields(st, t.sizes, fs, t.n, t.dt, K0, Storage::by_point);
+  auto o = mfront_gpb_OutputStatus{};
+  f(&o, &b.data);
+  synchronize();
+  const auto pass = o.status == -2;
+  std::printf("%-12s %-12s status=%2d | %s\n", "invalid", "options", o.status,
+              pass ? "OK" : "FAILED");
+  return pass;
+}
+
+/*!
  * \brief compare two time steps integrated by both interfaces, for all
  * types of computation and storages of the fields
  */
@@ -1148,8 +1209,11 @@ static bool testIntegration(const Test& t) {
   // the speed of sound is requested by an offset of the type of computation
   const auto speed_of_sound = t.initial.mass_density > 0;
   const auto o0 = speed_of_sound ? 100. : 0.;
-  auto ok = true;
   const auto Kt = t.options.tangent_operator;
+  auto ok = testEmptyBatch(fb, fs, Kt + o0);
+  if (fs.finite_strain) {
+    ok = testInvalidComputationOptions(t, fb, Kt + o0) && ok;
+  }
   for (const auto K0 : {Kt, -1., 0.}) {
     // models have no tangent operator, hence no prediction
     if ((s.K == 0) && (K0 < -0.25)) {

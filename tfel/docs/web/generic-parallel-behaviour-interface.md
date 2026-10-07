@@ -283,7 +283,11 @@ typedef struct {
 The computations may then be asynchronous: the function returns once they
 are submitted to the queue (`CUDA`, `HIP` and `Kokkos` backends, `SYCL`
 backend if no field is copied). The calling code must synchronize the queue
-before reading the outputs and the statistics. The output status only
+before reading the outputs and the statistics. With the `SYCL` backend,
+asynchronous computations require an in-order queue
+(`sycl::property::queue::in_order`): an out-of-order queue gives no order
+between the kernels. With an out-of-order queue, the computations are
+synchronous and the queue is synchronized before the kernel. The output status only
 reports invalid arguments and runtime errors. This allows to submit the
 integration of several batches, and other computations such as the
 assembly of a finite element system, before a single synchronization. The
@@ -566,7 +570,11 @@ The following rules apply to the code blocks written by the user:
   first call of a function of the generated library (device memory of the
   current device with the `CUDA`, `HIP`, `SYCL` and `Kokkos` backends,
   heap otherwise), which is never freed. The type of the data must be
-  trivially copyable.
+  trivially copyable. Since the copy is made once, all the calls must use
+  the same device: a process using several GPUs can't share such a library
+  between them. With the other backends, the heap must be accessible by the
+  device when the computations are offloaded (unified memory, as with the
+  `stlpar` backend of `nvc++`).
 - the standard streams (`std::cout`) can't be used in device code. They
   can be kept on the host:
 

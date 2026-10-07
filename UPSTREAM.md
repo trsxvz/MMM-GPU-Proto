@@ -10,7 +10,15 @@ the branch, file by file, rather than by cherry-picking.
 
 1. **Fixes of existing code**, without device code:
    - linker flags after the object files;
-   - fixes of the `generic-parallel` interface for material properties;
+   - fixes of the `generic-parallel` interface for material properties:
+     code generated with the runtime checks disabled, device memory of
+     the `SYCL` backend freed after each call, pointers to the arguments
+     copied in the kernels (the array given by the calling code may not be
+     accessible by the device), extents of the strided fields and values
+     between the strided outputs preserved (`SYCL`), data transfers inside
+     the `try` block, backend in the header guard, bounds and default
+     values of the parameters written with 14 digits, grid size of the
+     `CUDA` kernels;
    - fixes of the drivers of the `generic` interface: status tested after
      a finite strain integration, moduli of the `DTAU_DDF` operator with the
      Hencky strain, state at the end of the time step in the

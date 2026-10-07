@@ -159,6 +159,8 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
 - [x] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
       (MFEM 4.10 reporté à mfem-mgis : compilation CUDA de plusieurs
       heures, jusqu'à 22 Go pour un fichier).
+- [x] R5 clang-tidy et relecture indépendante de l'interface : défauts
+      corrigés, tests ajoutés (entrée du 08/10, nuit).
 D. Intégration
 - [ ] D1 MGIS (proposition de conception détaillée :
       `scratch/d1-mgis-design.md`, 10 questions ouvertes) :
@@ -1611,3 +1613,98 @@ environnements.
 Suite proposée : campagne de performance (grands lots, CPU multicœur
 contre GPU, plusieurs familles de lois), clang-tidy et relecture
 indépendante, puis D1 (MGIS).
+
+### 2026-10-08 (nuit), clang-tidy et relecture indépendante (R5)
+
+clang-tidy 20 (vérifications bugprone, clang-analyzer, performance et
+quelques modernize, readability et cppcoreguidelines) sur les sources de
+l'interface dans MFront et sur le code généré de cinq lois (comportements
+en petites et grandes déformations, modèle, propriétés matériau), avec les
+en-têtes de l'interface. Aucun défaut dans les en-têtes exécutés au
+calcul. Dans le générateur : variables mortes (code amont des propriétés
+matériau) et deux copies inutiles, corrigées. Le reste est cosmétique.
+
+Deux relectures indépendantes, l'une des en-têtes exécutés au calcul,
+l'autre du générateur. Défauts confirmés et corrigés :
+
+- lois de comportement et modèles :
+  - un lot vide dont les champs sont nuls (données d'un `std::vector`
+    vide, processus sans point d'un matériau) était refusé (`-2`) ;
+  - des options de calcul invalides d'une loi en grandes déformations
+    donnaient un échec en chaque point (`-1`), ce qui pousse un code
+    éléments finis à réduire le pas sans fin. Elles sont maintenant
+    refusées pour le lot (`-2`) ;
+  - les fonctions d'initialisation et les post-traitements écrasaient les
+    facteurs de pas `rdts` proposés par l'intégration ;
+  - le statut de sortie n'était pas complet après une exception levée
+    avant la vérification des données ;
+  - SYCL, politique `automatic` : l'étendue copiée d'un champ utilisait
+    les tailles maximales et non celles des options. Pour une loi en
+    grandes déformations avec la contrainte de Cauchy, la copie lisait
+    puis réécrivait des valeurs après la fin du tableau de l'appelant ;
+  - SYCL, politique `automatic` : deux sorties rangées dans la même zone
+    (contraintes et variables internes d'un point stockées à la suite)
+    s'écrasaient au retour. Seules les valeurs d'un champ sont recopiées ;
+  - SYCL : le champ d'un groupe donné variable par variable était copié
+    alors que le contrat le dit ignoré ;
+  - SYCL : aucun ordre entre le noyau et le travail déjà soumis à une file
+    hors ordre. Les calculs asynchrones demandent maintenant une file
+    ordonnée (`-2` sinon) ; en synchrone, une file hors ordre est
+    synchronisée avant le noyau ;
+- propriétés matériau (code amont) :
+  - avec `disable_runtime_checks`, la variante avec pas ne compilait pour
+    aucun backend (`mfront_errno_old` non déclaré) ;
+  - SYCL : la mémoire du périphérique n'était jamais libérée (fuite à
+    chaque appel) ; étendue des champs avec pas trop grande ; valeurs
+    situées entre les valeurs d'une sortie avec pas écrasées au retour ;
+  - le tableau des pointeurs des arguments, souvent sur la pile de
+    l'appelant, était lu dans les noyaux (Kokkos, OpenMP, stdpar, SYCL).
+    Les pointeurs sont maintenant copiés dans le noyau. Ce défaut était
+    masqué par la carte de développement : le pilote y active HMM, qui
+    rend toute la mémoire de l'hôte lisible par le GPU ;
+  - transferts SYCL faits hors du bloc `try` ; garde d'inclusion sans le
+    nom du backend ; bornes et valeurs par défaut écrites avec 6 chiffres ;
+    un bloc CUDA de trop ; message d'erreur faux ; fichier parasite.
+
+Nouveau défaut de nvc++ 25.11 trouvé en corrigeant : une lambda qui capture
+un `std::array` de pointeurs, passée par `map(to : ...)` à une région
+OpenMP, lit des pointeurs faux sur GPU (-O2, -O3), ou ne compile pas (-O0,
+-O1). Reproducteur `results/nvhpc-bugs/omp-lambda-pointer-array.cxx`. Les
+pointeurs sont capturés un par un.
+
+Tests ajoutés : lot vide à champs nuls et options invalides (programme de
+comparaison, tous les backends), compilation d'une propriété matériau avec
+les vérifications désactivées. Chacun échoue avec les anciennes
+bibliothèques et passe avec les nouvelles.
+
+Documenté sans correction : les `@SharedData` sont copiées une fois, sur le
+périphérique du premier appel (un processus à plusieurs GPU ne peut pas
+partager la bibliothèque) ; hors CUDA, HIP, SYCL et Kokkos, le tas doit être
+accessible par le périphérique.
+
+Restent ouverts, de moindre gravité : symboles `generic_parallel_backend`
+et version d'API absents pour les propriétés matériau, duplication entre
+les interfaces comportement et modèle et entre les deux noyaux des
+propriétés matériau, encodage de `rdt` écrit deux fois (C et C++),
+`device_stack_size` ignoré sans message si le runtime CUDA est absent.
+Les relectures sont dans `scratch/review-r5` (non versionné).
+
+Validation à -O3 avec l'arbre de développement :
+
+- comportements : openmp-host-gcc, cuda-nvcc et kokkos 601/601 (540
+  comparaisons, 50 lots vides, 11 options invalides), sycl-default-acpp
+  627/627 (RTX 5080, mémoire de l'hôte : copies `automatic` exercées) ;
+- propriétés matériau : stlpar-parunseq-gcc, openmp-host-gcc, kokkos-host,
+  kokkos, cuda-nvcc, hip-hipcc, sycl-default-acpp, sycl-gpu-acpp,
+  stlpar-parunseq-nvhpc-gpu et openmp-offload-nvhpc-gpu réussis.
+
+`scratch/dev-test.sh` produit maintenant tous les fichiers de
+configuration nommés par un test (sycl-gpu-acpp utilise celui de
+sycl-default-acpp).
+
+Limite de la validation sur cette machine : le pilote NVIDIA y active HMM,
+qui rend toute la mémoire de l'hôte accessible au GPU. Un accès du GPU à
+la pile ou au tas de l'hôte y fonctionne, alors qu'il plante sur une
+machine sans HMM. Pour s'en assurer, il faudrait relancer les tests GPU
+avec le module `nvidia_uvm` chargé avec `uvm_disable_hmm=1` (droits
+administrateur).

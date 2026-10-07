@@ -181,9 +181,6 @@ namespace mfront::generic_parallel::material_property {
       return;
     }
     const auto& b = v.getPhysicalBounds();
-    const auto to_string = useQuantities
-                               ? "std::to_string(" + v.name + ".getValue())"
-                               : "std::to_string(" + v.name + ")";
     if ((b.boundsType == VariableBoundsDescription::LOWER) ||
         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
       os << "if(" << v.name << " < " << v.type << "(" << b.lowerBound << ")){\n"
@@ -208,9 +205,6 @@ namespace mfront::generic_parallel::material_property {
     if (!v.hasBounds()) {
       return;
     }
-    const auto to_string = useQuantities
-                               ? "std::to_string(" + v.name + ".getValue())"
-                               : "std::to_string(" + v.name + ")";
     const auto& b = v.getBounds();
     if ((b.boundsType == VariableBoundsDescription::LOWER) ||
         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {

@@ -80,6 +80,19 @@ namespace mfront::gpb {
       return sizes;
     }  // end of getPointDataSizes
     /*!
+     * \return true if the computation options select a valid stress
+     * measure and a valid tangent operator, as required by the integration
+     * functions of the `generic` interface
+     * \param[in] o: computation options
+     */
+    static constexpr bool checkComputationOptions(
+        const ComputationOptions& o) noexcept {
+      using mfront::gb::FiniteStrainTangentOperator;
+      using mfront::gb::StressMeasure;
+      return (o.stress_measure != StressMeasure::INVALID_STRESS_MEASURE) &&
+             (o.tangent_operator != FiniteStrainTangentOperator::C_TRUESDELL);
+    }  // end of checkComputationOptions
+    /*!
      * \brief integrate the behaviour at one point
      * \tparam Behaviour: class implementing the behaviour
      * \tparam ParametersType: type of the structure holding the parameters

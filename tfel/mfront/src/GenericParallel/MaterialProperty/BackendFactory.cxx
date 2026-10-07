@@ -12,6 +12,7 @@
  * project under specific licensing conditions.
  */
 
+#include <utility>
 #include "TFEL/Raise.hxx"
 #include "MFront/GenericParallel/MaterialProperty/CUDABackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/HIPBackend.hxx"
@@ -50,7 +51,7 @@ namespace mfront::generic_parallel::material_property {
   }  // end of BackendFactory
 
   void BackendFactory::add(std::string_view n, Generator g) {
-    if (!this->generators.insert({std::string{n}, g}).second) {
+    if (!this->generators.insert({std::string{n}, std::move(g)}).second) {
       tfel::raise("a backend named '" + std::string{n} +
                   "' has already been registred");
     }

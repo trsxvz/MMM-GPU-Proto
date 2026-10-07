@@ -600,8 +600,26 @@ namespace mfront::gpb {
   };
 
   /*!
+   * \brief record the status of a point, if requested
+   * \param[in] d: batch data
+   * \param[in] i: index of the integration point
+   * \param[in] r: result
+   */
+  TFEL_HOST_DEVICE inline void recordStatus(const BatchData& d,
+                                            const size_type i,
+                                            const PointResult& r) noexcept {
+    if (d.statuses != nullptr) {
+      d.statuses[i] = r.status;
+    }
+  }  // end of recordStatus
+
+  /*!
    * \brief record the status and the time step scaling factor of a point,
-   * if requested
+   * if requested. The time step scaling factor is only meaningful for the
+   * integration: the initialize functions and the post-processings only
+   * record the status, so that they can be called with the batch data of
+   * the integration without overwriting the factors proposed by the
+   * behaviour.
    * \param[in] d: batch data
    * \param[in] i: index of the integration point
    * \param[in] r: result
@@ -610,9 +628,7 @@ namespace mfront::gpb {
                                       const size_type i,
                                       const PointResult& r) noexcept {
     internals::scatter(d.rdts, i, r.rdt);
-    if (d.statuses != nullptr) {
-      d.statuses[i] = r.status;
-    }
+    recordStatus(d, i, r);
   }  // end of record
 
   /*!
@@ -828,6 +844,11 @@ namespace mfront::gpb {
     constexpr auto sizes = PointDataSizes{PointTraits::value};
     initialize(s, d.rdt);
     const auto n = d.number_of_points;
+    if (n == 0) {
+      // nothing is read or written: the fields of an empty batch may be
+      // null (for example, the data of an empty `std::vector`)
+      return true;
+    }
     auto check_input = [&s](const ConstField& f, const size_type size,
                             const std::string_view name) {
       if ((size != 0) && (f.values == nullptr)) {
@@ -929,6 +950,30 @@ namespace mfront::gpb {
            check_output(d.speed_of_sound, 1, o.speed_of_sound,
                         "invalid speeds of sound");
   }  // end of check
+
+  /*!
+   * \brief check the computation options of the integration of a batch,
+   * for the behaviours whose integrator validates them (finite strain
+   * behaviours). Invalid options are an error of the calling code, reported
+   * for the whole batch, and not an integration failure at every point.
+   * \tparam PointTraits: description of the data of an integration point
+   * \param[out] s: output status
+   * \param[in] d: batch data
+   * \return true if the computation options are valid
+   */
+  template <typename PointTraits>
+  bool checkComputationOptions(OutputStatus& s, const BatchData& d) noexcept {
+    using Integrator = typename PointTraits::Integrator;
+    if constexpr (requires(const ComputationOptions& o) {
+                    Integrator::checkComputationOptions(o);
+                  }) {
+      if (!Integrator::checkComputationOptions(getComputationOptions(d))) {
+        report(s, -2, "invalid computation options");
+        return false;
+      }
+    }
+    return true;
+  }  // end of checkComputationOptions
 
   /*!
    * \return the field pointed by the given pointer, or an empty field if
@@ -1058,7 +1103,7 @@ namespace mfront::gpb {
           r.status = 1;
         }
       }
-      record(d, i, r);
+      recordStatus(d, i, r);
       return BatchStatistics::from(r);
     }
     //! \brief values of the inputs of the initialize function
@@ -1111,7 +1156,7 @@ namespace mfront::gpb {
           r.status = 1;
         }
       }
-      record(d, i, r);
+      recordStatus(d, i, r);
       return BatchStatistics::from(r);
     }
     //! \brief values of the outputs of the post-processing
@@ -1195,7 +1240,8 @@ namespace mfront::gpb {
                      const ParametersType& parameters,
                      const tfel::material::OutOfBoundsPolicy p,
                      const Apply& apply) {
-    if (!check<PointTraits>(s, d)) {
+    if ((!check<PointTraits>(s, d)) ||
+        (!checkComputationOptions<PointTraits>(s, d))) {
       return s.status;
     }
     using Integrator = PointIntegrator<Behaviour, PointTraits, ParametersType>;
@@ -1233,8 +1279,9 @@ namespace mfront::gpb {
       const ParametersType& parameters,
       const tfel::material::OutOfBoundsPolicy p,
       const Apply& apply) {
+    const auto nv = d.number_of_points == 0 ? 0 : number_of_inputs;
     if ((!check<PointTraits>(s, d)) ||
-        (!checkValues(s, inputs, number_of_inputs, "invalid inputs"))) {
+        (!checkValues(s, inputs, nv, "invalid inputs"))) {
       return s.status;
     }
     using Executor =
@@ -1277,8 +1324,9 @@ namespace mfront::gpb {
                                    const ParametersType& parameters,
                                    const tfel::material::OutOfBoundsPolicy p,
                                    const Apply& apply) {
+    const auto nv = d.number_of_points == 0 ? 0 : number_of_outputs;
     if ((!check<PointTraits>(s, d)) ||
-        (!checkValues(s, outputs, number_of_outputs, "invalid outputs"))) {
+        (!checkValues(s, outputs, nv, "invalid outputs"))) {
       return s.status;
     }
     using Executor = PostProcessingExecutor<Behaviour, PointTraits,
@@ -1333,6 +1381,9 @@ namespace mfront::gpb {
     if (s == nullptr) {
       return -2;
     }
+    // the output status is complete even if an exception is thrown before
+    // the batch data are checked
+    initialize(*s, 1);
     try {
       return f();
     } catch (std::exception& e) {

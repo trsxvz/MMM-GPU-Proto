@@ -14,7 +14,10 @@
 #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
 
+#include <cstddef>
+#include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -64,8 +67,11 @@ namespace mfront::gpb::sycl {
       /*!
        * \brief copy a field in device memory if it is not accessible by the
        * device, and make the field refer to the copy. All the values covered
-       * by the strides of the field are copied, so that the values of an
-       * output which are not written are preserved.
+       * by the strides of the field are copied. For an output, only the
+       * values of the field are copied back, so that the values of other
+       * outputs sharing the same memory (for example, the thermodynamic
+       * forces and the internal state variables of a point stored
+       * contiguously) are not overwritten.
        * \param[in,out] f: field
        * \param[in] size: number of components
        * \param[in] output: if true, the field is an output
@@ -79,7 +85,12 @@ namespace mfront::gpb::sycl {
         }
         const auto extent =
             (n - 1) * f.point_stride + (size - 1) * f.component_stride + 1;
-        this->transfer(f.values, extent, output);
+        using value_type =
+            std::remove_const_t<std::remove_pointer_t<decltype(f.values)>>;
+        const auto l = Layout{n, size, f.point_stride, f.component_stride};
+        f.values = static_cast<value_type*>(this->copy(
+            f.values, extent * sizeof(value_type), sizeof(value_type), output,
+            extent == n * size ? std::optional<Layout>{} : l));
       }
       /*!
        * \brief copy an array in device memory if it is not accessible by the
@@ -95,8 +106,9 @@ namespace mfront::gpb::sycl {
           return;
         }
         using value_type = std::remove_const_t<ValueType>;
-        p = static_cast<value_type*>(
-            this->copy(p, size * sizeof(value_type), output));
+        p = static_cast<value_type*>(this->copy(p, size * sizeof(value_type),
+                                                sizeof(value_type), output,
+                                                std::optional<Layout>{}));
       }
       /*!
        * \brief copy the outputs back to their original locations, once the
@@ -108,8 +120,23 @@ namespace mfront::gpb::sycl {
         }
         this->queue.wait_and_throw();
         for (const auto& c : this->copies) {
-          if (c.output) {
+          if (!c.output) {
+            continue;
+          }
+          if (!c.layout.has_value()) {
             this->queue.memcpy(c.host, c.device, c.size).wait_and_throw();
+            continue;
+          }
+          auto values = std::vector<std::byte>(c.size);
+          this->queue.memcpy(values.data(), c.device, c.size).wait_and_throw();
+          const auto& l = *(c.layout);
+          auto* const host = static_cast<std::byte*>(c.host);
+          for (size_type i = 0; i != l.number_of_points; ++i) {
+            for (size_type k = 0; k != l.number_of_components; ++k) {
+              const auto o =
+                  (i * l.point_stride + k * l.component_stride) * c.value_size;
+              std::memcpy(host + o, values.data() + o, c.value_size);
+            }
           }
         }
       }
@@ -121,6 +148,13 @@ namespace mfront::gpb::sycl {
       }
 
      private:
+      //! \brief positions of the values of a strided field
+      struct Layout {
+        size_type number_of_points;
+        size_type number_of_components;
+        size_type point_stride;
+        size_type component_stride;
+      };
       //! \brief description of a copy in device memory
       struct Copy {
         //! \brief original location
@@ -129,8 +163,15 @@ namespace mfront::gpb::sycl {
         void* device;
         //! \brief size in bytes
         std::size_t size;
+        //! \brief size of a value in bytes
+        std::size_t value_size;
         //! \brief if true, the copy must be copied back
         bool output;
+        /*!
+         * \brief positions of the values of the field, if the copy also
+         * covers values which do not belong to the field
+         */
+        std::optional<Layout> layout;
       };
       //! \return if the given pointer is accessible by the device
       bool isAccessible(const void* const p) const {
@@ -145,17 +186,23 @@ namespace mfront::gpb::sycl {
        * \return the copy
        * \param[in] p: array
        * \param[in] size: size in bytes
+       * \param[in] value_size: size of a value in bytes
        * \param[in] output: if true, the copy must be copied back
+       * \param[in] layout: positions of the values to be copied back, if
+       * not all the values of the array
        */
       void* copy(const void* const p,
                  const std::size_t size,
-                 const bool output) {
+                 const std::size_t value_size,
+                 const bool output,
+                 const std::optional<Layout>& layout) {
         auto* const c = ::sycl::malloc_device(size, this->queue);
         if (c == nullptr) {
           throw std::runtime_error(
               "memory allocation failed on the SYCL device");
         }
-        this->copies.push_back(Copy{const_cast<void*>(p), c, size, output});
+        this->copies.push_back(
+            Copy{const_cast<void*>(p), c, size, value_size, output, layout});
         this->queue.memcpy(c, p, size).wait_and_throw();
         return c;
       }
@@ -188,7 +235,11 @@ namespace mfront::gpb::sycl {
                       const BatchData& d,
                       const DataTransferPolicy p)
           : DeviceCopies(q, d.number_of_points, p), data(d) {
-        constexpr auto sizes = PointDataSizes{PointTraits::value};
+        // the sizes of the thermodynamic forces and of the tangent operator
+        // of the finite strain behaviours depend on the computation options
+        using Integrator = typename PointTraits::Integrator;
+        const auto sizes = Integrator::template getPointDataSizes<PointTraits>(
+            getComputationOptions(d));
         auto& s0 = this->data.s0;
         auto& s1 = this->data.s1;
         this->transfer(s0.gradients, sizes.gradients, false);
@@ -199,10 +250,15 @@ namespace mfront::gpb::sycl {
                        true);
         this->transfer(s0.mass_density, 1, false);
         this->transfer(s1.mass_density, 1, false);
-        this->transfer(s0.material_properties, sizes.material_properties,
-                       false);
-        this->transfer(s1.material_properties, sizes.material_properties,
-                       false);
+        // the fields of a group given variable by variable are ignored
+        if (s0.material_properties_by_variable == nullptr) {
+          this->transfer(s0.material_properties, sizes.material_properties,
+                         false);
+        }
+        if (s1.material_properties_by_variable == nullptr) {
+          this->transfer(s1.material_properties, sizes.material_properties,
+                         false);
+        }
         this->transfer(s0.internal_state_variables,
                        sizes.internal_state_variables, false);
         this->transfer(s1.internal_state_variables,
@@ -211,10 +267,14 @@ namespace mfront::gpb::sycl {
         this->transfer(s1.stored_energy, 1, true);
         this->transfer(s0.dissipated_energy, 1, false);
         this->transfer(s1.dissipated_energy, 1, true);
-        this->transfer(s0.external_state_variables,
-                       sizes.external_state_variables, false);
-        this->transfer(s1.external_state_variables,
-                       sizes.external_state_variables, false);
+        if (s0.external_state_variables_by_variable == nullptr) {
+          this->transfer(s0.external_state_variables,
+                         sizes.external_state_variables, false);
+        }
+        if (s1.external_state_variables_by_variable == nullptr) {
+          this->transfer(s1.external_state_variables,
+                         sizes.external_state_variables, false);
+        }
         constexpr const auto& mps = PointTraits::material_properties_sizes;
         constexpr const auto& esvs =
             PointTraits::external_state_variables_sizes;
@@ -351,6 +411,18 @@ namespace mfront::gpb::sycl {
       return report(s, -3, mfront::generic_parallel::stack_size_error_message);
     }
     auto& q = *static_cast<::sycl::queue*>(o.queue);
+    // the kernel must be executed after the computations already submitted
+    // to the queue, which may compute the inputs. This is guaranteed by an
+    // in-order queue. With an out-of-order queue, the computations are
+    // synchronous and the queue is synchronized before the kernel.
+    if (!q.is_in_order()) {
+      if (o.statistics != nullptr) {
+        return report(s, -2,
+                      "asynchronous computations require an in-order SYCL "
+                      "queue");
+      }
+      q.wait_and_throw();
+    }
     const auto range = ::sycl::range<1>{n};
     const auto rdt_key = toOrderedKey(rdt0);
     using Kernel = internals::Kernel<PointFunction>;

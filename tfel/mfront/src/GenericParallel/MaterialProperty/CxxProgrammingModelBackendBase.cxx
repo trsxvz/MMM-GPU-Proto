@@ -90,8 +90,6 @@ namespace mfront::generic_parallel::material_property {
     const auto nname = i.getInterfaceInternalNamespace();
     const auto types = i.getTypesDescription();
     const auto& params = mpd.parameters;
-    const auto iucname = i.getInterfaceNameInUpperCase();
-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
     os << "MFRONT_SHAREDOBJ void " << name;
     if (!treatStrides) {
       os << '2';
@@ -164,9 +162,11 @@ namespace mfront::generic_parallel::material_property {
          << "}\n"
          << "}\n"
          << "return true;\n"
-         << "};\n"
-         << "const int mfront_errno_old = errno;\n";
+         << "};\n";
     }
+    // errno is restored before returning, even if the runtime checks are
+    // disabled (checks of the strides)
+    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
     os << "mfront_output_status->status = 0;\n"
        << "mfront_output_status->bounds_status = 0;\n"
        << "mfront_output_status->c_error_number = 0;\n";
@@ -206,7 +206,7 @@ namespace mfront::generic_parallel::material_property {
              << "mfront_report(\"negative stride given for variable '"
              << mpd.inputs[idx].getExternalName()
              << "' (\"+std::to_string(mfront_args_strides[" << idx
-             << "])+\" given\");\n"
+             << "])+\" given)\");\n"
              << "errno = mfront_errno_old;\n"
              << "return;\n"
              << "}\n";
@@ -258,12 +258,12 @@ namespace mfront::generic_parallel::material_property {
          << "return;\n"
          << "}\n";
     }
-    //
+    // the data transfers may throw exceptions, which must not cross the
+    // boundary of the C function
+    os << "try{\n";
     if (this->handlesDataTransfer()) {
       this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
     }
-    //
-    os << "try{\n";
     this->writeKernelCall(os, i, mpd, fd, treatStrides);
     //
     if (!areRuntimeChecksDisabled(mpd)) {
@@ -298,8 +298,6 @@ namespace mfront::generic_parallel::material_property {
       const bool handleStrides) const {
     const auto types = i.getTypesDescription();
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
-    const auto name = i.getFunctionName(mpd);
-    const auto nname = i.getInterfaceInternalNamespace();
     const auto iucname = i.getInterfaceNameInUpperCase();
     const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
     const auto& function = mpd.f;
@@ -313,11 +311,11 @@ namespace mfront::generic_parallel::material_property {
     if (handleStrides) {
       os << ", mfront_output_stride";
     }
-    if (!mpd.inputs.empty()) {
-      os << ", mfront_args";
-      if (handleStrides) {
-        os << ", mfront_args_strides_tmp";
-      }
+    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+      os << ", mfront_arg" << idx;
+    }
+    if ((handleStrides) && (!mpd.inputs.empty())) {
+      os << ", mfront_args_strides_tmp";
     }
     // the captured variables are declared by `writeKernels`: the extended
     // lambdas of nvcc, used by Kokkos, can't have initializers in their
@@ -364,12 +362,12 @@ namespace mfront::generic_parallel::material_property {
         auto cast_end = useQuantities(mpd) ? ")" : "";
         if (handleStrides) {
           os << "const auto " << p3->name << " = " << cast_start;
-          os << "(mfront_args[" << idx << "])[mfront_args_strides_tmp[" << idx
+          os << "mfront_arg" << idx << "[mfront_args_strides_tmp[" << idx
              << "] * mfront_idx]";
           os << cast_end << ";\n";
         } else {
           os << "const auto " << p3->name << " = " << cast_start;
-          os << "(mfront_args[" << idx << "])[mfront_idx]";
+          os << "mfront_arg" << idx << "[mfront_idx]";
           os << cast_end << ";\n";
         }
       }
@@ -456,7 +454,16 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd,
       const bool treatStrides) const {
-    // variables captured by the kernels
+    // variables captured by the kernels. The pointers to the arguments are
+    // copied, since the array of those pointers given by the calling code
+    // is generally not accessible by the device (for example, an array on
+    // the stack of the calling code). They are captured one by one: nvc++
+    // 25.11 does not map an array of pointers captured by a lambda in an
+    // OpenMP target region.
+    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+      os << "const auto mfront_arg" << idx << " = mfront_args[" << idx
+         << "];\n";
+    }
     if (this->isBoundsCheckingRequired(mpd)) {
       os << "auto* const mfront_bounds_statuses = "
          << "mfront_bounds_statuses_storage.data();\n";

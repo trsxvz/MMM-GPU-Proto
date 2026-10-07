@@ -10,6 +10,9 @@
 @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
 @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
 @Command "./test-openmp test-openmp-openmp-host-gcc";
+// compilation with the runtime checks disabled
+@Command "@mfront@ --interface=generic-parallel --dsl-option=disable_runtime_checks:true --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus.mfront";
+@Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
 
 @CleanFiles {"test-openmp"};
 @CleanDirectories {"include", "src"};

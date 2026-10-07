@@ -218,7 +218,7 @@ namespace mfront {
     if (!md.includes.empty()) {
       os << md.includes << "\n\n";
     }
-    const auto mhs = ModellingHypothesis::getModellingHypotheses();
+    const auto& mhs = ModellingHypothesis::getModellingHypotheses();
     const auto hypotheses =
         std::set<ModellingHypothesis::Hypothesis>{mhs.begin(), mhs.end()};
     const auto bd = convertToBehaviourDescription(md);
@@ -320,10 +320,11 @@ namespace mfront {
          << "return mfront::gpb::handleExceptions(mfront_output_status, "
          << "[mfront_output_status, mfront_batch_data] {\n"
          << "if (mfront_batch_data == nullptr) {\n"
-         << "mfront::gpb::initialize(*mfront_output_status, 1);\n"
          << "return mfront::gpb::report(*mfront_output_status, -2, "
          << "\"no batch data given\");\n"
          << "}\n"
+         << "mfront::gpb::initialize(*mfront_output_status, "
+         << "mfront_batch_data->rdt);\n"
          << "using mfront_point_traits = " << point_traits << ";\n"
          << "auto& mfront_status = *mfront_output_status;\n"
          << "const auto& mfront_data = *mfront_batch_data;\n";

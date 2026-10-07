@@ -38,12 +38,19 @@ apply() {
   echo "$line"
 }
 dev_includes="-I$D/mfront/include -I$D/include"
-# configuration file with the headers of the development tree first
-apply "$(cat "$D/mfront/configuration-files/config-$conf.json")" |
-  sed "s|compilation_flags: \({\?\)\"|compilation_flags: \1\"$dev_includes |g" > "config-$conf.json"
+# configuration files with the headers of the development tree first: the
+# one of the configuration and the ones used by the test (for instance,
+# sycl-gpu-acpp uses config-sycl-default-acpp.json)
+configurations=$( (echo "$conf"; grep -o 'configuration-file=config-[A-Za-z0-9_-]*\.json' test.check |
+  sed 's/.*=config-//; s/\.json$//') | sort -u)
+for cf in $configurations; do
+  [ -f "$D/mfront/configuration-files/config-$cf.json" ] || continue
+  apply "$(cat "$D/mfront/configuration-files/config-$cf.json")" |
+    sed "s|compilation_flags: \({\?\)\"|compilation_flags: \1\"$dev_includes |g" > "config-$cf.json"
+done
 level=${DEVTEST_OPTIMIZATION_LEVEL:-}
 if [ -n "$level" ]; then
-  sed -i "s/-O2/$level/g" "config-$conf.json" test.check
+  sed -i "s/-O2/$level/g" config-*.json test.check
 fi
 # the headers of the development tree are also used by the sources compiled
 # by the C++ compiler (INCLUDES precedes the other include paths)

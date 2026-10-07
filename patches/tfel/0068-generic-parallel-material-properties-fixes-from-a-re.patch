@@ -1,0 +1,372 @@
+From ca520c27fc132a8800d1b6ca9ce14ce72ac71d7c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 00:09:28 +0200
+Subject: [PATCH] generic-parallel material properties: fixes from a review
+
+- the variant with strides did not compile with the runtime checks
+  disabled (`mfront_errno_old` declared only with the checks);
+- SYCL backend: the device memory was never freed (empty destructor of
+  the data buffers); the extents of the strided fields were too large;
+  the values between the values of a strided output were overwritten
+  when the output was copied back;
+- the array of the pointers to the arguments, generally on the stack of
+  the calling code, was read in the kernels. The pointers are copied in
+  the kernels, one by one: nvc++ 25.11 does not map an array of pointers
+  captured by a lambda in an OpenMP target region;
+- the data transfers are made inside the `try` block, so that their
+  exceptions do not cross the boundary of the C function;
+- the name of the backend is part of the header guard;
+- the bounds and the default values of the parameters are written with
+  14 significant digits;
+- grid size of the CUDA kernels, error message of a negative stride,
+  unused variables, copies of the generators of the factory, and a stray
+  copy of a source file removed.
+
+The material property test of the openmp-host-gcc configuration also
+compiles a material property with the runtime checks disabled.
+---
+ .../MaterialProperty/BackendBase.cxx          |  6 ---
+ .../MaterialProperty/BackendBase.hxx          | 14 ------
+ .../MaterialProperty/BackendFactory.cxx       |  3 +-
+ .../MaterialProperty/CUDABackendBase.cxx      | 12 +++---
+ .../CxxProgrammingModelBackendBase.cxx        | 43 +++++++++++--------
+ .../MaterialProperty/SYCLBackend.cxx          | 14 ++++--
+ ...nericParallelMaterialPropertyInterface.cxx | 12 ++++--
+ .../openmp-host-gcc/test.check                |  3 ++
+ 8 files changed, 56 insertions(+), 51 deletions(-)
+ delete mode 100644 mfront/src/GenericParallel/MaterialProperty/BackendBase.hxx
+
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index e666a0df6..718d421d4 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -181,9 +181,6 @@ namespace mfront::generic_parallel::material_property {
+       return;
+     }
+     const auto& b = v.getPhysicalBounds();
+-    const auto to_string = useQuantities
+-                               ? "std::to_string(" + v.name + ".getValue())"
+-                               : "std::to_string(" + v.name + ")";
+     if ((b.boundsType == VariableBoundsDescription::LOWER) ||
+         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+       os << "if(" << v.name << " < " << v.type << "(" << b.lowerBound << ")){\n"
+@@ -208,9 +205,6 @@ namespace mfront::generic_parallel::material_property {
+     if (!v.hasBounds()) {
+       return;
+     }
+-    const auto to_string = useQuantities
+-                               ? "std::to_string(" + v.name + ".getValue())"
+-                               : "std::to_string(" + v.name + ")";
+     const auto& b = v.getBounds();
+     if ((b.boundsType == VariableBoundsDescription::LOWER) ||
+         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.hxx
+deleted file mode 100644
+index ccf72b250..000000000
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.hxx
++++ /dev/null
+@@ -1,14 +0,0 @@
+-/*!
+- * \file   mfront/src/GenericParallel/MaterialProperty/AbstractBackend.cxx
+- * \brief  This file implements the `AbstractBackend` class
+- * \author Thomas Helfer
+- * \date   07/04/2026
+- */
+-
+-#include "MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx"
+-
+-namespace mfront::generic_parallel::material_property {
+-
+-  AbstractBackend::~AbstractBackend() = default;
+-
+-}  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendFactory.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendFactory.cxx
+index a82377a51..0cd3b001c 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendFactory.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendFactory.cxx
+@@ -12,6 +12,7 @@
+  * project under specific licensing conditions.
+  */
+ 
++#include <utility>
+ #include "TFEL/Raise.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/CUDABackend.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/HIPBackend.hxx"
+@@ -50,7 +51,7 @@ namespace mfront::generic_parallel::material_property {
+   }  // end of BackendFactory
+ 
+   void BackendFactory::add(std::string_view n, Generator g) {
+-    if (!this->generators.insert({std::string{n}, g}).second) {
++    if (!this->generators.insert({std::string{n}, std::move(g)}).second) {
+       tfel::raise("a backend named '" + std::string{n} +
+                   "' has already been registred");
+     }
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index ebf3e6485..4c208cb30 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -250,7 +250,6 @@ namespace mfront::generic_parallel::material_property {
+     const auto nname = i.getInterfaceInternalNamespace();
+     const auto types = i.getTypesDescription();
+     const auto& params = mpd.parameters;
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+     os << "MFRONT_SHAREDOBJ void " << name;
+     if (!treatStrides) {
+       os << "2";
+@@ -298,9 +297,11 @@ namespace mfront::generic_parallel::material_property {
+          << "}\n"
+          << "}\n"
+          << "return true;\n"
+-         << "};\n"
+-         << "const int mfront_errno_old = errno;\n";
++         << "};\n";
+     }
++    // errno is restored before returning, even if the runtime checks are
++    // disabled (checks of the strides)
++    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+     os << "mfront_output_status->status = 0;\n"
+        << "mfront_output_status->bounds_status = 0;\n"
+        << "mfront_output_status->c_error_number = 0;\n";
+@@ -328,7 +329,8 @@ namespace mfront::generic_parallel::material_property {
+              << "mfront_output_status->status = -5;\n"
+              << "mfront_report(\"negative stride given for variable '"
+              << mpd.inputs[idx].getExternalName()
+-             << "' (\"+std::to_string(mfront_output_stride)+\" given\");\n"
++             << "' (\"+std::to_string(mfront_args_strides[" << idx
++             << "])+\" given)\");\n"
+              << "errno = mfront_errno_old;\n"
+              << "return;\n"
+              << "}\n";
+@@ -418,7 +420,7 @@ namespace mfront::generic_parallel::material_property {
+       if (uniform) {
+         os << "<<<1, 1>>>(mfront_output, ";
+       } else {
+-        os << "<<<((mfront_npoints + " << block_size + 1 << ") / ( "
++        os << "<<<((mfront_npoints + " << block_size - 1 << ") / ( "
+            << block_size << ")), " << block_size << ">>>(mfront_output, ";
+       }
+       if (handleStrides) {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index 7d40f869f..c8f32deeb 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -90,8 +90,6 @@ namespace mfront::generic_parallel::material_property {
+     const auto nname = i.getInterfaceInternalNamespace();
+     const auto types = i.getTypesDescription();
+     const auto& params = mpd.parameters;
+-    const auto iucname = i.getInterfaceNameInUpperCase();
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+     os << "MFRONT_SHAREDOBJ void " << name;
+     if (!treatStrides) {
+       os << '2';
+@@ -164,9 +162,11 @@ namespace mfront::generic_parallel::material_property {
+          << "}\n"
+          << "}\n"
+          << "return true;\n"
+-         << "};\n"
+-         << "const int mfront_errno_old = errno;\n";
++         << "};\n";
+     }
++    // errno is restored before returning, even if the runtime checks are
++    // disabled (checks of the strides)
++    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+     os << "mfront_output_status->status = 0;\n"
+        << "mfront_output_status->bounds_status = 0;\n"
+        << "mfront_output_status->c_error_number = 0;\n";
+@@ -206,7 +206,7 @@ namespace mfront::generic_parallel::material_property {
+              << "mfront_report(\"negative stride given for variable '"
+              << mpd.inputs[idx].getExternalName()
+              << "' (\"+std::to_string(mfront_args_strides[" << idx
+-             << "])+\" given\");\n"
++             << "])+\" given)\");\n"
+              << "errno = mfront_errno_old;\n"
+              << "return;\n"
+              << "}\n";
+@@ -258,12 +258,12 @@ namespace mfront::generic_parallel::material_property {
+          << "return;\n"
+          << "}\n";
+     }
+-    //
++    // the data transfers may throw exceptions, which must not cross the
++    // boundary of the C function
++    os << "try{\n";
+     if (this->handlesDataTransfer()) {
+       this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
+     }
+-    //
+-    os << "try{\n";
+     this->writeKernelCall(os, i, mpd, fd, treatStrides);
+     //
+     if (!areRuntimeChecksDisabled(mpd)) {
+@@ -298,8 +298,6 @@ namespace mfront::generic_parallel::material_property {
+       const bool handleStrides) const {
+     const auto types = i.getTypesDescription();
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+-    const auto name = i.getFunctionName(mpd);
+-    const auto nname = i.getInterfaceInternalNamespace();
+     const auto iucname = i.getInterfaceNameInUpperCase();
+     const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+     const auto& function = mpd.f;
+@@ -313,11 +311,11 @@ namespace mfront::generic_parallel::material_property {
+     if (handleStrides) {
+       os << ", mfront_output_stride";
+     }
+-    if (!mpd.inputs.empty()) {
+-      os << ", mfront_args";
+-      if (handleStrides) {
+-        os << ", mfront_args_strides_tmp";
+-      }
++    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++      os << ", mfront_arg" << idx;
++    }
++    if ((handleStrides) && (!mpd.inputs.empty())) {
++      os << ", mfront_args_strides_tmp";
+     }
+     // the captured variables are declared by `writeKernels`: the extended
+     // lambdas of nvcc, used by Kokkos, can't have initializers in their
+@@ -364,12 +362,12 @@ namespace mfront::generic_parallel::material_property {
+         auto cast_end = useQuantities(mpd) ? ")" : "";
+         if (handleStrides) {
+           os << "const auto " << p3->name << " = " << cast_start;
+-          os << "(mfront_args[" << idx << "])[mfront_args_strides_tmp[" << idx
++          os << "mfront_arg" << idx << "[mfront_args_strides_tmp[" << idx
+              << "] * mfront_idx]";
+           os << cast_end << ";\n";
+         } else {
+           os << "const auto " << p3->name << " = " << cast_start;
+-          os << "(mfront_args[" << idx << "])[mfront_idx]";
++          os << "mfront_arg" << idx << "[mfront_idx]";
+           os << cast_end << ";\n";
+         }
+       }
+@@ -456,7 +454,16 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd,
+       const bool treatStrides) const {
+-    // variables captured by the kernels
++    // variables captured by the kernels. The pointers to the arguments are
++    // copied, since the array of those pointers given by the calling code
++    // is generally not accessible by the device (for example, an array on
++    // the stack of the calling code). They are captured one by one: nvc++
++    // 25.11 does not map an array of pointers captured by a lambda in an
++    // OpenMP target region.
++    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++      os << "const auto mfront_arg" << idx << " = mfront_args[" << idx
++         << "];\n";
++    }
+     if (this->isBoundsCheckingRequired(mpd)) {
+       os << "auto* const mfront_bounds_statuses = "
+          << "mfront_bounds_statuses_storage.data();\n";
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index 37d6860f4..40bb807ff 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -107,6 +107,9 @@ namespace mfront::generic_parallel::material_property {
+          << "  return this->device_ptr != nullptr;\n"
+          << "}\n"
+          << "~DataBuffer() noexcept{\n"
++         << "try{\n"
++         << "this->cleanup();\n"
++         << "} catch(...){}\n"
+          << "}\n"
+          << "void cleanup(){\n"
+          << "if(this->device_ptr != nullptr) {\n"
+@@ -187,7 +190,7 @@ namespace mfront::generic_parallel::material_property {
+           } else {
+             os << "mfront_queue->copy<" << types.real_type
+                << ">(mfront_output_ptr.data(), mfront_output_host, "  //
+-               << npoints << " * mfront_output_stride, "
++               << "(" << npoints << " - 1) * mfront_output_stride + 1, "
+                << "mfront_sycl_kernel_event).wait();\n";
+           }
+         } else {
+@@ -242,7 +245,8 @@ namespace mfront::generic_parallel::material_property {
+              << "mfront_sycl_copy_events.push_back("
+              << "mfront_arg" << idx << "_ptr.acquire("
+              << "mfront_args_host[" << idx << "], "
+-             << "mfront_npoints * mfront_args_strides[" << idx << "], true));\n"
++             << "(mfront_npoints - 1) * mfront_args_strides[" << idx
++             << "] + 1, true));\n"
+              << "}\n";
+         } else {
+           os << "mfront_sycl_copy_events.push_back("
+@@ -259,13 +263,17 @@ namespace mfront::generic_parallel::material_property {
+        << "::mfront::gpmp::sycl::DataBuffer<" << types.real_type
+        << ">{*mfront_queue};\n";
+     if (treatStrides) {
++      // with a stride greater than one, the values between the values of
++      // the output are copied, so that copying the output back preserves
++      // them
+       os << "if (mfront_output_stride == 0) {\n"
+          << "mfront_sycl_copy_events.push_back("
+          << "mfront_output_ptr.acquire(mfront_output_host,  1, false));\n"
+          << "} else {\n"
+          << "mfront_sycl_copy_events.push_back("
+          << "mfront_output_ptr.acquire(mfront_output_host, "
+-         << "mfront_npoints * mfront_output_stride, false));\n"
++         << "(mfront_npoints - 1) * mfront_output_stride + 1, "
++         << "mfront_output_stride > 1));\n"
+          << "}\n";
+     } else {
+       os << "mfront_sycl_copy_events.push_back("
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index fa95687a5..e21c99486 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -149,7 +149,6 @@ namespace mfront {
+       LibraryDescription& l,
+       const MaterialPropertyDescription& mpd) const {
+     const auto name = this->getFunctionName(mpd);
+-    const auto tfel_config = tfel::getTFELConfigExecutableName();
+     insert_if(l.sources, this->getSourceFileName(name));
+ #if !((defined _WIN32) && (defined _MSC_VER))
+     insert_if(l.link_libraries, "m");
+@@ -232,8 +231,12 @@ namespace mfront {
+     }
+     os << " */\n\n";
+ 
+-    os << "#ifndef " << makeUpperCase(name) << "_" << iucname << "_HH\n"
+-       << "#define " << makeUpperCase(name) << "_" << iucname << "_HH\n\n";
++    // the name of the backend is part of the header guard, so that the
++    // headers of several backends can be included in the same file
++    const auto guard = makeUpperCase(name) + "_" + iucname + "_" +
++                       makeUpperCase(this->backend->getName()) + "_HH";
++    os << "#ifndef " << guard << "\n"
++       << "#define " << guard << "\n\n";
+     writeExportDirectives(os);
+ 
+     for (const auto& header : this->getInterfaceHeaderFiles()) {
+@@ -273,7 +276,6 @@ namespace mfront {
+                         "writeSrcFile: begin\n";
+     }
+     const auto types = this->getTypesDescription();
+-    const auto iname = this->getInterfaceName();
+     const auto nname = this->getInterfaceInternalNamespace();
+     const auto name = this->getFunctionName(mpd);
+     const auto fn = "src/" + this->getSourceFileName(name);
+@@ -284,6 +286,8 @@ namespace mfront {
+         "unable to open '" +
+             fn + "'");
+     os.exceptions(std::ios::badbit | std::ios::failbit);
++    // precision of the bounds and of the default values of the parameters
++    os.precision(14);
+     const auto& file = fd.fileName;
+     const auto& author = fd.authorName;
+     const auto& date = fd.date;
+diff --git a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+index c344d3ce3..f01a64002 100644
+--- a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
++++ b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+@@ -10,6 +10,9 @@
+ @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
+ @Command "./test-openmp test-openmp-openmp-host-gcc";
++// compilation with the runtime checks disabled
++@Command "@mfront@ --interface=generic-parallel --dsl-option=disable_runtime_checks:true --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus.mfront";
++@Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
+ 
+ @CleanFiles {"test-openmp"};
+ @CleanDirectories {"include", "src"};
+-- 
+2.43.0
+
