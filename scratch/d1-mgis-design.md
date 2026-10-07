@@ -27,6 +27,33 @@ Statut : proposition, aucune modification de code. Bases : MGIS master `818f0f9`
   exigent que `libm` soit chargée (toujours le cas d'un programme C++
   utilisant `<cmath>`, défaut d'empaquetage de NVHPC 25.11).
 
+### 0.1 Constats des essais d'exécution de toutes les lois (R3, 2026-10-07)
+
+- Les tailles d'un point tiennent compte des tableaux de gradients et de
+  forces thermodynamiques : MGIS doit lire les tailles dans la description
+  de la loi (`getArraySize` des variables), comme pour l'interface
+  `generic`.
+- Les paramètres changés par `<b>_setParameter` (ou
+  `<b>_<hypothèse>_setParameter` quand la loi ne supporte pas toutes les
+  hypothèses) sont lus sur l'hôte à chaque appel : MGIS les règle comme
+  aujourd'hui, dans la bibliothèque `generic-parallel` elle-même (les
+  bibliothèques `generic` et `generic-parallel` d'une même loi ont chacune
+  leurs paramètres, modèles compris depuis R3).
+- Les bornes physiques des arguments des propriétés matériau sont
+  exportées même sans bornes standard.
+- Une loi peut demander une pile de plus de 100 Ko par fil sur GPU
+  (polycristaux) : la réserve vaut alors presque toute la mémoire du GPU,
+  quel que soit le nombre de points. Un autre processus sur le même GPU
+  suffit à la faire échouer (statut -3, « out of memory »). Plusieurs
+  rangs MPI par GPU fonctionnent avec les lois usuelles ; MGIS devrait
+  exposer la pile demandée (`localSizeBytes` des noyaux, à exporter par
+  TFEL) pour que l'appelant puisse le prévoir.
+- Les résultats sur GPU diffèrent de ceux du CPU par les arrondis
+  (contraction FMA de nvcc). Aux limites de convergence des solveurs
+  locaux, un point peut échouer d'un côté et pas de l'autre : les tests de
+  MGIS doivent comparer avec une tolérance et sur des chargements loin de
+  ces limites.
+
 ## Résumé
 
 1. **Chargement.** MGIS détecte la bibliothèque par le symbole `<b>_mfront_interface` == "GenericParallel" (`LibrariesManager::getInterface`, `src/LibrariesManager.cxx:655-662`, jamais appelé aujourd'hui).
