@@ -1521,3 +1521,23 @@ Résultats :
   (BerveillerZaouiPolyCrystal, PolyCrystals) demandent environ 4 h et
   5 Go au front-end : `compile-sweep.sh` a maintenant un délai maximal
   par loi (`COMPILE_TIMEOUT`, 6 h par défaut, statut TIMEOUT).
+
+### 2026-10-07 (matin), grandes validations à -O3 (R4, première partie)
+
+TFEL de la branche (tous les correctifs de R3) reconfiguré, installé et
+validé par `scratch/validate3.sh` :
+
+- ctest complet de TFEL : 6965 tests sur 6965 ;
+- matrice des tests `generic-parallel` à -O3
+  (`results/generic-parallel-tests-2026-10-07-r4-O3.txt`) : 15
+  configurations de lois (cuda-clang, cuda-nvcc, hip-clang-nvidia-platform,
+  hip-hipcc, kokkos, kokkos-host, openmp-host-gcc,
+  openmp-offload-nvhpc-gpu, stlpar-parunseq-clang, stlpar-parunseq-gcc,
+  stlpar-parunseq-icpx, stlpar-parunseq-nvhpc-gpu, sycl-default-acpp,
+  sycl-default-acpp-omp, sycl-default-icpx) et 16 de propriétés matériau,
+  toutes réussies, TDLS compris ;
+- balayages de compilation nvcc et clang : 541 OK, 60 fichiers invalides
+  et 7 fragments, identiques fichier par fichier au balayage de référence.
+
+Reste de R4 : passage à l'environnement spack mmm-gpu (tout y est
+installé sauf MFEM, reporté), puis nouvelle validation.
