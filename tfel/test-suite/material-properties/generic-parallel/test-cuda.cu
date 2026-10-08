@@ -63,6 +63,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test13();
     this->test14();
     this->test15();
+    this->test16();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
     return this->result;
   }  // end of execute
@@ -521,6 +522,52 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
     }
+    TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
+  }
+
+  void test16() {
+    // asynchronous evaluation on a stream: the statuses, in managed memory,
+    // are given by the execution options and reported once the stream is
+    // synchronized. The second temperature is out of its physical bounds.
+    constexpr auto eps = double{1e-2};
+    auto stream = cudaStream_t{};
+    TFEL_TESTS_ASSERT(cudaStreamCreateWithFlags(
+                          &stream, cudaStreamNonBlocking) == cudaSuccess);
+    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+    int *statuses = nullptr;
+    TFEL_TESTS_ASSERT(cudaMallocManaged(&statuses, n * sizeof(int)) ==
+                      cudaSuccess);
+    std::fill(statuses, statuses + n, 0);
+    const auto T = thrust::host_vector<double>{300, -1, 500, 800};
+    const thrust::device_vector<double> d_values(T);
+    thrust::device_vector<double> d_T(T.size(), 0.);
+    thrust::device_vector<double> d_E(T.size());
+    // the temperatures are written on the stream after a delay
+    writeAfterDelay<<<1, 4, 0, stream>>>(
+        thrust::raw_pointer_cast(d_T.data()),
+        thrust::raw_pointer_cast(d_values.data()), 100'000'000);
+    const auto args =
+        std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto options =
+        mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+    auto output = mfront_gmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                            args.data(), args_strides.data(), 1, 4, policy,
+                            &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    // the function returns once the computations are submitted
+    TFEL_TESTS_ASSERT(cudaStreamQuery(stream) == cudaErrorNotReady);
+    TFEL_TESTS_ASSERT(cudaStreamSynchronize(stream) == cudaSuccess);
+    Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+    const auto E = thrust::host_vector<double>(d_E);
+    for (const auto i : {0, 2, 3}) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+    TFEL_TESTS_ASSERT(cudaFree(statuses) == cudaSuccess);
     TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
   }
 

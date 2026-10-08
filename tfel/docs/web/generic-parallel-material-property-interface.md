@@ -44,6 +44,9 @@ In addition, the `generic-parallel` interface also exports:
 - the `<name>_generic_parallel_memory_space` symbol, which tells where the
   arguments and the output must be located (`host`, `device` or `any`, as
   for the behaviours),
+- the `<name>_generic_parallel_number_of_statuses` symbol (an `unsigned
+  short`) and the `<name>_generic_parallel_report` function, used by the
+  asynchronous evaluations (see below),
 - a function allowing to modify at runtime the value of the parameters
   of the material property, if modification of parameters is allowed
   (see the DSL options `parameters_as_static_variables` options).
@@ -114,12 +117,46 @@ the execution options of the behaviours:
   by the C++ parallel algorithms and `OpenMP`. The evaluation is ordered
   after the computations previously submitted to the queue, which may
   compute the arguments.
+- `statuses`: statuses of an asynchronous evaluation, or null for a
+  synchronous evaluation (see below).
 - `preserve_stack_size`: if not null, the stack size of the threads of the
   device is never modified and a runtime error is reported if it is too
   small (`device_stack_size` option of the backends).
 
-The evaluation is synchronous: the function returns once the values are
-computed, and the output status reports the errors.
+If no statuses are given, the evaluation is synchronous: the function
+returns once the values are computed, and the output status reports the
+violations of the bounds and the invalid results.
+
+Otherwise, the evaluation may be asynchronous, as the integration of the
+behaviours with statistics: the function returns once the computations
+are submitted to the queue (`CUDA`, `HIP` and `Kokkos` backends, `SYCL`
+backend if no value is copied), and the output status only reports
+invalid arguments and runtime errors. The statuses are an array of
+`<name>_generic_parallel_number_of_statuses` integers, initialized to zero
+by the calling code and accessible by the device as the values. The
+devices only write them when a bound is violated or when a result is
+invalid. Once the computations are completed, the
+`<name>_generic_parallel_report` function reads the statuses on the host
+and reports the result as a synchronous evaluation does:
+
+~~~~{.cxx}
+// statuses in managed memory, initialized to zero
+const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+int* statuses = nullptr;
+cudaMallocManaged(&statuses, n * sizeof(int));
+std::fill(statuses, statuses + n, 0);
+const auto options =
+    mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+// submission of the computations
+Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
+                        npoints, policy, &options);
+// ... other computations submitted to the stream ...
+cudaStreamSynchronize(stream);
+Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
+~~~~
+
+A synchronous evaluation calls the same report function on statuses held
+by blocks of memory reused from one call to another.
 
 ## Output status
 

@@ -197,6 +197,8 @@ namespace mfront::generic_parallel::material_property {
          << "_launch_error));\n"
          << "return;\n"
          << "}\n"
+         // an asynchronous evaluation returns once the kernel is submitted
+         << "if (!mfront_asynchronous) {\n"
          << "const auto mfront_" << pm << "_kernel_error = " << pm
          << "StreamSynchronize(mfront_stream);\n"
          << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n"
@@ -204,6 +206,7 @@ namespace mfront::generic_parallel::material_property {
          << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
          << "_kernel_error));\n"
          << "return;\n"
+         << "}\n"
          << "}\n";
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);

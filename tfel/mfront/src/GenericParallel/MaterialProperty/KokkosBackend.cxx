@@ -88,8 +88,11 @@ namespace mfront::generic_parallel::material_property {
       if (!handleStrides) {
         os << "_without_strides";
       }
+      // an asynchronous evaluation returns once the kernel is submitted
       os << ");\n"
-         << "mfront_space.fence();\n";
+         << "if (!mfront_asynchronous) {\n"
+         << "mfront_space.fence();\n"
+         << "}\n";
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall

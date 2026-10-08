@@ -317,7 +317,8 @@ namespace mfront {
        << "#include<string>\n"
        << "#include<vector>\n"
        << "#include<locale>\n"
-       << "#include<cmath>\n";
+       << "#include<cmath>\n"
+       << "#include<optional>\n";
     os << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
@@ -363,6 +364,9 @@ namespace mfront {
                  "MFRONT_GPMP_API_VERSION");
     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
                  this->backend->getMemorySpace());
+    exportSymbol(os, "unsigned short",
+                 name + "_generic_parallel_number_of_statuses",
+                 std::to_string(this->backend->getNumberOfStatuses(mpd)));
     writeLawSymbol(os, name, mpd.law);
     writeMaterialSymbol(os, name, mpd.material);
     writeMaterialKnowledgeTypeSymbol(os, name,
@@ -378,6 +382,7 @@ namespace mfront {
          .floating_point_type = "double",
          .interface_namespace = nname});
 
+    this->backend->writeStatusesReportFunction(os, *this, mpd);
     this->backend->writeCImplementations(os, *this, mpd, fd);
 
     os << "#ifdef __cplusplus\n"

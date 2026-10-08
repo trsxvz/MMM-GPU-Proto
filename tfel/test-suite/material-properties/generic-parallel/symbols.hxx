@@ -23,6 +23,8 @@ extern "C" {
 extern const char* Inconel600_YoungModulus_generic_parallel_backend;
 extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
 extern const char* Inconel600_YoungModulus_generic_parallel_memory_space;
+extern unsigned short
+    Inconel600_YoungModulus_generic_parallel_number_of_statuses;
 }
 
 /*!

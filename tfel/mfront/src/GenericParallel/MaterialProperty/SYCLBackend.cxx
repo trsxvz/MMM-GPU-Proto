@@ -88,6 +88,9 @@ namespace mfront::generic_parallel::material_property {
          << "requires(!std::is_const_v<T>){ "
          << "  return this->device_ptr != nullptr;\n"
          << "}\n"
+         << "[[nodiscard]] bool holdsCopy() const noexcept {\n"
+         << "  return this->device_ptr != nullptr;\n"
+         << "}\n"
          << "~DataBuffer() noexcept{\n"
          << "try{\n"
          << "this->cleanup();\n"
@@ -176,11 +179,14 @@ namespace mfront::generic_parallel::material_property {
              << ">(mfront_output_ptr.data(), mfront_output_host, " << npoints
              << ", mfront_sycl_kernel_event).wait();\n";
         }
-        os << "} else {"
+        os << "} else if ((!mfront_asynchronous) || mfront_sycl_copies) {\n"
            << "  mfront_sycl_kernel_event.wait();\n"
            << "}\n";
       } else {
-        os << "mfront_sycl_kernel_event.wait();\n";
+        // an asynchronous evaluation returns once the kernel is submitted
+        os << "if (!mfront_asynchronous) {\n"
+           << "mfront_sycl_kernel_event.wait();\n"
+           << "}\n";
       }
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
@@ -259,6 +265,13 @@ namespace mfront::generic_parallel::material_property {
          << "mfront_npoints, false));\n";
     }
     os << "auto *mfront_output = mfront_output_ptr.data();\n";
+    // the copies must be completed before the buffers are destroyed: the
+    // evaluation is then synchronous
+    os << "const bool mfront_sycl_copies = mfront_output_ptr.holdsCopy()";
+    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+      os << " || mfront_arg" << idx << "_ptr.holdsCopy()";
+    }
+    os << ";\n";
   }
 
   void SYCLBackend::writeDataTransfersToHost(

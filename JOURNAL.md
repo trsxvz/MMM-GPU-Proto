@@ -2170,3 +2170,38 @@ d'exécution dans TFEL et dans MGIS. Seule différence : les lois savent
 calculer en asynchrone dans TFEL (statistiques sur le GPU), pas les
 propriétés matériau. MGIS n'utilise l'asynchrone pour aucun des deux
 (étape 5).
+
+### 2026-10-08 (soir, suite), évaluation asynchrone des propriétés matériau (R10, suite)
+
+Dans TFEL, les lois savaient calculer en asynchrone (statistiques données
+par les options d'exécution), pas les propriétés matériau. C'est réglé :
+synchrone ou asynchrone selon le choix de l'appelant, sur tous les
+backends, pour les deux.
+
+- Les options d'exécution des propriétés prennent les statuts d'une
+  évaluation asynchrone (`statuses`, tableau de
+  `<name>_generic_parallel_number_of_statuses` entiers mis à zéro par
+  l'appelant). La fonction rend alors la main dès le calcul soumis à la
+  file (CUDA, HIP, Kokkos, SYCL si aucune valeur n'est copiée). Le statut
+  de sortie ne rapporte que les arguments invalides et les erreurs du
+  backend.
+- L'analyse des statuts est générée une fois, dans une fonction exportée
+  (`<name>_generic_parallel_report`). L'évaluation synchrone l'appelle
+  elle-même ; après une évaluation asynchrone, l'appelant l'appelle une
+  fois la file synchronisée. Le compte rendu est le même dans les deux cas,
+  message nommant la variable compris.
+- Les noyaux ne changent pas : ils n'écrivent les statuts qu'en cas de
+  borne violée ou de résultat invalide. Coût nul en cas de succès, comme
+  avant.
+- La structure n'est publiée que dans le proto : la version reste 2.
+
+Tests limités à ce qui change, une configuration par backend (dix, toutes
+vertes) : évaluation asynchrone avec une température hors de ses bornes
+physiques, compte rendu après synchronisation, valeurs des autres points.
+Avec CUDA et HIP, un noyau lent écrit les arguments sur le flux avant
+l'évaluation : le flux est encore occupé quand la fonction rend la main
+(asynchrone vérifié) et les valeurs sont justes (ordre vérifié).
+
+MGIS : la copie de la structure d'options suit TFEL (vérifiée par le test
+de disposition). MGIS n'utilise l'asynchrone ni pour les lois ni pour les
+propriétés (étape 5) : les deux sont symétriques.

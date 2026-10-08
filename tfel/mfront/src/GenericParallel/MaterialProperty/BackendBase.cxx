@@ -44,16 +44,21 @@ namespace mfront::generic_parallel::material_property {
       const std::string_view device,
       const std::string_view allocation) {
     const auto n = getStatusesArraySize(mpd);
-    os << "static auto mfront_bounds_statuses_blocks = "
-       << "mfront::generic_parallel::StatusBlockPool<int, " << device_type
-       << ">{};\n"
-       << "const auto mfront_bounds_statuses_block = "
+    const auto pool = "mfront::generic_parallel::StatusBlockPool<int, " +
+                      std::string{device_type} + ">";
+    // statuses given by the calling code (asynchronous evaluation), or block
+    // of the pool, initialized here
+    os << "static auto mfront_bounds_statuses_blocks = " << pool << "{};\n"
+       << "auto mfront_bounds_statuses_block = std::optional<" << pool
+       << "::Block>{};\n"
+       << "auto* mfront_bounds_statuses = mfront_options.statuses;\n"
+       << "if (mfront_bounds_statuses == nullptr) {\n"
+       << "mfront_bounds_statuses_block.emplace("
        << "mfront_bounds_statuses_blocks.acquire(" << device << ", [&]{\n"
        << "constexpr auto mfront_n = std::size_t{" << n << "};\n"
        << allocation << "\n"
-       << "});\n"
-       << "auto* const mfront_bounds_statuses = "
-       << "mfront_bounds_statuses_block.get();\n"
+       << "}));\n"
+       << "mfront_bounds_statuses = mfront_bounds_statuses_block->get();\n"
        << "if (mfront_bounds_statuses == nullptr) {\n"
        << "mfront_output_status->status = -6;\n"
        << "mfront_report(\"unable to allocate the statuses of the bounds "
@@ -61,8 +66,46 @@ namespace mfront::generic_parallel::material_property {
        << "return;\n"
        << "}\n"
        << "std::fill(mfront_bounds_statuses, mfront_bounds_statuses + " << n
-       << ", 0);\n";
+       << ", 0);\n"
+       << "}\n";
   }  // end of writeBoundsStatusesDeclaration
+
+  void BackendBase::writeErrorReporting(std::ostream& os) {
+    os << "[[maybe_unused]] auto mfront_report = "
+       << "[&mfront_output_status](const std::string& "
+       << "mfront_error_message){\n"
+       << "if(mfront_error_message.empty()){\n"
+       << "return;\n"
+       << "}\n"
+       << "std::strncpy(mfront_output_status->msg,"
+       << "mfront_error_message.c_str(),511);\n"
+       << "mfront_output_status->msg[511]='\\0';\n"
+       << "};\n";
+  }  // end of writeErrorReporting
+
+  std::size_t BackendBase::getNumberOfStatuses(
+      const MaterialPropertyDescription& mpd) const {
+    return isBoundsCheckingRequired(mpd) ? getStatusesArraySize(mpd) : 0;
+  }  // end of getNumberOfStatuses
+
+  void BackendBase::writeStatusesReportFunction(
+      std::ostream& os,
+      const GenericParallelMaterialPropertyInterface& i,
+      const MaterialPropertyDescription& mpd) const {
+    const auto name = i.getFunctionName(mpd);
+    const auto types = i.getTypesDescription();
+    os << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report("
+       << types.output_status_type << "* const mfront_output_status,\n"
+       << "[[maybe_unused]] const int* const mfront_bounds_statuses,\n"
+       << "[[maybe_unused]] const " << types.out_of_bounds_policy_type
+       << " mfront_out_of_bounds_policy){\n";
+    writeErrorReporting(os);
+    os << "mfront_output_status->status = 0;\n"
+       << "mfront_output_status->bounds_status = 0;\n"
+       << "mfront_output_status->c_error_number = 0;\n";
+    this->writeBoundsStatusesAnalysis(os, i, mpd);
+    os << "} // end of " << name << "_generic_parallel_report\n\n";
+  }  // end of writeStatusesReportFunction
 
   void BackendBase::writeDeviceStackSizeSetting(std::ostream& os,
                                                 const std::size_t stack_size) {
@@ -109,8 +152,8 @@ namespace mfront::generic_parallel::material_property {
          << " * \\param[in] mfront_out_of_bounds_policy: out of bounds "
          << "policy\n"
          << " * \\param[in] mfront_execution_options: options of the "
-         << "execution (queue, stack size), or null for the default "
-         << "options\n";
+         << "execution (queue, statuses of an asynchronous evaluation, stack "
+         << "size), or null for the default options\n";
     };
     os << "/*!\n"
        << " * \\brief compute the value of '" << mpd.className
@@ -159,7 +202,23 @@ namespace mfront::generic_parallel::material_property {
        << "const " << types.integer_type << ",\n"
        << "const " << types.integer_type << ",\n"
        << "const " << types.out_of_bounds_policy_type << ",\n"
-       << "const mfront_gpmp_ExecutionOptions* const);\n\n";
+       << "const mfront_gpmp_ExecutionOptions* const);\n\n"
+       << "/*!\n"
+       << " * \\brief analyse the statuses written by an asynchronous "
+       << "evaluation of '" << mpd.className << "' material property, once "
+       << "the computations are completed, and report the result as a "
+       << "synchronous evaluation does\n"
+       << " *\n"
+       << " * \\param[out] mfront_output_status: output status\n"
+       << " * \\param[in] mfront_bounds_statuses: statuses given by the "
+       << "execution options, read on the host\n"
+       << " * \\param[in] mfront_out_of_bounds_policy: out of bounds policy "
+       << "of the evaluation\n"
+       << " */\n"
+       << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report(\n"
+       << types.output_status_type << "* const,\n"
+       << "const int* const,\n"
+       << "const " << types.out_of_bounds_policy_type << ");\n\n";
   }  // end of writeDeclarations
 
   void BackendBase::writeProxyObjects(
@@ -369,18 +428,10 @@ namespace mfront::generic_parallel::material_property {
     // execution options, default options if none is given
     os << "[[maybe_unused]] const auto mfront_options = "
        << "(mfront_execution_options != nullptr) ? *mfront_execution_options "
-       << ": mfront_gpmp_ExecutionOptions{};\n";
-    // error reporting
-    os << "[[maybe_unused]] auto mfront_report = "
-       << "[&mfront_output_status](const std::string& "
-       << "mfront_error_message){\n"
-       << "if(mfront_error_message.empty()){\n"
-       << "return;\n"
-       << "}\n"
-       << "std::strncpy(mfront_output_status->msg,"
-       << "mfront_error_message.c_str(),511);\n"
-       << "mfront_output_status->msg[511]='\\0';\n"
-       << "};\n";
+       << ": mfront_gpmp_ExecutionOptions{};\n"
+       << "[[maybe_unused]] const bool mfront_asynchronous = "
+       << "mfront_options.statuses != nullptr;\n";
+    writeErrorReporting(os);
     if (!areRuntimeChecksDisabled(mpd)) {
       os << "auto mfront_check_positive_or_null = "
          << "[]<std::integral mfront_IntegerType>"
@@ -581,8 +632,12 @@ namespace mfront::generic_parallel::material_property {
     // thread-local, does not exist on GPUs, and may be modified by the
     // runtimes (for instance at the initialisation of TBB). Invalid results
     // are detected by the kernels.
-    os << "errno = mfront_errno_old;\n";
-    this->writeBoundsStatusesAnalysis(os, i, mpd);
+    os << "errno = mfront_errno_old;\n"
+       << "if (!mfront_asynchronous) {\n"
+       << i.getFunctionName(mpd) << "_generic_parallel_report("
+       << "mfront_output_status, mfront_bounds_statuses, "
+       << "mfront_out_of_bounds_policy);\n"
+       << "}\n";
   }  // end of writeResultsAnalysis
 
   BackendBase::~BackendBase() noexcept = default;

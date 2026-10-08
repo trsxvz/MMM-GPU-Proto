@@ -39,6 +39,12 @@ namespace mfront::generic_parallel::material_property {
     void writeCDeclarations(std::ostream&,
                             const GenericParallelMaterialPropertyInterface&,
                             const MaterialPropertyDescription&) const override;
+    [[nodiscard]] std::size_t getNumberOfStatuses(
+        const MaterialPropertyDescription&) const override;
+    void writeStatusesReportFunction(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const override;
     // do nothing implementation
     void writeProxyObjects(std::ostream&,
                            const GenericParallelMaterialPropertyInterface&,
@@ -63,7 +69,8 @@ namespace mfront::generic_parallel::material_property {
      * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
      * states if all the arguments are uniform. The execution options are
      * copied in `mfront_options` (default options if the pointer given by
-     * the calling code is null).
+     * the calling code is null), and `mfront_asynchronous` states if the
+     * statuses are given by the calling code (asynchronous evaluation).
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -121,8 +128,8 @@ namespace mfront::generic_parallel::material_property {
         const std::function<void(std::string_view, bool)>&) const;
     /*!
      * \brief write the analysis of the results, once the kernels are
-     * completed (see `writeBoundsStatusesAnalysis`), if the runtime checks
-     * are enabled
+     * completed (see `writeStatusesReportFunction`), if the runtime checks
+     * are enabled and if the evaluation is synchronous
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -153,7 +160,9 @@ namespace mfront::generic_parallel::material_property {
                              const VariableDescription&,
                              const size_t) const;
     /*!
-     * \brief write the code analysying the array `mfront_bounds_statuses`
+     * \brief write the code analysing the array `mfront_bounds_statuses`,
+     * in the function reporting the result (see
+     * `writeStatusesReportFunction`)
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -182,12 +191,14 @@ namespace mfront::generic_parallel::material_property {
         const MaterialPropertyDescription&);
     /*!
      * \brief write the declaration of the array of statuses filled by the
-     * kernels (`mfront_bounds_statuses`), initialized to zero.
+     * kernels (`mfront_bounds_statuses`).
      *
-     * This array is a block of a pool of blocks accessible by the host and
-     * by the device (see `mfront::generic_parallel::StatusBlockPool`): no
-     * memory is allocated per call, and the device only accesses the array
-     * if a bound is violated or if the result is invalid.
+     * For an asynchronous evaluation, this array is given by the execution
+     * options and initialized by the calling code. Otherwise, it is a block
+     * of a pool of blocks accessible by the host and by the device (see
+     * `mfront::generic_parallel::StatusBlockPool`), initialized to zero: no
+     * memory is allocated per call. The device only accesses the array if a
+     * bound is violated or if the result is invalid.
      *
      * \param[in] os: output stream
      * \param[in] mpd: material property description
@@ -211,6 +222,12 @@ namespace mfront::generic_parallel::material_property {
      * written if null
      */
     static void writeDeviceStackSizeSetting(std::ostream&, const std::size_t);
+    /*!
+     * \brief write the declaration of the `mfront_report` function, writing
+     * an error message in the output status `mfront_output_status`
+     * \param[in] os: output stream
+     */
+    static void writeErrorReporting(std::ostream&);
     /*!
      * \brief write the code marking the result as invalid if it is not
      * finite. This code is written in the kernel, after the evaluation of

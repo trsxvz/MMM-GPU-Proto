@@ -99,6 +99,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test13();
     this->test14();
     this->test15();
+    this->test16();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
         MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
     return this->result;
@@ -416,6 +417,42 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
                             mfront_gmp_OutOfBoundsPolicy{}, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+  }
+
+  void test16() {
+    // asynchronous evaluation: the statuses are given by the execution
+    // options and reported once the computations are completed. The second
+    // temperature is out of its physical bounds.
+    constexpr auto eps = double{1e-2};
+    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+    auto statuses = test_vector<int>(n, 0);
+#ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+    auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
+    const auto options = mfront_gpmp_ExecutionOptions{
+        .queue = &space, .statuses = statuses.data()};
+#else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+    const auto options =
+        mfront_gpmp_ExecutionOptions{.statuses = statuses.data()};
+#endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+    auto output = mfront_gmp_OutputStatus{};
+    auto E = test_vector<double>(4);
+    const auto T = test_vector<double>{300, -1, 500, 800};
+    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                            args_strides.data(), 1, 4, policy, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+#ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+    space.fence();
+#endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+    Inconel600_YoungModulus_generic_parallel_report(&output, statuses.data(),
+                                                    policy);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+    for (const auto i : {0, 2, 3}) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
     }
   }

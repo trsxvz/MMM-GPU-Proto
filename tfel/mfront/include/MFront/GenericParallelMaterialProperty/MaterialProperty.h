@@ -33,8 +33,7 @@ extern "C" {
 /*!
  * \brief options of the execution of the evaluation of a material property,
  * given by the last argument of the generated functions. A null pointer
- * denotes the default options. The evaluation is synchronous: the function
- * returns once the values are computed.
+ * denotes the default options.
  */
 typedef struct mfront_gpmp_ExecutionOptions {
   /*!
@@ -45,6 +44,27 @@ typedef struct mfront_gpmp_ExecutionOptions {
    * the backend: a queue must be given to the `sycl` backend.
    */
   void* queue;
+  /*!
+   * \brief statuses of the evaluation, or null.
+   *
+   * If null, the evaluation is synchronous: the function returns once the
+   * values are computed, and the output status reports the violations of
+   * the bounds and the invalid results.
+   *
+   * Otherwise, the statuses are written in the given array, which must hold
+   * `<name>_generic_parallel_number_of_statuses` integers initialized to
+   * zero, accessible by the device as the values. The evaluation may then be
+   * asynchronous (CUDA, HIP and Kokkos backends, SYCL backend if no value is
+   * transferred), as the integration of the behaviours with statistics: the
+   * function returns once the computations are submitted to the queue, and
+   * the output status only reports invalid arguments and runtime errors.
+   * Once the computations are completed, the
+   * `<name>_generic_parallel_report` function analyses the statuses, read on
+   * the host, and reports the result in an output status, as a synchronous
+   * evaluation does. The devices only write the statuses when a bound is
+   * violated or when a result is invalid.
+   */
+  int* statuses;
   /*!
    * \brief if not null, the stack size of the threads of the device is
    * never modified and a runtime error is reported if it is too small (see

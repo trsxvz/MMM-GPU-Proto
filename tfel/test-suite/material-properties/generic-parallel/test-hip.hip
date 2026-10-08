@@ -89,6 +89,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test12();
     this->test13();
     this->test14();
+    this->test15();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
     return this->result;
   }  // end of execute
@@ -125,6 +126,47 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(values, i))) <
                         eps);
     }
+    TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
+  }
+
+  void test15() {
+    // asynchronous evaluation on a stream: the statuses, in managed memory,
+    // are given by the execution options and reported once the stream is
+    // synchronized. The second temperature is out of its physical bounds.
+    constexpr auto eps = double{1e-2};
+    auto stream = hipStream_t{};
+    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(
+                          &stream, hipStreamNonBlocking) == hipSuccess);
+    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+    int* statuses = nullptr;
+    TFEL_TESTS_ASSERT(hipMallocManaged(&statuses, n * sizeof(int)) ==
+                      hipSuccess);
+    std::fill(statuses, statuses + n, 0);
+    auto E = createManagedData(4);
+    const auto values = createManagedData({300, -1, 500, 800});
+    const auto T = createManagedData(4);
+    // the temperatures are written on the stream after a delay
+    writeAfterDelay<<<1, 4, 0, stream>>>(T.get(), values.get(), 100'000'000);
+    const auto args = std::array<const double *, 1u>{T.get()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto options =
+        mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+    auto output = mfront_gmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                            args_strides.data(), 1, 4, policy, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    // the function returns once the computations are submitted
+    TFEL_TESTS_ASSERT(hipStreamQuery(stream) == hipErrorNotReady);
+    TFEL_TESTS_ASSERT(hipStreamSynchronize(stream) == hipSuccess);
+    Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+    for (const auto i : {0, 2, 3}) {
+      TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(values, i))) <
+                        eps);
+    }
+    TFEL_TESTS_ASSERT(hipFree(statuses) == hipSuccess);
     TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
   }
 
