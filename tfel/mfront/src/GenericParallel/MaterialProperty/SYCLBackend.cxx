@@ -57,9 +57,7 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription& mpd) const {
     CxxProgrammingModelBackendBase::writeSpecificIncludesInSourceFile(os, i,
                                                                       mpd);
-    os << "#include<concepts>\n"
-       << "#include<type_traits>\n"
-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n";
+    os << "#include <sycl/sycl.hpp>\n";
     if (this->device_stack_size != 0) {
       os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
     }

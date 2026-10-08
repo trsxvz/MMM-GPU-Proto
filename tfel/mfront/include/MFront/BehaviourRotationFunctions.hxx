@@ -17,6 +17,7 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 #include <cstddef>
 #include <iosfwd>
 #include "TFEL/Material/ModellingHypothesis.hxx"
@@ -40,12 +41,27 @@ namespace mfront {
    * frame to the global frame.
    */
   struct MFRONT_VISIBILITY_EXPORT BehaviourRotationFunction {
+    /*!
+     * \brief a tangent operator block for which TFEL has no type which can
+     * be rotated (derivative of a vector with respect to a symmetric tensor
+     * or a tensor, and conversely, derivative of a tensor with respect to a
+     * symmetric tensor), rotated by `mfront::gb::rotateTangentOperatorBlock`
+     */
+    struct Block {
+      //! \brief type of the derivated object
+      std::string type1;
+      //! \brief type of the object with respect to which the derivative is
+      //! taken
+      std::string type2;
+    };
     //! \brief a rotated object
     struct Object {
       //! \brief type of the object, empty for a scalar
       std::string type;
       //! \brief offset of the object in the values of a point
       std::size_t offset;
+      //! \brief description of a block for which TFEL has no type
+      std::optional<Block> block = {};
     };
     //! \brief name of the function, appended to the name of the behaviour
     std::string name;
@@ -62,8 +78,6 @@ namespace mfront {
     std::size_t size = 0;
     //! \brief true if the values are rotated to the material frame
     bool to_material_frame = false;
-    //! \brief reason why the rotation is not supported, empty if supported
-    std::string error;
   };
 
   /*!
@@ -82,8 +96,7 @@ namespace mfront {
    * statements use the `dest`, `src` and `rv` pointers, which have the
    * meaning of the arguments of the rotation functions of the `generic`
    * interface. `dest` and `src` may be equal. The generated code can be used
-   * in device code. An exception is thrown if the rotation is not supported
-   * (see the `error` member of the rotation function).
+   * in device code.
    * \param[out] os: output stream
    * \param[in] f: rotation function
    */

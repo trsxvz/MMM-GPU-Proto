@@ -76,6 +76,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <random>
 #include <string>
 #include <vector>
@@ -240,6 +241,23 @@ static void synchronize() { getQueue().wait_and_throw(); }
 //! \return the queue passed to the behaviour
 static void* queue() { return &getQueue(); }
 
+/*!
+ * \return an in-order queue on another device than the one of `getQueue`,
+ * or a null pointer if there is no other device
+ */
+static void* otherQueue() {
+  static auto q = []() -> std::optional<::sycl::queue> {
+    const auto d = getQueue().get_device();
+    for (const auto& o : ::sycl::device::get_devices()) {
+      if (o != d) {
+        return ::sycl::queue{o, ::sycl::property::queue::in_order{}};
+      }
+    }
+    return std::nullopt;
+  }();
+  return q.has_value() ? &(*q) : nullptr;
+}
+
 #elif defined(GPU_API)
 
 //! \brief nothing to initialize
@@ -309,6 +327,11 @@ static void synchronize() {}
 static void* queue() { return nullptr; }
 
 #endif
+
+#if !defined(MFRONT_GPB_COMPARE_USE_SYCL)
+//! \return a queue on another device (only available with SYCL)
+static void* otherQueue() { return nullptr; }
+#endif /* !defined(MFRONT_GPB_COMPARE_USE_SYCL) */
 
 static void* load(const std::string& lib, const std::string& f) {
   auto* const l = dlopen(lib.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -849,6 +872,7 @@ static mfront_gpb_OutputStatus measure(double& ms, const Function& f) {
  * \param[in] asynchronous: if true, the statistics of the batch are given
  * by the execution options and the device is synchronized after the call.
  * The returned output status is then built from those statistics.
+ * \param[in] q: queue passed to the behaviour
  */
 static mfront_gpb_OutputStatus integrateBatch(States& st,
                                               const Sizes& s,
@@ -859,8 +883,10 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
                                               const Storage storage,
                                               BatchFunction f,
                                               const bool asynchronous,
-                                              double& ms) {
+                                              double& ms,
+                                              void* const q = queue()) {
   auto b = BatchFields(st, s, fs, n, dt, K0, storage);
+  b.data.execution.queue = q;
   auto* const statistics =
       asynchronous ? allocate<mfront_gpb_BatchStatistics>(1) : nullptr;
   if (statistics != nullptr) {
@@ -1032,6 +1058,11 @@ struct Options {
   double mass_density = 0;
   //! \brief if true, the behaviour must compute non null energies
   bool energies = false;
+  /*!
+   * \brief if true, the batch is also integrated on another device, if any
+   * (see `testOtherDevice`)
+   */
+  bool other_device = false;
   //! \brief type of the tangent operator (consistent tangent operator by
   //! default)
   double tangent_operator = 4;
@@ -1081,6 +1112,8 @@ static Options parseOptions(const int argc,
       r.tangent_operator = std::stod(v);
     } else if (o == "--energies") {
       r.energies = v == "true";
+    } else if (o == "--other-device") {
+      r.other_device = v == "true";
     } else if (o == "--speed-of-sound") {
       r.mass_density = std::stod(v);
     } else if (o == "--initial-internal-state-variables") {
@@ -1195,6 +1228,42 @@ static bool testInvalidComputationOptions(const Test& t,
 }
 
 /*!
+ * \return true if the integration on another device than the one used by
+ * the other tests gives the results of the reference. The data shared by
+ * the integration points (`@SharedData`), already copied on the first
+ * device, must then be copied on the other device. This test is skipped if
+ * no other device is available (only SYCL gives access to another device).
+ * \param[in] t: test
+ * \param[in] fg: function of the `generic` interface
+ * \param[in] fb: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testOtherDevice(const Test& t,
+                            GenericFunction fg,
+                            BatchFunction fb,
+                            const double K0) {
+  auto* const q = otherQueue();
+  if (q == nullptr) {
+    std::printf("%-12s %-12s | skipped: no other device\n", "other", "device");
+    return true;
+  }
+  const auto& s = t.sizes;
+  const auto& fs = t.options.finite_strain;
+  auto ref = t.initial;
+  auto batch = t.initial;
+  auto ms = 0.;
+  integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+  const auto o = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                fb, false, ms, q);
+  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+  const auto pass = (ref.status == batch.status) &&
+                    isConsistent(o, batch.status) && (dth < tolerance);
+  std::printf("%-12s %-12s status=%2d | relative difference %.1e | %s\n",
+              "other", "device", o.status, dth, pass ? "OK" : "FAILED");
+  return pass;
+}
+
+/*!
  * \brief compare two time steps integrated by both interfaces, for all
  * types of computation and storages of the fields
  */
@@ -1302,6 +1371,9 @@ static bool testIntegration(const Test& t) {
           static_cast<long>(nfailures), same_status, dth, disv, dK, de, dsos,
           ms1, ms2, pass ? "OK" : "FAILED");
     }
+  }
+  if (t.options.other_device) {
+    ok = testOtherDevice(t, fg, fb, Kt + o0) && ok;
   }
   return ok;
 }  // end of testIntegration
@@ -1570,6 +1642,7 @@ int main(const int argc, const char* const* const argv) {
          "[--finite-strain=stress_measure,tangent_operator] "
          "[--initial-internal-state-variables=values] "
          "[--speed-of-sound=mass_density] [--energies=true] "
+         "[--other-device=true] "
          "[--tangent-operator=type] "
          "[--perturbation-of-internal-state-variables=amplitude] "
          "[--out-of-bounds-policy=policy] "

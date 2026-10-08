@@ -12,13 +12,13 @@
 
 #include <fstream>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include <algorithm>
 #include "TFEL/Raise.hxx"
-#include "TFEL/Config/GetInstallPath.hxx"
 #include "TFEL/System/System.hxx"
 #include "TFEL/Utilities/Data.hxx"
 #include "TFEL/Material/ModellingHypothesis.hxx"
-#include "MFront/MFrontLogStream.hxx"
 #include "MFront/CodeGeneratorUtilities.hxx"
 #include "MFront/FileDescription.hxx"
 #include "MFront/TargetsDescription.hxx"
@@ -55,20 +55,9 @@ namespace mfront {
 
   void GenericParallelModelInterface::setOptions(const DataMap& opts) {
     using generic_parallel::behaviour::BackendFactory;
-    using tfel::utilities::DataStructure;
-    auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<DataStructure>("backend");
-    validator.validate(opts);
-    if (!contains(opts, "backend")) {
-      return;
+    if (auto b = BackendFactory::get().generate(opts); b != nullptr) {
+      this->backend = std::move(b);
     }
-    const auto ds = DataStructure::convert(get(opts, "backend"));
-    if (getVerboseMode() >= VERBOSE_DEBUG) {
-      getLogStream() << "GenericParallelModelInterface::setOptions: "
-                        "creating backend '"
-                     << ds.name << "'\n";
-    }
-    this->backend = BackendFactory::get().generate(ds.name, ds.data);
   }  // end of setOptions
 
   std::pair<bool, GenericParallelModelInterface::tokens_iterator>
@@ -88,27 +77,17 @@ namespace mfront {
 
   std::string GenericParallelModelInterface::getLibraryName(
       const ModelDescription& md) const {
-    const auto base = [&md]() -> std::string {
-      if (!md.library.empty()) {
-        return md.library;
-      }
-      if (!md.material.empty()) {
-        return md.material;
-      }
-      return "Model";
-    }();
-    return "GenericParallel" + base + '-' + this->backend->getName();
+    return this->backend->getLibraryName(md.library, md.material, "Model");
   }  // end of getLibraryName
 
   std::string GenericParallelModelInterface::getHeaderFileName(
       const std::string& name) const {
-    return name + '-' + getName() + '-' + this->backend->getName() + ".hxx";
+    return this->backend->getHeaderFileName(name);
   }  // end of getHeaderFileName
 
   std::string GenericParallelModelInterface::getSourceFileName(
       const std::string& name) const {
-    return name + '-' + getName() + '-' + this->backend->getName() + '.' +
-           this->backend->getSourceFileExtension();
+    return this->backend->getSourceFileName(name);
   }  // end of getSourceFileName
 
   void GenericParallelModelInterface::writeOutputFiles(
@@ -314,20 +293,10 @@ namespace mfront {
     }
     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
       const auto f = name + "_" + ModellingHypothesis::toString(h);
-      os << "MFRONT_SHAREDOBJ int " << f
-         << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
-         << "const mfront_gpb_BatchData* const mfront_batch_data){\n"
-         << "return mfront::gpb::handleExceptions(mfront_output_status, "
-         << "[mfront_output_status, mfront_batch_data] {\n"
-         << "if (mfront_batch_data == nullptr) {\n"
-         << "return mfront::gpb::report(*mfront_output_status, -2, "
-         << "\"no batch data given\");\n"
-         << "}\n"
-         << "mfront::gpb::initialize(*mfront_output_status, "
-         << "mfront_batch_data->rdt);\n"
-         << "using mfront_point_traits = " << point_traits << ";\n"
-         << "auto& mfront_status = *mfront_output_status;\n"
-         << "const auto& mfront_data = *mfront_batch_data;\n";
+      GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
+          os, f, "const mfront_gpb_BatchData* const mfront_batch_data",
+          ", mfront_batch_data");
+      os << "using mfront_point_traits = " << point_traits << ";\n";
       if (hasGenericModelParametersInitializer(md)) {
         os << "const auto& mfront_initializer = mfront::gm::" << initializer
            << "::get();\n"
@@ -353,8 +322,7 @@ namespace mfront {
           os, "integrateBatch",
           "mfront::gm::" + md.className + ", mfront_point_traits",
           "mfront_status", "mfront_data, mfront_parameters, mfront_policy");
-      os << "});\n"
-         << "} // end of " << f << "\n\n";
+      GenericParallelBehaviourInterface::writeBatchFunctionEnd(os, f);
     }
     os << "#ifdef __cplusplus\n"
        << "}\n"
@@ -364,21 +332,15 @@ namespace mfront {
   void GenericParallelModelInterface::getTargetsDescription(
       TargetsDescription& td, const ModelDescription& md) {
     using tfel::material::ModellingHypothesis;
-    const auto lib = this->getLibraryName(md);
     const auto name = md.library + md.className;
-    const auto tfel_config = tfel::getTFELConfigExecutableName();
-    auto& l = td.getLibrary(lib);
-    insert_if(l.sources, this->getSourceFileName(name));
-    td.headers.push_back("MFront/GenericParallelModel/" +
-                         this->getHeaderFileName(name));
-    insert_if(l.link_directories,
-              "$(shell " + tfel_config + " --library-path)");
-    insert_if(l.link_libraries, "$(shell " + tfel_config +
-                                    " --library-dependency "
-                                    "--material --mfront-profiling)");
+    auto entry_points = std::vector<std::string>{};
     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
-      insert_if(l.epts, name + "_" + ModellingHypothesis::toString(h));
+      entry_points.push_back(name + "_" + ModellingHypothesis::toString(h));
     }
+    GenericParallelBehaviourInterface::describeLibrary(
+        td, this->getLibraryName(md), this->getSourceFileName(name),
+        "MFront/GenericParallelModel/" + this->getHeaderFileName(name),
+        entry_points);
   }  // end of getTargetsDescription
 
   GenericParallelModelInterface::~GenericParallelModelInterface() = default;

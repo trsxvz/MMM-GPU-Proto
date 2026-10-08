@@ -34,6 +34,13 @@ In addition, the `generic-parallel` interface also exports:
 
 - symbols describing the material property (names of the inputs, list of
   parameters, default values, etc.),
+- the `<name>_generic_parallel_backend` symbol, which gives the backend of
+  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`) and
+  tells the calling code where the arrays must be allocated, and the
+  `<name>_generic_parallel_api_version` symbol (an `unsigned short`), equal
+  to the `MFRONT_GPMP_API_VERSION` macro of
+  `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
+  incremented at each incompatible change of the generated functions,
 - a function allowing to modify at runtime the value of the parameters
   of the material property, if modification of parameters is allowed
   (see the DSL options `parameters_as_static_variables` options).

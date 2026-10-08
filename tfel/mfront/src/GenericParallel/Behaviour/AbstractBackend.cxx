@@ -16,6 +16,27 @@
 
 namespace mfront::generic_parallel::behaviour {
 
+  std::string AbstractBackend::getLibraryName(
+      const std::string_view library,
+      const std::string_view material,
+      const std::string_view default_name) const {
+    const auto base = !library.empty()    ? library
+                      : !material.empty() ? material
+                                          : default_name;
+    return "GenericParallel" + std::string{base} + '-' + this->getName();
+  }  // end of getLibraryName
+
+  std::string AbstractBackend::getHeaderFileName(
+      const std::string_view name) const {
+    return std::string{name} + "-generic-parallel-" + this->getName() + ".hxx";
+  }  // end of getHeaderFileName
+
+  std::string AbstractBackend::getSourceFileName(
+      const std::string_view name) const {
+    return std::string{name} + "-generic-parallel-" + this->getName() + '.' +
+           this->getSourceFileExtension();
+  }  // end of getSourceFileName
+
   void AbstractBackend::writeSymbols(std::ostream& os,
                                      const std::string_view f) const {
     const auto n = std::string{f} + "_generic_parallel_";
@@ -25,9 +46,9 @@ namespace mfront::generic_parallel::behaviour {
                  "MFRONT_GPB_API_VERSION");
   }  // end of writeSymbols
 
-  std::string AbstractBackend::getSharedDataCopy(const std::string_view value,
+  std::string AbstractBackend::getSharedDataCopy(const std::string_view getter,
                                                  const std::string_view) const {
-    return "mfront::gpb::copyToHeap(" + std::string{value} + ")";
+    return "mfront::gpb::getSharedDataCopy<" + std::string{getter} + ">()";
   }  // end of getSharedDataCopy
 
   void AbstractBackend::writeCall(std::ostream& os,

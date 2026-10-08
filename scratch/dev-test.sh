@@ -7,7 +7,8 @@
 # (for instance cuda-clang or cuda-clang/tdls). DEVTEST_KIND selects the
 # tests: behaviours (default) or material-properties. DEVTEST_OPTIMIZATION_LEVEL
 # (for instance -O1 or -O3) replaces -O2 in the configuration file and in the
-# commands of the test.
+# commands of the test. DEVTEST_BEHAVIOURS (names of the test behaviours)
+# restricts the built behaviours, for targeted tests.
 set -u
 c=$1
 conf=${c%%/*}
@@ -81,6 +82,8 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
   cmd=${cmd//@TFEL_LIBRARY_DIR@/$PROTO_TFEL_INSTALL/lib}
   case "$cmd" in
     *compare-all.sh*) cmd="$cmd '$pattern'" ;;
+    # DEVTEST_BEHAVIOURS restricts the built behaviours (all by default)
+    *build-libraries.sh*) cmd="$cmd ${DEVTEST_BEHAVIOURS:-}" ;;
   esac
   if ! sh -c "$cmd" > cmd.log 2>&1; then
     echo "$c: FAILED: ${cmd:0:120}"

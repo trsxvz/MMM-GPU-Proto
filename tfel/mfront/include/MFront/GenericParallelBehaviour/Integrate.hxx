@@ -21,7 +21,10 @@
 #include <type_traits>
 #include <cstring>
 #include <exception>
+#include <mutex>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include "TFEL/Config/TFELConfig.hxx"
 #include "TFEL/Math/General/MathObjectTraits.hxx"
 #include "TFEL/Math/Array/View.hxx"
@@ -706,7 +709,9 @@ namespace mfront::gpb {
   /*!
    * \return an unsigned integer whose ordering is the same as the ordering
    * of the given floating point values. This allows to compute the minimum
-   * of floating point values with an integer atomic operation.
+   * of floating point values with an integer atomic operation. This is the
+   * encoding of the time step scaling factor in `mfront_gpb_BatchStatistics`
+   * (see `mfront_gpb_initializeBatchStatistics`), available in device code.
    */
   TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
       const double v) noexcept {
@@ -715,32 +720,24 @@ namespace mfront::gpb {
     return (b & sign) ? ~b : (b | sign);
   }  // end of toOrderedKey
 
-  //! \brief inverse of `toOrderedKey`
-  TFEL_HOST_DEVICE constexpr double fromOrderedKey(
-      const unsigned long long k) noexcept {
-    constexpr auto sign = 0x8000000000000000ull;
-    return std::bit_cast<double>((k & sign) ? (k & ~sign) : ~k);
-  }  // end of fromOrderedKey
-
   /*!
-   * \return the initial statistics updated by atomic operations (see
-   * `mfront_gpb_initializeBatchStatistics`)
+   * \return the initial statistics updated by atomic operations
    * \param[in] rdt: initial value of the time step scaling factor
    */
-  constexpr AtomicBatchStatistics makeAtomicBatchStatistics(
+  inline AtomicBatchStatistics makeAtomicBatchStatistics(
       const real rdt) noexcept {
-    return {.number_of_failures = 0,
-            .number_of_unreliable_results = 0,
-            .rdt = toOrderedKey(rdt)};
+    auto s = AtomicBatchStatistics{};
+    mfront_gpb_initializeBatchStatistics(&s, rdt);
+    return s;
   }  // end of makeAtomicBatchStatistics
 
   //! \return the statistics updated by atomic operations
-  constexpr BatchStatistics getBatchStatistics(
+  inline BatchStatistics getBatchStatistics(
       const AtomicBatchStatistics& s) noexcept {
     return {.number_of_failures = static_cast<size_type>(s.number_of_failures),
             .number_of_unreliable_results =
                 static_cast<size_type>(s.number_of_unreliable_results),
-            .rdt = fromOrderedKey(s.rdt)};
+            .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
   }  // end of getBatchStatistics
 
   /*!
@@ -1358,17 +1355,52 @@ namespace mfront::gpb {
   }  // end of rotateBatch
 
   /*!
-   * \return a copy of a data shared by all the integration points (see the
-   * `@SharedData` keyword), allocated on the heap. The heap is accessible by
-   * the device if the memory is unified or managed (`stlpar` and `openmp`
-   * backends). The copy is made at the first call of a generated function
-   * and is never freed.
-   * \param[in] v: data
+   * \brief copies of a data shared by all the integration points (see the
+   * `@SharedData` keyword) in the memories of the devices used by a
+   * process, one per device. The copies are never freed.
+   * \tparam T: type of the data
+   * \tparam Device: type identifying a device, comparable with `==`
    */
-  template <typename T>
-  const T* copyToHeap(const T& v) {
-    return new T(v);
-  }  // end of copyToHeap
+  template <typename T, typename Device>
+  struct SharedDataCopies {
+    /*!
+     * \return the copy on the given device
+     * \param[in] d: device
+     * \param[in] copy: function making a copy on this device, called at the
+     * first request for this device
+     */
+    template <typename CopyFunction>
+    const T* get(const Device& d, const CopyFunction& copy) {
+      const auto lock = std::lock_guard{this->mutex};
+      for (const auto& [device, p] : this->copies) {
+        if (device == d) {
+          return p;
+        }
+      }
+      return this->copies.emplace_back(d, copy()).second;
+    }
+
+   private:
+    //! \brief mutex protecting the copies
+    std::mutex mutex;
+    //! \brief copies, by device
+    std::vector<std::pair<Device, const T*>> copies;
+  };
+
+  /*!
+   * \return a copy of a data shared by all the integration points (see the
+   * `@SharedData` keyword), allocated on the heap at the first call. The
+   * heap must be accessible by the device if the computations are offloaded
+   * (unified or managed memory, as with the `stlpar` backend of `nvc++`).
+   * The copy is never freed.
+   * \tparam get_shared_data: function returning the data
+   */
+  template <auto get_shared_data>
+  const auto* getSharedDataCopy() {
+    using T = std::remove_cvref_t<decltype(get_shared_data())>;
+    static const auto* const p = new T(get_shared_data());
+    return p;
+  }  // end of getSharedDataCopy
 
   /*!
    * \brief call the given function and convert exceptions to an error

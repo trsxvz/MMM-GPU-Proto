@@ -11,6 +11,7 @@
  */
 
 #include <set>
+#include <utility>
 #include <vector>
 #include <string_view>
 #include <fstream>
@@ -21,7 +22,6 @@
 #include "TFEL/Config/GetInstallPath.hxx"
 #include "TFEL/System/System.hxx"
 #include "TFEL/Utilities/Data.hxx"
-#include "MFront/MFrontLogStream.hxx"
 #include "MFront/MFrontUtilities.hxx"
 #include "MFront/CodeGeneratorUtilities.hxx"
 #include "MFront/FileDescription.hxx"
@@ -194,22 +194,9 @@ namespace mfront {
   }  // end of getPointDataSizes
 
   /*!
-   * \return true if the values of the parameters are given to the
-   * constructor of the behaviour
-   * \param[in] bd: behaviour description
-   * \param[in] h: modelling hypothesis
-   */
-  static bool areParametersGivenToTheConstructor(
-      const BehaviourDescription& bd,
-      const tfel::material::ModellingHypothesis::Hypothesis h) {
-    return (!areParametersTreatedAsStaticVariables(bd)) &&
-           (!bd.getBehaviourData(h).getParameters().empty());
-  }  // end of areParametersGivenToTheConstructor
-
-  /*!
    * \return the name of the structure holding the values of the parameters
-   * and the device copies of the shared data for the given hypothesis, or
-   * `mfront::gpb::NoParameters` if this structure is not needed.
+   * (of the behaviour and of its behaviour variables) and the device copies
+   * of the shared data for the given hypothesis
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
    */
@@ -217,17 +204,14 @@ namespace mfront {
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
     using tfel::material::ModellingHypothesis;
-    if ((!areParametersGivenToTheConstructor(bd, h)) &&
-        (bd.getSharedData().empty())) {
-      return "mfront::gpb::NoParameters";
-    }
     return bd.getClassName() + ModellingHypothesis::toString(h) + "Parameters";
   }  // end of getParametersStructureName
 
   /*!
-   * \brief write the structure holding the values of the parameters for the
-   * given hypothesis. The names and the types of the members of this
-   * structure are the ones of the parameters initializers.
+   * \brief write the structure holding the values of the parameters and the
+   * device copies of the shared data for the given hypothesis. The values
+   * of the parameters are given by the `mfront_parameters_values` structure
+   * of the behaviour class.
    * \param[out] os: output stream
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
@@ -236,122 +220,27 @@ namespace mfront {
       std::ostream& os,
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
-    const auto n = getParametersStructureName(bd, h);
-    if (n == "mfront::gpb::NoParameters") {
-      return;
-    }
+    using tfel::material::ModellingHypothesis;
     os << "//! \\brief values of the parameters and copies of the shared "
        << "data\n"
-       << "struct " << n << "{\n";
-    if (areParametersGivenToTheConstructor(bd, h)) {
-      for (const auto& p : bd.getBehaviourData(h).getParameters()) {
-        if (p.type == "int") {
-          os << "int " << p.name << ";\n";
-        } else if (p.type == "ushort") {
-          os << "unsigned short " << p.name << ";\n";
-        } else if (p.arraySize == 1) {
-          os << "double " << p.name << ";\n";
-        } else {
-          os << "tfel::math::fsarray<" << p.arraySize << ", double> "
-             << p.name << ";\n";
-        }
-      }
-    }
+       << "struct " << getParametersStructureName(bd, h)
+       << "\n: " << bd.getFullClassName()
+       << "<tfel::material::ModellingHypothesis::"
+       << ModellingHypothesis::toUpperCaseString(h) << ", mfront::gb::real, "
+       << (bd.useQt() ? "true" : "false") << ">::mfront_parameters_values {\n";
     // the shared data may have a type defined in the behaviour class
     for (const auto& d : bd.getSharedData()) {
       os << "//! \\brief copy of the shared data `" << d.name
          << "` accessible by the device\n"
-         << "const void* " << d.name << ";\n";
+         << "const void* " << d.name << " = nullptr;\n";
     }
     os << "};\n\n";
   }  // end of writeParametersStructure
 
   /*!
-   * \brief write the checks of the parameters of the behaviour variables
-   * (and of their own behaviour variables).
-   *
-   * In device code, behaviour variables are built by their default
-   * constructor, which uses the default values of their parameters: their
-   * parameters initializers, which may read a parameters file, are only
-   * available on the host. The generated code reports an error if the value
-   * of a parameter given by an initializer differs from its default value.
-   * \param[out] os: output stream
-   * \param[in] bd: behaviour description
-   * \param[in] h: modelling hypothesis
-   */
-  static void writeBehaviourVariablesParametersChecks(
-      std::ostream& os,
-      const BehaviourDescription& bd,
-      const tfel::material::ModellingHypothesis::Hypothesis h) {
-    using tfel::material::ModellingHypothesis;
-    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
-    const auto& d = bd.getBehaviourData(h);
-    auto check = [&os, h](const BehaviourVariableDescription& v,
-                          const std::string& kind) {
-      const auto& ib = v.behaviour;
-      if (!areParametersTreatedAsStaticVariables(ib)) {
-        const auto ns = ib.getAttribute<std::string>(
-            BehaviourDescription::internalNamespace, "");
-        const auto prefix = ns.empty() ? std::string{"tfel::material::"}
-                                       : "tfel::material::" + ns + "::";
-        // default values are written as in the code generated for the
-        // behaviour variable
-        const auto precision = os.precision(14);
-        for (const auto& p : ib.getBehaviourData(h).getParameters()) {
-          const auto initializer =
-              prefix + ib.getClassName() +
-              (ib.hasParameter(uh, p.name) ? ""
-                                           : ModellingHypothesis::toString(h)) +
-              "ParametersInitializer::get()." + p.name;
-          auto conditions = std::vector<std::string>{};
-          if (p.type == "int") {
-            conditions.push_back(
-                initializer + " != " +
-                std::to_string(ib.getIntegerParameterDefaultValue(h, p.name)));
-          } else if (p.type == "ushort") {
-            conditions.push_back(
-                initializer + " != " +
-                std::to_string(
-                    ib.getUnsignedShortParameterDefaultValue(h, p.name)));
-          } else {
-            for (unsigned short i = 0; i != p.arraySize; ++i) {
-              auto c = std::ostringstream{};
-              c.copyfmt(os);
-              c << initializer
-                << (p.arraySize == 1 ? "" : "[" + std::to_string(i) + "]")
-                << " != double("
-                << (p.arraySize == 1
-                        ? ib.getFloattingPointParameterDefaultValue(h, p.name)
-                        : ib.getFloattingPointParameterDefaultValue(h, p.name,
-                                                                    i))
-                << ")";
-              conditions.push_back(c.str());
-            }
-          }
-          for (const auto& c : conditions) {
-            os << "if (" << c << ") {\n"
-               << "return mfront::gpb::report(mfront_status, -2, \"the "
-               << "parameter '" << p.name << "' of the " << kind << " '"
-               << v.name << "' differs from its default value, which is "
-               << "used in device code\");\n"
-               << "}\n";
-          }
-        }
-        os.precision(precision);
-      }
-      writeBehaviourVariablesParametersChecks(os, ib, h);
-    };
-    for (const auto& v : d.getBehaviourVariables()) {
-      check(v, "behaviour variable");
-    }
-    for (const auto& v : d.getBehaviourVariableFactories()) {
-      check(v, "behaviour variable factory");
-    }
-  }  // end of writeBehaviourVariablesParametersChecks
-
-  /*!
    * \brief write the initialisation of the values of the parameters from
-   * the parameters initializers, which are only available on the host.
+   * the parameters initializers, which are only available on the host (see
+   * `mfront_get_parameters_values`)
    * \param[out] os: output stream
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
@@ -360,24 +249,8 @@ namespace mfront {
       std::ostream& os,
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
-    using tfel::material::ModellingHypothesis;
-    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
-    const auto n = getParametersStructureName(bd, h);
-    os << "auto mfront_parameters = " << n << "{};\n";
-    if (!areParametersGivenToTheConstructor(bd, h)) {
-      return;
-    }
-    for (const auto& p : bd.getBehaviourData(h).getParameters()) {
-      const auto initializer = [&bd, &p, h] {
-        if (bd.hasParameter(uh, p.name)) {
-          return bd.getClassName() + "ParametersInitializer";
-        }
-        return bd.getClassName() + ModellingHypothesis::toString(h) +
-               "ParametersInitializer";
-      }();
-      os << "mfront_parameters." << p.name << " = " << initializer << "::get()."
-         << p.name << ";\n";
-    }
+    os << "auto mfront_parameters = " << getParametersStructureName(bd, h)
+       << "{Behaviour::mfront_get_parameters_values()};\n";
   }  // end of writeParametersInitialisation
 
   /*!
@@ -406,9 +279,6 @@ namespace mfront {
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
     for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
-      if (!f.error.empty()) {
-        continue;
-      }
       os << "//! \\brief rotate " << f.description << " at one point\n"
          << "struct " << getPointRotationName(bd, h, f) << " {\n"
          << "//! \\brief number of values of a point\n"
@@ -499,21 +369,56 @@ namespace mfront {
 
   void GenericParallelBehaviourInterface::setOptions(const DataMap& opts) {
     using generic_parallel::behaviour::BackendFactory;
-    using tfel::utilities::DataStructure;
-    auto validator = tfel::utilities::DataMapValidator{};
-    validator.addDataTypeValidator<DataStructure>("backend");
-    validator.validate(opts);
-    if (!contains(opts, "backend")) {
-      return;
+    if (auto b = BackendFactory::get().generate(opts); b != nullptr) {
+      this->backend = std::move(b);
     }
-    const auto ds = DataStructure::convert(get(opts, "backend"));
-    if (getVerboseMode() >= VERBOSE_DEBUG) {
-      getLogStream() << "GenericParallelBehaviourInterface::setOptions: "
-                        "creating backend '"
-                     << ds.name << "'\n";
-    }
-    this->backend = BackendFactory::get().generate(ds.name, ds.data);
   }  // end of setOptions
+
+  void GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
+      std::ostream& os,
+      const std::string_view f,
+      const std::string_view arguments,
+      const std::string_view captures) {
+    os << "MFRONT_SHAREDOBJ int " << f
+       << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
+       << arguments << "){\n"
+       << "return mfront::gpb::handleExceptions(mfront_output_status, "
+       << "[mfront_output_status" << captures << "] {\n"
+       << "if (mfront_batch_data == nullptr) {\n"
+       << "return mfront::gpb::report(*mfront_output_status, -2, "
+       << "\"no batch data given\");\n"
+       << "}\n"
+       << "mfront::gpb::initialize(*mfront_output_status, "
+       << "mfront_batch_data->rdt);\n"
+       << "auto& mfront_status = *mfront_output_status;\n"
+       << "const auto& mfront_data = *mfront_batch_data;\n";
+  }  // end of writeBatchFunctionBeginning
+
+  void GenericParallelBehaviourInterface::writeBatchFunctionEnd(
+      std::ostream& os, const std::string_view f) {
+    os << "});\n"
+       << "} // end of " << f << "\n\n";
+  }  // end of writeBatchFunctionEnd
+
+  void GenericParallelBehaviourInterface::describeLibrary(
+      TargetsDescription& d,
+      const std::string& library,
+      const std::string& source,
+      const std::string& header,
+      const std::vector<std::string>& entry_points) {
+    const auto tfel_config = tfel::getTFELConfigExecutableName();
+    auto& l = d.getLibrary(library);
+    insert_if(l.sources, source);
+    d.headers.push_back(header);
+    insert_if(l.link_directories,
+              "$(shell " + tfel_config + " --library-path)");
+    insert_if(l.link_libraries, "$(shell " + tfel_config +
+                                    " --library-dependency "
+                                    "--material --mfront-profiling)");
+    for (const auto& e : entry_points) {
+      insert_if(l.epts, e);
+    }
+  }  // end of describeLibrary
 
   std::pair<bool, GenericParallelBehaviourInterface::tokens_iterator>
   GenericParallelBehaviourInterface::treatKeyword(
@@ -544,10 +449,9 @@ namespace mfront {
 
   std::string
   GenericParallelBehaviourInterface::getParametersSourceInBehaviourConstructor(
-      const BehaviourDescription& bd, const Hypothesis) const {
-    if (areParametersTreatedAsStaticVariables(bd)) {
-      return "";
-    }
+      const BehaviourDescription&, const Hypothesis) const {
+    // the parameters of the behaviour variables are given even if the ones
+    // of the behaviour are static variables
     return "mgpb_parameters";
   }  // end of getParametersSourceInBehaviourConstructor
 
@@ -589,46 +493,31 @@ namespace mfront {
 
   std::string GenericParallelBehaviourInterface::getLibraryName(
       const BehaviourDescription& bd) const {
-    const auto base = [&bd]() -> std::string {
-      if (!bd.getLibrary().empty()) {
-        return bd.getLibrary();
-      }
-      if (!bd.getMaterialName().empty()) {
-        return bd.getMaterialName();
-      }
-      return "Behaviour";
-    }();
-    return this->getInterfaceName() + base + '-' + this->backend->getName();
+    return this->backend->getLibraryName(bd.getLibrary(), bd.getMaterialName(),
+                                         "Behaviour");
   }  // end of getLibraryName
 
   std::string GenericParallelBehaviourInterface::getHeaderFileName(
       const std::string& name) const {
-    return name + '-' + getName() + '-' + this->backend->getName() + ".hxx";
+    return this->backend->getHeaderFileName(name);
   }  // end of getHeaderFileName
 
   std::string GenericParallelBehaviourInterface::getSourceFileName(
       const std::string& name) const {
-    return name + '-' + getName() + '-' + this->backend->getName() + '.' +
-           this->backend->getSourceFileExtension();
+    return this->backend->getSourceFileName(name);
   }  // end of getSourceFileName
 
   void GenericParallelBehaviourInterface::getTargetsDescription(
       TargetsDescription& d, const BehaviourDescription& bd) {
-    const auto lib = this->getLibraryName(bd);
     const auto name = bd.getLibrary() + bd.getClassName();
-    const auto tfel_config = tfel::getTFELConfigExecutableName();
-    auto& l = d.getLibrary(lib);
-    insert_if(l.sources, this->getSourceFileName(name));
-    d.headers.push_back("MFront/GenericParallelBehaviour/" +
-                        this->getHeaderFileName(name));
-    insert_if(l.link_directories,
-              "$(shell " + tfel_config + " --library-path)");
-    insert_if(l.link_libraries, "$(shell " + tfel_config +
-                                    " --library-dependency "
-                                    "--material --mfront-profiling)");
+    auto entry_points = std::vector<std::string>{};
     for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
-      insert_if(l.epts, this->getFunctionNameForHypothesis(name, h));
+      entry_points.push_back(this->getFunctionNameForHypothesis(name, h));
     }
+    describeLibrary(
+        d, this->getLibraryName(bd), this->getSourceFileName(name),
+        "MFront/GenericParallelBehaviour/" + this->getHeaderFileName(name),
+        entry_points);
   }  // end of getTargetsDescription
 
   /*!
@@ -865,18 +754,8 @@ namespace mfront {
                               const std::string& arguments,
                               const std::string& captures,
                               const std::function<void()>& call) {
-      os << "MFRONT_SHAREDOBJ int " << f
-         << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
-         << arguments << "){\n"
-         << "return mfront::gpb::handleExceptions(mfront_output_status, "
-         << "[mfront_output_status" << captures << "] {\n"
-         << "if (mfront_batch_data == nullptr) {\n"
-         << "return mfront::gpb::report(*mfront_output_status, -2, "
-         << "\"no batch data given\");\n"
-         << "}\n"
-         << "mfront::gpb::initialize(*mfront_output_status, "
-         << "mfront_batch_data->rdt);\n"
-         << "using namespace tfel::material;\n"
+      writeBatchFunctionBeginning(os, f, arguments, captures);
+      os << "using namespace tfel::material;\n"
          << "using real = mfront::gb::real;\n"
          << "constexpr auto h = ModellingHypothesis::"
          << ModellingHypothesis::toUpperCaseString(h) << ";\n";
@@ -887,27 +766,22 @@ namespace mfront {
            << "<h, real, false>;\n";
       }
       os << "using mfront_point_traits = " << bd.getClassName()
-         << ModellingHypothesis::toString(h) << "PointTraits;\n"
-         << "auto& mfront_status = *mfront_output_status;\n"
-         << "const auto& mfront_data = *mfront_batch_data;\n";
+         << ModellingHypothesis::toString(h) << "PointTraits;\n";
       writeParametersInitialisation(os, bd, h);
       // the shared data are copied in a memory accessible by the device at
-      // the first call
+      // the first call (on each device for the backends using the memory of
+      // the devices)
       for (const auto& d : bd.getSharedData()) {
-        const auto v = "mfront_shared_data_" + d.name;
-        os << "static const auto* const " << v << " = "
+        os << "mfront_parameters." << d.name << " = "
            << this->backend->getSharedDataCopy(
-                  "Behaviour::mfront_get_shared_data_" + d.name + "()",
+                  "&Behaviour::mfront_get_shared_data_" + d.name,
                   "mfront_data.execution")
-           << ";\n"
-           << "mfront_parameters." << d.name << " = " << v << ";\n";
+           << ";\n";
       }
-      writeBehaviourVariablesParametersChecks(os, bd, h);
       os << "const auto mfront_policy = " << this->getFunctionNameBasis(name)
          << "_getOutOfBoundsPolicy();\n";
       call();
-      os << "});\n"
-         << "} // end of " << f << "\n\n";
+      writeBatchFunctionEnd(os, f);
     };
     for (const auto h : mhs) {
       const auto f = this->getFunctionNameForHypothesis(name, h);
@@ -985,16 +859,10 @@ namespace mfront {
          << "return mfront::gpb::report(mfront_status, -2, "
          << "\"no rotation data given\");\n"
          << "}\n";
-      if (f.error.empty()) {
-        os << "const auto& mfront_data = *mfront_rotation_data;\n";
-        this->backend->writeCall(os, "rotateBatch",
-                                 getPointRotationName(bd, h, f),
-                                 "mfront_status", "mfront_data");
-      } else {
-        os << "mfront::gpb::initialize(mfront_status, 1);\n"
-           << "return mfront::gpb::report(mfront_status, -2, \"" << f.error
-           << "\");\n";
-      }
+      os << "const auto& mfront_data = *mfront_rotation_data;\n";
+      this->backend->writeCall(os, "rotateBatch",
+                               getPointRotationName(bd, h, f), "mfront_status",
+                               "mfront_data");
       os << "});\n"
          << "} // end of " << fn << "_" << f.name << "\n\n";
     }

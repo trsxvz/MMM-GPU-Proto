@@ -262,7 +262,7 @@ interface of the previous one.
 |---|---|---|---|
 | Role | code of a material point, processing of a batch | material data, loading, dispatch | finite elements, solvers, orchestration |
 | GPU code | kernels of the batch functions (one backend per library) | none in the core | assembly and solvers on the device (MFEM, hypre, Ginkgo) |
-| Memory | never allocates (except the SYCL copies of inaccessible fields) | allocates the material data in the requested memory space | owns the finite element data, decides where they live |
+| Memory | never allocates (except the SYCL copies of inaccessible fields) | never allocates device memory: uses the arrays given by the caller, or an optional memory resource | owns the finite element and material data, decides where they live |
 | Interface | `mfront_gpb_BatchData` (C), metadata symbols | `MaterialDataManager`, batch integration functions | `PartialQuadratureSpace`, nonlinear forms |
 
 Principles:
@@ -273,15 +273,20 @@ Principles:
   receive everything by value. TFEL does not choose the device nor the memory
   space: the caller gives pointers accessible by the device.
 - MGIS maps its data (`MaterialDataManager`, uniform or per point values)
-  to this contract without copies when possible (per variable fields for
-  the material properties and the external state variables). MGIS selects
-  the `generic` or the `generic-parallel` function and falls back to the
-  `generic` interface if needed. MGIS has no dependency on a GPU toolkit:
-  memory spaces are provided by the caller or by optional components.
-- mfem-mgis decides which parts run on the device: integration only,
-  integration and assembly, or everything. It moves the finite element
-  data with the memory manager of MFEM and calls MGIS on the points of
-  each partial quadrature space. It never calls TFEL directly.
+  to this contract without copies (per variable fields for the material
+  properties and the external state variables). The existing functions of
+  MGIS recognize a `generic-parallel` library and call its batch
+  functions. MGIS has no dependency on a GPU toolkit: the arrays are given
+  by the caller (external storage of the initializers) or allocated by an
+  optional memory resource, and the batch path never reads them on the
+  host. Invalid combinations (host memory with a GPU backend, per point
+  functions of a `generic-parallel` library) are reported as errors.
+- mfem-mgis decides which parts run on the device. On GPUs, the
+  assembly has three phases for each material: gradients at all the
+  integration points, integration of the batch by MGIS, residual (and
+  tangent operator, assembled or applied without matrix). The material
+  data live in the memory of MFEM and stay on the device. mfem-mgis never
+  calls TFEL directly.
 - A backend of TFEL is a property of a generated library. Several
   libraries (for instance `cuda` and `stlpar`) can be loaded together, so
   that the choice between the host and the device is made at run time by

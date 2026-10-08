@@ -41,6 +41,7 @@
 #include MFRONT_GPMP_TEST_HEADER(UO2_YoungModulus_Martin1989)
 #include MFRONT_GPMP_TEST_HEADER(LinearDataInterpolationTest)
 #include MFRONT_GPMP_TEST_HEADER(MaterialLawCallTest)
+#include "symbols.hxx"
 
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
 //! \brief allocator in the shared memory space of Kokkos
@@ -91,6 +92,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test11();
     this->test12();
     this->test13();
+    TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
+        MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
     return this->result;
   }  // end of execute
 

@@ -1,0 +1,1687 @@
+From 4aaf66e72b2cf7701c9d0d37154d956ba9281de5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 00:36:49 +0200
+Subject: [PATCH] generic-parallel material properties: symbols, shared kernel
+ code
+
+- the libraries export the name of the backend
+  (`<name>_generic_parallel_backend`) and the version of the generated
+  functions (`<name>_generic_parallel_api_version`), as for the
+  behaviours. The version is the `MFRONT_GPMP_API_VERSION` macro of the new
+  `MFront/GenericParallelMaterialProperty/MaterialProperty.h` header;
+- the CUDA and HIP backends and the backends based on the C++ programming
+  model share the beginning of the C functions (signature, checks of the
+  arguments and of the strides), the body of the kernels, the selection
+  of the kernel and the analysis of the results, written once in
+  `BackendBase`. The two previous implementations had diverged (order of
+  the checks, error messages, restoration of errno);
+- the inclusion of the SYCL header is written by the SYCL backend only.
+
+The tests of all the backends check the symbols of the backend and of the
+version.
+---
+ ...ic-parallel-material-property-interface.md |   7 +
+ mfront/include/CMakeLists.txt                 |   1 +
+ .../MaterialProperty/BackendBase.hxx          |  84 ++++
+ .../CxxProgrammingModelBackendBase.hxx        |  28 --
+ .../MaterialProperty.h                        |  29 ++
+ .../MaterialProperty/BackendBase.cxx          | 277 +++++++++++++
+ .../MaterialProperty/CUDABackendBase.cxx      | 368 ++---------------
+ .../CxxProgrammingModelBackendBase.cxx        | 373 +-----------------
+ .../MaterialProperty/SYCLBackend.cxx          |   4 +-
+ ...nericParallelMaterialPropertyInterface.cxx |   9 +-
+ .../generic-parallel/symbols.hxx              |  38 ++
+ .../generic-parallel/test-cuda.cu             |   2 +
+ .../generic-parallel/test-cxx.cxx             |   3 +
+ .../generic-parallel/test-hip.hip             |   2 +
+ .../generic-parallel/test-sycl-device.cxx     |   2 +
+ .../generic-parallel/test-sycl-usm.cxx        |   2 +
+ .../generic-parallel/test-sycl.cxx            |   2 +
+ 17 files changed, 505 insertions(+), 726 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+ create mode 100644 test-suite/material-properties/generic-parallel/symbols.hxx
+
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 3351313d1..2dfdf5aee 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -34,6 +34,13 @@ In addition, the `generic-parallel` interface also exports:
+ 
+ - symbols describing the material property (names of the inputs, list of
+   parameters, default values, etc.),
++- the `<name>_generic_parallel_backend` symbol, which gives the backend of
++  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`) and
++  tells the calling code where the arrays must be allocated, and the
++  `<name>_generic_parallel_api_version` symbol (an `unsigned short`), equal
++  to the `MFRONT_GPMP_API_VERSION` macro of
++  `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
++  incremented at each incompatible change of the generated functions,
+ - a function allowing to modify at runtime the value of the parameters
+   of the material property, if modification of parameters is allowed
+   (see the DSL options `parameters_as_static_variables` options).
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 5870db301..7c6ca6ce4 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -255,6 +255,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
+ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+ 
+ install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
++install_mfront_header(MFront/GenericParallelMaterialProperty MaterialProperty.h)
+ install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+index c327d0161..12e4dd094 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+@@ -17,6 +17,8 @@
+ 
+ #include <string>
+ #include <vector>
++#include <functional>
++#include <string_view>
+ #include "MFront/MFrontConfig.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx"
+ 
+@@ -63,6 +65,88 @@ namespace mfront::generic_parallel::material_property {
+     //! \return the list of extra argument to the C functions
+     [[nodiscard]] virtual std::vector<ExtraArgumentOfCFunctions>
+     getExtraArgumentsOfCFunctions() const;
++    /*!
++     * \return true if the kernels report the violations of the bounds and
++     * the invalid results in an array of statuses (runtime checks enabled)
++     * \param[in] mpd: material property description
++     */
++    [[nodiscard]] static bool isBoundsCheckingRequired(
++        const MaterialPropertyDescription&);
++    /*!
++     * \brief write the beginning of a C function computing the material
++     * property on a set of points: signature, error reporting
++     * (`mfront_report`), initialization of the output status, checks of the
++     * arguments and of the strides. The function returns if there is no
++     * point. If strides are treated, the strides of the arguments are copied
++     * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
++     * states if all the arguments are uniform.
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     * \param[in] treatStrides: if true, the function takes the strides of
++     * the output and of the arguments. Otherwise, its name ends with `2`.
++     */
++    void writeCFunctionBeginning(
++        std::ostream&,
++        const GenericParallelMaterialPropertyInterface&,
++        const MaterialPropertyDescription&,
++        const bool) const;
++    /*!
++     * \brief write the body of a kernel, which evaluates the material
++     * property at the point `mfront_idx`. The kernel reads the arguments in
++     * `mfront_arg0`, `mfront_arg1`, etc. (with the strides `mfront_strides`
++     * if strides are handled) and writes the result in `mfront_output`
++     * (with the stride `mfront_output_stride` if strides are handled). The
++     * parameters are read in `mfront_parameters`, unless they are treated
++     * as static variables, and the violations of the bounds and the invalid
++     * results are written in `mfront_bounds_statuses`.
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     * \param[in] handleStrides: if true, the arguments and the output are
++     * strided
++     */
++    void writeKernelBody(std::ostream&,
++                         const GenericParallelMaterialPropertyInterface&,
++                         const MaterialPropertyDescription&,
++                         const bool) const;
++    /*!
++     * \brief write the selection of the kernel called at each point.
++     *
++     * If strides are treated, a single point is evaluated if all the
++     * arguments are uniform and the output stride is null, the kernel
++     * without strides is used if all the strides are equal to one, and the
++     * kernel handling strides otherwise.
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     * \param[in] treatStrides: boolean stating if strides are treated
++     * \param[in] write_call: function writing the evaluation of the given
++     * number of points (`1` or `mfront_npoints`) by the kernel handling
++     * strides if its second argument is true, or by the kernel without
++     * strides otherwise
++     */
++    void writeKernelSelection(
++        std::ostream&,
++        const GenericParallelMaterialPropertyInterface&,
++        const MaterialPropertyDescription&,
++        const bool,
++        const std::function<void(std::string_view, bool)>&) const;
++    /*!
++     * \brief write the analysis of the results, once the kernels are
++     * completed (see `writeBoundsStatusesAnalysis`), if the runtime checks
++     * are enabled
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     */
++    void writeResultsAnalysis(std::ostream&,
++                              const GenericParallelMaterialPropertyInterface&,
++                              const MaterialPropertyDescription&) const;
+     //
+     virtual void writePhysicalBounds(std::ostream&,
+                                      const VariableDescription&,
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+index 7f1af5d2d..e304ce8b3 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+@@ -16,8 +16,6 @@
+ #ifndef LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
+ #define LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
+ 
+-#include <functional>
+-#include <string_view>
+ #include "TFEL/Utilities/Data.hxx"
+ #include "MFront/MFrontConfig.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
+@@ -70,9 +68,6 @@ namespace mfront::generic_parallel::material_property {
+     ~CxxProgrammingModelBackendBase() noexcept override;
+ 
+    protected:
+-    //
+-    virtual bool isBoundsCheckingRequired(
+-        const MaterialPropertyDescription&) const;
+     /*!
+      * \brief write the C implementations of the material property
+      *
+@@ -136,29 +131,6 @@ namespace mfront::generic_parallel::material_property {
+      * with the CUDA execution space)
+      */
+     [[nodiscard]] virtual std::string getKernelSpecifiers() const;
+-    /*!
+-     * \brief write the selection of the kernel called at each point.
+-     *
+-     * If strides are treated, a single point is evaluated if all the
+-     * arguments are uniform and the output stride is null, the kernel
+-     * without strides is used if all the strides are equal to one, and the
+-     * kernel handling strides otherwise.
+-     *
+-     * \param[in] os: output stream
+-     * \param[in] i: interface
+-     * \param[in] mpd: material property description
+-     * \param[in] treatStrides: boolean stating if strides are treated
+-     * \param[in] write_loop: function writing the loop over the given number
+-     * of points (`1` or `mfront_npoints`) calling the kernel handling strides
+-     * (`mfront_kernel`) if its second argument is true, or the kernel without
+-     * strides (`mfront_kernel_without_strides`) otherwise
+-     */
+-    void writeKernelSelection(
+-        std::ostream&,
+-        const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool,
+-        const std::function<void(std::string_view, bool)>&) const;
+     /*!
+      * \brief write the code transferring the data to the device
+      *
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+new file mode 100644
+index 000000000..23448f20b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -0,0 +1,29 @@
++/*!
++ * \file   MFront/GenericParallelMaterialProperty/MaterialProperty.h
++ * \brief  This file declares the version of the functions generated by the
++ * `generic-parallel` interface for material properties.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_MATERIALPROPERTY_H
++#define LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_MATERIALPROPERTY_H
++
++#include "MFront/GenericMaterialProperty/MaterialProperty.h"
++
++/*!
++ * \brief version of the functions generated by the `generic-parallel`
++ * interface for material properties (arguments, strides and statuses),
++ * exported by the generated libraries (`<name>_generic_parallel_api_version`
++ * symbol, next to the `<name>_generic_parallel_backend` symbol giving the
++ * name of the backend). It is incremented at each incompatible change of
++ * those functions.
++ */
++#define MFRONT_GPMP_API_VERSION 1
++
++#endif /* LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_MATERIALPROPERTY_H */
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index 718d421d4..9aa71192c 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -11,9 +11,11 @@
+  * project under specific licensing conditions.
+  */
+ 
++#include <string>
+ #include <ostream>
+ #include "MFront/VariableDescription.hxx"
+ #include "MFront/MaterialPropertyDescription.hxx"
++#include "MFront/MaterialPropertyParametersHandler.hxx"
+ #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
+ 
+@@ -326,6 +328,281 @@ namespace mfront::generic_parallel::material_property {
+     return {};
+   }  // end of getExtraArgumentsOfCFunctions
+ 
++  bool BackendBase::isBoundsCheckingRequired(
++      const MaterialPropertyDescription& mpd) {
++    // the array of statuses is also used to report invalid results
++    return !areRuntimeChecksDisabled(mpd);
++  }  // end of isBoundsCheckingRequired
++
++  void BackendBase::writeCFunctionBeginning(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd,
++      const bool treatStrides) const {
++    const auto name = i.getFunctionName(mpd);
++    const auto nname = i.getInterfaceInternalNamespace();
++    const auto types = i.getTypesDescription();
++    const auto& params = mpd.parameters;
++    // signature
++    os << "MFRONT_SHAREDOBJ void " << name;
++    if (!treatStrides) {
++      os << '2';
++    }
++    os << "(" << types.output_status_type << "* const mfront_output_status,\n";
++    if (this->handlesDataTransfer()) {
++      os << types.real_type << "* const mfront_output_host";
++    } else {
++      os << types.real_type << "* const mfront_output";
++    }
++    if (treatStrides) {
++      os << ",\nconst " << types.integer_type << " mfront_output_stride";
++    }
++    const auto extra_arguments = this->getExtraArgumentsOfCFunctions();
++    for (const auto is_mutable : {true, false}) {
++      for (const auto& arg : extra_arguments) {
++        if (arg.is_mutable != is_mutable) {
++          continue;
++        }
++        os << ",\n" << (is_mutable ? "" : "const ") << arg.type;
++        if (arg.is_pointer) {
++          os << "* const";
++        }
++        os << " " << arg.name;
++      }
++    }
++    os << ",\nconst " << types.real_type << "* const * const";
++    if (!mpd.inputs.empty()) {
++      os << (this->handlesDataTransfer() ? " mfront_args_host"
++                                         : " mfront_args");
++    }
++    if (treatStrides) {
++      os << ",\nconst " << types.integer_type << "* const";
++      if (!mpd.inputs.empty()) {
++        os << " mfront_args_strides";
++      }
++    }
++    // the policy is passed to the kernels with the array of statuses, even
++    // if the material property has no bounds
++    os << ",\nconst " << types.integer_type << " mfront_nargs"
++       << ",\nconst " << types.integer_type << " mfront_npoints"
++       << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
++       << " mfront_out_of_bounds_policy";
++    os << ")\n{\n";
++    // error reporting
++    os << "[[maybe_unused]] auto mfront_report = "
++       << "[&mfront_output_status](const std::string& "
++       << "mfront_error_message){\n"
++       << "if(mfront_error_message.empty()){\n"
++       << "return;\n"
++       << "}\n"
++       << "std::strncpy(mfront_output_status->msg,"
++       << "mfront_error_message.c_str(),511);\n"
++       << "mfront_output_status->msg[511]='\\0';\n"
++       << "};\n";
++    if (!areRuntimeChecksDisabled(mpd)) {
++      os << "auto mfront_check_positive_or_null = "
++         << "[]<std::integral mfront_IntegerType>"
++         << "(const mfront_IntegerType mfront_integral_value){\n"
++         << "if constexpr (std::is_signed_v<mfront_IntegerType>){\n"
++         << "if(mfront_integral_value < 0){\n"
++         << "return false;\n"
++         << "}\n"
++         << "}\n"
++         << "return true;\n"
++         << "};\n";
++    }
++    // errno is restored before returning, even if the runtime checks are
++    // disabled (checks of the strides)
++    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
++    os << "mfront_output_status->status = 0;\n"
++       << "mfront_output_status->bounds_status = 0;\n"
++       << "mfront_output_status->c_error_number = 0;\n";
++    // writes an error and returns
++    auto write_error = [&os](const int status, const std::string& message) {
++      os << "mfront_output_status->status = " << status << ";\n"
++         << "mfront_report(" << message << ");\n"
++         << "errno = mfront_errno_old;\n"
++         << "return;\n"
++         << "}\n";
++    };
++    if (!areRuntimeChecksDisabled(mpd)) {
++      os << "errno = 0;\n";
++      os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n";
++      write_error(
++          -5,
++          "\"invalid number of points (\"+std::to_string(mfront_npoints)"
++          "+\" given)\"");
++      os << "if(mfront_nargs != " << mpd.inputs.size() << "){\n";
++      write_error(
++          -5,
++          "\"invalid number of arguments (\"+std::to_string(mfront_nargs)"
++          "+\" given, " +
++              std::to_string(mpd.inputs.size()) + " expected)\"");
++      if (treatStrides) {
++        os << "if(!mfront_check_positive_or_null(mfront_output_stride)){\n";
++        write_error(-5,
++                    "\"negative output stride (\"+std::to_string("
++                    "mfront_output_stride)+\" given)\"");
++        for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++          const auto stride =
++              "mfront_args_strides[" + std::to_string(idx) + "]";
++          os << "if(!mfront_check_positive_or_null(" << stride << ")){\n";
++          write_error(-5, "\"negative stride given for variable '" +
++                              mpd.inputs[idx].getExternalName() +
++                              "' (\"+std::to_string(" + stride +
++                              ")+\" given)\"");
++        }
++      }
++      if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
++        const auto hn = getMaterialPropertyParametersHandlerClassName(name);
++        const auto handler = nname + "::" + hn + "::get" + hn + "()";
++        os << "if(!" << handler << ".ok){\n";
++        write_error(-6, handler + ".msg");
++      }
++    }
++    if (treatStrides) {
++      os << "if((mfront_output_stride == 0) && (mfront_npoints != 1)){\n";
++      write_error(-7,
++                  "\"if the output is uniform, the number of points must be "
++                  "equal to one (\" + std::to_string(mfront_npoints) + \" "
++                  "given)\"");
++    }
++    os << "if(mfront_npoints <= 0){\n"
++       << "return;\n"
++       << "}\n";
++    if ((treatStrides) && (!mpd.inputs.empty())) {
++      os << "auto mfront_strides = std::array<" << types.integer_type << ", "
++         << mpd.inputs.size() << ">{};\n"
++         << "tfel::fsalgo::copy<" << mpd.inputs.size() << ">::exe("
++         << "mfront_args_strides, mfront_strides.begin());\n"
++         << "const bool mfront_areAllArgumentsUniform = std::all_of("
++         << "mfront_strides.begin(), mfront_strides.end(), "
++         << "[](const " << types.integer_type
++         << " mfront_stride){return mfront_stride == 0;});\n"
++         << "if((mfront_output_stride == 0) && "
++         << "(!mfront_areAllArgumentsUniform)){\n";
++      write_error(-7,
++                  "\"if the output is uniform, all the arguments must be "
++                  "uniform (i.e. their strides must be null)\"");
++    }
++  }  // end of writeCFunctionBeginning
++
++  void BackendBase::writeKernelBody(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd,
++      const bool handleStrides) const {
++    const auto iucname = i.getInterfaceNameInUpperCase();
++    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
++    const auto qt = useQuantities(mpd);
++    // parameters
++    for (const auto& p : mpd.parameters) {
++      if (areParametersTreatedAsStaticVariables(mpd)) {
++        const auto pv =
++            p.getAttribute<double>(VariableDescription::defaultValue);
++        os << "constexpr auto " << p.name << " = "
++           << (qt ? p.type : std::string{"double"}) << "(" << pv << ");\n";
++      } else {
++        os << "const auto " << p.name << " = "
++           << (qt ? p.type : std::string{"real"}) << "(mfront_parameters."
++           << p.name << ");\n";
++      }
++    }
++    // arguments
++    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++      const auto& v = mpd.inputs[idx];
++      const auto arg = "mfront_arg" + std::to_string(idx);
++      const auto value = handleStrides
++                             ? arg + "[mfront_strides[" + std::to_string(idx) +
++                                   "] * mfront_idx]"
++                             : arg + "[mfront_idx]";
++      os << "const auto " << v.name << " = "
++         << (qt ? v.type + "(" + value + ")" : value) << ";\n";
++    }
++    // output
++    os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n";
++    const auto checks = !areRuntimeChecksDisabled(mpd);
++    // bounds of the arguments: physical bounds first
++    if ((checks) &&
++        ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)))) {
++      os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
++      for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++        this->writePhysicalBounds(os, mpd.inputs[idx], idx, qt);
++      }
++      for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++        this->writeBounds(os, prefix, mpd.inputs[idx], idx, qt);
++      }
++      os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
++    }
++    os << mpd.f.body;
++    // bounds of the output and invalid results
++    if (checks) {
++      if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
++        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
++        this->writePhysicalBounds(os, mpd.output, mpd.inputs.size(), qt);
++        this->writeBounds(os, prefix, mpd.output, mpd.inputs.size(), qt);
++        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
++      }
++      this->writeInvalidResultCheck(os, mpd);
++    }
++    os << (handleStrides ? "mfront_output[mfront_output_stride * mfront_idx] = "
++                         : "mfront_output[mfront_idx] = ")
++       << mpd.output.name << (qt ? ".getValue();\n" : ";\n");
++  }  // end of writeKernelBody
++
++  void BackendBase::writeKernelSelection(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd,
++      const bool treatStrides,
++      const std::function<void(std::string_view, bool)>& write_call) const {
++    if (!treatStrides) {
++      write_call("mfront_npoints", false);
++      return;
++    }
++    if (mpd.inputs.empty()) {
++      os << "if(mfront_output_stride == 0){\n";
++      write_call("1", false);
++      os << "} else if(mfront_output_stride == 1){\n";
++      write_call("mfront_npoints", false);
++      os << "} else {\n";
++      write_call("mfront_npoints", true);
++      os << "}\n";
++      return;
++    }
++    const auto types = i.getTypesDescription();
++    os << "if(mfront_areAllArgumentsUniform && "
++       << "(mfront_output_stride == 0)){\n";
++    write_call("1", false);
++    os << "} else {\n"
++       << "const bool mfront_areAllArgumentsStrideOne = std::all_of("
++       << "mfront_strides.begin(), mfront_strides.end(), "
++       << "[](const " << types.integer_type << " mfront_stride){"
++       << "return mfront_stride == 1;});\n"
++       << "if(mfront_areAllArgumentsStrideOne && (mfront_output_stride == "
++          "1)){\n";
++    write_call("mfront_npoints", false);
++    os << "} else {\n";
++    write_call("mfront_npoints", true);
++    os << "}\n"
++       << "}\n";
++  }  // end of writeKernelSelection
++
++  void BackendBase::writeResultsAnalysis(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd) const {
++    if (areRuntimeChecksDisabled(mpd)) {
++      return;
++    }
++    // errno can't be used to detect errors in the kernels: it is
++    // thread-local, does not exist on GPUs, and may be modified by the
++    // runtimes (for instance at the initialisation of TBB). Invalid results
++    // are detected by the kernels.
++    os << "errno = mfront_errno_old;\n";
++    this->writeBoundsStatusesAnalysis(os, i, mpd);
++  }  // end of writeResultsAnalysis
++
+   BackendBase::~BackendBase() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index 4c208cb30..eba45eee8 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -20,12 +20,6 @@
+ 
+ namespace mfront::generic_parallel::material_property {
+ 
+-  [[nodiscard]] static bool requiresBoundsCheck(
+-      const MaterialPropertyDescription& mpd) {
+-    // the array of statuses is also used to report invalid results
+-    return !areRuntimeChecksDisabled(mpd);
+-  }  // end of requiresBoundsCheck
+-
+   CUDABackendBase::CUDABackendBase() = default;
+ 
+   CUDABackendBase::CUDABackendBase(const tfel::utilities::DataMap& opts) {
+@@ -71,152 +65,42 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd,
+       const bool treatStrides) const {
+-    // declaration of the kernel
+     const auto name = i.getFunctionName(mpd);
+     const auto types = i.getTypesDescription();
+-    const auto iucname = i.getInterfaceNameInUpperCase();
+-    const auto& params = mpd.parameters;
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+-    os << "__global__ void mfront_" << name << "_kernel";
+-    if (!treatStrides) {
+-      os << "_without_strides";
+-    }
+-    os << "(" << types.real_type << "* const mfront_output";
++    const auto kernel =
++        "mfront_" + name + "_kernel" + (treatStrides ? "" : "_without_strides");
++    os << "__global__ void " << kernel << "(" << types.real_type
++       << "* const mfront_output";
+     if (treatStrides) {
+       os << ",\nconst " << types.integer_type << " mfront_output_stride";
+     }
+-    if (requiresBoundsCheck(mpd)) {
++    if (isBoundsCheckingRequired(mpd)) {
+       os << ",\nint* const mfront_bounds_statuses"
+          << ",\nconst " << types.integer_type << " mfront_out_of_bounds_policy";
+     }
+-    if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
++    if ((!areParametersTreatedAsStaticVariables(mpd)) &&
++        (!mpd.parameters.empty())) {
+       const auto pcn = getMaterialPropertyParametersClassName(name);
+       os << ",\nconst " << i.getInterfaceInternalNamespace() << "::" << pcn
+          << " mfront_parameters";
+     }
+     if ((treatStrides) && (!mpd.inputs.empty())) {
+       os << ",\nconst std::array<" << types.integer_type << ", "
+-         << mpd.inputs.size() << "> mfront_argument_strides";
++         << mpd.inputs.size() << "> mfront_strides";
+     }
+-    for (const auto& v : mpd.inputs) {
+-      os << ",\nconst " << types.real_type << "* const "  //
+-         << "mfront_" << v.name << "_field";
++    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++      os << ",\nconst " << types.real_type << "* const mfront_arg" << idx;
+     }
+     os << ",\nconst int mfront_npoints){\n";
+     // the body of the kernel is only executed in device code
+     writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true, true);
+-    //
+     os << "auto mfront_idx = blockIdx.x * blockDim.x + threadIdx.x;\n"
+        << "if(mfront_idx >= mfront_npoints){\n"
+        << "return;\n"
+        << "}\n";
+-    // declaration of the parameters
+-    if (areParametersTreatedAsStaticVariables(mpd)) {
+-      for (const auto& p : mpd.parameters) {
+-        const auto pv =
+-            p.getAttribute<double>(VariableDescription::defaultValue);
+-        os << "constexpr auto " << p.name << " = ";
+-        if (useQuantities(mpd)) {
+-          os << p.type << "(" << pv << ");\n";
+-        } else {
+-          os << "double(" << pv << ");\n";
+-        }
+-      }
+-    } else {
+-      if (useQuantities(mpd)) {
+-        for (const auto& p : mpd.parameters) {
+-          os << "const auto " << p.name << " = " << p.type
+-             << "(mfront_parameters." << p.name << ");\n";
+-        }
+-      } else {
+-        for (const auto& p : mpd.parameters) {
+-          os << "const auto " << p.name << " = real(mfront_parameters."
+-             << p.name << ");\n";
+-        }
+-      }
+-    }
+-    // declaration of inputs
+-    if (!mpd.inputs.empty()) {
+-      auto p3 = mpd.inputs.begin();
+-      for (auto idx = 0u; p3 != mpd.inputs.end(); ++p3, ++idx) {
+-        auto cast_start = useQuantities(mpd) ? p3->type + "(" : "";
+-        auto cast_end = useQuantities(mpd) ? ")" : "";
+-        if (treatStrides) {
+-          os << "const auto " << p3->name << " = "  //
+-             << cast_start                          //
+-             << "mfront_" << p3->name << "_field[mfront_argument_strides["
+-             << idx << "] * mfront_idx]"  //
+-             << cast_end << ";\n";
+-        } else {
+-          os << "const auto " << p3->name << " = " << cast_start;
+-          os << "mfront_" << p3->name << "_field[mfront_idx]";
+-          os << cast_end << ";\n";
+-        }
+-      }
+-    }
+-    // declaration of the output
+-    os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      if ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs))) {
+-        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-      }
+-      if (hasPhysicalBounds(mpd.inputs)) {
+-        os << "// treating physical bounds\n";
+-        for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size();
+-             ++idx) {
+-          this->writePhysicalBounds(os, mpd.inputs[idx], idx,
+-                                    useQuantities(mpd));
+-        }
+-      }
+-      if (hasBounds(mpd.inputs)) {
+-        os << "// treating standard bounds\n";
+-        for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size();
+-             ++idx) {
+-          this->writeBounds(os, prefix, mpd.inputs[idx], idx,
+-                            useQuantities(mpd));
+-        }
+-      }
+-      if ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs))) {
+-        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+-      }
+-    }
+-    os << mpd.f.body;
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
+-        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-        if (mpd.output.hasPhysicalBounds()) {
+-          os << "// treating physical bounds\n";
+-          this->writePhysicalBounds(os, mpd.output, mpd.inputs.size(),
+-                                    useQuantities(mpd));
+-        }
+-        if (mpd.output.hasBounds()) {
+-          os << "// treating bounds\n";
+-          this->writeBounds(os, prefix, mpd.output, mpd.inputs.size(),
+-                            useQuantities(mpd));
+-        }
+-        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+-      }
+-    }
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      this->writeInvalidResultCheck(os, mpd);
+-    }
+-    if (treatStrides) {
+-      os << "mfront_output[mfront_output_stride * mfront_idx] = ";
+-    } else {
+-      os << "mfront_output[mfront_idx] = ";
+-    }
+-    if (useQuantities(mpd)) {
+-      os << mpd.output.name << ".getValue();\n";
+-    } else {
+-      os << mpd.output.name << ";\n";
+-    }
+-    // end of the kernel
+-    os << "} // end of mfront_" << name << "_kernel";
+-    if (treatStrides) {
+-      os << "_without_strides";
+-    }
+-    os << "\n\n";
+-  }  // end of writeGlobalFunction2
++    this->writeKernelBody(os, i, mpd, treatStrides);
++    os << "} // end of " << kernel << "\n\n";
++  }  // end of writeGlobalFunctions2
+ 
+   void CUDABackendBase::writeCxxDeclarations(
+       std::ostream&,
+@@ -246,122 +130,8 @@ namespace mfront::generic_parallel::material_property {
+       const FileDescription&,
+       const bool treatStrides) const {
+     const auto pm = this->getProgrammingModel();
+-    const auto name = i.getFunctionName(mpd);
+-    const auto nname = i.getInterfaceInternalNamespace();
+-    const auto types = i.getTypesDescription();
+-    const auto& params = mpd.parameters;
+-    os << "MFRONT_SHAREDOBJ void " << name;
+-    if (!treatStrides) {
+-      os << "2";
+-    }
+-    os << "(";
+-    os << types.output_status_type << "* const mfront_output_status,\n"
+-       << types.real_type << "* const mfront_output";
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << " mfront_output_stride";
+-    }
+-    os << ",\nconst " << types.real_type << "* const * const";
+-    if (!mpd.inputs.empty()) {
+-      os << " mfront_args";
+-    }
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << "* const";
+-      if (!mpd.inputs.empty()) {
+-        os << " mfront_args_strides";
+-      }
+-    }
+-    os << ",\nconst " << types.integer_type << " mfront_nargs"
+-       << ",\nconst " << types.integer_type << " mfront_npoints";
+-    // the policy is passed to the kernels with the array of statuses, even
+-    // if the material property has no bounds
+-    os << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
+-       << " mfront_out_of_bounds_policy";
+-    os << ")\n{\n";
+-    os << "[[maybe_unused]] auto mfront_report = "
+-       << "[&mfront_output_status](const std::string& "
+-       << "mfront_error_message){\n"
+-       << "if(mfront_error_message.empty()){\n"
+-       << "return;\n"
+-       << "}\n"
+-       << "std::strncpy(mfront_output_status->msg,"
+-       << "mfront_error_message.c_str(),511);\n"
+-       << "mfront_output_status->msg[511]='\\0';\n"
+-       << "};\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      os << "auto mfront_check_positive_or_null = "
+-         << "[]<std::integral mfront_IntegerType>"
+-         << "(const mfront_IntegerType mfront_integral_value){\n"
+-         << "if constexpr (std::is_signed_v<mfront_IntegerType>){\n"
+-         << "if(mfront_integral_value < 0){\n"
+-         << "return false;\n"
+-         << "}\n"
+-         << "}\n"
+-         << "return true;\n"
+-         << "};\n";
+-    }
+-    // errno is restored before returning, even if the runtime checks are
+-    // disabled (checks of the strides)
+-    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+-    os << "mfront_output_status->status = 0;\n"
+-       << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->c_error_number = 0;\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      // C-error handling
+-      os << "errno = 0;\n";
+-      os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n"
+-         << "mfront_output_status->status = -5;\n"
+-         << "mfront_report(\"invalid number of points "
+-         << "(\"+std::to_string(mfront_npoints)+\" given\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         << "return;\n"
+-         << "}\n";
+-      if (treatStrides) {
+-        os << "if(!mfront_check_positive_or_null(mfront_output_stride)){\n"
+-           << "mfront_output_status->status = -5;\n"
+-           << "mfront_report(\"negative output stride "
+-           << "(\"+std::to_string(mfront_output_stride)+\" given\");\n"
+-           << "errno = mfront_errno_old;\n"
+-           << "return;\n"
+-           << "}\n";
+-        for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-          os << "if(!mfront_check_positive_or_null(mfront_args_strides[" << idx
+-             << "])){\n"
+-             << "mfront_output_status->status = -5;\n"
+-             << "mfront_report(\"negative stride given for variable '"
+-             << mpd.inputs[idx].getExternalName()
+-             << "' (\"+std::to_string(mfront_args_strides[" << idx
+-             << "])+\" given)\");\n"
+-             << "errno = mfront_errno_old;\n"
+-             << "return;\n"
+-             << "}\n";
+-        }
+-      }
+-      // check number of arguments
+-      os << "if(mfront_nargs != " << mpd.inputs.size() << "){\n"
+-         << "mfront_output_status->status = -5;\n"
+-         << "mfront_report(\"invalid number of arguments "
+-         << "(\"+std::to_string(mfront_nargs)+\" given, " << mpd.inputs.size()
+-         << " expected)\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         //         << "return std::nan(\"invalid number of arguments\");\n"
+-         << "return;\n"
+-         << "}\n";
+-      // parameters
+-      if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
+-        const auto hn = getMaterialPropertyParametersHandlerClassName(name);
+-        os << "if(!" << nname << "::" << hn << "::get" << hn << "().ok){\n"
+-           << "mfront_output_status->status = -6;\n"
+-           << "mfront_report(" << nname << "::" << hn << "::get" << hn
+-           << "().msg);\n"
+-           << "errno = mfront_errno_old;\n"
+-           << "return;\n"
+-           << "}\n";
+-      }
+-    }
+-    os << "if(mfront_npoints == 0){\n"
+-       << "return;\n"
+-       << "}\n";
+-    if (requiresBoundsCheck(mpd)) {
++    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
++    if (isBoundsCheckingRequired(mpd)) {
+       os << "int *mfront_bounds_statuses;\n"
+          << "const auto mfront_" << pm << "_alloc_managed__error = " << pm
+          << "MallocManaged(&mfront_bounds_statuses,\n"
+@@ -381,18 +151,10 @@ namespace mfront::generic_parallel::material_property {
+          << "tfel::fsalgo::fill<" << getStatusesArraySize(mpd)
+          << ">::exe(mfront_bounds_statuses, 0);\n";
+     }
+-    //
+     this->writeKernelCall(os, i, mpd, treatStrides);
+-    //
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      // errno can't be used to detect errors in the kernels: it does not
+-      // exist on GPUs and it may be modified by the runtime (for instance at
+-      // its initialisation). Invalid results are detected by the kernels.
+-      os << "errno = mfront_errno_old;\n";
+-      this->writeBoundsStatusesAnalysis(os, i, mpd);
+-    }
+-    os << "} // end of " << name << "\n\n";
+-  }  // end of writeCImplementation2
++    this->writeResultsAnalysis(os, i, mpd);
++    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
++  }  // end of writeCImplementations2
+ 
+   void CUDABackendBase::writeKernelCall(
+       std::ostream& os,
+@@ -401,34 +163,18 @@ namespace mfront::generic_parallel::material_property {
+       const bool treatStrides) const {
+     const auto pm = this->getProgrammingModel();
+     const auto name = i.getFunctionName(mpd);
+-    const auto types = i.getTypesDescription();
+-    if ((treatStrides) && (!mpd.inputs.empty())) {
+-      os << "auto mfront_argument_strides_tmp = std::array<"
+-         << types.integer_type << ", " << mpd.inputs.size() << ">{};\n"
+-         << "tfel::fsalgo::copy<" << mpd.inputs.size() << ">::exe("
+-         << "mfront_args_strides, "
+-         << "mfront_argument_strides_tmp.begin());\n";
+-    }
+-    auto write_kernel_call = [this, pm, &os, &i, &mpd, &treatStrides, &name](
+-                                 const bool handleStrides, const bool uniform) {
+-      os << "// loop over the points\n"
+-         << "mfront_" << name << "_kernel";
+-      if (!handleStrides) {
+-        os << "_without_strides";
+-      }
+-      const auto block_size = this->number_of_threads_per_block.value_or(64);
+-      if (uniform) {
+-        os << "<<<1, 1>>>(mfront_output, ";
+-      } else {
+-        os << "<<<((mfront_npoints + " << block_size - 1 << ") / ( "
+-           << block_size << ")), " << block_size << ">>>(mfront_output, ";
+-      }
++    const auto block_size = this->number_of_threads_per_block.value_or(64);
++    auto write_kernel_call = [&](const std::string_view npoints,
++                                 const bool handleStrides) {
++      os << "mfront_" << name << "_kernel"
++         << (handleStrides ? "" : "_without_strides") << "<<<((" << npoints
++         << " + " << block_size - 1 << ") / " << block_size << "), "
++         << block_size << ">>>(mfront_output, ";
+       if (handleStrides) {
+         os << "mfront_output_stride, ";
+       }
+-      if (requiresBoundsCheck(mpd)) {
+-        os << "mfront_bounds_statuses, "
+-           << "mfront_out_of_bounds_policy, ";
++      if (isBoundsCheckingRequired(mpd)) {
++        os << "mfront_bounds_statuses, mfront_out_of_bounds_policy, ";
+       }
+       if ((!areParametersTreatedAsStaticVariables(mpd)) &&
+           (!mpd.parameters.empty())) {
+@@ -437,17 +183,12 @@ namespace mfront::generic_parallel::material_property {
+            << hn << "::get" << hn << "(), ";
+       }
+       if ((handleStrides) && (!mpd.inputs.empty())) {
+-        os << "mfront_argument_strides_tmp, ";
++        os << "mfront_strides, ";
+       }
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+         os << "mfront_args[" << idx << "], ";
+       }
+-      if (uniform) {
+-        os << "1";
+-      } else {
+-        os << "static_cast<int>(mfront_npoints)";
+-      }
+-      os << ");\n"
++      os << "static_cast<int>(" << npoints << "));\n"
+          << "const auto mfront_" << pm << "_launch_error = " << pm
+          << "GetLastError();\n"
+          << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n"
+@@ -465,56 +206,7 @@ namespace mfront::generic_parallel::material_property {
+          << "return;\n"
+          << "}\n";
+     };
+-    if (treatStrides) {
+-      os << "if((mfront_output_stride == 0) && (mfront_npoints != 1)){\n"
+-         << "mfront_output_status->status = -7;\n"
+-         << "mfront_report(\"if the output is uniform, the number of points "
+-         << "must be equal to one (\" + std::to_string(mfront_npoints) + \" "
+-         << "given)\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         << "return;\n"
+-         << "}\n";
+-      if (mpd.inputs.empty()) {
+-        os << "if (mfront_output_stride == 0) {\n";
+-        write_kernel_call(false, true);
+-        os << "} else if (mfront_output_stride == 1) {\n";
+-        write_kernel_call(false, false);
+-        os << "} else {\n";
+-        write_kernel_call(true, false);
+-        os << "}\n";
+-      } else {
+-        os << "const bool mfront_areAllArgumentsUniform = std::all_of("
+-           << "mfront_argument_strides_tmp.begin(), "
+-           << "mfront_argument_strides_tmp.end(), "
+-           << "[](const " << types.integer_type
+-           << " mfront_stride){return mfront_stride == 0;});\n"
+-           << "if((mfront_areAllArgumentsUniform) && "
+-              "(mfront_output_stride == 0)){\n";
+-        write_kernel_call(false, true);
+-        os << "} else {\n"
+-           << "if(mfront_output_stride == 0){\n"
+-           << "mfront_output_status->status = -7;\n"
+-           << "mfront_report(\"if the output is uniform, "
+-           << "all the arguments must be uniform "
+-           << "(i.e. their strides must be null)\");\n"
+-           << "return;\n"
+-           << "}"
+-           << "const bool mfront_areAllArgumentsStridesOne = std::all_of("
+-           << "mfront_argument_strides_tmp.begin(), "
+-           << "mfront_argument_strides_tmp.end(), "
+-           << "[](const " << types.integer_type
+-           << " mfront_stride){return mfront_stride == 1;});\n"
+-           << "if ((mfront_areAllArgumentsStridesOne) && (mfront_output_stride "
+-              "== 1)){\n";
+-        write_kernel_call(false, false);
+-        os << "} else {\n";
+-        write_kernel_call(treatStrides, false);
+-        os << "}\n"
+-           << "}\n";
+-      }
+-    } else {
+-      write_kernel_call(false, false);
+-    }
++    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+ 
+   CUDABackendBase::~CUDABackendBase() = default;
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index c8f32deeb..cd9424891 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -19,8 +19,7 @@
+ 
+ namespace mfront::generic_parallel::material_property {
+ 
+-  CxxProgrammingModelBackendBase::CxxProgrammingModelBackendBase() {
+-  }  // end of CxxProgrammingModelBackendBase
++  CxxProgrammingModelBackendBase::CxxProgrammingModelBackendBase() = default;
+ 
+   std::string CxxProgrammingModelBackendBase::getHeaderFileExtension() const {
+     return "hxx";
+@@ -43,7 +42,6 @@ namespace mfront::generic_parallel::material_property {
+     os << "#include<ranges>\n"
+        << "#include<concepts>\n"
+        << "#include<type_traits>\n"
+-       << "#include <sycl/sycl.hpp>\n"
+        << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+@@ -74,190 +72,13 @@ namespace mfront::generic_parallel::material_property {
+     }
+   }  // end of writeCImplementations
+ 
+-  bool CxxProgrammingModelBackendBase::isBoundsCheckingRequired(
+-      const MaterialPropertyDescription& mpd) const {
+-    // the array of statuses is also used to report invalid results
+-    return !areRuntimeChecksDisabled(mpd);
+-  }  // end of isBoundsCheckingRequired
+-
+   void CxxProgrammingModelBackendBase::writeCImplementations2(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd,
+       const bool treatStrides) const {
+-    const auto name = i.getFunctionName(mpd);
+-    const auto nname = i.getInterfaceInternalNamespace();
+-    const auto types = i.getTypesDescription();
+-    const auto& params = mpd.parameters;
+-    os << "MFRONT_SHAREDOBJ void " << name;
+-    if (!treatStrides) {
+-      os << '2';
+-    }
+-    os << "(" << types.output_status_type << "* const mfront_output_status,\n";
+-    if (this->handlesDataTransfer()) {
+-      os << types.real_type << "* const mfront_output_host";
+-    } else {
+-      os << types.real_type << "* const mfront_output";
+-    }
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << " mfront_output_stride";
+-    }
+-    for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
+-      if (!arg.is_mutable) {
+-        continue;
+-      }
+-      os << ",\n" << arg.type;
+-      if (arg.is_pointer) {
+-        os << "* const";
+-      }
+-      os << " " << arg.name;
+-    }
+-    for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
+-      if (arg.is_mutable) {
+-        continue;
+-      }
+-      os << ",\nconst " << arg.type;
+-      if (arg.is_pointer) {
+-        os << "* const";
+-      }
+-      os << " " << arg.name;
+-    }
+-    os << ",\nconst " << types.real_type << "* const * const";
+-    if (!mpd.inputs.empty()) {
+-      if (this->handlesDataTransfer()) {
+-        os << " mfront_args_host";
+-      } else {
+-        os << " mfront_args";
+-      }
+-    }
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << "* const";
+-      if (!mpd.inputs.empty()) {
+-        os << " mfront_args_strides";
+-      }
+-    }
+-    os << ",\nconst " << types.integer_type << " mfront_nargs"
+-       << ",\nconst " << types.integer_type << " mfront_npoints"
+-       << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
+-       << " mfront_out_of_bounds_policy";
+-    os << ")\n{\n";
+-    os << "[[maybe_unused]] auto mfront_report = "
+-       << "[&mfront_output_status](const std::string& "
+-       << "mfront_error_message){\n"
+-       << "if(mfront_error_message.empty()){\n"
+-       << "return;\n"
+-       << "}\n"
+-       << "std::strncpy(mfront_output_status->msg,"
+-       << "mfront_error_message.c_str(),511);\n"
+-       << "mfront_output_status->msg[511]='\\0';\n"
+-       << "};\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      os << "auto mfront_check_positive_or_null = "
+-         << "[]<std::integral mfront_IntegerType>"
+-         << "(const mfront_IntegerType mfront_integral_value){\n"
+-         << "if constexpr (std::is_signed_v<mfront_IntegerType>){\n"
+-         << "if(mfront_integral_value < 0){\n"
+-         << "return false;\n"
+-         << "}\n"
+-         << "}\n"
+-         << "return true;\n"
+-         << "};\n";
+-    }
+-    // errno is restored before returning, even if the runtime checks are
+-    // disabled (checks of the strides)
+-    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+-    os << "mfront_output_status->status = 0;\n"
+-       << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->c_error_number = 0;\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      // C-error handling
+-      os << "errno = 0;\n";
+-      // check number of points
+-      os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n"
+-         << "mfront_output_status->status = -5;\n"
+-         << "mfront_report(\"invalid number of points "
+-         << "(\"+std::to_string(mfront_npoints)+\" given\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         << "return;\n"
+-         << "}\n";
+-      // check number of arguments
+-      os << "if(mfront_nargs != " << mpd.inputs.size() << "){\n"
+-         << "mfront_output_status->status = -5;\n"
+-         << "mfront_report(\"invalid number of arguments "
+-         << "(\"+std::to_string(mfront_nargs)+\" given, " << mpd.inputs.size()
+-         << " expected)\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         //         << "return std::nan(\"invalid number of arguments\");\n"
+-         << "return;\n"
+-         << "}\n";
+-      if (treatStrides) {
+-        os << "if(!mfront_check_positive_or_null(mfront_output_stride)){\n"
+-           << "mfront_output_status->status = -5;\n"
+-           << "mfront_report(\"negative output stride "
+-           << "(\"+std::to_string(mfront_output_stride)+\" given\");\n"
+-           << "errno = mfront_errno_old;\n"
+-           << "return;\n"
+-           << "}\n";
+-        for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-          os << "if(!mfront_check_positive_or_null(mfront_args_strides[" << idx
+-             << "])){\n"
+-             << "mfront_output_status->status = -5;\n"
+-             << "mfront_report(\"negative stride given for variable '"
+-             << mpd.inputs[idx].getExternalName()
+-             << "' (\"+std::to_string(mfront_args_strides[" << idx
+-             << "])+\" given)\");\n"
+-             << "errno = mfront_errno_old;\n"
+-             << "return;\n"
+-             << "}\n";
+-        }
+-      }
+-      // parameters
+-      if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
+-        const auto hn = getMaterialPropertyParametersHandlerClassName(name);
+-        os << "if(!" << nname << "::" << hn << "::get" << hn << "().ok){\n"
+-           << "mfront_output_status->status = -6;\n"
+-           << "mfront_report(" << nname << "::" << hn << "::get" << hn
+-           << "().msg);\n"
+-           << "errno = mfront_errno_old;\n"
+-           << "return;\n"
+-           << "}\n";
+-      }
+-    }
+-    if (treatStrides) {
+-      os << "if((mfront_output_stride == 0) && (mfront_npoints != 1)){\n"
+-         << "mfront_output_status->status = -7;\n"
+-         << "mfront_report(\"if the output is uniform, the number of points "
+-         << "must be equal to one (\" + std::to_string(mfront_npoints) + \" "
+-         << "given)\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         << "return;\n"
+-         << "}\n";
+-    }
+-    os << "if(mfront_npoints <= 0){\n"
+-       << "return;\n"
+-       << "}\n";
+-    if ((treatStrides) && (!mpd.inputs.empty())) {
+-      os << "auto mfront_args_strides_tmp = std::array<" << types.integer_type
+-         << ", " << mpd.inputs.size() << ">{};\n"
+-         << "tfel::fsalgo::copy<" << mpd.inputs.size() << ">::exe("
+-         << "mfront_args_strides, "
+-         << "mfront_args_strides_tmp.begin());\n";
+-      os << "const bool mfront_areAllArgumentsUniform = std::all_of("
+-         << "mfront_args_strides_tmp.begin(), "
+-         << "mfront_args_strides_tmp.end(), "
+-         << "[](const " << types.integer_type
+-         << " mfront_stride){return mfront_stride == 0;});\n"
+-         << "if((mfront_output_stride == 0) && "
+-         << "(!mfront_areAllArgumentsUniform)){\n"
+-         << "mfront_output_status->status = -7;\n"
+-         << "mfront_report(\"if the output is uniform, "
+-         << "all the arguments must be uniform "
+-         << "(i.e. their strides must be null)\");\n"
+-         << "errno = mfront_errno_old;\n"
+-         << "return;\n"
+-         << "}\n";
+-    }
++    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+     // the data transfers may throw exceptions, which must not cross the
+     // boundary of the C function
+     os << "try{\n";
+@@ -265,19 +86,10 @@ namespace mfront::generic_parallel::material_property {
+       this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
+     }
+     this->writeKernelCall(os, i, mpd, fd, treatStrides);
+-    //
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      // errno can't be used to detect errors in the kernels: it is
+-      // thread-local, does not exist on GPUs, and may be modified by the
+-      // runtime of the parallel algorithms (for instance at the
+-      // initialisation of TBB). Invalid results are detected by the kernels.
+-      os << "errno = mfront_errno_old;\n";
+-      this->writeBoundsStatusesAnalysis(os, i, mpd);
+-    }
++    this->writeResultsAnalysis(os, i, mpd);
+     if (this->handlesDataTransfer()) {
+       this->writeDataTransfersToHost(os, i, mpd, treatStrides);
+     }
+-    //
+     os << "} catch(std::exception& mfront_cxx_exception){\n"
+        << "mfront_output_status->status = -2;\n"
+        << "mfront_report(mfront_cxx_exception.what());\n"
+@@ -287,7 +99,7 @@ namespace mfront::generic_parallel::material_property {
+        << "mfront_report(\"unknown exception\");\n"
+        << "return;\n"
+        << "}\n";
+-    os << "} // end of " << name << "\n\n";
++    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
+   }  // end of writeCImplementations2
+ 
+   void CxxProgrammingModelBackendBase::writeKernel(
+@@ -297,17 +109,12 @@ namespace mfront::generic_parallel::material_property {
+       const FileDescription& fd,
+       const bool handleStrides) const {
+     const auto types = i.getTypesDescription();
+-    const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+-    const auto iucname = i.getInterfaceNameInUpperCase();
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+-    const auto& function = mpd.f;
+-    const auto& params = mpd.parameters;
+-    // declaration of the kernel
+-    os << "auto mfront_kernel";
+-    if (!handleStrides) {
+-      os << "_without_strides";
+-    }
+-    os << " = [mfront_output";
++    const auto kernel =
++        handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides";
++    // the captured variables are declared by `writeKernels`: the extended
++    // lambdas of nvcc, used by Kokkos, can't have initializers in their
++    // captures
++    os << "auto " << kernel << " = [mfront_output";
+     if (handleStrides) {
+       os << ", mfront_output_stride";
+     }
+@@ -315,126 +122,21 @@ namespace mfront::generic_parallel::material_property {
+       os << ", mfront_arg" << idx;
+     }
+     if ((handleStrides) && (!mpd.inputs.empty())) {
+-      os << ", mfront_args_strides_tmp";
++      os << ", mfront_strides";
+     }
+-    // the captured variables are declared by `writeKernels`: the extended
+-    // lambdas of nvcc, used by Kokkos, can't have initializers in their
+-    // captures
+-    if (requiresBoundsCheck) {
++    if (isBoundsCheckingRequired(mpd)) {
+       os << ", mfront_bounds_statuses, mfront_out_of_bounds_policy";
+     }
+-    if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
++    if ((!areParametersTreatedAsStaticVariables(mpd)) &&
++        (!mpd.parameters.empty())) {
+       os << ", mfront_parameters";
+     }
+     os << "]" << this->getKernelSpecifiers() << "(" << types.integer_type
+        << " mfront_idx){\n";
+     writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true);
+-    // declaration of the parameters
+-    if (areParametersTreatedAsStaticVariables(mpd)) {
+-      for (const auto& p : mpd.parameters) {
+-        const auto pv =
+-            p.getAttribute<double>(VariableDescription::defaultValue);
+-        os << "constexpr auto " << p.name << " = ";
+-        if (useQuantities(mpd)) {
+-          os << p.type << "(" << pv << ");\n";
+-        } else {
+-          os << "double(" << pv << ");\n";
+-        }
+-      }
+-    } else {
+-      if (useQuantities(mpd)) {
+-        for (const auto& p : mpd.parameters) {
+-          os << "const auto " << p.name << " = " << p.type
+-             << "(mfront_parameters." << p.name << ");\n";
+-        }
+-      } else {
+-        for (const auto& p : mpd.parameters) {
+-          os << "const auto " << p.name << " = real(mfront_parameters."
+-             << p.name << ");\n";
+-        }
+-      }
+-    }
+-    // declaration of inputs
+-    if (!mpd.inputs.empty()) {
+-      auto p3 = mpd.inputs.begin();
+-      for (auto idx = 0u; p3 != mpd.inputs.end(); ++p3, ++idx) {
+-        auto cast_start = useQuantities(mpd) ? p3->type + "(" : "";
+-        auto cast_end = useQuantities(mpd) ? ")" : "";
+-        if (handleStrides) {
+-          os << "const auto " << p3->name << " = " << cast_start;
+-          os << "mfront_arg" << idx << "[mfront_args_strides_tmp[" << idx
+-             << "] * mfront_idx]";
+-          os << cast_end << ";\n";
+-        } else {
+-          os << "const auto " << p3->name << " = " << cast_start;
+-          os << "mfront_arg" << idx << "[mfront_idx]";
+-          os << cast_end << ";\n";
+-        }
+-      }
+-    }
+-    // declaration of the output
+-    os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n";
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      if ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs))) {
+-        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-      }
+-      if (hasPhysicalBounds(mpd.inputs)) {
+-        os << "// treating physical bounds\n";
+-        for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size();
+-             ++idx) {
+-          this->writePhysicalBounds(os, mpd.inputs[idx], idx,
+-                                    useQuantities(mpd));
+-        }
+-      }
+-      if (hasBounds(mpd.inputs)) {
+-        os << "// treating standard bounds\n";
+-        for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size();
+-             ++idx) {
+-          this->writeBounds(os, prefix, mpd.inputs[idx], idx,
+-                            useQuantities(mpd));
+-        }
+-      }
+-      if ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs))) {
+-        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+-      }
+-    }
+-    os << function.body;
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
+-        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-        if (mpd.output.hasPhysicalBounds()) {
+-          os << "// treating physical bounds\n";
+-          this->writePhysicalBounds(os, mpd.output, mpd.inputs.size(),
+-                                    useQuantities(mpd));
+-        }
+-        if (mpd.output.hasBounds()) {
+-          os << "// treating bounds\n";
+-          this->writeBounds(os, prefix, mpd.output, mpd.inputs.size(),
+-                            useQuantities(mpd));
+-        }
+-        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+-      }
+-    }
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      this->writeInvalidResultCheck(os, mpd);
+-    }
+-    if (handleStrides) {
+-      os << "*(mfront_output + mfront_output_stride * mfront_idx) = ";
+-    } else {
+-      os << "*(mfront_output + mfront_idx) = ";
+-    }
+-    if (useQuantities(mpd)) {
+-      os << mpd.output.name << ".getValue();\n";
+-    } else {
+-      os << mpd.output.name << ";\n";
+-    }
+-    // end of the kernel
+-    os << "}; // end of mfront_kernel";
+-    if (!handleStrides) {
+-      os << "_without_strides";
+-    }
+-    os << "\n";
+-  };
++    this->writeKernelBody(os, i, mpd, handleStrides);
++    os << "}; // end of " << kernel << "\n";
++  }  // end of writeKernel
+ 
+   void CxxProgrammingModelBackendBase::writeDataTransfersToHost(
+       std::ostream&,
+@@ -464,7 +166,7 @@ namespace mfront::generic_parallel::material_property {
+       os << "const auto mfront_arg" << idx << " = mfront_args[" << idx
+          << "];\n";
+     }
+-    if (this->isBoundsCheckingRequired(mpd)) {
++    if (isBoundsCheckingRequired(mpd)) {
+       os << "auto* const mfront_bounds_statuses = "
+          << "mfront_bounds_statuses_storage.data();\n";
+     }
+@@ -488,45 +190,6 @@ namespace mfront::generic_parallel::material_property {
+     return "";
+   }  // end of getKernelSpecifiers
+ 
+-  void CxxProgrammingModelBackendBase::writeKernelSelection(
+-      std::ostream& os,
+-      const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const bool treatStrides,
+-      const std::function<void(std::string_view, bool)>& write_loop) const {
+-    if (!treatStrides) {
+-      write_loop("mfront_npoints", false);
+-      return;
+-    }
+-    if (mpd.inputs.empty()) {
+-      os << "if(mfront_output_stride == 0){\n";
+-      write_loop("1", false);
+-      os << "} else if(mfront_output_stride == 1){\n";
+-      write_loop("mfront_npoints", false);
+-      os << "} else {\n";
+-      write_loop("mfront_npoints", true);
+-      os << "}\n";
+-      return;
+-    }
+-    const auto types = i.getTypesDescription();
+-    os << "if(mfront_areAllArgumentsUniform && "
+-       << "(mfront_output_stride == 0)){\n";
+-    write_loop("1", false);
+-    os << "} else {\n"
+-       << "const bool mfront_areAllArgumentsStrideOne = std::all_of("
+-       << "mfront_args_strides_tmp.begin(), "
+-       << "mfront_args_strides_tmp.end(), "
+-       << "[](const " << types.integer_type << " mfront_stride){"
+-       << "return mfront_stride == 1;});\n"
+-       << "if(mfront_areAllArgumentsStrideOne && (mfront_output_stride == "
+-          "1)){\n";
+-    write_loop("mfront_npoints", false);
+-    os << "} else {\n";
+-    write_loop("mfront_npoints", true);
+-    os << "}\n"
+-       << "}\n";
+-  }  // end of writeKernelSelection
+-
+   CxxProgrammingModelBackendBase::~CxxProgrammingModelBackendBase() = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index 40bb807ff..ccd4a7dfb 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -57,9 +57,7 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription& mpd) const {
+     CxxProgrammingModelBackendBase::writeSpecificIncludesInSourceFile(os, i,
+                                                                       mpd);
+-    os << "#include<concepts>\n"
+-       << "#include<type_traits>\n"
+-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n";
++    os << "#include <sycl/sycl.hpp>\n";
+     if (this->device_stack_size != 0) {
+       os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
+     }
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index e21c99486..2efe920f6 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -96,7 +96,7 @@ namespace mfront {
+   std::vector<std::string>
+   GenericParallelMaterialPropertyInterface::getInterfaceHeaderFiles() const {
+     return {"MFront/GenericMaterialProperty/Types.h",
+-            "MFront/GenericMaterialProperty/MaterialProperty.h"};
++            "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
+   }  // end of getInterfaceHeaderFiles
+ 
+   std::string GenericParallelMaterialPropertyInterface::getInterfaceName()
+@@ -261,7 +261,7 @@ namespace mfront {
+     os << "#ifdef __cplusplus\n"
+        << "} // end of extern \"C\"\n"
+        << "#endif /* __cplusplus */\n\n"
+-       << "#endif /* " << makeUpperCase(name) << "_" << iucname << "_HH */\n";
++       << "#endif /* " << guard << " */\n";
+     os.close();
+     if (getVerboseMode() >= VERBOSE_DEBUG) {
+       getLogStream() << "GenericParallelMaterialPropertyInterface::"
+@@ -354,6 +354,11 @@ namespace mfront {
+     writeTFELVersionSymbol(os, name);
+     writeUnitSystemSymbol(os, name, mpd);
+     writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());
++    // backend and version of the generated functions, as for the behaviours
++    exportStringSymbol(os, name + "_generic_parallel_backend",
++                       this->backend->getName());
++    exportSymbol(os, "unsigned short", name + "_generic_parallel_api_version",
++                 "MFRONT_GPMP_API_VERSION");
+     writeLawSymbol(os, name, mpd.law);
+     writeMaterialSymbol(os, name, mpd.material);
+     writeMaterialKnowledgeTypeSymbol(os, name,
+diff --git a/test-suite/material-properties/generic-parallel/symbols.hxx b/test-suite/material-properties/generic-parallel/symbols.hxx
+new file mode 100644
+index 000000000..b9527e975
+--- /dev/null
++++ b/test-suite/material-properties/generic-parallel/symbols.hxx
+@@ -0,0 +1,38 @@
++/*!
++ * \file   test-suite/material-properties/generic-parallel/symbols.hxx
++ * \brief  This file checks the symbols giving the backend and the version
++ * of the functions generated by the `generic-parallel` interface for the
++ * `Inconel600_YoungModulus` material property, shared by the tests of all
++ * the backends.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX
++#define LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX
++
++#include <string_view>
++#include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
++
++extern "C" {
++extern const char* Inconel600_YoungModulus_generic_parallel_backend;
++extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
++}
++
++/*!
++ * \return true if the symbols give the expected backend and the version
++ * declared by `MFront/GenericParallelMaterialProperty/MaterialProperty.h`
++ * \param[in] backend: name of the backend
++ */
++inline bool checkGenericParallelSymbols(const std::string_view backend) {
++  return (Inconel600_YoungModulus_generic_parallel_backend == backend) &&
++         (Inconel600_YoungModulus_generic_parallel_api_version ==
++          MFRONT_GPMP_API_VERSION);
++}  // end of checkGenericParallelSymbols
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX */
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index e5da51909..eca979dd3 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -23,6 +23,7 @@
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-cuda.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-cuda.hxx"
+ #include "MaterialLawCallTest-generic-parallel-cuda.hxx"
++#include "symbols.hxx"
+ 
+ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   Iconel600YoungModulusTest()
+@@ -44,6 +45,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
+     return this->result;
+   }  // end of execute
+ 
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 73f88b162..09ed99297 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -41,6 +41,7 @@
+ #include MFRONT_GPMP_TEST_HEADER(UO2_YoungModulus_Martin1989)
+ #include MFRONT_GPMP_TEST_HEADER(LinearDataInterpolationTest)
+ #include MFRONT_GPMP_TEST_HEADER(MaterialLawCallTest)
++#include "symbols.hxx"
+ 
+ #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+ //! \brief allocator in the shared memory space of Kokkos
+@@ -91,6 +92,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
++        MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
+     return this->result;
+   }  // end of execute
+ 
+diff --git a/test-suite/material-properties/generic-parallel/test-hip.hip b/test-suite/material-properties/generic-parallel/test-hip.hip
+index f25087afe..deff772c8 100644
+--- a/test-suite/material-properties/generic-parallel/test-hip.hip
++++ b/test-suite/material-properties/generic-parallel/test-hip.hip
+@@ -24,6 +24,7 @@
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-hip.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-hip.hxx"
+ #include "MaterialLawCallTest-generic-parallel-hip.hxx"
++#include "symbols.hxx"
+ 
+ [[nodiscard]] std::unique_ptr<double, void (*)(double *const) noexcept>
+ createManagedData(const std::size_t s) {
+@@ -69,6 +70,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
+     return this->result;
+   }  // end of execute
+ 
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+index 9d48058b6..9cfdefe5c 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+@@ -22,6 +22,7 @@
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
+ #include "MaterialLawCallTest-generic-parallel-sycl.hxx"
++#include "symbols.hxx"
+ 
+ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   Iconel600YoungModulusTest()
+@@ -43,6 +44,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
+     return this->result;
+   }  // end of execute
+ 
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+index 0e5fd35de..d61cffb04 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+@@ -21,6 +21,7 @@
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
+ #include "MaterialLawCallTest-generic-parallel-sycl.hxx"
++#include "symbols.hxx"
+ 
+ #ifdef TFEL_SYCL_DEVICE
+ #if TFEL_SYCL_DEVICE == 0
+@@ -69,6 +70,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
+     return this->result;
+   }  // end of execute
+ 
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+index 55a6c9025..6959312e6 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+@@ -21,6 +21,7 @@
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
+ #include "MaterialLawCallTest-generic-parallel-sycl.hxx"
++#include "symbols.hxx"
+ 
+ #ifdef TFEL_SYCL_DEVICE
+ #if TFEL_SYCL_DEVICE == 0
+@@ -54,6 +55,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
+     return this->result;
+   }  // end of execute
+ 
+-- 
+2.43.0
+

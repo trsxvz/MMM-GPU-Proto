@@ -1,0 +1,31 @@
+From 6c1fe894d29274d92af13dd313255b7ea5eccf65 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 04:10:09 +0200
+Subject: [PATCH] generic-parallel material properties: CUDA test with device
+ memory only
+
+The second call of test9 wrote the result in host memory from a kernel.
+This only worked with heterogeneous memory management.
+---
+ test-suite/material-properties/generic-parallel/test-cuda.cu | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index eca979dd3..0f5762695 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -358,7 +358,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+     }
+     nu = thrust::host_vector<double>(1);
+-    PoissonRatioTest(&output, nu.data(), 0, nullptr, nullptr, 0, 1, policy);
++    d_nu = thrust::device_vector<double>(nu.size());
++    PoissonRatioTest(&output, thrust::raw_pointer_cast(d_nu.data()), 0, nullptr,
++                     nullptr, 0, 1, policy);
++    nu = d_nu;
+     TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
+   }
+ 
+-- 
+2.43.0
+

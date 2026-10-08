@@ -101,10 +101,10 @@ run FiniteStrainSingleCrystal_Tridimensional \
   --initial-internal-state-variables=$z12,1,1,1,0,0,0,0,0,0,$z12,$z12
 # data shared by all the integration points (@SharedData): slip systems
 # of the grains of a polycrystal, read in a file on the host and copied in
-# the memory of the device
+# the memory of the device, then on another device if any (SYCL)
 run PolyCrystalSharedDataTest_Tridimensional \
   --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 \
-  --amplitude=1e-4 --tangent-operator=1
+  --amplitude=1e-4 --tangent-operator=1 --other-device=true
 # initialize functions, with and without inputs
 run InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure
 run InitializeFunctionTest_PlaneStrain_InitializeFunction_ElasticStrainFromInitialStress
@@ -159,6 +159,14 @@ run ${ohs}_Tridimensional_rotateGradients
 run ${ohs}_PlaneStrain_rotateThermodynamicForces
 run ${ohs}_Tridimensional_rotateTangentOperatorBlocks
 run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks
+# all the kinds of tangent operator blocks: arrays of variables, vectors,
+# symmetric tensors and tensors
+otob=OrthotropicTangentOperatorBlocksTest
+run ${otob}_Tridimensional
+run ${otob}_Tridimensional_rotateGradients
+run ${otob}_PlaneStrain_rotateThermodynamicForces
+run ${otob}_Tridimensional_rotateTangentOperatorBlocks
+run ${otob}_PlaneStrain_rotateTangentOperatorBlocks
 # isotropic hardening interpolated by a cubic spline (plastic loading)
 run CubicSplineHardeningTest_Tridimensional --amplitude=3e-3
 # StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
@@ -171,10 +179,16 @@ run OrthotropicStandardElastoViscoPlasticityTest_Tridimensional \
 run PorousStandardElastoViscoPlasticityTest_Tridimensional --amplitude=3e-3 \
   --initial-internal-state-variables=0,0,0,0,0,0,0.005,0,0
 # behaviour variables: integration delegated to a behaviour variable created
-# by a factory (whose parameters take their default values in device code),
-# external model integrated by a model using a Runge-Kutta algorithm
+# by a factory, external model integrated by a model using a Runge-Kutta
+# algorithm
 run BehaviourVariableTest_Tridimensional \
   --material-properties=1e9,300e6,200e9,0.3 --amplitude=3e-3
+# parameter of the behaviour variable read on the host in a parameters file,
+# and given to the device by the behaviour
+echo "hardening_factor 2" > BehaviourVariableTestPlasticity-parameters.txt
+run BehaviourVariableTest_Tridimensional \
+  --material-properties=1e9,300e6,200e9,0.3 --amplitude=3e-3
+rm -f BehaviourVariableTestPlasticity-parameters.txt
 run ExternalModelCallerTest_Tridimensional --amplitude=0 \
   --initial-internal-state-variables=1,2 --tangent-operator=0
 # standalone models, treated as behaviours without gradients: the outputs

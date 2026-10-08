@@ -17,6 +17,8 @@
 
 #include <string>
 #include <vector>
+#include <functional>
+#include <string_view>
 #include "MFront/MFrontConfig.hxx"
 #include "MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx"
 
@@ -63,16 +65,109 @@ namespace mfront::generic_parallel::material_property {
     //! \return the list of extra argument to the C functions
     [[nodiscard]] virtual std::vector<ExtraArgumentOfCFunctions>
     getExtraArgumentsOfCFunctions() const;
+    /*!
+     * \return true if the kernels report the violations of the bounds and
+     * the invalid results in an array of statuses (runtime checks enabled)
+     * \param[in] mpd: material property description
+     */
+    [[nodiscard]] static bool isBoundsCheckingRequired(
+        const MaterialPropertyDescription&);
+    /*!
+     * \brief write the beginning of a C function computing the material
+     * property on a set of points: signature, error reporting
+     * (`mfront_report`), initialization of the output status, checks of the
+     * arguments and of the strides. The function returns if there is no
+     * point. If strides are treated, the strides of the arguments are copied
+     * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
+     * states if all the arguments are uniform.
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] treatStrides: if true, the function takes the strides of
+     * the output and of the arguments. Otherwise, its name ends with `2`.
+     */
+    void writeCFunctionBeginning(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const bool) const;
+    /*!
+     * \brief write the body of a kernel, which evaluates the material
+     * property at the point `mfront_idx`. The kernel reads the arguments in
+     * `mfront_arg0`, `mfront_arg1`, etc. (with the strides `mfront_strides`
+     * if strides are handled) and writes the result in `mfront_output`
+     * (with the stride `mfront_output_stride` if strides are handled). The
+     * parameters are read in `mfront_parameters`, unless they are treated
+     * as static variables, and the violations of the bounds and the invalid
+     * results are written in `mfront_bounds_statuses`.
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] handleStrides: if true, the arguments and the output are
+     * strided
+     */
+    void writeKernelBody(std::ostream&,
+                         const GenericParallelMaterialPropertyInterface&,
+                         const MaterialPropertyDescription&,
+                         const bool) const;
+    /*!
+     * \brief write the selection of the kernel called at each point.
+     *
+     * If strides are treated, a single point is evaluated if all the
+     * arguments are uniform and the output stride is null, the kernel
+     * without strides is used if all the strides are equal to one, and the
+     * kernel handling strides otherwise.
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] treatStrides: boolean stating if strides are treated
+     * \param[in] write_call: function writing the evaluation of the given
+     * number of points (`1` or `mfront_npoints`) by the kernel handling
+     * strides if its second argument is true, or by the kernel without
+     * strides otherwise
+     */
+    void writeKernelSelection(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&,
+        const bool,
+        const std::function<void(std::string_view, bool)>&) const;
+    /*!
+     * \brief write the analysis of the results, once the kernels are
+     * completed (see `writeBoundsStatusesAnalysis`), if the runtime checks
+     * are enabled
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     */
+    void writeResultsAnalysis(std::ostream&,
+                              const GenericParallelMaterialPropertyInterface&,
+                              const MaterialPropertyDescription&) const;
     //
+    /*!
+     * \brief write the check of the physical bounds of a variable in a kernel
+     * \param[in] os: output stream
+     * \param[in] v: variable
+     * \param[in] i: index of the variable (the output is after the inputs)
+     */
     virtual void writePhysicalBounds(std::ostream&,
                                      const VariableDescription&,
-                                     const size_t,
-                                     const bool) const;
+                                     const size_t) const;
+    /*!
+     * \brief write the check of the standard bounds of a variable in a kernel
+     * \param[in] os: output stream
+     * \param[in] prefix: prefix of the out of bounds policies
+     * \param[in] v: variable
+     * \param[in] i: index of the variable (the output is after the inputs)
+     */
     virtual void writeBounds(std::ostream&,
                              const std::string&,
                              const VariableDescription&,
-                             const size_t,
-                             const bool) const;
+                             const size_t) const;
     /*!
      * \brief write the code analysying the array `mfront_bounds_statuses`
      *

@@ -107,20 +107,29 @@ The rotation matrix is uniform if the point stride of the
 and the storage of the `generic` interface (rotation from the global frame
 to the material frame, stored in column-major format).
 
+All the tangent operator blocks can be rotated, with both interfaces. A
+block associated with arrays of variables is rotated entry by entry. A
+block for which TFEL has no type which can be rotated (derivative of a
+vector with respect to a symmetric tensor or a tensor, and conversely,
+derivative of a tensor with respect to a symmetric tensor) is rotated by
+`mfront::gb::rotateTangentOperatorBlock`, which computes
+\(Q_{1}\,K\,Q_{2}^{T}\), where \(Q_{i}\) is the matrix of the rotation of the
+objects of each variable by `change_basis`.
+
 The library also exports the same symbols as the `generic` interface
 (names and types of the variables, parameters, etc.) and the functions
 changing the parameters and the out of bounds policy. The `mfront_interface`
 symbol is equal to `GenericParallel`, for the behaviours and for the
-standalone models. The `generic_parallel_backend` symbol gives the backend
-of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
+standalone models. The `<name>_generic_parallel_backend` symbol gives the
+backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
 which tells the calling code where the fields must be allocated (see the
 section of each backend).
 
 The data structures are declared in
 `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given by the
 `MFRONT_GPB_API_VERSION` macro, incremented at each incompatible change, and
-exported by the libraries (`generic_parallel_api_version` symbol, an
-`unsigned short`), so that the calling code can check that it uses the same
+exported by the libraries (`<name>_generic_parallel_api_version` symbol,
+an `unsigned short`), so that the calling code can check that it uses the same
 structures.
 
 ## Fields
@@ -318,6 +327,12 @@ the parameters in a structure filled on the host from the parameters
 initializers and passed by value to the kernel. The functions changing the
 values of the parameters can thus be used as with the `generic` interface.
 
+This structure (`mfront_parameters_values`, declared by the behaviour class)
+also holds the values of the parameters of the behaviour variables, read
+from their own parameters initializers, recursively: the behaviour gives
+them to its behaviour variables, and to the behaviour variables created by
+its factories.
+
 # Standalone models
 
 The interface is also available for standalone models (`@DSL Model`). As
@@ -419,7 +434,12 @@ The memory mode shall be given explicitly by `-gpu=mem:managed` (see the
 `stlpar-parunseq-nvhpc-gpu` configuration): this mode does not depend on
 the support of heterogeneous memory management by the system, and the
 `unified` mode, selected by default on such systems by `nvc++` 25.11,
-miscompiles some behaviours.
+miscompiles some behaviours. The device code of each source file is also
+compiled without relocatable device code (`-gpu=nordc`): `nvc++` 25.11
+exports some constant data of the device code under names which are only
+unique in a source file (`__staticinit_<counter>_<function>`), so that the
+device link of several behaviours fails at random. The sources generated
+by `MFront` do not call device functions defined in other files.
 
 Options:
 
@@ -567,14 +587,20 @@ The following rules apply to the code blocks written by the user:
 
   The expression is evaluated once on the host. The `generic-parallel`
   interface copies the result in a memory accessible by the device at the
-  first call of a function of the generated library (device memory of the
-  current device with the `CUDA`, `HIP`, `SYCL` and `Kokkos` backends,
-  heap otherwise), which is never freed. The type of the data must be
-  trivially copyable. Since the copy is made once, all the calls must use
-  the same device: a process using several GPUs can't share such a library
-  between them. With the other backends, the heap must be accessible by the
-  device when the computations are offloaded (unified memory, as with the
-  `stlpar` backend of `nvc++`).
+  first call of a function of the generated library, and never frees it:
+
+  - with the `CUDA` and `HIP` backends, in the memory of the current device,
+    one copy per device;
+  - with the `SYCL` backend, in the memory of the device of the queue, one
+    copy per device and context;
+  - with the `Kokkos` backend, in the memory space of the execution space
+    (Kokkos uses one device per process);
+  - otherwise, on the heap, which must be accessible by the device when the
+    computations are offloaded (unified or managed memory, as with the
+    `stlpar` backend of `nvc++`).
+
+  A process using several GPUs can thus share the library between them.
+  The type of the data must be trivially copyable.
 - the standard streams (`std::cout`) can't be used in device code. They
   can be kept on the host:
 
@@ -615,13 +641,9 @@ The following points are specific to device code:
   objects generated by `MFront`, never through pointers to members, which
   `nvc++` ignores in device code.
 - behaviour variables (`@BehaviourVariable`, `@BehaviourVariableFactory`,
-  external models declared by `@Model`) can be used in device code. Their
-  parameters take their default values in device code, unless they are
-  treated as static variables, since the parameters initializers of the
-  behaviour variables are only available on the host. The generated
-  functions report an error (status -2) if, on the host, a parameter of a
-  behaviour variable differs from its default value (for instance if it is
-  read from a parameters file).
+  external models declared by `@Model`) can be used in device code, with
+  the values of their parameters given on the host, as the ones of the
+  behaviour (see the `Parameters` section).
 - the parameters of the material properties called by the behaviour are
   constants, in host and device code.
 - the linear system solvers of the implicit DSLs can be used in device
@@ -636,9 +658,6 @@ worked around in the generated code and the headers (see the comments of
 
 # Current limitations
 
-- the rotation of tangent operator blocks associated with arrays of
-  variables, or between a vector and a tensor, is not supported (the
-  generated function reports an error).
 - the comparison of the jacobian to a numerical jacobian
   (`@CompareToNumericalJacobian`) prints its results on the standard
   output: it is only performed on the host.

@@ -12,6 +12,7 @@
 
 #include <utility>
 #include "TFEL/Raise.hxx"
+#include "MFront/MFrontLogStream.hxx"
 #include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/OpenMPBackend.hxx"
@@ -58,8 +59,12 @@ namespace mfront::generic_parallel::behaviour {
       std::string_view n, const DataMap& opts) const {
     const auto p = this->generators.find(n);
     if (p == this->generators.end()) {
+      auto names = std::string{};
+      for (const auto& g : this->generators) {
+        names += (names.empty() ? "" : ", ") + g.first;
+      }
       tfel::raise("BackendFactory::generate: no backend named '" +
-                  std::string{n} + "' registred");
+                  std::string{n} + "' (available backends: " + names + ")");
     }
     try {
       return p->second(opts);
@@ -67,6 +72,24 @@ namespace mfront::generic_parallel::behaviour {
       tfel::raise("BackendFactory::generate: error while generating backend '" +
                   std::string{n} + "'\n" + std::string{e.what()});
     }
+  }  // end of generate
+
+  std::unique_ptr<AbstractBackend> BackendFactory::generate(
+      const DataMap& opts) const {
+    using tfel::utilities::DataStructure;
+    auto validator = tfel::utilities::DataMapValidator{};
+    validator.addDataTypeValidator<DataStructure>("backend");
+    validator.validate(opts);
+    if (!contains(opts, "backend")) {
+      return {};
+    }
+    const auto ds =
+        DataStructure::convert(tfel::utilities::get(opts, "backend"));
+    if (getVerboseMode() >= VERBOSE_DEBUG) {
+      getLogStream() << "BackendFactory::generate: creating backend '"
+                     << ds.name << "'\n";
+    }
+    return this->generate(ds.name, ds.data);
   }  // end of generate
 
   BackendFactory::~BackendFactory() = default;

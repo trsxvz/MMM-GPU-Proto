@@ -42,7 +42,7 @@ behaviours=${*:-"
   OrthotropicStandardElastoViscoPlasticityTest
   PorousStandardElastoViscoPlasticityTest GenericParallelModelTest
   GenericParallelModelWithQuantitiesTest TensorialVariablesTest
-  CubicSplineHardeningTest
+  CubicSplineHardeningTest OrthotropicTangentOperatorBlocksTest
 "}
 files=$(for b in $behaviours; do echo "$directory/$b.mfront"; done)
 reference_configuration=""

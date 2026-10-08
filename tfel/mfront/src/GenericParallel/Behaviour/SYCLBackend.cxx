@@ -43,9 +43,9 @@ namespace mfront::generic_parallel::behaviour {
   }  // end of getApply
 
   std::string SYCLBackend::getSharedDataCopy(
-      const std::string_view value, const std::string_view execution) const {
-    return "mfront::gpb::sycl::copyToDevice(" + std::string{value} + ", " +
-           std::string{execution} + ")";
+      const std::string_view getter, const std::string_view execution) const {
+    return "mfront::gpb::sycl::getSharedDataCopy<" + std::string{getter} +
+           ">(" + std::string{execution} + ")";
   }  // end of getSharedDataCopy
 
   void SYCLBackend::writeCall(std::ostream& os,

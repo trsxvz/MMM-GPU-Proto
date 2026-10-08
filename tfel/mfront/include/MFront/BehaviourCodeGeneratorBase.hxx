@@ -441,6 +441,20 @@ namespace mfront {
 
     virtual void writeBehaviourParameters(std::ostream&,
                                           const Hypothesis) const;
+    /*!
+     * \brief write, for a class usable in device code, the structure
+     * holding the values of the parameters of the behaviour and of its
+     * behaviour variables (`mfront_parameters_values`), the host function
+     * reading those values from the parameters initializers
+     * (`mfront_get_parameters_values`) and the function setting them
+     * (`mfront_set_parameters_values`). In device code, where the
+     * parameters initializers can't be used, the parameters are given by
+     * this structure.
+     * \param[out] os: output stream
+     * \param[in] h: modelling hypothesis
+     */
+    virtual void writeBehaviourParametersValues(std::ostream&,
+                                                const Hypothesis) const;
 
     virtual void writeBehaviourStaticVariables(std::ostream&,
                                                const Hypothesis) const;

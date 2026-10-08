@@ -34,9 +34,9 @@ namespace mfront::generic_parallel::behaviour {
            std::to_string(this->number_of_threads_per_block) + ")";
   }  // end of getApply
 
-  std::string GPUBackend::getSharedDataCopy(const std::string_view value,
+  std::string GPUBackend::getSharedDataCopy(const std::string_view getter,
                                             const std::string_view) const {
-    return "mfront::gpb::gpu::copyToDevice(" + std::string{value} + ")";
+    return "mfront::gpb::gpu::getSharedDataCopy<" + std::string{getter} + ">()";
   }  // end of getSharedDataCopy
 
   GPUBackend::~GPUBackend() noexcept = default;

@@ -84,15 +84,7 @@ namespace mfront {
         os << "void " << fn << "_" << f.name << "(mfront_gb_real* const dest, "
            << "const mfront_gb_real* const src, "
            << "const mfront_gb_real* const rv){\n";
-        if (f.error.empty()) {
-          writePointRotation(os, f);
-        } else {
-          os << "static_cast<void>(dest);\n"
-             << "static_cast<void>(src);\n"
-             << "static_cast<void>(rv);\n"
-             << "tfel::raise(\"" << fn << "_" << f.name << ": " << f.error
-             << "\");\n";
-        }
+        writePointRotation(os, f);
         os << "} // end of " << fn << "_" << f.name << "\n\n"
            << "void " << fn << "_" << f.array_name
            << "(mfront_gb_real* const dest, "

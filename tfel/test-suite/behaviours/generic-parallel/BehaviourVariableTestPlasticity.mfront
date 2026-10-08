@@ -2,8 +2,8 @@
 @Behaviour BehaviourVariableTestPlasticity;
 @Description {
   "Behaviour used by the BehaviourVariableTest behaviour. Its parameters "
-  "are not treated as static variables: in device code, the behaviour "
-  "variable uses their default values."
+  "are not treated as static variables: they are read on the host, and "
+  "given to the device by the behaviour using this behaviour variable."
 }
 
 @UseQt true;
@@ -12,8 +12,11 @@
 @MaterialProperty stress H;
 @MaterialProperty stress s0;
 
+//! \brief factor applied to the hardening modulus (changed by the tests)
+@Parameter real hardening_factor = 1;
+
 @FlowRule {
-  f = seq - H * p - s0;
+  f = seq - hardening_factor * H * p - s0;
   df_dseq = 1;
-  df_dp = -H;
+  df_dp = -hardening_factor * H;
 }

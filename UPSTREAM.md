@@ -18,7 +18,7 @@ the branch, file by file, rather than by cherry-picking.
      between the strided outputs preserved (`SYCL`), data transfers inside
      the `try` block, backend in the header guard, bounds and default
      values of the parameters written with 14 digits, grid size of the
-     `CUDA` kernels;
+     `CUDA` kernels, `CUDA` test writing in host memory from a kernel;
    - fixes of the drivers of the `generic` interface: status tested after
      a finite strain integration, moduli of the `DTAU_DDF` operator with the
      Hencky strain, state at the end of the time step in the
@@ -28,7 +28,8 @@ the branch, file by file, rather than by cherry-picking.
      functions for all stress measures, exceptions of the constructor of
      the behaviour reported as failures;
    - fixes of the rotation functions of the `generic` interface (offsets,
-     scalars, vectors);
+     scalars, vectors), and rotation of all the tangent operator blocks
+     (arrays of variables, pairs of variables without a TFEL type);
    - bounds checks of the generic models in all compilation modes;
    - generated classes of the generic models given internal linkage: the
      parameters of a model were shared by all the libraries of this model
@@ -57,12 +58,14 @@ the branch, file by file, rather than by cherry-picking.
    host and device core and the historical host functions, rotation
    functions and method callers usable on GPUs, type of the tangent
    operator computed by the user checked before its conversion (the
-   `get` method of `TrivialGenTypeBase` only checks it on the host). The
-   results of the existing interfaces are unchanged.
+   `get` method of `TrivialGenTypeBase` only checks it on the host),
+   values of the parameters given to the behaviour class and to its
+   behaviour variables (`mfront_parameters_values`). The results of the
+   existing interfaces are unchanged.
 
 4. **The `generic-parallel` interface for behaviours** with a first set of
    backends: CUDA, HIP, C++ parallel algorithms and OpenMP on the host.
-   Tests and documentation.
+   Shared data copied on each device. Tests and documentation.
 
 5. **Additional backends and compilers**: Kokkos, SYCL, nvc++ offloading
    (`stdpar` and OpenMP), clang CUDA and HIP. Most compiler workarounds
@@ -70,7 +73,8 @@ the branch, file by file, rather than by cherry-picking.
 
 6. **Extensions of the interface for material properties**: Kokkos and
    OpenMP backends, material laws using data or other material laws on
-   CUDA and HIP, options shared with the behaviours.
+   CUDA and HIP, options shared with the behaviours, backend and API
+   version symbols, kernel code shared by the backends.
 
 The data contract (`MFront/GenericParallelBehaviour/BatchData.h`) is
 versioned from the fourth pull request on, so that MGIS can check it.

@@ -16,8 +16,6 @@
 #ifndef LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
 #define LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_CXXPROGRAMMINGMODELBACKENDBASE_HXX
 
-#include <functional>
-#include <string_view>
 #include "TFEL/Utilities/Data.hxx"
 #include "MFront/MFrontConfig.hxx"
 #include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
@@ -70,9 +68,6 @@ namespace mfront::generic_parallel::material_property {
     ~CxxProgrammingModelBackendBase() noexcept override;
 
    protected:
-    //
-    virtual bool isBoundsCheckingRequired(
-        const MaterialPropertyDescription&) const;
     /*!
      * \brief write the C implementations of the material property
      *
@@ -136,29 +131,6 @@ namespace mfront::generic_parallel::material_property {
      * with the CUDA execution space)
      */
     [[nodiscard]] virtual std::string getKernelSpecifiers() const;
-    /*!
-     * \brief write the selection of the kernel called at each point.
-     *
-     * If strides are treated, a single point is evaluated if all the
-     * arguments are uniform and the output stride is null, the kernel
-     * without strides is used if all the strides are equal to one, and the
-     * kernel handling strides otherwise.
-     *
-     * \param[in] os: output stream
-     * \param[in] i: interface
-     * \param[in] mpd: material property description
-     * \param[in] treatStrides: boolean stating if strides are treated
-     * \param[in] write_loop: function writing the loop over the given number
-     * of points (`1` or `mfront_npoints`) calling the kernel handling strides
-     * (`mfront_kernel`) if its second argument is true, or the kernel without
-     * strides (`mfront_kernel_without_strides`) otherwise
-     */
-    void writeKernelSelection(
-        std::ostream&,
-        const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool,
-        const std::function<void(std::string_view, bool)>&) const;
     /*!
      * \brief write the code transferring the data to the device
      *

@@ -161,23 +161,21 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
       heures, jusqu'à 22 Go pour un fichier).
 - [x] R5 clang-tidy et relecture indépendante de l'interface : défauts
       corrigés, tests ajoutés (entrée du 08/10, nuit).
+- [x] R6 données partagées copiées sur chaque GPU, symboles des
+      propriétés matériau, duplication réduite ; validation sans HMM.
+- [x] R7 paramètres des variables de comportement sur GPU, rotation de
+      tous les blocs de l'opérateur tangent.
 D. Intégration
-- [ ] D1 MGIS (proposition de conception détaillée :
-      `scratch/d1-mgis-design.md`, 10 questions ouvertes) :
-      chargement d'une bibliothèque `generic-parallel`,
-      intégration d'un lot décrit par des vues. Point de conception : MGIS
-      range chaque propriété matériau et variable externe séparément
-      (uniforme ou champ, mémoire locale ou externe), alors que
-      `mfront_gpb_BatchData` attend un champ unique à pas fixes par groupe.
-      Choix à faire : champs par variable dans `BatchData` (tableau de
-      `ConstField`, le plus fidèle à MGIS et sans copie) ou assemblage d'un
-      bloc par MGIS avant l'appel.
-- [ ] D2 mfem-mgis : assemblage GPU, variantes (Newton, points fixes,
-      Ginkgo, hypre GPU). Constat (lecture de `BehaviourIntegratorBase`) :
-      l'intégration se fait point par point dans la boucle d'assemblage
-      (`performsLocalBehaviourIntegration`, propriétés matériau évaluées
-      par point dans un espace de travail) ; sur GPU il faudra intégrer tout
-      le lot d'un matériau avant l'assemblage (deux phases).
+- [ ] D1 MGIS (plan révisé le 08/10 : `scratch/d1-mgis-design.md`) :
+      chargement d'une bibliothèque `generic-parallel`, intégration d'un
+      lot sans copie sur les tableaux de l'appelant, basculement
+      automatique des fonctions existantes, erreurs explicites ; puis
+      ressource mémoire, asynchrone et mise à jour sur le GPU.
+- [ ] D2 mfem-mgis (plan du 08/10 : `scratch/d2-mfem-mgis-design.md`) :
+      chemin par lot à côté du chemin actuel, en trois phases par
+      matériau (gradients, intégration du lot, résidu), données dans la
+      mémoire de MFEM, opérateur tangent sans matrice, point fixe ou
+      assemblé sur le GPU, hypre ou Ginkgo.
 
 ## Organisation
 
@@ -1708,3 +1706,111 @@ la pile ou au tas de l'hôte y fonctionne, alors qu'il plante sur une
 machine sans HMM. Pour s'en assurer, il faudrait relancer les tests GPU
 avec le module `nvidia_uvm` chargé avec `uvm_disable_hmm=1` (droits
 administrateur).
+
+### 2026-10-08 (nuit, suite), données partagées, symboles, duplication (R6)
+
+Trois points laissés ouverts par R5.
+
+- `@SharedData` : une copie par GPU (GPU courant en CUDA et HIP), par
+  périphérique et par contexte en SYCL. Kokkos garde une copie (un GPU par
+  processus). La copie est rangée sous l'adresse de la fonction qui fournit
+  la donnée (`getSharedDataCopy<&Behaviour::mfront_get_shared_data_x>`,
+  cache `SharedDataCopies<T, Device>`). L'intégration, les fonctions
+  d'initialisation et les post-traitements partagent donc la même copie.
+  Coût : une requête du GPU courant par appel. Nouveau test SYCL : la loi
+  polycristalline est intégrée sur le GPU, puis sur le CPU.
+- propriétés matériau : symboles `<nom>_generic_parallel_backend` et
+  `<nom>_generic_parallel_api_version`, comme pour les lois. La version est
+  définie dans le nouvel en-tête C
+  `MFront/GenericParallelMaterialProperty/MaterialProperty.h`. Les tests de
+  tous les backends vérifient ces symboles.
+- duplication : un seul code des noyaux des propriétés matériau pour tous
+  les backends (1385 lignes avant, 1013 après). Les deux copies avaient
+  divergé : ordre des vérifications, messages, restauration de `errno`.
+  Les lois et les modèles partagent le début et la fin des fonctions
+  générées, les noms de fichiers et de bibliothèque, et le choix du
+  backend. Un backend inconnu donne la liste des backends disponibles. Côté
+  hôte, le facteur de pas est encodé par les fonctions C du contrat.
+
+Le code généré de toutes les lois de test a été comparé avant et après,
+sur 6 backends : seuls les changements voulus apparaissent.
+
+Validation complète à -O3, avec HMM désactivé (`uvm_disable_hmm=Y`) :
+
+- installation, tests de TFEL : 6965/6965 ;
+- lois : 15 configurations sur 15 ;
+- propriétés matériau : 14 sur 16. cuda-nvcc et cuda-clang échouaient à
+  cause du test amont `test-cuda.cu` : le second appel de `test9` écrivait
+  le résultat dans la mémoire de l'hôte depuis un noyau (compute-sanitizer :
+  écriture invalide). HMM masquait ce défaut. Le test utilise maintenant
+  la mémoire du périphérique : cuda-nvcc et cuda-clang réussis,
+  compute-sanitizer sans erreur. Le test HIP utilise déjà de la mémoire
+  managée ;
+- balayages de compilation : nvcc 541 OK, 60 INVALID, 7 FRAGMENT, comme
+  avant ; clang identique (541 OK).
+
+Sans HMM, aucun accès caché du GPU à la mémoire de l'hôte n'apparaît dans
+le code de l'interface.
+
+### 2026-10-08 (nuit, fin), paramètres des variables de comportement, rotations (R7)
+
+Trois limites restantes.
+
+- Paramètres chaîne des modèles : rien à corriger pour le GPU. Un modèle
+  avec un paramètre chaîne échoue déjà à l'analyse sur CPU, avec
+  l'interface `generic`. Le reproducteur `reproducers/device-strings`
+  montre au passage que `std::string_view` ne fonctionne pas dans le code
+  GPU : résultats faux sans message avec nvcc et hipcc, erreurs avec nvc++
+  (appels à `std::char_traits`). Un petit type sans `char_traits` fonctionne
+  avec les six compilateurs.
+- Paramètres des variables de comportement : chaque classe compatible GPU
+  a une structure `mfront_parameters_values`, avec ses paramètres et ceux
+  de ses variables de comportement (récursivement). Elle est remplie sur
+  CPU depuis les initialiseurs (`mfront_get_parameters_values`), puis
+  appliquée sur le périphérique (`mfront_set_parameters_values`). Les
+  fabriques de variables de comportement la reçoivent aussi. La structure
+  des paramètres de l'interface `generic-parallel` en dérive : plus de
+  types dupliqués, plus de refus des valeurs changées. Nouveau test : le
+  paramètre `hardening_factor` de `BehaviourVariableTestPlasticity` est
+  changé par fichier, puis les résultats CPU et GPU sont comparés. Une
+  version qui ignore la valeur échoue sur GPU (écart de 1,5e-3).
+- Rotation de l'opérateur tangent : tous les blocs sont tournés, sur CPU
+  (`generic`) comme sur GPU. Les blocs de tableaux sont tournés sous-bloc
+  par sous-bloc, car MFront range les sous-blocs l'un après l'autre. Les
+  paires sans type TFEL (vecteur et tenseur, tenseur et tenseur
+  symétrique : TFEL n'a pas de `change_basis` pour `st2tot2`) passent par
+  un produit générique `Q1 K Q2ᵀ`, utilisable sur GPU
+  (`GenericBehaviour/RotateTangentOperatorBlock.hxx`). Le code généré des
+  cas existants ne change pas. Nouvelle loi de test
+  `OrthotropicTangentOperatorBlocksTest` : 9 blocs de tous les types.
+
+Vérifications limitées au code touché :
+
+- reproducteur `reproducers/rotations`, indépendant du code qui tourne les
+  blocs : `rotateTangentOperatorBlocks(K) x =
+  rotateThermodynamicForces(K rotateGradients(x))` sur les 5 hypothèses
+  (écart de l'ordre de 1e-15), rotation sur place identique. Une version
+  volontairement fausse est détectée ;
+- comparaisons ciblées des lois orthotropes (`scratch/targeted-test.sh`),
+  CPU et GPU : 137 OK ;
+- suites complètes des lois, qui contiennent aussi les comparaisons des
+  rotations de la nouvelle loi : openmp-host-gcc et
+  cuda-nvcc 637/637, sycl-default-acpp 664/664, stlpar-parunseq-nvhpc-gpu
+  637/637 avec le contournement ci-dessous.
+
+Nouveau défaut de nvc++ 25.11 (`-stdpar=gpu`), révélé par la suite
+stlpar-parunseq-nvhpc-gpu : l'édition des liens du code device de la
+bibliothèque des lois échoue (« nvlink error : Multiple definition of
+'__staticinit_110045_…' », entre `HosfordPerfectPlasticity` et
+`InitializeFunctionTest`). nvc++ range certaines constantes locales du code
+device (ici la lambda vide de `assign` et `addAndAssign` des tableaux de
+TFEL) dans des données globales visibles, nommées par un compteur propre à
+chaque fichier. Deux fichiers qui donnent le même compteur à la même
+fonction inline entrent en conflit. Le code des paramètres n'a fait que
+décaler les compteurs : la validation R6 passait par chance. Sans l'en-tête
+des rotations, le conflit reste (compteurs décalés de 8). Le reproducteur
+`results/nvhpc-bugs/stdpar-staticinit-link.cxx` (deux copies d'un fichier de
+quatre lignes) échoue de -O0 à -O3. Contournement : code device de chaque
+fichier lié seul (`-gpu=nordc` dans `config-stlpar-parunseq-nvhpc-gpu.json`),
+possible car les sources générées n'appellent pas de fonction device
+définie dans un autre fichier. OpenMP déporté n'émet pas ces symboles.

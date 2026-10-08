@@ -20,6 +20,7 @@
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #include <sycl/sycl.hpp>
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
@@ -464,21 +465,15 @@ namespace mfront::gpb::sycl {
   }  // end of makeApply
 
   /*!
-   * \return a copy in device memory of a data shared by all the integration
-   * points (see the `@SharedData` keyword). The copy is made at the first
-   * call of a generated function, in the context of the queue given by the
-   * execution options, and is never freed.
+   * \return a copy of a data in the memory of the device associated with a
+   * queue
    * \param[in] v: data
-   * \param[in] o: execution options
+   * \param[in] q: queue
    */
   template <typename T>
-  const T* copyToDevice(const T& v, const ExecutionOptions& o) {
+  const T* copyToDevice(const T& v, ::sycl::queue& q) {
     static_assert(std::is_trivially_copyable_v<T>,
                   "the shared data must be trivially copyable");
-    if (o.queue == nullptr) {
-      throw std::runtime_error("no SYCL queue given");
-    }
-    auto& q = *static_cast<::sycl::queue*>(o.queue);
     auto* const p = ::sycl::malloc_device<T>(1, q);
     if (p == nullptr) {
       throw std::runtime_error("memory allocation failed on the SYCL device");
@@ -486,6 +481,27 @@ namespace mfront::gpb::sycl {
     q.copy(&v, p, 1).wait_and_throw();
     return p;
   }  // end of copyToDevice
+
+  /*!
+   * \return a copy of a data shared by all the integration points (see the
+   * `@SharedData` keyword) in the memory of the device associated with the
+   * queue given by the execution options. A copy is made at the first call
+   * for each device and context, and is never freed.
+   * \tparam get_shared_data: function returning the data
+   * \param[in] o: execution options
+   */
+  template <auto get_shared_data>
+  const auto* getSharedDataCopy(const ExecutionOptions& o) {
+    using T = std::remove_cvref_t<decltype(get_shared_data())>;
+    using Device = std::pair<::sycl::device, ::sycl::context>;
+    static auto copies = SharedDataCopies<T, Device>{};
+    if (o.queue == nullptr) {
+      throw std::runtime_error("no SYCL queue given");
+    }
+    auto& q = *static_cast<::sycl::queue*>(o.queue);
+    return copies.get(Device{q.get_device(), q.get_context()},
+                      [&q] { return copyToDevice(get_shared_data(), q); });
+  }  // end of getSharedDataCopy
 
   namespace internals {
 

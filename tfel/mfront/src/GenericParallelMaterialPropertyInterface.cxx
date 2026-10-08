@@ -96,7 +96,7 @@ namespace mfront {
   std::vector<std::string>
   GenericParallelMaterialPropertyInterface::getInterfaceHeaderFiles() const {
     return {"MFront/GenericMaterialProperty/Types.h",
-            "MFront/GenericMaterialProperty/MaterialProperty.h"};
+            "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
   }  // end of getInterfaceHeaderFiles
 
   std::string GenericParallelMaterialPropertyInterface::getInterfaceName()
@@ -261,7 +261,7 @@ namespace mfront {
     os << "#ifdef __cplusplus\n"
        << "} // end of extern \"C\"\n"
        << "#endif /* __cplusplus */\n\n"
-       << "#endif /* " << makeUpperCase(name) << "_" << iucname << "_HH */\n";
+       << "#endif /* " << guard << " */\n";
     os.close();
     if (getVerboseMode() >= VERBOSE_DEBUG) {
       getLogStream() << "GenericParallelMaterialPropertyInterface::"
@@ -354,6 +354,11 @@ namespace mfront {
     writeTFELVersionSymbol(os, name);
     writeUnitSystemSymbol(os, name, mpd);
     writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());
+    // backend and version of the generated functions, as for the behaviours
+    exportStringSymbol(os, name + "_generic_parallel_backend",
+                       this->backend->getName());
+    exportSymbol(os, "unsigned short", name + "_generic_parallel_api_version",
+                 "MFRONT_GPMP_API_VERSION");
     writeLawSymbol(os, name, mpd.law);
     writeMaterialSymbol(os, name, mpd.material);
     writeMaterialKnowledgeTypeSymbol(os, name,

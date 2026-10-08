@@ -42,4 +42,17 @@ for o in -O0 -O1 -O2 -O3; do
   check omp-lambda-pointer-array omp-lambda-pointer-array.cxx "$o -mp=gpu -gpu=mem:managed" ' OK$'
   check member-function-pointer member-function-pointer.cxx "$o -stdpar=gpu -gpu=mem:managed" '^2 '
   check std-variant-visit std-variant-visit.cxx "$o -stdpar=gpu -gpu=mem:managed" '^5 '
+  # device link of two files: the library must be built
+  for memory in mem:managed mem:managed,nordc; do
+    flags="$o -stdpar=gpu -gpu=$memory"
+    for n in 1 2; do
+      "$NVCXX" $flags -fPIC -DNAME=f$n -c "$R/stdpar-staticinit-link.cxx" -o f$n.o > log 2>&1
+    done
+    if "$NVCXX" -shared -stdpar=gpu -gpu=$memory f1.o f2.o -o libf.so > log 2>&1; then
+      printf "%-28s %-40s PASS\n" stdpar-staticinit-link "$flags"
+    else
+      printf "%-28s %-40s FAIL (%s)\n" stdpar-staticinit-link "$flags" \
+        "$(grep -m1 -o 'Multiple definition of .__staticinit_[0-9]*' log)"
+    fi
+  done
 done

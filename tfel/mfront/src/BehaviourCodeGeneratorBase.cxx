@@ -2455,6 +2455,11 @@ namespace mfront {
         os << "#else /* TFEL_DEVICE_CODE */\n";
         this->writeBehaviourParameterInitialisation(os, h, "");
         os << "#endif /* TFEL_DEVICE_CODE */\n";
+      } else if ((!parameters_source.empty()) &&
+                 (this->bd.isDeviceCompatibleClassRequired())) {
+        // the parameters of the behaviour variables are given too
+        os << "this->mfront_set_parameters_values(" << parameters_source
+           << ");\n";
       } else {
         this->writeBehaviourParameterInitialisation(os, h, parameters_source);
       }
@@ -3678,6 +3683,19 @@ namespace mfront {
        << "} // end of getModellingHypothesis\n\n";
   }  // end of writeBehaviourGetModellingHypothesis();
 
+  /*!
+   * \return the class implementing a behaviour variable in the class of the
+   * behaviour
+   * \param[in] bd: description of the behaviour
+   * \param[in] b: behaviour variable
+   */
+  static std::string getBehaviourVariableClass(
+      const BehaviourDescription& bd, const BehaviourVariableDescription& b) {
+    return b.behaviour.getFullClassName() +
+           (bd.useQt() ? "<hypothesis, NumericType, use_qt>"
+                       : "<hypothesis, NumericType, false>");
+  }  // end of getBehaviourVariableClass
+
   void BehaviourCodeGeneratorBase::writeBehaviourLocalVariables(
       std::ostream& os, const Hypothesis h) const {
     this->checkBehaviourFile(os);
@@ -3686,21 +3704,28 @@ namespace mfront {
     os << '\n';
     auto write_wrapper = [this, &os](const BehaviourVariableDescription& b) {
       const auto wrapper = getBehaviourWrapperClassName(b);
-      const auto bn = [this, &b] {
-        if (this->bd.useQt()) {
-          return b.behaviour.getFullClassName() +
-                 "<hypothesis, NumericType, use_qt>";
-        }
-        return b.behaviour.getFullClassName() +
-               "<hypothesis, NumericType, false>";
-      }();
+      const auto bn = getBehaviourVariableClass(this->bd, b);
       os << "struct " << wrapper << " final\n: " << bn << "\n"
          << "{\n"
          << "//! \\brief default constructor\n"
          << "TFEL_HOST_DEVICE " << wrapper << "()\n"
          << ": " << bn << "(){\n"
-         << "}\n"
-         << "//! \\brief copy constructor\n"
+         << "}\n";
+      if (this->bd.isDeviceCompatibleClassRequired()) {
+        os << "/*!\n"
+           << " * \\brief constructor\n"
+           << " * \\param[in] mfront_values: values of the parameters, "
+           << "the ones of the default constructor if null\n"
+           << " */\n"
+           << "TFEL_HOST_DEVICE explicit " << wrapper << "(const typename "
+           << bn << "::mfront_parameters_values* const mfront_values)\n"
+           << ": " << bn << "(){\n"
+           << "if (mfront_values != nullptr) {\n"
+           << "this->mfront_set_parameters_values(*mfront_values);\n"
+           << "}\n"
+           << "}\n";
+      }
+      os << "//! \\brief copy constructor\n"
          << wrapper << "(const " << wrapper << "&) = delete;\n"
          << "//! \\brief move constructor\n"
          << wrapper << "(" << wrapper << "&&) = delete;\n"
@@ -3721,6 +3746,10 @@ namespace mfront {
       const auto wrapper = getBehaviourWrapperClassName(b);
       const auto factory = getBehaviourVariableFactoryClassName(b);
       write_wrapper(b);
+      // with a class usable in device code, the factory creates the
+      // behaviour variables with the values of the parameters given to the
+      // behaviour (see `mfront_set_parameters_values`)
+      const auto device = this->bd.isDeviceCompatibleClassRequired();
       os << "struct " << factory << " final\n"
          << "{\n"
          << "TFEL_HOST_DEVICE " << factory << "(const "
@@ -3730,9 +3759,19 @@ namespace mfront {
          << "mfront_behaviour_reference_argument)\n"
          << "{}\n"
          << "[[nodiscard]] TFEL_HOST_DEVICE " << wrapper << " make(){\n"
-         << "return " << wrapper << "{};\n"
-         << "} // end of make\n"
-         << "private:\n"
+         << "return " << wrapper << (device ? "{this->mfront_values}" : "{}")
+         << ";\n"
+         << "} // end of make\n";
+      if (device) {
+        os << "/*!\n"
+           << " * \\brief values of the parameters of the created behaviour "
+           << "variables,\n"
+           << " * the ones of the default constructor if null\n"
+           << " */\n"
+           << "const typename " << getBehaviourVariableClass(this->bd, b)
+           << "::mfront_parameters_values* mfront_values = nullptr;\n";
+      }
+      os << "private:\n"
          << "const " << this->bd.getClassName()
          << "& mfront_behaviour_reference;\n"
          << "};\n\n"
@@ -3754,6 +3793,94 @@ namespace mfront {
     }
     os << '\n';
   }  // end od BehaviourCodeGeneratorBase::writeBehaviourIntegrationVariables
+
+  void BehaviourCodeGeneratorBase::writeBehaviourParametersValues(
+      std::ostream& os, const Hypothesis h) const {
+    using tfel::material::ModellingHypothesis;
+    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+    if (!this->bd.isDeviceCompatibleClassRequired()) {
+      return;
+    }
+    this->checkBehaviourFile(os);
+    const auto& d = this->bd.getBehaviourData(h);
+    // the parameters treated as static variables are not given
+    const auto& parameters = areParametersTreatedAsStaticVariables(this->bd)
+                                 ? VariableDescriptionContainer{}
+                                 : d.getParameters();
+    const auto& variables = d.getBehaviourVariables();
+    const auto& factories = d.getBehaviourVariableFactories();
+    // structure, whose members have the types of the members of the
+    // parameters initializers
+    os << "/*!\n"
+       << " * \\brief values of the parameters of the behaviour and of its "
+       << "behaviour variables,\n"
+       << " * given in device code, where the parameters initializers can't "
+       << "be used\n"
+       << " */\n"
+       << "struct mfront_parameters_values {\n";
+    for (const auto& p : parameters) {
+      if (p.type == "int") {
+        os << "int " << p.name << ";\n";
+      } else if (p.type == "ushort") {
+        os << "unsigned short " << p.name << ";\n";
+      } else if (p.arraySize == 1) {
+        os << "double " << p.name << ";\n";
+      } else {
+        os << "tfel::math::fsarray<" << p.arraySize << ", double> " << p.name
+           << ";\n";
+      }
+    }
+    for (const auto* const bvs : {&variables, &factories}) {
+      for (const auto& b : *bvs) {
+        os << "typename " << getBehaviourVariableClass(this->bd, b)
+           << "::mfront_parameters_values " << b.name << ";\n";
+      }
+    }
+    os << "};\n\n";
+    // values given by the parameters initializers
+    os << "//! \\return the values given by the parameters initializers "
+       << "(host only)\n"
+       << "static mfront_parameters_values mfront_get_parameters_values(){\n"
+       << "auto mfront_values = mfront_parameters_values{};\n";
+    for (const auto& p : parameters) {
+      const auto initializer =
+          ((h == uh) || (this->bd.hasParameter(uh, p.name)))
+              ? this->bd.getClassName() + "ParametersInitializer"
+              : this->bd.getClassName() + ModellingHypothesis::toString(h) +
+                    "ParametersInitializer";
+      os << "mfront_values." << p.name << " = " << initializer << "::get()."
+         << p.name << ";\n";
+    }
+    for (const auto* const bvs : {&variables, &factories}) {
+      for (const auto& b : *bvs) {
+        os << "mfront_values." << b.name << " = "
+           << getBehaviourVariableClass(this->bd, b)
+           << "::mfront_get_parameters_values();\n";
+      }
+    }
+    os << "return mfront_values;\n"
+       << "} // end of mfront_get_parameters_values\n\n";
+    // setting the values: the factories of behaviour variables keep a
+    // pointer to the values of their parameters, which must outlive them
+    os << "/*!\n"
+       << " * \\brief set the values of the parameters of the behaviour and "
+       << "of its behaviour variables\n"
+       << " * \\param[in] mfront_values: values of the parameters\n"
+       << " */\n"
+       << "TFEL_HOST_DEVICE void mfront_set_parameters_values("
+       << "[[maybe_unused]] const mfront_parameters_values& mfront_values) "
+       << "noexcept{\n";
+    this->writeBehaviourParameterInitialisation(os, h, "mfront_values");
+    for (const auto& b : variables) {
+      os << "this->" << b.name << ".mfront_set_parameters_values("
+         << "mfront_values." << b.name << ");\n";
+    }
+    for (const auto& b : factories) {
+      os << "this->" << b.name << ".mfront_values = &(mfront_values." << b.name
+         << ");\n";
+    }
+    os << "} // end of mfront_set_parameters_values\n\n";
+  }  // end of writeBehaviourParametersValues
 
   void BehaviourCodeGeneratorBase::writeBehaviourParameters(
       std::ostream& os, const Hypothesis h) const {
@@ -4607,6 +4734,7 @@ namespace mfront {
     this->writeBehaviourDisabledConstructors(os);
     // from this point, all is public
     os << "public:\n\n";
+    this->writeBehaviourParametersValues(os, h);
     this->writeBehaviourConstructors(os, h);
     this->writeBehaviourInitializeFunctions(os, h);
     this->writeBehaviourComputeStressFreeExpansion(os, h);

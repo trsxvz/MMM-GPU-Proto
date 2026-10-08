@@ -27,6 +27,7 @@
 #include "TFEL/Material/MechanicalBehaviourTraits.hxx"
 #include "TFEL/Material/FiniteStrainBehaviourTangentOperator.hxx"
 #include "MFront/GenericBehaviour/Types.hxx"
+#include "MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx"
 #include "MFront/GenericBehaviour/BehaviourData.h"
 
 namespace mfront::gb {

@@ -1,0 +1,567 @@
+From d381a57c54769920b2fa5416de8896c800f0d40a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 03:28:42 +0200
+Subject: [PATCH] Rotation of all the tangent operator blocks of orthotropic
+ behaviours
+
+The rotation functions of the `generic` and `generic-parallel` interfaces
+reported an error for the tangent operator blocks associated with arrays of
+variables, with a vector and a symmetric tensor or a tensor, or with a
+tensor and a symmetric tensor (TFEL has no `change_basis` for `st2tot2`).
+
+- a block associated with arrays of variables is made of one sub-block for
+  each pair of entries, stored contiguously: each sub-block is rotated;
+- a block for which TFEL has no type which can be rotated is rotated by the
+  new `mfront::gb::rotateTangentOperatorBlock` function, which computes
+  Q1 K Q2^T, where Qi is the matrix of the rotation of the objects of each
+  variable by `change_basis` (usable in device code);
+- the other blocks are rotated as before (unchanged generated code).
+
+The `OrthotropicTangentOperatorBlocksTest` behaviour has blocks of all
+kinds; its rotation functions are compared by the generic-parallel tests.
+---
+ .../generic-parallel-behaviour-interface.md   |  12 +-
+ mfront/include/CMakeLists.txt                 |   1 +
+ .../MFront/BehaviourRotationFunctions.hxx     |  21 ++-
+ .../MFront/GenericBehaviour/Integrate.hxx     |   1 +
+ .../RotateTangentOperatorBlock.hxx            | 124 ++++++++++++++++++
+ mfront/src/BehaviourRotationFunctions.cxx     | 101 ++++++++------
+ mfront/src/GenericBehaviourInterface.cxx      |  10 +-
+ .../src/GenericParallelBehaviourInterface.cxx |  17 +--
+ ...rthotropicTangentOperatorBlocksTest.mfront |  39 ++++++
+ .../generic-parallel/build-libraries.sh       |   2 +-
+ .../generic-parallel/compare-all.sh           |   8 ++
+ 11 files changed, 263 insertions(+), 73 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx
+ create mode 100644 test-suite/behaviours/generic-parallel/OrthotropicTangentOperatorBlocksTest.mfront
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 003401146..52f951e43 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -107,6 +107,15 @@ The rotation matrix is uniform if the point stride of the
+ and the storage of the `generic` interface (rotation from the global frame
+ to the material frame, stored in column-major format).
+ 
++All the tangent operator blocks can be rotated, with both interfaces. A
++block associated with arrays of variables is rotated entry by entry. A
++block for which TFEL has no type which can be rotated (derivative of a
++vector with respect to a symmetric tensor or a tensor, and conversely,
++derivative of a tensor with respect to a symmetric tensor) is rotated by
++`mfront::gb::rotateTangentOperatorBlock`, which computes
++\(Q_{1}\,K\,Q_{2}^{T}\), where \(Q_{i}\) is the matrix of the rotation of the
++objects of each variable by `change_basis`.
++
+ The library also exports the same symbols as the `generic` interface
+ (names and types of the variables, parameters, etc.) and the functions
+ changing the parameters and the out of bounds policy. The `mfront_interface`
+@@ -642,9 +651,6 @@ worked around in the generated code and the headers (see the comments of
+ 
+ # Current limitations
+ 
+-- the rotation of tangent operator blocks associated with arrays of
+-  variables, or between a vector and a tensor, is not supported (the
+-  generated function reports an error).
+ - the comparison of the jacobian to a numerical jacobian
+   (`@CompareToNumericalJacobian`) prints its results on the standard
+   output: it is only performed on the host.
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 7c6ca6ce4..f5cfe8677 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -247,6 +247,7 @@ install_mfront_header(MFront/GenericBehaviour State.hxx)
+ install_mfront_header(MFront/GenericBehaviour BehaviourData.h)
+ install_mfront_header(MFront/GenericBehaviour BehaviourData.hxx)
+ install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
++install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
+ install_mfront_header(MFront/GenericBehaviour StandardFiniteStrainBehaviourIntegrate.hxx)
+ install_mfront_header(MFront/GenericBehaviour GreenLagrangeStrainIntegrate.hxx)
+ install_mfront_header(MFront/GenericBehaviour LogarithmicStrainIntegrate.hxx)
+diff --git a/mfront/include/MFront/BehaviourRotationFunctions.hxx b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+index 83f5b7da5..6b8723057 100644
+--- a/mfront/include/MFront/BehaviourRotationFunctions.hxx
++++ b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+@@ -17,6 +17,7 @@
+ 
+ #include <string>
+ #include <vector>
++#include <optional>
+ #include <cstddef>
+ #include <iosfwd>
+ #include "TFEL/Material/ModellingHypothesis.hxx"
+@@ -40,12 +41,27 @@ namespace mfront {
+    * frame to the global frame.
+    */
+   struct MFRONT_VISIBILITY_EXPORT BehaviourRotationFunction {
++    /*!
++     * \brief a tangent operator block for which TFEL has no type which can
++     * be rotated (derivative of a vector with respect to a symmetric tensor
++     * or a tensor, and conversely, derivative of a tensor with respect to a
++     * symmetric tensor), rotated by `mfront::gb::rotateTangentOperatorBlock`
++     */
++    struct Block {
++      //! \brief type of the derivated object
++      std::string type1;
++      //! \brief type of the object with respect to which the derivative is
++      //! taken
++      std::string type2;
++    };
+     //! \brief a rotated object
+     struct Object {
+       //! \brief type of the object, empty for a scalar
+       std::string type;
+       //! \brief offset of the object in the values of a point
+       std::size_t offset;
++      //! \brief description of a block for which TFEL has no type
++      std::optional<Block> block = {};
+     };
+     //! \brief name of the function, appended to the name of the behaviour
+     std::string name;
+@@ -62,8 +78,6 @@ namespace mfront {
+     std::size_t size = 0;
+     //! \brief true if the values are rotated to the material frame
+     bool to_material_frame = false;
+-    //! \brief reason why the rotation is not supported, empty if supported
+-    std::string error;
+   };
+ 
+   /*!
+@@ -82,8 +96,7 @@ namespace mfront {
+    * statements use the `dest`, `src` and `rv` pointers, which have the
+    * meaning of the arguments of the rotation functions of the `generic`
+    * interface. `dest` and `src` may be equal. The generated code can be used
+-   * in device code. An exception is thrown if the rotation is not supported
+-   * (see the `error` member of the rotation function).
++   * in device code.
+    * \param[out] os: output stream
+    * \param[in] f: rotation function
+    */
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index c5cf02222..3b456b580 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -27,6 +27,7 @@
+ #include "TFEL/Material/MechanicalBehaviourTraits.hxx"
+ #include "TFEL/Material/FiniteStrainBehaviourTangentOperator.hxx"
+ #include "MFront/GenericBehaviour/Types.hxx"
++#include "MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx"
+ #include "MFront/GenericBehaviour/BehaviourData.h"
+ 
+ namespace mfront::gb {
+diff --git a/mfront/include/MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx b/mfront/include/MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx
+new file mode 100644
+index 000000000..98a9e48c4
+--- /dev/null
++++ b/mfront/include/MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx
+@@ -0,0 +1,124 @@
++/*!
++ * \file   mfront/include/MFront/GenericBehaviour/RotateTangentOperatorBlock.hxx
++ * \brief  This file declares the `rotateTangentOperatorBlock` function.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICBEHAVIOUR_ROTATETANGENTOPERATORBLOCK_HXX
++#define LIB_MFRONT_GENERICBEHAVIOUR_ROTATETANGENTOPERATORBLOCK_HXX
++
++#include <type_traits>
++#include "TFEL/Config/TFELConfig.hxx"
++#include "TFEL/Math/tmatrix.hxx"
++#include "TFEL/Math/stensor.hxx"
++#include "TFEL/Math/tensor.hxx"
++
++namespace mfront::gb {
++
++  namespace internals {
++
++    /*!
++     * \return the number of components of a scalar, a vector, a symmetric
++     * tensor or a tensor
++     * \tparam Type: type of the object
++     */
++    template <typename Type>
++    TFEL_HOST_DEVICE constexpr unsigned short getNumberOfComponents() noexcept {
++      if constexpr (std::is_arithmetic_v<Type>) {
++        return 1;
++      } else {
++        return static_cast<unsigned short>(Type{}.size());
++      }
++    }  // end of getNumberOfComponents
++
++    /*!
++     * \return the matrix of the rotation of the objects of the given type by
++     * `tfel::math::change_basis`: its k-th column is the rotated k-th basis
++     * object. This matrix is orthogonal in the storage of TFEL.
++     * \tparam Type: type of the object (scalar, vector, symmetric tensor or
++     * tensor)
++     * \param[in] r: rotation matrix
++     */
++    template <typename Type, typename real>
++    TFEL_HOST_DEVICE constexpr auto getRotationOperator(
++        const tfel::math::rotation_matrix<real>& r) noexcept {
++      constexpr auto s = getNumberOfComponents<Type>();
++      auto q = tfel::math::tmatrix<s, s, real>{real{0}};
++      if constexpr (std::is_arithmetic_v<Type>) {
++        q(0, 0) = 1;
++      } else {
++        for (unsigned short k = 0; k != s; ++k) {
++          auto e = Type{real{0}};
++          e[k] = 1;
++          const auto re = tfel::math::change_basis(e, r);
++          for (unsigned short i = 0; i != s; ++i) {
++            q(i, k) = re[i];
++          }
++        }
++      }
++      return q;
++    }  // end of getRotationOperator
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief rotate a tangent operator block, i.e. the derivative of an object
++   * of type `Type1` with respect to an object of type `Type2`, stored by
++   * rows. Each object is a scalar, a vector, a symmetric tensor or a tensor.
++   *
++   * The rotated block is \f$Q_{1}\,K\,Q_{2}^{T}\f$, where \f$Q_{i}\f$ is the
++   * matrix of the rotation of the objects of type `Type_i` by
++   * `tfel::math::change_basis`. This function rotates the blocks for which
++   * TFEL has no type which can be rotated (derivative of a vector with
++   * respect to a symmetric tensor or a tensor, and conversely, derivative
++   * of a tensor with respect to a symmetric tensor).
++   *
++   * \tparam Type1: type of the derivated object
++   * \tparam Type2: type of the object with respect to which the derivative
++   * is taken
++   * \param[out] dest: rotated block, which may be the source
++   * \param[in] src: block
++   * \param[in] r: rotation matrix
++   */
++  template <typename Type1, typename Type2, typename real>
++  TFEL_HOST_DEVICE void rotateTangentOperatorBlock(
++      real* const dest,
++      const real* const src,
++      const tfel::math::rotation_matrix<real>& r) noexcept {
++    constexpr auto s1 = internals::getNumberOfComponents<Type1>();
++    constexpr auto s2 = internals::getNumberOfComponents<Type2>();
++    // the numeric type can't be deduced from `rotation_matrix`, which is an
++    // alias
++    const auto q1 = internals::getRotationOperator<Type1, real>(r);
++    const auto q2 = internals::getRotationOperator<Type2, real>(r);
++    // the block is read before being written, so that the destination may
++    // be the source
++    auto k = tfel::math::tmatrix<s1, s2, real>{};
++    for (unsigned short a = 0; a != s1; ++a) {
++      for (unsigned short b = 0; b != s2; ++b) {
++        k(a, b) = src[a * s2 + b];
++      }
++    }
++    // q1 * k * transpose(q2)
++    for (unsigned short a = 0; a != s1; ++a) {
++      for (unsigned short b = 0; b != s2; ++b) {
++        auto v = real{0};
++        for (unsigned short c = 0; c != s1; ++c) {
++          for (unsigned short d = 0; d != s2; ++d) {
++            v += q1(a, c) * k(c, d) * q2(b, d);
++          }
++        }
++        dest[a * s2 + b] = v;
++      }
++    }
++  }  // end of rotateTangentOperatorBlock
++
++}  // end of namespace mfront::gb
++
++#endif /* LIB_MFRONT_GENERICBEHAVIOUR_ROTATETANGENTOPERATORBLOCK_HXX */
+diff --git a/mfront/src/BehaviourRotationFunctions.cxx b/mfront/src/BehaviourRotationFunctions.cxx
+index 9bb777b4e..af764979f 100644
+--- a/mfront/src/BehaviourRotationFunctions.cxx
++++ b/mfront/src/BehaviourRotationFunctions.cxx
+@@ -12,7 +12,7 @@
+  */
+ 
+ #include <ostream>
+-#include "TFEL/Raise.hxx"
++#include <optional>
+ #include "TFEL/Material/ModellingHypothesis.hxx"
+ #include "MFront/SupportedTypes.hxx"
+ #include "MFront/VariableDescription.hxx"
+@@ -54,50 +54,68 @@ namespace mfront {
+   }  // end of getVariableType
+ 
+   /*!
+-   * \return the type of a tangent operator block, empty for a scalar
+-   * \param[out] error: reason why the block can't be rotated
++   * \brief add the objects associated with a tangent operator block. A
++   * block associated with arrays of variables is made of one sub-block for
++   * each pair of entries, stored contiguously. Each sub-block is a single
++   * object of TFEL if TFEL has a type for it which can be rotated, or is
++   * rotated by `mfront::gb::rotateTangentOperatorBlock` otherwise
++   * (derivative of a vector with respect to a symmetric tensor or a tensor,
++   * and conversely, derivative of a tensor with respect to a symmetric
++   * tensor).
++   * \param[in,out] f: rotation function
+    * \param[in] v1: first variable (the derivated one)
+    * \param[in] v2: second variable
+    * \param[in] N: space dimension
++   * \param[in] h: modelling hypothesis
+    */
+-  static std::string getTangentOperatorBlockType(std::string& error,
+-                                                 const VariableDescription& v1,
+-                                                 const VariableDescription& v2,
+-                                                 const unsigned short N) {
++  static void addTangentOperatorBlock(BehaviourRotationFunction& f,
++                                      const VariableDescription& v1,
++                                      const VariableDescription& v2,
++                                      const unsigned short N,
++                                      const Hypothesis h) {
+     using Flag = SupportedTypes::TypeFlag;
+-    if ((v1.arraySize != 1) || (v2.arraySize != 1)) {
+-      error =
+-          "tangent operator blocks associated with arrays of variables "
+-          "are not supported";
+-      return "";
+-    }
+     const auto f1 = SupportedTypes::getTypeFlag(v1.type);
+     const auto f2 = SupportedTypes::getTypeFlag(v2.type);
+-    if (f1 == SupportedTypes::SCALAR) {
+-      return getVariableType(v2, N);
+-    }
+-    if (f2 == SupportedTypes::SCALAR) {
+-      return getVariableType(v1, N);
+-    }
+     const auto is = [f1, f2](const Flag a, const Flag b) {
+       return (f1 == a) && (f2 == b);
+     };
+-    if (is(SupportedTypes::TVECTOR, SupportedTypes::TVECTOR)) {
+-      return "tfel::math::tmatrix<" + std::to_string(N) + ", " +
+-             std::to_string(N) + ", mfront::gb::real>";
+-    } else if (is(SupportedTypes::STENSOR, SupportedTypes::STENSOR)) {
+-      return getObjectType("st2tost2", N);
+-    } else if (is(SupportedTypes::STENSOR, SupportedTypes::TENSOR)) {
+-      return getObjectType("t2tost2", N);
+-    } else if (is(SupportedTypes::TENSOR, SupportedTypes::STENSOR)) {
+-      return getObjectType("st2tot2", N);
+-    } else if (is(SupportedTypes::TENSOR, SupportedTypes::TENSOR)) {
+-      return getObjectType("t2tot2", N);
++    const auto type = [&]() -> std::optional<std::string> {
++      if (f1 == SupportedTypes::SCALAR) {
++        return getVariableType(v2, N);
++      } else if (f2 == SupportedTypes::SCALAR) {
++        return getVariableType(v1, N);
++      } else if (is(SupportedTypes::TVECTOR, SupportedTypes::TVECTOR)) {
++        return "tfel::math::tmatrix<" + std::to_string(N) + ", " +
++               std::to_string(N) + ", mfront::gb::real>";
++      } else if (is(SupportedTypes::STENSOR, SupportedTypes::STENSOR)) {
++        return getObjectType("st2tost2", N);
++      } else if (is(SupportedTypes::STENSOR, SupportedTypes::TENSOR)) {
++        return getObjectType("t2tost2", N);
++      } else if (is(SupportedTypes::TENSOR, SupportedTypes::TENSOR)) {
++        return getObjectType("t2tot2", N);
++      }
++      return {};
++    }();
++    const auto size = [h](const VariableDescription& v) {
++      return static_cast<std::size_t>(SupportedTypes::getTypeSize(v.type, 1u)
++                                          .getValueForModellingHypothesis(h));
++    };
++    const auto s = size(v1) * size(v2);
++    for (unsigned short i1 = 0; i1 != v1.arraySize; ++i1) {
++      for (unsigned short i2 = 0; i2 != v2.arraySize; ++i2) {
++        if (type.has_value()) {
++          f.objects.push_back({.type = *type, .offset = f.size});
++        } else {
++          f.objects.push_back({.type = "",
++                               .offset = f.size,
++                               .block = BehaviourRotationFunction::Block{
++                                   .type1 = getVariableType(v1, N),
++                                   .type2 = getVariableType(v2, N)}});
++        }
++        f.size += s;
++      }
+     }
+-    error = "the tangent operator block 'd" + v1.name + "_d" + v2.name +
+-            "' is not supported";
+-    return "";
+-  }  // end of getTangentOperatorBlockType
++  }  // end of addTangentOperatorBlock
+ 
+   /*!
+    * \brief add the objects associated with a variable or an array of
+@@ -225,13 +243,7 @@ namespace mfront {
+         "the tangent operator blocks from the material frame to the global "
+         "frame";
+     for (const auto& [v1, v2] : bd.getTangentOperatorBlocks()) {
+-      const auto type = getTangentOperatorBlockType(blocks.error, v1, v2, N);
+-      blocks.objects.push_back({type, blocks.size});
+-      blocks.size += static_cast<std::size_t>(
+-          SupportedTypes::getTypeSize(v1.type, v1.arraySize)
+-              .getValueForModellingHypothesis(h) *
+-          SupportedTypes::getTypeSize(v2.type, v2.arraySize)
+-              .getValueForModellingHypothesis(h));
++      addTangentOperatorBlock(blocks, v1, v2, N, h);
+     }
+     functions.push_back(std::move(blocks));
+     return functions;
+@@ -239,7 +251,6 @@ namespace mfront {
+ 
+   void writePointRotation(std::ostream& os,
+                           const BehaviourRotationFunction& f) {
+-    tfel::raise_if(!f.error.empty(), "writePointRotation: " + f.error);
+     // the components of the rotation matrix `rv` are read as the components
+     // of the matrix `r` stored by rows, so that `r` is the transpose of the
+     // rotation matrix from the global frame to the material frame, which is
+@@ -256,7 +267,11 @@ namespace mfront {
+     os << "};\n";
+     for (const auto& o : f.objects) {
+       const auto offset = std::to_string(o.offset);
+-      if (o.type.empty()) {
++      if (o.block.has_value()) {
++        os << "mfront::gb::rotateTangentOperatorBlock<" << o.block->type1
++           << ", " << o.block->type2 << ">(dest + " << offset << ", src + "
++           << offset << ", r);\n";
++      } else if (o.type.empty()) {
+         os << "dest[" << offset << "] = src[" << offset << "];\n";
+       } else {
+         // the source is copied before the destination is written, so that
+diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
+index caf9fd332..0728568f2 100644
+--- a/mfront/src/GenericBehaviourInterface.cxx
++++ b/mfront/src/GenericBehaviourInterface.cxx
+@@ -84,15 +84,7 @@ namespace mfront {
+         os << "void " << fn << "_" << f.name << "(mfront_gb_real* const dest, "
+            << "const mfront_gb_real* const src, "
+            << "const mfront_gb_real* const rv){\n";
+-        if (f.error.empty()) {
+-          writePointRotation(os, f);
+-        } else {
+-          os << "static_cast<void>(dest);\n"
+-             << "static_cast<void>(src);\n"
+-             << "static_cast<void>(rv);\n"
+-             << "tfel::raise(\"" << fn << "_" << f.name << ": " << f.error
+-             << "\");\n";
+-        }
++        writePointRotation(os, f);
+         os << "} // end of " << fn << "_" << f.name << "\n\n"
+            << "void " << fn << "_" << f.array_name
+            << "(mfront_gb_real* const dest, "
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 797da1596..af054f3a4 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -406,9 +406,6 @@ namespace mfront {
+       const BehaviourDescription& bd,
+       const tfel::material::ModellingHypothesis::Hypothesis h) {
+     for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
+-      if (!f.error.empty()) {
+-        continue;
+-      }
+       os << "//! \\brief rotate " << f.description << " at one point\n"
+          << "struct " << getPointRotationName(bd, h, f) << " {\n"
+          << "//! \\brief number of values of a point\n"
+@@ -991,16 +988,10 @@ namespace mfront {
+          << "return mfront::gpb::report(mfront_status, -2, "
+          << "\"no rotation data given\");\n"
+          << "}\n";
+-      if (f.error.empty()) {
+-        os << "const auto& mfront_data = *mfront_rotation_data;\n";
+-        this->backend->writeCall(os, "rotateBatch",
+-                                 getPointRotationName(bd, h, f),
+-                                 "mfront_status", "mfront_data");
+-      } else {
+-        os << "mfront::gpb::initialize(mfront_status, 1);\n"
+-           << "return mfront::gpb::report(mfront_status, -2, \"" << f.error
+-           << "\");\n";
+-      }
++      os << "const auto& mfront_data = *mfront_rotation_data;\n";
++      this->backend->writeCall(os, "rotateBatch",
++                               getPointRotationName(bd, h, f), "mfront_status",
++                               "mfront_data");
+       os << "});\n"
+          << "} // end of " << fn << "_" << f.name << "\n\n";
+     }
+diff --git a/test-suite/behaviours/generic-parallel/OrthotropicTangentOperatorBlocksTest.mfront b/test-suite/behaviours/generic-parallel/OrthotropicTangentOperatorBlocksTest.mfront
+new file mode 100644
+index 000000000..be66431ca
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/OrthotropicTangentOperatorBlocksTest.mfront
+@@ -0,0 +1,39 @@
++@DSL DefaultGenericBehaviour;
++@Behaviour OrthotropicTangentOperatorBlocksTest;
++@Description {
++  "An orthotropic behaviour whose tangent operator blocks are associated "
++  "with arrays of variables, and with vectors, symmetric tensors and "
++  "tensors: each thermodynamic force depends on all the gradients. This "
++  "behaviour tests the rotation of all the kinds of tangent operator "
++  "blocks."
++}
++
++@OrthotropicBehaviour;
++
++@Gradient TemperatureGradient g;
++@Flux HeatFlux j;
++@Gradient Stensor e[2];
++@Flux Stensor s[2];
++@Gradient Tensor f;
++@Flux Tensor t;
++
++@TangentOperatorBlocks{dj_ddg, dj_dde, dj_ddf, ds_ddg, ds_dde, ds_ddf,
++                       dt_ddg, dt_dde, dt_ddf};
++
++@Integrator {
++  // the thermodynamic forces are equal to the gradients
++  j = g + dg;
++  for (unsigned short i = 0; i != 2; ++i) {
++    s[i] = e[i] + de[i];
++  }
++  t = f + df;
++}
++
++@TangentOperator {
++  static_cast<void>(smt);  // discard the stiffness matrix type
++  std::fill(Dt.begin(), Dt.end(), real(0));
++  dj_ddg = tmatrix<N, N, real>::Id();
++  ds_dde(0, 0) = Stensor4::Id();
++  ds_dde(1, 1) = Stensor4::Id();
++  dt_ddf = t2tot2<N, real>::Id();
++}
+diff --git a/test-suite/behaviours/generic-parallel/build-libraries.sh b/test-suite/behaviours/generic-parallel/build-libraries.sh
+index 395602b37..ea0727aa0 100644
+--- a/test-suite/behaviours/generic-parallel/build-libraries.sh
++++ b/test-suite/behaviours/generic-parallel/build-libraries.sh
+@@ -42,7 +42,7 @@ behaviours=${*:-"
+   OrthotropicStandardElastoViscoPlasticityTest
+   PorousStandardElastoViscoPlasticityTest GenericParallelModelTest
+   GenericParallelModelWithQuantitiesTest TensorialVariablesTest
+-  CubicSplineHardeningTest
++  CubicSplineHardeningTest OrthotropicTangentOperatorBlocksTest
+ "}
+ files=$(for b in $behaviours; do echo "$directory/$b.mfront"; done)
+ reference_configuration=""
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index 0442078ba..8c51aac3f 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -159,6 +159,14 @@ run ${ohs}_Tridimensional_rotateGradients
+ run ${ohs}_PlaneStrain_rotateThermodynamicForces
+ run ${ohs}_Tridimensional_rotateTangentOperatorBlocks
+ run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks
++# all the kinds of tangent operator blocks: arrays of variables, vectors,
++# symmetric tensors and tensors
++otob=OrthotropicTangentOperatorBlocksTest
++run ${otob}_Tridimensional
++run ${otob}_Tridimensional_rotateGradients
++run ${otob}_PlaneStrain_rotateThermodynamicForces
++run ${otob}_Tridimensional_rotateTangentOperatorBlocks
++run ${otob}_PlaneStrain_rotateTangentOperatorBlocks
+ # isotropic hardening interpolated by a cubic spline (plastic loading)
+ run CubicSplineHardeningTest_Tridimensional --amplitude=3e-3
+ # StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
+-- 
+2.43.0
+

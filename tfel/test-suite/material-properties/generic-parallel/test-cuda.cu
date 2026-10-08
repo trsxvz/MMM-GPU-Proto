@@ -23,6 +23,7 @@
 #include "UO2_YoungModulus_Martin1989-generic-parallel-cuda.hxx"
 #include "LinearDataInterpolationTest-generic-parallel-cuda.hxx"
 #include "MaterialLawCallTest-generic-parallel-cuda.hxx"
+#include "symbols.hxx"
 
 struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   Iconel600YoungModulusTest()
@@ -44,6 +45,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test11();
     this->test12();
     this->test13();
+    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
     return this->result;
   }  // end of execute
 
@@ -356,7 +358,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
     }
     nu = thrust::host_vector<double>(1);
-    PoissonRatioTest(&output, nu.data(), 0, nullptr, nullptr, 0, 1, policy);
+    d_nu = thrust::device_vector<double>(nu.size());
+    PoissonRatioTest(&output, thrust::raw_pointer_cast(d_nu.data()), 0, nullptr,
+                     nullptr, 0, 1, policy);
+    nu = d_nu;
     TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
   }
 

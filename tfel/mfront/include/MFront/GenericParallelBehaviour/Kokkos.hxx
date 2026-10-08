@@ -186,10 +186,8 @@ namespace mfront::gpb::kokkos {
   }  // end of apply
 
   /*!
-   * \return a copy in the memory space of the execution space of a data
-   * shared by all the integration points (see the `@SharedData` keyword).
-   * The copy is made at the first call of a generated function and is freed
-   * when Kokkos is finalized.
+   * \return a copy of a data in the memory space of an execution space,
+   * freed when Kokkos is finalized
    * \tparam ExecutionSpace: execution space
    * \param[in] v: data
    */
@@ -211,6 +209,21 @@ namespace mfront::gpb::kokkos {
     Kokkos::push_finalize_hook([p] { Kokkos::kokkos_free<MemorySpace>(p); });
     return p;
   }  // end of copyToDevice
+
+  /*!
+   * \return a copy of a data shared by all the integration points (see the
+   * `@SharedData` keyword) in the memory space of an execution space, made
+   * at the first call (Kokkos uses one device per process) and freed when
+   * Kokkos is finalized.
+   * \tparam ExecutionSpace: execution space
+   * \tparam get_shared_data: function returning the data
+   */
+  template <typename ExecutionSpace, auto get_shared_data>
+  const auto* getSharedDataCopy() {
+    static const auto* const p =
+        copyToDevice<ExecutionSpace>(get_shared_data());
+    return p;
+  }  // end of getSharedDataCopy
 
   /*!
    * \return the primitive of the backend, as expected by

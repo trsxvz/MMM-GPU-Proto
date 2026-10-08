@@ -12,7 +12,7 @@
  */
 
 #include <ostream>
-#include "TFEL/Raise.hxx"
+#include <optional>
 #include "TFEL/Material/ModellingHypothesis.hxx"
 #include "MFront/SupportedTypes.hxx"
 #include "MFront/VariableDescription.hxx"
@@ -54,50 +54,68 @@ namespace mfront {
   }  // end of getVariableType
 
   /*!
-   * \return the type of a tangent operator block, empty for a scalar
-   * \param[out] error: reason why the block can't be rotated
+   * \brief add the objects associated with a tangent operator block. A
+   * block associated with arrays of variables is made of one sub-block for
+   * each pair of entries, stored contiguously. Each sub-block is a single
+   * object of TFEL if TFEL has a type for it which can be rotated, or is
+   * rotated by `mfront::gb::rotateTangentOperatorBlock` otherwise
+   * (derivative of a vector with respect to a symmetric tensor or a tensor,
+   * and conversely, derivative of a tensor with respect to a symmetric
+   * tensor).
+   * \param[in,out] f: rotation function
    * \param[in] v1: first variable (the derivated one)
    * \param[in] v2: second variable
    * \param[in] N: space dimension
+   * \param[in] h: modelling hypothesis
    */
-  static std::string getTangentOperatorBlockType(std::string& error,
-                                                 const VariableDescription& v1,
-                                                 const VariableDescription& v2,
-                                                 const unsigned short N) {
+  static void addTangentOperatorBlock(BehaviourRotationFunction& f,
+                                      const VariableDescription& v1,
+                                      const VariableDescription& v2,
+                                      const unsigned short N,
+                                      const Hypothesis h) {
     using Flag = SupportedTypes::TypeFlag;
-    if ((v1.arraySize != 1) || (v2.arraySize != 1)) {
-      error =
-          "tangent operator blocks associated with arrays of variables "
-          "are not supported";
-      return "";
-    }
     const auto f1 = SupportedTypes::getTypeFlag(v1.type);
     const auto f2 = SupportedTypes::getTypeFlag(v2.type);
-    if (f1 == SupportedTypes::SCALAR) {
-      return getVariableType(v2, N);
-    }
-    if (f2 == SupportedTypes::SCALAR) {
-      return getVariableType(v1, N);
-    }
     const auto is = [f1, f2](const Flag a, const Flag b) {
       return (f1 == a) && (f2 == b);
     };
-    if (is(SupportedTypes::TVECTOR, SupportedTypes::TVECTOR)) {
-      return "tfel::math::tmatrix<" + std::to_string(N) + ", " +
-             std::to_string(N) + ", mfront::gb::real>";
-    } else if (is(SupportedTypes::STENSOR, SupportedTypes::STENSOR)) {
-      return getObjectType("st2tost2", N);
-    } else if (is(SupportedTypes::STENSOR, SupportedTypes::TENSOR)) {
-      return getObjectType("t2tost2", N);
-    } else if (is(SupportedTypes::TENSOR, SupportedTypes::STENSOR)) {
-      return getObjectType("st2tot2", N);
-    } else if (is(SupportedTypes::TENSOR, SupportedTypes::TENSOR)) {
-      return getObjectType("t2tot2", N);
+    const auto type = [&]() -> std::optional<std::string> {
+      if (f1 == SupportedTypes::SCALAR) {
+        return getVariableType(v2, N);
+      } else if (f2 == SupportedTypes::SCALAR) {
+        return getVariableType(v1, N);
+      } else if (is(SupportedTypes::TVECTOR, SupportedTypes::TVECTOR)) {
+        return "tfel::math::tmatrix<" + std::to_string(N) + ", " +
+               std::to_string(N) + ", mfront::gb::real>";
+      } else if (is(SupportedTypes::STENSOR, SupportedTypes::STENSOR)) {
+        return getObjectType("st2tost2", N);
+      } else if (is(SupportedTypes::STENSOR, SupportedTypes::TENSOR)) {
+        return getObjectType("t2tost2", N);
+      } else if (is(SupportedTypes::TENSOR, SupportedTypes::TENSOR)) {
+        return getObjectType("t2tot2", N);
+      }
+      return {};
+    }();
+    const auto size = [h](const VariableDescription& v) {
+      return static_cast<std::size_t>(SupportedTypes::getTypeSize(v.type, 1u)
+                                          .getValueForModellingHypothesis(h));
+    };
+    const auto s = size(v1) * size(v2);
+    for (unsigned short i1 = 0; i1 != v1.arraySize; ++i1) {
+      for (unsigned short i2 = 0; i2 != v2.arraySize; ++i2) {
+        if (type.has_value()) {
+          f.objects.push_back({.type = *type, .offset = f.size});
+        } else {
+          f.objects.push_back({.type = "",
+                               .offset = f.size,
+                               .block = BehaviourRotationFunction::Block{
+                                   .type1 = getVariableType(v1, N),
+                                   .type2 = getVariableType(v2, N)}});
+        }
+        f.size += s;
+      }
     }
-    error = "the tangent operator block 'd" + v1.name + "_d" + v2.name +
-            "' is not supported";
-    return "";
-  }  // end of getTangentOperatorBlockType
+  }  // end of addTangentOperatorBlock
 
   /*!
    * \brief add the objects associated with a variable or an array of
@@ -225,13 +243,7 @@ namespace mfront {
         "the tangent operator blocks from the material frame to the global "
         "frame";
     for (const auto& [v1, v2] : bd.getTangentOperatorBlocks()) {
-      const auto type = getTangentOperatorBlockType(blocks.error, v1, v2, N);
-      blocks.objects.push_back({type, blocks.size});
-      blocks.size += static_cast<std::size_t>(
-          SupportedTypes::getTypeSize(v1.type, v1.arraySize)
-              .getValueForModellingHypothesis(h) *
-          SupportedTypes::getTypeSize(v2.type, v2.arraySize)
-              .getValueForModellingHypothesis(h));
+      addTangentOperatorBlock(blocks, v1, v2, N, h);
     }
     functions.push_back(std::move(blocks));
     return functions;
@@ -239,7 +251,6 @@ namespace mfront {
 
   void writePointRotation(std::ostream& os,
                           const BehaviourRotationFunction& f) {
-    tfel::raise_if(!f.error.empty(), "writePointRotation: " + f.error);
     // the components of the rotation matrix `rv` are read as the components
     // of the matrix `r` stored by rows, so that `r` is the transpose of the
     // rotation matrix from the global frame to the material frame, which is
@@ -256,7 +267,11 @@ namespace mfront {
     os << "};\n";
     for (const auto& o : f.objects) {
       const auto offset = std::to_string(o.offset);
-      if (o.type.empty()) {
+      if (o.block.has_value()) {
+        os << "mfront::gb::rotateTangentOperatorBlock<" << o.block->type1
+           << ", " << o.block->type2 << ">(dest + " << offset << ", src + "
+           << offset << ", r);\n";
+      } else if (o.type.empty()) {
         os << "dest[" << offset << "] = src[" << offset << "];\n";
       } else {
         // the source is copied before the destination is written, so that

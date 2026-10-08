@@ -24,6 +24,7 @@
 #include "UO2_YoungModulus_Martin1989-generic-parallel-hip.hxx"
 #include "LinearDataInterpolationTest-generic-parallel-hip.hxx"
 #include "MaterialLawCallTest-generic-parallel-hip.hxx"
+#include "symbols.hxx"
 
 [[nodiscard]] std::unique_ptr<double, void (*)(double *const) noexcept>
 createManagedData(const std::size_t s) {
@@ -69,6 +70,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test11();
     this->test12();
     this->test13();
+    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
     return this->result;
   }  // end of execute
 

@@ -270,9 +270,7 @@ namespace mfront::gpb::gpu {
   }  // end of apply
 
   /*!
-   * \return a copy in device memory of a data shared by all the integration
-   * points (see the `@SharedData` keyword), on the current device. The copy
-   * is made at the first call of a generated function and is never freed.
+   * \return a copy of a data in the memory of the current device
    * \param[in] v: data
    */
   template <typename T>
@@ -293,6 +291,23 @@ namespace mfront::gpb::gpu {
     }
     return p;
   }  // end of copyToDevice
+
+  /*!
+   * \return a copy of a data shared by all the integration points (see the
+   * `@SharedData` keyword) in the memory of the current device. A copy is
+   * made at the first call on each device and is never freed.
+   * \tparam get_shared_data: function returning the data
+   */
+  template <auto get_shared_data>
+  const auto* getSharedDataCopy() {
+    using T = std::remove_cvref_t<decltype(get_shared_data())>;
+    static auto copies = SharedDataCopies<T, int>{};
+    auto device = int{};
+    if (MFRONT_GPB_GPU_API(GetDevice)(&device) != MFRONT_GPB_GPU_API(Success)) {
+      throw std::runtime_error("unable to get the current device");
+    }
+    return copies.get(device, [] { return copyToDevice(get_shared_data()); });
+  }  // end of getSharedDataCopy
 
   /*!
    * \return the primitive of the backend, as expected by

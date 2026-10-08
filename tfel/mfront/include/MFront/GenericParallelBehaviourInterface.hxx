@@ -14,6 +14,7 @@
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOURINTERFACE_HXX
 
 #include <memory>
+#include <string_view>
 #include "MFront/GenericBehaviourInterface.hxx"
 
 namespace mfront {
@@ -38,6 +39,45 @@ namespace mfront {
       : public GenericBehaviourInterface {
     //! \return the interface name
     [[nodiscard]] static std::string getName();
+    /*!
+     * \brief write the beginning of a function of the generated library
+     * working on a batch. The exceptions are converted to an error status,
+     * the batch data (`mfront_batch_data`) must be given, and the output
+     * status is initialized. The output status and the batch data are then
+     * available as `mfront_status` and `mfront_data`. This function is
+     * shared with the `generic-parallel` interface for models.
+     * \param[out] os: output stream
+     * \param[in] f: name of the function
+     * \param[in] arguments: arguments of the function after the output
+     * status
+     * \param[in] captures: captures of those arguments
+     */
+    static void writeBatchFunctionBeginning(std::ostream&,
+                                            std::string_view,
+                                            std::string_view,
+                                            std::string_view);
+    /*!
+     * \brief write the end of a function started by
+     * `writeBatchFunctionBeginning`
+     * \param[out] os: output stream
+     * \param[in] f: name of the function
+     */
+    static void writeBatchFunctionEnd(std::ostream&, std::string_view);
+    /*!
+     * \brief describe a generated library. This function is shared with the
+     * `generic-parallel` interface for models.
+     * \param[out] d: targets description
+     * \param[in] library: name of the library
+     * \param[in] source: generated source file
+     * \param[in] header: generated header file, relative to the `include`
+     * directory
+     * \param[in] entry_points: entry points of the library
+     */
+    static void describeLibrary(TargetsDescription&,
+                                const std::string&,
+                                const std::string&,
+                                const std::string&,
+                                const std::vector<std::string>&);
     //! \brief default constructor
     GenericParallelBehaviourInterface();
     //

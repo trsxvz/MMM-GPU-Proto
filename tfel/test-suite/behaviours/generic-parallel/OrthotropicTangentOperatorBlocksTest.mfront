@@ -1,0 +1,39 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour OrthotropicTangentOperatorBlocksTest;
+@Description {
+  "An orthotropic behaviour whose tangent operator blocks are associated "
+  "with arrays of variables, and with vectors, symmetric tensors and "
+  "tensors: each thermodynamic force depends on all the gradients. This "
+  "behaviour tests the rotation of all the kinds of tangent operator "
+  "blocks."
+}
+
+@OrthotropicBehaviour;
+
+@Gradient TemperatureGradient g;
+@Flux HeatFlux j;
+@Gradient Stensor e[2];
+@Flux Stensor s[2];
+@Gradient Tensor f;
+@Flux Tensor t;
+
+@TangentOperatorBlocks{dj_ddg, dj_dde, dj_ddf, ds_ddg, ds_dde, ds_ddf,
+                       dt_ddg, dt_dde, dt_ddf};
+
+@Integrator {
+  // the thermodynamic forces are equal to the gradients
+  j = g + dg;
+  for (unsigned short i = 0; i != 2; ++i) {
+    s[i] = e[i] + de[i];
+  }
+  t = f + df;
+}
+
+@TangentOperator {
+  static_cast<void>(smt);  // discard the stiffness matrix type
+  std::fill(Dt.begin(), Dt.end(), real(0));
+  dj_ddg = tmatrix<N, N, real>::Id();
+  ds_dde(0, 0) = Stensor4::Id();
+  ds_dde(1, 1) = Stensor4::Id();
+  dt_ddf = t2tot2<N, real>::Id();
+}

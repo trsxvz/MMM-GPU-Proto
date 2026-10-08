@@ -39,6 +39,26 @@ namespace mfront::generic_parallel::behaviour {
     //! \return the extension of the generated source file
     [[nodiscard]] virtual std::string getSourceFileExtension() const = 0;
     /*!
+     * \return the name of the generated library
+     * \param[in] library: name of the library given by the user, if any
+     * \param[in] material: name of the material, if any
+     * \param[in] default_name: name used if neither the library nor the
+     * material is given
+     */
+    [[nodiscard]] std::string getLibraryName(std::string_view,
+                                             std::string_view,
+                                             std::string_view) const;
+    /*!
+     * \return the name of the generated header file
+     * \param[in] name: name of the behaviour or of the model
+     */
+    [[nodiscard]] std::string getHeaderFileName(std::string_view) const;
+    /*!
+     * \return the name of the generated source file
+     * \param[in] name: name of the behaviour or of the model
+     */
+    [[nodiscard]] std::string getSourceFileName(std::string_view) const;
+    /*!
      * \brief write the headers required by the backend
      * \param[out] os: output stream
      */
@@ -59,7 +79,8 @@ namespace mfront::generic_parallel::behaviour {
      * memory accessible by the device. By default, the copy is allocated on
      * the heap, which is accessible by the device if the memory is unified
      * or managed.
-     * \param[in] value: expression giving the data
+     * \param[in] getter: address of the static function returning the data
+     * (a non-type template argument identifying the data)
      * \param[in] execution: expression giving the execution options
      */
     [[nodiscard]] virtual std::string getSharedDataCopy(std::string_view,

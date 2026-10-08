@@ -49,6 +49,12 @@ namespace mfront::generic_parallel::behaviour {
      */
     std::unique_ptr<AbstractBackend> generate(std::string_view,
                                               const DataMap&) const;
+    /*!
+     * \return the backend selected by the `backend` option of an interface,
+     * or a null pointer if this option is not given
+     * \param[in] opts: options of the interface
+     */
+    std::unique_ptr<AbstractBackend> generate(const DataMap&) const;
 
    private:
     //! \brief default constructor

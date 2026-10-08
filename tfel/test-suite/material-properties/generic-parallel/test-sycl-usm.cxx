@@ -21,6 +21,7 @@
 #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
 #include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
 #include "MaterialLawCallTest-generic-parallel-sycl.hxx"
+#include "symbols.hxx"
 
 #ifdef TFEL_SYCL_DEVICE
 #if TFEL_SYCL_DEVICE == 0
@@ -69,6 +70,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test11();
     this->test12();
     this->test13();
+    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
     return this->result;
   }  // end of execute
 
