@@ -2074,3 +2074,51 @@ après mfem-mgis), propriétés matériau `generic-parallel` (étape 6),
 documentation (étape 7). Statuts par point non exposés. Les rotations
 données par `RotationMatrix2D`/`3D` construisent les matrices sur l'hôte à
 chaque appel : pour des rotations répétées, les donner en tableau.
+
+### 2026-10-08 (après-midi, suite), MGIS : propriétés matériau et modèles de lots (D1, étape 6)
+
+Tout ce que l'interface `generic-parallel` de TFEL produit est maintenant
+utilisable par MGIS, comme pour les lois.
+
+- Propriétés matériau. Au chargement, MGIS lit l'interface, la version des
+  fonctions (1), le backend et l'espace mémoire. Il charge la fonction
+  d'un ensemble de points (`batch_fct`) au lieu de celle d'un point. Avant,
+  une bibliothèque `generic-parallel` donnait un pointeur de mauvaise
+  signature. Chaque fonction refuse l'autre type de bibliothèque.
+- `evaluate(valeurs, propriété, entrées[, emplacement, politique])` évalue
+  une propriété sur un ensemble de points. Les entrées sont uniformes ou
+  données par point. Un seul appel pour une propriété `generic-parallel`,
+  calcul point par point sur l'hôte sinon : même basculement que
+  `integrate`. L'emplacement est vérifié contre l'espace mémoire. Les
+  statuts gardent le sens de l'interface `generic` (0, 1 hors bornes avec
+  la politique Warning, négatif en cas d'échec).
+- Modèles : l'interface `generic-parallel` des modèles exporte les mêmes
+  symboles que les lois. MGIS les chargeait déjà par `load` : un test le
+  vérifie, avec un paramètre modifié par `setParameter`.
+- `MemoryLocation` passe dans l'espace de noms `mgis`
+  (`MGIS/MemoryLocation.hxx`) : la règle d'accès est écrite une fois pour
+  les lois et les propriétés. Les fonctions CMake des bibliothèques de lots
+  (lois, modèles, propriétés) partagent leur code
+  (`cmake/modules/generic-parallel.cmake`).
+
+Asymétrie qui vient de TFEL : les fonctions des propriétés matériau ne
+prennent pas d'options d'exécution (file, statistiques asynchrones). Elles
+calculent sur la file par défaut de leur backend, de façon synchrone.
+`evaluate` n'a donc pas de surcharge avec politique. L'ajouter demanderait
+un changement du contrat des propriétés matériau dans TFEL (version 2).
+
+Tests (minimaux) : propriétés sur l'hôte (`stlpar`) et sur le GPU
+(`cuda`, mémoire managée), valeurs par point et uniformes, bornes
+physiques, statuts des trois politiques de bornes, emplacements, arguments
+invalides ; version et disposition du statut vérifiées contre TFEL ;
+modèle `ode_rk54` en lot sur l'hôte et sur le GPU. Deux versions
+volontairement fausses de `evaluate` et un paramètre ignoré sont détectés.
+45 tests de MGIS, tous verts, HMM désactivé.
+
+Le message `Error at line ... of file 'src/targets.lst'` pendant la
+construction vient d'appels parallèles de `mfront` dans un même dossier.
+Il existe aussi dans la construction de MGIS d'origine. Il est sans effet
+sur les sources.
+
+Reste pour MGIS : asynchrone et `update`/`revert` sur le GPU (étape 5,
+après mfem-mgis), documentation (étape 7).

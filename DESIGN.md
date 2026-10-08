@@ -328,7 +328,7 @@ Principles:
    rotations, single crystals (done in the prototype).
 6. MGIS: load a `generic-parallel` library, integrate a batch described by
    views, initialize functions, post-processings and rotations of batches,
-   execution policies, locations of the arrays, memory resources (done in
-   the prototype). Remaining: asynchronous computations and update on the
-   device, material properties of the `generic-parallel` interface,
-   documentation. Then mfem-mgis.
+   models, material properties evaluated on sets of points, execution
+   policies, locations of the arrays, memory resources (done in the
+   prototype). Remaining: asynchronous computations and update on the
+   device, documentation. Then mfem-mgis.

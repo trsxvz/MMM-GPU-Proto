@@ -64,6 +64,6 @@ et les balayages de compilation.
 ## Bibliothèques suivantes
 
 MGIS part de `818f0f9` (patchs dans `patches/mgis`) : chargement et calcul
-de lots, politiques d'exécution, emplacement des tableaux et ressources
-mémoire (plan D1, étapes 1 à 4). mfem-mgis (`4c8a91d815`) n'est pas encore
+de lots (lois, modèles, propriétés matériau), politiques d'exécution,
+emplacement des tableaux et ressources mémoire (plan D1, étapes 1 à 4 et 6). mfem-mgis (`4c8a91d815`) n'est pas encore
 modifié (plan D2, voir `JOURNAL.md`).
