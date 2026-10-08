@@ -64,6 +64,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test14();
     this->test15();
     this->test16();
+    this->test17();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
     return this->result;
   }  // end of execute
@@ -579,6 +580,57 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     }
     TFEL_TESTS_ASSERT(cudaFree(statistics) == cudaSuccess);
     TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
+  }
+
+  void test17() {
+    // stack size of the threads preserved by the execution options: an
+    // error is reported if it is too small for the kernel. Otherwise, the
+    // stack size is increased if required.
+    constexpr auto eps = double{1e-2};
+    auto initial_stack_size = std::size_t{};
+    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
+                                         cudaLimitStackSize) == cudaSuccess);
+    // the kernels require at least 1024 bytes (see
+    // mfront::generic_parallel::gpu::ensureStackSize)
+    TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
+                      cudaSuccess);
+    auto stack_size = std::size_t{};
+    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
+                      cudaSuccess);
+    TFEL_TESTS_ASSERT(stack_size < 1024);
+    const auto T = thrust::host_vector<double>{300, 500};
+    thrust::device_vector<double> d_T(T);
+    thrust::device_vector<double> d_E(T.size());
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto args =
+        std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    auto output = mfront_gpmp_OutputStatus{};
+    const auto preserve = mfront_gpmp_ExecutionOptions{
+        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
+    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                            args.data(), args_strides.data(), 1, T.size(),
+                            policy, &preserve);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -6);
+    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
+        "the stack size of the threads of the device must be at least"));
+    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
+                      cudaSuccess);
+    TFEL_TESTS_ASSERT(stack_size < 1024);
+    // default options: the stack size is increased
+    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                            args.data(), args_strides.data(), 1, T.size(),
+                            policy, nullptr);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
+                      cudaSuccess);
+    TFEL_TESTS_ASSERT(stack_size >= 1024);
+    const auto E = thrust::host_vector<double>(d_E);
+    for (std::size_t i = 0; i != T.size(); ++i) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+    TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
+                                         initial_stack_size) == cudaSuccess);
   }
 
   void test12() {

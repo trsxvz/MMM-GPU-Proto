@@ -14,6 +14,7 @@
 #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 
+#include <stdio.h>
 #include <string.h>
 #include "MFront/GenericBehaviour/Types.h"
 
@@ -78,14 +79,17 @@ typedef struct mfront_gpb_ExecutionOptions {
    * status.
    *
    * Otherwise, the statistics are accumulated in the given structure, which
-   * must be accessible by the device as the fields of the batch. The
-   * computations may then be asynchronous (CUDA, HIP and Kokkos backends,
-   * SYCL backend if no field is transferred): the function returns once
-   * they are submitted to the queue, and the caller must synchronize the
-   * queue before reading the outputs and the statistics. The output status
-   * only reports invalid arguments and runtime errors. With the `sycl`
-   * backend, the statistics require an in-order queue (invalid arguments
-   * otherwise).
+   * must be accessible by the device as the fields of the batch (and by the
+   * host with the `stlpar` and `openmp` backends, which accumulate them on
+   * the host). With the automatic data transfers of the `sycl` backend,
+   * statistics which are not accessible by the device are copied, as the
+   * fields. The computations may then be asynchronous (CUDA, HIP and
+   * Kokkos backends, SYCL backend if no field is transferred): the function
+   * returns once they are submitted to the queue, and the caller must
+   * synchronize the queue before reading the outputs and the statistics
+   * (see `mfront_gpb_report`). The output status only reports invalid
+   * arguments and runtime errors. With the `sycl` backend, the statistics
+   * require an in-order queue (invalid arguments otherwise).
    */
   mfront_gpb_BatchStatistics* statistics;
   /*!
@@ -338,6 +342,34 @@ static inline int mfront_gpb_getStatus(
   }
   return s->number_of_unreliable_results != 0 ? 0 : 1;
 } /* end of mfront_gpb_getStatus */
+
+/*!
+ * \brief fill an output status from the statistics of a batch: status,
+ * numbers of points, index of the first failure, time step scaling factor
+ * and error message, as the generated functions do for synchronous
+ * computations. This function is meant to be called once asynchronous
+ * computations are completed.
+ * \return the status
+ * \param[out] o: output status
+ * \param[in] s: statistics
+ */
+static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
+                                    const mfront_gpb_BatchStatistics* const s) {
+  o->status = mfront_gpb_getStatus(s);
+  o->number_of_failures = (mfront_gb_size_type)s->number_of_failures;
+  o->first_failure_index = (mfront_gb_size_type)s->first_failure_index;
+  o->number_of_unreliable_results =
+      (mfront_gb_size_type)s->number_of_unreliable_results;
+  o->rdt = mfront_gpb_getTimeStepScalingFactor(s);
+  o->msg[0] = '\0';
+  if (o->status == -1) {
+    snprintf(o->msg, sizeof(o->msg),
+             "computations failed at %llu integration points, the first one "
+             "being the point %llu",
+             s->number_of_failures, s->first_failure_index);
+  }
+  return o->status;
+} /* end of mfront_gpb_report */
 
 #ifdef __cplusplus
 }  // end of extern "C"

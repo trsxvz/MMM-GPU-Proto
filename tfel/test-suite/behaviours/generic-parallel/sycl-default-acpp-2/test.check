@@ -1,0 +1,17 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// fields assumed to be accessible by the device (`data_transfer_policy`
+// option set to `none`): they are allocated in shared memory by the test.
+// The libraries are built for a few behaviours (see build-libraries.sh).
+@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp-2.json ImplicitNorton InitializeFunctionTest PostProcessingTest OrthotropicElastic PolyCrystalSharedDataTest";
+@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress --material-properties=150e9,0.3";
+@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
+@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
+@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so OrthotropicElastic_Tridimensional_rotateGradients";
+// data shared by all the integration points (@SharedData)
+@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so PolyCrystalSharedDataTest_Tridimensional --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 --amplitude=1e-4 --tangent-operator=1";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference"};

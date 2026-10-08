@@ -322,6 +322,11 @@ The status, also returned by the function, is:
 - `-3` in case of a runtime error of the backend (allocation, launch of a
   kernel, etc.).
 
+An empty batch (no point) is accepted without any check: nothing is read,
+written or submitted, the fields and the queue may be null, and the status
+is `1`. The same rule applies to the material properties, whose status of
+success is `0`.
+
 The status follows the conventions of the `generic` interface for
 behaviours, where `1` denotes a success. The interface for material
 properties follows the conventions of the `generic` interface for material
@@ -361,7 +366,11 @@ function returns once they are completed and reports the statistics of the
 batch in the output status.
 
 If `statistics` is not null, the statistics are accumulated in the given
-structure, which must be accessible by the device as the fields:
+structure, which must be accessible by the device as the fields (and by
+the host with the `stlpar` and `openmp` backends, which accumulate them on
+the host). With the automatic data transfers of the `SYCL` backend,
+statistics which are not accessible by the device are copied, as the
+fields:
 
 ~~~~{.cxx}
 typedef struct mfront_gpb_BatchStatistics {
@@ -399,22 +408,27 @@ needed. The minimum of the time step scaling factors is stored as an
 unsigned integer, so that the device can update it with an integer atomic
 operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
 `mfront_gpb_getStatus` gives the status associated with the statistics
-(`1`, `0` or `-1`). The rotations never fail and leave the statistics
-unchanged.
+(`1`, `0` or `-1`). Once the computations are completed,
+`mfront_gpb_report` fills an output status from the statistics, as the
+generated functions do in synchronous mode (status, numbers of points,
+index of the first failure, time step scaling factor and error message),
+as the `<name>_generic_parallel_report` functions of the material
+properties. The rotations never fail and leave the statistics unchanged.
 
-The reporting of the statistics costs nothing when the computations
-succeed: the devices only write in the statistics when an event occurs at
-a point (failure, unreliable result, decrease of the time step scaling
-factor), by atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` in
-asynchronous mode) or by parallel reductions (`Kokkos` in synchronous
-mode, `OpenMP`, C++ parallel algorithms). In synchronous mode, the
-`CUDA`, `HIP` and `SYCL` backends hold the statistics in a block of memory
-accessible by the host and by the device (managed memory, shared USM
-memory), initialized and read by the host: no data is transferred between
-the host and the device when no event occurs. Those blocks are allocated at
-the first call on a device and reused by the following calls (see
-`mfront::generic_parallel::StatusBlockPool`), as the statuses of the
-bounds checks of the material properties. With `CUDA` and `HIP`, on
+The devices only write in the statistics when an event occurs at a point
+(failure, unreliable result, decrease of the time step scaling factor), by
+atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos` backends): the
+reporting of the statistics then costs nothing when the computations
+succeed. The `OpenMP` backend and the C++ parallel algorithms merge the
+statistics of the points by a parallel reduction, whose result, a few
+integers, is copied to the host at each call. In synchronous mode, the
+`CUDA`, `HIP`, `SYCL` and `Kokkos` backends hold the statistics in a block
+of memory accessible by the host and by the device (managed memory, shared
+USM memory, `Kokkos::SharedSpace`), initialized and read by the host: no
+data is transferred between the host and the device when no event occurs.
+Those blocks are allocated at the first call on a device and reused by the
+following calls (see `mfront::generic_parallel::StatusBlockPool`), as the
+statistics of the material properties. With `CUDA` and `HIP`, on
 devices which do not support concurrent accesses to managed memory by the
 host and the device (for instance on Windows), no other kernel may run
 during a synchronous call.
@@ -597,11 +611,14 @@ Options:
 
 ## Kokkos backend (`kokkos`)
 
-The behaviour is integrated by `Kokkos::parallel_reduce` in the given
-execution space, or by `Kokkos::parallel_for` with atomic operations if the
-execution options give statistics. Kokkos must be initialized by the calling
-code. The queue may point to an instance of the execution space. The fields
-must be accessible from this execution space.
+The behaviour is integrated by `Kokkos::parallel_for` in the given
+execution space, the statistics being updated by atomic operations. In
+synchronous mode, they are held by a block of `Kokkos::SharedSpace`, as for
+the material properties: this memory space is provided by all the backends
+of Kokkos except the `OpenACC` and `OpenMPTarget` backends (a static
+assertion reports this requirement). Kokkos must be initialized by the
+calling code. The queue may point to an instance of the execution space.
+The fields must be accessible from this execution space.
 
 The generated libraries are compiled with the compiler and the options of
 Kokkos (for instance `nvcc_wrapper`) and are linked with Kokkos, which must
@@ -636,9 +653,12 @@ Options:
 
 - `data_transfer_policy`: `automatic` (or `auto`, default): the fields
   which are not accessible by the device associated with the queue (host
-  memory not allocated by SYCL) are copied in device memory and the outputs
-  are copied back; `none`: all the fields are assumed to be accessible by
-  the device. This option has the same meaning as for material properties.
+  memory not allocated by SYCL, if the device is not the host) are copied
+  in device memory and the outputs are copied back; `none`: all the fields
+  are assumed to be accessible by the device. Any allocation of unified
+  shared memory (device, shared or host) is accessible. This option has the
+  same meaning as for material properties: both interfaces use the same
+  copies (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
 - `device_stack_size`: minimal stack size, in bytes, of the threads of the
   GPU when the computations are performed on an NVIDIA GPU through the CUDA
   runtime (AdaptiveCpp). 8192 bytes are used in the `sycl-default-acpp`

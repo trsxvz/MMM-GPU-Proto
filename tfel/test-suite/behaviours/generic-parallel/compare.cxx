@@ -911,11 +911,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
   if (statistics != nullptr) {
     // the output status only reports the submission of the computations
     if (o.status == 1) {
-      o.status = mfront_gpb_getStatus(statistics);
-      o.number_of_failures = statistics->number_of_failures;
-      o.first_failure_index = statistics->first_failure_index;
-      o.number_of_unreliable_results = statistics->number_of_unreliable_results;
-      o.rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
+      mfront_gpb_report(&o, statistics);
     }
     deallocate(statistics);
   }
@@ -1279,6 +1275,87 @@ static bool testOtherDevice(const Test& t,
   return pass;
 }
 
+#if defined(GPU_API)
+/*!
+ * \return true if the stack size of the threads, preserved by the
+ * execution options, is not modified and reported as too small (status
+ * `-3`). The kernels require at least 1024 bytes (see
+ * `mfront::generic_parallel::gpu::ensureStackSize`).
+ * \param[in] t: test
+ * \param[in] fb: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testPreserveStackSize(const Test& t,
+                                  BatchFunction fb,
+                                  const double K0) {
+  auto initial = std::size_t{};
+  check(GPU_API(DeviceGetLimit)(&initial, GPU_API(LimitStackSize)));
+  check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), 256));
+  auto st = t.initial;
+  auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt, K0,
+                       Storage::by_point);
+  b.data.execution.queue = queue();
+  b.data.execution.preserve_stack_size = 1;
+  auto o = mfront_gpb_OutputStatus{};
+  fb(&o, &b.data);
+  auto stack_size = std::size_t{};
+  check(GPU_API(DeviceGetLimit)(&stack_size, GPU_API(LimitStackSize)));
+  check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), initial));
+  const auto pass =
+      (o.status == -3) && (stack_size < 1024) &&
+      (std::string_view{o.msg}.starts_with(
+          "the stack size of the threads of the device must be at least"));
+  std::printf("%-12s %-12s status=%2d | %s\n", "preserved", "stack size",
+              o.status, pass ? "OK" : "FAILED");
+  return pass;
+}
+#endif /* defined(GPU_API) */
+
+#if defined(MFRONT_GPB_COMPARE_USE_SYCL)
+/*!
+ * \return true if the queues given by the execution options are treated as
+ * documented: a null queue is an invalid argument (status `-2`), an
+ * asynchronous integration requires an in-order queue (status `-2`
+ * otherwise), and a synchronous integration on an out-of-order queue gives
+ * the results of the reference.
+ * \param[in] t: test
+ * \param[in] fg: function of the `generic` interface
+ * \param[in] fb: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testSYCLQueues(const Test& t,
+                           GenericFunction fg,
+                           BatchFunction fb,
+                           const double K0) {
+  const auto& s = t.sizes;
+  const auto& fs = t.options.finite_strain;
+  auto ms = 0.;
+  auto st1 = t.initial;
+  const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, false, ms, nullptr);
+  // out-of-order queue sharing the device and the context of the queue of
+  // the other tests, hence the allocations of the fields
+  auto q = ::sycl::queue{getQueue().get_context(), getQueue().get_device()};
+  auto st2 = t.initial;
+  const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, true, ms, &q);
+  auto ref = t.initial;
+  auto batch = t.initial;
+  integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0,
+                                 Storage::by_point, fb, false, ms, &q);
+  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+  const auto pass = (o1.status == -2) && (o2.status == -2) &&
+                    (ref.status == batch.status) &&
+                    isConsistent(o3, batch.status) && (dth < tolerance);
+  std::printf(
+      "%-12s %-12s status=%2d/%2d/%2d | relative difference %.1e | %s\n",
+      "sycl", "queues", o1.status, o2.status, o3.status, dth,
+      pass ? "OK" : "FAILED");
+  return pass;
+}
+#endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+
 /*!
  * \brief compare two time steps integrated by both interfaces, for all
  * types of computation and storages of the fields
@@ -1391,6 +1468,12 @@ static bool testIntegration(const Test& t) {
   if (t.options.other_device) {
     ok = testOtherDevice(t, fg, fb, Kt + o0) && ok;
   }
+#if defined(MFRONT_GPB_COMPARE_USE_SYCL)
+  ok = testSYCLQueues(t, fg, fb, Kt + o0) && ok;
+#endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+#if defined(GPU_API)
+  ok = testPreserveStackSize(t, fb, Kt + o0) && ok;
+#endif /* defined(GPU_API) */
   return ok;
 }  // end of testIntegration
 

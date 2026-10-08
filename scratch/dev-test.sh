@@ -42,8 +42,8 @@ dev_includes="-I$D/mfront/include -I$D/include"
 # configuration files with the headers of the development tree first: the
 # one of the configuration and the ones used by the test (for instance,
 # sycl-gpu-acpp uses config-sycl-default-acpp.json)
-configurations=$( (echo "$conf"; grep -o 'configuration-file=config-[A-Za-z0-9_-]*\.json' test.check |
-  sed 's/.*=config-//; s/\.json$//') | sort -u)
+configurations=$( (echo "$conf"; grep -o 'config-[A-Za-z0-9_-]*\.json' test.check |
+  sed 's/^config-//; s/\.json$//') | sort -u)
 for cf in $configurations; do
   [ -f "$D/mfront/configuration-files/config-$cf.json" ] || continue
   apply "$(cat "$D/mfront/configuration-files/config-$cf.json")" |

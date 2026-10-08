@@ -132,8 +132,11 @@ the execution options of the behaviours:
 - `statistics`: statistics of an asynchronous evaluation, or null for a
   synchronous evaluation (see below).
 - `preserve_stack_size`: if not null, the stack size of the threads of the
-  device is never modified and a runtime error is reported if it is too
-  small (`device_stack_size` option of the backends).
+  device is never modified and a runtime error (status `-6`) is reported
+  if it is too small. Otherwise, as for the behaviours, the `CUDA` and
+  `HIP` backends, and the `Kokkos` backend on a `CUDA` or `HIP` execution
+  space, increase the stack size if the kernel requires it. The other
+  backends increase it if the `device_stack_size` option is given.
 
 If no statistics are given, the evaluation is synchronous: the function
 returns once the values are computed, and the output status reports the
@@ -146,7 +149,11 @@ backend if no value is copied), and the output status only reports
 invalid arguments and runtime errors. The statistics
 (`mfront_gpmp_Statistics`) are initialized by
 `mfront_gpmp_initializeStatistics` and must be accessible by the device as
-the values. Once the computations are completed, the
+the values. With the C++ parallel algorithms and `OpenMP`, which merge the
+statuses of the points by a reduction, the statistics are also updated by
+the host. With the automatic data transfers of the `SYCL` backend,
+statistics which are not accessible by the device are copied, as the
+values. Once the computations are completed, the
 `<name>_generic_parallel_report` function reads them on the host and
 reports the result as a synchronous evaluation does:
 
@@ -175,8 +182,10 @@ the first check which failed (see below). The kernels compute the status
 of each point and merge it in the statistics only when an event occurs:
 with integer atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos`
 backends), or by a reduction (C++ parallel algorithms and `OpenMP`), as
-for the behaviours. The reporting of the errors costs nothing when the
-evaluation succeeds. If the runtime checks are disabled
+for the behaviours. With the atomic operations, the reporting of the
+errors costs nothing when the evaluation succeeds. A reduction combines
+the statuses of all the points and copies its result, a few integers, to
+the host at each call. If the runtime checks are disabled
 (`disable_runtime_checks` DSL option), the statistics are never updated.
 
 ## Output status
@@ -198,13 +207,17 @@ conventions of the `generic` interface for material properties:
 
 The following statuses are specific to this interface:
 
-- `-2`: an exception was thrown on the host (backends based on C++
-  programming models, for instance by a data transfer);
 - `-5`: invalid arguments (number of points, number of arguments,
   negative stride, no queue given to the `SYCL` backend, asynchronous
   evaluation with an out-of-order `SYCL` queue);
-- `-6`: runtime error of the backend (allocation, launch of a kernel, stack
-  size of the threads of the device), or invalid parameters;
+- `-6`: runtime error of the backend (allocation, data transfer,
+  submission or execution of a kernel, stack size of the threads of the
+  device), or invalid parameters. The exceptions thrown by the runtimes
+  of the backends based on C++ programming models (`SYCL`, `Kokkos`, C++
+  parallel algorithms, `OpenMP`) are reported with this status, as the
+  errors of the `CUDA` and `HIP` runtimes. The status `-2` of the
+  `generic` interface (exception thrown by the evaluation) is not used:
+  the kernels do not throw;
 - `-7`: uniform output (null stride) with several points or with non
   uniform arguments.
 
@@ -227,6 +240,13 @@ If the runtime checks are disabled (`disable_runtime_checks` DSL option),
 the number of points, the number of arguments, the signs of the strides,
 the parameters, the bounds and the results are not checked. The uniform
 outputs are still checked (status `-7`).
+
+An empty set of points is accepted without any check, as an empty batch
+by the behaviours: nothing is read, written or submitted, and the status
+is `0`. The arrays and the queue may then be null.
+
+The value of `errno` is restored before returning. It is not used to
+detect the errors: it is thread-local and does not exist on GPUs.
 
 # Backends
 
@@ -377,6 +397,10 @@ device of the backend (managed memory, shared USM memory,
 `Kokkos` backend, which frees them when Kokkos is finalized. The C++
 parallel algorithms and `OpenMP` merge the statuses of the points by a
 reduction.
+
+Before launching a kernel, the stack size of the threads is increased if
+the kernel requires it, as for the behaviours (see the
+`preserve_stack_size` execution option).
 
 On output, the user knows the number of points where the evaluation
 failed and the first of them. For instance, the `UO2_ShearModulus`
@@ -598,12 +622,21 @@ This backend has two options:
 Two policies regarding data transfer between host and device are
 available:
 
-- `automatic` (or `auto`, default): this policy may automatically trigger
-  a copy of the data if needed. No copy is made if the data are already on
-  the device or in shared memory. The evaluation is synchronous if a copy
-  is made.
-- `none`: this policy assumes that the data are already on the device or
-  in shared memory.
+- `automatic` (or `auto`, default): the arrays which are not accessible
+  by the device are copied in device memory: the arguments, the output and
+  the statistics of an asynchronous evaluation. An array is accessible if
+  it is allocated by `SYCL` (unified shared memory of any kind: device,
+  shared or host) or if the device is the host. The output is copied too,
+  so that the points where the evaluation fails keep their values. The
+  output and the statistics are copied back once the kernel is completed:
+  the evaluation is then synchronous. This policy is shared with the
+  behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
+- `none`: this policy assumes that the data are accessible by the device.
+
+The errors of the kernels of a synchronous evaluation are delivered to
+the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
+for the behaviours: they are reported with the status `-6` if this handler
+throws them, as the handlers of most calling codes do.
 
 > ** Providing data on the device**
 > 
@@ -627,8 +660,12 @@ relocatable device code, so that the calling code and the generated
 libraries share the same instance of `Kokkos`.
 
 The statistics of the synchronous evaluations are held by memory
-allocated in `Kokkos::SharedSpace`, which must be supported by the `Kokkos`
-installation.
+allocated in `Kokkos::SharedSpace`, as for the behaviours. This memory
+space is provided by all the backends of `Kokkos` except the `OpenACC`
+and `OpenMPTarget` backends: a static assertion of the generated sources
+reports this requirement. With a `CUDA` or a `HIP` execution space, the
+stack size of the threads is increased if the kernel requires it, as for
+the behaviours.
 
 ### Options
 

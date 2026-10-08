@@ -23,6 +23,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | R10 | options d'exécution et évaluation asynchrone des propriétés matériau |
 | R11 | documentation de TFEL et de MGIS à jour |
 | R12 | statistiques des propriétés matériau calquées sur les lois |
+| R13 | audit final de TFEL et de MGIS, corrections, seconde relecture |
 | D1 | MGIS : lots de lois, de modèles et de propriétés matériau |
 | D2 | mfem-mgis : plan à discuter ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
 
@@ -96,6 +97,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | [2026-10-08 (nuit), documentation de TFEL et de MGIS (R11)](#2026-10-08-nuit-documentation-de-tfel-et-de-mgis-r11) |
 | [2026-10-08 (nuit, suite), calcul asynchrone dans MGIS (D1, étape 5)](#2026-10-08-nuit-suite-calcul-asynchrone-dans-mgis-d1-étape-5) |
 | [2026-10-08 (nuit, fin), premier point en échec des propriétés matériau (R12)](#2026-10-08-nuit-fin-premier-point-en-échec-des-propriétés-matériau-r12) |
+| [2026-10-08 (nuit, clôture), audit final de TFEL et de MGIS (R13)](#2026-10-08-nuit-clôture-audit-final-de-tfel-et-de-mgis-r13) |
 
 ## Entrées
 
@@ -2245,3 +2247,116 @@ Il reste une différence, écartée : le tableau optionnel de statuts par
 point des lois n'existe pas pour les propriétés matériau. MGIS ne l'expose
 pour aucune des deux.
 
+### 2026-10-08 (nuit, clôture), audit final de TFEL et de MGIS (R13)
+
+Deux relectures indépendantes, en lecture seule, ont parcouru tout le code
+`generic-parallel` de TFEL (lois, modèles, propriétés matériau, six
+backends) et de MGIS. Chaque constat a été vérifié dans le code avant
+correction. Les constats et leur traitement :
+
+TFEL :
+
+- Kokkos, lois en synchrone : réduction, alors que les propriétés
+  matériau utilisaient des atomiques. Les lois passent aux atomiques sur
+  un bloc de `Kokkos::SharedSpace`, comme les propriétés. Les deux
+  interfaces exigent cet espace (assertion statique).
+- SYCL, propriétés matériau : classe de copies générée à part, différente
+  de celle des lois. Statistiques jamais copiées (écriture du GPU dans la
+  mémoire de l'hôte au premier échec), allocation non testée, sortie
+  indéterminée aux points en échec, `wait()` au lieu de
+  `wait_and_throw()`, notion d'accessibilité différente. Les deux
+  interfaces partagent maintenant `SYCLDeviceCopies.hxx`.
+- Pile des fils : CUDA, HIP et Kokkos ne la vérifiaient pas pour les
+  propriétés matériau, et `preserve_stack_size` y était sans effet. Les
+  deux interfaces partagent `GPUStackSize.hxx` et `KokkosStackSize.hxx`.
+- Le noyau devient un paramètre template de la fonction qui lit ses
+  attributs. Avec un argument, la fonction était instanciée à
+  l'identique dans plusieurs bibliothèques. L'éditeur de liens dynamique
+  la résolvait vers une seule. Le runtime CUDA, lié statiquement, de
+  cette bibliothèque ne connaissait pas le noyau des autres :
+  `invalid resource handle`. Trouvé par le test CUDA des propriétés
+  matériau, qui charge trois bibliothèques.
+- Exceptions des runtimes (SYCL, Kokkos, algorithmes parallèles,
+  OpenMP) : statut `-2` pour les propriétés matériau, `-6` pour les
+  erreurs CUDA et HIP. Toutes en `-6` maintenant.
+- Compte rendu asynchrone : fonction C `mfront_gpb_report` pour les lois,
+  pendant de `<nom>_generic_parallel_report` des propriétés. Le compte
+  rendu synchrone des lois l'utilise : un seul texte de message.
+- Lot vide : accepté sans aucune vérification dans les deux interfaces
+  (avant : `-2` avec SYCL sans file, `-7` pour une sortie uniforme).
+  `errno` restauré à chaque retour (garde RAII).
+- Lois SYCL avec `@SharedData` et sans file : `-3` au lieu de `-2`.
+- Nombre de points en `size_t` dans les noyaux CUDA, HIP, Kokkos et avec
+  AdaptiveCpp (`int` avant, limite à 2^31 points). AdaptiveCpp déporte
+  bien la boucle avec un index `size_t` (vérifié).
+- Doc : coût des réductions (quelques entiers copiés par appel),
+  statistiques de `stlpar` et `openmp` accessibles par l'hôte.
+- Tests ajoutés : `preserve_stack_size` (propriétés CUDA, HIP, Kokkos ;
+  lois CUDA et HIP), statistiques en mémoire hôte avec SYCL, lois SYCL
+  avec file nulle et file non ordonnée, lois SYCL avec la politique de
+  transfert `none` (configuration `sycl-default-acpp-2`), exécution d'une
+  propriété compilée sans vérifications, ensemble vide.
+
+MGIS :
+
+- Affectation par déplacement des objets en attente supprimée : avec des
+  ressources différentes, elle recopiait les statistiques pendant que le
+  GPU les écrivait (écriture après libération). Le déplacement reste.
+- Propriétés matériau : une évaluation `generic-parallel` ne rend que
+  `1`, `0`, `-1`, `-4`. Tout autre statut lève une exception, dès la
+  soumission en asynchrone (le `-2` était perdu).
+- Conversions des grandes transformations sur un gestionnaire : contrôle
+  de l'accès hôte.
+- Rotations par lots : emplacement des tableaux en argument (`HOST` par
+  défaut), comme `evaluate`. `buildRotationMatrices` construit une fois
+  les matrices dans une ressource donnée. Rotation en place documentée.
+- Emplacement des valeurs données par `std::span` au gestionnaire et des
+  tableaux des fonctions de lot : le même que les tableaux du
+  gestionnaire (contrat documenté). `allocatePostProcessingVariables`
+  avec une ressource.
+- Tests ajoutés : échecs partiels sur GPU (premier échec par atomiques,
+  synchrone, asynchrone, plage), résultat non fini (`-4`, hôte et CUDA),
+  emplacements refusés, matrices de rotation construites une fois,
+  rotation sans politique sur GPU, déplacement des objets en attente.
+
+Limites gardées, avec leur raison (voir [docs/mgis.md](docs/mgis.md#limites-actuelles)) :
+agencement point par point du `MaterialDataManager` (une API sur des vues
+est à définir avec mfem-mgis), pas de variante avec `Context`,
+`MaterialFunctionManager` sur l'hôte, `update`/`revert` sur l'hôte, pas
+de tableau de statuts par point, tests `generic-parallel` absents de la
+CI de MGIS tant que TFEL master n'a pas l'interface.
+
+Seconde relecture, sur le diff des corrections, avec le rapport du premier
+audit en entrée (statut de chaque constat, défauts introduits, asymétries
+restantes) :
+
+- TFEL : tous les constats corrigés, aucun défaut introduit de classe A ou
+  B. Points mineurs traités : commentaires sur le coût des réductions,
+  statut de succès d'un ensemble vide (`1` ou `0` selon la convention),
+  remontée des erreurs SYCL par le gestionnaire asynchrone de la file,
+  fuite possible si la description d'une copie SYCL ne peut être rangée,
+  fonctions C des propriétés CUDA et HIP sans `try`.
+- MGIS : deux trous trouvés et corrigés. Les rotations sans politique
+  passaient l'emplacement `HOST` aux fonctions de lot : elles refusaient
+  toute bibliothèque `device`, régression de l'étape précédente. Elles
+  prennent maintenant l'emplacement, comme les autres.
+  `allocatePostProcessingVariables` sans ressource donnait de la mémoire
+  hôte à une loi qui ne peut pas la lire : refusé maintenant. Une
+  ressource nulle a le même sens partout (ressource par défaut).
+
+Tests :
+
+- propriétés matériau : les 16 configurations ;
+- lois : 3 configurations en entier (`openmp-host-gcc`, `stlpar-parunseq-gcc`,
+  `sycl-default-acpp-2`), les 13 autres en passe ciblée (intégration,
+  échecs, fonction d'initialisation, post-traitement, rotations, données
+  partagées pour SYCL, files SYCL, pile préservée sur CUDA et HIP) ;
+- MGIS : 45 tests sur 45 contre le TFEL installé, CUDA compris.
+
+`scratch/dev-test.sh` ne copiait pas le fichier de configuration quand
+`test.check` le passe à `build-libraries.sh` (`sycl-default-acpp-omp`) :
+corrigé.
+
+En reconstruisant les bibliothèques de test de MGIS avec `-Wshadow`, un
+avertissement est apparu dans le code des post-traitements de lots (une
+variable locale masquait un membre) : corrigé.

@@ -679,8 +679,13 @@ details](generic-parallel-material-property-interface.html).
   of points where the evaluation failed, the first of them, and the number
   of points where a bound is violated with the warning policy. The
   kernels only update the statistics of the evaluation when an event
-  occurs at a point: the cost of the error reporting is null when the
-  evaluation succeeds.
+  occurs at a point: with atomic operations (`cuda`, `hip`, `sycl` and
+  `kokkos` backends), the cost of the error reporting is null when the
+  evaluation succeeds. The `stlpar` and `openmp` backends merge the
+  statuses of the points by a reduction.
+- the exceptions thrown by the runtimes of the backends are reported as
+  runtime errors (status `-6`), as the errors of the `CUDA` and `HIP`
+  runtimes. An empty set of points is accepted without any check.
 - the evaluation may be asynchronous: the statistics
   (`mfront_gpmp_Statistics`) are then analysed by the exported
   `<name>_generic_parallel_report` function.
@@ -690,6 +695,11 @@ details](generic-parallel-material-property-interface.html).
 - a bound violated with the warning policy gives the status `1`, as with
   the `generic` interface.
 - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
+  The `cuda`, `hip` and `kokkos` backends increase the stack size of the
+  threads if the kernel requires it, as for the behaviours.
+- the automatic data transfers of the `sycl` backend are shared with the
+  behaviours: they also copy the statistics of an asynchronous evaluation,
+  and the points where the evaluation fails keep their values.
 - the default number of threads per block of the `cuda` and `hip`
   backends is `128`, rounded up to a multiple of the warp size, as for the
   behaviours.
@@ -715,7 +725,8 @@ the points are described by fields, which support several layouts (point
 by point, component by component, uniform values), and the material
 properties and the external state variables can be given variable by
 variable. The computations may be asynchronous: the statistics of the
-batch are then accumulated on the device. The libraries export the
+batch are then accumulated on the device and analysed by the
+`mfront_gpb_report` function. The libraries export the
 `<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`
 and `<name>_generic_parallel_api_version` symbols. The configuration files
 are shared with the `generic-parallel` interface for material properties.

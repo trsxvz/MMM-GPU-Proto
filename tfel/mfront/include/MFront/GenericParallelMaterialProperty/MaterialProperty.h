@@ -36,8 +36,11 @@ extern "C" {
  * points.
  *
  * The device only updates them when an event occurs at a point (failure or
- * bound violated with the warning policy), with integer atomic operations or
- * reductions: their cost is null when the evaluation succeeds. They are
+ * bound violated with the warning policy), with integer atomic operations
+ * (`cuda`, `hip`, `sycl` and `kokkos` backends), whose cost is null when the
+ * evaluation succeeds. The `stlpar` and `openmp` backends merge the
+ * statuses of the points by a reduction, whose result is copied to the
+ * host at each call. They are
  * initialized by `mfront_gpmp_initializeStatistics` and analysed by the
  * `<name>_generic_parallel_report` function exported by the libraries.
  */
@@ -88,10 +91,10 @@ static inline void mfront_gpmp_initializeStatistics(
  *   result is evaluated at all points, but must be used with caution;
  * - `-1`: a physical bound, or a bound with the strict policy, is violated
  *   at some points: the result is not evaluated at those points;
- * - `-2`: an exception was thrown on the host;
  * - `-4`: the result is not finite at some points;
  * - `-5`: invalid arguments, nothing was computed;
- * - `-6`: runtime error of the backend, or invalid parameters;
+ * - `-6`: runtime error of the backend (including the exceptions thrown by
+ *   the runtimes of the backends), or invalid parameters;
  * - `-7`: uniform output with several points or with non uniform arguments.
  */
 typedef struct mfront_gpmp_OutputStatus {
@@ -147,11 +150,15 @@ typedef struct mfront_gpmp_ExecutionOptions {
    *
    * Otherwise, the statistics are accumulated in the given structure,
    * initialized by `mfront_gpmp_initializeStatistics` and accessible by the
-   * device as the values. The evaluation may then be asynchronous (CUDA,
-   * HIP and Kokkos backends, SYCL backend if no value is transferred), as
-   * the integration of the behaviours: the function returns once the
-   * computations are submitted to the queue, and the output status only
-   * reports invalid arguments and runtime errors. With the `sycl` backend,
+   * device as the values (and by the host with the `stlpar` and `openmp`
+   * backends, which merge the statuses of the points on the host). With
+   * the automatic data transfers of the `sycl` backend, statistics which
+   * are not accessible by the device are copied, as the values. The
+   * evaluation may then be asynchronous (CUDA, HIP and Kokkos backends,
+   * SYCL backend if no array is copied), as the integration of the
+   * behaviours: the function returns once the computations are submitted
+   * to the queue, and the output status only reports invalid arguments and
+   * runtime errors. With the `sycl` backend,
    * an asynchronous evaluation requires an in-order queue (invalid
    * arguments otherwise). Once the computations are completed, the
    * `<name>_generic_parallel_report` function analyses the statistics, read
@@ -161,8 +168,10 @@ typedef struct mfront_gpmp_ExecutionOptions {
   mfront_gpmp_Statistics* statistics;
   /*!
    * \brief if not null, the stack size of the threads of the device is
-   * never modified and a runtime error is reported if it is too small (see
-   * the `device_stack_size` option of the backends).
+   * never modified and a runtime error is reported if it is too small.
+   * Otherwise, the stack size is increased if the kernel requires it
+   * (`cuda`, `hip` and `kokkos` backends) or if the `device_stack_size`
+   * option of the backend is given (other backends), as for the behaviours.
    */
   int preserve_stack_size;
 } mfront_gpmp_ExecutionOptions;

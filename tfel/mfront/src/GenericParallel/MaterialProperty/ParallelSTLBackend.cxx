@@ -79,11 +79,7 @@ namespace mfront::generic_parallel::material_property {
       // the parallel algorithms run sequentially with them (see the
       // documentation of mfront::generic_parallel::CountingIterator)
       os << "// loop over the points\n"
-         << "#ifdef __ADAPTIVECPP__\n"
-         << "using mfront_index_type = int;\n"
-         << "#else /* __ADAPTIVECPP__ */ \n"
          << "using mfront_index_type = " << types.integer_type << ";\n"
-         << "#endif /* __ADAPTIVECPP__ */ \n"
          << "using mfront_index_iterator = "
          << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n";
       const auto range = "mfront_index_iterator{0}, mfront_index_iterator{"

@@ -22,14 +22,8 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
-#if defined(__HIPCC__) || defined(__HIP__)
-#include <hip/hip_runtime.h>
-#define MFRONT_GPB_GPU_API(f) hip##f
-#else
-#include <cuda_runtime.h>
-#define MFRONT_GPB_GPU_API(f) cuda##f
-#endif
-#include "MFront/GenericParallel/DeviceStackSize.hxx"
+#include "MFront/GenericParallel/GPUStackSize.hxx"
+#define MFRONT_GPB_GPU_API(f) MFRONT_GENERIC_PARALLEL_GPU_API(f)
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
@@ -64,51 +58,25 @@ namespace mfront::gpb::gpu {
 
     /*!
      * \brief increase the stack size of the threads if the given kernel
-     * requires it. The default stack size (1024 bytes with CUDA) is too
-     * small for some behaviours and is not increased automatically.
+     * requires it (see `mfront::generic_parallel::gpu::ensureStackSize`).
      * \return true on success
+     * \tparam kernel: kernel
      * \param[in,out] s: output status
-     * \param[in] k: kernel
      * \param[in] preserve: if true, the stack size is not modified and an
      * error is reported if it is too small
      */
-    template <typename Kernel>
-    bool ensureStackSize(OutputStatus& s, Kernel k, const bool preserve) {
-      auto a = MFRONT_GPB_GPU_API(FuncAttributes){};
-      // the HIP runtime only provides the untyped overload
-      if (failed(s, MFRONT_GPB_GPU_API(FuncGetAttributes)(
-                        &a, reinterpret_cast<const void*>(k)))) {
+    template <auto kernel>
+    bool ensureStackSize(OutputStatus& s, const bool preserve) {
+      const auto r =
+          mfront::generic_parallel::gpu::ensureStackSize<kernel>(preserve);
+      if (failed(s, r.error)) {
         return false;
       }
-      // the static estimate of the local memory of the kernel may be
-      // slightly lower than the actual stack usage (by a few tens of bytes
-      // for a kernel calling the pow function of libdevice), so a margin is
-      // added
-      constexpr auto margin = std::size_t{512};
-      constexpr auto granularity = std::size_t{1024};
-      const auto required =
-          ((a.localSizeBytes + margin + granularity - 1) / granularity) *
-          granularity;
-      auto lock = std::lock_guard<std::mutex>{
-          mfront::generic_parallel::getStackSizeMutex()};
-      auto l = std::size_t{};
-      if (failed(s, MFRONT_GPB_GPU_API(DeviceGetLimit)(
-                        &l, MFRONT_GPB_GPU_API(LimitStackSize)))) {
+      if (r.required_stack_size != 0) {
+        report(s, -3, r.getErrorMessage());
         return false;
       }
-      if (required <= l) {
-        return true;
-      }
-      if (preserve) {
-        report(s, -3,
-               "the stack size of the threads of the device must be at "
-               "least " +
-                   std::to_string(required) +
-                   " bytes, but it is preserved by the execution options");
-        return false;
-      }
-      return !failed(s, MFRONT_GPB_GPU_API(DeviceSetLimit)(
-                            MFRONT_GPB_GPU_API(LimitStackSize), required));
+      return true;
     }  // end of ensureStackSize
 
     //! \brief sum of the values of a warp, in the first thread of the warp
@@ -251,7 +219,7 @@ namespace mfront::gpb::gpu {
       return s.status;
     }
     constexpr auto k = internals::apply<PointFunction>;
-    if (!internals::ensureStackSize(s, k, o.preserve_stack_size != 0)) {
+    if (!internals::ensureStackSize<k>(s, o.preserve_stack_size != 0)) {
       return s.status;
     }
     auto device = 0;

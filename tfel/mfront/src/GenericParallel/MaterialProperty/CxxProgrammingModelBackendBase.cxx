@@ -79,8 +79,10 @@ namespace mfront::generic_parallel::material_property {
       const FileDescription& fd,
       const bool treatStrides) const {
     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
-    // the data transfers may throw exceptions, which must not cross the
-    // boundary of the C function
+    // the runtime of the backend (data transfers, submission of the kernels)
+    // may throw exceptions, which must not cross the boundary of the C
+    // function. They are reported as runtime errors of the backend, as the
+    // errors of the CUDA and HIP runtimes: the kernels can't throw.
     os << "try{\n";
     this->writeExecutionPreparation(os, i, mpd);
     if (this->handlesDataTransfer()) {
@@ -92,11 +94,11 @@ namespace mfront::generic_parallel::material_property {
       this->writeDataTransfersToHost(os, i, mpd, treatStrides);
     }
     os << "} catch(std::exception& mfront_cxx_exception){\n"
-       << "mfront_output_status->status = -2;\n"
+       << "mfront_output_status->status = -6;\n"
        << "mfront_report(mfront_cxx_exception.what());\n"
        << "return;\n"
        << "} catch(...){\n"
-       << "mfront_output_status->status = -2;\n"
+       << "mfront_output_status->status = -6;\n"
        << "mfront_report(\"unknown exception\");\n"
        << "return;\n"
        << "}\n";

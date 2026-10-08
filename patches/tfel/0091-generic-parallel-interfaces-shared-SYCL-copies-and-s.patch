@@ -1,0 +1,2673 @@
+From 9f10d65a4b7a31094a2d243a74482b24621ec401 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 19:38:21 +0200
+Subject: [PATCH] generic-parallel interfaces: shared SYCL copies and stack
+ size checks, Kokkos atomics, empty sets, report of the behaviours
+
+Behaviours and material properties now share the same mechanisms:
+
+- SYCL: the copies of the arrays which are not accessible by the device
+  (MFront/GenericParallel/SYCLDeviceCopies.hxx) are used by both
+  interfaces. For the material properties, the statistics of an
+  asynchronous evaluation are copied if needed, the output is copied to the
+  device so that the points where the evaluation fails keep their values,
+  a failed allocation is reported, the errors of the kernels are reported
+  (wait_and_throw), and any allocation of unified shared memory is
+  accessible, as for the behaviours. The behaviours only copy the arrays of
+  the variables given variable by variable if a field is copied.
+- Stack size of the threads: MFront/GenericParallel/GPUStackSize.hxx and
+  MFront/GenericParallel/KokkosStackSize.hxx are used by both interfaces.
+  The material properties of the cuda, hip and kokkos backends now check
+  the stack size, and honour preserve_stack_size. The kernel is a template
+  argument of the function reading its attributes: the CUDA runtime is
+  linked statically by default, and a function shared by several libraries
+  was resolved to the instance of one library, whose runtime does not know
+  the kernels of the other ones (invalid resource handle).
+- Kokkos: the synchronous computations of the behaviours use atomic
+  operations on a block of Kokkos::SharedSpace, as the material
+  properties, instead of a reduction. Both interfaces require
+  Kokkos::SharedSpace (static assertion).
+- Material properties: the exceptions thrown by the runtimes of the
+  backends are reported as runtime errors (-6), as the errors of the CUDA
+  and HIP runtimes, whose functions now also catch the exceptions. errno is restored on every return. The number of
+  points has the size type in the kernels (int before with CUDA, HIP and
+  AdaptiveCpp).
+- Empty sets of points are accepted without any check by both interfaces.
+- Behaviours: the mfront_gpb_report C function fills an output status from
+  the statistics of asynchronous computations, as the report functions of
+  the material properties. The synchronous computations use it. With SYCL
+  and @SharedData, a null queue is reported as an invalid argument (-2).
+
+Tests: preserve_stack_size (material properties with cuda, hip and kokkos,
+behaviours with cuda and hip), SYCL statistics in host memory, SYCL queues
+of the behaviours (null, out-of-order), data transfer policy none for the
+behaviours (sycl-default-acpp-2), execution of a material property
+compiled without runtime checks, empty sets.
+---
+ .../generic-parallel-behaviour-interface.md   |  70 +++--
+ ...ic-parallel-material-property-interface.md |  71 +++--
+ docs/web/release-notes-5.2.md                 |  17 +-
+ mfront/include/CMakeLists.txt                 |   3 +
+ .../MFront/GenericParallel/GPUStackSize.hxx   | 122 +++++++++
+ .../GenericParallel/KokkosStackSize.hxx       |  80 ++++++
+ .../GenericParallel/SYCLDeviceCopies.hxx      | 249 ++++++++++++++++++
+ .../GenericParallelBehaviour/BatchData.h      |  48 +++-
+ .../MFront/GenericParallelBehaviour/GPU.hxx   |  58 +---
+ .../GenericParallelBehaviour/Integrate.hxx    |  23 +-
+ .../GenericParallelBehaviour/Kokkos.hxx       | 136 ++++------
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  | 205 ++------------
+ .../MaterialProperty.h                        |  31 ++-
+ .../PointStatus.hxx                           |   7 +-
+ .../MaterialProperty/BackendBase.cxx          |  30 ++-
+ .../MaterialProperty/CUDABackendBase.cxx      |  38 ++-
+ .../CxxProgrammingModelBackendBase.cxx        |  10 +-
+ .../MaterialProperty/HIPBackend.cxx           |   4 +-
+ .../MaterialProperty/KokkosBackend.cxx        |  28 +-
+ .../MaterialProperty/ParallelSTLBackend.cxx   |   4 -
+ .../MaterialProperty/SYCLBackend.cxx          | 203 ++++----------
+ .../src/GenericParallelBehaviourInterface.cxx |  11 +
+ .../behaviours/generic-parallel/compare.cxx   |  93 ++++++-
+ .../sycl-default-acpp-2/test.check            |  17 ++
+ .../openmp-host-gcc/test.check                |   6 +-
+ .../generic-parallel/symbols.hxx              |   2 -
+ .../generic-parallel/test-cuda.cu             |  52 ++++
+ .../generic-parallel/test-cxx.cxx             |  49 ++++
+ .../generic-parallel/test-hip.hip             |  47 ++++
+ .../test-no-runtime-checks.cxx                |  93 +++++++
+ .../generic-parallel/test-sycl.cxx            |  35 +++
+ 31 files changed, 1237 insertions(+), 605 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/KokkosStackSize.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+ create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
+ create mode 100644 test-suite/material-properties/generic-parallel/test-no-runtime-checks.cxx
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 4cf6c65a7..4245577f6 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -322,6 +322,11 @@ The status, also returned by the function, is:
+ - `-3` in case of a runtime error of the backend (allocation, launch of a
+   kernel, etc.).
+ 
++An empty batch (no point) is accepted without any check: nothing is read,
++written or submitted, the fields and the queue may be null, and the status
++is `1`. The same rule applies to the material properties, whose status of
++success is `0`.
++
+ The status follows the conventions of the `generic` interface for
+ behaviours, where `1` denotes a success. The interface for material
+ properties follows the conventions of the `generic` interface for material
+@@ -361,7 +366,11 @@ function returns once they are completed and reports the statistics of the
+ batch in the output status.
+ 
+ If `statistics` is not null, the statistics are accumulated in the given
+-structure, which must be accessible by the device as the fields:
++structure, which must be accessible by the device as the fields (and by
++the host with the `stlpar` and `openmp` backends, which accumulate them on
++the host). With the automatic data transfers of the `SYCL` backend,
++statistics which are not accessible by the device are copied, as the
++fields:
+ 
+ ~~~~{.cxx}
+ typedef struct mfront_gpb_BatchStatistics {
+@@ -399,22 +408,27 @@ needed. The minimum of the time step scaling factors is stored as an
+ unsigned integer, so that the device can update it with an integer atomic
+ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
+ `mfront_gpb_getStatus` gives the status associated with the statistics
+-(`1`, `0` or `-1`). The rotations never fail and leave the statistics
+-unchanged.
+-
+-The reporting of the statistics costs nothing when the computations
+-succeed: the devices only write in the statistics when an event occurs at
+-a point (failure, unreliable result, decrease of the time step scaling
+-factor), by atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` in
+-asynchronous mode) or by parallel reductions (`Kokkos` in synchronous
+-mode, `OpenMP`, C++ parallel algorithms). In synchronous mode, the
+-`CUDA`, `HIP` and `SYCL` backends hold the statistics in a block of memory
+-accessible by the host and by the device (managed memory, shared USM
+-memory), initialized and read by the host: no data is transferred between
+-the host and the device when no event occurs. Those blocks are allocated at
+-the first call on a device and reused by the following calls (see
+-`mfront::generic_parallel::StatusBlockPool`), as the statuses of the
+-bounds checks of the material properties. With `CUDA` and `HIP`, on
++(`1`, `0` or `-1`). Once the computations are completed,
++`mfront_gpb_report` fills an output status from the statistics, as the
++generated functions do in synchronous mode (status, numbers of points,
++index of the first failure, time step scaling factor and error message),
++as the `<name>_generic_parallel_report` functions of the material
++properties. The rotations never fail and leave the statistics unchanged.
++
++The devices only write in the statistics when an event occurs at a point
++(failure, unreliable result, decrease of the time step scaling factor), by
++atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos` backends): the
++reporting of the statistics then costs nothing when the computations
++succeed. The `OpenMP` backend and the C++ parallel algorithms merge the
++statistics of the points by a parallel reduction, whose result, a few
++integers, is copied to the host at each call. In synchronous mode, the
++`CUDA`, `HIP`, `SYCL` and `Kokkos` backends hold the statistics in a block
++of memory accessible by the host and by the device (managed memory, shared
++USM memory, `Kokkos::SharedSpace`), initialized and read by the host: no
++data is transferred between the host and the device when no event occurs.
++Those blocks are allocated at the first call on a device and reused by the
++following calls (see `mfront::generic_parallel::StatusBlockPool`), as the
++statistics of the material properties. With `CUDA` and `HIP`, on
+ devices which do not support concurrent accesses to managed memory by the
+ host and the device (for instance on Windows), no other kernel may run
+ during a synchronous call.
+@@ -597,11 +611,14 @@ Options:
+ 
+ ## Kokkos backend (`kokkos`)
+ 
+-The behaviour is integrated by `Kokkos::parallel_reduce` in the given
+-execution space, or by `Kokkos::parallel_for` with atomic operations if the
+-execution options give statistics. Kokkos must be initialized by the calling
+-code. The queue may point to an instance of the execution space. The fields
+-must be accessible from this execution space.
++The behaviour is integrated by `Kokkos::parallel_for` in the given
++execution space, the statistics being updated by atomic operations. In
++synchronous mode, they are held by a block of `Kokkos::SharedSpace`, as for
++the material properties: this memory space is provided by all the backends
++of Kokkos except the `OpenACC` and `OpenMPTarget` backends (a static
++assertion reports this requirement). Kokkos must be initialized by the
++calling code. The queue may point to an instance of the execution space.
++The fields must be accessible from this execution space.
+ 
+ The generated libraries are compiled with the compiler and the options of
+ Kokkos (for instance `nvcc_wrapper`) and are linked with Kokkos, which must
+@@ -636,9 +653,12 @@ Options:
+ 
+ - `data_transfer_policy`: `automatic` (or `auto`, default): the fields
+   which are not accessible by the device associated with the queue (host
+-  memory not allocated by SYCL) are copied in device memory and the outputs
+-  are copied back; `none`: all the fields are assumed to be accessible by
+-  the device. This option has the same meaning as for material properties.
++  memory not allocated by SYCL, if the device is not the host) are copied
++  in device memory and the outputs are copied back; `none`: all the fields
++  are assumed to be accessible by the device. Any allocation of unified
++  shared memory (device, shared or host) is accessible. This option has the
++  same meaning as for material properties: both interfaces use the same
++  copies (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
+ - `device_stack_size`: minimal stack size, in bytes, of the threads of the
+   GPU when the computations are performed on an NVIDIA GPU through the CUDA
+   runtime (AdaptiveCpp). 8192 bytes are used in the `sycl-default-acpp`
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 1fa6cdff5..8a534094e 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -132,8 +132,11 @@ the execution options of the behaviours:
+ - `statistics`: statistics of an asynchronous evaluation, or null for a
+   synchronous evaluation (see below).
+ - `preserve_stack_size`: if not null, the stack size of the threads of the
+-  device is never modified and a runtime error is reported if it is too
+-  small (`device_stack_size` option of the backends).
++  device is never modified and a runtime error (status `-6`) is reported
++  if it is too small. Otherwise, as for the behaviours, the `CUDA` and
++  `HIP` backends, and the `Kokkos` backend on a `CUDA` or `HIP` execution
++  space, increase the stack size if the kernel requires it. The other
++  backends increase it if the `device_stack_size` option is given.
+ 
+ If no statistics are given, the evaluation is synchronous: the function
+ returns once the values are computed, and the output status reports the
+@@ -146,7 +149,11 @@ backend if no value is copied), and the output status only reports
+ invalid arguments and runtime errors. The statistics
+ (`mfront_gpmp_Statistics`) are initialized by
+ `mfront_gpmp_initializeStatistics` and must be accessible by the device as
+-the values. Once the computations are completed, the
++the values. With the C++ parallel algorithms and `OpenMP`, which merge the
++statuses of the points by a reduction, the statistics are also updated by
++the host. With the automatic data transfers of the `SYCL` backend,
++statistics which are not accessible by the device are copied, as the
++values. Once the computations are completed, the
+ `<name>_generic_parallel_report` function reads them on the host and
+ reports the result as a synchronous evaluation does:
+ 
+@@ -175,8 +182,10 @@ the first check which failed (see below). The kernels compute the status
+ of each point and merge it in the statistics only when an event occurs:
+ with integer atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos`
+ backends), or by a reduction (C++ parallel algorithms and `OpenMP`), as
+-for the behaviours. The reporting of the errors costs nothing when the
+-evaluation succeeds. If the runtime checks are disabled
++for the behaviours. With the atomic operations, the reporting of the
++errors costs nothing when the evaluation succeeds. A reduction combines
++the statuses of all the points and copies its result, a few integers, to
++the host at each call. If the runtime checks are disabled
+ (`disable_runtime_checks` DSL option), the statistics are never updated.
+ 
+ ## Output status
+@@ -198,13 +207,17 @@ conventions of the `generic` interface for material properties:
+ 
+ The following statuses are specific to this interface:
+ 
+-- `-2`: an exception was thrown on the host (backends based on C++
+-  programming models, for instance by a data transfer);
+ - `-5`: invalid arguments (number of points, number of arguments,
+   negative stride, no queue given to the `SYCL` backend, asynchronous
+   evaluation with an out-of-order `SYCL` queue);
+-- `-6`: runtime error of the backend (allocation, launch of a kernel, stack
+-  size of the threads of the device), or invalid parameters;
++- `-6`: runtime error of the backend (allocation, data transfer,
++  submission or execution of a kernel, stack size of the threads of the
++  device), or invalid parameters. The exceptions thrown by the runtimes
++  of the backends based on C++ programming models (`SYCL`, `Kokkos`, C++
++  parallel algorithms, `OpenMP`) are reported with this status, as the
++  errors of the `CUDA` and `HIP` runtimes. The status `-2` of the
++  `generic` interface (exception thrown by the evaluation) is not used:
++  the kernels do not throw;
+ - `-7`: uniform output (null stride) with several points or with non
+   uniform arguments.
+ 
+@@ -228,6 +241,13 @@ the number of points, the number of arguments, the signs of the strides,
+ the parameters, the bounds and the results are not checked. The uniform
+ outputs are still checked (status `-7`).
+ 
++An empty set of points is accepted without any check, as an empty batch
++by the behaviours: nothing is read, written or submitted, and the status
++is `0`. The arrays and the queue may then be null.
++
++The value of `errno` is restored before returning. It is not used to
++detect the errors: it is thread-local and does not exist on GPUs.
++
+ # Backends
+ 
+ Backends are associated with parallel programming models.
+@@ -378,6 +398,10 @@ device of the backend (managed memory, shared USM memory,
+ parallel algorithms and `OpenMP` merge the statuses of the points by a
+ reduction.
+ 
++Before launching a kernel, the stack size of the threads is increased if
++the kernel requires it, as for the behaviours (see the
++`preserve_stack_size` execution option).
++
+ On output, the user knows the number of points where the evaluation
+ failed and the first of them. For instance, the `UO2_ShearModulus`
+ function may report that the temperature is negative at two points, the
+@@ -598,12 +622,21 @@ This backend has two options:
+ Two policies regarding data transfer between host and device are
+ available:
+ 
+-- `automatic` (or `auto`, default): this policy may automatically trigger
+-  a copy of the data if needed. No copy is made if the data are already on
+-  the device or in shared memory. The evaluation is synchronous if a copy
+-  is made.
+-- `none`: this policy assumes that the data are already on the device or
+-  in shared memory.
++- `automatic` (or `auto`, default): the arrays which are not accessible
++  by the device are copied in device memory: the arguments, the output and
++  the statistics of an asynchronous evaluation. An array is accessible if
++  it is allocated by `SYCL` (unified shared memory of any kind: device,
++  shared or host) or if the device is the host. The output is copied too,
++  so that the points where the evaluation fails keep their values. The
++  output and the statistics are copied back once the kernel is completed:
++  the evaluation is then synchronous. This policy is shared with the
++  behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
++- `none`: this policy assumes that the data are accessible by the device.
++
++The errors of the kernels of a synchronous evaluation are delivered to
++the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
++for the behaviours: they are reported with the status `-6` if this handler
++throws them, as the handlers of most calling codes do.
+ 
+ > ** Providing data on the device**
+ > 
+@@ -627,8 +660,12 @@ relocatable device code, so that the calling code and the generated
+ libraries share the same instance of `Kokkos`.
+ 
+ The statistics of the synchronous evaluations are held by memory
+-allocated in `Kokkos::SharedSpace`, which must be supported by the `Kokkos`
+-installation.
++allocated in `Kokkos::SharedSpace`, as for the behaviours. This memory
++space is provided by all the backends of `Kokkos` except the `OpenACC`
++and `OpenMPTarget` backends: a static assertion of the generated sources
++reports this requirement. With a `CUDA` or a `HIP` execution space, the
++stack size of the threads is increased if the kernel requires it, as for
++the behaviours.
+ 
+ ### Options
+ 
+diff --git a/docs/web/release-notes-5.2.md b/docs/web/release-notes-5.2.md
+index 5b60ae60d..3c6b952d6 100644
+--- a/docs/web/release-notes-5.2.md
++++ b/docs/web/release-notes-5.2.md
+@@ -679,8 +679,13 @@ details](generic-parallel-material-property-interface.html).
+   of points where the evaluation failed, the first of them, and the number
+   of points where a bound is violated with the warning policy. The
+   kernels only update the statistics of the evaluation when an event
+-  occurs at a point: the cost of the error reporting is null when the
+-  evaluation succeeds.
++  occurs at a point: with atomic operations (`cuda`, `hip`, `sycl` and
++  `kokkos` backends), the cost of the error reporting is null when the
++  evaluation succeeds. The `stlpar` and `openmp` backends merge the
++  statuses of the points by a reduction.
++- the exceptions thrown by the runtimes of the backends are reported as
++  runtime errors (status `-6`), as the errors of the `CUDA` and `HIP`
++  runtimes. An empty set of points is accepted without any check.
+ - the evaluation may be asynchronous: the statistics
+   (`mfront_gpmp_Statistics`) are then analysed by the exported
+   `<name>_generic_parallel_report` function.
+@@ -690,6 +695,11 @@ details](generic-parallel-material-property-interface.html).
+ - a bound violated with the warning policy gives the status `1`, as with
+   the `generic` interface.
+ - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
++  The `cuda`, `hip` and `kokkos` backends increase the stack size of the
++  threads if the kernel requires it, as for the behaviours.
++- the automatic data transfers of the `sycl` backend are shared with the
++  behaviours: they also copy the statistics of an asynchronous evaluation,
++  and the points where the evaluation fails keep their values.
+ - the default number of threads per block of the `cuda` and `hip`
+   backends is `128`, rounded up to a multiple of the warp size, as for the
+   behaviours.
+@@ -715,7 +725,8 @@ the points are described by fields, which support several layouts (point
+ by point, component by component, uniform values), and the material
+ properties and the external state variables can be given variable by
+ variable. The computations may be asynchronous: the statistics of the
+-batch are then accumulated on the device. The libraries export the
++batch are then accumulated on the device and analysed by the
++`mfront_gpb_report` function. The libraries export the
+ `<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`
+ and `<name>_generic_parallel_api_version` symbols. The configuration files
+ are shared with the `generic-parallel` interface for material properties.
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index daa7eb421..de414cbc6 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -129,7 +129,10 @@ install_mfront_header(MFront BehaviourRotationFunctions.hxx)
+ install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
+ install_mfront_header(MFront/GenericParallel CountingIterator.hxx)
+ install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
++install_mfront_header(MFront/GenericParallel GPUStackSize.hxx)
++install_mfront_header(MFront/GenericParallel KokkosStackSize.hxx)
+ install_mfront_header(MFront/GenericParallel StatusBlockPool.hxx)
++install_mfront_header(MFront/GenericParallel SYCLDeviceCopies.hxx)
+ install_mfront_header(MFront/GenericParallel MemorySpace.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour BackendFactory.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/GPUStackSize.hxx b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+new file mode 100644
+index 000000000..2f53b6f15
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+@@ -0,0 +1,122 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/GPUStackSize.hxx
++ * \brief  This file declares a function adapting the stack size of the
++ * threads of the device to a CUDA or HIP kernel, shared by the
++ * `generic-parallel` interfaces for behaviours and for material
++ * properties. This file must be compiled by a CUDA or a HIP compiler. The
++ * HIP runtime is used if the `hip/hip_runtime.h` header has been included
++ * before this file or if the HIP language is enabled, the CUDA runtime
++ * otherwise.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_GPUSTACKSIZE_HXX
++#define LIB_MFRONT_GENERICPARALLEL_GPUSTACKSIZE_HXX
++
++#include <mutex>
++#include <string>
++#include <cstddef>
++// the `MFRONT_GENERIC_PARALLEL_GPU_API` macro gives the name of a function
++// or of a type of the runtime used
++#if defined(__HIPCC__) || defined(__HIP__)
++#include <hip/hip_runtime.h>
++#define MFRONT_GENERIC_PARALLEL_GPU_API(f) hip##f
++#else
++#include <cuda_runtime.h>
++#define MFRONT_GENERIC_PARALLEL_GPU_API(f) cuda##f
++#endif
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
++
++namespace mfront::generic_parallel::gpu {
++
++  //! \brief error code of the runtime
++  using Error = MFRONT_GENERIC_PARALLEL_GPU_API(Error_t);
++
++  //! \brief result of `ensureStackSize`
++  struct StackSizeCheck {
++    //! \brief error of the runtime
++    Error error = MFRONT_GENERIC_PARALLEL_GPU_API(Success);
++    /*!
++     * \brief stack size required by the kernel if the current stack size is
++     * too small and must be preserved, zero otherwise
++     */
++    std::size_t required_stack_size = 0;
++    //! \return true if the kernel can be launched
++    [[nodiscard]] bool succeeded() const noexcept {
++      return (this->error == MFRONT_GENERIC_PARALLEL_GPU_API(Success)) &&
++             (this->required_stack_size == 0);
++    }
++    //! \return the error message
++    [[nodiscard]] std::string getErrorMessage() const {
++      if (this->error != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
++        return MFRONT_GENERIC_PARALLEL_GPU_API(GetErrorString)(this->error);
++      }
++      return "the stack size of the threads of the device must be at "
++             "least " +
++             std::to_string(this->required_stack_size) +
++             " bytes, but it is preserved by the execution options";
++    }
++  };
++
++  /*!
++   * \brief increase the stack size of the threads of the current device if
++   * the given kernel requires it. The default stack size (1024 bytes with
++   * CUDA) is too small for some behaviours and is not increased
++   * automatically.
++   *
++   * The kernel is a template argument, so that this function is instantiated
++   * in the library defining the kernel. The CUDA runtime is linked
++   * statically by default: each library has its own instance of the
++   * runtime, which only knows the kernels of this library. A function
++   * shared by several libraries, for instance a function taking the kernel
++   * as argument, would be resolved to the instance of one library by the
++   * dynamic linker.
++   *
++   * \tparam kernel: kernel
++   * \param[in] preserve: if true, the stack size is not modified, and the
++   * required stack size is returned if the current one is too small
++   */
++  template <auto kernel>
++  StackSizeCheck ensureStackSize(const bool preserve) noexcept {
++    auto r = StackSizeCheck{};
++    auto a = MFRONT_GENERIC_PARALLEL_GPU_API(FuncAttributes){};
++    // the HIP runtime only provides the untyped overload
++    r.error = MFRONT_GENERIC_PARALLEL_GPU_API(FuncGetAttributes)(
++        &a, reinterpret_cast<const void*>(kernel));
++    if (r.error != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) {
++      return r;
++    }
++    // the static estimate of the local memory of the kernel may be slightly
++    // lower than the actual stack usage (by a few tens of bytes for a kernel
++    // calling the pow function of libdevice), so a margin is added
++    constexpr auto margin = std::size_t{512};
++    constexpr auto granularity = std::size_t{1024};
++    const auto required =
++        ((a.localSizeBytes + margin + granularity - 1) / granularity) *
++        granularity;
++    auto lock = std::lock_guard<std::mutex>{getStackSizeMutex()};
++    auto l = std::size_t{};
++    r.error = MFRONT_GENERIC_PARALLEL_GPU_API(DeviceGetLimit)(
++        &l, MFRONT_GENERIC_PARALLEL_GPU_API(LimitStackSize));
++    if ((r.error != MFRONT_GENERIC_PARALLEL_GPU_API(Success)) ||
++        (required <= l)) {
++      return r;
++    }
++    if (preserve) {
++      r.required_stack_size = required;
++      return r;
++    }
++    r.error = MFRONT_GENERIC_PARALLEL_GPU_API(DeviceSetLimit)(
++        MFRONT_GENERIC_PARALLEL_GPU_API(LimitStackSize), required);
++    return r;
++  }  // end of ensureStackSize
++
++}  // end of namespace mfront::generic_parallel::gpu
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_GPUSTACKSIZE_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/KokkosStackSize.hxx b/mfront/include/MFront/GenericParallel/KokkosStackSize.hxx
+new file mode 100644
+index 000000000..f6c48b350
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/KokkosStackSize.hxx
+@@ -0,0 +1,80 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/KokkosStackSize.hxx
++ * \brief  This file declares a function adapting the stack size of the
++ * threads of the device to a function applied by `Kokkos`, shared by the
++ * `generic-parallel` interfaces for behaviours and for material
++ * properties.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_KOKKOSSTACKSIZE_HXX
++#define LIB_MFRONT_GENERICPARALLEL_KOKKOSSTACKSIZE_HXX
++
++#include <string>
++#include <type_traits>
++#include <Kokkos_Core.hpp>
++#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
++#include "MFront/GenericParallel/GPUStackSize.hxx"
++#endif
++
++namespace mfront::generic_parallel::kokkos {
++
++#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
++
++  /*!
++   * \brief kernel which is never launched: its attributes give the stack
++   * size required to apply a function at one point. Kokkos does not
++   * increase the stack size of the threads, which is too small by default
++   * for some behaviours.
++   */
++  template <typename Function>
++  __global__ void stackSizeProbe(const Function f) {
++    f(0);
++  }  // end of stackSizeProbe
++
++#endif /* defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) */
++
++  /*!
++   * \brief increase the stack size of the threads of the device if the
++   * given function, applied at one point in the given execution space,
++   * requires it. Nothing is done if the execution space is not a CUDA or a
++   * HIP execution space.
++   * \return an error message, empty on success
++   * \tparam ExecutionSpace: execution space
++   * \param[in] f: function applied at one point
++   * \param[in] preserve: if true, the stack size is not modified, and an
++   * error is returned if it is too small
++   */
++  template <typename ExecutionSpace, typename Function>
++  std::string ensureStackSize(const Function& f, const bool preserve) {
++#if defined(KOKKOS_ENABLE_CUDA)
++    constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::Cuda>;
++#elif defined(KOKKOS_ENABLE_HIP)
++    constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::HIP>;
++#else
++    constexpr auto device = false;
++#endif
++    static_cast<void>(f);
++    static_cast<void>(preserve);
++#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
++    if constexpr (device) {
++      const auto r = gpu::ensureStackSize<stackSizeProbe<Function>>(preserve);
++      if (!r.succeeded()) {
++        return r.getErrorMessage();
++      }
++    }
++#else
++    static_cast<void>(device);
++#endif
++    return {};
++  }  // end of ensureStackSize
++
++}  // end of namespace mfront::generic_parallel::kokkos
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_KOKKOSSTACKSIZE_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+new file mode 100644
+index 000000000..1538ee711
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+@@ -0,0 +1,249 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
++ * \brief  This file declares the copies in device memory of the arrays which
++ * are not accessible by the device associated with a SYCL queue, shared by
++ * the `generic-parallel` interfaces for behaviours and for material
++ * properties.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_SYCLDEVICECOPIES_HXX
++#define LIB_MFRONT_GENERICPARALLEL_SYCLDEVICECOPIES_HXX
++
++#include <cstddef>
++#include <cstring>
++#include <optional>
++#include <stdexcept>
++#include <type_traits>
++#include <vector>
++#include <sycl/sycl.hpp>
++
++namespace mfront::generic_parallel::sycl {
++
++  //! \brief a simple alias
++  using size_type = std::size_t;
++
++  //! \brief policy for the transfer of the data of a batch or of a set of points
++  enum struct DataTransferPolicy {
++    /*!
++     * \brief the arrays which are not accessible by the device associated
++     * with the queue (host memory not allocated by SYCL) are copied in
++     * device memory, and the outputs are copied back
++     */
++    AUTOMATIC,
++    //! \brief all the arrays are assumed to be accessible by the device
++    NONE
++  };
++
++  /*!
++   * \brief strided array: the `j`-th component of the `i`-th point is
++   * stored at `values[i * point_stride + j * component_stride]`
++   */
++  template <typename ValueType>
++  struct StridedArray {
++    //! \brief pointer to the first value
++    ValueType* values;
++    //! \brief stride between two points
++    size_type point_stride;
++    //! \brief stride between two components
++    size_type component_stride;
++  };
++
++  /*!
++   * \brief copies in device memory of the fields which are not accessible
++   * by the device associated with a queue. The outputs must be copied back
++   * by calling the `copyOutputs` method.
++   */
++  struct DeviceCopies {
++    /*!
++     * \brief constructor
++     * \param[in] q: queue
++     * \param[in] n: number of points of the fields
++     * \param[in] p: policy for the transfer of the fields. With the `NONE`
++     * policy, no copy is made.
++     */
++    DeviceCopies(::sycl::queue& q,
++                 const size_type n,
++                 const DataTransferPolicy p)
++        : number_of_points(n),
++          queue(q),
++          enabled(p == DataTransferPolicy::AUTOMATIC) {}
++    DeviceCopies(DeviceCopies&&) = delete;
++    DeviceCopies(const DeviceCopies&) = delete;
++    DeviceCopies& operator=(DeviceCopies&&) = delete;
++    DeviceCopies& operator=(const DeviceCopies&) = delete;
++    /*!
++     * \brief copy a field in device memory if it is not accessible by the
++     * device, and make the field refer to the copy. All the values covered
++     * by the strides of the field are copied. For an output, only the
++     * values of the field are copied back, so that the values of other
++     * outputs sharing the same memory (for example, the thermodynamic
++     * forces and the internal state variables of a point stored
++     * contiguously) are not overwritten.
++     * \param[in,out] f: field
++     * \param[in] size: number of components
++     * \param[in] output: if true, the field is an output
++     */
++    template <typename FieldType>
++    void transfer(FieldType& f, const size_type size, const bool output) {
++      const auto n = this->number_of_points;
++      if ((!this->enabled) || (f.values == nullptr) || (size == 0) ||
++          (n == 0) || (this->isAccessible(f.values))) {
++        return;
++      }
++      const auto extent =
++          (n - 1) * f.point_stride + (size - 1) * f.component_stride + 1;
++      using value_type =
++          std::remove_const_t<std::remove_pointer_t<decltype(f.values)>>;
++      const auto l = Layout{n, size, f.point_stride, f.component_stride};
++      f.values = static_cast<value_type*>(this->copy(
++          f.values, extent * sizeof(value_type), sizeof(value_type), output,
++          extent == n * size ? std::optional<Layout>{} : l));
++    }
++    /*!
++     * \brief copy an array in device memory if it is not accessible by the
++     * device, and make the pointer refer to the copy.
++     * \param[in,out] p: pointer to the array
++     * \param[in] size: number of values
++     * \param[in] output: if true, the array is an output
++     */
++    template <typename ValueType>
++    void transfer(ValueType*& p, const size_type size, const bool output) {
++      if ((!this->enabled) || (p == nullptr) || (size == 0) ||
++          (this->isAccessible(p))) {
++        return;
++      }
++      using value_type = std::remove_const_t<ValueType>;
++      p = static_cast<value_type*>(this->copy(p, size * sizeof(value_type),
++                                              sizeof(value_type), output,
++                                              std::optional<Layout>{}));
++    }
++    /*!
++     * \brief copy the outputs back to their original locations, once the
++     * computations submitted to the queue are completed
++     */
++    void copyOutputs() {
++      if (this->copies.empty()) {
++        return;
++      }
++      this->queue.wait_and_throw();
++      for (const auto& c : this->copies) {
++        if (!c.output) {
++          continue;
++        }
++        if (!c.layout.has_value()) {
++          this->queue.memcpy(c.host, c.device, c.size).wait_and_throw();
++          continue;
++        }
++        auto values = std::vector<std::byte>(c.size);
++        this->queue.memcpy(values.data(), c.device, c.size).wait_and_throw();
++        const auto& l = *(c.layout);
++        auto* const host = static_cast<std::byte*>(c.host);
++        for (size_type i = 0; i != l.number_of_points; ++i) {
++          for (size_type k = 0; k != l.number_of_components; ++k) {
++            const auto o =
++                (i * l.point_stride + k * l.component_stride) * c.value_size;
++            std::memcpy(host + o, values.data() + o, c.value_size);
++          }
++        }
++      }
++    }
++    /*!
++     * \return if the given pointer is accessible by the device: any pointer
++     * if the device is the host, the memory allocated by SYCL (unified
++     * shared memory) otherwise
++     * \param[in] p: pointer
++     */
++    [[nodiscard]] bool isAccessible(const void* const p) const {
++      if (this->queue.get_device().is_cpu()) {
++        return true;
++      }
++      return ::sycl::get_pointer_type(p, this->queue.get_context()) !=
++             ::sycl::usm::alloc::unknown;
++    }
++    //! \return if the arrays which are not accessible are copied
++    [[nodiscard]] bool isEnabled() const noexcept { return this->enabled; }
++    //! \return if some arrays have been copied
++    [[nodiscard]] bool holdsCopies() const noexcept {
++      return !this->copies.empty();
++    }
++    //! \brief destructor
++    ~DeviceCopies() {
++      for (const auto& c : this->copies) {
++        ::sycl::free(c.device, this->queue);
++      }
++    }
++
++   private:
++    //! \brief positions of the values of a strided field
++    struct Layout {
++      size_type number_of_points;
++      size_type number_of_components;
++      size_type point_stride;
++      size_type component_stride;
++    };
++    //! \brief description of a copy in device memory
++    struct Copy {
++      //! \brief original location
++      void* host;
++      //! \brief copy
++      void* device;
++      //! \brief size in bytes
++      std::size_t size;
++      //! \brief size of a value in bytes
++      std::size_t value_size;
++      //! \brief if true, the copy must be copied back
++      bool output;
++      /*!
++       * \brief positions of the values of the field, if the copy also
++       * covers values which do not belong to the field
++       */
++      std::optional<Layout> layout;
++    };
++    /*!
++     * \brief copy an array in device memory
++     * \return the copy
++     * \param[in] p: array
++     * \param[in] size: size in bytes
++     * \param[in] value_size: size of a value in bytes
++     * \param[in] output: if true, the copy must be copied back
++     * \param[in] layout: positions of the values to be copied back, if
++     * not all the values of the array
++     */
++    void* copy(const void* const p,
++               const std::size_t size,
++               const std::size_t value_size,
++               const bool output,
++               const std::optional<Layout>& layout) {
++      // the description of the copy is stored before the allocation, so
++      // that the copy is freed by the destructor in case of exception
++      this->copies.reserve(this->copies.size() + 1);
++      auto* const c = ::sycl::malloc_device(size, this->queue);
++      if (c == nullptr) {
++        throw std::runtime_error(
++            "memory allocation failed on the SYCL device");
++      }
++      this->copies.push_back(
++          Copy{const_cast<void*>(p), c, size, value_size, output, layout});
++      this->queue.memcpy(c, p, size).wait_and_throw();
++      return c;
++    }
++    //! \brief number of points of the fields
++    const size_type number_of_points;
++    //! \brief copies
++    std::vector<Copy> copies;
++    //! \brief queue
++    ::sycl::queue& queue;
++    //! \brief if false, no copy is made
++    const bool enabled;
++  };
++
++}  // end of namespace mfront::generic_parallel::sycl
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_SYCLDEVICECOPIES_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index b47379e77..3b9e9f558 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -14,6 +14,7 @@
+ #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
+ 
++#include <stdio.h>
+ #include <string.h>
+ #include "MFront/GenericBehaviour/Types.h"
+ 
+@@ -78,14 +79,17 @@ typedef struct mfront_gpb_ExecutionOptions {
+    * status.
+    *
+    * Otherwise, the statistics are accumulated in the given structure, which
+-   * must be accessible by the device as the fields of the batch. The
+-   * computations may then be asynchronous (CUDA, HIP and Kokkos backends,
+-   * SYCL backend if no field is transferred): the function returns once
+-   * they are submitted to the queue, and the caller must synchronize the
+-   * queue before reading the outputs and the statistics. The output status
+-   * only reports invalid arguments and runtime errors. With the `sycl`
+-   * backend, the statistics require an in-order queue (invalid arguments
+-   * otherwise).
++   * must be accessible by the device as the fields of the batch (and by the
++   * host with the `stlpar` and `openmp` backends, which accumulate them on
++   * the host). With the automatic data transfers of the `sycl` backend,
++   * statistics which are not accessible by the device are copied, as the
++   * fields. The computations may then be asynchronous (CUDA, HIP and
++   * Kokkos backends, SYCL backend if no field is transferred): the function
++   * returns once they are submitted to the queue, and the caller must
++   * synchronize the queue before reading the outputs and the statistics
++   * (see `mfront_gpb_report`). The output status only reports invalid
++   * arguments and runtime errors. With the `sycl` backend, the statistics
++   * require an in-order queue (invalid arguments otherwise).
+    */
+   mfront_gpb_BatchStatistics* statistics;
+   /*!
+@@ -339,6 +343,34 @@ static inline int mfront_gpb_getStatus(
+   return s->number_of_unreliable_results != 0 ? 0 : 1;
+ } /* end of mfront_gpb_getStatus */
+ 
++/*!
++ * \brief fill an output status from the statistics of a batch: status,
++ * numbers of points, index of the first failure, time step scaling factor
++ * and error message, as the generated functions do for synchronous
++ * computations. This function is meant to be called once asynchronous
++ * computations are completed.
++ * \return the status
++ * \param[out] o: output status
++ * \param[in] s: statistics
++ */
++static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
++                                    const mfront_gpb_BatchStatistics* const s) {
++  o->status = mfront_gpb_getStatus(s);
++  o->number_of_failures = (mfront_gb_size_type)s->number_of_failures;
++  o->first_failure_index = (mfront_gb_size_type)s->first_failure_index;
++  o->number_of_unreliable_results =
++      (mfront_gb_size_type)s->number_of_unreliable_results;
++  o->rdt = mfront_gpb_getTimeStepScalingFactor(s);
++  o->msg[0] = '\0';
++  if (o->status == -1) {
++    snprintf(o->msg, sizeof(o->msg),
++             "computations failed at %llu integration points, the first one "
++             "being the point %llu",
++             s->number_of_failures, s->first_failure_index);
++  }
++  return o->status;
++} /* end of mfront_gpb_report */
++
+ #ifdef __cplusplus
+ }  // end of extern "C"
+ #endif /* __cplusplus */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+index ff56a7160..ab49bb56b 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -22,14 +22,8 @@
+ #include <stdexcept>
+ #include <string>
+ #include <type_traits>
+-#if defined(__HIPCC__) || defined(__HIP__)
+-#include <hip/hip_runtime.h>
+-#define MFRONT_GPB_GPU_API(f) hip##f
+-#else
+-#include <cuda_runtime.h>
+-#define MFRONT_GPB_GPU_API(f) cuda##f
+-#endif
+-#include "MFront/GenericParallel/DeviceStackSize.hxx"
++#include "MFront/GenericParallel/GPUStackSize.hxx"
++#define MFRONT_GPB_GPU_API(f) MFRONT_GENERIC_PARALLEL_GPU_API(f)
+ #include "MFront/GenericParallel/StatusBlockPool.hxx"
+ #include "MFront/GenericParallelBehaviour/Integrate.hxx"
+ 
+@@ -64,51 +58,25 @@ namespace mfront::gpb::gpu {
+ 
+     /*!
+      * \brief increase the stack size of the threads if the given kernel
+-     * requires it. The default stack size (1024 bytes with CUDA) is too
+-     * small for some behaviours and is not increased automatically.
++     * requires it (see `mfront::generic_parallel::gpu::ensureStackSize`).
+      * \return true on success
++     * \tparam kernel: kernel
+      * \param[in,out] s: output status
+-     * \param[in] k: kernel
+      * \param[in] preserve: if true, the stack size is not modified and an
+      * error is reported if it is too small
+      */
+-    template <typename Kernel>
+-    bool ensureStackSize(OutputStatus& s, Kernel k, const bool preserve) {
+-      auto a = MFRONT_GPB_GPU_API(FuncAttributes){};
+-      // the HIP runtime only provides the untyped overload
+-      if (failed(s, MFRONT_GPB_GPU_API(FuncGetAttributes)(
+-                        &a, reinterpret_cast<const void*>(k)))) {
++    template <auto kernel>
++    bool ensureStackSize(OutputStatus& s, const bool preserve) {
++      const auto r =
++          mfront::generic_parallel::gpu::ensureStackSize<kernel>(preserve);
++      if (failed(s, r.error)) {
+         return false;
+       }
+-      // the static estimate of the local memory of the kernel may be
+-      // slightly lower than the actual stack usage (by a few tens of bytes
+-      // for a kernel calling the pow function of libdevice), so a margin is
+-      // added
+-      constexpr auto margin = std::size_t{512};
+-      constexpr auto granularity = std::size_t{1024};
+-      const auto required =
+-          ((a.localSizeBytes + margin + granularity - 1) / granularity) *
+-          granularity;
+-      auto lock = std::lock_guard<std::mutex>{
+-          mfront::generic_parallel::getStackSizeMutex()};
+-      auto l = std::size_t{};
+-      if (failed(s, MFRONT_GPB_GPU_API(DeviceGetLimit)(
+-                        &l, MFRONT_GPB_GPU_API(LimitStackSize)))) {
++      if (r.required_stack_size != 0) {
++        report(s, -3, r.getErrorMessage());
+         return false;
+       }
+-      if (required <= l) {
+-        return true;
+-      }
+-      if (preserve) {
+-        report(s, -3,
+-               "the stack size of the threads of the device must be at "
+-               "least " +
+-                   std::to_string(required) +
+-                   " bytes, but it is preserved by the execution options");
+-        return false;
+-      }
+-      return !failed(s, MFRONT_GPB_GPU_API(DeviceSetLimit)(
+-                            MFRONT_GPB_GPU_API(LimitStackSize), required));
++      return true;
+     }  // end of ensureStackSize
+ 
+     //! \brief sum of the values of a warp, in the first thread of the warp
+@@ -251,7 +219,7 @@ namespace mfront::gpb::gpu {
+       return s.status;
+     }
+     constexpr auto k = internals::apply<PointFunction>;
+-    if (!internals::ensureStackSize(s, k, o.preserve_stack_size != 0)) {
++    if (!internals::ensureStackSize<k>(s, o.preserve_stack_size != 0)) {
+       return s.status;
+     }
+     auto device = 0;
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 462491ad0..5a03a5f7a 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -18,7 +18,6 @@
+ #include <bit>
+ #include <array>
+ #include <cstddef>
+-#include <cstdio>
+ #include <type_traits>
+ #include <cstring>
+ #include <exception>
+@@ -790,25 +789,15 @@ namespace mfront::gpb {
+   }  // end of report
+ 
+   /*!
+-   * \brief fill an output status from the statistics of a batch
++   * \brief fill an output status from the statistics of a batch (see
++   * `mfront_gpb_report`)
+    * \return the status
+    */
+   inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
+-    s.number_of_failures = r.number_of_failures;
+-    s.first_failure_index = r.first_failure_index;
+-    s.number_of_unreliable_results = r.number_of_unreliable_results;
+-    s.rdt = r.rdt;
+-    if (r.number_of_failures != 0) {
+-      s.status = -1;
+-      std::snprintf(s.msg, sizeof(s.msg),
+-                    "computations failed at %zu integration points, the "
+-                    "first one being the point %zu",
+-                    static_cast<std::size_t>(r.number_of_failures),
+-                    static_cast<std::size_t>(r.first_failure_index));
+-      return s.status;
+-    }
+-    s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
+-    return s.status;
++    auto a = AtomicBatchStatistics{};
++    mfront_gpb_initializeBatchStatistics(&a, r.rdt);
++    accumulate(a, r);
++    return mfront_gpb_report(&s, &a);
+   }  // end of report
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+index e3cda69ef..6da51eaef 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+@@ -17,42 +17,18 @@
+ #include <stdexcept>
+ #include <type_traits>
+ #include <Kokkos_Core.hpp>
++#include "MFront/GenericParallel/KokkosStackSize.hxx"
++#include "MFront/GenericParallel/StatusBlockPool.hxx"
+ #include "MFront/GenericParallelBehaviour/Integrate.hxx"
+-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+-#include "MFront/GenericParallelBehaviour/GPU.hxx"
+-#endif
++
++static_assert(Kokkos::has_shared_space,
++              "the Kokkos backend of the generic-parallel interface requires "
++              "a shared memory space (Kokkos::SharedSpace)");
+ 
+ namespace mfront::gpb::kokkos {
+ 
+   namespace internals {
+ 
+-    /*!
+-     * \brief functor computing the statistics of a batch with
+-     * `Kokkos::parallel_reduce`.
+-     * \tparam PointFunction: function object applied at one point
+-     */
+-    template <typename PointFunction>
+-    struct Reduction {
+-      //! \brief type of the reduced value
+-      using value_type = BatchStatistics;
+-      //! \brief apply the function at the `i`-th point
+-      KOKKOS_FUNCTION void operator()(const size_type i, value_type& s) const {
+-        s = combine(s, this->f(i));
+-      }
+-      //! \brief combine two partial results
+-      KOKKOS_FUNCTION void join(value_type& s, const value_type& s2) const {
+-        s = combine(s, s2);
+-      }
+-      //! \brief initialize a partial result
+-      KOKKOS_FUNCTION void init(value_type& s) const {
+-        s = value_type{.rdt = this->initial_rdt};
+-      }
+-      //! \brief function object applied at one point
+-      PointFunction f;
+-      //! \brief initial value of the time step scaling factor
+-      real initial_rdt;
+-    };
+-
+     /*!
+      * \brief functor applying a function at one point and accumulating the
+      * statistics of the batch by atomic operations, which are only performed
+@@ -87,46 +63,18 @@ namespace mfront::gpb::kokkos {
+       unsigned long long initial_rdt;
+     };
+ 
+-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+-
+     /*!
+-     * \brief kernel which is never launched: its attributes give the stack
+-     * size required to apply a function at one point. Kokkos does not
+-     * increase the stack size of the threads, which is too small by default
+-     * for some behaviours.
++     * \return the pool of blocks of shared memory holding the statistics of
++     * the synchronous computations, shared by all the functions of the
++     * library. Kokkos uses one device per process. The blocks are freed when
++     * Kokkos is finalized.
+      */
+-    template <typename PointFunction>
+-    __global__ void stackSizeProbe(const PointFunction f) {
+-      f(0);
+-    }  // end of stackSizeProbe
+-
+-#endif /* defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) */
+-
+-    /*!
+-     * \brief prepare the execution of the given function in the given
+-     * execution space.
+-     * \return true on success
+-     * \param[out] s: output status
+-     * \param[in] preserve_stack_size: if true, the stack size of the
+-     * threads of the device is not modified
+-     */
+-    template <typename ExecutionSpace, typename PointFunction>
+-    bool prepare(OutputStatus& s, const bool preserve_stack_size) {
+-#if defined(KOKKOS_ENABLE_CUDA)
+-      constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::Cuda>;
+-#elif defined(KOKKOS_ENABLE_HIP)
+-      constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::HIP>;
+-#else
+-      constexpr auto device = false;
+-#endif
+-      if constexpr (device) {
+-        return gpu::internals::ensureStackSize(s, stackSizeProbe<PointFunction>,
+-                                               preserve_stack_size);
+-      }
+-      static_cast<void>(s);
+-      static_cast<void>(preserve_stack_size);
+-      return true;
+-    }  // end of prepare
++    inline auto& getStatisticsBlocks() noexcept {
++      using Pool =
++          mfront::generic_parallel::StatusBlockPool<AtomicBatchStatistics, int>;
++      static auto pool = Pool{};
++      return pool;
++    }  // end of getStatisticsBlocks
+ 
+   }  // end of namespace internals
+ 
+@@ -134,12 +82,12 @@ namespace mfront::gpb::kokkos {
+    * \brief apply a function at the points of a batch and report the
+    * statistics of the batch.
+    *
+-   * Kokkos must have been initialized by the calling code. If the execution
+-   * options give statistics, the statistics are accumulated by atomic
+-   * operations and this function returns once the computations are
+-   * submitted. Otherwise, the statistics are computed by a parallel
+-   * reduction and this function waits for the completion of the
+-   * computations.
++   * Kokkos must have been initialized by the calling code. The statistics
++   * are accumulated by atomic operations, only performed if an event occurs
++   * at a point. If the execution options give statistics, this function
++   * returns once the computations are submitted. Otherwise, the statistics
++   * are held by a block of shared memory, initialized and read by the host,
++   * and this function waits for the completion of the computations.
+    *
+    * \tparam ExecutionSpace: execution space
+    * \tparam PointFunction: function object taking the index of a point and
+@@ -164,9 +112,10 @@ namespace mfront::gpb::kokkos {
+     if (n == 0) {
+       return s.status;
+     }
+-    if (!internals::prepare<ExecutionSpace, PointFunction>(
+-            s, o.preserve_stack_size != 0)) {
+-      return s.status;
++    const auto e = mfront::generic_parallel::kokkos::ensureStackSize<
++        ExecutionSpace>(f, o.preserve_stack_size != 0);
++    if (!e.empty()) {
++      return report(s, -3, e);
+     }
+     const auto space = o.queue == nullptr
+                            ? ExecutionSpace{}
+@@ -174,17 +123,34 @@ namespace mfront::gpb::kokkos {
+     const auto range =
+         Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(space,
+                                                                           0, n);
++    const auto rdt_key = toOrderedKey(rdt0);
+     if (o.statistics != nullptr) {
+-      Kokkos::parallel_for("mfront::gpb::kokkos::apply", range,
+-                           internals::AtomicUpdate<PointFunction>{
+-                               f, o.statistics, toOrderedKey(rdt0)});
++      Kokkos::parallel_for(
++          "mfront::gpb::kokkos::apply", range,
++          internals::AtomicUpdate<PointFunction>{f, o.statistics, rdt_key});
+       return s.status;
+     }
+-    // the reduction in a scalar is synchronous
+-    auto r = BatchStatistics{};
+-    Kokkos::parallel_reduce("mfront::gpb::kokkos::apply", range,
+-                            internals::Reduction<PointFunction>{f, rdt0}, r);
+-    return report(s, r);
++    // synchronous computations: the device only accesses the block if an
++    // event occurs, as for the GPU backends
++    const auto block = internals::getStatisticsBlocks().acquire(0, [] {
++      auto* const p = static_cast<AtomicBatchStatistics*>(
++          Kokkos::kokkos_malloc<Kokkos::SharedSpace>(
++              "mfront::gpb::kokkos::statistics",
++              sizeof(AtomicBatchStatistics)));
++      Kokkos::push_finalize_hook(
++          [p] { Kokkos::kokkos_free<Kokkos::SharedSpace>(p); });
++      return p;
++    });
++    auto* const statistics = block.get();
++    if (statistics == nullptr) {
++      return report(s, -3, "unable to allocate the statistics of the batch");
++    }
++    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
++    Kokkos::parallel_for(
++        "mfront::gpb::kokkos::apply", range,
++        internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});
++    space.fence();
++    return report(s, getBatchStatistics(*statistics));
+   }  // end of apply
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+index dc17b6d1f..64db8bad1 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -23,199 +23,19 @@
+ #include <vector>
+ #include <sycl/sycl.hpp>
+ #include "MFront/GenericParallel/DeviceStackSize.hxx"
++#include "MFront/GenericParallel/SYCLDeviceCopies.hxx"
+ #include "MFront/GenericParallel/StatusBlockPool.hxx"
+ #include "MFront/GenericParallelBehaviour/Integrate.hxx"
+ 
+ namespace mfront::gpb::sycl {
+ 
+   //! \brief policy for the transfer of the fields of a batch
+-  enum struct DataTransferPolicy {
+-    /*!
+-     * \brief the fields which are not accessible by the device associated
+-     * with the queue (host memory not allocated by SYCL) are copied in
+-     * device memory, and the outputs are copied back
+-     */
+-    AUTOMATIC,
+-    //! \brief all the fields are assumed to be accessible by the device
+-    NONE
+-  };
++  using mfront::generic_parallel::sycl::DataTransferPolicy;
+ 
+   namespace internals {
+ 
+-    /*!
+-     * \brief copies in device memory of the fields which are not accessible
+-     * by the device associated with a queue. The outputs must be copied back
+-     * by calling the `copyOutputs` method.
+-     */
+-    struct DeviceCopies {
+-      /*!
+-       * \brief constructor
+-       * \param[in] q: queue
+-       * \param[in] n: number of points of the fields
+-       * \param[in] p: policy for the transfer of the fields. With the `NONE`
+-       * policy, no copy is made.
+-       */
+-      DeviceCopies(::sycl::queue& q,
+-                   const size_type n,
+-                   const DataTransferPolicy p)
+-          : number_of_points(n),
+-            queue(q),
+-            enabled(p == DataTransferPolicy::AUTOMATIC) {}
+-      DeviceCopies(DeviceCopies&&) = delete;
+-      DeviceCopies(const DeviceCopies&) = delete;
+-      DeviceCopies& operator=(DeviceCopies&&) = delete;
+-      DeviceCopies& operator=(const DeviceCopies&) = delete;
+-      /*!
+-       * \brief copy a field in device memory if it is not accessible by the
+-       * device, and make the field refer to the copy. All the values covered
+-       * by the strides of the field are copied. For an output, only the
+-       * values of the field are copied back, so that the values of other
+-       * outputs sharing the same memory (for example, the thermodynamic
+-       * forces and the internal state variables of a point stored
+-       * contiguously) are not overwritten.
+-       * \param[in,out] f: field
+-       * \param[in] size: number of components
+-       * \param[in] output: if true, the field is an output
+-       */
+-      template <typename FieldType>
+-      void transfer(FieldType& f, const size_type size, const bool output) {
+-        const auto n = this->number_of_points;
+-        if ((!this->enabled) || (f.values == nullptr) || (size == 0) ||
+-            (n == 0) || (this->isAccessible(f.values))) {
+-          return;
+-        }
+-        const auto extent =
+-            (n - 1) * f.point_stride + (size - 1) * f.component_stride + 1;
+-        using value_type =
+-            std::remove_const_t<std::remove_pointer_t<decltype(f.values)>>;
+-        const auto l = Layout{n, size, f.point_stride, f.component_stride};
+-        f.values = static_cast<value_type*>(this->copy(
+-            f.values, extent * sizeof(value_type), sizeof(value_type), output,
+-            extent == n * size ? std::optional<Layout>{} : l));
+-      }
+-      /*!
+-       * \brief copy an array in device memory if it is not accessible by the
+-       * device, and make the pointer refer to the copy.
+-       * \param[in,out] p: pointer to the array
+-       * \param[in] size: number of values
+-       * \param[in] output: if true, the array is an output
+-       */
+-      template <typename ValueType>
+-      void transfer(ValueType*& p, const size_type size, const bool output) {
+-        if ((!this->enabled) || (p == nullptr) || (size == 0) ||
+-            (this->isAccessible(p))) {
+-          return;
+-        }
+-        using value_type = std::remove_const_t<ValueType>;
+-        p = static_cast<value_type*>(this->copy(p, size * sizeof(value_type),
+-                                                sizeof(value_type), output,
+-                                                std::optional<Layout>{}));
+-      }
+-      /*!
+-       * \brief copy the outputs back to their original locations, once the
+-       * computations submitted to the queue are completed
+-       */
+-      void copyOutputs() {
+-        if (this->copies.empty()) {
+-          return;
+-        }
+-        this->queue.wait_and_throw();
+-        for (const auto& c : this->copies) {
+-          if (!c.output) {
+-            continue;
+-          }
+-          if (!c.layout.has_value()) {
+-            this->queue.memcpy(c.host, c.device, c.size).wait_and_throw();
+-            continue;
+-          }
+-          auto values = std::vector<std::byte>(c.size);
+-          this->queue.memcpy(values.data(), c.device, c.size).wait_and_throw();
+-          const auto& l = *(c.layout);
+-          auto* const host = static_cast<std::byte*>(c.host);
+-          for (size_type i = 0; i != l.number_of_points; ++i) {
+-            for (size_type k = 0; k != l.number_of_components; ++k) {
+-              const auto o =
+-                  (i * l.point_stride + k * l.component_stride) * c.value_size;
+-              std::memcpy(host + o, values.data() + o, c.value_size);
+-            }
+-          }
+-        }
+-      }
+-      //! \brief destructor
+-      ~DeviceCopies() {
+-        for (const auto& c : this->copies) {
+-          ::sycl::free(c.device, this->queue);
+-        }
+-      }
+-
+-     private:
+-      //! \brief positions of the values of a strided field
+-      struct Layout {
+-        size_type number_of_points;
+-        size_type number_of_components;
+-        size_type point_stride;
+-        size_type component_stride;
+-      };
+-      //! \brief description of a copy in device memory
+-      struct Copy {
+-        //! \brief original location
+-        void* host;
+-        //! \brief copy
+-        void* device;
+-        //! \brief size in bytes
+-        std::size_t size;
+-        //! \brief size of a value in bytes
+-        std::size_t value_size;
+-        //! \brief if true, the copy must be copied back
+-        bool output;
+-        /*!
+-         * \brief positions of the values of the field, if the copy also
+-         * covers values which do not belong to the field
+-         */
+-        std::optional<Layout> layout;
+-      };
+-      //! \return if the given pointer is accessible by the device
+-      bool isAccessible(const void* const p) const {
+-        if (this->queue.get_device().is_cpu()) {
+-          return true;
+-        }
+-        return ::sycl::get_pointer_type(p, this->queue.get_context()) !=
+-               ::sycl::usm::alloc::unknown;
+-      }
+-      /*!
+-       * \brief copy an array in device memory
+-       * \return the copy
+-       * \param[in] p: array
+-       * \param[in] size: size in bytes
+-       * \param[in] value_size: size of a value in bytes
+-       * \param[in] output: if true, the copy must be copied back
+-       * \param[in] layout: positions of the values to be copied back, if
+-       * not all the values of the array
+-       */
+-      void* copy(const void* const p,
+-                 const std::size_t size,
+-                 const std::size_t value_size,
+-                 const bool output,
+-                 const std::optional<Layout>& layout) {
+-        auto* const c = ::sycl::malloc_device(size, this->queue);
+-        if (c == nullptr) {
+-          throw std::runtime_error(
+-              "memory allocation failed on the SYCL device");
+-        }
+-        this->copies.push_back(
+-            Copy{const_cast<void*>(p), c, size, value_size, output, layout});
+-        this->queue.memcpy(c, p, size).wait_and_throw();
+-        return c;
+-      }
+-      //! \brief number of points of the fields
+-      const size_type number_of_points;
+-      //! \brief copies
+-      std::vector<Copy> copies;
+-      //! \brief queue
+-      ::sycl::queue& queue;
+-      //! \brief if false, no copy is made
+-      const bool enabled;
+-    };
++    //! \brief copies of the fields which are not accessible by the device
++    using mfront::generic_parallel::sycl::DeviceCopies;
+ 
+     /*!
+      * \brief batch data whose fields are accessible by the device
+@@ -304,13 +124,22 @@ namespace mfront::gpb::sycl {
+        * \param[in,out] fields: fields of the variables, replaced by the
+        * fields referring to the copies (this array is only read on the host)
+        * \param[in] sizes: number of components of each variable
+-       * \param[out] copies: storage of the fields referring to the copies
++       * \param[out] copies: storage of the fields referring to the copies,
++       * only filled if a field is copied
+        */
+       template <std::size_t N>
+       void transferVariables(const ConstField*& fields,
+                              const std::array<size_type, N>& sizes,
+                              std::vector<ConstField>& copies) {
+-        if (fields == nullptr) {
++        if ((fields == nullptr) || (!this->isEnabled())) {
++          return;
++        }
++        auto accessible = true;
++        for (std::size_t v = 0; (v != N) && (accessible); ++v) {
++          accessible = (fields[v].values == nullptr) || (sizes[v] == 0) ||
++                       (this->isAccessible(fields[v].values));
++        }
++        if (accessible) {
+           return;
+         }
+         copies.assign(fields, fields + N);
+@@ -501,6 +330,8 @@ namespace mfront::gpb::sycl {
+    * `@SharedData` keyword) in the memory of the device associated with the
+    * queue given by the execution options. A copy is made at the first call
+    * for each device and context, and is never freed.
++   * \return the copy, or a null pointer if no queue is given (the call
++   * reports this invalid argument before any computation)
+    * \tparam get_shared_data: function returning the data
+    * \param[in] o: execution options
+    */
+@@ -510,7 +341,7 @@ namespace mfront::gpb::sycl {
+     using Device = std::pair<::sycl::device, ::sycl::context>;
+     static auto copies = SharedDataCopies<T, Device>{};
+     if (o.queue == nullptr) {
+-      throw std::runtime_error("no SYCL queue given");
++      return static_cast<const T*>(nullptr);
+     }
+     auto& q = *static_cast<::sycl::queue*>(o.queue);
+     return copies.get(Device{q.get_device(), q.get_context()},
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+index 4758f36a5..6e5eaa324 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -36,8 +36,11 @@ extern "C" {
+  * points.
+  *
+  * The device only updates them when an event occurs at a point (failure or
+- * bound violated with the warning policy), with integer atomic operations or
+- * reductions: their cost is null when the evaluation succeeds. They are
++ * bound violated with the warning policy), with integer atomic operations
++ * (`cuda`, `hip`, `sycl` and `kokkos` backends), whose cost is null when the
++ * evaluation succeeds. The `stlpar` and `openmp` backends merge the
++ * statuses of the points by a reduction, whose result is copied to the
++ * host at each call. They are
+  * initialized by `mfront_gpmp_initializeStatistics` and analysed by the
+  * `<name>_generic_parallel_report` function exported by the libraries.
+  */
+@@ -88,10 +91,10 @@ static inline void mfront_gpmp_initializeStatistics(
+  *   result is evaluated at all points, but must be used with caution;
+  * - `-1`: a physical bound, or a bound with the strict policy, is violated
+  *   at some points: the result is not evaluated at those points;
+- * - `-2`: an exception was thrown on the host;
+  * - `-4`: the result is not finite at some points;
+  * - `-5`: invalid arguments, nothing was computed;
+- * - `-6`: runtime error of the backend, or invalid parameters;
++ * - `-6`: runtime error of the backend (including the exceptions thrown by
++ *   the runtimes of the backends), or invalid parameters;
+  * - `-7`: uniform output with several points or with non uniform arguments.
+  */
+ typedef struct mfront_gpmp_OutputStatus {
+@@ -147,11 +150,15 @@ typedef struct mfront_gpmp_ExecutionOptions {
+    *
+    * Otherwise, the statistics are accumulated in the given structure,
+    * initialized by `mfront_gpmp_initializeStatistics` and accessible by the
+-   * device as the values. The evaluation may then be asynchronous (CUDA,
+-   * HIP and Kokkos backends, SYCL backend if no value is transferred), as
+-   * the integration of the behaviours: the function returns once the
+-   * computations are submitted to the queue, and the output status only
+-   * reports invalid arguments and runtime errors. With the `sycl` backend,
++   * device as the values (and by the host with the `stlpar` and `openmp`
++   * backends, which merge the statuses of the points on the host). With
++   * the automatic data transfers of the `sycl` backend, statistics which
++   * are not accessible by the device are copied, as the values. The
++   * evaluation may then be asynchronous (CUDA, HIP and Kokkos backends,
++   * SYCL backend if no array is copied), as the integration of the
++   * behaviours: the function returns once the computations are submitted
++   * to the queue, and the output status only reports invalid arguments and
++   * runtime errors. With the `sycl` backend,
+    * an asynchronous evaluation requires an in-order queue (invalid
+    * arguments otherwise). Once the computations are completed, the
+    * `<name>_generic_parallel_report` function analyses the statistics, read
+@@ -161,8 +168,10 @@ typedef struct mfront_gpmp_ExecutionOptions {
+   mfront_gpmp_Statistics* statistics;
+   /*!
+    * \brief if not null, the stack size of the threads of the device is
+-   * never modified and a runtime error is reported if it is too small (see
+-   * the `device_stack_size` option of the backends).
++   * never modified and a runtime error is reported if it is too small.
++   * Otherwise, the stack size is increased if the kernel requires it
++   * (`cuda`, `hip` and `kokkos` backends) or if the `device_stack_size`
++   * option of the backend is given (other backends), as for the behaviours.
+    */
+   int preserve_stack_size;
+ } mfront_gpmp_ExecutionOptions;
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+index f53cbbf56..e8807820c 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+@@ -24,9 +24,10 @@ namespace mfront::gpmp {
+ 
+   /*!
+    * \brief status of the evaluation of a material property at a point,
+-   * computed by the kernels. It is merged in the statistics of the
+-   * evaluation only if an event occurred, so that the cost of the reporting
+-   * is null when the evaluation succeeds.
++   * computed by the kernels. With atomic operations, it is merged in the
++   * statistics of the evaluation only if an event occurred, so that the
++   * cost of the reporting is null when the evaluation succeeds. The
++   * reductions merge the statuses of all the points.
+    */
+   struct PointStatus {
+     //! \brief true if the evaluation failed
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index 90e99fc31..1412de2aa 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -541,25 +541,35 @@ namespace mfront::generic_parallel::material_property {
+          << "return true;\n"
+          << "};\n";
+     }
+-    // errno is restored before returning, even if the runtime checks are
+-    // disabled (checks of the strides)
+-    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
++    // errno is restored on every return. It is not used to detect the
++    // errors: it is thread-local, does not exist on GPUs, and may be modified
++    // by the runtimes (for instance at the initialisation of TBB). Invalid
++    // results are detected by the kernels.
++    os << "struct mfront_ErrnoGuard {\n"
++       << "const int value = errno;\n"
++       << "~mfront_ErrnoGuard() { errno = this->value; }\n"
++       << "};\n"
++       << "[[maybe_unused]] const auto mfront_errno_guard = "
++       << "mfront_ErrnoGuard{};\n";
+     os << "mfront_output_status->status = 0;\n"
+        << "mfront_output_status->bounds_status = 0;\n"
+        << "mfront_output_status->number_of_failures = 0;\n"
+        << "mfront_output_status->first_failure_index = "
+        << "std::numeric_limits<" << types.integer_type << ">::max();\n"
+        << "mfront_output_status->number_of_unreliable_results = 0;\n";
++    // an empty set of points is accepted without any check, as an empty
++    // batch by the behaviours: nothing is read, written or submitted
++    os << "if(mfront_npoints == 0){\n"
++       << "return;\n"
++       << "}\n";
+     // writes an error and returns
+     auto write_error = [&os](const int status, const std::string& message) {
+       os << "mfront_output_status->status = " << status << ";\n"
+          << "mfront_report(" << message << ");\n"
+-         << "errno = mfront_errno_old;\n"
+          << "return;\n"
+          << "}\n";
+     };
+     if (!areRuntimeChecksDisabled(mpd)) {
+-      os << "errno = 0;\n";
+       os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n";
+       write_error(
+           -5,
+@@ -600,9 +610,6 @@ namespace mfront::generic_parallel::material_property {
+                   "equal to one (\" + std::to_string(mfront_npoints) + \" "
+                   "given)\"");
+     }
+-    os << "if(mfront_npoints <= 0){\n"
+-       << "return;\n"
+-       << "}\n";
+     if ((treatStrides) && (!mpd.inputs.empty())) {
+       os << "auto mfront_strides = std::array<" << types.integer_type << ", "
+          << mpd.inputs.size() << ">{};\n"
+@@ -769,12 +776,7 @@ namespace mfront::generic_parallel::material_property {
+     if (areRuntimeChecksDisabled(mpd)) {
+       return;
+     }
+-    // errno can't be used to detect errors in the kernels: it is
+-    // thread-local, does not exist on GPUs, and may be modified by the
+-    // runtimes (for instance at the initialisation of TBB). Invalid results
+-    // are detected by the kernels.
+-    os << "errno = mfront_errno_old;\n"
+-       << "if (!mfront_asynchronous) {\n"
++    os << "if (!mfront_asynchronous) {\n"
+        << i.getFunctionName(mpd) << "_generic_parallel_report("
+        << "mfront_output_status, mfront_statistics, "
+        << "mfront_out_of_bounds_policy);\n"
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index 897393632..da9353141 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -44,7 +44,8 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription&) const {
+     os << "#include <algorithm>\n"
+        << "#include<type_traits>\n"
+-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
++       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
++       << "#include\"MFront/GenericParallel/GPUStackSize.hxx\"\n\n";
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+   void CUDABackendBase::writeGlobalFunctions(
+@@ -89,10 +90,11 @@ namespace mfront::generic_parallel::material_property {
+     for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+       os << ",\nconst " << types.real_type << "* const mfront_arg" << idx;
+     }
+-    os << ",\nconst int mfront_npoints){\n";
++    os << ",\nconst " << types.integer_type << " mfront_npoints){\n";
+     // the body of the kernel is only executed in device code
+     writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true, true);
+-    os << "auto mfront_idx = blockIdx.x * blockDim.x + threadIdx.x;\n"
++    os << "const auto mfront_idx = static_cast<" << types.integer_type
++       << ">(blockIdx.x) * blockDim.x + threadIdx.x;\n"
+        << "if(mfront_idx >= mfront_npoints){\n"
+        << "return;\n"
+        << "}\n";
+@@ -129,6 +131,10 @@ namespace mfront::generic_parallel::material_property {
+       const bool treatStrides) const {
+     const auto pm = this->getProgrammingModel();
+     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
++    // exceptions (allocation of an error message, of a block of statistics)
++    // must not cross the boundary of the C function, as with the backends
++    // based on C++ programming models
++    os << "try{\n";
+     if (isBoundsCheckingRequired(mpd)) {
+       // the statistics are held by a block of managed memory of the current
+       // device
+@@ -151,6 +157,15 @@ namespace mfront::generic_parallel::material_property {
+     }
+     this->writeKernelCall(os, i, mpd, treatStrides);
+     this->writeResultsAnalysis(os, i, mpd);
++    os << "} catch(std::exception& mfront_cxx_exception){\n"
++       << "mfront_output_status->status = -6;\n"
++       << "mfront_report(mfront_cxx_exception.what());\n"
++       << "return;\n"
++       << "} catch(...){\n"
++       << "mfront_output_status->status = -6;\n"
++       << "mfront_report(\"unknown exception\");\n"
++       << "return;\n"
++       << "}\n";
+     os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
+   }  // end of writeCImplementations2
+ 
+@@ -186,9 +201,18 @@ namespace mfront::generic_parallel::material_property {
+        << " + mfront_warp_size - 1) / mfront_warp_size * mfront_warp_size);\n";
+     auto write_kernel_call = [&](const std::string_view npoints,
+                                  const bool handleStrides) {
+-      os << "mfront_" << name << "_kernel"
+-         << (handleStrides ? "" : "_without_strides")
+-         << "<<<static_cast<unsigned int>((" << npoints
++      const auto kernel = "mfront_" + name + "_kernel" +
++                          (handleStrides ? "" : "_without_strides");
++      // stack size of the threads, as for the behaviours
++      os << "const auto mfront_stack_size = "
++         << "::mfront::generic_parallel::gpu::ensureStackSize<" << kernel
++         << ">(mfront_options.preserve_stack_size != 0);\n"
++         << "if (!mfront_stack_size.succeeded()) {\n"
++         << "mfront_output_status->status = -6;\n"
++         << "mfront_report(mfront_stack_size.getErrorMessage());\n"
++         << "return;\n"
++         << "}\n";
++      os << kernel << "<<<static_cast<unsigned int>((" << npoints
+          << " + mfront_threads_per_block - 1) / mfront_threads_per_block), "
+          << "mfront_threads_per_block, 0, mfront_stream>>>(mfront_output, ";
+       if (handleStrides) {
+@@ -209,7 +233,7 @@ namespace mfront::generic_parallel::material_property {
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+         os << "mfront_args[" << idx << "], ";
+       }
+-      os << "static_cast<int>(" << npoints << "));\n"
++      os << npoints << ");\n"
+          << "const auto mfront_" << pm << "_launch_error = " << pm
+          << "GetLastError();\n"
+          << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n"
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index bb6555aef..f100d69d7 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -79,8 +79,10 @@ namespace mfront::generic_parallel::material_property {
+       const FileDescription& fd,
+       const bool treatStrides) const {
+     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+-    // the data transfers may throw exceptions, which must not cross the
+-    // boundary of the C function
++    // the runtime of the backend (data transfers, submission of the kernels)
++    // may throw exceptions, which must not cross the boundary of the C
++    // function. They are reported as runtime errors of the backend, as the
++    // errors of the CUDA and HIP runtimes: the kernels can't throw.
+     os << "try{\n";
+     this->writeExecutionPreparation(os, i, mpd);
+     if (this->handlesDataTransfer()) {
+@@ -92,11 +94,11 @@ namespace mfront::generic_parallel::material_property {
+       this->writeDataTransfersToHost(os, i, mpd, treatStrides);
+     }
+     os << "} catch(std::exception& mfront_cxx_exception){\n"
+-       << "mfront_output_status->status = -2;\n"
++       << "mfront_output_status->status = -6;\n"
+        << "mfront_report(mfront_cxx_exception.what());\n"
+        << "return;\n"
+        << "} catch(...){\n"
+-       << "mfront_output_status->status = -2;\n"
++       << "mfront_output_status->status = -6;\n"
+        << "mfront_report(\"unknown exception\");\n"
+        << "return;\n"
+        << "}\n";
+diff --git a/mfront/src/GenericParallel/MaterialProperty/HIPBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/HIPBackend.cxx
+index 8f4ad90c7..e667d5de6 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/HIPBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/HIPBackend.cxx
+@@ -38,8 +38,10 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd) const {
+-    CUDABackendBase::writeSpecificIncludesInSourceFile(os, i, mpd);
++    // the HIP runtime must be included first, so that the headers of the
++    // interface use it (see `MFront/GenericParallel/GPUStackSize.hxx`)
+     os << "#include \"hip/hip_runtime.h\"\n";
++    CUDABackendBase::writeSpecificIncludesInSourceFile(os, i, mpd);
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+   HIPBackend::~HIPBackend() = default;
+diff --git a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+index db0da4289..98d600dbe 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+@@ -36,7 +36,11 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription&) const {
+     os << "#include<algorithm>\n"
+        << "#include<Kokkos_Core.hpp>\n"
+-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
++       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
++       << "#include\"MFront/GenericParallel/KokkosStackSize.hxx\"\n\n"
++       << "static_assert(Kokkos::has_shared_space, \"the Kokkos backend of the "
++       << "generic-parallel interface requires a shared memory space "
++       << "(Kokkos::SharedSpace)\");\n\n";
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+   std::string KokkosBackend::getKernelSpecifiers() const {
+@@ -80,14 +84,24 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernels(os, i, mpd, fd, treatStrides);
+     auto write_loop = [&os, &types](const std::string_view npoints,
+                                     const bool handleStrides) {
++      const auto kernel = std::string{
++          handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
++      // stack size of the threads, as for the behaviours
++      os << "const auto mfront_stack_size_error = "
++         << "::mfront::generic_parallel::kokkos::ensureStackSize<"
++         << "mfront_execution_space>(" << kernel
++         << ", mfront_options.preserve_stack_size != 0);\n"
++         << "if (!mfront_stack_size_error.empty()) {\n"
++         << "mfront_output_status->status = -6;\n"
++         << "mfront_report(mfront_stack_size_error);\n"
++         << "return;\n"
++         << "}\n";
+       os << "// loop over the points\n"
+          << "Kokkos::parallel_for(\"mfront_kernel\", "
+-         << "Kokkos::RangePolicy<mfront_execution_space>(mfront_space, 0, "
+-         << "static_cast<" << types.integer_type << ">(" << npoints << ")), "
+-         << "mfront_kernel";
+-      if (!handleStrides) {
+-        os << "_without_strides";
+-      }
++         << "Kokkos::RangePolicy<mfront_execution_space, "
++         << "Kokkos::IndexType<" << types.integer_type << ">>(mfront_space, "
++         << types.integer_type << "{0}, static_cast<" << types.integer_type
++         << ">(" << npoints << ")), " << kernel;
+       // an asynchronous evaluation returns once the kernel is submitted
+       os << ");\n"
+          << "if (!mfront_asynchronous) {\n"
+diff --git a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+index 33f1e52fb..766faef47 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+@@ -79,11 +79,7 @@ namespace mfront::generic_parallel::material_property {
+       // the parallel algorithms run sequentially with them (see the
+       // documentation of mfront::generic_parallel::CountingIterator)
+       os << "// loop over the points\n"
+-         << "#ifdef __ADAPTIVECPP__\n"
+-         << "using mfront_index_type = int;\n"
+-         << "#else /* __ADAPTIVECPP__ */ \n"
+          << "using mfront_index_type = " << types.integer_type << ";\n"
+-         << "#endif /* __ADAPTIVECPP__ */ \n"
+          << "using mfront_index_iterator = "
+          << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n";
+       const auto range = "mfront_index_iterator{0}, mfront_index_iterator{"
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index 41701437e..aaae4cc50 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -45,74 +45,11 @@ namespace mfront::generic_parallel::material_property {
+     if (this->device_stack_size != 0) {
+       os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
+     }
+-    os << "\n";
+ 
+     if (this->handlesDataTransfer()) {
+-      os << "namespace mfront::gpmp::sycl{\n\n"
+-         << "template<typename T>\n"
+-         << "struct [[nodiscard]] DataBuffer{\n"
+-         << "DataBuffer(::sycl::queue& q)\n"
+-         << " : queue(q)\n"
+-         << "{}\n"
+-         << "DataBuffer(DataBuffer&&) = delete;\n"
+-         << "DataBuffer(const DataBuffer&) = delete;\n"
+-         << "DataBuffer& operator=(DataBuffer&&) = delete;\n"
+-         << "DataBuffer& operator=(const DataBuffer&) = delete;\n"
+-         << "[[nodiscard]] ::sycl::event acquire(T* const src, "
+-         << "const std::size_t s, const bool do_copy){\n"
+-         << "const bool is_queue_device = !this->queue.get_device().is_cpu();\n"
+-         << "const auto ptr_type = ::sycl::get_pointer_type(src, "
+-         << "this->queue.get_context());\n"
+-         << "bool may_require_device_allocation = \n"
+-         << "                     (ptr_type == ::sycl::usm::alloc::host) ||\n"
+-         << "                     (ptr_type == ::sycl::usm::alloc::unknown);\n"
+-         << "this->cleanup();\n"
+-         << "this->host_ptr = src;\n"
+-         << "if (may_require_device_allocation && is_queue_device) {\n"
+-         << "  this->device_ptr = "
+-         << "  ::sycl::malloc_device<std::remove_const_t<T>>(s, this->queue);\n"
+-         << "  this->ptr = this->device_ptr;\n"
+-         << "  if (do_copy) {\n"
+-         << "    return this->queue.copy(src, this->device_ptr, s);\n"
+-         << "  }\n"
+-         << "  return ::sycl::event{};\n"
+-         << "}\n"
+-         << "this->device_ptr = nullptr;\n"
+-         << "this->ptr = src;\n"
+-         << "return ::sycl::event{};\n"
+-         << "}\n"
+-         << "[[nodiscard]] T* data() noexcept{\n"
+-         << "return this->ptr;\n"
+-         << "}\n"
+-         << "[[nodiscard]] bool requiresSynchronization() const "
+-         << "requires(!std::is_const_v<T>){ "
+-         << "  return this->device_ptr != nullptr;\n"
+-         << "}\n"
+-         << "[[nodiscard]] bool holdsCopy() const noexcept {\n"
+-         << "  return this->device_ptr != nullptr;\n"
+-         << "}\n"
+-         << "~DataBuffer() noexcept{\n"
+-         << "try{\n"
+-         << "this->cleanup();\n"
+-         << "} catch(...){}\n"
+-         << "}\n"
+-         << "void cleanup(){\n"
+-         << "if(this->device_ptr != nullptr) {\n"
+-         << "::sycl::free(this->device_ptr, this->queue);\n"
+-         << "}\n"
+-         << "this->host_ptr = nullptr;\n"
+-         << "this->device_ptr = nullptr;\n"
+-         << "this->ptr = nullptr;\n"
+-         << "}\n"
+-         << "private:\n"
+-         << "::sycl::queue queue;\n"
+-         << "T* ptr = nullptr;\n"
+-         << "T* host_ptr = nullptr;\n"
+-         << "std::remove_const_t<T>* device_ptr = nullptr;\n"
+-         << "};\n\n"
+-         << "} // end of namespace mfront::gpmp::sycl\n";
++      os << "#include\"MFront/GenericParallel/SYCLDeviceCopies.hxx\"\n";
+     }
+-
++    os << "\n";
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+   void SYCLBackend::writeExecutionPreparation(
+@@ -150,7 +87,6 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd,
+       const bool treatStrides) const {
+-    const auto types = i.getTypesDescription();
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+     writeDeviceStackSizeSetting(os, this->device_stack_size);
+     if (requiresBoundsCheck) {
+@@ -161,46 +97,36 @@ namespace mfront::generic_parallel::material_property {
+           "{mfront_queue->get_device(), mfront_queue->get_context()}",
+           "return sycl::malloc_shared<mfront_gpmp_Statistics>(1, "
+           "*mfront_queue);");
++      if (this->handlesDataTransfer()) {
++        // statistics given by the calling code which are not accessible by
++        // the device, as the arguments and the output
++        os << "if (mfront_asynchronous) {\n"
++           << "mfront_copies.transfer(mfront_statistics, 1, true);\n"
++           << "}\n";
++      }
+     }
+     this->writeKernels(os, i, mpd, fd, treatStrides);
+-    auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
+-                                                 const bool handleStrides) {
++    auto write_kernel_call = [&os, this](const std::string_view npoints,
++                                         const bool handleStrides) {
+       os << "// loop over the points\n";
+       os << "auto mfront_sycl_kernel_event = ";
+-      os << "mfront_queue->parallel_for(" << npoints;
+-      if (this->handlesDataTransfer()) {
+-        os << ", mfront_sycl_copy_events";
+-      }
+-      os << ", mfront_kernel";
++      os << "mfront_queue->parallel_for(" << npoints << ", mfront_kernel";
+       if (!handleStrides) {
+         os << "_without_strides";
+       }
+       os << ");\n";
+       if (this->handlesDataTransfer()) {
+-        os << "if (mfront_output_ptr.requiresSynchronization()) {\n";
+-        if (handleStrides) {
+-          if (npoints == "1") {
+-            os << "mfront_queue->copy<" << types.real_type
+-               << ">(mfront_output_ptr.data(), mfront_output_host, " << 1
+-               << ", mfront_sycl_kernel_event).wait();\n";
+-          } else {
+-            os << "mfront_queue->copy<" << types.real_type
+-               << ">(mfront_output_ptr.data(), mfront_output_host, "  //
+-               << "(" << npoints << " - 1) * mfront_output_stride + 1, "
+-               << "mfront_sycl_kernel_event).wait();\n";
+-          }
+-        } else {
+-          os << "mfront_queue->copy<" << types.real_type
+-             << ">(mfront_output_ptr.data(), mfront_output_host, " << npoints
+-             << ", mfront_sycl_kernel_event).wait();\n";
+-        }
+-        os << "} else if ((!mfront_asynchronous) || mfront_sycl_copies) {\n"
+-           << "  mfront_sycl_kernel_event.wait();\n"
++        // the copies must be completed before they are destroyed: the
++        // evaluation is then synchronous
++        os << "if (mfront_copies.holdsCopies()) {\n"
++           << "mfront_copies.copyOutputs();\n"
++           << "} else if (!mfront_asynchronous) {\n"
++           << "mfront_sycl_kernel_event.wait_and_throw();\n"
+            << "}\n";
+       } else {
+         // an asynchronous evaluation returns once the kernel is submitted
+         os << "if (!mfront_asynchronous) {\n"
+-           << "mfront_sycl_kernel_event.wait();\n"
++           << "mfront_sycl_kernel_event.wait_and_throw();\n"
+            << "}\n";
+       }
+     };
+@@ -241,78 +167,39 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+       const bool treatStrides) const {
+-    const auto types = i.getTypesDescription();
+     if (!this->handlesDataTransfer()) {
+       return;
+     }
+-    os << "auto mfront_sycl_copy_events = std::vector<::sycl::event>{};\n";
+-    if (mpd.inputs.empty()) {
+-      os << "mfront_sycl_copy_events.reserve(1);\n";
+-      os << "const " << types.real_type
+-         << " * const * mfront_args = nullptr;\n";
+-    } else {
+-      os << "mfront_sycl_copy_events.reserve(" << mpd.inputs.size() + 1
+-         << ");\n"
+-         << "auto mfront_args_storage = std::array<const " << types.real_type
++    // the arrays which are not accessible by the device are copied in
++    // device memory, as for the behaviours. The output is also copied, so
++    // that the points where the evaluation fails keep their values
++    const auto types = i.getTypesDescription();
++    const auto ns = std::string{"::mfront::generic_parallel::sycl::"};
++    os << "auto mfront_copies = " << ns << "DeviceCopies{*mfront_queue, "
++       << "mfront_npoints, " << ns << "DataTransferPolicy::AUTOMATIC};\n";
++    if (!mpd.inputs.empty()) {
++      os << "auto mfront_args_storage = std::array<const " << types.real_type
+          << "*, " << mpd.inputs.size() << ">{};\n";
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        os << "auto mfront_arg" << idx << "_ptr = "
+-           << "::mfront::gpmp::sycl::DataBuffer<const " << types.real_type
+-           << ">{*mfront_queue};\n";
+-        if (treatStrides) {
+-          os << "if(mfront_args_strides[" << idx << "] ==0){\n"
+-             << ";\n"
+-             << "mfront_sycl_copy_events.push_back("
+-             << "mfront_arg" << idx << "_ptr.acquire("
+-             << "mfront_args_host[" << idx << "], 1, true));\n"
+-             << "} else {\n"
+-             << "mfront_sycl_copy_events.push_back("
+-             << "mfront_arg" << idx << "_ptr.acquire("
+-             << "mfront_args_host[" << idx << "], "
+-             << "(mfront_npoints - 1) * mfront_args_strides[" << idx
+-             << "] + 1, true));\n"
+-             << "}\n";
+-        } else {
+-          os << "mfront_sycl_copy_events.push_back("
+-             << "mfront_arg" << idx << "_ptr.acquire("
+-             << "mfront_args_host[" << idx << "], mfront_npoints, true));\n";
+-        }
+-        os << "mfront_args_storage[" << idx << "] = "  //
+-           << "mfront_arg" << idx << "_ptr.data();\n";
++        const auto stride = treatStrides ? "mfront_args_strides[" +
++                                               std::to_string(idx) + "]"
++                                         : std::string{"1"};
++        os << "{\n"
++           << "auto mfront_values = " << ns << "StridedArray<const "
++           << types.real_type << ">{mfront_args_host[" << idx << "], "
++           << stride << ", 1};\n"
++           << "mfront_copies.transfer(mfront_values, 1, false);\n"
++           << "mfront_args_storage[" << idx << "] = mfront_values.values;\n"
++           << "}\n";
+       }
+-      os << "const " << types.real_type << " * * mfront_args = "
+-         << "mfront_args_storage.data();\n";
+-    }
+-    os << "auto mfront_output_ptr = "
+-       << "::mfront::gpmp::sycl::DataBuffer<" << types.real_type
+-       << ">{*mfront_queue};\n";
+-    if (treatStrides) {
+-      // with a stride greater than one, the values between the values of
+-      // the output are copied, so that copying the output back preserves
+-      // them
+-      os << "if (mfront_output_stride == 0) {\n"
+-         << "mfront_sycl_copy_events.push_back("
+-         << "mfront_output_ptr.acquire(mfront_output_host,  1, false));\n"
+-         << "} else {\n"
+-         << "mfront_sycl_copy_events.push_back("
+-         << "mfront_output_ptr.acquire(mfront_output_host, "
+-         << "(mfront_npoints - 1) * mfront_output_stride + 1, "
+-         << "mfront_output_stride > 1));\n"
+-         << "}\n";
+-    } else {
+-      os << "mfront_sycl_copy_events.push_back("
+-         << "mfront_output_ptr.acquire(mfront_output_host, "
+-         << "mfront_npoints, false));\n";
+-    }
+-    os << "auto *mfront_output = mfront_output_ptr.data();\n";
+-    // the copies must be completed before the buffers are destroyed: the
+-    // evaluation is then synchronous
+-    os << "const bool mfront_sycl_copies = mfront_output_ptr.holdsCopy()";
+-    for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-      os << " || mfront_arg" << idx << "_ptr.holdsCopy()";
++      os << "const auto* const mfront_args = mfront_args_storage.data();\n";
+     }
+-    os << ";\n";
+-  }
++    os << "auto mfront_output_values = " << ns << "StridedArray<"
++       << types.real_type << ">{mfront_output_host, "
++       << (treatStrides ? "mfront_output_stride" : "1") << ", 1};\n"
++       << "mfront_copies.transfer(mfront_output_values, 1, true);\n"
++       << "auto* const mfront_output = mfront_output_values.values;\n";
++  }  // end of writeDataTransfersToDevice
+ 
+   void SYCLBackend::writeDataTransfersToHost(
+       std::ostream&,
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index d6f821f2b..2282dede1 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -390,6 +390,11 @@ namespace mfront {
+        << "}\n"
+        << "mfront::gpb::initialize(*mfront_output_status, "
+        << "mfront_batch_data->rdt);\n"
++       // an empty batch is accepted without any check: nothing is read,
++       // written or submitted (the fields and the queue may be null)
++       << "if (mfront_batch_data->number_of_points == 0) {\n"
++       << "return mfront_output_status->status;\n"
++       << "}\n"
+        << "auto& mfront_status = *mfront_output_status;\n"
+        << "const auto& mfront_data = *mfront_batch_data;\n";
+   }  // end of writeBatchFunctionBeginning
+@@ -859,6 +864,12 @@ namespace mfront {
+          << "mfront::gpb::initialize(mfront_status, 1);\n"
+          << "return mfront::gpb::report(mfront_status, -2, "
+          << "\"no rotation data given\");\n"
++         << "}\n"
++         // an empty batch is accepted without any check, as for the
++         // integration
++         << "if (mfront_rotation_data->number_of_points == 0) {\n"
++         << "mfront::gpb::initialize(mfront_status, 1);\n"
++         << "return mfront_status.status;\n"
+          << "}\n";
+       os << "const auto& mfront_data = *mfront_rotation_data;\n";
+       this->backend->writeCall(os, "rotateBatch",
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 10f417a66..06db162a2 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -911,11 +911,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
+   if (statistics != nullptr) {
+     // the output status only reports the submission of the computations
+     if (o.status == 1) {
+-      o.status = mfront_gpb_getStatus(statistics);
+-      o.number_of_failures = statistics->number_of_failures;
+-      o.first_failure_index = statistics->first_failure_index;
+-      o.number_of_unreliable_results = statistics->number_of_unreliable_results;
+-      o.rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
++      mfront_gpb_report(&o, statistics);
+     }
+     deallocate(statistics);
+   }
+@@ -1279,6 +1275,87 @@ static bool testOtherDevice(const Test& t,
+   return pass;
+ }
+ 
++#if defined(GPU_API)
++/*!
++ * \return true if the stack size of the threads, preserved by the
++ * execution options, is not modified and reported as too small (status
++ * `-3`). The kernels require at least 1024 bytes (see
++ * `mfront::generic_parallel::gpu::ensureStackSize`).
++ * \param[in] t: test
++ * \param[in] fb: batch function
++ * \param[in] K0: type of computation
++ */
++static bool testPreserveStackSize(const Test& t,
++                                  BatchFunction fb,
++                                  const double K0) {
++  auto initial = std::size_t{};
++  check(GPU_API(DeviceGetLimit)(&initial, GPU_API(LimitStackSize)));
++  check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), 256));
++  auto st = t.initial;
++  auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt, K0,
++                       Storage::by_point);
++  b.data.execution.queue = queue();
++  b.data.execution.preserve_stack_size = 1;
++  auto o = mfront_gpb_OutputStatus{};
++  fb(&o, &b.data);
++  auto stack_size = std::size_t{};
++  check(GPU_API(DeviceGetLimit)(&stack_size, GPU_API(LimitStackSize)));
++  check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), initial));
++  const auto pass =
++      (o.status == -3) && (stack_size < 1024) &&
++      (std::string_view{o.msg}.starts_with(
++          "the stack size of the threads of the device must be at least"));
++  std::printf("%-12s %-12s status=%2d | %s\n", "preserved", "stack size",
++              o.status, pass ? "OK" : "FAILED");
++  return pass;
++}
++#endif /* defined(GPU_API) */
++
++#if defined(MFRONT_GPB_COMPARE_USE_SYCL)
++/*!
++ * \return true if the queues given by the execution options are treated as
++ * documented: a null queue is an invalid argument (status `-2`), an
++ * asynchronous integration requires an in-order queue (status `-2`
++ * otherwise), and a synchronous integration on an out-of-order queue gives
++ * the results of the reference.
++ * \param[in] t: test
++ * \param[in] fg: function of the `generic` interface
++ * \param[in] fb: batch function
++ * \param[in] K0: type of computation
++ */
++static bool testSYCLQueues(const Test& t,
++                           GenericFunction fg,
++                           BatchFunction fb,
++                           const double K0) {
++  const auto& s = t.sizes;
++  const auto& fs = t.options.finite_strain;
++  auto ms = 0.;
++  auto st1 = t.initial;
++  const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
++                                 fb, false, ms, nullptr);
++  // out-of-order queue sharing the device and the context of the queue of
++  // the other tests, hence the allocations of the fields
++  auto q = ::sycl::queue{getQueue().get_context(), getQueue().get_device()};
++  auto st2 = t.initial;
++  const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
++                                 fb, true, ms, &q);
++  auto ref = t.initial;
++  auto batch = t.initial;
++  integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
++  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0,
++                                 Storage::by_point, fb, false, ms, &q);
++  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
++  const auto pass = (o1.status == -2) && (o2.status == -2) &&
++                    (ref.status == batch.status) &&
++                    isConsistent(o3, batch.status) && (dth < tolerance);
++  std::printf(
++      "%-12s %-12s status=%2d/%2d/%2d | relative difference %.1e | %s\n",
++      "sycl", "queues", o1.status, o2.status, o3.status, dth,
++      pass ? "OK" : "FAILED");
++  return pass;
++}
++#endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
++
+ /*!
+  * \brief compare two time steps integrated by both interfaces, for all
+  * types of computation and storages of the fields
+@@ -1391,6 +1468,12 @@ static bool testIntegration(const Test& t) {
+   if (t.options.other_device) {
+     ok = testOtherDevice(t, fg, fb, Kt + o0) && ok;
+   }
++#if defined(MFRONT_GPB_COMPARE_USE_SYCL)
++  ok = testSYCLQueues(t, fg, fb, Kt + o0) && ok;
++#endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
++#if defined(GPU_API)
++  ok = testPreserveStackSize(t, fb, Kt + o0) && ok;
++#endif /* defined(GPU_API) */
+   return ok;
+ }  // end of testIntegration
+ 
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
+new file mode 100644
+index 000000000..b9ac33f1b
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
+@@ -0,0 +1,17 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
++
++@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
++// fields assumed to be accessible by the device (`data_transfer_policy`
++// option set to `none`): they are allocated in shared memory by the test.
++// The libraries are built for a few behaviours (see build-libraries.sh).
++@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp-2.json ImplicitNorton InitializeFunctionTest PostProcessingTest OrthotropicElastic PolyCrystalSharedDataTest";
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
++@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress --material-properties=150e9,0.3";
++@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
++@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
++@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so OrthotropicElastic_Tridimensional_rotateGradients";
++// data shared by all the integration points (@SharedData)
++@Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so PolyCrystalSharedDataTest_Tridimensional --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 --amplitude=1e-4 --tangent-operator=1";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src", "reference"};
+diff --git a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+index f01a64002..42a18e53f 100644
+--- a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
++++ b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+@@ -10,9 +10,11 @@
+ @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
+ @Command "./test-openmp test-openmp-openmp-host-gcc";
+-// compilation with the runtime checks disabled
++// compilation and execution with the runtime checks disabled
+ @Command "@mfront@ --interface=generic-parallel --dsl-option=disable_runtime_checks:true --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
++@Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-no-runtime-checks.cxx -o test-no-runtime-checks -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelInconel600-openmp";
++@Command "./test-no-runtime-checks test-no-runtime-checks-openmp-host-gcc";
+ 
+-@CleanFiles {"test-openmp"};
++@CleanFiles {"test-openmp", "test-no-runtime-checks"};
+ @CleanDirectories {"include", "src"};
+diff --git a/test-suite/material-properties/generic-parallel/symbols.hxx b/test-suite/material-properties/generic-parallel/symbols.hxx
+index ba5cc3540..3b72efe28 100644
+--- a/test-suite/material-properties/generic-parallel/symbols.hxx
++++ b/test-suite/material-properties/generic-parallel/symbols.hxx
+@@ -23,8 +23,6 @@ extern "C" {
+ extern const char* Inconel600_YoungModulus_generic_parallel_backend;
+ extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
+ extern const char* Inconel600_YoungModulus_generic_parallel_memory_space;
+-extern unsigned short
+-    Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+ }
+ 
+ /*!
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index 8238f60c1..511cb12b0 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -64,6 +64,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test14();
+     this->test15();
+     this->test16();
++    this->test17();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
+     return this->result;
+   }  // end of execute
+@@ -581,6 +582,57 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
+   }
+ 
++  void test17() {
++    // stack size of the threads preserved by the execution options: an
++    // error is reported if it is too small for the kernel. Otherwise, the
++    // stack size is increased if required.
++    constexpr auto eps = double{1e-2};
++    auto initial_stack_size = std::size_t{};
++    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
++                                         cudaLimitStackSize) == cudaSuccess);
++    // the kernels require at least 1024 bytes (see
++    // mfront::generic_parallel::gpu::ensureStackSize)
++    TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
++                      cudaSuccess);
++    auto stack_size = std::size_t{};
++    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
++                      cudaSuccess);
++    TFEL_TESTS_ASSERT(stack_size < 1024);
++    const auto T = thrust::host_vector<double>{300, 500};
++    thrust::device_vector<double> d_T(T);
++    thrust::device_vector<double> d_E(T.size());
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    const auto args =
++        std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    auto output = mfront_gpmp_OutputStatus{};
++    const auto preserve = mfront_gpmp_ExecutionOptions{
++        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
++    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
++                            args.data(), args_strides.data(), 1, T.size(),
++                            policy, &preserve);
++    TFEL_TESTS_CHECK_EQUAL(output.status, -6);
++    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
++        "the stack size of the threads of the device must be at least"));
++    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
++                      cudaSuccess);
++    TFEL_TESTS_ASSERT(stack_size < 1024);
++    // default options: the stack size is increased
++    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
++                            args.data(), args_strides.data(), 1, T.size(),
++                            policy, nullptr);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
++                      cudaSuccess);
++    TFEL_TESTS_ASSERT(stack_size >= 1024);
++    const auto E = thrust::host_vector<double>(d_E);
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
++    }
++    TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
++                                         initial_stack_size) == cudaSuccess);
++  }
++
+   void test12() {
+     // linear interpolation of data
+     this->checkTemperatureDependentMaterialProperty(
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 091e96775..224def3d9 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -9,8 +9,13 @@
+ #include <memory>
+ #include <vector>
+ #include <iostream>
++#include <string>
++#include <type_traits>
+ #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+ #include <Kokkos_Core.hpp>
++#ifdef KOKKOS_ENABLE_CUDA
++#include <cuda_runtime.h>
++#endif /* KOKKOS_ENABLE_CUDA */
+ #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+ 
+ #include "TFEL/Tests/TestCase.hxx"
+@@ -100,6 +105,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test14();
+     this->test15();
+     this->test16();
++    this->test17();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
+         MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
+     return this->result;
+@@ -460,6 +466,49 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
++  void test17() {
++    // stack size of the threads of the device preserved by the execution
++    // options. With a CUDA execution space of Kokkos, an error is reported
++    // if it is too small for the kernel. On the host, the option has no
++    // effect.
++    constexpr auto eps = double{1e-2};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto E = test_vector<double>(2);
++    const auto T = test_vector<double>{300, 500};
++    const auto args = std::array<const double *, 1u>{T.data()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    const auto preserve = mfront_gpmp_ExecutionOptions{
++        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
++#if defined(MFRONT_GPMP_TEST_USE_KOKKOS) && defined(KOKKOS_ENABLE_CUDA)
++    if constexpr (std::is_same_v<MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE,
++                                 Kokkos::Cuda>) {
++      auto initial_stack_size = std::size_t{};
++      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
++                                           cudaLimitStackSize) == cudaSuccess);
++      // the kernels require at least 1024 bytes (see
++      // mfront::generic_parallel::gpu::ensureStackSize)
++      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
++                        cudaSuccess);
++      Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
++                              args_strides.data(), 1, 2, policy, &preserve);
++      TFEL_TESTS_CHECK_EQUAL(output.status, -6);
++      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
++          "the stack size of the threads of the device must be at least"));
++      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
++                                           initial_stack_size) == cudaSuccess);
++    }
++#endif /* defined(MFRONT_GPMP_TEST_USE_KOKKOS) && \
++          defined(KOKKOS_ENABLE_CUDA) */
++    // the stack size has been increased by the previous evaluations
++    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
++                            args_strides.data(), 1, 2, policy, &preserve);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    for (std::size_t i = 0; i != E.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
++    }
++  }
++
+   // bound violated with the warning policy: the result is computed at all
+   // points and must be used with caution (status 1), as with the `generic`
+   // interface
+diff --git a/test-suite/material-properties/generic-parallel/test-hip.hip b/test-suite/material-properties/generic-parallel/test-hip.hip
+index cdc206908..1a9887d46 100644
+--- a/test-suite/material-properties/generic-parallel/test-hip.hip
++++ b/test-suite/material-properties/generic-parallel/test-hip.hip
+@@ -90,6 +90,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test13();
+     this->test14();
+     this->test15();
++    this->test16();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
+     return this->result;
+   }  // end of execute
+@@ -129,6 +130,52 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
+   }
+ 
++  void test16() {
++    // stack size of the threads preserved by the execution options: an
++    // error is reported if it is too small for the kernel. Otherwise, the
++    // stack size is increased if required.
++    constexpr auto eps = double{1e-2};
++    auto initial_stack_size = std::size_t{};
++    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&initial_stack_size,
++                                        hipLimitStackSize) == hipSuccess);
++    // the kernels require at least 1024 bytes (see
++    // mfront::generic_parallel::gpu::ensureStackSize)
++    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize, 256) ==
++                      hipSuccess);
++    auto stack_size = std::size_t{};
++    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
++                      hipSuccess);
++    TFEL_TESTS_ASSERT(stack_size < 1024);
++    auto E = createManagedData(2);
++    const auto T = createManagedData({300, 500});
++    const auto args = std::array<const double *, 1u>{T.get()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    auto output = mfront_gpmp_OutputStatus{};
++    const auto preserve = mfront_gpmp_ExecutionOptions{
++        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
++    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
++                            args_strides.data(), 1, 2, policy, &preserve);
++    TFEL_TESTS_CHECK_EQUAL(output.status, -6);
++    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
++        "the stack size of the threads of the device must be at least"));
++    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
++                      hipSuccess);
++    TFEL_TESTS_ASSERT(stack_size < 1024);
++    // default options: the stack size is increased
++    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
++                            args_strides.data(), 1, 2, policy, nullptr);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
++                      hipSuccess);
++    TFEL_TESTS_ASSERT(stack_size >= 1024);
++    for (std::size_t i = 0; i != 2; ++i) {
++      TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(T, i))) < eps);
++    }
++    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize,
++                                        initial_stack_size) == hipSuccess);
++  }
++
+   void test15() {
+     // asynchronous evaluation on a stream: the statistics, in managed memory,
+     // are given by the execution options and reported once the stream is
+diff --git a/test-suite/material-properties/generic-parallel/test-no-runtime-checks.cxx b/test-suite/material-properties/generic-parallel/test-no-runtime-checks.cxx
+new file mode 100644
+index 000000000..b78ddd8f3
+--- /dev/null
++++ b/test-suite/material-properties/generic-parallel/test-no-runtime-checks.cxx
+@@ -0,0 +1,93 @@
++/*!
++ * \file   test-no-runtime-checks.cxx
++ * \brief  This file tests a material property generated by the
++ * `generic-parallel` interface with the runtime checks disabled
++ * (`disable_runtime_checks` DSL option) and the `openmp` backend.
++ * \date   08/10/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <vector>
++#include <iostream>
++
++#include "TFEL/Tests/TestCase.hxx"
++#include "TFEL/Tests/TestProxy.hxx"
++#include "TFEL/Tests/TestManager.hxx"
++
++#include "MFront/GenericMaterialProperty/MaterialProperty.h"
++#include "Inconel600_YoungModulus-generic-parallel-openmp.hxx"
++
++struct NoRuntimeChecksTest : public tfel::tests::TestCase {
++  NoRuntimeChecksTest()
++      : tfel::tests::TestCase("MFront/MaterialProperty/GenericParallel",
++                              "NoRuntimeChecksTest") {
++  }  // end of NoRuntimeChecksTest
++
++  tfel::tests::TestResult execute() override {
++    this->test1();
++    this->test2();
++    return this->result;
++  }  // end of execute
++
++ private:
++  [[nodiscard]] static double fct(const double TK) noexcept {
++    const double TC = TK - 273.15;
++    return (-3.1636e-3 * TC * TC - 3.8654 * TC + 2.1421e+4) * 1e7;
++  }  // end of fct
++
++  void test1() {
++    // the second temperature is out of its physical bounds, which are not
++    // checked: the result is computed at all points and the statistics
++    // given by the execution options are not updated
++    constexpr auto eps = double{1e-2};
++    const auto T = std::vector<double>{300, -1, 500, 800};
++    auto E = std::vector<double>(4);
++    const auto args = std::array<const double *, 1u>{T.data()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    auto statistics = mfront_gpmp_Statistics{};
++    mfront_gpmp_initializeStatistics(&statistics);
++    const auto options = mfront_gpmp_ExecutionOptions{
++        .queue = nullptr, .statistics = &statistics};
++    auto output = mfront_gpmp_OutputStatus{};
++    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
++                            args_strides.data(), 1, 4, policy, nullptr);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
++    for (std::size_t i = 0; i != E.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
++    }
++    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
++                            args_strides.data(), 1, 4, policy, &options);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_CHECK_EQUAL(statistics.number_of_failures, 0ull);
++    TFEL_TESTS_CHECK_EQUAL(statistics.number_of_unreliable_results, 0ull);
++  }
++
++  void test2() {
++    // an empty set of points is accepted, the arrays being null
++    const auto args = std::array<const double *, 1u>{nullptr};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    auto output = mfront_gpmp_OutputStatus{};
++    Inconel600_YoungModulus(&output, nullptr, 1, args.data(),
++                            args_strides.data(), 1, 0,
++                            mfront_gmp_OutOfBoundsPolicy{}, nullptr);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++  }
++};
++
++TFEL_TESTS_GENERATE_PROXY(NoRuntimeChecksTest, "NoRuntimeChecksTest");
++
++/* coverity [UNCAUGHT_EXCEPT]*/
++int main(const int argc, const char *const *argv) {
++  if (argc != 2) {
++    std::cerr << "no test name given on the command line (argc: " << argc
++              << ")";
++    return EXIT_FAILURE;
++  }
++  auto &m = tfel::tests::TestManager::getTestManager();
++  m.addTestOutput(std::cout);
++  m.addXMLTestOutput(std::string{argv[1]} + ".xml");
++  return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+index 396b1e7e5..a3ea20bac 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+@@ -58,6 +58,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test14();
+     this->test15();
+     this->test16();
++    this->test17();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
+     return this->result;
+   }  // end of execute
+@@ -107,6 +108,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     sycl::free(E, Q);
+   }
+ 
++  void test17() {
++    // asynchronous evaluation with the values and the statistics in host
++    // memory. With automatic data transfers on a GPU, they are copied in
++    // device memory and copied back, and the evaluation is synchronous. The
++    // point where the evaluation fails keeps its value.
++    constexpr auto eps = double{1e-2};
++    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR,
++                         sycl::property::queue::in_order{}};
++    auto statistics = std::vector<mfront_gpmp_Statistics>(1);
++    mfront_gpmp_initializeStatistics(statistics.data());
++    const auto T = std::vector<double>{300, -1, 500, 800};
++    auto E = std::vector<double>(4, -12.);
++    const auto args = std::array<const double *, 1u>{T.data()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    const auto options = mfront_gpmp_ExecutionOptions{
++        .queue = &Q, .statistics = statistics.data()};
++    auto output = mfront_gpmp_OutputStatus{};
++    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
++                            args_strides.data(), 1, 4, policy, &options);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    Q.wait_and_throw();
++    Inconel600_YoungModulus_generic_parallel_report(
++        &output, statistics.data(), policy);
++    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
++    for (const auto i : {0, 2, 3}) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
++    }
++    TFEL_TESTS_ASSERT(std::abs(E[1] + 12) < eps);
++  }
++
+   void test16() {
+     // an asynchronous evaluation is refused with an out-of-order queue
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+-- 
+2.43.0
+

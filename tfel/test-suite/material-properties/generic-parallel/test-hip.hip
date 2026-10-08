@@ -90,6 +90,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test13();
     this->test14();
     this->test15();
+    this->test16();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
     return this->result;
   }  // end of execute
@@ -127,6 +128,52 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
                         eps);
     }
     TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
+  }
+
+  void test16() {
+    // stack size of the threads preserved by the execution options: an
+    // error is reported if it is too small for the kernel. Otherwise, the
+    // stack size is increased if required.
+    constexpr auto eps = double{1e-2};
+    auto initial_stack_size = std::size_t{};
+    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&initial_stack_size,
+                                        hipLimitStackSize) == hipSuccess);
+    // the kernels require at least 1024 bytes (see
+    // mfront::generic_parallel::gpu::ensureStackSize)
+    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize, 256) ==
+                      hipSuccess);
+    auto stack_size = std::size_t{};
+    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
+                      hipSuccess);
+    TFEL_TESTS_ASSERT(stack_size < 1024);
+    auto E = createManagedData(2);
+    const auto T = createManagedData({300, 500});
+    const auto args = std::array<const double *, 1u>{T.get()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    auto output = mfront_gpmp_OutputStatus{};
+    const auto preserve = mfront_gpmp_ExecutionOptions{
+        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
+    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                            args_strides.data(), 1, 2, policy, &preserve);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -6);
+    TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
+        "the stack size of the threads of the device must be at least"));
+    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
+                      hipSuccess);
+    TFEL_TESTS_ASSERT(stack_size < 1024);
+    // default options: the stack size is increased
+    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                            args_strides.data(), 1, 2, policy, nullptr);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    TFEL_TESTS_ASSERT(hipDeviceGetLimit(&stack_size, hipLimitStackSize) ==
+                      hipSuccess);
+    TFEL_TESTS_ASSERT(stack_size >= 1024);
+    for (std::size_t i = 0; i != 2; ++i) {
+      TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(T, i))) < eps);
+    }
+    TFEL_TESTS_ASSERT(hipDeviceSetLimit(hipLimitStackSize,
+                                        initial_stack_size) == hipSuccess);
   }
 
   void test15() {

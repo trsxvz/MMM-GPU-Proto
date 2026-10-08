@@ -96,14 +96,25 @@ Elles suivent le même modèle que l'intégration :
 ```cpp
 executeInitializeFunction(policy, m, name[, inputs][, b, e]);
 executePostProcessing(outputs, policy, m, name[, b, e]);
-rotateGradients(policy, dest, behaviour, src, r);  // et les autres rotations
+rotateGradients(policy, dest, behaviour, src, r[, location]);  // et les autres rotations
 ```
 
 Les versions sans politique basculent seules. Pour les rotations, les
 matrices peuvent être données par point ou uniformes. Les formes
 `RotationMatrix2D` et `RotationMatrix3D` construisent les matrices sur
 l'hôte à chaque appel : pour des rotations répétées sur GPU, mieux vaut les
-construire une fois et les donner en tableau.
+construire une fois avec `buildRotationMatrices`, dans une mémoire
+partagée donnée par une ressource, et les donner en tableau. Une rotation
+se fait en place si la source et la destination sont le même tableau.
+
+Les entrées des fonctions d'initialisation et les sorties des
+post-traitements doivent être placées comme les tableaux du gestionnaire.
+`allocatePostProcessingVariables` les alloue sur l'hôte (et refuse une loi
+qui ne lit pas la mémoire de l'hôte), ou avec une ressource donnée. Les
+rotations, avec ou sans politique, prennent l'emplacement de leurs
+tableaux en dernier argument (`HOST` par défaut), comme `evaluate`. Une
+ressource nulle désigne partout la ressource par défaut de la
+bibliothèque standard.
 
 ## Modèles
 
@@ -132,7 +143,10 @@ l'hôte sinon.
 Le résultat (`MaterialPropertyEvaluationResult`) est le même pour les deux
 interfaces, comme `BehaviourIntegrationResult` pour les lois : statut et
 rang de la variable hors bornes (sens de l'interface `generic`), indice du
-premier point en échec, message. Le calcul point par point s'arrête au
+premier point en échec, message. Une propriété `generic-parallel` ne rend
+que les statuts `1`, `0`, `-1` et `-4`. Les autres (arguments invalides,
+erreur du backend) lèvent une exception, dès la soumission pour une
+évaluation asynchrone. Le calcul point par point s'arrête au
 premier échec, le lot calcule tous les points : l'indice rapporté est le
 même. Au chargement, MGIS lit aussi la fonction de compte rendu des
 statistiques (`batch_report_fct`).
@@ -149,8 +163,11 @@ L'appelant déclare l'emplacement de ses tableaux (`mgis::MemoryLocation`) :
   mémoire partagée SYCL, `Kokkos::SharedSpace`).
 
 Pour un `MaterialDataManager`, l'emplacement est donné par son
-initialiseur (`MaterialDataManagerInitializer::location`). Pour une
-propriété matériau, il est un argument d'`evaluate`.
+initialiseur (`MaterialDataManagerInitializer::location`). Les valeurs
+données par un `std::span` (stockage externe) et les tableaux passés aux
+fonctions de lot du gestionnaire doivent avoir le même emplacement. Pour
+une propriété matériau et pour une rotation, l'emplacement est un
+argument.
 
 MGIS compare cet emplacement à l'espace mémoire de la bibliothèque,
 exporté par TFEL (`isMemoryLocationAccessible`) :
@@ -168,8 +185,9 @@ n'a besoin d'aucun changement dans MGIS.
 
 Certaines fonctions de MGIS lisent les tableaux sur l'hôte : `update`,
 `revert`, `updateValues`, l'extraction des variables internes, `save`,
-`restore` et le calcul point par point. Elles refusent les tableaux placés
-sur un GPU au lieu de planter.
+`restore`, les conversions des grandes transformations et le calcul point
+par point. Elles refusent les tableaux placés sur un GPU au lieu de
+planter.
 
 De même, les valeurs gardées par MGIS lui-même (valeur uniforme, stockage
 local `LOCAL_STORAGE`) sont en mémoire hôte. Elles sont refusées quand les
@@ -249,6 +267,9 @@ const auto r = pending.getResult();
   statut du calcul (statistiques des lois, statuts des propriétés
   matériau) et, pour les rotations, les matrices construites à partir des
   axes du matériau. Il ne doit pas être détruit avant la fin du calcul.
+  Il peut être déplacé (par exemple dans un `std::optional` ou un
+  conteneur), mais pas affecté : l'affectation recopierait le statut si
+  les ressources mémoire différaient, pendant que le GPU l'écrit.
 - Ce statut est initialisé et lu par l'hôte, écrit par le GPU. La
   politique donne la ressource mémoire qui l'alloue et son emplacement.
   MGIS vérifie qu'il est accessible par les deux : mémoire de l'hôte pour
@@ -303,6 +324,24 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
 - **Mise à jour des états sur l'hôte.** `update` et `revert` copient les
   états sur l'hôte. Leur version sur GPU viendra avec mfem-mgis, qui
   possède la mémoire.
+- **Agencement point par point.** Les fonctions de lot travaillent sur un
+  `MaterialDataManager`, dont les tableaux sont rangés point par point.
+  TFEL accepte d'autres agencements (composante par composante, pas
+  quelconques), plus favorables à la coalescence sur GPU. Les exposer
+  demande une API sur des vues, à définir avec mfem-mgis selon son
+  rangement des données.
+- **Pas de variante avec `Context`** : les fonctions de lot lèvent des
+  exceptions, comme les autres fonctions sur un gestionnaire. mfem-mgis
+  les enrobera.
+- **`MaterialFunctionManager`** construit son gestionnaire sur l'hôte. Il
+  n'est pas utilisé par mfem-mgis.
+- **Intégration continue** : les tests `generic-parallel` de MGIS ne sont
+  construits que si le TFEL trouvé fournit l'interface. La CI officielle
+  de MGIS utilise TFEL master : ils n'y tourneront qu'une fois l'interface
+  intégrée à TFEL. Les tests CUDA sont désactivés par défaut
+  (`enable-generic-parallel-cuda-tests`). Les autres backends sont testés
+  dans TFEL : MGIS ne fait que passer des pointeurs, une file et un espace
+  mémoire.
 - **Pas de statut par point** : le tableau optionnel de TFEL n'est pas
   exposé.
 - **Liaisons** : les liaisons C refusent les bibliothèques de lots ; les

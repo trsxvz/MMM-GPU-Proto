@@ -44,7 +44,8 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription&) const {
     os << "#include <algorithm>\n"
        << "#include<type_traits>\n"
-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
+       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
+       << "#include\"MFront/GenericParallel/GPUStackSize.hxx\"\n\n";
   }  // end of writeSpecificIncludesInSourceFile
 
   void CUDABackendBase::writeGlobalFunctions(
@@ -89,10 +90,11 @@ namespace mfront::generic_parallel::material_property {
     for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
       os << ",\nconst " << types.real_type << "* const mfront_arg" << idx;
     }
-    os << ",\nconst int mfront_npoints){\n";
+    os << ",\nconst " << types.integer_type << " mfront_npoints){\n";
     // the body of the kernel is only executed in device code
     writeBeginningOfMaterialPropertyBody(os, mpd, fd, "double", true, true);
-    os << "auto mfront_idx = blockIdx.x * blockDim.x + threadIdx.x;\n"
+    os << "const auto mfront_idx = static_cast<" << types.integer_type
+       << ">(blockIdx.x) * blockDim.x + threadIdx.x;\n"
        << "if(mfront_idx >= mfront_npoints){\n"
        << "return;\n"
        << "}\n";
@@ -129,6 +131,10 @@ namespace mfront::generic_parallel::material_property {
       const bool treatStrides) const {
     const auto pm = this->getProgrammingModel();
     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+    // exceptions (allocation of an error message, of a block of statistics)
+    // must not cross the boundary of the C function, as with the backends
+    // based on C++ programming models
+    os << "try{\n";
     if (isBoundsCheckingRequired(mpd)) {
       // the statistics are held by a block of managed memory of the current
       // device
@@ -151,6 +157,15 @@ namespace mfront::generic_parallel::material_property {
     }
     this->writeKernelCall(os, i, mpd, treatStrides);
     this->writeResultsAnalysis(os, i, mpd);
+    os << "} catch(std::exception& mfront_cxx_exception){\n"
+       << "mfront_output_status->status = -6;\n"
+       << "mfront_report(mfront_cxx_exception.what());\n"
+       << "return;\n"
+       << "} catch(...){\n"
+       << "mfront_output_status->status = -6;\n"
+       << "mfront_report(\"unknown exception\");\n"
+       << "return;\n"
+       << "}\n";
     os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
   }  // end of writeCImplementations2
 
@@ -186,9 +201,18 @@ namespace mfront::generic_parallel::material_property {
        << " + mfront_warp_size - 1) / mfront_warp_size * mfront_warp_size);\n";
     auto write_kernel_call = [&](const std::string_view npoints,
                                  const bool handleStrides) {
-      os << "mfront_" << name << "_kernel"
-         << (handleStrides ? "" : "_without_strides")
-         << "<<<static_cast<unsigned int>((" << npoints
+      const auto kernel = "mfront_" + name + "_kernel" +
+                          (handleStrides ? "" : "_without_strides");
+      // stack size of the threads, as for the behaviours
+      os << "const auto mfront_stack_size = "
+         << "::mfront::generic_parallel::gpu::ensureStackSize<" << kernel
+         << ">(mfront_options.preserve_stack_size != 0);\n"
+         << "if (!mfront_stack_size.succeeded()) {\n"
+         << "mfront_output_status->status = -6;\n"
+         << "mfront_report(mfront_stack_size.getErrorMessage());\n"
+         << "return;\n"
+         << "}\n";
+      os << kernel << "<<<static_cast<unsigned int>((" << npoints
          << " + mfront_threads_per_block - 1) / mfront_threads_per_block), "
          << "mfront_threads_per_block, 0, mfront_stream>>>(mfront_output, ";
       if (handleStrides) {
@@ -209,7 +233,7 @@ namespace mfront::generic_parallel::material_property {
       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
         os << "mfront_args[" << idx << "], ";
       }
-      os << "static_cast<int>(" << npoints << "));\n"
+      os << npoints << ");\n"
          << "const auto mfront_" << pm << "_launch_error = " << pm
          << "GetLastError();\n"
          << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n"

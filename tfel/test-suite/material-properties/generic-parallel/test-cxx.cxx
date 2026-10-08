@@ -9,8 +9,13 @@
 #include <memory>
 #include <vector>
 #include <iostream>
+#include <string>
+#include <type_traits>
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
 #include <Kokkos_Core.hpp>
+#ifdef KOKKOS_ENABLE_CUDA
+#include <cuda_runtime.h>
+#endif /* KOKKOS_ENABLE_CUDA */
 #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
 
 #include "TFEL/Tests/TestCase.hxx"
@@ -100,6 +105,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test14();
     this->test15();
     this->test16();
+    this->test17();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
         MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
     return this->result;
@@ -456,6 +462,49 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
     TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
     for (const auto i : {0, 2, 3}) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+  }
+
+  void test17() {
+    // stack size of the threads of the device preserved by the execution
+    // options. With a CUDA execution space of Kokkos, an error is reported
+    // if it is too small for the kernel. On the host, the option has no
+    // effect.
+    constexpr auto eps = double{1e-2};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto E = test_vector<double>(2);
+    const auto T = test_vector<double>{300, 500};
+    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto preserve = mfront_gpmp_ExecutionOptions{
+        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
+#if defined(MFRONT_GPMP_TEST_USE_KOKKOS) && defined(KOKKOS_ENABLE_CUDA)
+    if constexpr (std::is_same_v<MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE,
+                                 Kokkos::Cuda>) {
+      auto initial_stack_size = std::size_t{};
+      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
+                                           cudaLimitStackSize) == cudaSuccess);
+      // the kernels require at least 1024 bytes (see
+      // mfront::generic_parallel::gpu::ensureStackSize)
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
+                        cudaSuccess);
+      Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                              args_strides.data(), 1, 2, policy, &preserve);
+      TFEL_TESTS_CHECK_EQUAL(output.status, -6);
+      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
+          "the stack size of the threads of the device must be at least"));
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
+                                           initial_stack_size) == cudaSuccess);
+    }
+#endif /* defined(MFRONT_GPMP_TEST_USE_KOKKOS) && \
+          defined(KOKKOS_ENABLE_CUDA) */
+    // the stack size has been increased by the previous evaluations
+    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                            args_strides.data(), 1, 2, policy, &preserve);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
     }
   }

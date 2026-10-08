@@ -24,9 +24,10 @@ namespace mfront::gpmp {
 
   /*!
    * \brief status of the evaluation of a material property at a point,
-   * computed by the kernels. It is merged in the statistics of the
-   * evaluation only if an event occurred, so that the cost of the reporting
-   * is null when the evaluation succeeds.
+   * computed by the kernels. With atomic operations, it is merged in the
+   * statistics of the evaluation only if an event occurred, so that the
+   * cost of the reporting is null when the evaluation succeeds. The
+   * reductions merge the statuses of all the points.
    */
   struct PointStatus {
     //! \brief true if the evaluation failed

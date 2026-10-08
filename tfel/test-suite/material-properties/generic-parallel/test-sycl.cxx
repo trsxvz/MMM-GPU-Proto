@@ -58,6 +58,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test14();
     this->test15();
     this->test16();
+    this->test17();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
     return this->result;
   }  // end of execute
@@ -105,6 +106,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     sycl::free(statistics, Q);
     sycl::free(T, Q);
     sycl::free(E, Q);
+  }
+
+  void test17() {
+    // asynchronous evaluation with the values and the statistics in host
+    // memory. With automatic data transfers on a GPU, they are copied in
+    // device memory and copied back, and the evaluation is synchronous. The
+    // point where the evaluation fails keeps its value.
+    constexpr auto eps = double{1e-2};
+    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR,
+                         sycl::property::queue::in_order{}};
+    auto statistics = std::vector<mfront_gpmp_Statistics>(1);
+    mfront_gpmp_initializeStatistics(statistics.data());
+    const auto T = std::vector<double>{300, -1, 500, 800};
+    auto E = std::vector<double>(4, -12.);
+    const auto args = std::array<const double *, 1u>{T.data()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto options = mfront_gpmp_ExecutionOptions{
+        .queue = &Q, .statistics = statistics.data()};
+    auto output = mfront_gpmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                            args_strides.data(), 1, 4, policy, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    Q.wait_and_throw();
+    Inconel600_YoungModulus_generic_parallel_report(
+        &output, statistics.data(), policy);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+    for (const auto i : {0, 2, 3}) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+    TFEL_TESTS_ASSERT(std::abs(E[1] + 12) < eps);
   }
 
   void test16() {

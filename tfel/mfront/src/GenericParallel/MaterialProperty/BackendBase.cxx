@@ -541,25 +541,35 @@ namespace mfront::generic_parallel::material_property {
          << "return true;\n"
          << "};\n";
     }
-    // errno is restored before returning, even if the runtime checks are
-    // disabled (checks of the strides)
-    os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+    // errno is restored on every return. It is not used to detect the
+    // errors: it is thread-local, does not exist on GPUs, and may be modified
+    // by the runtimes (for instance at the initialisation of TBB). Invalid
+    // results are detected by the kernels.
+    os << "struct mfront_ErrnoGuard {\n"
+       << "const int value = errno;\n"
+       << "~mfront_ErrnoGuard() { errno = this->value; }\n"
+       << "};\n"
+       << "[[maybe_unused]] const auto mfront_errno_guard = "
+       << "mfront_ErrnoGuard{};\n";
     os << "mfront_output_status->status = 0;\n"
        << "mfront_output_status->bounds_status = 0;\n"
        << "mfront_output_status->number_of_failures = 0;\n"
        << "mfront_output_status->first_failure_index = "
        << "std::numeric_limits<" << types.integer_type << ">::max();\n"
        << "mfront_output_status->number_of_unreliable_results = 0;\n";
+    // an empty set of points is accepted without any check, as an empty
+    // batch by the behaviours: nothing is read, written or submitted
+    os << "if(mfront_npoints == 0){\n"
+       << "return;\n"
+       << "}\n";
     // writes an error and returns
     auto write_error = [&os](const int status, const std::string& message) {
       os << "mfront_output_status->status = " << status << ";\n"
          << "mfront_report(" << message << ");\n"
-         << "errno = mfront_errno_old;\n"
          << "return;\n"
          << "}\n";
     };
     if (!areRuntimeChecksDisabled(mpd)) {
-      os << "errno = 0;\n";
       os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n";
       write_error(
           -5,
@@ -600,9 +610,6 @@ namespace mfront::generic_parallel::material_property {
                   "equal to one (\" + std::to_string(mfront_npoints) + \" "
                   "given)\"");
     }
-    os << "if(mfront_npoints <= 0){\n"
-       << "return;\n"
-       << "}\n";
     if ((treatStrides) && (!mpd.inputs.empty())) {
       os << "auto mfront_strides = std::array<" << types.integer_type << ", "
          << mpd.inputs.size() << ">{};\n"
@@ -769,12 +776,7 @@ namespace mfront::generic_parallel::material_property {
     if (areRuntimeChecksDisabled(mpd)) {
       return;
     }
-    // errno can't be used to detect errors in the kernels: it is
-    // thread-local, does not exist on GPUs, and may be modified by the
-    // runtimes (for instance at the initialisation of TBB). Invalid results
-    // are detected by the kernels.
-    os << "errno = mfront_errno_old;\n"
-       << "if (!mfront_asynchronous) {\n"
+    os << "if (!mfront_asynchronous) {\n"
        << i.getFunctionName(mpd) << "_generic_parallel_report("
        << "mfront_output_status, mfront_statistics, "
        << "mfront_out_of_bounds_policy);\n"

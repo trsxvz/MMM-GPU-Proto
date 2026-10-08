@@ -36,7 +36,11 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription&) const {
     os << "#include<algorithm>\n"
        << "#include<Kokkos_Core.hpp>\n"
-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
+       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
+       << "#include\"MFront/GenericParallel/KokkosStackSize.hxx\"\n\n"
+       << "static_assert(Kokkos::has_shared_space, \"the Kokkos backend of the "
+       << "generic-parallel interface requires a shared memory space "
+       << "(Kokkos::SharedSpace)\");\n\n";
   }  // end of writeSpecificIncludesInSourceFile
 
   std::string KokkosBackend::getKernelSpecifiers() const {
@@ -80,14 +84,24 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernels(os, i, mpd, fd, treatStrides);
     auto write_loop = [&os, &types](const std::string_view npoints,
                                     const bool handleStrides) {
+      const auto kernel = std::string{
+          handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
+      // stack size of the threads, as for the behaviours
+      os << "const auto mfront_stack_size_error = "
+         << "::mfront::generic_parallel::kokkos::ensureStackSize<"
+         << "mfront_execution_space>(" << kernel
+         << ", mfront_options.preserve_stack_size != 0);\n"
+         << "if (!mfront_stack_size_error.empty()) {\n"
+         << "mfront_output_status->status = -6;\n"
+         << "mfront_report(mfront_stack_size_error);\n"
+         << "return;\n"
+         << "}\n";
       os << "// loop over the points\n"
          << "Kokkos::parallel_for(\"mfront_kernel\", "
-         << "Kokkos::RangePolicy<mfront_execution_space>(mfront_space, 0, "
-         << "static_cast<" << types.integer_type << ">(" << npoints << ")), "
-         << "mfront_kernel";
-      if (!handleStrides) {
-        os << "_without_strides";
-      }
+         << "Kokkos::RangePolicy<mfront_execution_space, "
+         << "Kokkos::IndexType<" << types.integer_type << ">>(mfront_space, "
+         << types.integer_type << "{0}, static_cast<" << types.integer_type
+         << ">(" << npoints << ")), " << kernel;
       // an asynchronous evaluation returns once the kernel is submitted
       os << ");\n"
          << "if (!mfront_asynchronous) {\n"

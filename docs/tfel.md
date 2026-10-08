@@ -163,7 +163,7 @@ utilise la primitive idiomatique de son modèle de programmation.
 |---|---|---|---|---|
 | `cuda`, `hip` | un fil par point, vote par warp, opérations atomiques seulement en cas d'événement | flux (`cudaStream_t`, `hipStream_t`) | oui | `number_of_threads_per_block` (128 par défaut) |
 | `stlpar` | `std::transform_reduce` sur un itérateur de comptage | aucune | non | `execution_policy`, `device_stack_size` |
-| `kokkos` | `Kokkos::parallel_reduce` avec un foncteur de réduction | instance de l'espace d'exécution | oui | `execution_space` |
+| `kokkos` | `Kokkos::parallel_for`, opérations atomiques seulement en cas d'événement | instance de l'espace d'exécution | oui | `execution_space` |
 | `sycl` | `parallel_for` et mises à jour atomiques | `sycl::queue`, obligatoire | oui, si aucune valeur n'est copiée et si la file est ordonnée | `data_transfer_policy`, `device_stack_size` |
 | `openmp` | `target teams distribute parallel for` ou `parallel for` | aucune | non | `offload`, `device_stack_size` |
 
@@ -185,7 +185,10 @@ Quelques choix méritent une explication :
   relogeable** avec CUDA. Les bibliothèques générées sont chargées par
   `dlopen` : l'appelant et elles doivent partager la même instance de
   Kokkos. La fonction générée vérifie que Kokkos est initialisé, elle ne
-  l'initialise jamais.
+  l'initialise jamais. Les statistiques d'un calcul synchrone sont dans
+  `Kokkos::SharedSpace`, comme pour les propriétés matériau. Les backends
+  `OpenACC` et `OpenMPTarget` de Kokkos n'ont pas cet espace : une
+  assertion statique le signale.
 - Le backend `stlpar` sert aussi le GPU avec `nvc++ -stdpar=gpu`. Les
   bibliothèques liées à TBB (gcc, clang, icpx) restent chargées jusqu'à la
   fin du processus (`-Wl,-z,nodelete`) : les fils de TBB tournaient encore
@@ -202,6 +205,10 @@ pour tous les backends :
   synchrone (voir [Synchrone et asynchrone](#synchrone-et-asynchrone)).
 - `preserve_stack_size` : si non nul, la taille de pile des fils du GPU
   n'est jamais modifiée. Une erreur est rapportée si elle est trop petite.
+
+Un lot vide est accepté sans aucune vérification : rien n'est lu, écrit
+ou soumis, les champs et la file peuvent être nuls. La règle est la même
+pour les propriétés matériau.
 
 ### Espace mémoire
 
@@ -244,12 +251,16 @@ Le message d'erreur détaillé d'un point n'est pas transmis : le code GPU
 n'a ni exceptions ni tampon de message par fil. Pour l'obtenir, on rejoue le
 point avec la bibliothèque `generic` de la même loi.
 
-**Le compte rendu des erreurs ne coûte rien en cas de succès.** Les noyaux
-n'écrivent dans les statistiques que si un événement survient en un point.
-Sur CUDA et HIP, un vote par warp évite toute opération atomique dans les
-warps sans événement. En mode synchrone, les statistiques sont tenues par
-des blocs de mémoire accessibles par l'hôte et le GPU, alloués au premier
-appel puis réutilisés (`MFront/GenericParallel/StatusBlockPool.hxx`).
+**Avec les opérations atomiques, le compte rendu des erreurs ne coûte rien
+en cas de succès.** Les noyaux n'écrivent dans les statistiques que si un
+événement survient en un point. Sur CUDA et HIP, un vote par warp évite
+toute opération atomique dans les warps sans événement. En mode synchrone,
+les backends `cuda`, `hip`, `sycl` et `kokkos` tiennent les statistiques
+dans des blocs de mémoire accessibles par l'hôte et le GPU, alloués au
+premier appel puis réutilisés
+(`MFront/GenericParallel/StatusBlockPool.hxx`). Les backends `stlpar` et
+`openmp` fusionnent les statuts des points par une réduction : son
+résultat, quelques entiers, est copié vers l'hôte à chaque appel.
 L'hôte initialise un bloc et le lit après la synchronisation : sans
 événement, aucune donnée ne passe entre l'hôte et le GPU. Mesure, sur une
 loi élastique et 1000 points : l'appel synchrone CUDA passe de 135 à 29 µs.
@@ -261,22 +272,36 @@ synchrone. La fonction rend la main une fois le calcul fini et le statut
 décrit le résultat.
 
 Si elles en donnent, les statistiques sont cumulées dans cette structure,
-qui doit être accessible par le GPU. Les backends `cuda`, `hip`, `kokkos`
+qui doit être accessible par le GPU (et par l'hôte pour `stlpar` et
+`openmp`, qui cumulent sur l'hôte). Les backends `cuda`, `hip`, `kokkos`
 et `sycl` (sans copie) rendent alors la main dès le calcul soumis. L'appelant
-synchronise la file, puis lit les statistiques avec les fonctions de
-`BatchData.h`. Plusieurs lots et l'assemblage peuvent ainsi être soumis
-avant une seule synchronisation.
+synchronise la file, puis `mfront_gpb_report` (`BatchData.h`) remplit le
+statut de sortie comme le fait un calcul synchrone, message compris.
+C'est le pendant de `<nom>_generic_parallel_report` des propriétés
+matériau. Plusieurs lots et l'assemblage peuvent ainsi être soumis avant
+une seule synchronisation.
 
 ### Pile des fils du GPU
 
 Certaines lois demandent une pile plus grande que la valeur par défaut des
 GPU NVIDIA (1 Ko). Les backends `cuda` et `hip` calculent la taille
-nécessaire à partir des attributs du noyau. `nvc++` et AdaptiveCpp ne
-donnent pas accès à cette taille : l'option `device_stack_size` la fixe par
-le runtime CUDA chargé dans le processus
+nécessaire à partir des attributs du noyau
+(`MFront/GenericParallel/GPUStackSize.hxx`). Kokkos passe par un noyau
+sonde jamais lancé (`MFront/GenericParallel/KokkosStackSize.hxx`). Ces
+deux en-têtes servent aux lois et aux propriétés matériau. `nvc++` et
+AdaptiveCpp ne donnent pas accès à cette taille : l'option
+`device_stack_size` la fixe par le runtime CUDA chargé dans le processus
 (`MFront/GenericParallel/DeviceStackSize.hxx`). La taille de pile est
 commune à tous les calculs du processus : `preserve_stack_size` permet de
 l'interdire.
+
+Le noyau est un paramètre template de la fonction qui lit ses attributs.
+Le runtime CUDA est lié statiquement par défaut : chaque bibliothèque a sa
+propre instance, qui ne connaît que ses noyaux. Une fonction partagée qui
+prendrait le noyau en argument serait résolue par l'éditeur de liens
+dynamique vers l'instance d'une seule bibliothèque, et le noyau d'une
+autre y serait inconnu (`invalid resource handle`). Le test CUDA des
+propriétés matériau, qui charge trois bibliothèques, l'a montré.
 
 ### Couverture
 
@@ -328,7 +353,21 @@ possibilités que celle des lois.
   dans les statistiques (`mfront_gpmp_Statistics`) qu'en cas d'événement :
   opérations atomiques pour CUDA, HIP, SYCL et Kokkos, réduction pour les
   algorithmes parallèles et OpenMP, comme pour les lois. Coût nul en cas
-  de succès.
+  de succès avec les opérations atomiques.
+- **Pile des fils** : CUDA, HIP et Kokkos l'adaptent au noyau, avec les
+  en-têtes des lois. `preserve_stack_size` a donc le même effet partout.
+- **Transferts SYCL** : la classe de copies des lois
+  (`MFront/GenericParallel/SYCLDeviceCopies.hxx`) sert aussi aux
+  propriétés matériau. Les statistiques d'une évaluation asynchrone sont
+  copiées si besoin. La sortie est copiée à l'aller : un point en échec
+  garde sa valeur. Une allocation USM de tout type est accessible, comme
+  pour les lois. Les erreurs du noyau remontent (`wait_and_throw`).
+- **Exceptions des runtimes** : rapportées par le statut `-6`, comme les
+  erreurs des runtimes CUDA et HIP. Le statut `-2` n'est plus utilisé.
+- **Ensemble vide** : accepté sans vérification, comme un lot vide.
+  `errno` est restauré à chaque retour.
+- **Nombre de points** : type `size_t` dans les noyaux CUDA, HIP et
+  Kokkos et avec AdaptiveCpp (limite de 2^31 points levée).
 - **Évaluation asynchrone.** Si les options donnent des statistiques,
   initialisées par `mfront_gpmp_initializeStatistics`, la fonction rend la
   main dès le calcul soumis (`cuda`, `hip`, `kokkos`, `sycl` sans copie).
@@ -350,9 +389,10 @@ Le statut et le rang de la variable gardent le sens de l'interface
 `generic` des propriétés matériau : `0` succès, `1` borne violée avec la
 politique `Warning` (rang positif), `-1` borne physique violée ou borne
 violée avec la politique `Strict` (rang négatif), `-4` résultat non fini.
-L'interface ajoute `-2` (exception sur l'hôte), `-5` (arguments invalides,
-file SYCL absente, évaluation asynchrone sur une file SYCL non ordonnée),
-`-6` (erreur du backend) et `-7` (sortie uniforme incohérente). Quand
+L'interface ajoute `-5` (arguments invalides, file SYCL absente,
+évaluation asynchrone sur une file SYCL non ordonnée), `-6` (erreur du
+backend, y compris une exception de son runtime) et `-7` (sortie uniforme
+incohérente). Quand
 plusieurs vérifications échouent, la première dans l'ordre suivant est
 rapportée : résultat non fini, bornes physiques, bornes, les variables
 dans l'ordre, la sortie après les arguments.
@@ -364,10 +404,13 @@ dans l'ordre, la sortie après les arguments.
 | Appel | structure du lot | arguments et pas |
 | Options d'exécution | file, statistiques, pile | mêmes membres |
 | Synchrone ou asynchrone | au choix de l'appelant | au choix de l'appelant |
-| Compte rendu asynchrone | statistiques lues après synchronisation | statistiques analysées par `<nom>_generic_parallel_report` |
+| Compte rendu asynchrone | `mfront_gpb_report` (fonction C de `BatchData.h`) | `<nom>_generic_parallel_report` (symbole, il nomme la variable hors bornes) |
+| Lot vide | accepté sans vérification | accepté sans vérification |
+| Exception du runtime du backend | `-3` (erreur du backend) | `-6` (erreur du backend) |
+| Transferts SYCL automatiques | `SYCLDeviceCopies.hxx` | même classe |
 | Fusion des statuts des points | atomique (CUDA, HIP, SYCL, Kokkos), réduction (algorithmes parallèles, OpenMP) | identique |
 | Nombre de points en échec, premier point en échec | oui | oui |
-| Pile des fils | `preserve_stack_size` | `preserve_stack_size` |
+| Pile des fils | adaptée au noyau, `preserve_stack_size` | identique |
 | Espace mémoire, backend, version | symboles exportés | symboles exportés |
 | Tableau optionnel des statuts par point | oui | non |
 

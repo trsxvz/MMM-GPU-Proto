@@ -390,6 +390,11 @@ namespace mfront {
        << "}\n"
        << "mfront::gpb::initialize(*mfront_output_status, "
        << "mfront_batch_data->rdt);\n"
+       // an empty batch is accepted without any check: nothing is read,
+       // written or submitted (the fields and the queue may be null)
+       << "if (mfront_batch_data->number_of_points == 0) {\n"
+       << "return mfront_output_status->status;\n"
+       << "}\n"
        << "auto& mfront_status = *mfront_output_status;\n"
        << "const auto& mfront_data = *mfront_batch_data;\n";
   }  // end of writeBatchFunctionBeginning
@@ -859,6 +864,12 @@ namespace mfront {
          << "mfront::gpb::initialize(mfront_status, 1);\n"
          << "return mfront::gpb::report(mfront_status, -2, "
          << "\"no rotation data given\");\n"
+         << "}\n"
+         // an empty batch is accepted without any check, as for the
+         // integration
+         << "if (mfront_rotation_data->number_of_points == 0) {\n"
+         << "mfront::gpb::initialize(mfront_status, 1);\n"
+         << "return mfront_status.status;\n"
          << "}\n";
       os << "const auto& mfront_data = *mfront_rotation_data;\n";
       this->backend->writeCall(os, "rotateBatch",

@@ -18,7 +18,6 @@
 #include <bit>
 #include <array>
 #include <cstddef>
-#include <cstdio>
 #include <type_traits>
 #include <cstring>
 #include <exception>
@@ -790,25 +789,15 @@ namespace mfront::gpb {
   }  // end of report
 
   /*!
-   * \brief fill an output status from the statistics of a batch
+   * \brief fill an output status from the statistics of a batch (see
+   * `mfront_gpb_report`)
    * \return the status
    */
   inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
-    s.number_of_failures = r.number_of_failures;
-    s.first_failure_index = r.first_failure_index;
-    s.number_of_unreliable_results = r.number_of_unreliable_results;
-    s.rdt = r.rdt;
-    if (r.number_of_failures != 0) {
-      s.status = -1;
-      std::snprintf(s.msg, sizeof(s.msg),
-                    "computations failed at %zu integration points, the "
-                    "first one being the point %zu",
-                    static_cast<std::size_t>(r.number_of_failures),
-                    static_cast<std::size_t>(r.first_failure_index));
-      return s.status;
-    }
-    s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
-    return s.status;
+    auto a = AtomicBatchStatistics{};
+    mfront_gpb_initializeBatchStatistics(&a, r.rdt);
+    accumulate(a, r);
+    return mfront_gpb_report(&s, &a);
   }  // end of report
 
   /*!
@@ -1162,12 +1151,12 @@ namespace mfront::gpb {
             true);
         auto values = LocalValues<number_of_outputs>{};
         // the outputs are written and read through the same pointer
-        auto* const outputs = values.data();
+        auto* const point_outputs = values.data();
         const auto status = Integrator::template executePostProcessing<
             Behaviour, PostProcessing, use_initial_state>(
-            outputs, v.data, o, this->policy, this->parameters);
+            point_outputs, v.data, o, this->policy, this->parameters);
         if (status != -1) {
-          internals::scatterValues(this->outputs, i, outputs,
+          internals::scatterValues(this->outputs, i, point_outputs,
                                    number_of_outputs);
           r.status = 1;
         }
