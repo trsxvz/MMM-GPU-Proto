@@ -59,33 +59,73 @@ namespace mfront::generic_parallel::material_property {
     if (this->offload) {
       writeDeviceStackSizeSetting(os, this->device_stack_size);
     }
-    if (this->isBoundsCheckingRequired(mpd)) {
-      // the statuses are allocated on the heap, which must be accessible
-      // by the device when the computations are offloaded (managed memory
-      // with nvc++)
-      writeBoundsStatusesDeclaration(
-          os, mpd, "int", "0", "return new (std::nothrow) int[mfront_n];");
+    const auto checks = this->isBoundsCheckingRequired(mpd);
+    if (checks) {
+      // the statuses of the points are merged by a reduction, as for the
+      // behaviours
+      writeLocalStatisticsDeclaration(os);
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
-    auto write_loop = [this, &os, &types](const std::string_view npoints,
-                                          const bool handleStrides) {
+    auto write_loop = [this, &os, &types, checks](
+                          const std::string_view npoints,
+                          const bool handleStrides) {
       const auto kernel = std::string{
           handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
       os << "{\n"
          << "// loop over the points\n"
          << "const auto mfront_n = static_cast<" << types.integer_type << ">("
          << npoints << ");\n";
+      if (checks) {
+        os << "auto mfront_number_of_failures = 0ull;\n"
+           << "auto mfront_first_failure_index = ::mfront::gpmp::no_event;\n"
+           << "auto mfront_number_of_unreliable_results = 0ull;\n"
+           << "auto mfront_first_violation = ::mfront::gpmp::no_event;\n";
+      }
+      const auto reductions = std::string{
+          checks ? " reduction(+ : mfront_number_of_failures, "
+                   "mfront_number_of_unreliable_results) "
+                   "reduction(min : mfront_first_failure_index, "
+                   "mfront_first_violation)"
+                 : ""};
       if (this->offload) {
         os << "#pragma omp target teams distribute parallel for "
-           << "map(to : " << kernel << ")\n";
+           << "map(to : " << kernel << ")" << reductions << "\n";
       } else {
-        os << "#pragma omp parallel for\n";
+        os << "#pragma omp parallel for" << reductions << "\n";
       }
       os << "for (" << types.integer_type
-         << " mfront_i = 0; mfront_i < mfront_n; ++mfront_i) {\n"
-         << kernel << "(mfront_i);\n"
-         << "}\n"
-         << "}\n";
+         << " mfront_i = 0; mfront_i < mfront_n; ++mfront_i) {\n";
+      if (checks) {
+        os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
+           << "if (mfront_point_status.hasEvent()) {\n"
+           << "if (mfront_point_status.failure) {\n"
+           << "mfront_number_of_failures += 1;\n"
+           << "const auto mfront_ui = static_cast<unsigned long long>("
+           << "mfront_i);\n"
+           << "mfront_first_failure_index = "
+           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
+           << "mfront_first_failure_index;\n"
+           << "} else {\n"
+           << "mfront_number_of_unreliable_results += 1;\n"
+           << "}\n"
+           << "mfront_first_violation = "
+           << "(mfront_point_status.violation < mfront_first_violation) ? "
+           << "mfront_point_status.violation : mfront_first_violation;\n"
+           << "}\n";
+      } else {
+        os << kernel << "(mfront_i);\n";
+      }
+      os << "}\n";
+      if (checks) {
+        os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
+           << "mfront_gpmp_Statistics{"
+           << ".number_of_failures = mfront_number_of_failures, "
+           << ".first_failure_index = mfront_first_failure_index, "
+           << ".number_of_unreliable_results = "
+           << "mfront_number_of_unreliable_results, "
+           << ".first_violation = mfront_first_violation});\n";
+      }
+      os << "}\n";
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall

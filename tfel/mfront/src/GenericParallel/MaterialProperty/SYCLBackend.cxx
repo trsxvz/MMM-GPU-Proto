@@ -154,12 +154,13 @@ namespace mfront::generic_parallel::material_property {
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
     writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
-      // the statuses are held by a block of shared memory, identified by
+      // the statistics are held by a block of shared memory, identified by
       // the device and the context of the queue
-      writeBoundsStatusesDeclaration(
-          os, mpd, "std::pair<sycl::device, sycl::context>",
+      writeStatisticsDeclaration(
+          os, "std::pair<sycl::device, sycl::context>",
           "{mfront_queue->get_device(), mfront_queue->get_context()}",
-          "return sycl::malloc_shared<int>(mfront_n, *mfront_queue);");
+          "return sycl::malloc_shared<mfront_gpmp_Statistics>(1, "
+          "*mfront_queue);");
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
     auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
@@ -205,6 +206,31 @@ namespace mfront::generic_parallel::material_property {
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
   }  // end of writeKernelCall
+
+  bool SYCLBackend::mergesPointStatusesInKernels() const {
+    return true;
+  }  // end of mergesPointStatusesInKernels
+
+  /*!
+   * \return the declaration of an atomic reference to a counter of the
+   * statistics, held by unified shared memory
+   * \param[in] c: counter
+   */
+  static std::string getSYCLAtomicReference(const std::string_view c) {
+    return "::sycl::atomic_ref<unsigned long long, "
+           "::sycl::memory_order::relaxed, ::sycl::memory_scope::device, "
+           "::sycl::access::address_space::global_space>(" +
+           std::string{c} + ")";
+  }  // end of getSYCLAtomicReference
+
+  std::string SYCLBackend::getAtomicIncrement(const std::string_view c) const {
+    return getSYCLAtomicReference(c) + ".fetch_add(1ull)";
+  }  // end of getAtomicIncrement
+
+  std::string SYCLBackend::getAtomicMinimum(const std::string_view c,
+                                            const std::string_view v) const {
+    return getSYCLAtomicReference(c) + ".fetch_min(" + std::string{v} + ")";
+  }  // end of getAtomicMinimum
 
   bool SYCLBackend::handlesDataTransfer() const {
     return this->data_transfer_policy == DataTransferPolicy::AUTOMATIC;

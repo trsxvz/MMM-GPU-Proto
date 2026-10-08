@@ -52,9 +52,8 @@ In addition, the `generic-parallel` interface also exports:
   not suffice: for instance, the `stlpar` backend computes on the host or
   on a GPU depending on the compiler. This memory space is set when the
   library is compiled (see `MFront/GenericParallel/MemorySpace.hxx`),
-- the `<name>_generic_parallel_number_of_statuses` symbol (an `unsigned
-  short`) and the `<name>_generic_parallel_report` function, used by the
-  asynchronous evaluations (see below),
+- the `<name>_generic_parallel_report` function, which analyses the
+  statistics of an evaluation (see below),
 - a function allowing to modify at runtime the value of the parameters
   of the material property, if modification of parameters is allowed
   (see the DSL options `parameters_as_static_variables` options).
@@ -64,7 +63,7 @@ In addition, the `generic-parallel` interface also exports:
 The first generated function matches the following prototype:
 
 ~~~~{.cxx}
-void (*)(mfront_gmp_OutputStatus* const,     // output status
+void (*)(mfront_gpmp_OutputStatus* const,    // output status
          mfront_gmp_real* const,             // output values
          const mfront_gmp_size_type,         // output stride
          const mfront_gmp_real* const* const,  // values of the arguments
@@ -75,9 +74,9 @@ void (*)(mfront_gmp_OutputStatus* const,     // output status
          const mfront_gpmp_ExecutionOptions* const);  // execution options
 ~~~~
 
-The `mfront_gmp_OutputStatus` structure and the
-`mfront_gmp_OutOfBoundsPolicy` enumeration type are described in the
-page dedicated to the [`generic` interface for material
+The output status (`mfront_gpmp_OutputStatus`) is described below. The
+`mfront_gmp_OutOfBoundsPolicy` enumeration type is described in the page
+dedicated to the [`generic` interface for material
 properties](generic-material-property-interface.html). The
 `mfront_gmp_real` type is by default an alias to double precision
 floating point numbers.
@@ -97,7 +96,7 @@ a special case and will use an optimized implementation.
 The second generated function matches the following prototype:
 
 ~~~~{.cxx}
-void (*)(mfront_gmp_OutputStatus* const,     // output status
+void (*)(mfront_gpmp_OutputStatus* const,    // output status
          mfront_gmp_real* const,             // output values
          const mfront_gmp_real* const* const,  // values of the arguments
          const mfront_gmp_size_type,         // number of arguments
@@ -130,68 +129,72 @@ the execution options of the behaviours:
   requires an in-order queue (`sycl::property::queue::in_order`), and is
   refused with an out-of-order queue (status `-5`). A synchronous
   evaluation synchronizes an out-of-order queue before the kernel.
-- `statuses`: statuses of an asynchronous evaluation, or null for a
+- `statistics`: statistics of an asynchronous evaluation, or null for a
   synchronous evaluation (see below).
 - `preserve_stack_size`: if not null, the stack size of the threads of the
   device is never modified and a runtime error is reported if it is too
   small (`device_stack_size` option of the backends).
 
-If no statuses are given, the evaluation is synchronous: the function
+If no statistics are given, the evaluation is synchronous: the function
 returns once the values are computed, and the output status reports the
-violations of the bounds and the invalid results.
+result.
 
 Otherwise, the evaluation may be asynchronous, as the integration of the
 behaviours with statistics: the function returns once the computations
 are submitted to the queue (`CUDA`, `HIP` and `Kokkos` backends, `SYCL`
 backend if no value is copied), and the output status only reports
-invalid arguments and runtime errors. The statuses are an array of
-`<name>_generic_parallel_number_of_statuses` integers, initialized to zero
-by the calling code and accessible by the device as the values. The
-devices only write them when a bound is violated or when a result is
-invalid. Once the computations are completed, the
-`<name>_generic_parallel_report` function reads the statuses on the host
-and reports the result as a synchronous evaluation does:
+invalid arguments and runtime errors. The statistics
+(`mfront_gpmp_Statistics`) are initialized by
+`mfront_gpmp_initializeStatistics` and must be accessible by the device as
+the values. Once the computations are completed, the
+`<name>_generic_parallel_report` function reads them on the host and
+reports the result as a synchronous evaluation does:
 
 ~~~~{.cxx}
-// statuses in managed memory, initialized to zero
-const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
-int* statuses = nullptr;
-cudaMallocManaged(&statuses, n * sizeof(int));
-std::fill(statuses, statuses + n, 0);
+// statistics in managed memory
+mfront_gpmp_Statistics* statistics = nullptr;
+cudaMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics));
+mfront_gpmp_initializeStatistics(statistics);
 const auto options =
-    mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+    mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
 // submission of the computations
 Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
                         npoints, policy, &options);
 // ... other computations submitted to the stream ...
 cudaStreamSynchronize(stream);
-Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
+Inconel600_YoungModulus_generic_parallel_report(&output, statistics, policy);
 ~~~~
 
-A synchronous evaluation calls the same report function on statuses held
-by blocks of memory reused from one call to another.
+A synchronous evaluation calls the same report function on statistics
+held by blocks of memory reused from one call to another.
 
-If the runtime checks are disabled (`disable_runtime_checks` DSL option),
-`<name>_generic_parallel_number_of_statuses` is null: the statuses are
-never written, but a non null pointer is still required to request an
-asynchronous evaluation.
+The statistics have the same structure as the ones of the behaviours: the
+number of points where the evaluation failed, the first of them, the
+number of points where a bound is violated with the warning policy, and
+the first check which failed (see below). The kernels compute the status
+of each point and merge it in the statistics only when an event occurs:
+with integer atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos`
+backends), or by a reduction (C++ parallel algorithms and `OpenMP`), as
+for the behaviours. The reporting of the errors costs nothing when the
+evaluation succeeds. If the runtime checks are disabled
+(`disable_runtime_checks` DSL option), the statistics are never updated.
 
 ## Output status
 
-The output status (`mfront_gmp_OutputStatus`) follows the conventions of
-the `generic` interface for material properties:
+The output status (`mfront_gpmp_OutputStatus`) summarizes the evaluation
+of all the points. Its `status` and `bounds_status` members follow the
+conventions of the `generic` interface for material properties:
 
 - `0`: the result has been evaluated at all points;
-- `1`: an argument or the result is out of its bounds at one point at
-  least, with the warning policy. The result is evaluated at all points
-  but must be used with caution. `bounds_status` gives the rank of the
-  variable (starting at one);
+- `1`: an argument or the result is out of its bounds at some points,
+  with the warning policy. The result is evaluated at all points but must
+  be used with caution. `bounds_status` gives the rank of the variable
+  (starting at one, the output being after the arguments);
 - `-1`: an argument or the result is out of its physical bounds, or out
-  of its bounds with the strict policy, at one point at least. The result
-  is not evaluated at those points. `bounds_status` gives the rank of the
-  variable, negative for a physical bound;
-- `-4`: the result is not finite (`nan` or infinite) at one point at
-  least.
+  of its bounds with the strict policy, at some points. The result is not
+  evaluated at those points. `bounds_status` gives the opposite of the
+  rank of the variable;
+- `-4`: the result is not finite (`nan` or infinite) at some points.
 
 The following statuses are specific to this interface:
 
@@ -205,12 +208,20 @@ The following statuses are specific to this interface:
 - `-7`: uniform output (null stride) with several points or with non
   uniform arguments.
 
-As for behaviours, the error message describes the first error found. It
-is only meaningful if the status is not null. The devices only write the
-statuses when an error occurs: the reporting of the errors costs nothing
-when the evaluation succeeds (see the internal details of the `CUDA`
-backend). `bounds_status` and `c_error_number` are reset to zero at each
-call.
+As for the behaviours, the output status also gives:
+
+- `number_of_failures`: the number of points where the evaluation failed
+  (status `-1` or `-4`);
+- `first_failure_index`: the index of the first of them, or the maximal
+  value of its type. The `generic` interface of the same material
+  property, called at this point, gives the detailed error;
+- `number_of_unreliable_results`: the number of points where a bound is
+  violated with the warning policy.
+
+When several checks fail, the first one in the following order is
+reported: invalid result, physical bounds, then bounds, the variables
+being taken in order, the output after the arguments. The error message
+describes this check, with the number of points concerned.
 
 If the runtime checks are disabled (`disable_runtime_checks` DSL option),
 the number of points, the number of arguments, the signs of the strides,
@@ -265,7 +276,7 @@ thrust::device_vector<double> d_T(T);
 thrust::device_vector<double> d_f(f);
 thrust::device_vector<double> d_G(T.size());
 
-auto output = mfront_gmp_OutputStatus{};
+auto output = mfront_gpmp_OutputStatus{};
 const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
 const auto args = std::array<double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
                                      thrust::raw_pointer_cast(d_f.data())};
@@ -352,22 +363,28 @@ analyses, uncertainty propagation studies or perform a new
 identification. Note that parameters' handling can still be disabled by
 setting the `parameters_as_static_variables` DSL option to `true`.
 
-The errors are handled by a managed array of integers associated with
-all possible kind of errors. This array is only accessed by the device if
-an error occurs, minimizing the cost of error handling. It is taken from a
-pool of arrays allocated at the first call on a device and reused by the
-following calls (see `mfront::generic_parallel::StatusBlockPool`), so that
-no memory is allocated per call. The other backends handle the errors in
-the same way, with the memory accessible by the host and the device of the
-backend (heap, shared USM memory, `Kokkos::SharedSpace`). Those arrays are
-never freed, except with the `Kokkos` backend, which frees them when
-Kokkos is finalized. On output,
-the user knows if an error occurred, but not where this errors occurred.
-For instance, the `UO2_ShearModulus` function may report that one
-temperature passed on input was negative at one evaluation point. For
-material properties, errors are currently associated with violation of
-bounds and physical bounds. Those tests are disabled by setting the
-`disable_runtime_checks` DSL optionto `true`. Note that this option also
+The errors are reported in the statistics of the evaluation, held by
+managed memory. Each thread computes the status of its point and only
+accesses the statistics, with integer atomic operations, if an event
+occurs, minimizing the cost of error handling. For a synchronous
+evaluation, the statistics are taken from a pool of blocks allocated at
+the first call on a device and reused by the following calls (see
+`mfront::generic_parallel::StatusBlockPool`), so that no memory is
+allocated per call. The `HIP`, `SYCL` and `Kokkos` backends handle the
+errors in the same way, with the memory accessible by the host and the
+device of the backend (managed memory, shared USM memory,
+`Kokkos::SharedSpace`). Those blocks are never freed, except with the
+`Kokkos` backend, which frees them when Kokkos is finalized. The C++
+parallel algorithms and `OpenMP` merge the statuses of the points by a
+reduction.
+
+On output, the user knows the number of points where the evaluation
+failed and the first of them. For instance, the `UO2_ShearModulus`
+function may report that the temperature is negative at two points, the
+first one being the point 12. For material properties, errors are
+associated with violation of bounds and physical bounds, and with
+invalid results. Those tests are disabled by setting the
+`disable_runtime_checks` DSL option to `true`. Note that this option also
 disables other checks performed on the host (notably regarding the
 number of arguments passed).
 
@@ -378,8 +395,8 @@ The `HIP` backend is similar to the `CUDA` backend.
 ### Example of usage
 
 ~~~~{.cxx}
-auto output = mfront_gmp_OutputStatus{};
-auto output_qt = mfront_gmp_OutputStatus{};
+auto output = mfront_gpmp_OutputStatus{};
+auto output_qt = mfront_gpmp_OutputStatus{};
 auto E = createManagedData(4);
 const auto T = createManagedData({300, 500, 300, 800});
 const auto policy = mfront_gmp_OutOfBoundsPolicy{};
@@ -419,7 +436,7 @@ execution policy to be used (see below).
 auto G = std::vector<double>(4);
 const auto T = std::vector<double>{300, 500, 300, 800};
 const auto f = std::vector<double>{0.1};
-auto output = mfront_gmp_OutputStatus{};
+auto output = mfront_gpmp_OutputStatus{};
 const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
 const auto args = std::array<const double *, 2u>{T.data(), f.data()};
 const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 0};
@@ -539,7 +556,7 @@ using usm_allocator_type =
 //! \brief a simple alias for a vectors
 using usm_vector = std::vector<double, usm_allocator_type>;
 //
-auto output = mfront_gmp_OutputStatus{};
+auto output = mfront_gpmp_OutputStatus{};
 //
 auto Q = sycl::queue{sycl::gpu_selector_v};
 auto usm_allocator = usm_allocator_type{Q};
@@ -609,8 +626,8 @@ As for the behaviours, `Kokkos` must be a shared library, built without
 relocatable device code, so that the calling code and the generated
 libraries share the same instance of `Kokkos`.
 
-The statuses of the synchronous evaluations are held by memory allocated
-in `Kokkos::SharedSpace`, which must be supported by the `Kokkos`
+The statistics of the synchronous evaluations are held by memory
+allocated in `Kokkos::SharedSpace`, which must be supported by the `Kokkos`
 installation.
 
 ### Options

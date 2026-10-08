@@ -64,14 +64,14 @@ namespace mfront::generic_parallel::material_property {
        << "*static_cast<const mfront_execution_space*>("
        << "mfront_options.queue);\n";
     if (this->isBoundsCheckingRequired(mpd)) {
-      // the statuses are written by the kernels and read on the host. Kokkos
-      // uses one device per process. The blocks are freed when Kokkos is
-      // finalized.
-      writeBoundsStatusesDeclaration(
-          os, mpd, "int", "0",
-          "auto* const mfront_ptr = static_cast<int*>("
+      // the statistics are written by the kernels and read on the host.
+      // Kokkos uses one device per process. The blocks are freed when Kokkos
+      // is finalized.
+      writeStatisticsDeclaration(
+          os, "int", "0",
+          "auto* const mfront_ptr = static_cast<mfront_gpmp_Statistics*>("
           "Kokkos::kokkos_malloc<Kokkos::SharedSpace>("
-          "\"mfront_bounds_statuses\", mfront_n * sizeof(int)));\n"
+          "\"mfront_statistics\", sizeof(mfront_gpmp_Statistics)));\n"
           "Kokkos::push_finalize_hook([mfront_ptr] {\n"
           "Kokkos::kokkos_free<Kokkos::SharedSpace>(mfront_ptr);\n"
           "});\n"
@@ -96,6 +96,21 @@ namespace mfront::generic_parallel::material_property {
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall
+
+  bool KokkosBackend::mergesPointStatusesInKernels() const {
+    return true;
+  }  // end of mergesPointStatusesInKernels
+
+  std::string KokkosBackend::getAtomicIncrement(
+      const std::string_view c) const {
+    return "Kokkos::atomic_add(&(" + std::string{c} + "), 1ull)";
+  }  // end of getAtomicIncrement
+
+  std::string KokkosBackend::getAtomicMinimum(const std::string_view c,
+                                              const std::string_view v) const {
+    return "Kokkos::atomic_min(&(" + std::string{c} + "), " + std::string{v} +
+           ")";
+  }  // end of getAtomicMinimum
 
   std::string KokkosBackend::getMemorySpace() const {
     // the execution space may access the memory of the host or not

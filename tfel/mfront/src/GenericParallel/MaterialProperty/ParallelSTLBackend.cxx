@@ -65,15 +65,16 @@ namespace mfront::generic_parallel::material_property {
     // algorithms have no queue
     writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
-      // the statuses are allocated on the heap, which is accessible by the
-      // device when the computations are offloaded (managed memory with
-      // nvc++)
-      writeBoundsStatusesDeclaration(
-          os, mpd, "int", "0", "return new (std::nothrow) int[mfront_n];");
+      // the statuses of the points are merged by a reduction, as for the
+      // behaviours
+      writeLocalStatisticsDeclaration(os);
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
-    auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
-                                                 const bool handleStrides) {
+    auto write_kernel_call = [&os, this, &types, requiresBoundsCheck](
+                                 const std::string_view npoints,
+                                 const bool handleStrides) {
+      const auto kernel = std::string{
+          handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
       // the iterators of std::views::iota can't be used: with libstdc++,
       // the parallel algorithms run sequentially with them (see the
       // documentation of mfront::generic_parallel::CountingIterator)
@@ -84,16 +85,32 @@ namespace mfront::generic_parallel::material_property {
          << "using mfront_index_type = " << types.integer_type << ";\n"
          << "#endif /* __ADAPTIVECPP__ */ \n"
          << "using mfront_index_iterator = "
-         << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n"
-         << "std::for_each(" << this->execution_policy
-         << ", mfront_index_iterator{0}, "
-         << "mfront_index_iterator{"
-         << "static_cast<mfront_index_type>(" << npoints << ")}, "
-         << "mfront_kernel";
-      if (!handleStrides) {
-        os << "_without_strides";
+         << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n";
+      const auto range = "mfront_index_iterator{0}, mfront_index_iterator{"
+                         "static_cast<mfront_index_type>(" +
+                         std::string{npoints} + ")}";
+      if (!requiresBoundsCheck) {
+        os << "std::for_each(" << this->execution_policy << ", " << range
+           << ", " << kernel << ");\n";
+        return;
       }
-      os << ");\n";
+      os << "const auto mfront_reduced_statistics = std::transform_reduce("
+         << this->execution_policy << ", " << range << ", "
+         << "mfront_gpmp_Statistics{.number_of_failures = 0, "
+         << ".first_failure_index = ::mfront::gpmp::no_event, "
+         << ".number_of_unreliable_results = 0, "
+         << ".first_violation = ::mfront::gpmp::no_event}, "
+         << "[](const mfront_gpmp_Statistics& mfront_a, "
+         << "const mfront_gpmp_Statistics& mfront_b) {\n"
+         << "return ::mfront::gpmp::merge(mfront_a, mfront_b);\n"
+         << "}, "
+         << "[" << kernel << "](const mfront_index_type mfront_i) {\n"
+         << "return ::mfront::gpmp::makeStatistics("
+         << "static_cast<unsigned long long>(mfront_i), " << kernel
+         << "(mfront_i));\n"
+         << "});\n"
+         << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
+         << "mfront_reduced_statistics);\n";
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
   }  // end of writeKernelCall

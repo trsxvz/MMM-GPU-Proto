@@ -325,7 +325,9 @@ The status, also returned by the function, is:
 The status follows the conventions of the `generic` interface for
 behaviours, where `1` denotes a success. The interface for material
 properties follows the conventions of the `generic` interface for material
-properties (`mfront_gmp_OutputStatus`), where `0` denotes a success.
+properties, where `0` denotes a success. Its output status
+(`mfront_gpmp_OutputStatus`) also gives the number of points where the
+evaluation failed and the first of them.
 
 The message describes invalid arguments and runtime errors. The error
 messages of the points (`error_message` of the `generic` interface) are not

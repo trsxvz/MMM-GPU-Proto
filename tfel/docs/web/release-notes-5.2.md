@@ -668,17 +668,25 @@ details](generic-parallel-material-property-interface.html).
 
 - the generated functions take a last argument giving the execution
   options (`mfront_gpmp_ExecutionOptions`, or null for the default
-  options): queue, statuses of an asynchronous evaluation and
-  preservation of the stack size of the threads of the device. The queue
+  options), with the members of the execution options of the behaviours:
+  queue, statistics of an asynchronous evaluation and preservation of the
+  stack size of the threads of the device. The queue
   of the `SYCL` backend, which was a specific argument of its functions,
   is now given by those options. The version of those functions is given
   by the `MFRONT_GPMP_API_VERSION` macro.
-- the evaluation may be asynchronous: the statuses are then analysed by
-  the exported `<name>_generic_parallel_report` function.
+- the output status is specific to the interface
+  (`mfront_gpmp_OutputStatus`): as for the behaviours, it gives the number
+  of points where the evaluation failed, the first of them, and the number
+  of points where a bound is violated with the warning policy. The
+  kernels only update the statistics of the evaluation when an event
+  occurs at a point: the cost of the error reporting is null when the
+  evaluation succeeds.
+- the evaluation may be asynchronous: the statistics
+  (`mfront_gpmp_Statistics`) are then analysed by the exported
+  `<name>_generic_parallel_report` function.
 - the libraries export the `<name>_generic_parallel_backend`,
-  `<name>_generic_parallel_api_version`,
-  `<name>_generic_parallel_memory_space` and
-  `<name>_generic_parallel_number_of_statuses` symbols.
+  `<name>_generic_parallel_api_version` and
+  `<name>_generic_parallel_memory_space` symbols.
 - a bound violated with the warning policy gives the status `1`, as with
   the `generic` interface.
 - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
@@ -901,6 +909,12 @@ code:
 - `StandardElastoViscoPlasticity` brick: wrong name of the derivative of
   a yield radius interpolated by a cubic spline when an identifier is
   used.
+- `generic` interface for material properties: the message of a violated
+  physical upper bound said below instead of over, and `errno` was not
+  restored when an upper bound was violated with the strict policy. The
+  documentation of the bounds status now describes its sign as
+  implemented: negative if the evaluation failed (physical bound, or bound
+  with the strict policy), positive with the warning policy.
 - material properties, all interfaces: the physical bounds of an argument
   were only exported if this argument also had standard bounds.
 - `MFront`: the linker flags are placed after the object files, so that

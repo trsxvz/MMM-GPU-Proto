@@ -106,9 +106,10 @@ namespace mfront::generic_parallel::material_property {
      * `mfront_arg1`, etc., and values of the parameters) and the kernels
      * (without strides and, if strides are treated, with strides).
      *
-     * If bounds checking is required, the array of statuses
-     * `mfront_bounds_statuses` must have been declared before by the backend
-     * (see `writeBoundsStatusesDeclaration`).
+     * If bounds checking is required and if the backend merges the statuses
+     * of the points in the kernels, the statistics `mfront_statistics` must
+     * have been declared before by the backend (see
+     * `writeStatisticsDeclaration`).
      *
      * \param[in] os: output stream
      * \param[in] i: interface

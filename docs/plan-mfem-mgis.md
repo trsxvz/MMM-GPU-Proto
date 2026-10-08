@@ -198,15 +198,7 @@ profil `nsys`.
    dès les premiers matériaux multiples, ou à l'étape 7 ?
 6. **Propriétés matériau aux points de Gauss** : fonctions de MFEM, ou
    propriétés matériau `generic-parallel` évaluées par MGIS ?
-7. **Indice du point en échec pour les propriétés matériau** (voir
-   [tfel.md](tfel.md#comparaison-entre-lois-et-propriétés-matériau)) :
-   - A. statut propre aux propriétés matériau `generic-parallel`, calqué
-     sur les lois (nombre d'échecs, premier point en échec), coût nul en
-     cas de succès (recommandé) ;
-   - B. pointeur facultatif vers l'indice dans les options d'exécution ;
-   - C. en complément de A, tableau optionnel de statuts par point, comme
-     pour les lois.
-8. **Proposition amont** : un chemin parallèle activé par option, pour
+7. **Proposition amont** : un chemin parallèle activé par option, pour
    rester acceptable par les mainteneurs de mfem-mgis.
 
 ## Risques

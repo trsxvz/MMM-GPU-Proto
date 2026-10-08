@@ -259,6 +259,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
 
 install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
 install_mfront_header(MFront/GenericParallelMaterialProperty MaterialProperty.h)
+install_mfront_header(MFront/GenericParallelMaterialProperty PointStatus.hxx)
 install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hxx)
 install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
 install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)

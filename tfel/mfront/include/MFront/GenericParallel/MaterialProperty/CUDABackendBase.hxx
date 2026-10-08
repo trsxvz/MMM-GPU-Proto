@@ -66,6 +66,12 @@ namespace mfront::generic_parallel::material_property {
     ~CUDABackendBase() noexcept override;
 
    protected:
+    //! \brief the statuses of the points are merged with atomic operations
+    [[nodiscard]] bool mergesPointStatusesInKernels() const override;
+    [[nodiscard]] std::string getAtomicIncrement(
+        const std::string_view) const override;
+    [[nodiscard]] std::string getAtomicMinimum(
+        const std::string_view, const std::string_view) const override;
     //! \return the programming model (`hip` or `cuda`)
     [[nodiscard]] virtual std::string getProgrammingModel() const noexcept = 0;
     /*!

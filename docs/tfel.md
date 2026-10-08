@@ -314,70 +314,71 @@ possibilités que celle des lois.
 - **Propriétés définies par des données ou appelant d'autres lois** :
   utilisables sur CUDA et HIP.
 - **Options d'exécution en dernier argument** (version 2 des fonctions,
-  `MFRONT_GPMP_API_VERSION`). Elles ont le même sens que pour les lois :
-  file, statuts d'une évaluation asynchrone, préservation de la pile. Un
-  pointeur nul donne les options par défaut. La file SYCL était un argument
-  propre à ce backend, inséré au milieu des autres : la signature dépendait
-  du backend. Elle passe maintenant par les options, et la signature est
-  la même partout.
-- **Évaluation asynchrone.** Si les options donnent un tableau de statuts,
-  la fonction rend la main dès le calcul soumis (`cuda`, `hip`, `kokkos`,
-  `sycl` sans copie). Le tableau contient
-  `<nom>_generic_parallel_number_of_statuses` entiers mis à zéro par
-  l'appelant. Une fois le calcul fini, la fonction exportée
-  `<nom>_generic_parallel_report` analyse les statuts et remplit le statut
-  de sortie, message nommant la variable compris. L'évaluation synchrone
-  appelle la même fonction : l'analyse n'est écrite qu'une fois.
+  `MFRONT_GPMP_API_VERSION`). Elles ont les membres des options des lois,
+  avec le même sens : file, statistiques d'une évaluation asynchrone,
+  préservation de la pile. Un pointeur nul donne les options par défaut.
+  La file SYCL était un argument propre à ce backend, inséré au milieu des
+  autres : la signature dépendait du backend. Elle passe maintenant par
+  les options, et la signature est la même partout.
+- **Statut de sortie et statistiques calqués sur les lois.** Le statut de
+  sortie (`mfront_gpmp_OutputStatus`) donne, en plus du statut et du rang
+  de la variable hors bornes, le nombre de points en échec, le premier
+  d'entre eux et le nombre de points hors bornes avec la politique
+  `Warning`. Chaque noyau calcule le statut de son point et ne le fusionne
+  dans les statistiques (`mfront_gpmp_Statistics`) qu'en cas d'événement :
+  opérations atomiques pour CUDA, HIP, SYCL et Kokkos, réduction pour les
+  algorithmes parallèles et OpenMP, comme pour les lois. Coût nul en cas
+  de succès.
+- **Évaluation asynchrone.** Si les options donnent des statistiques,
+  initialisées par `mfront_gpmp_initializeStatistics`, la fonction rend la
+  main dès le calcul soumis (`cuda`, `hip`, `kokkos`, `sycl` sans copie).
+  Une fois le calcul fini, la fonction exportée
+  `<nom>_generic_parallel_report` analyse les statistiques et remplit le
+  statut de sortie. L'évaluation synchrone appelle la même fonction :
+  l'analyse n'est écrite qu'une fois.
 - **Symboles** : backend, version des fonctions, espace mémoire, comme
   pour les lois.
-- **Statuts sans coût en cas de succès** : blocs réutilisés pour tous les
-  backends au lieu d'une allocation par appel ; attente du flux au lieu de
-  tout le GPU (CUDA, HIP) ; attente de l'instance utilisée au lieu de tout
-  Kokkos.
+- **Blocs réutilisés** : les statistiques d'une évaluation synchrone
+  viennent d'une réserve de blocs, sans allocation par appel ; attente du
+  flux au lieu de tout le GPU (CUDA, HIP) ; attente de l'instance utilisée
+  au lieu de tout Kokkos.
 - **Statut 1 avec la politique `Warning`** : une borne violée donne
   maintenant le statut 1 (résultat calculé, à utiliser avec précaution),
   comme l'interface `generic`. Le statut restait nul.
 
-Les statuts gardent le sens de l'interface `generic` des propriétés
-matériau : `0` succès, `1` borne violée avec la politique `Warning`, `-1`
-borne physique violée ou borne violée avec la politique `Strict`, `-4`
-résultat non fini. L'interface ajoute `-2` (exception sur l'hôte), `-5`
-(arguments invalides, file SYCL absente, évaluation asynchrone sur une file
-SYCL non ordonnée), `-6` (erreur du backend) et `-7` (sortie uniforme
-incohérente).
+Le statut et le rang de la variable gardent le sens de l'interface
+`generic` des propriétés matériau : `0` succès, `1` borne violée avec la
+politique `Warning` (rang positif), `-1` borne physique violée ou borne
+violée avec la politique `Strict` (rang négatif), `-4` résultat non fini.
+L'interface ajoute `-2` (exception sur l'hôte), `-5` (arguments invalides,
+file SYCL absente, évaluation asynchrone sur une file SYCL non ordonnée),
+`-6` (erreur du backend) et `-7` (sortie uniforme incohérente). Quand
+plusieurs vérifications échouent, la première dans l'ordre suivant est
+rapportée : résultat non fini, bornes physiques, bornes, les variables
+dans l'ordre, la sortie après les arguments.
 
 ## Comparaison entre lois et propriétés matériau
 
 | | Lois et modèles | Propriétés matériau |
 |---|---|---|
 | Appel | structure du lot | arguments et pas |
-| File d'exécution | options d'exécution | options d'exécution |
+| Options d'exécution | file, statistiques, pile | mêmes membres |
 | Synchrone ou asynchrone | au choix de l'appelant | au choix de l'appelant |
-| Compte rendu asynchrone | statistiques lues après synchronisation | statuts analysés par `<nom>_generic_parallel_report` |
+| Compte rendu asynchrone | statistiques lues après synchronisation | statistiques analysées par `<nom>_generic_parallel_report` |
+| Fusion des statuts des points | atomique (CUDA, HIP, SYCL, Kokkos), réduction (algorithmes parallèles, OpenMP) | identique |
+| Nombre de points en échec, premier point en échec | oui | oui |
 | Pile des fils | `preserve_stack_size` | `preserve_stack_size` |
 | Espace mémoire, backend, version | symboles exportés | symboles exportés |
-| Nombre de points en échec, premier point en échec | oui | non |
-| Statut par point | optionnel | non |
+| Tableau optionnel des statuts par point | oui | non |
 
-La seule différence vient du statut de sortie des propriétés matériau. Il
-reprend celui de l'interface `generic` des propriétés matériau, conçu pour
-un seul point : statut, rang de la variable hors bornes et message. Les
-noyaux n'écrivent que des drapeaux : deux par variable (borne physique,
-borne standard) et un pour un résultat non fini. Un drapeau dit qu'au
-moins un point a violé une borne, pas lequel.
+Il reste une différence : le tableau optionnel des statuts par point. Il
+n'est pas ajouté aux propriétés matériau (option écartée). MGIS ne
+l'expose pour aucune des deux interfaces.
 
-Trois façons de combler l'écart, à discuter :
-
-- **A.** Un statut propre aux propriétés matériau `generic-parallel`,
-  calqué sur celui des lois : nombre d'échecs et premier point en échec,
-  mis à jour par opération atomique seulement en cas d'échec. Les lois ont
-  déjà un statut distinct de celui de l'interface `generic` : c'est la
-  solution la plus symétrique. La signature des fonctions change.
-- **B.** Un pointeur facultatif vers l'indice dans les options
-  d'exécution. Moins de changements, mais l'information n'est pas au même
-  endroit que pour les lois, et le nombre d'échecs manque.
-- **C.** En complément de A, un tableau optionnel de statuts par point,
-  comme celui des lois.
+Les statistiques ne peuvent pas avoir exactement la même structure. Celles
+des lois portent le facteur de pas de temps, celles des propriétés
+matériau la première vérification en échec, qui sert à nommer la variable
+dans le message.
 
 ## Code GPU dans TFEL et MFront
 
@@ -460,6 +461,12 @@ Modèles et propriétés matériau :
   chargées dans un processus ;
 - bornes physiques des arguments des propriétés matériau exportées même
   sans bornes standard ;
+- interface `generic` des propriétés matériau : message de la borne
+  physique supérieure (« below » au lieu de « over »), `errno` restauré
+  quand une borne supérieure est violée avec la politique `Strict`, et
+  documentation du signe du rang de la variable (négatif quand
+  l'évaluation échoue, y compris pour une borne avec la politique
+  `Strict`, comme le code le fait et comme les tests de MGIS l'attendent) ;
 - interface `generic-parallel` des propriétés matériau : code généré avec
   les vérifications désactivées, mémoire SYCL libérée après chaque appel,
   pointeurs des arguments copiés dans les noyaux (le tableau de l'appelant

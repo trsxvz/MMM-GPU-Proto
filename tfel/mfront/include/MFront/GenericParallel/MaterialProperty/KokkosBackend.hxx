@@ -52,6 +52,12 @@ namespace mfront::generic_parallel::material_property {
     ~KokkosBackend() noexcept override;
 
    protected:
+    //! \brief the statuses of the points are merged with atomic operations
+    [[nodiscard]] bool mergesPointStatusesInKernels() const override;
+    [[nodiscard]] std::string getAtomicIncrement(
+        const std::string_view) const override;
+    [[nodiscard]] std::string getAtomicMinimum(
+        const std::string_view, const std::string_view) const override;
     //
     [[nodiscard]] std::string getKernelSpecifiers() const override;
     void writeKernelCall(std::ostream&,

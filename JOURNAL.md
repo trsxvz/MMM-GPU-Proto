@@ -22,6 +22,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | R9 | espace mémoire des bibliothèques |
 | R10 | options d'exécution et évaluation asynchrone des propriétés matériau |
 | R11 | documentation de TFEL et de MGIS à jour |
+| R12 | statistiques des propriétés matériau calquées sur les lois |
 | D1 | MGIS : lots de lois, de modèles et de propriétés matériau |
 | D2 | mfem-mgis : plan à discuter ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
 
@@ -94,6 +95,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | [2026-10-08 (soir, fin), files SYCL et blocs de fils des propriétés matériau (R10, fin)](#2026-10-08-soir-fin-files-sycl-et-blocs-de-fils-des-propriétés-matériau-r10-fin) |
 | [2026-10-08 (nuit), documentation de TFEL et de MGIS (R11)](#2026-10-08-nuit-documentation-de-tfel-et-de-mgis-r11) |
 | [2026-10-08 (nuit, suite), calcul asynchrone dans MGIS (D1, étape 5)](#2026-10-08-nuit-suite-calcul-asynchrone-dans-mgis-d1-étape-5) |
+| [2026-10-08 (nuit, fin), premier point en échec des propriétés matériau (R12)](#2026-10-08-nuit-fin-premier-point-en-échec-des-propriétés-matériau-r12) |
 
 ## Entrées
 
@@ -2192,4 +2194,54 @@ configurations est choisie (vérifié par une configuration avec
 
 Reste à discuter : l'indice du premier point en échec pour les propriétés
 matériau (trois options dans [docs/tfel.md](docs/tfel.md#comparaison-entre-lois-et-propriétés-matériau)).
+
+### 2026-10-08 (nuit, fin), premier point en échec des propriétés matériau (R12)
+
+Les propriétés matériau `generic-parallel` reprenaient le statut de
+l'interface `generic`, conçu pour un seul point. Elles ne disaient ni
+combien de points avaient échoué, ni lequel en premier. C'était la
+dernière différence avec les lois. Option retenue : un statut propre,
+calqué sur celui des lois.
+
+TFEL :
+
+- statistiques (`mfront_gpmp_Statistics`) et statut de sortie
+  (`mfront_gpmp_OutputStatus`) propres à l'interface : nombre de points
+  en échec, premier d'entre eux, nombre de points hors bornes avec la
+  politique `Warning`, première vérification en échec (pour nommer la
+  variable dans le message) ;
+- options d'exécution avec les membres de celles des lois : file,
+  statistiques (asynchrone), pile. Le tableau de statuts et le symbole
+  `<name>_generic_parallel_number_of_statuses` disparaissent ;
+- chaque noyau calcule le statut de son point dans une lambda, et ne le
+  fusionne qu'en cas d'événement : opérations atomiques pour CUDA, HIP,
+  SYCL et Kokkos, réduction pour les algorithmes parallèles et OpenMP,
+  comme pour les lois. Coût nul en cas de succès ;
+- nouveau défaut de `nvc++` 25.11 (`-mp=gpu`, -O0 à -O3) : une lambda
+  imbriquée qui capture par référence un pointeur capturé par le noyau
+  n'écrit pas par ce pointeur. Contournement : capture par copie.
+  Reproducteur : `results/nvhpc-bugs/omp-lambda-reference-capture.cxx`.
+
+Le signe du rang de la variable hors bornes a été examiné. La doc de
+l'interface `generic` le dit négatif pour une borne physique. Le code le
+rend négatif dès que l'évaluation échoue, borne avec la politique
+`Strict` comprise, et un test du master de MGIS l'attend. Le comportement
+est gardé, l'interface `generic-parallel` le suit, et la doc est corrigée.
+Deux défauts de l'interface `generic` sont corrigés : message de la borne
+physique supérieure, `errno` non restauré.
+
+MGIS : copies des nouvelles structures (dispositions vérifiées à la
+compilation), `evaluate` rend un `MaterialPropertyEvaluationResult`
+(statut, rang, indice du premier point en échec, message), le même pour
+les deux interfaces, comme `BehaviourIntegrationResult`. L'indice est le
+même en `generic` et en `generic-parallel` (testé).
+
+Tests : propriétés matériau de TFEL sur les 16 configurations (tous les
+backends et compilateurs), avec le nombre d'échecs, le premier point en
+échec et les résultats peu fiables ; tests `generic` de TFEL (6412) ;
+MGIS 45 sur 45, dont CUDA.
+
+Il reste une différence, écartée : le tableau optionnel de statuts par
+point des lois n'existe pas pour les propriétés matériau. MGIS ne l'expose
+pour aucune des deux.
 

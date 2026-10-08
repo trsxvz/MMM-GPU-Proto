@@ -73,7 +73,7 @@ namespace mfront::generic_parallel::material_property {
       os << ",\nconst " << types.integer_type << " mfront_output_stride";
     }
     if (isBoundsCheckingRequired(mpd)) {
-      os << ",\nint* const mfront_bounds_statuses"
+      os << ",\nmfront_gpmp_Statistics* const mfront_statistics"
          << ",\nconst " << types.integer_type << " mfront_out_of_bounds_policy";
     }
     if ((!areParametersTreatedAsStaticVariables(mpd)) &&
@@ -130,7 +130,7 @@ namespace mfront::generic_parallel::material_property {
     const auto pm = this->getProgrammingModel();
     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
     if (isBoundsCheckingRequired(mpd)) {
-      // the statuses are held by a block of managed memory of the current
+      // the statistics are held by a block of managed memory of the current
       // device
       os << "auto mfront_device = int{};\n"
          << "const auto mfront_" << pm << "_device_error = " << pm
@@ -141,11 +141,12 @@ namespace mfront::generic_parallel::material_property {
          << "_device_error));\n"
          << "return;\n"
          << "}\n";
-      writeBoundsStatusesDeclaration(
-          os, mpd, "int", "mfront_device",
-          "int* mfront_ptr = nullptr;\n"
+      writeStatisticsDeclaration(
+          os, "int", "mfront_device",
+          "mfront_gpmp_Statistics* mfront_ptr = nullptr;\n"
           "return " +
-              pm + "MallocManaged(&mfront_ptr, mfront_n * sizeof(int)) == " +
+              pm +
+              "MallocManaged(&mfront_ptr, sizeof(mfront_gpmp_Statistics)) == " +
               pm + "Success ? mfront_ptr : nullptr;");
     }
     this->writeKernelCall(os, i, mpd, treatStrides);
@@ -194,7 +195,7 @@ namespace mfront::generic_parallel::material_property {
         os << "mfront_output_stride, ";
       }
       if (isBoundsCheckingRequired(mpd)) {
-        os << "mfront_bounds_statuses, mfront_out_of_bounds_policy, ";
+        os << "mfront_statistics, mfront_out_of_bounds_policy, ";
       }
       if ((!areParametersTreatedAsStaticVariables(mpd)) &&
           (!mpd.parameters.empty())) {
@@ -231,6 +232,20 @@ namespace mfront::generic_parallel::material_property {
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
   }  // end of writeKernelCall
+
+  bool CUDABackendBase::mergesPointStatusesInKernels() const {
+    return true;
+  }  // end of mergesPointStatusesInKernels
+
+  std::string CUDABackendBase::getAtomicIncrement(
+      const std::string_view c) const {
+    return "atomicAdd(&(" + std::string{c} + "), 1ull)";
+  }  // end of getAtomicIncrement
+
+  std::string CUDABackendBase::getAtomicMinimum(
+      const std::string_view c, const std::string_view v) const {
+    return "atomicMin(&(" + std::string{c} + "), " + std::string{v} + ")";
+  }  // end of getAtomicMinimum
 
   std::string CUDABackendBase::getMemorySpace() const {
     return "mfront::generic_parallel::device_memory_space";

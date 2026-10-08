@@ -87,8 +87,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test1() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -105,10 +105,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                args_strides.data(), 1, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
@@ -118,8 +118,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test2() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -136,10 +136,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                args_strides.data(), 1, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
@@ -149,8 +149,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test3() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -167,10 +167,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 0, args.data(),
                                args_strides.data(), 1, 1, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
     TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
     TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
@@ -178,8 +178,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test4() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -195,10 +195,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
                                 policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
@@ -208,8 +208,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   // check detection of physical bounds violation
   void test5() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -226,10 +226,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                args_strides.data(), 1, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
@@ -241,8 +243,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test6() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -258,10 +260,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
                                 policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
@@ -273,8 +277,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test7() {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -291,10 +295,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 3, args.data(),
                                args_strides.data(), 1, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
     for (std::size_t i = 0; i != 4; ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
@@ -303,8 +307,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   }
 
   void test8() {
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -339,8 +343,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test9() {
     constexpr auto eps = double{1e-14};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -351,7 +355,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     PoissonRatioTest(&output, nu.data(), 1, nullptr, nullptr, 0, 4, policy,
                      &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != nu.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
@@ -365,8 +369,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test10() {
     constexpr auto eps = double{1e-14};
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -376,7 +380,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     PoissonRatioTest2(&output, nu.data(), nullptr, 0, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != nu.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
@@ -398,8 +402,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
     };
     //
-    auto output = mfront_gmp_OutputStatus{};
-    auto output_qt = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
+    auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
@@ -414,7 +418,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
                                 args_strides.data(), args.size(), 4, policy,
                                 &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
@@ -450,7 +454,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       const std::array<double, 4u>& T_values,
       const std::array<double, 4u>& references) {
     constexpr auto eps = double{1e-2};
-    auto output = mfront_gmp_OutputStatus{};
+    auto output = mfront_gpmp_OutputStatus{};
     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
     auto v = usm_vector(T_values.size(), Q);
@@ -461,7 +465,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
        T.size(), policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     for (std::size_t i = 0; i != v.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);

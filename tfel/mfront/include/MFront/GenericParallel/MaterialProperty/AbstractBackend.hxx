@@ -83,26 +83,7 @@ namespace mfront::generic_parallel::material_property {
      * `host`, `device` or `any`
      */
     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
-    /*!
-     * \return the number of statuses written by the kernels, given by the
-     * calling code for an asynchronous evaluation (see the `statuses` member
-     * of `mfront_gpmp_ExecutionOptions`), null if the runtime checks are
-     * disabled
-     * \param[in] mpd: material property description
-     */
-    [[nodiscard]] virtual std::size_t getNumberOfStatuses(
-        const MaterialPropertyDescription&) const = 0;
-    /*!
-     * \brief write the function analysing the statuses written by the
-     * kernels and reporting the result in an output status
-     * (`<name>_generic_parallel_report`), called by the synchronous
-     * evaluations and by the calling code after an asynchronous evaluation
-     *
-     * \param[in] os: output stream
-     * \param[in] i: interface
-     * \param[in] mpd: material property description
-     */
-    virtual void writeStatusesReportFunction(
+    virtual void writeReportFunction(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const = 0;

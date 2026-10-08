@@ -89,7 +89,7 @@ namespace mfront {
     types.real_type = "mfront_gmp_real";
     types.integer_type = "mfront_gmp_size_type";
     types.out_of_bounds_policy_type = "mfront_gmp_OutOfBoundsPolicy";
-    types.output_status_type = "mfront_gmp_OutputStatus";
+    types.output_status_type = "mfront_gpmp_OutputStatus";
     return types;
   }  // end of getTypesDescription
 
@@ -318,13 +318,15 @@ namespace mfront {
        << "#include<vector>\n"
        << "#include<locale>\n"
        << "#include<cmath>\n"
+       << "#include<limits>\n"
        << "#include<optional>\n";
     os << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
        << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
        << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n"
-       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
+       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n"
+       << "#include\"MFront/GenericParallelMaterialProperty/PointStatus.hxx\"\n";
     if (useQuantities(mpd)) {
       os << "#include\"TFEL/Math/qt.hxx\"\n"
          << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
@@ -364,9 +366,6 @@ namespace mfront {
                  "MFRONT_GPMP_API_VERSION");
     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
                  this->backend->getMemorySpace());
-    exportSymbol(os, "unsigned short",
-                 name + "_generic_parallel_number_of_statuses",
-                 std::to_string(this->backend->getNumberOfStatuses(mpd)));
     writeLawSymbol(os, name, mpd.law);
     writeMaterialSymbol(os, name, mpd.material);
     writeMaterialKnowledgeTypeSymbol(os, name,
@@ -382,7 +381,7 @@ namespace mfront {
          .floating_point_type = "double",
          .interface_namespace = nname});
 
-    this->backend->writeStatusesReportFunction(os, *this, mpd);
+    this->backend->writeReportFunction(os, *this, mpd);
     this->backend->writeCImplementations(os, *this, mpd, fd);
 
     os << "#ifdef __cplusplus\n"

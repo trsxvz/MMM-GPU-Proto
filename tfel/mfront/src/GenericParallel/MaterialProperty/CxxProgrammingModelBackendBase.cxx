@@ -126,7 +126,10 @@ namespace mfront::generic_parallel::material_property {
       os << ", mfront_strides";
     }
     if (isBoundsCheckingRequired(mpd)) {
-      os << ", mfront_bounds_statuses, mfront_out_of_bounds_policy";
+      os << ", mfront_out_of_bounds_policy";
+      if (this->mergesPointStatusesInKernels()) {
+        os << ", mfront_statistics";
+      }
     }
     if ((!areParametersTreatedAsStaticVariables(mpd)) &&
         (!mpd.parameters.empty())) {

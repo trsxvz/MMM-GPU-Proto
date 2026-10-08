@@ -117,8 +117,8 @@ les mêmes fonctions de lot et les mêmes paramètres (`setParameter`).
 ```cpp
 const auto mp = mgis::material_property::load(library, "YoungModulus");
 const auto inputs = std::array{std::span<const real>(temperatures)};
-auto s = evaluate(values, mp, inputs);                    // file par défaut
-auto s = evaluate(policy, values, mp, inputs, location);  // file choisie
+auto r = evaluate(values, mp, inputs);                    // file par défaut
+auto r = evaluate(policy, values, mp, inputs, location);  // file choisie
 ```
 
 Au chargement, MGIS lit l'interface, la version des fonctions, le backend
@@ -127,8 +127,15 @@ et l'espace mémoire. Il charge la fonction d'un ensemble de points
 propriété sur un ensemble de points. Chaque entrée est uniforme (une
 valeur) ou donnée par point. Comme `integrate`, `evaluate` fait un seul
 appel pour une propriété `generic-parallel` et calcule point par point sur
-l'hôte sinon. Le statut garde le sens de l'interface `generic` des
-propriétés matériau.
+l'hôte sinon.
+
+Le résultat (`MaterialPropertyEvaluationResult`) est le même pour les deux
+interfaces, comme `BehaviourIntegrationResult` pour les lois : statut et
+rang de la variable hors bornes (sens de l'interface `generic`), indice du
+premier point en échec, message. Le calcul point par point s'arrête au
+premier échec, le lot calcule tous les points : l'indice rapporté est le
+même. Au chargement, MGIS lit aussi la fonction de compte rendu des
+statistiques (`batch_report_fct`).
 
 ## Mémoire
 
