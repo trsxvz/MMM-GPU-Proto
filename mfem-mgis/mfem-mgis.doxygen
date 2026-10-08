@@ -1,0 +1,37 @@
+/*!
+ * \file mfem-mgis.doxygen
+ * \brief This file contains the main page of the doxygen
+ * documentation and the documentation of the mfem_mgis namespace.
+ */
+
+/*!
+ * \mainpage An introduction to the MFEM/MGIS project
+ * \author   Thomas Helfer
+ * \date     20/02/2025
+ *
+ * MFEM/MGIS is a C++ library for nonlinear thermo-mechanical simulations on
+ * HPC systems, combining [`MFEM`](https://mfem.org/) finite elements and
+ * [`MFront`](https://thelfer.github.io/tfel/web/index.html) behaviours
+ * through [`MGIS`](https://github.com/thelfer/MFrontGenericInterfaceSupport).
+ *
+ * The goal and features of MFEM/MGIS are described in its
+ * [JOSS paper](https://doi.org/10.21105/joss.07719).
+ *
+ * The MFEM/MGIS project documentation is available
+ * [here](https://thelfer.github.io/mfem-mgis/).
+ *
+ * A tutorial based on a mechanical notched beam is given
+ * [here](https://thelfer.github.io/mfem-mgis/user_guide/tutorial.html).
+ *
+ * Installation guidelines are available
+ * [here](https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html).
+ *
+ * Some examples of MFEM/MGIS use are stored in
+ * [mfem-mgis-examples](https://github.com/latug0/mfem-mgis-examples) and
+ * [mm-opera-hpc](https://github.com/rprat-pro/mm-opera-hpc).
+ */
+
+/*!
+ * \namespace mfem_mgis
+ * \brief the namespace mfem_mgis encloses all the MFEM/MGIS project.
+ */

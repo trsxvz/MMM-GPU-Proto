@@ -1,0 +1,276 @@
+/*!
+ * \file   src/UniformHeatSourceBoundaryCondition.cxx
+ * \brief  This file implements the `UniformHeatSourceBoundaryCondition` class
+ * \author Thomas Helfer
+ * \date   27/09/2024
+ */
+
+#include <iterator>
+#include <iostream>
+
+#include <algorithm>
+#include "mfem/fem/linearform.hpp"
+#include "mfem/fem/nonlinearform.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/fem/plinearform.hpp"
+#include "mfem/fem/pnonlinearform.hpp"
+#endif /* MFEM_USE_MPI */
+#include "mfem/fem/nonlininteg.hpp"
+#include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/Parameter.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
+
+namespace mfem_mgis {
+
+  //! \brief base class of the form integrators imposing a uniform heat source
+  struct UniformHeatSourceBoundaryCondition::
+      UniformHeatSourceFormIntegratorBase {
+    //! \brief constructor
+    UniformHeatSourceFormIntegratorBase()
+        : heat_source(0) {}  // end of UniformHeatSourceFormIntegratorBase
+    void setHeatSource(const real pr) { this->heat_source = pr; }
+    //! \brief destructor
+    virtual ~UniformHeatSourceFormIntegratorBase() = default;
+
+   protected:
+    //
+    [[nodiscard]] virtual const mfem::IntegrationRule *getIntegrationRule(
+        const mfem::FiniteElement &e) const noexcept = 0;
+    //
+    void computeResidual(mfem::Vector &R,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr) {
+      const int nnodes = e.GetDof();
+#ifdef MFEM_THREAD_SAFE
+      mfem::Vector shape;
+#endif
+      //
+      shape.SetSize(nnodes);
+      // initialize the residual
+      R.SetSize(nnodes);
+      R = 0.0;
+      // selection of the integration rule
+      const auto *ir = this->getIntegrationRule(e);
+      // loop over the integration point
+      for (int i = 0; i < ir->GetNPoints(); i++) {
+        const auto &ip = ir->IntPoint(i);
+        tr.SetIntPoint(&ip);
+        // computation of the external forces
+        e.CalcShape(ip, shape);
+        for (int ni = 0; ni != nnodes; ++ni) {
+          R[ni] += ip.weight * tr.Weight() * (this->heat_source) * shape[ni];
+        }
+      }
+    }  // end of computeResidual
+
+    real heat_source;
+
+#ifndef MFEM_THREAD_SAFE
+   private:
+    //! \brief vector used to store the value of the shape functions
+    mfem::Vector shape;
+#endif
+  };
+
+  //! \brief linear form implementing a uniform imposed heat source
+  struct UniformHeatSourceBoundaryCondition::
+      UniformHeatSourceLinearFormIntegrator final
+      : public LinearFormIntegrator,
+        public UniformHeatSourceBoundaryCondition::
+            UniformHeatSourceFormIntegratorBase {
+    //! \brief constructor
+    UniformHeatSourceLinearFormIntegrator() {
+    }  // end of UniformHeatSourceLinearFormIntegrator
+    // MFEM API
+    void AssembleRHSElementVect(const mfem::FiniteElement &e,
+                                mfem::ElementTransformation &tr,
+                                mfem::Vector &R) override {
+      this->computeResidual(R, e, tr);
+    }  // end of AssembleElementVector
+    //! \brief destructor
+    ~UniformHeatSourceLinearFormIntegrator() override = default;
+
+   protected:
+    [[nodiscard]] const mfem::IntegrationRule *getIntegrationRule(
+        const mfem::FiniteElement &e) const noexcept override {
+      const auto *ir = this->IntRule;
+      if (ir == nullptr) {
+        const auto o = 2 * e.GetOrder();
+        return &mfem::IntRules.Get(e.GetGeomType(), o);
+      }
+      return ir;
+    }  // end of getIntegrationRule
+  };   // end of UniformHeatSourceLinearFormIntegrator
+
+  //! \brief nonlinear form implementing a uniform imposed heat source
+  struct UniformHeatSourceBoundaryCondition::
+      UniformHeatSourceNonlinearFormIntegrator final
+      : public NonlinearFormIntegrator,
+        public UniformHeatSourceBoundaryCondition::
+            UniformHeatSourceFormIntegratorBase {
+    //! \brief constructor
+    UniformHeatSourceNonlinearFormIntegrator() {
+    }  // end of UniformHeatSourceNonlinearFormIntegrator
+    // MFEM API
+    void AssembleElementVector(const mfem::FiniteElement &e,
+                               mfem::ElementTransformation &tr,
+                               const mfem::Vector &,
+                               mfem::Vector &R) override {
+      this->computeResidual(R, e, tr);
+    }  // end of AssembleElementVector
+
+    void AssembleElementGrad(const mfem::FiniteElement &e,
+                             mfem::ElementTransformation &,
+                             const mfem::Vector &,
+                             mfem::DenseMatrix &K) override {
+      const int nnodes = e.GetDof();
+      K.SetSize(nnodes, nnodes);
+      K = 0.0;
+    }
+    //! \brief destructor
+    ~UniformHeatSourceNonlinearFormIntegrator() override = default;
+
+   protected:
+    [[nodiscard]] const mfem::IntegrationRule *getIntegrationRule(
+        const mfem::FiniteElement &e) const noexcept override {
+      const auto *ir = this->IntRule;
+      if (ir == nullptr) {
+        const auto o = 2 * e.GetOrder();
+        return &mfem::IntRules.Get(e.GetGeomType(), o);
+      }
+      return ir;
+    }  // end of getIntegrationRule
+  };   // end of UniformHeatSourceNonlinearFormIntegrator
+
+  UniformHeatSourceBoundaryCondition::UniformHeatSourceBoundaryCondition(
+      AbstractNonLinearEvolutionProblem &p, const Parameters &params)
+      : finiteElementDiscretization(p.getFiniteElementDiscretizationPointer()),
+        mids(getMaterialsIdentifiers(throwing, p, params, false)),
+        qfct(get<std::function<real(const real)>>(
+            throwing, params, "LoadingEvolution")),
+        nfi(new UniformHeatSourceNonlinearFormIntegrator) {
+    if (!qfct) {
+      raise("invalid evolution of the heat source");
+    }
+  }
+
+  UniformHeatSourceBoundaryCondition::UniformHeatSourceBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const size_type mid,
+      std::function<real(const real)> prvalues)
+      : finiteElementDiscretization(fed),
+        mids(1, mid),
+        qfct(prvalues),
+        nfi(new UniformHeatSourceNonlinearFormIntegrator) {
+    if (!qfct) {
+      raise("invalid evolution of the heat source");
+    }
+  }
+
+  UniformHeatSourceBoundaryCondition::UniformHeatSourceBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const std::string_view mid,
+      std::function<real(const real)> prvalues)
+      : finiteElementDiscretization(fed),
+        mids(getMaterialsIdentifiers(throwing, *fed, mid)),
+        qfct(prvalues),
+        nfi(new UniformHeatSourceNonlinearFormIntegrator) {
+    if (!qfct) {
+      raise("invalid evolution of the heat source");
+    }
+  }
+
+  bool UniformHeatSourceBoundaryCondition::setup(Context &ctx,
+                                                 const real t,
+                                                 const real dt) noexcept {
+    auto success = true;
+    try {
+      this->nfi->setHeatSource(this->qfct(t + dt));
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+      success = false;
+    }
+    return isTrueOnAllProcesses(*(this->finiteElementDiscretization), success);
+  }  // end of setup
+
+#ifdef MFEM_USE_MPI
+  bool UniformHeatSourceBoundaryCondition::addNonlinearFormIntegrator(
+      Context &, NonlinearForm<true> &f, const mfem::Vector &) noexcept {
+    auto &m = this->finiteElementDiscretization->getMesh<true>();
+    this->materials_markers =
+        mfem::Array<mfem_mgis::size_type>(m.attributes.Max());
+    this->materials_markers = 0;
+    for (const auto &mid : mids) {
+      this->materials_markers[mid - 1] = 1;
+    }
+    f.AddDomainIntegrator(this->nfi, this->materials_markers);
+    this->shallFreeIntegrator = false;
+    return true;
+  }    // end of addNonlinearFormIntegrator
+#endif /* MFEM_USE_MPI */
+
+  bool UniformHeatSourceBoundaryCondition::addNonlinearFormIntegrator(
+      Context &, NonlinearForm<false> &f, const mfem::Vector &) noexcept {
+    auto &m = this->finiteElementDiscretization->getMesh<false>();
+    this->materials_markers =
+        mfem::Array<mfem_mgis::size_type>(m.attributes.Max());
+    this->materials_markers = 0;
+    for (const auto &mid : mids) {
+      this->materials_markers[mid - 1] = 1;
+    }
+    f.AddDomainIntegrator(this->nfi, this->materials_markers);
+    this->shallFreeIntegrator = false;
+    return true;
+  }  // end of addNonlinearFormIntegrator
+
+#ifdef MFEM_USE_MPI
+  bool UniformHeatSourceBoundaryCondition::addLinearFormIntegrators(
+      Context &,
+      BilinearForm<true> &,
+      LinearForm<true> &b,
+      const mfem::Vector &,
+      const real t,
+      const real dt) noexcept {
+    auto &m = this->finiteElementDiscretization->getMesh<true>();
+    this->materials_markers =
+        mfem::Array<mfem_mgis::size_type>(m.attributes.Max());
+    this->materials_markers = 0;
+    for (const auto &mid : mids) {
+      this->materials_markers[mid - 1] = 1;
+    }
+    auto *form = new UniformHeatSourceLinearFormIntegrator();
+    form->setHeatSource(this->qfct(t + dt));
+    b.AddDomainIntegrator(form, this->materials_markers);
+    return true;
+  }    // end of addLinearFormIntegrators
+#endif /* MFEM_USE_MPI */
+
+  bool UniformHeatSourceBoundaryCondition::addLinearFormIntegrators(
+      Context &,
+      BilinearForm<false> &,
+      LinearForm<false> &b,
+      const mfem::Vector &,
+      const real t,
+      const real dt) noexcept {
+    auto &m = this->finiteElementDiscretization->getMesh<false>();
+    this->materials_markers =
+        mfem::Array<mfem_mgis::size_type>(m.attributes.Max());
+    this->materials_markers = 0;
+    for (const auto &mid : mids) {
+      this->materials_markers[mid - 1] = 1;
+    }
+    auto *form = new UniformHeatSourceLinearFormIntegrator();
+    form->setHeatSource(this->qfct(t + dt));
+    b.AddDomainIntegrator(form, this->materials_markers);
+    return true;
+  }  // end of addLinearFormIntegrators
+
+  UniformHeatSourceBoundaryCondition::~UniformHeatSourceBoundaryCondition() {
+    if (this->shallFreeIntegrator) {
+      delete this->nfi;
+    }
+  }
+
+}  // end of namespace mfem_mgis

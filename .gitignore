@@ -1,12 +1,14 @@
-# Dépôts des bibliothèques. Les sources de TFEL modifié sont suivies par ce
-# dépôt (copie du dernier commit du dépôt local `tfel/`, faite par
-# scripts/sync-tfel.sh) ; les fichiers non suivis de `tfel/` sont ignorés.
-# MGIS est suivi par sa série de patchs (patches/mgis). mfem-mgis n'est pas
-# modifié (commits de base dans README.md).
+# Dépôts des bibliothèques. Les sources de TFEL, de mfem-mgis, de
+# mfem-mgis-examples et de mm-opera-hpc sont suivies par ce dépôt (copie du
+# dernier commit du dépôt local, faite par scripts/sync-tfel.sh et
+# scripts/sync-repository.sh) ; les fichiers non suivis de ces dossiers sont
+# ignorés. MGIS est suivi par sa série de patchs (patches/mgis).
 /tfel/
 /tfel-dev/
 /mgis/
 /mfem-mgis/
+/mfem-mgis-examples/
+/mm-opera-hpc/
 # constructions, installations et dépendances
 /build/
 /install/
@@ -28,3 +30,5 @@
 !/scratch/b2/config-dev*.json
 # Python caches
 __pycache__/
+# notes de reprise locales, non versionnées
+/NOTES-REPRISE.md

@@ -1,0 +1,238 @@
+/*!
+ * \file   tests/PredictionTest.cxx
+ * \brief  Tests of the prediction of the unknowns at the beginning of a time
+ * step
+ */
+
+#include <cstdlib>
+#include "mfem/linalg/sparsemat.hpp"
+#include "mfem/fem/linearform.hpp"
+#include "mfem/fem/bilinearform.hpp"
+#include "mfem/fem/bilininteg.hpp"
+#include "mfem/fem/lininteg.hpp"
+#include "mfem/fem/datacollection.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/fem/plinearform.hpp"
+#include "mfem/fem/pbilinearform.hpp"
+#endif /* MFEM_USE_MPI */
+#include "mfem/general/optparser.hpp"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/IntegrationType.hxx"
+#include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/LinearSolverHandler.hxx"
+#include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+
+struct LocalNonLinearEvolutionProblem : mfem_mgis::NonLinearEvolutionProblem {
+  using mfem_mgis::NonLinearEvolutionProblem::NonLinearEvolutionProblem;
+  using mfem_mgis::NonLinearEvolutionProblem::setup;
+};
+
+template <bool parallel>
+void export_prediction(mfem_mgis::NonLinearEvolutionProblem &p,
+                       mfem_mgis::GridFunction<parallel> &mdu) {
+  auto &fed = p.getFiniteElementDiscretization();
+  auto exporter = mfem::ParaViewDataCollection{
+      parallel ? "result-prediction-test-parallel" : "result-prediction-test"};
+  exporter.SetMesh(&(fed.getMesh<parallel>()));
+  exporter.SetDataFormat(mfem::VTKFormat::BINARY);
+  exporter.RegisterField("OppositeOfTheDisplacementPrediction", &mdu);
+  exporter.SetCycle(1);
+  exporter.SetTime(1);
+  exporter.Save();
+}
+
+template <bool parallel>
+[[nodiscard]] mfem_mgis::GridFunction<parallel> computePrediction(
+    mfem_mgis::Context &ctx, LocalNonLinearEvolutionProblem &p) {
+  auto &fed = p.getFiniteElementDiscretization();
+  auto &fespace = fed.getFiniteElementSpace<parallel>();
+  const auto &u0 = p.getUnknowns(mfem_mgis::bts);
+  if (!p.setup(ctx, 0, 1)) {
+    mfem_mgis::getOutputStream() << ctx.getErrorMessage() << '\n';
+    std::exit(EXIT_FAILURE);
+  }
+  auto success = p.integrate(
+      u0, mfem_mgis::IntegrationType::PREDICTION_ELASTIC_OPERATOR, {});
+#ifdef MFEM_USE_MPI
+  if constexpr (parallel) {
+    MPI_Allreduce(MPI_IN_PLACE, &success, 1, MPI_CXX_BOOL, MPI_LAND,
+                  fespace.GetComm());
+  }
+#endif /* MFEM_USE_MPI */
+  if (!success) {
+    mfem_mgis::getOutputStream() << "integration failure\n";
+    std::exit(EXIT_FAILURE);
+  }
+  auto operators = p.getLinearizedOperators(ctx, u0);
+  if (isInvalid(operators)) {
+    mfem_mgis::getOutputStream() << ctx.getErrorMessage() << '\n';
+    std::exit(EXIT_FAILURE);
+  }
+  //
+  auto essential_dofs = p.getEssentialDegreesOfFreedom();
+  auto edofs_list = mfem::Array<mfem_mgis::size_type>(essential_dofs.data(),
+                                                      essential_dofs.size());
+  mfem_mgis::GridFunction<parallel> mdu(&fespace);
+  if constexpr (parallel) {
+    auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
+    mdu_values = 0.0;
+    //
+    for (const auto &bc : p.getDirichletBoundaryConditions()) {
+      // we impose the opposite of the displacement increment
+      bc->setImposedValuesIncrements(mdu_values, 0, 1, -1);
+    }
+    mdu.Distribute(mdu_values);
+  } else {
+    auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
+    mdu_values = 0.0;
+    for (const auto &bc : p.getDirichletBoundaryConditions()) {
+      // we impose the opposite of the displacement increment
+      bc->setImposedValuesIncrements(mdu_values, 0, 1, -1);
+    }
+    mdu.SetFromTrueDofs(mdu_values);
+  }
+  //
+  auto a = mfem_mgis::BilinearForm<parallel>(&fespace);
+  a.AddDomainIntegrator(operators->K.release());
+  a.Assemble();
+  auto b = mfem_mgis::LinearForm<parallel>(&fespace);
+  b.AddDomainIntegrator(operators->mFi.release());
+  b.Assemble();
+  //
+  auto A = [] {
+#ifdef MFEM_USE_MPI
+    if constexpr (parallel) {
+      return mfem::HypreParMatrix{};
+    } else {
+      return mfem::SparseMatrix{};
+    }
+#else
+    return mfem::SparseMatrix{};
+#endif
+  }();
+  mfem::Vector B, X;
+  //
+  a.FormLinearSystem(edofs_list, mdu, b, A, X, B);
+  //
+  auto ls = [&fespace, &ctx] {
+    auto &f = mfem_mgis::LinearSolverFactory<parallel>::getFactory();
+    if constexpr (parallel) {
+      return f.generate(ctx, "CGSolver", fespace,
+                        {{"VerbosityLevel", 1},
+                         {"AbsoluteTolerance", 1e-12},
+                         {"RelativeTolerance", 1e-12},
+                         {"MaximumNumberOfIterations", 5000}});
+    } else {
+      return f.generate(ctx, "UMFPackSolver", fespace, {});
+    }
+  }();
+  if (isInvalid(ls)) {
+    mfem_mgis::getOutputStream() << ctx.getErrorMessage() << '\n';
+    std::exit(EXIT_FAILURE);
+  }
+  ls.linear_solver->SetOperator(A);
+  ls.linear_solver->Mult(B, X);
+  a.RecoverFEMSolution(X, b, mdu);
+  return mdu;
+}  // end of computePrediction
+
+int main(int argc, char *argv[]) {
+  //
+  mfem_mgis::initialize(argc, argv);
+  // parse command-line options.
+  const char *mesh_file = nullptr;
+  const char *library = nullptr;
+  int order = 1;
+  int parallel = 0;
+
+  mfem::OptionsParser args(argc, argv);
+  args.AddOption(&mesh_file, "-m", "--mesh", "Mesh file to use.");
+  args.AddOption(&library, "-l", "--library",
+                 "library containing the behaviour.");
+  args.AddOption(&order, "-o", "--order",
+                 "Finite element order (polynomial degree).");
+  args.AddOption(&parallel, "-p", "--parallel",
+                 "choose between serial (-p 0) and parallel (-p 1)");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(mfem_mgis::getOutputStream());
+    return EXIT_FAILURE;
+  }
+  if (mesh_file == nullptr) {
+    mfem_mgis::getOutputStream() << "no mesh file specified\n";
+    args.PrintUsage(mfem_mgis::getOutputStream());
+    return EXIT_FAILURE;
+  }
+  if (library == nullptr) {
+    mfem_mgis::getOutputStream() << "no library specified\n";
+    args.PrintUsage(mfem_mgis::getOutputStream());
+    return EXIT_FAILURE;
+  }
+  args.PrintOptions(mfem_mgis::getOutputStream());
+  //
+  auto ctx = mfem_mgis::Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem =
+      mfem_mgis::construct<LocalNonLinearEvolutionProblem>(
+          ctx,
+          mfem_mgis::Parameters{
+              {"MeshFileName", mesh_file},
+              {"FiniteElementFamily", "H1"},
+              {"FiniteElementOrder", order},
+              {"UnknownsSize", 3},
+              {"NumberOfUniformRefinements", 2},  // faster for testing
+              //{"NumberOfUniformRefinements", parameters.parallel ? 1 : 0},
+              {"Hypothesis", "Tridimensional"},
+              {"Parallel", bool(parallel)}}) |
+      or_die;
+  //
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                 "IsotropicLinearElasticity") |
+      or_die;
+  auto &m1 = problem.getMaterial(ctx, 1, 0) | or_die;
+  for (auto *ps : {&m1.s0, &m1.s1}) {
+    mgis::behaviour::setMaterialProperty(ctx, *ps, "FirstLameCoefficient",
+                                         100e9) |
+        or_die;
+    mgis::behaviour::setMaterialProperty(ctx, *ps, "ShearModulus", 75e9) |
+        or_die;
+    mgis::behaviour::setExternalStateVariable(ctx, *ps, "Temperature", 293.15) |
+        or_die;
+  }
+  problem.addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem.getFiniteElementDiscretizationPointer(), 1, 1) |
+               or_die) |
+      or_die;
+  problem.addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem.getFiniteElementDiscretizationPointer(), 2, 2) |
+               or_die) |
+      or_die;
+  problem.addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem.getFiniteElementDiscretizationPointer(), 5, 0) |
+               or_die) |
+      or_die;
+  problem.addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem.getFiniteElementDiscretizationPointer(), 3, 0,
+               [](const auto t) noexcept { return 3e-2 * t; }) |
+               or_die) |
+      or_die;
+  //
+  if (parallel) {
+#ifdef MFEM_USE_MPI
+    auto mdu = computePrediction<true>(ctx, problem);
+    export_prediction<true>(problem, mdu);
+#else  /* MFEM_USE_MPI */
+    return EXIT_FAILURE;
+#endif /* MFEM_USE_MPI */
+  } else {
+    auto mdu = computePrediction<false>(ctx, problem);
+    export_prediction<false>(problem, mdu);
+  }
+  return EXIT_SUCCESS;
+}

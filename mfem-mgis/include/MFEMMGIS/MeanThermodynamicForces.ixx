@@ -1,0 +1,146 @@
+/*!
+ * \file   include/MFEMMGIS/MeanThermodynamicForces.ixx
+ * \brief  This file implements the inline methods of the
+ * `MeanThermodynamicForces` class
+ * \author Thomas Helfer, Hugo Copin
+ * \date   08/04/2021
+ */
+
+#ifndef LIB_MFEM_MGIS_MEANTHERMODYNAMICFORCES_IXX
+#define LIB_MFEM_MGIS_MEANTHERMODYNAMICFORCES_IXX
+
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+
+namespace mfem_mgis {
+
+  template <bool parallel>
+  MeanThermodynamicForces<parallel>::MeanThermodynamicForces(
+      Context &ctx,
+      NonLinearEvolutionProblemImplementation<parallel> &p,
+      const Parameters &params)
+      : behaviour_integrators(
+            getBehaviourIntegratorsSelection(throwing, params)) {
+    checkParameters(throwing, params,
+                    std::vector<std::string>{"OutputFileName",
+                                             "BehaviourIntegrator"});
+    auto or_raise = ctx.getThrowingFailureHandler();
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      int rank;
+      MPI_Comm_rank(getMPICommunicator(p), &rank);
+      if (rank == 0) {
+        this->openFile(ctx, p,
+                       get<std::string>(throwing, params, "OutputFileName")) |
+            or_raise;
+      }
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      this->openFile(ctx, p,
+                     get<std::string>(throwing, params, "OutputFileName")) |
+          or_raise;
+    }
+  }  // end of MeanThermodynamicForces
+
+  template <bool parallel>
+  bool MeanThermodynamicForces<parallel>::execute(
+      Context &ctx,
+      NonLinearEvolutionProblemImplementation<parallel> &p,
+      const real t,
+      const real dt) noexcept {
+    const auto ores = computeMeanThermodynamicForcesValues(
+        ctx, p, this->behaviour_integrators);
+    if (isInvalid(ores)) {
+      return false;
+    }
+    const auto [tf_integrals, volumes] = *ores;
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      int rank;
+      MPI_Comm_rank(getMPICommunicator(p), &rank);
+      if (rank == 0) {
+        this->out << t + dt;
+      }
+      for (const auto &mi : p.getAssignedMaterialsIdentifiers()) {
+        real v = 0;
+        std::vector<double> tf_integral(tf_integrals[mi].size(), 0);
+        MPI_Reduce(tf_integrals[mi].data(), tf_integral.data(),
+                   tf_integrals[mi].size(), MPI_DOUBLE, MPI_SUM, 0,
+                   getMPICommunicator(p));
+        MPI_Reduce(&volumes[mi], &v, 1, MPI_DOUBLE, MPI_SUM, 0,
+                   getMPICommunicator(p));
+        if (rank == 0) {
+          this->writeResults(tf_integral, v);
+        }
+      }
+      if (rank == 0) {
+        this->out << std::endl;
+      }
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      this->out << t + dt;
+      for (const auto &mi : p.getAssignedMaterialsIdentifiers()) {
+        this->writeResults(tf_integrals[mi], volumes[mi]);
+      }
+      this->out << std::endl;
+    }
+    return true;
+  }  // end of MeanThermodynamicForces
+
+  template <bool parallel>
+  bool MeanThermodynamicForces<parallel>::openFile(
+      Context &ctx,
+      NonLinearEvolutionProblemImplementation<parallel> &p,
+      const std::string &f) noexcept {
+    this->out.open(f);
+    if (!this->out) {
+      return ctx.registerErrorMessage(
+          "MeanThermodynamicForces::openFile: unable to open file '" + f + "'");
+    }
+    out << "# first column: time\n";
+    auto c = mfem_mgis::size_type{2};
+    for (const auto &mi : p.getAssignedMaterialsIdentifiers()) {
+      const auto obis = getSelectedBehaviourIntegrators(
+          ctx, p, mi, this->behaviour_integrators);
+      if (isInvalid(obis)) {
+        return {};
+      }
+      const auto obi = p.getBehaviourIntegrator(ctx, mi, obis->first);
+      if (isInvalid(obi)) {
+        return {};
+      }
+      const auto om = obi->getMaterial(ctx);
+      if (isInvalid(om)) {
+        return {};
+      }
+      const auto &s1 = om->s1;
+      const auto thsize =
+          static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
+      for (mfem_mgis::size_type k = 0; k != thsize; ++k, ++c) {
+        out << "# " << c << " column: " << k
+            << " component of the mean thermodynamic force for material " << mi
+            << '\n';
+      }
+    }
+    return true;
+  }
+
+  template <bool parallel>
+  void MeanThermodynamicForces<parallel>::writeResults(
+      const std::vector<real> &tf_integral, const real v) {
+    for (mfem_mgis::size_type k = 0; k != tf_integral.size(); ++k) {
+      this->out << " " << tf_integral[k] / v;
+    }
+  }  // end of writeResults
+
+  template <bool parallel>
+  MeanThermodynamicForces<parallel>::~MeanThermodynamicForces() = default;
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEM_MGIS_MEANTHERMODYNAMICFORCES_IXX */

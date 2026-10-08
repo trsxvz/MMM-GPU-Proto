@@ -1,0 +1,75 @@
+/*!
+ * \file   src/AnalyticalTests.cxx
+ * \brief  This file implements the functions declared in
+ * `MFEMMGIS/AnalyticalTests.hxx`
+ * \author Thomas Helfer
+ * \date   25/03/2021
+ */
+
+#include "MGIS/Raise.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "MFEMMGIS/AnalyticalTests.hxx"
+
+namespace mfem_mgis {
+
+  template <bool parallel>
+  static real getL2Error(
+      mfem_mgis::NonLinearEvolutionProblem &p,
+      std::function<void(const mfem::Vector &, mfem::Vector &)> f) noexcept {
+    auto &problem = p.template getImplementation<parallel>();
+    mfem_mgis::GridFunction<parallel> x(&problem.getFiniteElementSpace());
+    const auto dim = problem.getFiniteElementSpace().GetVDim();
+    // recover the solution as a grid function
+    auto &u1 = problem.getUnknowns(ets);
+    x.MakeTRef(&problem.getFiniteElementSpace(), u1, 0);
+    x.SetFromTrueVector();
+    // comparison to analytical solution
+    mfem::VectorFunctionCoefficient sol_coef(dim, f);
+    return x.ComputeL2Error(sol_coef);
+  }
+
+  real computeL2ErrorAgainstAnalyticalSolution(
+      NonLinearEvolutionProblem &p,
+      std::function<void(mfem::Vector &, const mfem::Vector &)> f) noexcept {
+    std::function<void(const mfem::Vector &, mfem::Vector &)> mf =
+        [f](const mfem::Vector &x, mfem::Vector &v) { f(v, x); };
+    const auto &fed = p.getFiniteElementDiscretization();
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return getL2Error<true>(p, mf);
+#else
+      reportUnsupportedParallelComputations();
+#endif
+    }
+    return getL2Error<false>(p, mf);
+  }  //  end of computeL2ErrorAgainstAnalyticalSolution
+
+  std::optional<bool> compareToAnalyticalSolution(
+      Context &ctx,
+      NonLinearEvolutionProblem &p,
+      std::function<void(mfem::Vector &, const mfem::Vector &)> f,
+      const Parameters &params) noexcept {
+    auto validator = ParametersValidator{}
+                         .add<int>("VerbosityLevel")
+                         .add<real>("CriterionThreshold", {.required = true});
+    if (!validator.validate(ctx, params)) {
+      return {};
+    }
+    const auto error = computeL2ErrorAgainstAnalyticalSolution(p, f);
+    const auto overbosity = get_if<int>(ctx, params, "VerbosityLevel", 0);
+    const auto ocriterion = get<real>(ctx, params, "CriterionThreshold");
+    if (isInvalid(overbosity)) {
+      return {};
+    }
+    if (isInvalid(ocriterion)) {
+      return {};
+    }
+    if (*overbosity > 1) {
+      ctx.log() << "L2Error: " << error << "\n";
+    }
+    return error < *ocriterion;
+  }  // end of compareToAnalyticalSolution
+
+}  // end of namespace mfem_mgis

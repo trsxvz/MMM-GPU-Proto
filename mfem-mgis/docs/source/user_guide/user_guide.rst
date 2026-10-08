@@ -1,0 +1,22 @@
+.. _mfem_mgis_user_guide:
+
+==========
+User guide
+==========
+
+.. toctree::
+   :maxdepth: 1
+
+   tutorial.rst
+   overview.rst
+   mesh/mesh.rst  
+   simulation/simulation.rst
+   behaviour_integrators.rst
+   boundary_conditions.rst
+   post_processings/post_processings.rst  
+   nonlinear_algorithms.rst
+   partial_quadrature_functions/partial_quadrature_spaces_and_functions.rst
+   glossary.rst
+   help.rst
+   release_notes/release_notes.rst
+   tests/unit_tests.rst

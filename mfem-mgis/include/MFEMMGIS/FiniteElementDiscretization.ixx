@@ -1,0 +1,64 @@
+/*!
+ * \file   include/MFEMMGIS/FiniteElementDiscretization.ixx
+ * \brief  This file implements the inline methods of the
+ * `FiniteElementDiscretization` class
+ * \author Thomas Helfer
+ * \date   13/02/2021
+ */
+
+#ifndef LIB_MFEM_MGIS_FINITEELEMENTDISCRETIZATION_IXX
+#define LIB_MFEM_MGIS_FINITEELEMENTDISCRETIZATION_IXX
+
+namespace mfem_mgis {
+
+  template <bool parallel>
+  [[nodiscard]] bool FiniteElementDiscretization::isSibling(
+      const FiniteElementSpace<parallel>& s) const noexcept {
+    return this->fespaces_manager.manages(s);
+  }  // end of isSibling
+
+  template <bool parallel>
+  inline FiniteElementSpace<parallel>&
+  FiniteElementDiscretization::getFiniteElementSpace() {
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      if (!this->parallel_fe_space.get()) {
+        FiniteElementDiscretization::reportInvalidParallelFiniteElementSpace();
+      }
+      return *(this->parallel_fe_space);
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      if (!this->sequential_fe_space.get()) {
+        FiniteElementDiscretization::
+            reportInvalidSequentialFiniteElementSpace();
+      }
+      return *(this->sequential_fe_space);
+    }
+  }  // end of getFiniteElementSpace
+
+  template <bool parallel>
+  const FiniteElementSpace<parallel>&
+  FiniteElementDiscretization::getFiniteElementSpace() const {
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      if (!this->parallel_fe_space.get()) {
+        FiniteElementDiscretization::reportInvalidParallelFiniteElementSpace();
+      }
+      return *(this->parallel_fe_space);
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      if (!this->sequential_fe_space.get()) {
+        FiniteElementDiscretization::
+            reportInvalidSequentialFiniteElementSpace();
+      }
+      return *(this->sequential_fe_space);
+    }
+  }  // end of getFiniteElementSpace
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEM_MGIS_FINITEELEMENTDISCRETIZATION_IXX */

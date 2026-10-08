@@ -1,0 +1,69 @@
+/*!
+ * \file   MFEMMGIS/AbstractCouplingSchemeConvergenceCriterion.hxx
+ * \brief  This file declares the `AbstractCouplingSchemeConvergenceCriterion`
+ * class
+ * \date   05/12/2022
+ */
+
+#ifndef LIB_MFEM_MGIS_ABSTRACT_COUPLING_SCHEME_CONVERGENCE_CRITERION_HXX
+#define LIB_MFEM_MGIS_ABSTRACT_COUPLING_SCHEME_CONVERGENCE_CRITERION_HXX
+
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/AbstractCouplingItem.hxx"
+
+namespace mfem_mgis {
+
+  // forward declarations
+  struct Parameters;
+  struct ComputeNextStateOutput;
+
+  //! \brief interface of all convergence criteria of coupling schemes
+  struct MFEM_MGIS_EXPORT AbstractCouplingSchemeConvergenceCriterion {
+    /*!
+     * \brief method called at the beginning of a time step
+     *
+     * \param[in, out] ctx: execution context
+     * \param[in] ts: description of the time step
+     * \return true on success
+     */
+    virtual bool performInitializationTaksAtTheBeginningOfTheTimeStep(
+        Context& ctx, const TimeStep& ts) noexcept = 0;
+    /*!
+     * \return if the criterion is satisfied
+     * \param[in, out] ctx: execution context
+     * \param[in] o: output of all items of the
+     * coupling scheme
+     *
+     * \note in parallel, the returned value must be the same on all
+     * processes, since the coupling scheme decides from it whether to iterate
+     * again.
+     */
+    virtual std::optional<bool> check(
+        Context& ctx, const ComputeNextStateOutput& o) const noexcept = 0;
+    /*!
+     * \brief update the state of the criterion for the next time step
+     *
+     * This method is called at the end of the time step, after convergence.
+     *
+     * \param[in, out] ctx: execution context
+     * \return true on success
+     */
+    virtual bool update(Context& ctx) noexcept = 0;
+    /*!
+     * \brief revert the state of the criterion at the beginning of the time
+     * step
+     *
+     * This method is typically called in case of non convergence of the
+     * coupling scheme to restart the computation with a smaller time step.
+     *
+     * \param[in, out] ctx: execution context
+     * \return true on success
+     */
+    virtual bool revert(Context& ctx) noexcept = 0;
+    //! \brief destructor
+    virtual ~AbstractCouplingSchemeConvergenceCriterion() noexcept;
+  };  // end of AbstractCouplingSchemeConvergenceCriterion
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEM_MGIS_ABSTRACT_COUPLING_SCHEME_CONVERGENCE_CRITERION_HXX */

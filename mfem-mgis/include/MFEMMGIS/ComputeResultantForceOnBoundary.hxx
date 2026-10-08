@@ -1,0 +1,142 @@
+/*!
+ * \file   include/MFEMMGIS/ComputeResultantForceOnBoundary.hxx
+ * \brief  This file declares the `ComputeResultantForceOnBoundary` class
+ * \author Thomas Helfer
+ * \date   28/03/2021
+ */
+
+#ifndef LIB_COMPUTERESULTANTFORCEONBOUNDARY_HXX
+#define LIB_COMPUTERESULTANTFORCEONBOUNDARY_HXX
+
+#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
+
+namespace mfem_mgis {
+
+  /*!
+   * \brief a post-processing computing the resultant of the inner forces on a
+   * boundary.
+   *
+   * The following parameters are required:
+   *
+   * - `Boundary`: identifier of the boundary
+   * - `OutputFileName`: name of the output file
+   */
+  template <bool parallel>
+  struct ComputeResultantForceOnBoundary;
+
+  /*!
+   * \brief a base class for the `ComputeResultantForceOnBoundary`
+   * post-processing
+   */
+  struct ComputeResultantForceOnBoundaryCommon {
+    /*!
+     * \brief constructor
+     * \param[in] edofs: elements degrees of freedom
+     * \param[in] i: boundary identifier
+     * \param[in] s: selection of the behaviour integrators of each material
+     */
+    ComputeResultantForceOnBoundaryCommon(
+        std::vector<std::pair<size_type, std::vector<std::vector<size_type>>>>
+            edofs,
+        const size_type i,
+        const BehaviourIntegratorsSelection& s);
+    /*!
+     * \brief structure which associates the index of the selected elements
+     * to the local indexes of their degrees of freedom sorted by components.
+     */
+    const std::vector<std::pair<size_type,  // element number
+                                std::vector<std::vector<size_type>>>>
+        elts_dofs;
+    //! \brief boundary identifier
+    const size_type bid;
+    //! \brief selection of the behaviour integrators of each material
+    const BehaviourIntegratorsSelection behaviour_integrators;
+    //! \brief output file
+    std::ofstream out;
+  };  // end of struct ComputeResultantForceOnBoundaryCommon
+
+#ifdef MFEM_USE_MPI
+
+  /*!
+   * \brief specialisation of the `ComputeResultantForceOnBoundary`
+   * post-processing in parallel
+   */
+  template <>
+  struct MFEM_MGIS_EXPORT ComputeResultantForceOnBoundary<true> final
+      : public NonLinearEvolutionProblemPostProcessingBase<true>,
+        protected ComputeResultantForceOnBoundaryCommon {
+    /*!
+     * \brief constructor
+     * \param[in] p: non linear problem
+     * \param[in] params: parameters passed to the post-processing
+     */
+    ComputeResultantForceOnBoundary(
+        NonLinearEvolutionProblemImplementation<true>& p,
+        const Parameters& params);
+    //
+    [[nodiscard]] bool executeInitialPostProcessing(
+        Context& ctx,
+        NonLinearEvolutionProblemImplementation<true>& p,
+        const real t) noexcept override;
+    /*!
+     * \brief compute the resultant force on the boundary and write it in the
+     * output file
+     * \param[in, out] ctx: execution context
+     * \param[in] p: non linear evolution problem
+     * \param[in] t: time at the beginning of the time step
+     * \param[in] dt: time increment
+     * \return true on success
+     */
+    [[nodiscard]] bool execute(Context& ctx,
+                               NonLinearEvolutionProblemImplementation<true>& p,
+                               const real t,
+                               const real dt) noexcept override;
+    //! \brief destructor
+    ~ComputeResultantForceOnBoundary() override;
+  };  // end of struct ComputeResultantForceOnBoundary
+
+#endif /* MFEM_USE_MPI */
+
+  /*!
+   * \brief specialisation of the `ComputeResultantForceOnBoundary`
+   * post-processing in sequential
+   */
+  template <>
+  struct MFEM_MGIS_EXPORT ComputeResultantForceOnBoundary<false> final
+      : public NonLinearEvolutionProblemPostProcessingBase<false>,
+        protected ComputeResultantForceOnBoundaryCommon {
+    /*!
+     * \brief constructor
+     * \param[in] p: non linear problem
+     * \param[in] params: parameters passed to the post-processing
+     */
+    ComputeResultantForceOnBoundary(
+        NonLinearEvolutionProblemImplementation<false>& p,
+        const Parameters& params);
+    //
+    [[nodiscard]] bool executeInitialPostProcessing(
+        Context& ctx,
+        NonLinearEvolutionProblemImplementation<false>& p,
+        const real t) noexcept override;
+    /*!
+     * \brief compute the resultant force on the boundary and write it in the
+     * output file
+     * \param[in, out] ctx: execution context
+     * \param[in] p: non linear evolution problem
+     * \param[in] t: time at the beginning of the time step
+     * \param[in] dt: time increment
+     * \return true on success
+     */
+    [[nodiscard]] bool execute(
+        Context& ctx,
+        NonLinearEvolutionProblemImplementation<false>& p,
+        const real t,
+        const real dt) noexcept override;
+    //! \brief destructor
+    ~ComputeResultantForceOnBoundary() override;
+  };  // end of struct ComputeResultantForceOnBoundary
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_COMPUTERESULTANTFORCEONBOUNDARY_HXX */

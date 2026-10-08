@@ -1,0 +1,757 @@
+/*!
+ * \file   src/NonLinearEvolutionProblemImplementation.cxx
+ * \brief  This file implements the `NonLinearEvolutionProblemImplementation`
+ * class
+ * \author Thomas Helfer
+ * \date   11/12/2020
+ */
+
+#include "mfem/fem/datacollection.hpp"
+
+#ifdef MFEM_USE_PETSC
+#include "mfem/linalg/petsc.hpp"
+#endif /* MFEM_USE_PETSC */
+#include "mfem/linalg/sparsemat.hpp"
+#include "mfem/fem/linearform.hpp"
+#include "mfem/fem/bilinearform.hpp"
+#include "mfem/fem/bilininteg.hpp"
+#include "mfem/fem/lininteg.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/fem/plinearform.hpp"
+#include "mfem/fem/pbilinearform.hpp"
+#endif /* MFEM_USE_MPI */
+
+#include "MGIS/Raise.hxx"
+#include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/IntegrationType.hxx"
+#include "MFEMMGIS/PostProcessingFactory.hxx"
+#include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+#include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
+#include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
+#include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+
+namespace mfem_mgis {
+
+  // template <bool parallel>
+  // static void export_prediction(
+  //     mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
+  //     mfem_mgis::GridFunction<parallel>& mdu,
+  //     const real te) {
+  //   static auto cycle = size_type{1};
+  //   auto& fed = p.getFiniteElementDiscretization();
+  //   auto exporter = mfem::ParaViewDataCollection{
+  //       parallel ? "result-prediction-test-parallel"
+  //                : "result-prediction-test"};
+  //   exporter.SetMesh(&(fed.template getMesh<parallel>()));
+  //   exporter.SetDataFormat(mfem::VTKFormat::BINARY);
+  //   exporter.RegisterField("OppositeOfDisplacementIncrementPrediction",
+  //   &mdu); exporter.SetCycle(cycle); exporter.SetTime(te); exporter.Save();
+  //   ++cycle;
+  // }
+
+  template <bool parallel>
+  struct PredictionResult {
+    //! \brief prediction of the opposite of the increment of the unknowns
+    std::unique_ptr<mfem_mgis::GridFunction<parallel>> mdu;
+    //! \brief norm of the initial residual
+    const real initial_residual_norm;
+  };
+
+  [[nodiscard]] static IntegrationType convertToIntegrationType(
+      const PredictionOperator o) noexcept {
+    if (o == PredictionOperator::ELASTIC) {
+      return IntegrationType::PREDICTION_ELASTIC_OPERATOR;
+    } else if (o == PredictionOperator::SECANT) {
+      return IntegrationType::PREDICTION_SECANT_OPERATOR;
+    } else if (o == PredictionOperator::TANGENT) {
+      return IntegrationType::PREDICTION_TANGENT_OPERATOR;
+    }
+    abort(
+        "convertToIntegrationType: internal error, "
+        "unsupported prediction operator");
+  }  // end of convertToIntegrationType
+
+  [[nodiscard]] static IntegrationType convertToIntegrationType(
+      const IntegrationOperator o) noexcept {
+    if (o == IntegrationOperator::ELASTIC) {
+      return IntegrationType::INTEGRATION_ELASTIC_OPERATOR;
+    } else if (o == IntegrationOperator::SECANT) {
+      return IntegrationType::INTEGRATION_SECANT_OPERATOR;
+    } else if (o == IntegrationOperator::TANGENT) {
+      return IntegrationType::INTEGRATION_TANGENT_OPERATOR;
+    } else if (o == IntegrationOperator::CONSISTENT_TANGENT) {
+      return IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+    }
+    abort(
+        "convertToIntegrationType: internal error, "
+        "unsupported integration operator");
+  }  // end of convertToIntegrationType
+
+  template <bool parallel>
+  [[nodiscard]] std::optional<PredictionResult<parallel>> computePrediction(
+      mfem_mgis::Context& ctx,
+      mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
+      LinearSolver& ls,
+      const real t,
+      const real dt,
+      const bool discardLinearSolverFailure) noexcept {
+    auto& fed = p.getFiniteElementDiscretization();
+    auto& fespace = fed.template getFiniteElementSpace<parallel>();
+    const auto& u0 = p.getUnknowns(mfem_mgis::bts);
+    auto success = [&p, &u0, dt] {
+      const auto policy = p.getPredictionPolicy();
+      if (policy.strategy ==
+          PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) {
+        if (policy.prediction_operator ==
+            PredictionOperator::LAST_ITERATE_OPERATOR) {
+          return p.integrate(
+              u0, convertToIntegrationType(PredictionOperator::ELASTIC), {});
+        } else {
+          return p.integrate(
+              u0, convertToIntegrationType(policy.prediction_operator), {});
+        }
+      }
+      const auto ndt = [&policy, dt] {
+        if (policy.null_time_increment) {
+          return real{};
+        }
+        return dt;
+      }();
+      return p.integrate(
+          u0, convertToIntegrationType(policy.integration_operator), ndt);
+    }();
+#ifdef MFEM_USE_MPI
+    if constexpr (parallel) {
+      success = isTrueOnAllProcesses(fed, success);
+    }
+#endif /* MFEM_USE_MPI */
+    if (!success) {
+      return ctx.registerErrorMessage("integration failure");
+    }
+    //
+    auto u0_local = mfem_mgis::GridFunction<parallel>(&fespace);
+    if constexpr (parallel) {
+      u0_local.Distribute(u0);
+    } else {
+      u0_local = u0;
+    }
+    auto operators = p.getLinearizedOperators(ctx, u0_local);
+    if (isInvalid(operators)) {
+      return {};
+    }
+    //
+    auto mdu = std::make_unique<mfem_mgis::GridFunction<parallel>>(&fespace);
+    *mdu = 0.0;
+    auto a = mfem_mgis::BilinearForm<parallel>(&fespace);
+    a.AddDomainIntegrator(operators->K.release());
+    auto b = mfem_mgis::LinearForm<parallel>(&fespace);
+    if (operators->mFi.get() != nullptr) {
+      b.AddDomainIntegrator(operators->mFi.release());
+    }
+    //
+    for (const auto& bc : p.getBoundaryConditions()) {
+      if (!bc->addLinearFormIntegrators(ctx, a, b, u0_local, t, dt)) {
+        return {};
+      }
+    }
+    //
+    a.Assemble();
+    b.Assemble();
+    //
+    auto A = [] {
+#ifdef MFEM_USE_MPI
+      if constexpr (parallel) {
+        return mfem::HypreParMatrix{};
+      } else {
+        return mfem::SparseMatrix{};
+      }
+#else
+      return mfem::SparseMatrix{};
+#endif /* MFEM_USE_MPI */
+    }();
+    mfem::Vector B, X;
+    //
+    auto essential_dofs = p.getEssentialDegreesOfFreedom();
+    auto edofs_list = mfem::Array<mfem_mgis::size_type>(essential_dofs.data(),
+                                                        essential_dofs.size());
+    auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
+    mdu_values = 0.0;
+    if constexpr (parallel) {
+      //
+      for (const auto& bc : p.getDirichletBoundaryConditions()) {
+        // we impose the opposite of the displacement increment
+        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
+      }
+      mdu->Distribute(mdu_values);
+    } else {
+      for (const auto& bc : p.getDirichletBoundaryConditions()) {
+        // we impose the opposite of the displacement increment
+        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
+      }
+      mdu->SetFromTrueDofs(mdu_values);
+    }
+    //
+    a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
+    // the essential degrees of freedom are excluded from the norm: the
+    // residual of the non linear solver is null for them, and their values in
+    // B depend on the diagonal policy (the diagonal of the stiffness in
+    // sequential, one in parallel)
+    const auto norm = [&B, &fespace, &essential_dofs] {
+      auto r = B;
+      for (const auto i : essential_dofs) {
+        r[i] = real{0};
+      }
+      if constexpr (parallel) {
+        return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
+      } else {
+        return std::sqrt(mfem::InnerProduct(r, r));
+      }
+    }();
+    ls.SetOperator(A);
+    ls.Mult(B, X);
+    clearHypreErrors();
+    // check for convergence
+    if ((!discardLinearSolverFailure) && (!hasConverged(ls))) {
+      return ctx.registerErrorMessage("linear solver did not converge");
+    }
+    // an iterative linear solver only approximates the imposed increments,
+    // which are known exactly
+    for (const auto i : essential_dofs) {
+      X[i] = mdu_values[i];
+    }
+    a.RecoverFEMSolution(X, b, *mdu);
+    //
+    return PredictionResult<parallel>{.mdu = std::move(mdu),
+                                      .initial_residual_norm = norm};
+  }  // end of computePrediction
+
+  /*!
+   * \brief post-processing defined by an std::function
+   * \tparam parallel: boolean stating if the computations are performed in
+   * parallel.
+   */
+  template <bool parallel>
+  struct StdFunctionPostProcessing final
+      : NonLinearEvolutionProblemPostProcessingBase<parallel> {
+    /*!
+     * \brief constructor
+     * \param[in] fct: function executing the postprocessing
+     */
+    StdFunctionPostProcessing(
+        const std::function<void(const real, const real)>& fct)
+        : f(fct) {
+      if (!f) {
+        raise("invalid function");
+      }
+    }  // end of StdFunctionPostProcessing
+    //
+    [[nodiscard]] bool execute(
+        Context& ctx,
+        NonLinearEvolutionProblemImplementation<parallel>& p,
+        const real t,
+        const real dt) noexcept override {
+      auto success = true;
+      auto fed = p.getFiniteElementDiscretization();
+      try {
+        this->f(t, dt);
+      } catch (...) {
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+        success = false;
+      }
+      return isTrueOnAllProcesses(fed, success);
+    }  // end of execute
+    //! \brief destructor
+    ~StdFunctionPostProcessing() override = default;
+
+   private:
+    //! \brief function executing the post-processing
+    std::function<void(const real, const real)> f;
+  };  // end of struct StdFunctionPostProcessing
+
+#ifdef MFEM_USE_MPI
+
+  NonLinearEvolutionProblemImplementation<true>::
+      NonLinearEvolutionProblemImplementation(
+          Context& ctx,
+          std::shared_ptr<FiniteElementDiscretization> fed,
+          const Hypothesis h,
+          const Parameters& p)
+      : NonLinearEvolutionProblemImplementationBase(
+            ctx,
+            fed,
+            h,
+            extract(throwing,
+                    p,
+                    NonLinearEvolutionProblemImplementationBase::
+                        getParametersList())),
+        mfem::ParNonlinearForm(&(fed->getFiniteElementSpace<true>())) {
+    //
+    auto or_raise = ctx.getThrowingFailureHandler();
+    auto validator = ParametersValidator{}.add(
+        NonLinearEvolutionProblemImplementationBase::getParametersList());
+    validator.validate(ctx, p) | or_raise;
+    //
+    if (this->fe_discretization->getMesh<true>().Dimension() !=
+        mgis::behaviour::getSpaceDimension(h)) {
+      raise(
+          "NonLinearEvolutionProblemImplementationBase::"
+          "NonLinearEvolutionProblemImplementationBase: "
+          "modelling hypothesis is not consistent with the spatial dimension "
+          "of the mesh");
+    }
+    auto set_solver = [&ctx, this, &p, &or_raise] {
+      if (contains(
+              p,
+              NonLinearEvolutionProblemImplementationBase::NonLinearSolver)) {
+        const auto [n, params] = extractFactoryArgument(
+            throwing,
+            get<Parameters>(
+                throwing, p,
+                NonLinearEvolutionProblemImplementationBase::NonLinearSolver));
+        auto& f = NonLinearSolverFactory::get();
+        this->solver = f.generate(ctx, n, *this, params) | or_raise;
+      } else {
+        this->solver = std::make_unique<NewtonSolver>(*this);
+      }
+    };
+#ifdef MFEM_USE_PETSC
+    if (usePETSc()) {
+      this->petsc_solver = std::make_unique<mfem::PetscNonlinearSolver>(
+          this->getFiniteElementSpace().GetComm(), *this);
+      this->petsc_solver->iterative_mode = true;
+    } else {
+      set_solver();
+    }
+#else  /* MFEM_USE_PETSC */
+    set_solver();
+#endif /* MFEM_USE_PETSC */
+    if (this->mgis_integrator != nullptr) {
+      this->AddDomainIntegrator(this->mgis_integrator);
+    }
+  }  // end of NonLinearEvolutionProblemImplementation
+
+  std::optional<real>
+  NonLinearEvolutionProblemImplementation<true>::computePrediction(
+      Context& ctx, const real t, const real dt) noexcept {
+    if (this->linear_solver.get() == nullptr) {
+      return ctx.registerErrorMessage("linear solver not initialized");
+    }
+    const auto discardLinearSolverFailure = [this] {
+      if (this->solver.get() != nullptr) {
+        return this->solver->isLinearSolverFailureDiscarded();
+      }
+      return false;
+    }();
+    const auto oresult = ::mfem_mgis::computePrediction<true>(
+        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
+#pragma message("required ?")
+    this->solver->setLinearSolver(*(this->linear_solver));
+    if (isInvalid(oresult)) {
+      return {};
+    }
+    this->u1 = this->u0;
+    this->u1 -= oresult->mdu->GetTrueVector();
+    return oresult->initial_residual_norm;
+  }  // end of computePrediction
+
+  void NonLinearEvolutionProblemImplementation<true>::Mult(
+      const mfem::Vector& u, mfem::Vector& r) const {
+    return mfem_mgis::NonlinearForm<true>::Mult(u, r);
+  }  // end of Mult
+
+  bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
+      Context& ctx,
+      std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
+    if (bc.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid boundary condition");
+    }
+    this->dirichlet_boundary_conditions.push_back(std::move(bc));
+    return true;
+  }  // end of addBoundaryCondition
+
+  bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
+      Context& ctx, std::unique_ptr<AbstractBoundaryCondition> f) noexcept {
+    if (f.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid boundary condition");
+    }
+    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+      return false;
+    }
+    this->boundary_conditions.push_back(std::move(f));
+    return true;
+  }  // end of addBoundaryCondition
+
+  bool NonLinearEvolutionProblemImplementation<true>::addPostProcessing(
+      Context& ctx,
+      std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<true>>
+          p) noexcept {
+    if (p.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid post-processing");
+    }
+    this->postprocessings.push_back(std::move(p));
+    return true;
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblemImplementation<true>::addPostProcessing(
+      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+    const auto& f = PostProcessingFactory<true>::getFactory();
+    return this->addPostProcessing(ctx, f.generate(ctx, n, *this, p));
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
+      Context& ctx, LinearSolverHandler s) noexcept {
+    if (isInvalid(s)) {
+      return ctx.registerErrorMessage("invalid linear solver");
+    }
+    this->updateLinearSolver(ctx, std::move(s));
+    return true;
+  }
+
+  bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
+      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+    const auto& f = LinearSolverFactory<true>::getFactory();
+    auto& fespace = this->getFiniteElementSpace();
+    auto s = f.generate(ctx, n, fespace, p);
+    if (isInvalid(s)) {
+      return false;
+    }
+    this->updateLinearSolver(ctx, std::move(s));
+    return true;
+  }  // end of setLinearSolver
+
+  bool NonLinearEvolutionProblemImplementation<true>::addPostProcessing(
+      Context& ctx,
+      const std::function<void(const real, const real)>& p) noexcept {
+    if (!p) {
+      return ctx.registerErrorMessage("invalid post-processing function");
+    }
+    auto ptr = make_unique<StdFunctionPostProcessing<true>>(ctx, p);
+    if (isInvalid(ptr)) {
+      return false;
+    }
+    return this->addPostProcessing(ctx, std::move(ptr));
+  }  // end of addPostProcessing
+
+  bool
+  NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
+      Context& ctx, const real t) noexcept {
+    for (auto& p : this->postprocessings) {
+      if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+        if (!p->executeInitialPostProcessing(ctx, *this, t)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }  // end of executeInitialPostProcessings
+
+  bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
+      Context& ctx, const real t, const real dt) noexcept {
+    auto success = true;
+    for (auto& p : this->postprocessings) {
+      if (!p->execute(ctx, *this, t, dt)) {
+        success = false;
+      }
+    }
+    return success;
+  }  // end of executePostProcessings
+
+  Mesh<true>& NonLinearEvolutionProblemImplementation<true>::getMesh() {
+    return this->fe_discretization->getMesh<true>();
+  }  // end of getMesh
+
+  const Mesh<true>& NonLinearEvolutionProblemImplementation<true>::getMesh()
+      const {
+    return this->fe_discretization->getMesh<true>();
+  }  // end of getMesh
+
+  FiniteElementSpace<true>&
+  NonLinearEvolutionProblemImplementation<true>::getFiniteElementSpace() {
+    return this->fe_discretization->getFiniteElementSpace<true>();
+  }  // end of getFiniteElementSpace
+
+  const FiniteElementSpace<true>&
+  NonLinearEvolutionProblemImplementation<true>::getFiniteElementSpace() const {
+    return this->fe_discretization->getFiniteElementSpace<true>();
+  }  // end of getFiniteElementSpace
+
+  bool NonLinearEvolutionProblemImplementation<true>::integrate(
+      const mfem::Vector& u,
+      const IntegrationType it,
+      const std::optional<real> odt) {
+    if (this->mgis_integrator == nullptr) {
+      return true;
+    }
+    const auto dt = this->mgis_integrator->getTimeIncrement();
+    if (odt.has_value()) {
+      this->mgis_integrator->setTimeIncrement(*odt);
+    }
+    const auto& pu = this->Prolongate(u);
+    const auto& fespace = this->getFiniteElementSpace();
+    mfem::Array<int> vdofs;
+    mfem::Vector ue;
+    bool success = true;
+    for (size_type i = 0; success && (i != fespace.GetNE()); ++i) {
+      const auto& e = *(fespace.GetFE(i));
+      auto& tr = *(fespace.GetElementTransformation(i));
+      fespace.GetElementVDofs(i, vdofs);
+      pu.GetSubVector(vdofs, ue);
+      success = this->mgis_integrator->integrate(e, tr, ue, it);
+    }
+    success = isTrueOnAllProcesses(*(this->fe_discretization), success);
+    if ((success) && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR)) {
+      this->hasStiffnessOperatorsBeenComputed = true;
+    }
+    this->mgis_integrator->setTimeIncrement(dt);
+    return success;
+  }  // end of integrate
+
+  void NonLinearEvolutionProblemImplementation<true>::
+      markDegreesOfFreedomHandledByDirichletBoundaryConditions(
+          std::vector<size_type> dofs) {
+    auto tmp = mfem::Array<size_type>(dofs.data(), dofs.size());
+    this->SetEssentialTrueDofs(tmp);
+  }  // end of markDegreesOfFreedomHandledByDirichletBoundaryConditions
+
+  NonLinearEvolutionProblemImplementation<
+      true>::~NonLinearEvolutionProblemImplementation() = default;
+
+#endif /* MFEM_USE_MPI */
+
+  NonLinearEvolutionProblemImplementation<false>::
+      NonLinearEvolutionProblemImplementation(
+          Context& ctx,
+          std::shared_ptr<FiniteElementDiscretization> fed,
+          const Hypothesis h,
+          const Parameters& p)
+      : NonLinearEvolutionProblemImplementationBase(
+            ctx,
+            fed,
+            h,
+            extract(throwing,
+                    p,
+                    NonLinearEvolutionProblemImplementationBase::
+                        getParametersList())),
+        mfem::NonlinearForm(&(fed->getFiniteElementSpace<false>())) {
+    //
+    auto or_raise = ctx.getThrowingFailureHandler();
+    auto validator = ParametersValidator{}.add(
+        NonLinearEvolutionProblemImplementationBase::getParametersList());
+    validator.validate(ctx, p) | or_raise;
+    //
+    if (this->fe_discretization->getMesh<false>().Dimension() !=
+        mgis::behaviour::getSpaceDimension(h)) {
+      raise(
+          "NonLinearEvolutionProblemImplementationBase::"
+          "NonLinearEvolutionProblemImplementationBase: "
+          "modelling hypothesis is not consistent with the spatial dimension "
+          "of the mesh");
+    }
+    if (this->mgis_integrator != nullptr) {
+      this->AddDomainIntegrator(this->mgis_integrator);
+    }
+    //
+    if (contains(
+            p, NonLinearEvolutionProblemImplementationBase::NonLinearSolver)) {
+      const auto [n, params] = extractFactoryArgument(
+          throwing,
+          get<Parameters>(
+              throwing, p,
+              NonLinearEvolutionProblemImplementationBase::NonLinearSolver));
+      auto& f = NonLinearSolverFactory::get();
+      this->solver = f.generate(ctx, n, *this, params) | or_raise;
+    } else {
+      this->solver = std::make_unique<NewtonSolver>(*this);
+    }
+  }  // end of NonLinearEvolutionProblemImplementation
+
+  std::optional<real>
+  NonLinearEvolutionProblemImplementation<false>::computePrediction(
+      Context& ctx, const real t, const real dt) noexcept {
+    if (this->linear_solver.get() == nullptr) {
+      return ctx.registerErrorMessage("linear solver not initialized");
+    }
+    const auto discardLinearSolverFailure = [this] {
+      if (this->solver.get() != nullptr) {
+        return this->solver->isLinearSolverFailureDiscarded();
+      }
+      return false;
+    }();
+    const auto oresult = ::mfem_mgis::computePrediction<false>(
+        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
+    this->solver->setLinearSolver(*(this->linear_solver));
+    if (isInvalid(oresult)) {
+      return {};
+    }
+    this->u1 = this->u0;
+    this->u1 -= oresult->mdu->GetTrueVector();
+    return oresult->initial_residual_norm;
+  }  // end of computePrediction
+
+  bool NonLinearEvolutionProblemImplementation<false>::addBoundaryCondition(
+      Context& ctx,
+      std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
+    if (bc.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid boundary condition");
+    }
+    this->dirichlet_boundary_conditions.push_back(std::move(bc));
+    return true;
+  }  // end of addBoundaryCondition
+
+  bool NonLinearEvolutionProblemImplementation<false>::addBoundaryCondition(
+      Context& ctx, std::unique_ptr<AbstractBoundaryCondition> f) noexcept {
+    if (f.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid boundary condition");
+    }
+    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+      return false;
+    }
+    this->boundary_conditions.push_back(std::move(f));
+    return true;
+  }  // end of addBoundaryCondition
+
+  bool NonLinearEvolutionProblemImplementation<false>::addPostProcessing(
+      Context& ctx,
+      std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<false>>
+          p) noexcept {
+    if (p.get() == nullptr) {
+      return ctx.registerErrorMessage("invalid post-processing");
+    }
+    this->postprocessings.push_back(std::move(p));
+    return true;
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblemImplementation<false>::addPostProcessing(
+      Context& ctx,
+      const std::function<void(const real, const real)>& p) noexcept {
+    if (!p) {
+      return ctx.registerErrorMessage("invalid post-processing function");
+    }
+    auto ptr = make_unique<StdFunctionPostProcessing<false>>(ctx, p);
+    if (isInvalid(ptr)) {
+      return false;
+    }
+    return this->addPostProcessing(ctx, std::move(ptr));
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblemImplementation<false>::addPostProcessing(
+      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+    const auto& f = PostProcessingFactory<false>::getFactory();
+    return this->addPostProcessing(ctx, f.generate(ctx, n, *this, p));
+  }  // end of addPostProcessing
+
+  bool
+  NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
+      Context& ctx, const real t) noexcept {
+    for (auto& p : this->postprocessings) {
+      if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+        if (!p->executeInitialPostProcessing(ctx, *this, t)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }  // end of executeInitialPostProcessings
+
+  bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+      Context& ctx, const real t, const real dt) noexcept {
+    auto success = true;
+    for (auto& p : this->postprocessings) {
+      if (!p->execute(ctx, *this, t, dt)) {
+        success = false;
+      }
+    }
+    return success;
+  }  // end of executePostProcessings
+
+  Mesh<false>&
+  NonLinearEvolutionProblemImplementation<false>::getMesh() noexcept {
+    return this->fe_discretization->getMesh<false>();
+  }  // end of getMesh
+
+  const Mesh<false>& NonLinearEvolutionProblemImplementation<false>::getMesh()
+      const noexcept {
+    return this->fe_discretization->getMesh<false>();
+  }  // end of getMesh
+
+  const FiniteElementSpace<false>& NonLinearEvolutionProblemImplementation<
+      false>::getFiniteElementSpace() const noexcept {
+    return this->fe_discretization->getFiniteElementSpace<false>();
+  }  // end of getFiniteElementSpace
+
+  FiniteElementSpace<false>& NonLinearEvolutionProblemImplementation<
+      false>::getFiniteElementSpace() noexcept {
+    return this->fe_discretization->getFiniteElementSpace<false>();
+  }  // end of getFiniteElementSpace
+
+  bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
+      Context& ctx, LinearSolverHandler s) noexcept {
+    if (isInvalid(s)) {
+      return ctx.registerErrorMessage("invalid linear solver");
+    }
+    this->updateLinearSolver(ctx, std::move(s));
+    return true;
+  }
+
+  bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
+      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+    const auto& f = LinearSolverFactory<false>::getFactory();
+    auto& fespace = this->getFiniteElementSpace();
+    auto s = f.generate(ctx, n, fespace, p);
+    if (isInvalid(s)) {
+      return false;
+    }
+    this->updateLinearSolver(ctx, std::move(s));
+    return true;
+  }  // end of setLinearSolver
+
+  bool NonLinearEvolutionProblemImplementation<false>::integrate(
+      const mfem::Vector& u,
+      const IntegrationType it,
+      const std::optional<real> odt) {
+    if (this->mgis_integrator == nullptr) {
+      return true;
+    }
+    const auto dt = this->mgis_integrator->getTimeIncrement();
+    if (odt.has_value()) {
+      this->mgis_integrator->setTimeIncrement(*odt);
+    }
+    const auto& pu = this->Prolongate(u);
+    const auto& fespace = this->getFiniteElementSpace();
+    mfem::Array<int> vdofs;
+    mfem::Vector ue;
+    for (size_type i = 0; i != fespace.GetNE(); ++i) {
+      const auto& e = *(fespace.GetFE(i));
+      auto& tr = *(fespace.GetElementTransformation(i));
+      fespace.GetElementVDofs(i, vdofs);
+      pu.GetSubVector(vdofs, ue);
+      if (!this->mgis_integrator->integrate(e, tr, ue, it)) {
+        this->mgis_integrator->setTimeIncrement(dt);
+        return false;
+      }
+    }
+    if (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {
+      this->hasStiffnessOperatorsBeenComputed = true;
+    }
+    this->mgis_integrator->setTimeIncrement(dt);
+    return true;
+  }  // end of integrate
+
+  void NonLinearEvolutionProblemImplementation<false>::
+      markDegreesOfFreedomHandledByDirichletBoundaryConditions(
+          std::vector<size_type> dofs) {
+    auto tmp = mfem::Array<size_type>(dofs.data(), dofs.size());
+    this->SetEssentialTrueDofs(tmp);
+  }  // end of markDegreesOfFreedomHandledByDirichletBoundaryConditions
+
+  NonLinearEvolutionProblemImplementation<
+      false>::~NonLinearEvolutionProblemImplementation() = default;
+
+}  // end of namespace mfem_mgis

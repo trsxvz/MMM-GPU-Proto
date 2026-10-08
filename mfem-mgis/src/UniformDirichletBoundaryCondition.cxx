@@ -1,0 +1,83 @@
+/*!
+ * \file   UniformDirichletBoundaryCondition.cxx
+ * \brief  This file implements the `UniformDirichletBoundaryCondition` class
+ * \author Thomas Helfer
+ * \date   18/03/2021
+ */
+
+#include "mfem/linalg/vector.hpp"
+#include "MFEMMGIS/Parameter.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+
+namespace mfem_mgis {
+
+  UniformDirichletBoundaryCondition::UniformDirichletBoundaryCondition(
+      AbstractNonLinearEvolutionProblem& p, const Parameters& params)
+      : DirichletBoundaryConditionBase(
+            p.getFiniteElementDiscretization(),
+            getBoundariesIdentifiers(throwing, p, params, false),
+            get<size_type>(throwing, params, "Component")) {
+    checkParameters(throwing, params,
+                    std::vector<std::string>{"Boundary", "Boundaries",
+                                             "Component", "LoadingEvolution"});
+    this->ufct = get_if<std::function<real(const real)>>(
+        throwing, params, "LoadingEvolution",
+        [](const real) noexcept { return real(0); });
+  }  // end of UniformDirichletBoundaryCondition
+
+  UniformDirichletBoundaryCondition::UniformDirichletBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const size_type bid,
+      const size_type c)
+      : DirichletBoundaryConditionBase(*fed, {bid}, c),
+        ufct([](const real) noexcept { return real(0); }) {
+  }  // end of UniformDirichletBoundaryCondition
+
+  UniformDirichletBoundaryCondition::UniformDirichletBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const std::string_view bid,
+      const size_type c)
+      : DirichletBoundaryConditionBase(
+            *fed, getBoundariesIdentifiers(throwing, *fed, bid), c),
+        ufct([](const real) noexcept { return real(0); }) {
+  }  // end of UniformDirichletBoundaryCondition
+
+  UniformDirichletBoundaryCondition::UniformDirichletBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const size_type bid,
+      const size_type c,
+      std::function<real(const real)> uvalues)
+      : DirichletBoundaryConditionBase(*fed, {bid}, c),
+        ufct(uvalues) {}  // end of UniformDirichletBoundaryCondition
+
+  UniformDirichletBoundaryCondition::UniformDirichletBoundaryCondition(
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const std::string_view bid,
+      const size_type c,
+      std::function<real(const real)> uvalues)
+      : DirichletBoundaryConditionBase(
+            *fed, getBoundariesIdentifiers(throwing, *fed, bid), c),
+        ufct(uvalues) {}  // end of UniformDirichletBoundaryCondition
+
+  void UniformDirichletBoundaryCondition::updateImposedValues(
+      mfem::Vector& u, const real t) const {
+    const auto uv = this->ufct(t);
+    for (const auto& dof : this->dofs) {
+      u[dof] = uv;
+    }
+  }  // end of updateImposedValues
+
+  void UniformDirichletBoundaryCondition::setImposedValuesIncrements(
+      mfem::Vector& du, const real ti, const real te, const real f) const {
+    const auto duv = f * (this->ufct(te) - this->ufct(ti));
+    for (const auto& dof : this->dofs) {
+      du[dof] = duv;
+    }
+  }  // end of setImposedValuesIncrements
+
+  UniformDirichletBoundaryCondition::~UniformDirichletBoundaryCondition() =
+      default;
+
+}  // end of namespace mfem_mgis

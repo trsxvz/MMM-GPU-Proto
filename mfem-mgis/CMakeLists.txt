@@ -1,0 +1,140 @@
+cmake_minimum_required(VERSION 3.8)
+project(mfem-mgis
+  VERSION 1.1.0
+  DESCRIPTION "The aim of the MFEM/MGIS project is to provide a C++ library to build advanced mechanical simulation based on MFront behaviours with MFEM.")
+
+include(cmake/modules/mfem-mgis.cmake)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/modules)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# ===========================
+# === CMake customization ===
+# ===========================
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release Coverage RelWithDebInfo Debug)
+if (NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+endif()
+
+# (must be placed *before* any add_subdirectory, cmake bug ?)
+include(CTest)
+enable_testing()
+
+# portable-build
+option(enable-portable-build "Produce binary that can be shared between various machine (same architecture, same gcc version, different processors" OFF)
+option(BENCHMARKS "Compile benchmarks" OFF)
+
+#compiler options
+include(cmake/modules/compiler.cmake)
+if(CMAKE_BUILD_TYPE STREQUAL "Coverage")
+  include(cmake/modules/CodeCoverage.cmake)
+  SETUP_TARGET_FOR_COVERAGE(coverage ctest coverage)
+endif(CMAKE_BUILD_TYPE STREQUAL "Coverage")
+
+# MFEM
+if(MFEM_DIR)
+  # MFEM_DIR is modified by FindMFEM.cmake..
+  # Don't know why, so in doubt we save the value
+  # in your own variable
+  set(MFEM_MGIS_MFEM_DIR "${MFEM_DIR}")
+endif(MFEM_DIR)
+find_package(MFEM REQUIRED)
+
+if (MFEM_USE_MPI)
+  message(STATUS "MFEM: using MPI, so mfem_mgis will use MPI")
+  find_package(MPI REQUIRED)
+  # The following include directories are automatically filled within FindMFEM.cmake
+  include_directories(SYSTEM ${HYPRE_INCLUDE_DIRS})
+  include_directories(SYSTEM ${METIS_INCLUDE_DIRS})
+endif(MFEM_USE_MPI)
+
+# Support for OpenMP
+if(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP) 
+  find_package(OpenMP REQUIRED)
+endif(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP)
+
+# MFontGenericInterface
+find_package (MFrontGenericInterface REQUIRED PATH_SUFFIXES share/mgis/cmake)
+set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
+if(MGIS_HAVE_TFEL)
+  if(TARGET tfel::TFELTests)
+    set(MFEM_MGIS_ENABLE_TFEL_TESTS ON)    
+  endif(TARGET tfel::TFELTests) 
+endif(MGIS_HAVE_TFEL) 
+
+if(NOT MFEM_MGIS_ENABLE_TFEL_TESTS)
+  option(enable-tfel-tests "enable tests based on TFEL tests" OFF)
+  if(enable-tfel-tests)
+    find_package(TFELTests REQUIRED
+      HINTS "${TFEL_DIR}")
+    set(MFEM_MGIS_ENABLE_TFEL_TESTS ON)
+  endif(enable-tfel-tests)
+endif(NOT MFEM_MGIS_ENABLE_TFEL_TESTS)
+
+# find mfront for testing purposes
+include(cmake/modules/tfel.cmake)  
+
+# documentation
+if (NOT TARGET doc)
+  add_custom_target(doc)
+endif(NOT TARGET doc)
+
+# add a target to generate API documentation with Doxygen
+option(enable-doxygen-doc "enable generation of the Doxygen documentation" OFF)
+if(enable-doxygen-doc)
+  find_package(Doxygen)
+  if(DOXYGEN_FOUND)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in
+      ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
+    add_custom_target(doc-html
+      ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+      COMMENT "Generating API documentation with Doxygen" VERBATIM)
+    add_dependencies(doc doc-html)
+    list(APPEND CPACK_COMPONENTS_ALL doxygen)
+    set(CPACK_COMPONENT_DOXYGEN_DESCRIPTION
+      "Contains the MFEM/MGIS doxygen documentation")
+    set(GENERATE_DOXYGEN ON)
+  else(DOXYGEN_FOUND)
+    message(FATAL_ERROR "doxygen is required")
+  endif(DOXYGEN_FOUND)
+else(enable-doxygen-doc)
+  message(STATUS "doxygen documentation is not enabled")
+endif(enable-doxygen-doc)
+
+add_subdirectory(docs)
+
+# HYPRE version
+include(cmake/modules/hypre.cmake)  
+set(MFEM_HYPRE_VERSION ${HYPRE_VERSION})
+add_compile_definitions(MFEM_HYPRE_VERSION=${MFEM_HYPRE_VERSION})
+
+# testing
+set(CTEST_CONFIGURATION_TYPE "${JOB_BUILD_CONFIGURATION}")
+
+add_custom_target(build-tests)
+if(CMAKE_CONFIGURATION_TYPES)
+   add_custom_target(check COMMAND 
+     ${CMAKE_CTEST_COMMAND} -T test --output-on-failure -C $<CONFIGURATION>
+     DEPENDS build-tests)
+else(CMAKE_CONFIGURATION_TYPES)
+   add_custom_target(check COMMAND 
+     ${CMAKE_CTEST_COMMAND} -T test --output-on-failure 
+     DEPENDS build-tests)
+endif(CMAKE_CONFIGURATION_TYPES)
+
+mfem_mgis_buildenv()
+
+add_subdirectory(include)
+add_subdirectory(src)
+add_subdirectory(tests)
+if(BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif(BENCHMARKS)
+
+# install
+install(FILES
+   ${PROJECT_SOURCE_DIR}/cmake/modules/FindMFEM.cmake
+   ${PROJECT_SOURCE_DIR}/cmake/modules/ParELAGCMakeUtilities.cmake
+   DESTINATION share/mfem-mgis/cmake)

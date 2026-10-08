@@ -1,0 +1,24 @@
+/*!
+ * \file   src/PartialQuadratureFunctionUtilities.cxx
+ * \brief  This file implements the functions declared in
+ * `MFEMMGIS/PartialQuadratureFunctionUtilities.hxx`
+ * \author Thomas Helfer
+ * \date   30/04/2025
+ */
+
+#include "MFEMMGIS/Algorithms.hxx"
+#include "MFEMMGIS/QPEvaluator/QPEvaluator.hxx"
+#include "MFEMMGIS/PartialQuadratureFunctionUtilities.hxx"
+
+namespace mfem_mgis {
+
+  bool rotateThermodynamicsForcesToGlobalFrame(
+      Context &ctx,
+      PartialQuadratureFunction &f,
+      const Material &m,
+      const Material::StateSelection s) noexcept {
+    RotatedThermodynamicForcesMatrixQPEvaluator<dynamic_extent> e(m, s);
+    return assign(ctx, f, e);
+  }  // end of rotateThermodynamicsForces
+
+}  // end of namespace mfem_mgis

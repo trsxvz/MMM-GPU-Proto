@@ -1,0 +1,35 @@
+/*!
+ * \file   MFEMMGIS/PartialQuadratureFunctionUtilities.hxx
+ * \brief  This file declares the `rotateThermodynamicsForcesToGlobalFrame`
+ * function
+ * \author Thomas Helfer
+ * \date   30/04/2025
+ */
+
+#ifndef LIB_MFEMMIGS_PARTIALQUADRATUREFUNCTIONUTILITIES_HXX
+#define LIB_MFEMMIGS_PARTIALQUADRATUREFUNCTIONUTILITIES_HXX
+
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/PartialQuadratureFunction.hxx"
+
+namespace mfem_mgis {
+
+  /*!
+   * \brief rotate the thermodynamic forces in the global frame
+   * \param[in, out] ctx: execution context
+   * \param[out] f: quadrature function containing the thermodynamic forces in
+   * the global frame
+   * \param[in] m: material
+   * \param[in] s: state considered
+   * \return true on success
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool rotateThermodynamicsForcesToGlobalFrame(
+      Context& ctx,
+      PartialQuadratureFunction& f,
+      const Material& m,
+      const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEMMIGS_PARTIALQUADRATUREFUNCTIONUTILITIES_HXX */

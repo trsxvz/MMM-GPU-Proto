@@ -1,0 +1,104 @@
+# Configuration file for the Sphinx documentation builder.
+#
+# This file only contains a selection of the most common options. For a full
+# list see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+
+# -- Path setup --------------------------------------------------------------
+
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+#
+# import os
+# import sys
+# sys.path.insert(0, os.path.abspath('.'))
+
+
+# -- Project information -----------------------------------------------------
+
+project = 'The MFEM MGIS project'
+copyright = '2021-2026, Thomas Helfer, Guillaume Latu, Raphaël Prat, Maxence Wangermez'
+author = 'Thomas Helfer, Guillaume Latu, Raphaël Prat, Maxence Wangermez'
+
+# -- General configuration ---------------------------------------------------
+
+# Add any Sphinx extension module names here, as strings. They can be
+# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
+# ones.
+
+extensions = ['sphinx_rtd_theme', 'sphinxcontrib.bibtex', 'sphinx_reredirects', 'myst_parser']
+
+bibtex_bibfiles= ["bibliography.bib"]
+
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
+}
+
+# Add any paths that contain templates here, relative to this directory.
+templates_path = ['_templates']
+
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
+# This pattern also affects html_static_path and html_extra_path.
+exclude_patterns = []
+
+# -- Redirect old page name --------------------------------------------------
+
+redirects = {"benchmark": "developer_guide/benchmark.html"}
+
+# -- Options for HTML output -------------------------------------------------
+
+# The theme to use for HTML and HTML Help pages.  See the documentation for
+# a list of builtin themes.
+#
+html_theme = 'sphinx_rtd_theme'
+
+# Add any paths that contain custom static files (such as style sheets) here,
+# relative to this directory. They are copied after the builtin static files,
+# so a file named "default.css" will overwrite the builtin "default.css".
+html_static_path = []
+
+def setup(app):
+    app.add_css_file('css/custom.css')
+
+mathjax3_config = {
+    "tex": {
+        "macros": {
+            "paren": ["{\\left(#1\\right)}", 1],  # parenthesis
+            "transpose": ["{\\left.#1\\right.^{T}}", 1],  # transposition
+            "bts": ["{\\left.#1\\right|_{\\mathrm{bts}}}", 1],  # beginning of time step
+            "ets": ["{\\left.#1\\right|_{\\mathrm{ets}}}", 1],  # end of time step
+        }
+    }
+}
+# ending_point_mathjax
+
+
+rst_prolog = """
+.. role:: cxx(code)
+    :language: c++
+    :class: highlight
+
+.. role:: param(code)
+    :language: c++
+    :class: highlight
+
+.. role:: jarg(emphasis)
+
+.. role:: shell(code)
+    :language: shell
+    :class: highlight
+
+.. starting_point_replace
+.. |c| replace:: C  
+.. |cxx| replace:: C++  
+.. |python| replace:: Python  
+.. |MFront| replace:: MFront
+.. |MFEM| replace:: mfem
+.. |MFEM/MGIS| replace:: MFEM/MGIS
+.. ending_point_replace
+
+.. cpp:namespace:: mfem_mgis
+"""

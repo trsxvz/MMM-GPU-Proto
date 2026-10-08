@@ -1,0 +1,142 @@
+/*!
+ * \file   tests/ImposedPressureTest.cxx
+ * \brief  Tests of the `UniformImposedPressureBoundaryCondition` class
+ * \author Thomas Helfer
+ * \date   14/12/2020
+ */
+
+#include <memory>
+#include <cstdlib>
+#include <iostream>
+#include <iterator>
+#ifdef DO_USE_MPI
+#include <mpi.h>
+#endif
+#include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "UnitTestingUtilities.hxx"
+
+int main(int argc, char** argv) {
+  auto ctx = mgis::Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  constexpr const auto dim = mfem_mgis::size_type{3};
+  auto parameters = mfem_mgis::unit_tests::TestParameters{};
+  // options treatment
+  mfem_mgis::initialize(argc, argv);
+  mfem_mgis::unit_tests::parseCommandLineOptions(parameters, argc, argv);
+  auto success = true;
+  {
+    // building the non linear problem
+    auto problem =
+        mfem_mgis::construct<mfem_mgis::NonLinearEvolutionProblem>(
+            ctx,
+            mfem_mgis::Parameters{
+                {"MeshFileName", parameters.mesh_file},
+                {"FiniteElementFamily", "H1"},
+                {"FiniteElementOrder", parameters.order},
+                {"UnknownsSize", dim},
+                {"NumberOfUniformRefinements", 0},  // faster for testing
+                //{"NumberOfUniformRefinements", parameters.parallel ? 1 : 0},
+                {"Hypothesis", "Tridimensional"},
+                {"Parallel", bool(parameters.parallel)}}) |
+        or_die;
+    // materials
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, parameters.library,
+                                   parameters.behaviour) |
+        or_die;
+    auto& m1 = problem.getMaterial(ctx, 1, 0) | or_die;
+    mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature",
+                                              293.15) |
+        or_die;
+    mgis::behaviour::setExternalStateVariable(ctx, m1.s1, "Temperature",
+                                              293.15) |
+        or_die;
+    const mfem_mgis::real l = 100e9;
+    const mfem_mgis::real mu = 75e9;
+    mgis::behaviour::setMaterialProperty(ctx, m1.s0, "FirstLameCoefficient",
+                                         l) |
+        or_die;
+    mgis::behaviour::setMaterialProperty(ctx, m1.s0, "ShearModulus", mu) |
+        or_die;
+    mgis::behaviour::setMaterialProperty(ctx, m1.s1, "FirstLameCoefficient",
+                                         l) |
+        or_die;
+    mgis::behaviour::setMaterialProperty(ctx, m1.s1, "ShearModulus", mu) |
+        or_die;
+    if (m1.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      std::array<mfem_mgis::real, 9u> r = {0, 1, 0,  //
+                                           1, 0, 0,  //
+                                           0, 0, 1};
+      m1.setRotationMatrix(mfem_mgis::RotationMatrix3D{r});
+    }
+    // boundary conditions
+    // Determine the list of true (i.e. parallel conforming) essential
+    // boundary dofs. In this example, the boundary conditions are defined by
+    // marking only boundary attribute 1 (xz0) 2 (xy0) and 5 (yz0) from the
+    // mesh as essential and converting it to a list of true dofs.
+    // In the mesh file, we have both an index and a name for physical entities
+    // :
+    //    $PhysicalNames
+    //    7
+    //    2 1 "xz0"
+    //    2 2 "xy0"
+    //    2 3 "yz1"
+    //    2 4 "xz1"
+    //    2 5 "yz0"
+    //    2 6 "xy1"
+    //    3 7 "mat"
+    //    $EndPhysicalNames
+    // Only the index is used in this C++ code for manipulating related dof.
+    problem.addBoundaryCondition(
+        ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+                 ctx, problem.getFiniteElementDiscretizationPointer(), 1, 1) |
+                 or_die) |
+        or_die;
+    problem.addBoundaryCondition(
+        ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+                 ctx, problem.getFiniteElementDiscretizationPointer(), 2, 2) |
+                 or_die) |
+        or_die;
+    problem.addBoundaryCondition(
+        ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+                 ctx, problem.getFiniteElementDiscretizationPointer(), 5, 0) |
+                 or_die) |
+        or_die;
+    problem.addBoundaryCondition(
+        ctx, make_unique<mfem_mgis::UniformImposedPressureBoundaryCondition>(
+                 ctx, problem.getFiniteElementDiscretizationPointer(), 3,
+                 [](const mfem_mgis::real t) noexcept { return 150e6 * t; }) |
+                 or_die) |
+        or_die;
+    // set the solver parameters
+    mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
+                                           parameters);
+    problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                      {"RelativeTolerance", 1e-12},
+                                      {"AbsoluteTolerance", 0.},
+                                      {"MaximumNumberOfIterations", 10}}) |
+        or_die;
+    // vtk export
+    problem.addPostProcessing(
+        ctx, "ParaviewExportResults",
+        {{"OutputFileName",
+          "ImposedPressureTestOutput-" + std::string(parameters.behaviour)}}) |
+        or_die;
+    // solving the problem in 1 time step
+    auto r = mfem_mgis::unit_tests::solve(ctx, problem, parameters, 0, 1, 1);
+    // save the results curve
+    mfem_mgis::unit_tests::saveResults(
+        "ImposedPressureTest-" + std::string(parameters.behaviour) + ".txt", r);
+    // compare to reference files
+    //     constexpr const auto eps = mfem_mgis::real(1.e-10);
+    //     constexpr const auto E = mfem_mgis::real(70.e9);
+    //     success = mfem_mgis::unit_tests::checkResults(r, m1, parameters, eps,
+    //     E * eps);
+  }
+  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+  return success ? EXIT_SUCCESS : EXIT_FAILURE;
+}

@@ -1,0 +1,548 @@
+/*!
+ * \file   src/MultiMaterialNonLinearIntegrator.cxx
+ * \brief  This file implements the `MultiMaterialNonLinearIntegrator` class
+ * \author Thomas Helfer
+ * \date   8/06/2020
+ */
+
+#include <utility>
+#include "MGIS/Raise.hxx"
+#include "mfem/fem/linearform.hpp"
+#include "mfem/fem/bilinearform.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/mesh/pmesh.hpp"
+#endif /* MFEM_USE_MPI */
+#include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/IntegrationType.hxx"
+#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+#include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+
+namespace mfem_mgis {
+
+  /*!
+   * \brief a simple test
+   * \param[in] bis: behaviour integrators per material
+   * \param[in] n: name of the calling method
+   * \param[in] m: material id
+   */
+  static void checkIfBehaviourIntegratorsAreDefined(
+      const std::vector<
+          std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>& bis,
+      const char* const n,
+      const size_type m) {
+    if ((bis.empty()) || (m >= static_cast<size_type>(bis.size()))) {
+      abort("MultiMaterialNonLinearIntegrator::" + std::string(n) +
+            ": no behaviour integrator associated with material '" +
+            std::to_string(m) + "'");
+    }
+    if (bis.at(m).empty()) {
+      abort("MultiMaterialNonLinearIntegrator::" + std::string(n) +
+            ": no behaviour integrator associated with material '" +
+            std::to_string(m) + "'");
+    }
+    // ok this is paranoïac, but does not hurt
+    for (const auto& bi : bis.at(m)) {
+      if (bi.get() == nullptr) {
+        abort("MultiMaterialNonLinearIntegrator::" + std::string(n) +
+              ": invalid behaviour integrator associated with material '" +
+              std::to_string(m) + "'");
+      }
+    }
+  }  // end if checkIfBehaviourIntegratorsAreDefined
+
+  struct InternalForcesIntegrator final : public LinearFormIntegrator {
+#ifdef MFEM_USE_MPI
+    /*!
+     * \brief constructor
+     * \param[in] u: unknown
+     * \param[in] fes: finite element space
+     * \param[in] bis: behaviour integrators
+     */
+    InternalForcesIntegrator(
+        const FiniteElementSpace<true>& fes,
+        const mfem::Vector& u,
+        std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+            bis)
+        : pfespace(&fes), unknowns(u), behaviour_integrators(bis) {}
+#endif /* MFEM_USE_MPI */
+    /*!
+     * \brief constructor
+     * \param[in] u: unknown
+     * \param[in] fes: finite element space
+     * \param[in] bis: behaviour integrators
+     */
+    InternalForcesIntegrator(
+        const FiniteElementSpace<false>& fes,
+        const mfem::Vector& u,
+        std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+            bis)
+        : fespace(&fes), unknowns(u), behaviour_integrators(bis) {}
+    //
+    void AssembleRHSElementVect(const mfem::FiniteElement& e,
+                                mfem::ElementTransformation& tr,
+                                mfem::Vector& F) override {
+      const auto m = tr.Attribute;
+      checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                            "AssembleElementVector", m);
+      auto update = [this, &e, &tr](mfem::Vector& Fe,
+                                    AbstractBehaviourIntegrator& bi) {
+        if (bi.requiresCurrentSolutionForResidualAssembly()) {
+          auto vdofs = mfem::Array<int>{};
+#ifdef MFEM_USE_MPI
+          if (this->pfespace != nullptr) {
+            this->pfespace->GetElementVDofs(tr.ElementNo, vdofs);
+          } else {
+            this->fespace->GetElementVDofs(tr.ElementNo, vdofs);
+          }
+#else  /* MFEM_USE_MPI */
+          this->fespace->GetElementVDofs(tr.ElementNo, vdofs);
+#endif /* MFEM_USE_MPI */
+          this->unknowns.GetSubVector(vdofs, this->Ue);
+        }
+        bi.updateResidual(Fe, e, tr, this->Ue);
+      };
+      //
+      const auto& integrators = this->behaviour_integrators.at(m);
+      if (integrators.size() == 1) {
+        update(F, *(integrators.front()));
+        return;
+      }
+      const auto ndofs = [this, &e] {
+#ifdef MFEM_USE_MPI
+        if (this->pfespace != nullptr) {
+          return e.GetDof() * (this->pfespace->GetVDim());
+        }
+#endif /* MFEM_USE_MPI */
+        return e.GetDof() * (this->fespace->GetVDim());
+      }();
+      auto F_tmp = mfem::Vector{};
+      F.SetSize(ndofs);
+      // although not required as F_tmp will be resized and initialized by all
+      // behaviour integrators, this line avoids repeated allocations
+      F_tmp.SetSize(ndofs);
+      F = 0.;
+      for (auto& bi : integrators) {
+        update(F_tmp, *bi);
+        F += F_tmp;
+      }
+    }  // end of AssembleRHSElementVect
+
+   private:
+#ifdef MFEM_USE_MPI
+    //! \brief pointer to the finite element space for parallel resolutions
+    const FiniteElementSpace<true>* const pfespace = nullptr;
+#endif /* MFEM_USE_MPI */
+    //! \brief pointer to the finite element space for sequential resolutions
+    const FiniteElementSpace<false>* const fespace = nullptr;
+    //! \brief unknowns
+    const mfem::Vector& unknowns;
+    //! \brief temporary vector containing the unknown of the current element
+    mfem::Vector Ue;
+    //! \brief list of behaviour integrators
+    std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+        behaviour_integrators;
+  };
+
+  struct StiffnessMatrixIntegrator final : public BilinearFormIntegrator {
+#ifdef MFEM_USE_MPI
+    /*!
+     * \brief constructor
+     * \param[in] u: unknown
+     * \param[in] fes: finite element space
+     * \param[in] bis: behaviour integrators
+     */
+    StiffnessMatrixIntegrator(
+        const FiniteElementSpace<true>& fes,
+        const mfem::Vector& u,
+        std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+            bis)
+        : pfespace(&fes), unknowns(u), behaviour_integrators(bis) {}
+#endif /* MFEM_USE_MPI */
+    /*!
+     * \brief constructor
+     * \param[in] u: unknown
+     * \param[in] fes: finite element space
+     * \param[in] bis: behaviour integrators
+     */
+    StiffnessMatrixIntegrator(
+        const FiniteElementSpace<false>& fes,
+        const mfem::Vector& u,
+        std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+            bis)
+        : fespace(&fes), unknowns(u), behaviour_integrators(bis) {}
+    //
+    void AssembleElementMatrix(const mfem::FiniteElement& e,
+                               mfem::ElementTransformation& tr,
+                               mfem::DenseMatrix& K) override {
+      const auto m = tr.Attribute;
+      checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                            "AssembleElementGrad", m);
+      auto update = [this, &e, &tr](mfem::DenseMatrix& Ke,
+                                    AbstractBehaviourIntegrator& bi) {
+        if (bi.requiresCurrentSolutionForJacobianAssembly()) {
+          auto vdofs = mfem::Array<int>{};
+#ifdef MFEM_USE_MPI
+          if (this->pfespace != nullptr) {
+            this->pfespace->GetElementVDofs(tr.ElementNo, vdofs);
+          } else {
+            this->fespace->GetElementVDofs(tr.ElementNo, vdofs);
+          }
+#else  /* MFEM_USE_MPI */
+          this->fespace->GetElementVDofs(tr.ElementNo, vdofs);
+#endif /* MFEM_USE_MPI */
+          this->unknowns.GetSubVector(vdofs, this->Ue);
+        }
+        bi.updateJacobian(Ke, e, tr, this->Ue);
+      };
+      //
+      const auto& integrators = this->behaviour_integrators.at(m);
+      if (integrators.size() == 1) {
+        update(K, *(integrators.front()));
+        return;
+      }
+      const auto ndofs = [this, &e] {
+#ifdef MFEM_USE_MPI
+        if (this->pfespace != nullptr) {
+          return e.GetDof() * (this->pfespace->GetVDim());
+        }
+#endif /* MFEM_USE_MPI */
+        return e.GetDof() * (this->fespace->GetVDim());
+      }();
+      auto K_tmp = mfem::DenseMatrix{};
+      K.SetSize(ndofs, ndofs);
+      // although not required as K_tmp will be resized and initialized by all
+      // behaviour integrators, this line avoids repeated allocations
+      K_tmp.SetSize(ndofs, ndofs);
+      K = 0.;
+      for (auto& bi : integrators) {
+        update(K_tmp, *bi);
+        K += K_tmp;
+      }
+    }  // end of AssembleElementMatrix
+
+   private:
+#ifdef MFEM_USE_MPI
+    //! \brief pointer to the finite element space for parallel resolutions
+    const FiniteElementSpace<true>* const pfespace = nullptr;
+#endif /* MFEM_USE_MPI */
+    //! \brief pointer to the finite element space for sequential resolutions
+    const FiniteElementSpace<false>* const fespace = nullptr;
+    //! \brief unknowns
+    const mfem::Vector& unknowns;
+    //! \brief temporary vector containing the unknown of the current element
+    mfem::Vector Ue;
+    //! \brief list of behaviour integrators
+    std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>&
+        behaviour_integrators;
+  };  // end of StiffnessMatrixIntegrator
+
+  MultiMaterialNonLinearIntegrator::MultiMaterialNonLinearIntegrator(
+      std::shared_ptr<const FiniteElementDiscretization> fed,
+      const Hypothesis h)
+      : fe_discretization(fed), hypothesis(h) {
+    if (this->fe_discretization->describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      const auto& mesh = this->fe_discretization->getMesh<true>();
+      // shifting by one allows to directly use the material id to get
+      // the behaviour integrators in all the other methods.
+      // However, behaviour_integrators[0] will always be null.
+      this->behaviour_integrators.resize(mesh.attributes.Max() + 1);
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      const auto& mesh = this->fe_discretization->getMesh<false>();
+      // shifting by one allows to directly use the material id to get
+      // the behaviour integrators in all the other methods.
+      // However, behaviour_integrators[0] will always be empty.
+      this->behaviour_integrators.resize(mesh.attributes.Max() + 1);
+    }
+  }  // end of MultiMaterialNonLinearIntegrator
+
+  bool MultiMaterialNonLinearIntegrator::integrate(
+      const mfem::FiniteElement& e,
+      mfem::ElementTransformation& tr,
+      const mfem::Vector& U,
+      const IntegrationType it) {
+    const auto m = tr.Attribute;
+    checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                          "integrate", m);
+    for (const auto& bi : this->behaviour_integrators.at(m)) {
+      if (!bi->integrate(e, tr, U, it)) {
+        return false;
+      }
+    }
+    return true;
+  }  // end of integrate
+
+  void MultiMaterialNonLinearIntegrator::AssembleElementVector(
+      const mfem::FiniteElement& e,
+      mfem::ElementTransformation& tr,
+      const mfem::Vector& U,
+      mfem::Vector& F) {
+    const auto m = tr.Attribute;
+    checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                          "AssembleElementVector", m);
+    const auto& integrators = this->behaviour_integrators.at(m);
+    if (integrators.size() == 1) {
+      if (usePETSc()) {
+        MFEM_VERIFY(
+            integrators.front()->integrate(
+                e, tr, U,
+                IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR),
+            "behaviour integration failed on element " << tr.ElementNo
+                                                       << " of material " << m);
+      }
+      integrators.front()->updateResidual(F, e, tr, U);
+      return;
+    }
+    const auto ndofs =
+        e.GetDof() * getNumberOfComponents(*(this->fe_discretization));
+    auto F_tmp = mfem::Vector{};
+    F.SetSize(ndofs);
+    // although not required as F_tmp will be resized and initialized by all
+    // behaviour integrators, this line avoids repeated allocations
+    F_tmp.SetSize(ndofs);
+    F = 0.;
+    for (const auto& bi : integrators) {
+      if (usePETSc()) {
+        MFEM_VERIFY(
+            bi->integrate(
+                e, tr, U,
+                IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR),
+            "behaviour integration failed on element " << tr.ElementNo
+                                                       << " of material " << m);
+      }
+      bi->updateResidual(F_tmp, e, tr, U);
+      F += F_tmp;
+    }
+  }  // end of AssembleElementVector
+
+  void MultiMaterialNonLinearIntegrator::AssembleElementGrad(
+      const mfem::FiniteElement& e,
+      mfem::ElementTransformation& tr,
+      const mfem::Vector& U,
+      mfem::DenseMatrix& K) {
+    const auto m = tr.Attribute;
+    checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                          "AssembleElementGrad", m);
+    const auto& integrators = this->behaviour_integrators.at(m);
+    if (integrators.size() == 1) {
+      integrators.front()->updateJacobian(K, e, tr, U);
+      return;
+    }
+    const auto ndofs =
+        e.GetDof() * getNumberOfComponents(*(this->fe_discretization));
+    auto K_tmp = mfem::DenseMatrix{};
+    K.SetSize(ndofs, ndofs);
+    // although not required as K_tmp will be resized and initialized by all
+    // behaviour integrators, this line avoids repeated allocations
+    K_tmp.SetSize(ndofs, ndofs);
+    K = 0.;
+    for (const auto& bi : integrators) {
+      bi->updateJacobian(K_tmp, e, tr, U);
+      K += K_tmp;
+    }
+  }  // end of AssembleElementGrad
+
+  std::optional<size_type>
+  MultiMaterialNonLinearIntegrator::addBehaviourIntegrator(
+      Context& ctx,
+      const std::string& n,
+      const size_type m,
+      const std::string& l,
+      const std::string& b,
+      const Parameters& params) noexcept {
+    if ((m == 0) || (m >= this->behaviour_integrators.size())) {
+      return ctx.registerErrorMessage("invalid material index '" +
+                                      std::to_string(m) + "'");
+    }
+    const auto of = BehaviourIntegratorFactory::get(ctx, this->hypothesis);
+    if (isInvalid(of)) {
+      return {};
+    }
+    auto& bis = this->behaviour_integrators[m];
+    const auto s = static_cast<size_type>(bis.size());
+    auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis);
+    if (isInvalid(bptr)) {
+      return {};
+    }
+    auto bi = of->generate(ctx, n, *(this->fe_discretization), m,
+                           std::move(bptr), params);
+    if (isInvalid(bi)) {
+      return {};
+    }
+    bis.push_back(std::move(bi));
+    return s;
+  }  // end of addBehaviourIntegrator
+
+  OptionalReference<const Material>
+  MultiMaterialNonLinearIntegrator::getMaterial(
+      Context& ctx, const size_type m, const size_type b) const noexcept {
+    const auto obi = this->getBehaviourIntegrator(ctx, m, b);
+    if (isInvalid(obi)) {
+      return {};
+    }
+    const auto& om = obi->getMaterial(ctx);
+    if (isInvalid(om)) {
+      return {};
+    }
+    return {&(*om)};
+  }  // end of getMaterial
+
+  OptionalReference<Material> MultiMaterialNonLinearIntegrator::getMaterial(
+      Context& ctx, const size_type m, const size_type b) noexcept {
+    auto obi = this->getBehaviourIntegrator(ctx, m, b);
+    if (isInvalid(obi)) {
+      return {};
+    }
+    const auto& om = obi->getMaterial(ctx);
+    if (isInvalid(om)) {
+      return {};
+    }
+    return {&(*om)};
+  }  // end of getMaterial
+
+  std::optional<size_type>
+  MultiMaterialNonLinearIntegrator::getNumberOfBehaviourIntegrators(
+      Context& ctx, const size_type m) const noexcept {
+    if ((m == 0) || (m >= this->behaviour_integrators.size())) {
+      return ctx.registerErrorMessage("invalid material index '" +
+                                      std::to_string(m) + "'");
+    }
+    const auto& bis = this->behaviour_integrators.at(m);
+    return bis.size();
+  }  // end of getBehaviourIntegrator
+
+  OptionalReference<const AbstractBehaviourIntegrator>
+  MultiMaterialNonLinearIntegrator::getBehaviourIntegrator(
+      Context& ctx, const size_type m, const size_type b) const noexcept {
+    if ((m == 0) || (m >= this->behaviour_integrators.size())) {
+      return ctx.registerErrorMessage("invalid material index '" +
+                                      std::to_string(m) + "'");
+    }
+    const auto& bis = this->behaviour_integrators.at(m);
+    if (b >= bis.size()) {
+      return ctx.registerErrorMessage("invalid behaviour index '" +
+                                      std::to_string(b) + "'");
+    }
+    return {bis.at(b).get()};
+  }  // end of getBehaviourIntegrator
+
+  OptionalReference<AbstractBehaviourIntegrator>
+  MultiMaterialNonLinearIntegrator::getBehaviourIntegrator(
+      Context& ctx, const size_type m, const size_type b) noexcept {
+    if ((m == 0) || (m >= this->behaviour_integrators.size())) {
+      return ctx.registerErrorMessage("invalid material index '" +
+                                      std::to_string(m) + "'");
+    }
+    auto& bis = this->behaviour_integrators.at(m);
+    if (b >= bis.size()) {
+      return ctx.registerErrorMessage("invalid behaviour index '" +
+                                      std::to_string(b) + "'");
+    }
+    return {bis.at(b).get()};
+  }  // end of getBehaviourIntegrator
+
+  real MultiMaterialNonLinearIntegrator::getTimeIncrement() const noexcept {
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (bi != nullptr) {
+          return bi->getTimeIncrement();
+        }
+      }
+    }
+    return real{};
+  }  // end of setTimeIncrement
+
+  void MultiMaterialNonLinearIntegrator::setTimeIncrement(const real dt) {
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (bi != nullptr) {
+          bi->setTimeIncrement(dt);
+        }
+      }
+    }
+  }  // end of setTimeIncrement
+
+  void MultiMaterialNonLinearIntegrator::setMacroscopicGradients(
+      std::span<const real> g) {
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        bi->setMacroscopicGradients(g);
+      }
+    }
+  }  // end of setMacroscopicGradients
+
+  bool MultiMaterialNonLinearIntegrator::setup(Context& ctx,
+                                               const real t,
+                                               const real dt) noexcept {
+    // note: synchronization among MPI processes is done later
+    // in the calling nonlinear evolution problem
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (!bi->setup(ctx, t, dt)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }  // end of setup
+
+  void MultiMaterialNonLinearIntegrator::revert() {
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        bi->revert();
+      }
+    }
+  }  // end of revert
+
+  void MultiMaterialNonLinearIntegrator::update() {
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        bi->update();
+      }
+    }
+  }  // end of update
+
+  std::vector<size_type>
+  MultiMaterialNonLinearIntegrator::getAssignedMaterialsIdentifiers() const {
+    std::vector<size_type> mids;
+    for (size_type i = 0; i != this->behaviour_integrators.size(); ++i) {
+      if (!this->behaviour_integrators[i].empty()) {
+        mids.push_back(i);
+      }
+    }
+    return mids;
+  }  // end of getAssignedMaterialsIdentifiers
+
+  LinearizedOperators MultiMaterialNonLinearIntegrator::getLinearizedOperators(
+      const mfem::Vector& u) {
+    if (this->fe_discretization->describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      const auto& fespace =
+          this->fe_discretization->getFiniteElementSpace<true>();
+      return LinearizedOperators{
+          .K = std::make_unique<StiffnessMatrixIntegrator>(
+              fespace, u, this->behaviour_integrators),
+          .mFi = std::make_unique<InternalForcesIntegrator>(
+              fespace, u, this->behaviour_integrators)};
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    }
+    const auto& fespace =
+        this->fe_discretization->getFiniteElementSpace<false>();
+    return LinearizedOperators{
+        .K = std::make_unique<StiffnessMatrixIntegrator>(
+            fespace, u, this->behaviour_integrators),
+        .mFi = std::make_unique<InternalForcesIntegrator>(
+            fespace, u, this->behaviour_integrators)};
+  }  // end of getLinearizedOperators
+
+  MultiMaterialNonLinearIntegrator::~MultiMaterialNonLinearIntegrator() =
+      default;
+
+}  // end of namespace mfem_mgis

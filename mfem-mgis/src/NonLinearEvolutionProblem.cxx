@@ -1,0 +1,856 @@
+/*!
+ * \file   src/NonLinearEvolutionProblem.cxx
+ * \brief  This file implements the `NonLinearEvolutionProblem` class
+ * \author Thomas Helfer
+ * \date   23/03/2021
+ */
+
+#include <utility>
+#include "MGIS/Raise.hxx"
+#include "MGIS/Profiling.hxx"
+#include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/BoundaryUtilities.hxx"
+#include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+#include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+#include "MFEMMGIS/QPEvaluator/QPEvaluators.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+
+namespace mfem_mgis {
+
+  const char* const NonLinearEvolutionProblem::HypothesisParameter =
+      "Hypothesis";
+
+  std::vector<std::string> NonLinearEvolutionProblem::getParametersList() {
+    auto params = FiniteElementDiscretization::getParametersList();
+    auto params2 =
+        NonLinearEvolutionProblemImplementationBase::getParametersList();
+    params.insert(params.end(), params2.begin(), params2.end());
+    params.push_back(NonLinearEvolutionProblem::HypothesisParameter);
+    return params;
+  }  // end of getParametersList
+
+  NonLinearEvolutionProblem::NonLinearEvolutionProblem(Context& ctx,
+                                                       const Parameters& p) {
+    using SequentialImplementation =
+        NonLinearEvolutionProblemImplementation<false>;
+    //
+    auto or_raise = ctx.getThrowingFailureHandler();
+    //
+    auto validator =
+        ParametersValidator{}
+            .add(NonLinearEvolutionProblem::getParametersList())
+            .add<std::string>(NonLinearEvolutionProblem::HypothesisParameter,
+                              {.required = true});
+    validator.validate(ctx, p) | or_raise;
+    //
+    const auto h = mgis::behaviour::fromString(get<std::string>(
+        throwing, p, NonLinearEvolutionProblem::HypothesisParameter));
+    const auto fed =
+        make_shared<FiniteElementDiscretization>(
+            ctx, extract(throwing, p,
+                         FiniteElementDiscretization::getParametersList())) |
+        or_raise;
+    //
+    if (fed->describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      using ParallelImplementation =
+          NonLinearEvolutionProblemImplementation<true>;
+      this->pimpl = make_unique<ParallelImplementation>(
+                        ctx, fed, h,
+                        extract(throwing, p,
+                                ParallelImplementation::getParametersList())) |
+                    or_raise;
+#else
+      raise(
+          "NonLinearEvolutionProblem::NonLinearEvolutionProblem: "
+          "unsupported parallel computations");
+#endif
+    } else {
+      this->pimpl =
+          make_unique<SequentialImplementation>(
+              ctx, fed, h,
+              extract(throwing, p,
+                      SequentialImplementation::getParametersList())) |
+          or_raise;
+    }
+  }  // end of NonLinearEvolutionProblem
+
+  NonLinearEvolutionProblem::NonLinearEvolutionProblem(Context& ctx,
+                                                       MeshDiscretization& m,
+                                                       const Hypothesis h,
+                                                       const Parameters& p)
+      : NonLinearEvolutionProblem(
+            ctx,
+            std::make_shared<FiniteElementDiscretization>(
+                ctx,
+                m,
+                extract(throwing,
+                        p,
+                        FiniteElementDiscretization::getParametersList())),
+            h,
+            remove(p, FiniteElementDiscretization::getParametersList())) {
+  }  // end of NonLinearEvolutionProblem
+
+  NonLinearEvolutionProblem::NonLinearEvolutionProblem(Context& ctx,
+                                                       MeshDiscretization& m,
+                                                       const Parameters& p)
+      : NonLinearEvolutionProblem(
+            ctx,
+            std::make_shared<FiniteElementDiscretization>(
+                ctx,
+                m,
+                extract(throwing,
+                        p,
+                        FiniteElementDiscretization::getParametersList())),
+            mgis::behaviour::fromString(get<std::string>(
+                throwing, p, NonLinearEvolutionProblem::HypothesisParameter)),
+            remove(remove(p, {NonLinearEvolutionProblem::HypothesisParameter}),
+                   FiniteElementDiscretization::getParametersList())) {
+  }  // end of NonLinearEvolutionProblem
+
+  NonLinearEvolutionProblem::NonLinearEvolutionProblem(
+      Context& ctx,
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const Parameters& p)
+      : NonLinearEvolutionProblem(
+            ctx,
+            fed,
+            mgis::behaviour::fromString(get<std::string>(
+                throwing, p, NonLinearEvolutionProblem::HypothesisParameter)),
+            remove(p, {NonLinearEvolutionProblem::HypothesisParameter})) {
+  }  // end of NonLinearEvolutionProblem
+
+  NonLinearEvolutionProblem::NonLinearEvolutionProblem(
+      Context& ctx,
+      std::shared_ptr<FiniteElementDiscretization> fed,
+      const Hypothesis h,
+      const Parameters& p) {
+    checkParameters(throwing, p,
+                    NonLinearEvolutionProblem::getParametersList());
+    if (contains(p, NonLinearEvolutionProblem::HypothesisParameter)) {
+      raise("parameter '" +
+            std::string{NonLinearEvolutionProblem::HypothesisParameter} +
+            "' is not allowed");
+    }
+    using SequentialImplementation =
+        NonLinearEvolutionProblemImplementation<false>;
+    if (fed->describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      using ParallelImplementation =
+          NonLinearEvolutionProblemImplementation<true>;
+      this->pimpl = std::make_unique<ParallelImplementation>(ctx, fed, h, p);
+#else
+      raise(
+          "NonLinearEvolutionProblem::NonLinearEvolutionProblem: "
+          "unsupported parallel computations");
+#endif
+    } else {
+      this->pimpl = std::make_unique<SequentialImplementation>(ctx, fed, h, p);
+    }
+  }  // end of NonLinearEvolutionProblem
+
+  FiniteElementDiscretization&
+  NonLinearEvolutionProblem::getFiniteElementDiscretization() noexcept {
+    return this->pimpl->getFiniteElementDiscretization();
+  }  // end of getFiniteElementDiscretization
+
+  const FiniteElementDiscretization&
+  NonLinearEvolutionProblem::getFiniteElementDiscretization() const noexcept {
+    return this->pimpl->getFiniteElementDiscretization();
+  }  // end of getFiniteElementDiscretization
+
+  std::shared_ptr<FiniteElementDiscretization>
+  NonLinearEvolutionProblem::getFiniteElementDiscretizationPointer() noexcept {
+    return this->pimpl->getFiniteElementDiscretizationPointer();
+  }  // end of getFiniteElementDiscretizationPointer
+
+  mfem::Vector& NonLinearEvolutionProblem::getUnknowns(
+      const TimeStepStage ts) noexcept {
+    return this->pimpl->getUnknowns(ts);
+  }  // end of getUnknownsAtEndOfTheTimeStep
+
+  const mfem::Vector& NonLinearEvolutionProblem::getUnknowns(
+      const TimeStepStage ts) const noexcept {
+    return this->pimpl->getUnknowns(ts);
+  }  // end of getUnknownsAtEndOfTheTimeStep
+
+  bool NonLinearEvolutionProblem::setSolverParameters(
+      Context& ctx, const Parameters& params) noexcept {
+    return this->pimpl->setSolverParameters(ctx, params);
+  }  // end of setSolverParameters
+
+  bool NonLinearEvolutionProblem::setLinearSolver(
+      Context& ctx, LinearSolverHandler s) noexcept {
+    return this->pimpl->setLinearSolver(ctx, std::move(s));
+  }  // end of setLinearSolver
+
+  bool
+  NonLinearEvolutionProblem::areStiffnessOperatorsFromLastIterationAvailable()
+      const noexcept {
+    return this->pimpl->areStiffnessOperatorsFromLastIterationAvailable();
+  }  // end of areStiffnessOperatorsFromLastIterationAvailable
+
+  bool NonLinearEvolutionProblem::setLinearSolver(
+      Context& ctx, std::string_view n, const Parameters& params) noexcept {
+    return this->pimpl->setLinearSolver(ctx, n, params);
+  }  // end of setLinearSolver
+
+  void NonLinearEvolutionProblem::setPredictionPolicy(
+      const PredictionPolicy& p) noexcept {
+    this->pimpl->setPredictionPolicy(p);
+  }  // end of setPredictionPolicy
+
+  PredictionPolicy NonLinearEvolutionProblem::getPredictionPolicy()
+      const noexcept {
+    return this->pimpl->getPredictionPolicy();
+  }  // end of getPredictionPolicy
+
+  const std::vector<std::unique_ptr<AbstractDirichletBoundaryCondition>>&
+  NonLinearEvolutionProblem::getDirichletBoundaryConditions() const noexcept {
+    return this->pimpl->getDirichletBoundaryConditions();
+  }  // end of getDirichletBoundaryConditions
+
+  const std::vector<std::unique_ptr<AbstractBoundaryCondition>>&
+  NonLinearEvolutionProblem::getBoundaryConditions() const noexcept {
+    return this->pimpl->getBoundaryConditions();
+  }  // end of getBoundaryConditions
+
+  NonLinearResolutionOutput NonLinearEvolutionProblem::solve(
+      Context& ctx, const real t, const real dt) noexcept {
+    CatchTimeSection(ctx, "NLEP::solve");
+    if (!this->setup(ctx, t, dt)) {
+      return InvalidResult{};
+    }
+    return this->pimpl->solve(ctx, t, dt);
+  }  // end of solve
+
+  bool NonLinearEvolutionProblem::integrate(const mfem::Vector& U,
+                                            const IntegrationType it,
+                                            const std::optional<real> odt) {
+    return this->pimpl->integrate(U, it, odt);
+  }  // end of solve
+
+  std::vector<size_type>
+  NonLinearEvolutionProblem::getEssentialDegreesOfFreedom() const {
+    return this->pimpl->getEssentialDegreesOfFreedom();
+  }  // end of getEssentialDegreesOfFreedom
+
+  std::optional<LinearizedOperators>
+  NonLinearEvolutionProblem::getLinearizedOperators(
+      Context& ctx, const mfem::Vector& U) noexcept {
+    return this->pimpl->getLinearizedOperators(ctx, U);
+  }  // end of getLinearizedOperators
+
+  bool NonLinearEvolutionProblem::setMaterialsNames(
+      Context& ctx, const std::map<size_type, std::string>& ids) noexcept {
+    return this->pimpl->setMaterialsNames(ctx, ids);
+  }  // end of setMaterialsNames
+
+  bool NonLinearEvolutionProblem::setBoundariesNames(
+      Context& ctx, const std::map<size_type, std::string>& ids) noexcept {
+    return this->pimpl->setBoundariesNames(ctx, ids);
+  }  // end of setBoundariesNames
+
+  std::optional<size_type> NonLinearEvolutionProblem::getMaterialIdentifier(
+      Context& ctx, const Parameter& m) const noexcept {
+    return this->pimpl->getMaterialIdentifier(ctx, m);
+  }
+
+  std::optional<size_type> NonLinearEvolutionProblem::getBoundaryIdentifier(
+      Context& ctx, const Parameter& b) const noexcept {
+    return this->pimpl->getBoundaryIdentifier(ctx, b);
+  }
+
+  std::optional<std::vector<size_type>>
+  NonLinearEvolutionProblem::getMaterialsIdentifiers(
+      Context& ctx, const Parameter& m) const noexcept {
+    return this->pimpl->getMaterialsIdentifiers(ctx, m);
+  }
+
+  std::optional<std::vector<size_type>>
+  NonLinearEvolutionProblem::getBoundariesIdentifiers(
+      Context& ctx, const Parameter& b) const noexcept {
+    return this->pimpl->getBoundariesIdentifiers(ctx, b);
+  }
+
+  std::vector<size_type>
+  NonLinearEvolutionProblem::getAssignedMaterialsIdentifiers() const noexcept {
+    return this->pimpl->getAssignedMaterialsIdentifiers();
+  }  // end of getAssignedMaterialsIdentifiers
+
+  bool NonLinearEvolutionProblem::addBoundaryCondition(
+      Context& ctx, std::unique_ptr<AbstractBoundaryCondition> f) noexcept {
+    return this->pimpl->addBoundaryCondition(ctx, std::move(f));
+  }  // end of addBoundaryCondition
+
+  bool NonLinearEvolutionProblem::addBoundaryCondition(
+      Context& ctx,
+      std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
+    return this->pimpl->addBoundaryCondition(ctx, std::move(bc));
+  }  // end of NonLinearEvolutionProblem::addBoundaryCondition
+
+  bool NonLinearEvolutionProblem::addUniformDirichletBoundaryCondition(
+      Context& ctx, const Parameters& params) noexcept {
+    auto ptr =
+        make_unique<UniformDirichletBoundaryCondition>(ctx, *this, params);
+    if (isInvalid(ptr)) {
+      return false;
+    }
+    return this->addBoundaryCondition(ctx, std::move(ptr));
+  }  // end of addUniformBoundaryCondition
+
+  bool NonLinearEvolutionProblem::addPostProcessing(
+      Context& ctx,
+      const std::function<void(const real, const real)>& p) noexcept {
+    return this->pimpl->addPostProcessing(ctx, p);
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblem::addPostProcessing(
+      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+    return this->pimpl->addPostProcessing(ctx, n, p);
+  }  // end of addPostProcessing
+
+  bool NonLinearEvolutionProblem::executeInitialPostProcessings(
+      Context& ctx, const real t) noexcept {
+    return this->pimpl->executeInitialPostProcessings(ctx, t);
+  }  // end of executeInitialPostProcessings
+
+  bool NonLinearEvolutionProblem::executePostProcessings(
+      Context& ctx, const real t, const real dt) noexcept {
+    return this->pimpl->executePostProcessings(ctx, t, dt);
+  }  // end of executePostProcessings
+
+  std::optional<std::map<size_type, size_type>>
+  NonLinearEvolutionProblem::addBehaviourIntegrator(
+      Context& ctx,
+      const std::string& n,
+      const Parameter& m,
+      const std::string& l,
+      const std::string& b) noexcept {
+    return this->pimpl->addBehaviourIntegrator(ctx, n, m, l, b);
+  }  // end of addBehaviourIntegrator
+
+  std::optional<std::map<size_type, size_type>>
+  NonLinearEvolutionProblem::addBehaviourIntegrator(
+      Context& ctx,
+      const std::string& n,
+      const Parameter& m,
+      const std::string& l,
+      const std::string& b,
+      const Parameters& params) noexcept {
+    return this->pimpl->addBehaviourIntegrator(ctx, n, m, l, b, params);
+  }  // end of addBehaviourIntegrator
+
+  OptionalReference<const Material> NonLinearEvolutionProblem::getMaterial(
+      Context& ctx, const Parameter& m, size_type b) const noexcept {
+    return this->pimpl->getMaterial(ctx, m, b);
+  }  // end of getMaterial
+
+  OptionalReference<Material> NonLinearEvolutionProblem::getMaterial(
+      Context& ctx, const Parameter& m, size_type b) noexcept {
+    return this->pimpl->getMaterial(ctx, m, b);
+  }  // end of getMaterial
+
+  std::optional<size_type>
+  NonLinearEvolutionProblem::getNumberOfBehaviourIntegrators(
+      Context& ctx, const Parameter& m) const noexcept {
+    return this->pimpl->getNumberOfBehaviourIntegrators(ctx, m);
+  }  // end of getNumberOfBehaviourIntegrators
+
+  OptionalReference<const AbstractBehaviourIntegrator>
+  NonLinearEvolutionProblem::getBehaviourIntegrator(
+      Context& ctx, const Parameter& m, size_type b) const noexcept {
+    return this->pimpl->getBehaviourIntegrator(ctx, m, b);
+  }  // end of getBehaviourIntegrator
+
+  OptionalReference<AbstractBehaviourIntegrator>
+  NonLinearEvolutionProblem::getBehaviourIntegrator(Context& ctx,
+                                                    const Parameter& m,
+                                                    size_type b) noexcept {
+    return this->pimpl->getBehaviourIntegrator(ctx, m, b);
+  }  // end of getBehaviourIntegrator
+
+  bool NonLinearEvolutionProblem::update(Context& ctx) noexcept {
+    return this->pimpl->update(ctx);
+  }  // end of update
+
+  bool NonLinearEvolutionProblem::revert(Context& ctx) noexcept {
+    return this->pimpl->revert(ctx);
+  }  // end of revert
+
+  bool NonLinearEvolutionProblem::setup(Context& ctx,
+                                        const real t,
+                                        const real dt) noexcept {
+    const auto& fed = this->getFiniteElementDiscretization();
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return this->getImplementation<true>().setup(ctx, t, dt);
+#else
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    }
+    return this->getImplementation<false>().setup(ctx, t, dt);
+  }  // end of setup
+
+  template <bool parallel>
+  static NonLinearEvolutionProblemImplementation<parallel>&
+  getImplementationInternal(AbstractNonLinearEvolutionProblem* const p) {
+    auto* const pi =
+        dynamic_cast<NonLinearEvolutionProblemImplementation<parallel>*>(p);
+    if (pi == nullptr) {
+      abort(
+          "NonLinearEvolutionProblem::getImplementation: "
+          "invalid call");
+    }
+    return *pi;
+  }  // end of getImplementationInternal
+
+  template <bool parallel>
+  static const NonLinearEvolutionProblemImplementation<parallel>&
+  getImplementationInternal(
+      const AbstractNonLinearEvolutionProblem* const p) noexcept {
+    const auto* const pi =
+        dynamic_cast<const NonLinearEvolutionProblemImplementation<parallel>*>(
+            p);
+    if (pi == nullptr) {
+      abort(
+          "NonLinearEvolutionProblem::getImplementation: "
+          "invalid call");
+    }
+    return *pi;
+  }  // end of getImplementationInternal
+
+  template <>
+  const NonLinearEvolutionProblemImplementation<true>&
+  NonLinearEvolutionProblem::getImplementation() const noexcept {
+#ifdef MFEM_USE_MPI
+    return getImplementationInternal<true>(this->pimpl.get());
+#else  /* MFEM_USE_MPI */
+    reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+  }    // end of getImplementation
+
+  template <>
+  NonLinearEvolutionProblemImplementation<true>&
+  NonLinearEvolutionProblem::getImplementation() noexcept {
+#ifdef MFEM_USE_MPI
+    return getImplementationInternal<true>(this->pimpl.get());
+#else  /* MFEM_USE_MPI */
+    reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+  }    // end of getImplementation
+
+  template <>
+  const NonLinearEvolutionProblemImplementation<false>&
+  NonLinearEvolutionProblem::getImplementation() const noexcept {
+    return getImplementationInternal<false>(this->pimpl.get());
+  }
+
+  template <>
+  NonLinearEvolutionProblemImplementation<false>&
+  NonLinearEvolutionProblem::getImplementation() noexcept {
+    return getImplementationInternal<false>(this->pimpl.get());
+  }
+
+  NonLinearEvolutionProblem::~NonLinearEvolutionProblem() = default;
+
+  std::vector<std::pair<size_type, size_type>> buildFacesDescription(
+      NonLinearEvolutionProblem& p, const size_type bid) {
+    auto& fed = p.getFiniteElementDiscretization();
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return buildFacesDescription(p.getImplementation<true>(), bid);
+#else
+      reportUnsupportedParallelComputations();
+#endif
+    }
+    return buildFacesDescription(p.getImplementation<false>(), bid);
+  }  // end of buildFacesDescription
+
+  std::vector<std::pair<size_type, std::vector<std::vector<size_type>>>>
+  getElementsDegreesOfFreedomOnBoundary(NonLinearEvolutionProblem& p,
+                                        const size_type bid) {
+    auto& fed = p.getFiniteElementDiscretization();
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return getElementsDegreesOfFreedomOnBoundary(p.getImplementation<true>(),
+                                                   bid);
+#else
+      reportUnsupportedParallelComputations();
+#endif
+    }
+    return getElementsDegreesOfFreedomOnBoundary(p.getImplementation<false>(),
+                                                 bid);
+  }  // end of getElementsDegreesOfFreedomOnBoundary
+
+  bool computeResultantForceOnBoundary(
+      Context& ctx,
+      mfem::Vector& F,
+      NonLinearEvolutionProblem& p,
+      const std::vector<
+          std::pair<size_type, std::vector<std::vector<size_type>>>>& elts_dofs,
+      const BehaviourIntegratorsSelection& selection) noexcept {
+    auto& fed = p.getFiniteElementDiscretization();
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return computeResultantForceOnBoundary(
+          ctx, F, p.getImplementation<true>(), elts_dofs, selection);
+#else
+      reportUnsupportedParallelComputations();
+#endif
+    }
+    return computeResultantForceOnBoundary(ctx, F, p.getImplementation<false>(),
+                                           elts_dofs, selection);
+  }  // end of computeResultantForceOnBoundary
+
+  [[nodiscard]] static std::optional<bool>
+  resolveMaterialPropertyDependencyUsingGradient(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& mp) noexcept {
+    if (!contains(provider_material.b.gradients, mp.name)) {
+      return false;
+    }
+    const auto ov = getVariable(ctx, provider_material.b.gradients, mp.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (mp.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      mp.name + "'");
+    }
+    const auto ev_bts =
+        makeGradientEvaluator(ctx, provider_material, mp.name, bts);
+    const auto ev_ets =
+        makeGradientEvaluator(ctx, provider_material, mp.name, ets);
+    if (!areValid(ev_bts, ev_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + mp.name +
+          "' failed");
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_bts, bts)) {
+      return {};
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveMaterialPropertyDependencyUsingGradient
+
+  [[nodiscard]] static std::optional<bool>
+  resolveMaterialPropertyDependencyUsingThermodynamicForce(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& mp) noexcept {
+    if (!contains(provider_material.b.thermodynamic_forces, mp.name)) {
+      return false;
+    }
+    const auto ov =
+        getVariable(ctx, provider_material.b.thermodynamic_forces, mp.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (mp.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      mp.name + "'");
+    }
+    const auto ev_bts =
+        makeThermodynamicForceEvaluator(ctx, provider_material, mp.name, bts);
+    const auto ev_ets =
+        makeThermodynamicForceEvaluator(ctx, provider_material, mp.name, ets);
+    if (!areValid(ev_bts, ev_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + mp.name +
+          "' failed");
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_bts, bts)) {
+      return {};
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveMaterialPropertyDependencyUsingThermodynamicForce
+
+  [[nodiscard]] static std::optional<bool>
+  resolveMaterialPropertyDependencyUsingInternalStateVariable(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& mp) noexcept {
+    if (!contains(provider_material.b.isvs, mp.name)) {
+      return false;
+    }
+    const auto ov = getVariable(ctx, provider_material.b.isvs, mp.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (mp.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      mp.name + "'");
+    }
+    const auto ev_bts = makeInternalStateVariableEvaluator(
+        ctx, provider_material, mp.name, bts);
+    const auto ev_ets = makeInternalStateVariableEvaluator(
+        ctx, provider_material, mp.name, ets);
+    if (!areValid(ev_bts, ev_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + mp.name +
+          "' failed");
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_bts, bts)) {
+      return {};
+    }
+    if (!bi.setMaterialProperty(ctx, mp.name, ev_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveMaterialPropertyDependencyUsingInternalStateVariable
+
+  [[nodiscard]] static std::optional<bool>
+  resolveExternalStateVariableDependencyUsingGradient(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& esv) noexcept {
+    if (!contains(provider_material.b.gradients, esv.name)) {
+      return false;
+    }
+    const auto ov = getVariable(ctx, provider_material.b.gradients, esv.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (esv.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      esv.name + "'");
+    }
+    const auto esv_bts =
+        makeGradientEvaluator(ctx, provider_material, esv.name, bts);
+    const auto esv_ets =
+        makeGradientEvaluator(ctx, provider_material, esv.name, ets);
+    if (!areValid(esv_bts, esv_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + esv.name +
+          "' failed");
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_bts, bts)) {
+      return {};
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveExternalStateVariableDependencyUsingGradient
+
+  [[nodiscard]] static std::optional<bool>
+  resolveExternalStateVariableDependencyUsingThermodynamicForce(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& esv) noexcept {
+    if (!contains(provider_material.b.thermodynamic_forces, esv.name)) {
+      return false;
+    }
+    const auto ov =
+        getVariable(ctx, provider_material.b.thermodynamic_forces, esv.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (esv.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      esv.name + "'");
+    }
+    const auto esv_bts =
+        makeThermodynamicForceEvaluator(ctx, provider_material, esv.name, bts);
+    const auto esv_ets =
+        makeThermodynamicForceEvaluator(ctx, provider_material, esv.name, ets);
+    if (!areValid(esv_bts, esv_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + esv.name +
+          "' failed");
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_bts, bts)) {
+      return {};
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveExternalStateVariableDependencyUsingThermodynamicForce
+
+  [[nodiscard]] static std::optional<bool>
+  resolveExternalStateVariableDependencyUsingInternalStateVariable(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const Material& provider_material,
+      const mgis::behaviour::Variable& esv) noexcept {
+    if (!contains(provider_material.b.isvs, esv.name)) {
+      return false;
+    }
+    const auto ov = getVariable(ctx, provider_material.b.isvs, esv.name);
+    if (isInvalid(ov)) {
+      return {};
+    }
+    if (esv.type_identifier != ov->type_identifier) {
+      return ctx.registerErrorMessage("incompatible type for variable '" +
+                                      esv.name + "'");
+    }
+    const auto esv_bts = makeInternalStateVariableEvaluator(
+        ctx, provider_material, esv.name, bts);
+    const auto esv_ets = makeInternalStateVariableEvaluator(
+        ctx, provider_material, esv.name, ets);
+    if (!areValid(esv_bts, esv_ets)) {
+      return ctx.registerErrorMessage(
+          "building of evaluator of the internal state variable'" + esv.name +
+          "' failed");
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_bts, bts)) {
+      return {};
+    }
+    if (!bi.setExternalStateVariable(ctx, esv.name, esv_ets, ets)) {
+      return {};
+    }
+    return true;
+  }  // end of resolveExternalStateVariableDependencyUsingInternalStateVariable
+
+  [[nodiscard]] static bool resolveMaterialDependencies(
+      Context& ctx,
+      AbstractBehaviourIntegrator& bi,
+      const AbstractBehaviourIntegrator& provider) {
+    using mgis::behaviour::MaterialStateManager;
+    if ((!bi.hasMaterial()) || (!provider.hasMaterial())) {
+      return true;
+    }
+    const auto om = bi.getMaterial(ctx);
+    const auto oprovider_material = provider.getMaterial(ctx);
+    if (isInvalid(om) || isInvalid(oprovider_material)) {
+      return false;
+    }
+    // material properties
+    for (const auto& mp : om->b.mps) {
+      const auto or1 =
+          resolveMaterialPropertyDependencyUsingInternalStateVariable(
+              ctx, bi, *oprovider_material, mp);
+      if (isInvalid(or1)) {
+        return false;
+      }
+      if (*or1) {
+        // treat next material property
+        continue;
+      }
+      // dependency was not resolved, trying the gradients
+      const auto or2 = resolveMaterialPropertyDependencyUsingGradient(
+          ctx, bi, *oprovider_material, mp);
+      if (isInvalid(or2)) {
+        return false;
+      }
+      if (*or2) {
+        // treat next material property
+        continue;
+      }
+      // dependency was not resolved, trying the thermodynamic forces
+      const auto or3 = resolveMaterialPropertyDependencyUsingThermodynamicForce(
+          ctx, bi, *oprovider_material, mp);
+      if (isInvalid(or3)) {
+        return false;
+      }
+    }
+    // external state variables
+    for (const auto& esv : om->b.esvs) {
+      const auto or1 =
+          resolveExternalStateVariableDependencyUsingInternalStateVariable(
+              ctx, bi, *oprovider_material, esv);
+      if (isInvalid(or1)) {
+        return false;
+      }
+      if (*or1) {
+        // treat next material property
+        continue;
+      }
+      // dependency was not resolved, trying the gradients
+      const auto or2 = resolveExternalStateVariableDependencyUsingGradient(
+          ctx, bi, *oprovider_material, esv);
+      if (isInvalid(or2)) {
+        return false;
+      }
+      if (*or2) {
+        // treat next material property
+        continue;
+      }
+      // dependency was not resolved, trying the thermodynamic forces
+      const auto or3 =
+          resolveExternalStateVariableDependencyUsingThermodynamicForce(
+              ctx, bi, *oprovider_material, esv);
+      if (isInvalid(or3)) {
+        return false;
+      }
+    }
+    return true;
+  }  // end of resolveBehaviourIntegratorsDependencies
+
+  [[nodiscard]] static bool resolveBehaviourIntegratorsDependencies(
+      Context& ctx,
+      NonLinearEvolutionProblemImplementationBase& p,
+      const NonLinearEvolutionProblemImplementationBase& provider) noexcept {
+    if (&p == &provider) {
+      return true;
+    }
+    const auto provider_materials = provider.getAssignedMaterialsIdentifiers();
+    for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
+      if (std::find(provider_materials.begin(), provider_materials.end(), m) ==
+          provider_materials.end()) {
+        continue;
+      }
+      const auto onbis = p.getNumberOfBehaviourIntegrators(ctx, m);
+      const auto onbis2 = provider.getNumberOfBehaviourIntegrators(ctx, m);
+      if (!areValid(onbis, onbis2)) {
+        return false;
+      }
+      for (auto n = size_type{}; n != *onbis; ++n) {
+        auto obi = p.getBehaviourIntegrator(ctx, m, n);
+        if (isInvalid(obi)) {
+          return false;
+        }
+        for (auto n2 = size_type{}; n2 != *onbis2; ++n2) {
+          const auto obi2 = provider.getBehaviourIntegrator(ctx, m, n2);
+          if (isInvalid(obi2)) {
+            return false;
+          }
+          if (!resolveMaterialDependencies(ctx, *obi, *obi2)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }  // end of resolveBehaviourIntegratorsDependencies
+
+  bool resolveBehaviourIntegratorsDependencies(
+      Context& ctx,
+      NonLinearEvolutionProblem& p,
+      const NonLinearEvolutionProblem& provider) noexcept {
+    const auto& fed = p.getFiniteElementDiscretization();
+    if (static_cast<const MeshDiscretization&>(fed) !=
+        static_cast<const MeshDiscretization&>(
+            provider.getFiniteElementDiscretization())) {
+      return ctx.registerErrorMessage("inconsistent meshes");
+    }
+    if (fed.describesAParallelComputation()) {
+      // since meshes are the same, both problems describes a parallel
+      // computation
+#ifdef MFEM_USE_MPI
+      return resolveBehaviourIntegratorsDependencies(
+          ctx, p.getImplementation<true>(), provider.getImplementation<true>());
+#else
+      reportUnsupportedParallelComputations();
+#endif
+    }
+    return resolveBehaviourIntegratorsDependencies(
+        ctx, p.getImplementation<false>(), provider.getImplementation<false>());
+  }  // end of resolveBehaviourIntegratorsDependencies
+
+}  // end of namespace mfem_mgis

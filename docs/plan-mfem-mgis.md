@@ -1,7 +1,7 @@
 # Plan pour mfem-mgis
 
 Statut : proposition, à discuter avant tout code. mfem-mgis n'est pas
-encore modifié (base master `4c8a91d815`, dépôt `mfem-mgis/`). Ce plan
+encore modifié (base master `a011d97d6f`, dépôt `mfem-mgis/`). Ce plan
 s'appuie sur TFEL et MGIS tels que décrits dans [tfel.md](tfel.md) et
 [mgis.md](mgis.md).
 

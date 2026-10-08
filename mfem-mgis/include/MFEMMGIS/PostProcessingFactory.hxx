@@ -1,0 +1,121 @@
+/*!
+ * \file   include/MFEMMGIS/PostProcessingFactory.hxx
+ * \brief  This file declares the `PostProcessingFactory` class
+ * \author Thomas Helfer
+ * \date   24/03/2021
+ */
+
+#ifndef LIB_MFEM_MGIS_POSTPROCESSINGFACTORY_HXX
+#define LIB_MFEM_MGIS_POSTPROCESSINGFACTORY_HXX
+
+#include <map>
+#include <memory>
+#include <functional>
+#include "MFEMMGIS/Config.hxx"
+
+namespace mfem_mgis {
+
+  // forward declaration
+  struct Parameters;
+  // forward declaration
+  template <bool parallel>
+  struct NonLinearEvolutionProblemImplementation;
+  // forward declaration
+  template <bool parallel>
+  struct AbstractNonLinearEvolutionProblemPostProcessing;
+
+  /*!
+   * \brief an abstract factory for post-processings
+   * \tparam parallel: boolean stating if parallel post-processings are
+   * considered
+   */
+  template <bool parallel>
+  struct PostProcessingFactory;
+
+#ifdef MFEM_USE_MPI
+
+  //! \brief specialisation in parallel
+  template <>
+  struct MFEM_MGIS_EXPORT PostProcessingFactory<true> {
+    //! \brief a simple alias
+    using Generator = std::function<
+        std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<true>>(
+            Context&,
+            NonLinearEvolutionProblemImplementation<true>&,
+            const Parameters&)>;
+    //! \return the unique instance of the class
+    static PostProcessingFactory& getFactory();
+    /*!
+     * \brief register a new post-processing
+     * \param[in] n: name of the post-processing
+     * \param[in] g: generator of the post-processing
+     */
+    void add(std::string_view n, Generator g);
+    /*!
+     * \return the requested post-processing
+     * \param[in, out] ctx: execution context
+     * \param[in] n: name of the post-processing
+     * \param[in] p: non linear evolution problem
+     * \param[in] params: parameters passed to the post-processing
+     */
+    [[nodiscard]] std::unique_ptr<
+        AbstractNonLinearEvolutionProblemPostProcessing<true>>
+    generate(Context& ctx,
+             std::string_view n,
+             NonLinearEvolutionProblemImplementation<true>& p,
+             const Parameters& params) const noexcept;
+
+   private:
+    //! \brief default constructor
+    PostProcessingFactory();
+    //! \brief destructor
+    ~PostProcessingFactory();
+    //! \brief registered generators
+    std::map<std::string, Generator, std::less<>> generators;
+  };  // end of struct PostProcessingFactory
+
+#endif /* MFEM_USE_MPI */
+
+  //! \brief specialisation in sequential
+  template <>
+  struct MFEM_MGIS_EXPORT PostProcessingFactory<false> {
+    //! \brief a simple alias
+    using Generator = std::function<
+        std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<false>>(
+            Context&,
+            NonLinearEvolutionProblemImplementation<false>&,
+            const Parameters&)>;
+    //! \return the unique instance of the class
+    static PostProcessingFactory& getFactory();
+    /*!
+     * \brief register a new post-processing
+     * \param[in] n: name of the post-processing
+     * \param[in] g: generator of the post-processing
+     */
+    void add(std::string_view n, Generator g);
+    /*!
+     * \return the requested post-processing
+     * \param[in, out] ctx: execution context
+     * \param[in] n: name of the post-processing
+     * \param[in] p: non linear evolution problem
+     * \param[in] params: parameters passed to the post-processing
+     */
+    [[nodiscard]] std::unique_ptr<
+        AbstractNonLinearEvolutionProblemPostProcessing<false>>
+    generate(Context& ctx,
+             std::string_view n,
+             NonLinearEvolutionProblemImplementation<false>& p,
+             const Parameters& params) const noexcept;
+
+   private:
+    //! \brief default constructor
+    PostProcessingFactory();
+    //! \brief destructor
+    ~PostProcessingFactory();
+    //! \brief registered generators
+    std::map<std::string, Generator, std::less<>> generators;
+  };  // end of struct PostProcessingFactory
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEM_MGIS_POSTPROCESSINGFACTORY_HXX */

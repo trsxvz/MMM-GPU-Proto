@@ -1,0 +1,43 @@
+@Parser IsotropicMisesCreep;
+@Material U3SI2;
+@Behaviour _NortonPRQ;
+@Author Germain Allan;
+@Date 28/11/2025;
+
+@StrainMeasure Hencky;
+
+@Theta 1.;
+
+// IAEA-TECDOC-1921, section 2.2.4
+@ComputeThermalExpansion{
+  thermal_expansion : 16.1e-6,
+  reference_temperature : 293.15
+};
+
+@ElasticMaterialProperties {"U3SI2_YoungModulus.mfront", "U3SI2_PoissonRatio.mfront"};
+
+@Parameter A = 500E-37; // Creep coefficient: 500e-25 in MPa^-1 (fissions/cm^3/s)^-1, converted to Pa and m^3 (x 1e-6 x 1e-6)
+@Parameter Ef = 3.20436e-11; // Energy released per fission (J/fission)
+
+@ExternalStateVariable real Pow;
+Pow.setGlossaryName("PowerDensity");
+
+@ExternalStateVariable real sw;
+sw.setGlossaryName("Swelling");
+
+@Swelling<Volume> sw;
+
+// Export swelling for post-processing
+@AuxiliaryStateVariable real SwellingExport;
+SwellingExport.setEntryName("SwellingExport");
+
+@FlowRule{
+  const auto fr = Pow / Ef;
+  const auto tmp = A*fr;
+  f       = tmp*seq;
+  df_dseq = tmp;
+}
+
+@UpdateAuxiliaryStateVariables{
+  SwellingExport = sw + dsw;
+}

@@ -14,7 +14,10 @@ GPU.
   données. Ses fonctions existantes basculent seules sur le calcul par
   lot. L'appelant choisit la mémoire, la file d'exécution, et le calcul
   synchrone (par défaut) ou asynchrone.
-- **mfem-mgis** n'est pas encore modifié. Son plan est à discuter.
+- **mfem-mgis**, ses exemples (`mfem-mgis-examples`) et `mm-opera-hpc`
+  ne sont pas encore modifiés. Leurs sources sont suivies ici, à leur
+  version de base, pour que les changements à venir apparaissent comme des
+  différences. Le plan est à discuter.
 
 ## Différences avec les versions officielles
 
@@ -22,7 +25,9 @@ GPU.
 |---|---|---|---|
 | TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
 | MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, corrections | [docs/mgis.md](docs/mgis.md) |
-| mfem-mgis | master `4c8a91d815` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+| mfem-mgis | master `a011d97d6f` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+| mfem-mgis-examples | master `a242567` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+| mm-opera-hpc | main `c31c4bc` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
 
 ## Documentation
 
@@ -54,16 +59,21 @@ chaque bibliothèque : `tfel/docs/web/generic-parallel-*.md` pour TFEL,
 | `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit, sans l'historique de TFEL) |
 | `patches/tfel/` | les mêmes changements en série de patchs depuis le master de TFEL (`git am`) |
 | `patches/mgis/` | changements de MGIS en série de patchs depuis son master |
+| `mfem-mgis/`, `mfem-mgis-examples/`, `mm-opera-hpc/` | sources de ces dépôts (copie du dernier commit, sans leur historique) |
+| `patches/mfem-mgis/`, `patches/mfem-mgis-examples/`, `patches/mm-opera-hpc/` | leurs changements en séries de patchs depuis leur base |
 | `build-tfel.sh` | configuration, construction et installation de TFEL |
-| `scripts/` | environnement (`env.sh`), synchronisation des patchs (`sync-tfel.sh`, `sync-mgis.sh`), matrice des tests, balayages de compilation et d'exécution, contrôle des arrondis, garde-fou mémoire des longues compilations |
+| `scripts/` | environnement (`env.sh`), synchronisation des sources et des patchs (`sync-tfel.sh`, `sync-mgis.sh`, `sync-repository.sh`), matrice des tests, balayages de compilation et d'exécution, contrôle des arrondis, garde-fou mémoire des longues compilations |
 | `scratch/` | outils de développement suivis : validation complète (`validate3.sh`), tests avec l'arbre de développement (`dev-test.sh`, `targeted-test.sh`), configurations de développement (`b2/`) |
 | `reproducers/` | petits programmes autonomes qui vérifient un point précis |
 | `results/` | résultats des matrices et des balayages ; défauts de compilateurs et leurs reproducteurs (`results/nvhpc-bugs/`) |
 | `deps/spack/` | environnement spack du prototype (`mmm-gpu`) et recettes complémentaires |
 | `deps/spack-sycl/` | spécification du LLVM de l'ancien environnement |
 
-Les dépôts de travail `tfel-dev/` (branche de développement de TFEL),
-`mgis/` et `mfem-mgis/` sont des clones locaux, non suivis par ce dépôt.
+Les dépôts de travail sont des clones locaux. `tfel/`, `mfem-mgis/`,
+`mfem-mgis-examples/` et `mm-opera-hpc/` sont aussi copiés ici, sans leur
+historique, par `scripts/sync-tfel.sh` et `scripts/sync-repository.sh`.
+`tfel-dev/` (branche de développement de TFEL) et `mgis/` ne sont pas
+copiés : MGIS est suivi par sa série de patchs.
 
 ## Construire
 

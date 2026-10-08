@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.13)
+project(Config)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Require MFEM-MGIS
+if (NOT TARGET mfem-mgis::MFEMMGIS)
+  find_package(MFEMMGIS REQUIRED)
+endif(NOT TARGET mfem-mgis::MFEMMGIS)
+
+if (NOT MFEM_USE_MUMPS AND NOT MFEM_USE_SUITESPARSE)
+  message(FATAL_ERROR "\nYou shall have MUMPS or SUITESPARSE support activated in MFEM.\nCMake will exit." )
+endif()

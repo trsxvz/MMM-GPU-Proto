@@ -1,0 +1,20 @@
+/*!
+ * \file   MFEMMGIS/MPI.ixx
+ * \brief  This file implements the template functions declared in `MPI.hxx`
+ * \author Thomas Helfer
+ * \date   06/02/2026
+ */
+
+#ifndef LIB_MFEM_MGIS_MPI_IXX
+#define LIB_MFEM_MGIS_MPI_IXX
+
+namespace mfem_mgis {
+
+  template <typename T>
+  bool isValidOnAllProcesses(const MeshDiscretization& m, const T& v) noexcept {
+    return isTrueOnAllProcesses(m, isValid(v));
+  }  // end of isValidOnAllProcesses
+
+}  // end of namespace mfem_mgis
+
+#endif /* LIB_MFEM_MGIS_MPI_IXX */
