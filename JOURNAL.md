@@ -2431,3 +2431,47 @@ lues, mise à jour incomplète) sont détectées par les tests.
 
 Documentation de MGIS : page `docs/web/views.md`, page des lots et notes de
 version mises à jour.
+
+### 2026-10-09 (suite), relectures de l'API de vues et corrections
+
+Avant de déclarer l'étape finie, un audit de couverture et trois
+relectures indépendantes (justesse, conception, puis relecture du diff des
+corrections). Patchs `0035` à `0053` (le commit `a2f8b21` annonçait à tort
+`0035` à `0057`).
+
+- **Couverture** : l'audit a relevé les cas non testés (prédictions,
+  vitesse du son, modèle, énergies, pool de threads, plages, gestionnaire
+  composante par composante hors cas simple, vues sur GPU, refus attendus).
+  Tous ont un test, dont une nouvelle loi de test qui calcule les énergies.
+  Chaque calcul sur une vue part maintenant d'une copie de l'état avant
+  calcul : un calcul qui ne fait rien est détecté.
+- **Coût** : les contrôles construisaient à chaque appel les messages
+  d'erreur, jamais affichés (une trentaine d'allocations par appel). Un
+  test compte les appels à `operator new` : plus aucune allocation dans le
+  thread appelant pour l'intégration, l'initialisation, le
+  post-traitement, la fin de pas, les rotations et `evaluate`.
+- **Défauts corrigés** : pool de threads (une tâche en échec laissait les
+  autres lire des objets détruits), sorties d'un point en échec recopiées
+  depuis le point précédent, message d'erreur lu dans une exception
+  détruite, conversions des grandes transformations sans contrôle de la
+  sortie, copies de vues vides, masse volumique (règle écrite), noyaux GPU
+  sans division par valeur, file SYCL gardée par référence.
+- **API complétée** : `getPoints`, blocs de la tangente d'une vue,
+  `updateValues` avec contexte, extraction par opérations sur le
+  gestionnaire, conversions sur vues du gestionnaire, en-tête propre de
+  l'espace de travail, refus d'une loi temporaire.
+- **Défauts anciens de MGIS corrigés** : copies des matrices de rotation,
+  forme des opérateurs tangents en Fortran, tableaux numpy à pas lus comme
+  contigus, contexte alloué par `update` et `revert`.
+- **Laissé de côté** : les vues dans les liaisons C, Fortran et Python (le
+  prototype ne travaille qu'en C++), le contrôle du recouvrement entre deux
+  sorties différentes (documenté).
+
+Leçon : les tests des liaisons sont construits par la cible `check`, pas
+par `build-tests`. Une mutation du code Fortran passait inaperçue avec un
+exécutable périmé ; elle est détectée une fois la cible `check` utilisée.
+
+Vérifications finales : 50 tests (construction principale, CUDA compris),
+96 tests (HDF5 et liaisons C, Fortran, Python, par `check`), les cinq
+chaînes GPU (`scripts/check-mgis-gpu-headers.sh`), et des mutations
+volontaires détectées par les nouveaux tests.

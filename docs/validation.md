@@ -101,7 +101,7 @@ ceux des balayages dans `results/compile-sweep-*.tsv`.
 ## MGIS
 
 MGIS est construit dans `build/mgis` contre le TFEL du prototype. Ses
-tests (`ctest`, 48 tests) comprennent ceux d'origine et :
+tests (`ctest`, 50 tests) comprennent ceux d'origine et :
 
 | Test | Ce qui est vérifié |
 |---|---|
@@ -109,14 +109,22 @@ tests (`ctest`, 48 tests) comprennent ceux d'origine et :
 | `GenericParallelIntegrateTest` | lots sur CPU (`stlpar`) comparés au calcul point par point : intégration, plages, échecs partiels, fonctions d'initialisation, post-traitements, rotations 2D et 3D, grandes déformations, vitesse du son, toutes les sortes de variables externes, modèle, politiques d'exécution, emplacements et ressources mémoire |
 | `GenericParallelEvaluateTest` | propriétés matériau sur CPU : chargement, valeurs, bornes et politiques, emplacements, arguments invalides, politique d'exécution |
 | `GenericParallelCUDATest` | mêmes vérifications sur GPU (`cuda`), données en mémoire managée, ressource mémoire, flux non par défaut, modèle et propriétés matériau |
-| `MaterialDataViewTest` | vues : `FieldView` et ses contrats, intégration, fonctions d'initialisation et post-traitements sur vues dans quatre rangements (point par point, composante par composante, avec ou sans pas plus grand que nécessaire), identiques bit à bit au gestionnaire, avec et sans politique ; `make_view` ; opérations de l'hôte ; `update`, `revert`, `updateValues` ; variables d'une vue d'état et extraction ; refus attendus |
-| `MaterialDataManagerLayoutTest` | gestionnaire rangé composante par composante identique bit à bit au rangement point par point : intégration, grandes déformations, entrées et sorties, variables externes, `MaterialFunctionManager`, `save` et `restore` |
+| `MaterialDataViewTest` | vues : `FieldView` et ses contrats, `getPoints` ; intégration, fonctions d'initialisation et post-traitements sur vues dans quatre rangements (point par point, composante par composante, avec ou sans pas plus grand que nécessaire), identiques bit à bit au gestionnaire, avec un espace de travail, avec les politiques synchrone et asynchrone et par `integrate_debug`, chaque calcul partant d'une copie de l'état avant calcul ; les huit types d'intégration, prédictions comprises ; vitesse du son ; modèle ; énergies stockée et dissipée ; ensembles vides ; vue sans blocs de la tangente ; `make_view` ; opérations de l'hôte ; `update`, `revert`, `updateValues` (avec et sans contexte) ; variables d'une vue d'état, blocs de la tangente, extraction ; refus attendus, pour les deux interfaces |
+| `MaterialDataManagerLayoutTest` | gestionnaire rangé composante par composante identique bit à bit au rangement point par point : intégration sur des plages, ensembles vides, pool de threads (erreurs comprises), politiques, `revert` ; initialisation et post-traitement sous toutes leurs formes ; fin de pas des propriétés matériau et variables externes (tableaux externes, locaux, valeurs uniformes, politiques de mise à jour) ; conversions des grandes transformations sur vues et sur gestionnaire, en 3D et en déformation plane, contrainte de Piola-Kirchhoff comparée à sa définition ; vues des variables, vues *strided coalesced* ; `MaterialFunctionManager` ; `save` et `restore` |
 | `GenericParallelIntegrateTest`, `GenericParallelEvaluateTest` (ajouts) | rotations et `evaluate` sur vues, identiques bit à bit aux surcharges sur tableaux, pour tous les rangements de la source et de la destination, en place ou non, matrices données des cinq façons, sans politique, synchrone et asynchrone |
-| `FieldOperationsCUDATest` | opérations CUDA (copies, transpositions, remplissages), cycle complet sur GPU (tableaux de l'appelant composante par composante en mémoire du GPU seulement, intégration et fin de pas sur le GPU, comparés à l'hôte), rotations et `evaluate` sur vues en mémoire du GPU, calculs asynchrones avec un pool de mémoire managée |
+| `FieldOperationsCUDATest` | opérations CUDA (copies, transpositions, remplissages), cycle complet sur GPU (tableaux de l'appelant composante par composante en mémoire du GPU seulement, intégration et fin de pas sur le GPU, comparés à l'hôte), intégration, initialisation, post-traitement, `update`, `revert` et extraction directement sur une `MaterialDataView` en mémoire du GPU, rotations et `evaluate` sur vues en mémoire du GPU, calculs asynchrones avec un pool de mémoire managée, masse volumique gardée sur l'hôte refusée |
+| `AllocationTest` | aucune allocation sur le tas dans le thread appelant pour l'intégration, `update` et `revert` des gestionnaires (deux rangements) et des vues, les rotations et `evaluate`, pour les deux interfaces |
+| `RotationMatrixCopyTest` | copies et déplacements des matrices de rotation, stockage local et externe, rotation après destruction de l'original |
+
+Les tests des liaisons C et Fortran sont construits par la cible `check`
+de CMake, pas par `build-tests` : sans elle, `ctest` relance d'anciens
+exécutables.
 
 La construction `build/mgis-full` ajoute HDF5 et les liaisons C, Fortran et
-Python (94 tests), dont les tests du rangement dans chaque liaison
-(`LayoutTest`). Le script `scripts/check-mgis-gpu-headers.sh` compile les
+Python (96 tests), dont les tests du rangement dans chaque liaison
+(`LayoutTest` : rangement du gestionnaire, rangement invalide refusé en C,
+blocs de la tangente en Fortran dans les deux rangements, pas des tableaux
+numpy et tableaux à pas refusés en Python). Le script `scripts/check-mgis-gpu-headers.sh` compile les
 en-têtes GPU de MGIS (opérations de copie et ressources mémoire) avec les
 chaînes CUDA, HIP, SYCL, Kokkos et OpenMP déporté du prototype, et les
 exécute sur le GPU (`reproducers/mgis-gpu-headers/check.cxx`).

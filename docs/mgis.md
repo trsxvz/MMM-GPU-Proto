@@ -341,9 +341,17 @@ changer : son contrat décrit déjà chaque champ par deux pas.
 - **Liaisons** : le rangement est exposé en C, Fortran et Python (tableaux
   numpy avec les pas du rangement).
 - **Coût** : les noyaux de TFEL sont inchangés, seul le calcul des adresses
-  change. Les fonctions du gestionnaire n'allouent plus rien sur le tas à
-  chaque appel dans le cas courant (tampon sur la pile). `evaluate` non
-  plus.
+  change. Une fois les tableaux alloués, les fonctions synchrones qui
+  calculent sur des points (intégration, initialisation, post-traitement,
+  rotations, `evaluate`), `update` et `revert` n'allouent plus rien sur le
+  tas dans le thread appelant, sur un gestionnaire comme sur une vue. Un
+  test le vérifie en comptant les appels à `operator new`. Les threads du
+  backend `stlpar` (TBB) allouent les leurs.
+- **Points en échec** : les blocs de la tangente d'un point où
+  l'intégration échoue sont non spécifiés, quel que soit le chemin.
+- **Masse volumique** : exigée pour la vitesse du son d'une loi
+  `generic-parallel` (TFEL l'exige), nulle si absente point par point,
+  comme MGIS l'a toujours fait.
 
 Le rangement par blocs d'élément (`byNODES` des interpolateurs de MFEM)
 n'est pas couvert : il demanderait un troisième pas et un contrat TFEL
@@ -398,10 +406,18 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
 - le message d'erreur des rotations des blocs de la tangente parlait des
   forces thermodynamiques.
 
-Un défaut trouvé n'est pas corrigé, faute de lien avec ce travail :
-`MaterialAxisStorage` n'est pas exporté. Copier un `RotationMatrix3D` hors
-de MGIS ne se lie donc pas. La copie serait de toute façon superficielle :
-elle pointerait vers le stockage interne de l'original.
+- `MaterialAxisStorage` n'était pas exporté : copier un `RotationMatrix2D`
+  ou un `RotationMatrix3D` hors de MGIS ne se liait pas. La copie d'un axe
+  stocké localement pointait de plus vers le stockage de l'original ;
+- les liaisons Fortran de l'opérateur tangent rendaient un tableau de
+  forme fausse dès que l'opérateur n'était pas carré (et, pour un
+  gestionnaire, de première étendue jamais fixée). Elles rendent la
+  transposée de l'opérateur, de forme `[gs, ths]` en chaque point, et
+  refusent un opérateur qui n'est pas un seul bloc ;
+- la liaison Python lisait un tableau numpy à pas (`a[::2]`) comme s'il
+  était contigu : il est maintenant refusé ;
+- `update` et `revert` d'un gestionnaire allouaient un contexte d'exécution
+  à chaque appel.
 
 ## Limites actuelles
 
