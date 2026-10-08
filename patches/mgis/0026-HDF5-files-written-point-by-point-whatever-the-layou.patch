@@ -1,0 +1,531 @@
+From 2609cc2d9fd4b47c91f2ed196b63285600f1cd5b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 00:07:59 +0200
+Subject: [PATCH] HDF5 files written point by point, whatever the layout
+
+save writes and restore reads the values given at each point point by point,
+so that a file can be restored in a material state manager with another
+layout. Fix of the restore of the external state variables with several
+components given at each point: the size of the storage was compared to the
+number of points instead of the number of values (span), and a vector was
+resized to the number of points before reading all the values (out of
+bounds write); a uniform value read in a vector now resizes it to the
+values of one point.
+---
+ src/MaterialStateManager.cxx            | 248 +++++++++++++++++++-----
+ tests/MaterialDataManagerLayoutTest.cxx |  87 ++++++++-
+ 2 files changed, 287 insertions(+), 48 deletions(-)
+
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index a43af8b..8218d14 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -925,41 +925,179 @@ namespace mgis::behaviour {
+ 
+ #ifdef MGIS_HAVE_HDF5
+ 
++  /*
++   * The files always hold the values point by point, whatever the layout of
++   * the material state manager, so that a file can be restored in a material
++   * state manager with another layout.
++   */
++
++  /*!
++   * \return the values given at each point, stored point by point
++   * \param[in] values: values, in the given layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] l: layout
++   */
++  static std::vector<real> getValuesPointByPoint(
++      const std::span<const real> values,
++      const size_type n,
++      const size_type nc,
++      const FieldLayout l) {
++    auto r = std::vector<real>(values.size());
++    const auto v = makeFieldView(values, l, n, nc);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        r[i * nc + j] = v(i, j);
++      }
++    }
++    return r;
++  }  // end of getValuesPointByPoint
++
++  /*!
++   * \brief copy values stored point by point in an array with the given
++   * layout
++   * \param[out] values: values, in the given layout
++   * \param[in] pvalues: values stored point by point
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] l: layout
++   */
++  static void setValuesFromPointByPoint(const std::span<real> values,
++                                        const std::span<const real> pvalues,
++                                        const size_type n,
++                                        const size_type nc,
++                                        const FieldLayout l) {
++    const auto v = makeFieldView(values, l, n, nc);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        v(i, j) = pvalues[i * nc + j];
++      }
++    }
++  }  // end of setValuesFromPointByPoint
++
++  /*!
++   * \brief write values given at each point, point by point
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] l: layout of the values
++   */
++  [[nodiscard]] static bool writePointByPoint(
++      Context& ctx,
++      H5::Group& g,
++      const std::string& name,
++      const std::span<const real> values,
++      const size_type n,
++      const size_type nc,
++      const FieldLayout l,
++      const bool allow_overwrite) noexcept {
++    using namespace mgis::utilities::hdf5;
++    if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1) ||
++        (values.size() != n * nc)) {
++      return write(ctx, g, name, values, allow_overwrite);
++    }
++    try {
++      return write(ctx, g, name, getValuesPointByPoint(values, n, nc, l),
++                   allow_overwrite);
++    } catch (...) {
++      return ctx.registerErrorMessage("saving '" + name + "' failed");
++    }
++  }  // end of writePointByPoint
++
++  /*!
++   * \brief read values given at each point, stored point by point in the
++   * file, in an array with the given layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] l: layout of the values
++   */
++  [[nodiscard]] static bool readPointByPoint(Context& ctx,
++                                             std::span<real> values,
++                                             const H5::Group& g,
++                                             const std::string& name,
++                                             const size_type n,
++                                             const size_type nc,
++                                             const FieldLayout l) noexcept {
++    using namespace mgis::utilities::hdf5;
++    if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1)) {
++      return read(ctx, values, g, name);
++    }
++    try {
++      auto pvalues = std::vector<real>(values.size());
++      if (!read(ctx, std::span<real>(pvalues), g, name)) {
++        return false;
++      }
++      setValuesFromPointByPoint(values, pvalues, n, nc, l);
++      return true;
++    } catch (...) {
++      return ctx.registerErrorMessage("restoring '" + name + "' failed");
++    }
++  }  // end of readPointByPoint
++
++  /*!
++   * \brief save a field holder
++   * \param[in] s: material state manager
++   * \param[in] nc: number of components of the variable
++   */
+   [[nodiscard]] static bool save(
+       Context& ctx,
+       H5::Group& g,
+       const std::string& n,
+       const MaterialStateManager::MutableFieldHolder& f,
++      const MaterialStateManager& s,
++      const size_type nc,
+       const MaterialStateManagerSavingOptions& opts) noexcept {
+     using namespace mgis::utilities::hdf5;
+     if (std::holds_alternative<real>(f.value)) {
+       return write(ctx, g, n, std::get<real>(f.value), opts.allow_overwrite);
+     } else if (std::holds_alternative<std::span<real>>(f.value)) {
+-      return write(ctx, g, n, std::get<std::span<real>>(f.value),
+-                   opts.allow_overwrite);
++      return writePointByPoint(ctx, g, n, std::get<std::span<real>>(f.value),
++                               s.n, nc, s.layout, opts.allow_overwrite);
+     }
+-    return write(ctx, g, n, std::get<std::vector<real>>(f.value),
+-                 opts.allow_overwrite);
++    return writePointByPoint(ctx, g, n, std::get<std::vector<real>>(f.value),
++                             s.n, nc, s.layout, opts.allow_overwrite);
+   }  // end of save
+ 
++  /*!
++   * \brief save a field holder
++   * \param[in] s: material state manager
++   * \param[in] nc: number of components of the variable
++   */
+   [[nodiscard]] static bool save(
+       Context& ctx,
+       H5::Group& g,
+       const std::string& n,
+       const MaterialStateManager::FieldHolder& f,
++      const MaterialStateManager& s,
++      const size_type nc,
+       const MaterialStateManagerSavingOptions& opts) noexcept {
+     using namespace mgis::utilities::hdf5;
+     if (std::holds_alternative<std::monostate>(f)) {
+       return ctx.registerErrorMessage("uninitialized field holder '" + n + "'");
+     }
+     if (std::holds_alternative<std::span<const real>>(f)) {
+-      return write(ctx, g, n, std::get<std::span<const real>>(f),
+-                   opts.allow_overwrite);
++      return writePointByPoint(ctx, g, n, std::get<std::span<const real>>(f),
++                               s.n, nc, s.layout, opts.allow_overwrite);
+     }
+     return save(ctx, g, n,
+-                std::get<MaterialStateManager::MutableFieldHolder>(f), opts);
++                std::get<MaterialStateManager::MutableFieldHolder>(f), s, nc,
++                opts);
+   }  // end of save
+ 
++  /*!
++   * \return the number of components of the variable of the given name, or
++   * one if no variable has this name
++   * \param[in] variables: variables
++   * \param[in] n: name
++   * \param[in] h: modelling hypothesis
++   */
++  static size_type getNumberOfComponents(const std::vector<Variable>& variables,
++                                         const std::string_view n,
++                                         const Hypothesis h) {
++    const auto p = std::find_if(variables.begin(), variables.end(),
++                                [n](const Variable& v) { return v.name == n; });
++    return p == variables.end() ? 1 : getVariableSize(*p, h);
++  }  // end of getNumberOfComponents
++
+   bool save(Context& ctx,
+             H5::Group& g,
+             const MaterialStateManager& s,
+@@ -969,18 +1107,21 @@ namespace mgis::behaviour {
+       return ctx.registerErrorMessage(getHostAccessErrorMessage("save"));
+     }
+     if (opts.save_gradients) {
+-      if (!write(ctx, g, "gradients", s.gradients, opts.allow_overwrite)) {
++      if (!writePointByPoint(ctx, g, "gradients", s.gradients, s.n,
++                             s.gradients_stride, s.layout,
++                             opts.allow_overwrite)) {
+         return false;
+       }
+     }
+     if (opts.save_thermodynamic_forces) {
+-      if (!write(ctx, g, "thermodynamic_forces", s.thermodynamic_forces,
+-                 opts.allow_overwrite)) {
++      if (!writePointByPoint(
++              ctx, g, "thermodynamic_forces", s.thermodynamic_forces, s.n,
++              s.thermodynamic_forces_stride, s.layout, opts.allow_overwrite)) {
+         return false;
+       }
+     }
+     if (s.mass_density.has_value()) {
+-      if (!save(ctx, g, "mass_density", *(s.mass_density), opts)) {
++      if (!save(ctx, g, "mass_density", *(s.mass_density), s, 1, opts)) {
+         return false;
+       }
+     }
+@@ -991,15 +1132,17 @@ namespace mgis::behaviour {
+         return false;
+       }
+       for (const auto& [n, mp] : s.material_properties) {
+-        if (!save(ctx, *og_mp, n, mp, opts)) {
++        if (!save(ctx, *og_mp, n, mp, s, 1, opts)) {
+           return false;
+         }
+       }
+     }
+     //
+     if (!s.b.isvs.empty()) {
+-      if (!write(ctx, g, "internal_state_variables", s.internal_state_variables,
+-                 opts.allow_overwrite)) {
++      if (!writePointByPoint(ctx, g, "internal_state_variables",
++                             s.internal_state_variables, s.n,
++                             s.internal_state_variables_stride, s.layout,
++                             opts.allow_overwrite)) {
+         return false;
+       }
+     }
+@@ -1022,7 +1165,8 @@ namespace mgis::behaviour {
+         return false;
+       }
+       for (const auto& [n, esv] : s.external_state_variables) {
+-        if (!save(ctx, *og_esv, n, esv, opts)) {
++        const auto nc = getNumberOfComponents(s.b.esvs, n, s.b.hypothesis);
++        if (!save(ctx, *og_esv, n, esv, s, nc, opts)) {
+           return false;
+         }
+       }
+@@ -1140,13 +1284,20 @@ namespace mgis::behaviour {
+     return false;
+   }  // end of restoreScalarMutableFieldHolder
+ 
++  /*!
++   * \brief restore a field holder
++   * \param[in] ng: number of points
++   * \param[in] vsize: number of components of the variable
++   * \param[in] l: layout of the values given at each point
++   */
+   [[nodiscard]] static bool restoreMutableFieldHolder(
+       Context& ctx,
+       MaterialStateManager::MutableFieldHolder& f,
+       const H5::Group& g,
+       const std::string& n,
+       const size_type ng,
+-      const size_type vsize) noexcept {
++      const size_type vsize,
++      const FieldLayout l) noexcept {
+     using namespace mgis::utilities::hdf5;
+     if (vsize == 1) {
+       return restoreScalarMutableFieldHolder(ctx, f, g, n, ng);
+@@ -1180,18 +1331,19 @@ namespace mgis::behaviour {
+                 std::to_string(ng * vsize) + "', got '" +
+                 std::to_string(dims[0]) + "')");
+           }
+-          // duplicate the uniform values
++          // duplicate the uniform values at each point
+           auto tmp = std::vector<real>(vsize);
+           odataset->read(tmp.data(), getNativeType<real>());
++          const auto v = makeFieldView(values, l, ng, vsize);
+           for (size_type idx = 0; idx != ng; ++idx) {
+-            std::copy(tmp.begin(), tmp.end(), values.begin() + idx * vsize);
++            for (size_type c = 0; c != vsize; ++c) {
++              v(idx, c) = tmp[c];
++            }
+           }
+           return true;
+         }
+         auto& values = std::get<std::vector<real>>(f.value);
+-        if (values.empty()) {
+-          values.resize(vsize);
+-        }
++        values.resize(vsize);
+         odataset->read(values.data(), getNativeType<real>());
+         return true;
+       }
+@@ -1201,28 +1353,26 @@ namespace mgis::behaviour {
+             std::to_string(ng * vsize) + "', got '" + std::to_string(dims[0]) +
+             "')");
+       }
++      // values given at each point, stored point by point in the file
++      auto values = std::span<real>{};
+       if (std::holds_alternative<std::span<real>>(f.value)) {
+-        auto& values = std::get<std::span<real>>(f.value);
+-        const auto fsize = values.size();
+-        if (fsize != ng) {
+-          return ctx.registerErrorMessage(
+-              "invalid storage for '" + n + "' (expected '" +
+-              std::to_string(ng) + "', got '" + std::to_string(fsize) + "')");
+-        }
+-        odataset->read(values.data(), getNativeType<real>());
+-      } else if (std::holds_alternative<std::vector<real>>(f.value)) {
+-        auto& values = std::get<std::vector<real>>(f.value);
+-        if (values.empty()) {
+-          values.resize(ng);
+-        }
+-        const auto fsize = values.size();
+-        if (fsize != ng) {
+-          return ctx.registerErrorMessage(
+-              "invalid storage for '" + n + "' (expected '" +
+-              std::to_string(ng) + "', got '" + std::to_string(fsize) + "')");
++        values = std::get<std::span<real>>(f.value);
++      } else {
++        auto& v = std::get<std::vector<real>>(f.value);
++        if (v.empty()) {
++          v.resize(ng * vsize);
+         }
+-        odataset->read(values.data(), getNativeType<real>());
++        values = v;
++      }
++      if (values.size() != ng * vsize) {
++        return ctx.registerErrorMessage(
++            "invalid storage for '" + n + "' (expected '" +
++            std::to_string(ng * vsize) + "', got '" +
++            std::to_string(values.size()) + "')");
+       }
++      auto tmp = std::vector<real>(ng * vsize);
++      odataset->read(tmp.data(), getNativeType<real>());
++      setValuesFromPointByPoint(values, tmp, ng, vsize, l);
+       return true;
+     } catch (...) {
+       std::ignore = registerH5ExceptionInErrorBacktrace(ctx);
+@@ -1240,12 +1390,15 @@ namespace mgis::behaviour {
+       return ctx.registerErrorMessage(getHostAccessErrorMessage("restore"));
+     }
+     if (opts.restore_gradients) {
+-      if (!read(ctx, s.gradients, g, "gradients")) {
++      if (!readPointByPoint(ctx, s.gradients, g, "gradients", s.n,
++                            s.gradients_stride, s.layout)) {
+         return ctx.registerErrorMessage("restoring gradients failed");
+       }
+     }
+     if (opts.restore_thermodynamic_forces) {
+-      if (!read(ctx, s.thermodynamic_forces, g, "thermodynamic_forces")) {
++      if (!readPointByPoint(ctx, s.thermodynamic_forces, g,
++                            "thermodynamic_forces", s.n,
++                            s.thermodynamic_forces_stride, s.layout)) {
+         return ctx.registerErrorMessage(
+             "restoring thermodynamic forces failed");
+       }
+@@ -1260,8 +1413,9 @@ namespace mgis::behaviour {
+       }
+     }
+     if (opts.restore_internal_state_variables) {
+-      if (!read(ctx, s.internal_state_variables, g,
+-                "internal_state_variables")) {
++      if (!readPointByPoint(ctx, s.internal_state_variables, g,
++                            "internal_state_variables", s.n,
++                            s.internal_state_variables_stride, s.layout)) {
+         return ctx.registerErrorMessage(
+             "restoring internal state variables failed");
+       }
+@@ -1302,8 +1456,8 @@ namespace mgis::behaviour {
+         }
+         if (std::holds_alternative<MutableFieldHolder>(f)) {
+           auto& mfh = std::get<MutableFieldHolder>(f);
+-          if (!restoreMutableFieldHolder(ctx, mfh, *ogmp, mp.name, s.n,
+-                                         *ovsize)) {
++          if (!restoreMutableFieldHolder(ctx, mfh, *ogmp, mp.name, s.n, *ovsize,
++                                         s.layout)) {
+             return ctx.registerErrorMessage("restoring material property '" +
+                                             mp.name + "' failed");
+           }
+@@ -1343,7 +1497,7 @@ namespace mgis::behaviour {
+         if (std::holds_alternative<MutableFieldHolder>(f)) {
+           auto& mfh = std::get<MutableFieldHolder>(f);
+           if (!restoreMutableFieldHolder(ctx, mfh, *ogesv, esv.name, s.n,
+-                                         *ovsize)) {
++                                         *ovsize, s.layout)) {
+             return ctx.registerErrorMessage(
+                 "restoring external state variable '" + esv.name + "' failed");
+           }
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 517d900..61a03a6 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -6,7 +6,7 @@
+  * arrays, extraction of the internal state variables, inputs of the
+  * initialize functions and outputs of the post-processings, conversions of
+  * the finite strain outputs, external state variables with several
+- * components and material function managers.
++ * components, material function managers and, if available, HDF5 files.
+  * \date   08/10/2026
+  * \copyright Use, modification and distribution are subject
+  * to one of the following licences:
+@@ -37,6 +37,9 @@
+ #include "MGIS/Behaviour/MaterialFunctionManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
++#ifdef MGIS_HAVE_HDF5
++#include "MGIS/Utilities/HDF5Support.hxx"
++#endif /* MGIS_HAVE_HDF5 */
+ 
+ using mgis::FieldLayout;
+ using mgis::FieldView;
+@@ -402,6 +405,85 @@ static void testMaterialFunctionManager(const std::string& library) {
+   }
+ }  // end of testMaterialFunctionManager
+ 
++#ifdef MGIS_HAVE_HDF5
++
++//! \brief files written by a manager and restored by a manager with another
++//! layout
++static void testHDF5(const std::string& library) {
++  using namespace mgis::behaviour;
++  using namespace mgis::utilities::hdf5;
++  const auto b = load(library, "TensorialExternalStateVariableTest",
++                      Hypothesis::TRIDIMENSIONAL);
++  const auto h = b.hypothesis;
++  constexpr auto n = size_type{3};
++  auto ctx = mgis::Context{};
++  auto file = H5::H5File("MaterialDataManagerLayoutTest.h5", H5F_ACC_TRUNC);
++  auto root = file.openGroup("/");
++  for (const auto l :
++       {FieldLayout::POINT_BY_POINT, FieldLayout::COMPONENT_BY_COMPONENT}) {
++    const auto other = l == FieldLayout::POINT_BY_POINT
++                           ? FieldLayout::COMPONENT_BY_COMPONENT
++                           : FieldLayout::POINT_BY_POINT;
++    auto m = makeManager(b, n, l);
++    auto r = makeManager(b, n, other);
++    for (auto* const s : {&m->s1, &r->s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++    }
++    // values of the states and of the external state variables
++    auto esvs = std::vector<std::vector<real>>{};
++    esvs.reserve(2 * b.esvs.size());
++    for (auto* const s : {&m->s1}) {
++      const auto isvs = getInternalStateVariablesView(*s);
++      for (size_type i = 0; i != n; ++i) {
++        for (size_type c = 0; c != isvs.getNumberOfComponents(); ++c) {
++          isvs(i, c) = static_cast<real>(100 * i + c);
++        }
++      }
++      for (const auto& v : b.esvs) {
++        const auto nc = getVariableSize(v, h);
++        auto& values = esvs.emplace_back(n * nc);
++        const auto f = mgis::makeFieldView(std::span<real>(values), l, n, nc);
++        for (size_type i = 0; i != n; ++i) {
++          for (size_type c = 0; c != nc; ++c) {
++            f(i, c) = static_cast<real>(1000 * i + c);
++          }
++        }
++        setExternalStateVariable(*s, v.name, values,
++                                 MaterialStateManager::EXTERNAL_STORAGE);
++      }
++    }
++    for (const auto& v : b.esvs) {
++      auto& values = esvs.emplace_back(n * getVariableSize(v, h));
++      setExternalStateVariable(r->s1, v.name, values,
++                               MaterialStateManager::EXTERNAL_STORAGE);
++    }
++    const auto g = std::string{l == FieldLayout::POINT_BY_POINT
++                                   ? "point_by_point"
++                                   : "component_by_component"};
++    auto og = createGroup(ctx, root, g);
++    if (!check(!mgis::isInvalid(og), "HDF5: group not created")) {
++      return;
++    }
++    check(save(ctx, *og, m->s1), "HDF5: save failed");
++    check(restore(ctx, r->s1, *og, {.restore_mass_densities = false}),
++          "HDF5: restore failed " + ctx.getErrorMessage());
++    check(same(getInternalStateVariablesView(m->s1),
++               getInternalStateVariablesView(r->s1)),
++          "HDF5: invalid internal state variables (" + g + ")");
++    for (std::size_t k = 0; k != b.esvs.size(); ++k) {
++      const auto nc = getVariableSize(b.esvs[k], h);
++      check(same(mgis::makeFieldView(std::span<const real>(esvs[k]), l, n, nc),
++                 mgis::makeFieldView(
++                     std::span<const real>(esvs[b.esvs.size() + k]), other, n,
++                     nc)),
++            "HDF5: invalid external state variable '" + b.esvs[k].name + "' (" +
++                g + ")");
++    }
++  }
++}  // end of testHDF5
++
++#endif /* MGIS_HAVE_HDF5 */
+ 
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 3) {
+@@ -417,6 +499,9 @@ int main(const int argc, const char* const* const argv) {
+       testExternalStateVariables(library);
+     }
+     testMaterialFunctionManager(argv[2]);
++#ifdef MGIS_HAVE_HDF5
++    testHDF5(argv[2]);
++#endif /* MGIS_HAVE_HDF5 */
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+     return EXIT_FAILURE;
+-- 
+2.43.0
+
