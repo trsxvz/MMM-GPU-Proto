@@ -241,14 +241,16 @@ namespace mfront::generic_parallel::material_property {
      * \brief return if the backend shall handle the data transfer from a host
      * to a device
      *
-     * If this method return true, the argument of the C function
-     * implementations containing pointers to values of the state variables
+     * If this method returns true, the argument of the C function
+     * implementations containing pointers to values of the arguments
      * is named `mfront_args_host`. The backend shall
-     * then defined a pointer named `mfront_args` to the beginning of an
-     * internal array of pointers.
+     * then define a pointer named `mfront_args` to the beginning of an
+     * internal array of pointers. The output argument is then named
+     * `mfront_output_host`, and the backend shall define a pointer named
+     * `mfront_output`.
      *
-     * If this method returns false, this argument is directly named
-     * `mfront_args`.
+     * If this method returns false, those arguments are directly named
+     * `mfront_args` and `mfront_output`.
      *
      * \note by default, no data transfer is handled
      */

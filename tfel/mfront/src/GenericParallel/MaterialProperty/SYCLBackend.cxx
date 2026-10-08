@@ -127,7 +127,21 @@ namespace mfront::generic_parallel::material_property {
        << "return;\n"
        << "}\n"
        << "auto* const mfront_queue = "
-       << "static_cast<::sycl::queue*>(mfront_options.queue);\n";
+       << "static_cast<::sycl::queue*>(mfront_options.queue);\n"
+       // the kernel must be executed after the computations already
+       // submitted to the queue, which may compute the arguments. This is
+       // guaranteed by an in-order queue. With an out-of-order queue, the
+       // evaluation is synchronous and the queue is synchronized before the
+       // kernel, as for the behaviours.
+       << "if (!mfront_queue->is_in_order()) {\n"
+       << "if (mfront_asynchronous) {\n"
+       << "mfront_output_status->status = -5;\n"
+       << "mfront_report(\"asynchronous evaluations require an in-order SYCL "
+       << "queue\");\n"
+       << "return;\n"
+       << "}\n"
+       << "mfront_queue->wait_and_throw();\n"
+       << "}\n";
   }  // end of writeExecutionPreparation
 
   void SYCLBackend::writeKernelCall(

@@ -57,6 +57,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test13();
     this->test14();
     this->test15();
+    this->test16();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
     return this->result;
   }  // end of execute
@@ -73,7 +74,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     // queue is synchronized. The second temperature is out of its physical
     // bounds.
     constexpr auto eps = double{1e-2};
-    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+    // an asynchronous evaluation requires an in-order queue
+    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR,
+                         sycl::property::queue::in_order{}};
     const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
     auto *const statuses = sycl::malloc_shared<int>(n, Q);
     auto *const T = sycl::malloc_shared<double>(4, Q);
@@ -97,6 +100,28 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     for (const auto i : {0, 2, 3}) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(values[i])) < eps);
     }
+    sycl::free(statuses, Q);
+    sycl::free(T, Q);
+    sycl::free(E, Q);
+  }
+
+  void test16() {
+    // an asynchronous evaluation is refused with an out-of-order queue
+    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+    TFEL_TESTS_ASSERT(!Q.is_in_order());
+    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+    auto *const statuses = sycl::malloc_shared<int>(n, Q);
+    auto *const T = sycl::malloc_shared<double>(4, Q);
+    auto *const E = sycl::malloc_shared<double>(4, Q);
+    std::fill(T, T + 4, 300.);
+    const auto args = std::array<const double *, 1u>{T};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto options =
+        mfront_gpmp_ExecutionOptions{.queue = &Q, .statuses = statuses};
+    auto output = mfront_gmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
+                            4, mfront_gmp_OutOfBoundsPolicy{}, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -5);
     sycl::free(statuses, Q);
     sycl::free(T, Q);
     sycl::free(E, Q);

@@ -493,9 +493,18 @@ The `change_basis` functions can:
 - rotate a (non-symmetric) tensor
 - rotate a fourth order tensor of type `st2tost2`.
 - rotate a fourth order tensor of type `t2tot2`.
+- rotate a vector (`tvector<N>`).
+- rotate a square matrix (`tmatrix<N, N>`) representing a linear map
+  between vectors, consistently with the rotation of tensors.
 
 Those functions takes two constant arguments: the object to be rotated
 and the rotation matrix. The rotated object is returned.
+
+The rotation of vectors and square matrices follows the convention of the
+other objects: the components of the rotated vector are
+\(v'_{i}=r_{ki}\,v_{k}\) and the components of the rotated matrix are
+\(m'_{ij}=r_{ki}\,m_{kl}\,r_{lj}\). In \(1D\), the object is unchanged. In
+\(2D\), only the in-plane block of the rotation matrix is used.
 
 ### Example
 

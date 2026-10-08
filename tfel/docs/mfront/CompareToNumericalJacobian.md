@@ -4,7 +4,8 @@ jacobian. This keyword is followed by a boolean value (`true` or
 `false`).
 
 Jacobians are compared by blocks. Blocks for which the comparison
-failed are reported on the standard output.
+failed are reported on the standard output. The comparison is thus only
+performed on the host: it is skipped in device code.
 
 The comparison criterion value can be changed used the
 `@JacobianComparisonCriterion` keyword.

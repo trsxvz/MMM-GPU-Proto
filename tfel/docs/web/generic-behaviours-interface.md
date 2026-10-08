@@ -28,6 +28,10 @@ has a more liberal licence which allows it to be included in both
 commercial and open-source solvers/library. This licensing choice
 explains why this project is not part of the `TFEL`.
 
+The [`generic-parallel` interface](generic-parallel-behaviour-interface.html)
+integrates a behaviour over a batch of integration points, on CPUs or
+GPUs, with the same conventions.
+
 # Features
 
 ## Supported behaviours
@@ -108,11 +112,16 @@ In place rotations are explicitly allowed, i.e. the first and second
 arguments can be a pointer to the same location.
 
 The rotated variables can be scalars (which are copied), vectors,
-symmetric tensors and tensors, as well as arrays of such variables. The
-tangent operator blocks can be the derivatives of those variables with
-respect to scalars, the derivatives of scalars, vectors with respect to
-vectors, and (symmetric) tensors with respect to (symmetric) tensors.
-The generated code can be used in device code.
+symmetric tensors and tensors, as well as arrays of such variables. All
+the tangent operator blocks can be rotated. A block associated with
+arrays of variables is rotated entry by entry. A block for which `TFEL`
+has no type which can be rotated (derivative of a vector with respect to
+a symmetric tensor or a tensor, and conversely, derivative of a tensor
+with respect to a symmetric tensor) is rotated by
+`mfront::gb::rotateTangentOperatorBlock`, which computes
+\(Q_{1}\,K\,Q_{2}^{T}\), where \(Q_{i}\) is the matrix of the rotation
+of the objects of each variable. The generated code can be used in device
+code.
 
 The three previous functions work for an integration point. Three other
 functions are also generated:
@@ -133,7 +142,9 @@ the returned tangent operator can be chosen at run time. A specific
 rotation function is generated for each supported stress measure and
 each supported tangent operator.
 
-Here is the list of the generated functions:
+For those behaviours, the `rotateThermodynamicForces` and
+`rotateTangentOperatorBlocks` functions are not generated. Here is the
+list of the generated functions:
 
 -
   `<behaviour_function_name>_<hypothesis>_rotateThermodynamicForces_CauchyStress`.
@@ -147,6 +158,7 @@ Here is the list of the generated functions:
   `<behaviour_function_name>_<hypothesis>_rotateThermodynamicForces_PK2Stress`.
   This function assumes that its first argument is the second
   Piola-Kirchhoff stress in the material frame.
+-
   `<behaviour_function_name>_<hypothesis>_rotateTangentOperatorBlocks_dsig_dF`.
   This function assumes that its first argument is the derivative of the
   Cauchy stress with respect to the deformation gradient in the material
@@ -157,7 +169,17 @@ Here is the list of the generated functions:
   first Piola-Kirchhoff stress with respect to the deformation gradient
   in the material frame.
 -
-  `<behaviour_function_name>_<hypothesis>_rotateTangentOperatorBlocks_PK2Stress`.
+  `<behaviour_function_name>_<hypothesis>_rotateTangentOperatorBlocks_dPK2_dEGL`.
   This function assumes that its first argument is the derivative of the
   second Piola-Kirchhoff stress with respect to the Green-Lagrange
   strain in the material frame.
+-
+  `<behaviour_function_name>_<hypothesis>_rotateTangentOperatorBlocks_dtau_ddF`.
+  This function assumes that its first argument is the derivative of the
+  Kirchhoff stress with respect to the spatial increment of the
+  deformation gradient in the material frame.
+
+Each of those functions has a variant treating an array of integration
+points, whose name is obtained by replacing `rotate` by `rotateArrayOf`
+(for instance
+`<behaviour_function_name>_<hypothesis>_rotateArrayOfThermodynamicForces_CauchyStress`).

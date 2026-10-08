@@ -14,10 +14,16 @@ secPrefixTemplate: "$$i$$"
 eqnPrefixTemplate: "($$i$$)"
 ---
 
-This page describes the `generic-parallel` interface.
+This page describes the `generic-parallel` interface for material
+properties.
 
 The `generic-parallel` interface has been designed to be compatible with
-current parallel programming models (see the `Backends` section).
+current parallel programming models (see the `Backends` section). The
+same backends are available in the [`generic-parallel` interface for
+behaviours](generic-parallel-behaviour-interface.html), which describes
+the notions shared by both interfaces (memory spaces, queues, stack size
+of the threads of the devices, configuration files delivered with
+`TFEL`).
 
 # Prototypes of the generated functions
 
@@ -35,15 +41,17 @@ In addition, the `generic-parallel` interface also exports:
 - symbols describing the material property (names of the inputs, list of
   parameters, default values, etc.),
 - the `<name>_generic_parallel_backend` symbol, which gives the backend of
-  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`) and
-  tells the calling code where the arrays must be allocated, and the
-  `<name>_generic_parallel_api_version` symbol (an `unsigned short`), equal
+  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`), and
+  the `<name>_generic_parallel_api_version` symbol (an `unsigned short`), equal
   to the `MFRONT_GPMP_API_VERSION` macro of
   `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
   incremented at each incompatible change of the generated functions,
-- the `<name>_generic_parallel_memory_space` symbol, which tells where the
-  arguments and the output must be located (`host`, `device` or `any`, as
-  for the behaviours),
+- the `<name>_generic_parallel_memory_space` symbol (a `const char*`),
+  which tells where the arguments and the output must be located (`host`,
+  `device` or `any`, as for the behaviours). The name of the backend does
+  not suffice: for instance, the `stlpar` backend computes on the host or
+  on a GPU depending on the compiler. This memory space is set when the
+  library is compiled (see `MFront/GenericParallel/MemorySpace.hxx`),
 - the `<name>_generic_parallel_number_of_statuses` symbol (an `unsigned
   short`) and the `<name>_generic_parallel_report` function, used by the
   asynchronous evaluations (see below),
@@ -70,15 +78,16 @@ void (*)(mfront_gmp_OutputStatus* const,     // output status
 The `mfront_gmp_OutputStatus` structure and the
 `mfront_gmp_OutOfBoundsPolicy` enumeration type are described in the
 page dedicated to the [`generic` interface for material
-properties](generic-parallel-material-property-interface.html). The
+properties](generic-material-property-interface.html). The
 `mfront_gmp_real` type is by default an alias to double precision
 floating point numbers.
 
 If the number of points is null, no computation is made.
 
 A null stride means that the associated argument is uniform. The stride
-of the output can be null only if all the strides of all the arguments
-are null, otherwise an error is reported.
+of the output can be null only if the number of points is one and if all
+the strides of the arguments are null. Otherwise, the status `-7` is
+reported.
 
 Most backends will treat the case where all strides are equal to one as
 a special case and will use an optimized implementation.
@@ -116,7 +125,11 @@ the execution options of the behaviours:
   of the Kokkos execution space (default instance if null). It is not used
   by the C++ parallel algorithms and `OpenMP`. The evaluation is ordered
   after the computations previously submitted to the queue, which may
-  compute the arguments.
+  compute the arguments. With the `SYCL` backend, an out-of-order queue
+  gives no order between the kernels: an asynchronous evaluation then
+  requires an in-order queue (`sycl::property::queue::in_order`), and is
+  refused with an out-of-order queue (status `-5`). A synchronous
+  evaluation synchronizes an out-of-order queue before the kernel.
 - `statuses`: statuses of an asynchronous evaluation, or null for a
   synchronous evaluation (see below).
 - `preserve_stack_size`: if not null, the stack size of the threads of the
@@ -158,6 +171,11 @@ Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
 A synchronous evaluation calls the same report function on statuses held
 by blocks of memory reused from one call to another.
 
+If the runtime checks are disabled (`disable_runtime_checks` DSL option),
+`<name>_generic_parallel_number_of_statuses` is null: the statuses are
+never written, but a non null pointer is still required to request an
+asynchronous evaluation.
+
 ## Output status
 
 The output status (`mfront_gmp_OutputStatus`) follows the conventions of
@@ -180,7 +198,8 @@ The following statuses are specific to this interface:
 - `-2`: an exception was thrown on the host (backends based on C++
   programming models, for instance by a data transfer);
 - `-5`: invalid arguments (number of points, number of arguments,
-  negative stride, no queue given to the `SYCL` backend);
+  negative stride, no queue given to the `SYCL` backend, asynchronous
+  evaluation with an out-of-order `SYCL` queue);
 - `-6`: runtime error of the backend (allocation, launch of a kernel, stack
   size of the threads of the device), or invalid parameters;
 - `-7`: uniform output (null stride) with several points or with non
@@ -190,7 +209,13 @@ As for behaviours, the error message describes the first error found. It
 is only meaningful if the status is not null. The devices only write the
 statuses when an error occurs: the reporting of the errors costs nothing
 when the evaluation succeeds (see the internal details of the `CUDA`
-backend).
+backend). `bounds_status` and `c_error_number` are reset to zero at each
+call.
+
+If the runtime checks are disabled (`disable_runtime_checks` DSL option),
+the number of points, the number of arguments, the signs of the strides,
+the parameters, the bounds and the results are not checked. The uniform
+outputs are still checked (status `-7`).
 
 # Backends
 
@@ -218,7 +243,9 @@ with the appropriate flags. This file may also contain the options
 associated with the `CUDA` backend, see below. Depending on the parallel
 configurations selected during the `cmake` configuration steps, two
 configuration files may be installed: `config-cuda-nvcc.json` and
-`config-cuda-nvhpc.json`.
+`config-cuda-clang.json` (see the list of the [configuration files
+delivered with
+`TFEL`](generic-parallel-behaviour-interface.html#configuration-files-delivered-with-tfel)).
 
 `UO2_ShearModulus` implements the first prototype, while
 `UO2_ShearModulus2` implements the second.
@@ -267,11 +294,17 @@ compiler to build the source code generated by the `CUDA` backend
 compilation_options : {
   cuda : {
     compiler: "/usr/local/cuda-12.8/bin/nvcc",
-    compilation_flags: {"-O2 -std=c++20 -diag-suppress 20012",
-       "--expt-relaxed-constexpr", "-Xcompiler -fPIC"}
+    compilation_flags: {"-O2 -std=c++20 -arch=native",
+       "-diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014",
+       "-Xcompiler -fPIC --expt-relaxed-constexpr"}
   }
 }
 ~~~~
+
+Those flags are the ones of the `cuda-nvcc` configuration. `nvcc` only
+emits a warning (numbers 20011 and 20014) when device code calls a host
+function, and the resulting library gives wrong results or crashes:
+`-diag-error 20011,20014` turns this warning into an error.
 
 #### Example of configuration file for `clang++`
 
@@ -292,13 +325,19 @@ linking_options: {
 }
 ~~~~
 
+The `cuda-clang` configuration delivered with `TFEL` uses the `CUDA`
+toolkit given by the `TFEL_CLANG_CUDA_PATH` variable of `cmake` (see the
+[`TFEL/Config` page](tfel-config.html)): a version of `clang` only
+supports the versions of `CUDA` released before it.
+
 ### Options
 
 The only option available is `number_of_threads_per_block`, the number
-of threads per block. By default, the value used is \(64\). This number
-is generally chosen a multiple of the number of threads per warps, which
-is typically \(32\) or \(64\). Typical values are thus \(64\), \(128\)
-and \(256\).
+of threads per block. By default, the value used is \(128\) (\(64\) in
+the configuration files delivered with `TFEL`). This number is rounded up
+at runtime to a multiple of the number of threads per warp, which is
+typically \(32\) or \(64\). Typical values are thus \(64\), \(128\)
+and \(256\). This option has the same meaning as for the behaviours.
 
 ### Internal details
 
@@ -320,7 +359,9 @@ pool of arrays allocated at the first call on a device and reused by the
 following calls (see `mfront::generic_parallel::StatusBlockPool`), so that
 no memory is allocated per call. The other backends handle the errors in
 the same way, with the memory accessible by the host and the device of the
-backend (heap, shared USM memory, `Kokkos::SharedSpace`). On output,
+backend (heap, shared USM memory, `Kokkos::SharedSpace`). Those arrays are
+never freed, except with the `Kokkos` backend, which frees them when
+Kokkos is finalized. On output,
 the user knows if an error occurred, but not where this errors occurred.
 For instance, the `UO2_ShearModulus` function may report that one
 temperature passed on input was negative at one evaluation point. For
@@ -351,7 +392,7 @@ Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
 where `createManagedData` is a simple wrapper around `hipMallocManaged`
 returning an `std::unique_ptr` for RAII.
 
-## Parallel STL backend (`stdpar`)
+## Parallel STL backend (`stlpar`)
 
 ### Example of usage
 
@@ -361,13 +402,13 @@ on the temperature and on the porosity. This file can be compiled as
 follows:
 
 ~~~~{.bash}
-$ mfront --obuild --configuration-file=config-stdpar.json \
+$ mfront --obuild --configuration-file=config-stlpar-parunseq-gcc.json \
          --interface=generic-parallel UO2_ShearModulus.mfront
 The following library has been built :
-- libGenericParallelUO2-stdpar.so :  UO2_ShearModulus UO2_ShearModulus2
+- libGenericParallelUO2-stlpar.so :  UO2_ShearModulus UO2_ShearModulus2
 ~~~~
 
-where the configuration file `config-stdpar.json` provide the required
+where the configuration file `config-stlpar-parunseq-gcc.json` provide the required
 information to compile the generated source files and also selects the
 execution policy to be used (see below).
 
@@ -388,7 +429,7 @@ UO2_ShearModulus(&output, G.data(), 1, args.data(), args_strides.data(), 2, 4,
 
 #### Example of configuration file for `g++`
 
-The following configuration file exemplifies how to use the `clang++`
+The following configuration file exemplifies how to use the `g++`
 compiler to build the source code generated by the `stlpar` backend:
 
 ~~~~{.json}
@@ -404,42 +445,56 @@ compilation_options : {
   }
 },
 linking_options : {
-  linker_flags : "-ltbb"
+  linker_flags : "-ltbb -Wl,-z,nodelete"
 }
 ~~~~
 
-#### Example of configuration file for `nvhcp`
+The library is marked as never unloaded (`-Wl,-z,nodelete`): unloading
+TBB while its threads are alive crashes the process.
 
-The following configuration file exemplifies how to use the `nvhcp`
+#### Example of configuration file for `nvc++`
+
+The following configuration file exemplifies how to use NVIDIA's `nvc++`
 compiler to build the source code generated by the `stlpar` backend and
 execute the computation of the material property on the device:
 
 ~~~~{.json}
 interfaces_options: {
   generic-parallel: {
-    backend: {stlpar: {execution_policy: "parallel_unsequenced_policy"}}
+    backend: {stlpar: {execution_policy: "parallel_unsequenced_policy",
+                       device_stack_size: 16384}}
   }
 },
 compilation_options : {
   cxx : {
     compiler: "nvc++",
-    compilation_flags: "-O2 -stdpar=gpu -std=c++20 -march=native -gpu=sm_89" 
+    compilation_flags: "-O2 -stdpar=gpu -gpu=mem:managed,nordc -std=c++20 -march=native" 
   }
 },
 linking_options : {
-  linker_flags: "-stdpar=gpu"
+  linker_flags: "-stdpar=gpu -gpu=mem:managed,nordc"
 }
 ~~~~
 
+Those options are the ones of the `stlpar-parunseq-nvhpc-gpu`
+configuration. The memory mode shall be given explicitly
+(`-gpu=mem:managed`) and the device code of each source file is compiled
+without relocatable device code (`-gpu=nordc`): see the page of the
+[`generic-parallel` interface for
+behaviours](generic-parallel-behaviour-interface.html) for the reasons.
+
 ### Options
 
-The only option available is `execution_policy`, which can have one of
-the following values:
+Two options are available:
 
-- `sequenced_policy` (or `seq`)
-- `unsequenced_policy` (or `unseq`)
-- `parallel_policy` (or `par`)
-- `parallel_unsequenced_policy` (or `par_unseq`)
+- `execution_policy`, which can have one of the following values:
+  - `sequenced_policy` (or `seq`)
+  - `unsequenced_policy` (or `unseq`)
+  - `parallel_policy` (or `par`)
+  - `parallel_unsequenced_policy` (or `par_unseq`, default)
+- `device_stack_size`: minimal stack size, in bytes, of the threads of the
+  GPU when the computations are offloaded by `nvc++ -stdpar=gpu` (16384 in
+  the `stlpar-parunseq-nvhpc-gpu` configuration).
 
 The exact meaning of those policies are implementations defined and may
 depend on compiler flags used. See [this
@@ -462,7 +517,8 @@ for details.
   - the parallel algorithms are executed on the device (the GPU).
 - `libstdc++` implements the parallel STL algorithms on the top of the
   Threading Building Blocks library and requires an explicit link to
-  this library.
+  this library. The configurations linking TBB mark the library as never
+  unloaded (`-Wl,-z,nodelete`).
 
 ## `SYCL` backend
 
@@ -472,7 +528,7 @@ allows mixing code on CPUs (leveraging multithreading), GPUs and
 accelerators.
 
 The `SYCL` backend has been tested with the following compilers:
-`INTEL`' `icpx` and `AdaptativeCpp`'s `accp`.
+Intel's `icpx` and AdaptiveCpp's `acpp`.
 
 ### Example of usage
 
@@ -506,21 +562,30 @@ Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
 
 `SYCL` has no default queue: the queue must be given by the execution
 options. It gives the device and the context of the unified shared memory
-of the calling code.
+of the calling code. An asynchronous evaluation requires an in-order queue
+(`sycl::property::queue::in_order`). With an out-of-order queue, a
+synchronous evaluation waits for the computations already submitted to
+the queue before the kernel is launched.
 
 ### Backend options
 
-This backend only has one option named `data_transfer_policy`.
+This backend has two options:
+
+- `data_transfer_policy` (see below);
+- `device_stack_size`: minimal stack size, in bytes, of the threads of an
+  NVIDIA GPU used through the `CUDA` runtime of AdaptiveCpp (8192 in the
+  `sycl-default-acpp` configuration).
 
 #### Data transfer policy
 
 Two policies regarding data transfer between host and device are
 available:
 
-- `automatic`: this policy may automatically trigger a copy of the data
-  if needed. No copy is made if the data are already on the device or in
-  shared memory.
-- `none`: this policy assumes that the data are already on the device on
+- `automatic` (or `auto`, default): this policy may automatically trigger
+  a copy of the data if needed. No copy is made if the data are already on
+  the device or in shared memory. The evaluation is synchronous if a copy
+  is made.
+- `none`: this policy assumes that the data are already on the device or
   in shared memory.
 
 > ** Providing data on the device**
@@ -534,11 +599,26 @@ available:
 
 The `Kokkos` backend evaluates the material property with
 `Kokkos::parallel_for` in the execution space given by the
-`execution_space` option (`Kokkos::DefaultExecutionSpace` by default). The
-arguments and the output must be accessible from this execution space, and
-`Kokkos` must be initialized by the calling code. The source files are
+`execution_space` option. The arguments and the output must be accessible
+from this execution space, and `Kokkos` must be initialized by the calling
+code. The queue of the execution options is a pointer to an instance of
+the execution space (the default instance if null). The source files are
 compiled with the compiler and the flags used by `Kokkos` (see the
 `config-kokkos.json` and `config-kokkos-host.json` configuration files).
+As for the behaviours, `Kokkos` must be a shared library, built without
+relocatable device code, so that the calling code and the generated
+libraries share the same instance of `Kokkos`.
+
+The statuses of the synchronous evaluations are held by memory allocated
+in `Kokkos::SharedSpace`, which must be supported by the `Kokkos`
+installation.
+
+### Options
+
+- `execution_space`: `Kokkos::DefaultExecutionSpace` by default,
+  `Kokkos::DefaultHostExecutionSpace` in the `kokkos-host` configuration.
+  The execution space is copied in the generated code: it must be the name
+  of a type, made of identifiers separated by `::`.
 
 ## `OpenMP` backend
 
@@ -550,7 +630,10 @@ the output must be accessible from the device, for instance in managed
 memory with `nvc++ -mp=gpu -gpu=mem:managed` (see the
 `config-openmp-offload-nvhpc-gpu.json` and `config-openmp-host-gcc.json`
 configuration files). The `device_stack_size` option has the same meaning
-as for the `stlpar` backend.
+as for the `stlpar` backend (16384 in the `openmp-offload-nvhpc-gpu`
+configuration). See the page of the [`generic-parallel` interface for
+behaviours](generic-parallel-behaviour-interface.html) for the constraints
+of `nvc++ -mp=gpu`.
 
 # Tests
 
@@ -560,12 +643,14 @@ This allows to tests various configurations that may use various `C++`
 compilers, a feature unsupported by the `cmake` build system.
 
 The list of configurations tested must be specified by defining a list
-named `generic-parallel-mp-tests-configurations` when invoking `cmake`
-as follows:
+named `generic-parallel-configurations` when invoking `cmake` as follows:
 
 ~~~~
-cmake -Dgeneric-parallel-mp-tests-configurations="cuda-nvcc;cuda-clang"
+cmake -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang"
 ~~~~
+
+The same list selects the configuration files installed with `TFEL` and
+the tests of the `generic-parallel` interface for behaviours.
 
 The following tests configurations are currently supported:
 
@@ -573,16 +658,18 @@ The following tests configurations are currently supported:
 - `cuda-clang`: compilation of `CUDA` files using the `clang++`
   compiler.
 - `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
-- `hip-clang`: compilation of `HIP` files using the `clang++` compiler.
-- `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
-- `stlpar-parunseq-gcc`:
-- `stlpar-parunseq-clang`:
-- `stlpar-parunseq-nvhpc-gpu`:
-- `stlpar-parunseq-icpx`:
+- `hip-clang`: compilation of `HIP` files using the `clang++` compiler,
+  only on the NVIDIA platform (`HIP_PLATFORM=nvidia`).
+- `stlpar-parunseq-gcc`, `stlpar-parunseq-clang`, `stlpar-parunseq-icpx`:
+  parallel algorithms of the standard library with the `par_unseq`
+  execution policy on the threads of the host (`g++`, `clang++` and `icpx`
+  with TBB).
+- `stlpar-parunseq-nvhpc-gpu`: parallel algorithms offloaded to an NVIDIA
+  GPU by `nvc++ -stdpar=gpu`.
 - `sycl-default-icpx`: compilation of `SYCL` files using the `icpx` compiler.
-- `sycl-default-acpc`: compilation of `SYCL` files using the `acpc`
+- `sycl-default-acpp`: compilation of `SYCL` files using the `acpp`
   compiler on the CPU.
-- `sycl-gpu-acpc`: compilation of `SYCL` files using the `acpc`
+- `sycl-gpu-acpp`: compilation of `SYCL` files using the `acpp`
   compiler on the GPU using the `generic` target.
 - `kokkos`: compilation with the compiler and flags of `Kokkos`, tests
   on the default execution space and on the default host execution space.
@@ -594,6 +681,7 @@ The following tests configurations are currently supported:
 ### Notes
 
 For configurations based on HIP, the variable `HIP_PLATFORM` must be
-passed to `cmake` or defined the environment. The value of this variable
+passed to `cmake` or defined in the environment. The value of this variable
 must be either `nvidia` or `amd`. If `HIP_PLATFORM` is `nvidia`, the
-`CUDA` platform must be available.
+`CUDA` platform must be available. The value of `HIP_PLATFORM` is cached,
+so that a reconfiguration does not depend on the environment.

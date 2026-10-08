@@ -39,19 +39,19 @@ namespace std {
 namespace tfel::material {
 
   /*!
-   * \brief an helper class
+   * \brief a helper class
    *
    * All the checks return a boolean which is false if a bound is violated
    * and if this violation is not tolerated by the out of bounds policy.
-   *
-   * The names of the variables are passed as C strings: constructing a
-   * `std::string_view` from a C string is not supported in device code by
-   * some compilers (nvcc silently removes the code).
    *
    * On the host, an exception is thrown in this case, so the returned value
    * is always true. In device code, where exceptions are not available, the
    * returned value must be used to report the failure. Warnings are not
    * displayed in device code.
+   *
+   * The names of the variables are passed as C strings: constructing a
+   * `std::string_view` from a C string is not supported in device code by
+   * some compilers (nvcc silently removes the code).
    */
   struct BoundsCheckBase {
     /*!

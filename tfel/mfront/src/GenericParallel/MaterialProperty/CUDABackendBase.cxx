@@ -160,16 +160,36 @@ namespace mfront::generic_parallel::material_property {
       const bool treatStrides) const {
     const auto pm = this->getProgrammingModel();
     const auto name = i.getFunctionName(mpd);
-    const auto block_size = this->number_of_threads_per_block.value_or(64);
+    const auto threads_per_block =
+        this->number_of_threads_per_block.value_or(128);
+    const auto warp_size_attribute =
+        pm == "hip" ? "hipDeviceAttributeWarpSize" : "cudaDevAttrWarpSize";
     // stream given by the execution options (default stream if null)
     os << "const auto mfront_stream = static_cast<" << pm
        << "Stream_t>(mfront_options.queue);\n";
+    // number of threads per block, rounded up to a multiple of the warp
+    // size, as for the behaviours
+    os << "auto mfront_warp_device = int{};\n"
+       << "auto mfront_warp_size = int{};\n"
+       << "if ((" << pm << "GetDevice(&mfront_warp_device) != " << pm
+       << "Success) ||\n"
+       << "(" << pm << "DeviceGetAttribute(&mfront_warp_size, "
+       << warp_size_attribute << ", mfront_warp_device) != " << pm
+       << "Success)) {\n"
+       << "mfront_output_status->status = -6;\n"
+       << "mfront_report(\"unable to get the warp size of the device\");\n"
+       << "return;\n"
+       << "}\n"
+       << "const auto mfront_threads_per_block = static_cast<unsigned int>(("
+       << threads_per_block
+       << " + mfront_warp_size - 1) / mfront_warp_size * mfront_warp_size);\n";
     auto write_kernel_call = [&](const std::string_view npoints,
                                  const bool handleStrides) {
       os << "mfront_" << name << "_kernel"
-         << (handleStrides ? "" : "_without_strides") << "<<<((" << npoints
-         << " + " << block_size - 1 << ") / " << block_size << "), "
-         << block_size << ", 0, mfront_stream>>>(mfront_output, ";
+         << (handleStrides ? "" : "_without_strides")
+         << "<<<static_cast<unsigned int>((" << npoints
+         << " + mfront_threads_per_block - 1) / mfront_threads_per_block), "
+         << "mfront_threads_per_block, 0, mfront_stream>>>(mfront_output, ";
       if (handleStrides) {
         os << "mfront_output_stride, ";
       }

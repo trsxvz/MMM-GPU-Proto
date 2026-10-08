@@ -30,7 +30,7 @@
 @StateVariable StrainStensor epsp;
 @StateVariable StrainStensor epsg[Np];
 
-// comment declarer 12*ng ?
+// one value per slip system and per grain
 @StateVariable strain g[Nss * Np];
 @StateVariable strain a[Nss * Np];
 @StateVariable strain p[Nss * Np];

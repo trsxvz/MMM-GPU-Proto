@@ -206,6 +206,12 @@ propriétés matériau :
 Les calculs de MGIS sont synchrones : la fonction rend la main une fois le
 calcul fini.
 
+Les fonctions sans politique utilisent celle du gestionnaire
+(`batch_execution_policy`), ou une politique par défaut pour les rotations
+et les propriétés matériau. La politique par défaut donne une file nulle.
+SYCL n'a pas de file par défaut : il faut alors passer une politique, ou
+donner une file au gestionnaire.
+
 ## Erreurs
 
 MGIS distingue deux cas, comme TFEL :
@@ -282,5 +288,20 @@ const auto r = integrate(policy, m, BehaviourIntegrationOptions{}, dt);
 
 ## Documentation dans l'arbre de MGIS
 
-La page web des lots `generic-parallel` et les notes de version sont dans
-`mgis/docs/web/`. Les en-têtes publics sont documentés pour Doxygen.
+La documentation de MGIS, en anglais, est à jour avec ces changements :
+
+- `docs/web/generic-parallel.md` : page dédiée aux lots, reliée depuis
+  l'accueil, le menu, l'introduction à la bibliothèque C++, la page des
+  lois orthotropes et celle de l'analyse des échecs ;
+- `docs/web/release-notes-3.2.md` : incompatibilités, nouvelle option de
+  `cmake`, nouveautés et corrections ;
+- `README.md`, `INSTALL-cmake.md`, `docs/web/install.md` : présentation,
+  option `enable-generic-parallel-cuda-tests`, conditions des tests ;
+- en-têtes publics : chaque fonction dit ce qu'elle fait pour une
+  bibliothèque `generic-parallel` (bascule, refus, emplacement des
+  tableaux). Les copies des structures de TFEL sont documentées comme
+  leurs originaux.
+
+La relecture a aussi corrigé des erreurs anciennes de la documentation :
+`update` décrit à l'envers, noms des rotations des lois en grandes
+déformations, paramètres mal annotés.

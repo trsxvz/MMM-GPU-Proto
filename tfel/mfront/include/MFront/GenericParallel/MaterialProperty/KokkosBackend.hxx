@@ -47,8 +47,8 @@ namespace mfront::generic_parallel::material_property {
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const override;
-    //! \brief destructor
     [[nodiscard]] std::string getMemorySpace() const override;
+    //! \brief destructor
     ~KokkosBackend() noexcept override;
 
    protected:

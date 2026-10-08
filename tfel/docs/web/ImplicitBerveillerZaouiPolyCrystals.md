@@ -723,6 +723,13 @@ tutorial](ExplicitBerveillerZaouiPolyCrystals.html).
       PCSlidingSystems::getPolyCrystalsSlidingSystems("isotrope_240_normalise.csv");
 ~~~~
 
+> **Note**
+>
+> The file describing the phases can't be read in device code. To use
+> this behaviour with the [`generic-parallel`
+> interface](generic-parallel-behaviour-interface.html), the sliding
+> systems shall be declared by the `@SharedData` keyword.
+
 The static decondensation step is implemented as follows:
 
 ~~~~{.cxx}

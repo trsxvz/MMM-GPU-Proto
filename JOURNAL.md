@@ -21,6 +21,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | R8 | erreurs sans coût en cas de succès |
 | R9 | espace mémoire des bibliothèques |
 | R10 | options d'exécution et évaluation asynchrone des propriétés matériau |
+| R11 | documentation de TFEL et de MGIS à jour |
 | D1 | MGIS : lots de lois, de modèles et de propriétés matériau |
 | D2 | mfem-mgis : plan à discuter ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
 
@@ -90,6 +91,8 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | [2026-10-08 (après-midi, suite), MGIS : propriétés matériau et modèles de lots (D1, étape 6)](#2026-10-08-après-midi-suite-mgis--propriétés-matériau-et-modèles-de-lots-d1-étape-6) |
 | [2026-10-08 (soir), options d'exécution des propriétés matériau (R10)](#2026-10-08-soir-options-dexécution-des-propriétés-matériau-r10) |
 | [2026-10-08 (soir, suite), évaluation asynchrone des propriétés matériau (R10, suite)](#2026-10-08-soir-suite-évaluation-asynchrone-des-propriétés-matériau-r10-suite) |
+| [2026-10-08 (soir, fin), files SYCL et blocs de fils des propriétés matériau (R10, fin)](#2026-10-08-soir-fin-files-sycl-et-blocs-de-fils-des-propriétés-matériau-r10-fin) |
+| [2026-10-08 (nuit), documentation de TFEL et de MGIS (R11)](#2026-10-08-nuit-documentation-de-tfel-et-de-mgis-r11) |
 
 ## Entrées
 
@@ -2079,3 +2082,74 @@ l'évaluation : le flux est encore occupé quand la fonction rend la main
 MGIS : la copie de la structure d'options suit TFEL (vérifiée par le test
 de disposition). MGIS n'utilise l'asynchrone ni pour les lois ni pour les
 propriétés (étape 5) : les deux sont symétriques.
+
+### 2026-10-08 (soir, fin), files SYCL et blocs de fils des propriétés matériau (R10, fin)
+
+Deux écarts restaient entre les lois et les propriétés matériau. Ils sont
+alignés sur les lois.
+
+- **File SYCL non ordonnée.** Le noyau doit s'exécuter après les calculs
+  déjà soumis à la file, qui peuvent produire ses arguments. Une file
+  ordonnée le garantit. Les lois traitaient déjà la file non ordonnée :
+  calcul asynchrone refusé, file vidée avant le noyau en synchrone. Les
+  propriétés matériau ne le faisaient pas : leur noyau pouvait passer avant
+  les calculs de ses arguments. Même règle maintenant (statut `-5` pour
+  une évaluation asynchrone).
+- **Fils par bloc de CUDA et HIP.** 64 fixes pour les propriétés matériau,
+  128 arrondis au multiple de la taille du warp pour les lois. Même règle
+  maintenant : 128 par défaut, taille du warp lue sur le GPU à l'exécution.
+
+Tests : `test-sycl.cxx` vérifie le refus de l'asynchrone sur une file non
+ordonnée (test 16). Le test de l'évaluation asynchrone utilise une file
+ordonnée. Tests installés des propriétés matériau, après réinstallation de
+TFEL : `cuda-nvcc`, `hip-hipcc`, `sycl-default-acpp`, `sycl-gpu-acpp`, tous
+verts. MGIS : 45 tests sur 45 contre ce TFEL.
+
+### 2026-10-08 (nuit), documentation de TFEL et de MGIS (R11)
+
+La documentation datait en partie des versions officielles. Elle a été
+relue en entier et mise à jour, en trois parties.
+
+**Documentation du prototype** (`docs/`). Restructurée : vue d'ensemble,
+détails de TFEL, détails de MGIS, validation, découpage pour les dépôts
+officiels, plan pour mfem-mgis. Les anciens documents de travail sont
+dans `docs/historique/`. Ce journal a reçu un index et la table des
+phases.
+
+**TFEL** (`tfel-dev`). Trois relectures indépendantes, puis corrections :
+
+- pages web des deux interfaces `generic-parallel`, notes de version,
+  pages de l'interface `generic` et de `tfel-config`, menu, liste des
+  documentations ;
+- commentaires de code : espace mémoire des lots, files SYCL, listes de
+  backends, conventions des backends des propriétés matériau,
+  documentation écrite dans le code généré (pas des tableaux, paramètres
+  du constructeur, ordre des arguments) ;
+- erreurs anciennes dans les fichiers touchés : commentaires déplacés,
+  noms de paramètres faux, paramètres de patron documentés comme des
+  paramètres ;
+- section `@SharedData` ajoutée aux pages des mots-clés des DSL de lois.
+  Ces pages ne sont pas régénérées en entier : TFEL y a corrigé des fautes
+  directement, pas dans les fichiers d'aide dont elles sont tirées. La page
+  du DSL `IsotropicStrainHardeningMisesCreep`, qui contenait un message
+  d'erreur, est remplacée par la page générée.
+
+Chaque affirmation de la documentation a été vérifiée dans le code. Neuf
+constats des relectures étaient faux ou imprécis : ils ont été corrigés
+avant d'être appliqués. Un défaut de CMake est noté, pas corrigé : les
+tests `sycl-gpu-acpp` utilisent les fichiers de configuration de
+`sycl-default-acpp`, installés seulement si cette configuration est aussi
+choisie.
+
+**MGIS** (`mgis`). Nouvelle page `generic-parallel.md`, reliée depuis
+l'accueil, le menu et les pages qui en parlent. Notes de version,
+installation et README mis à jour. Chaque fonction publique dit ce
+qu'elle fait pour une bibliothèque `generic-parallel` : bascule, refus,
+emplacement des tableaux. Erreurs anciennes corrigées : `update` décrit à
+l'envers, noms des rotations des lois en grandes déformations, paramètres
+mal annotés.
+
+Seuls des commentaires ont changé dans le code : vérifié en comparant les
+sources sans leurs commentaires (MGIS), en lisant le diff et en compilant
+(TFEL et MGIS).
+

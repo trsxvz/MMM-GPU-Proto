@@ -1,6 +1,6 @@
 /*!
  * \file   BackendBase.cxx
- * \brief  This file implements the `Backend` class
+ * \brief  This file implements the `BackendBase` class
  * \author Thomas Helfer
  * \date   07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
@@ -169,8 +169,9 @@ namespace mfront::generic_parallel::material_property {
        << "stride of each argument. If zero, the argument is uniform\n";
     document_last_arguments();
     os << " *\n"
-       << " * \\note `mfront_npoints` is also the size of the arrays giving\n"
-       << " *   the output and the inputs when non uniform\n"
+       << " * \\note the array giving the output (resp. an argument) holds at\n"
+       << " *   least `(mfront_npoints - 1) * stride + 1` values, `stride`\n"
+       << " *   being the output stride (resp. the stride of the argument)\n"
        << " */\n"
        << "MFRONT_SHAREDOBJ void " << name << "(\n"
        << types.output_status_type << "* const,\n"

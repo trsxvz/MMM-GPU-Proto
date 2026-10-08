@@ -34,7 +34,7 @@ namespace mfront::generic_parallel::material_property {
 
   /*!
    * \brief an abstract class which aims at writing code for a specific backend
-   * (CUDA, SYCL, parallel STL)
+   * (CUDA, HIP, Kokkos, OpenMP, parallel STL, SYCL)
    */
   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
     //! \brief return the name of the backend

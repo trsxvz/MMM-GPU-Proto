@@ -392,7 +392,7 @@ namespace mfront::gb {
    * \param[in,out] b: behaviour
    * \param[in,out] d: behaviour data
    * \param[in] o: computation options
-   * \param[in,out] smflag: consistent tangent operator expected
+   * \param[in] f: choice of consistent tangent operator
    */
   template <typename Behaviour>
   TFEL_HOST_DEVICE int computePredictionOperator(

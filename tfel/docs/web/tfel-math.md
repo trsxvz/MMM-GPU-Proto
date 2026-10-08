@@ -1231,4 +1231,24 @@ bool checkConvergence(const NumericType error) {
 }
 ~~~~
 
+### Aborting the resolution
+
+The `abortResolution` method makes the resolution fail as soon as the
+current evaluation of the residual or of the correction fails, instead of
+reducing the correction as described above. It sets the iteration counter
+to its maximum value.
+
+This method allows to report errors in device code, where exceptions are
+not supported. The `tfel::fail` function throws an exception on the host
+and returns `false` in device code:
+
+~~~~{.cxx}
+if (omega < 0) {
+  this->abortResolution();
+  return tfel::fail<std::runtime_error>("negative value of omega");
+}
+~~~~
+
+On the host, the exception aborts the resolution anyway.
+
 # References

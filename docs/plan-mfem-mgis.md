@@ -30,8 +30,11 @@ s'appuie sur TFEL et MGIS tels que décrits dans [tfel.md](tfel.md) et
   Une bibliothèque de lots y est refusée avec un message clair.
 - Politique d'exécution (file), emplacement des tableaux vérifié,
   ressources mémoire.
-- Pas encore : calcul asynchrone et mise à jour des états sur GPU. Ils
-  seront ajoutés pendant ce travail (voir [Étapes](#étapes)).
+- Pas encore : calcul asynchrone et mise à jour des états sur GPU. TFEL
+  offre déjà le calcul asynchrone, pour les lois comme pour les propriétés
+  matériau. MGIS l'exposera pendant ce travail, quand mfem-mgis saura
+  soumettre plusieurs matériaux avant une seule synchronisation (voir
+  [Étapes](#étapes)).
 
 ### Essais préalables
 

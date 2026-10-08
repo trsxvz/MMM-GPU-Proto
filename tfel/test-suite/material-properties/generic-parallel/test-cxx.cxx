@@ -394,9 +394,6 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     }
   }
 
-  // bound violated with the warning policy: the result is computed at all
-  // points and must be used with caution (status 1), as with the `generic`
-  // interface
   void test15() {
     // execution options given explicitly: instance of the execution space
     // with Kokkos, no queue otherwise
@@ -457,6 +454,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     }
   }
 
+  // bound violated with the warning policy: the result is computed at all
+  // points and must be used with caution (status 1), as with the `generic`
+  // interface
   void test14() {
     constexpr auto eps = double{1e-2};
     auto young = [](const double T, const double f) {

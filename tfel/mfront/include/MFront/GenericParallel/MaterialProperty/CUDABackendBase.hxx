@@ -23,7 +23,8 @@
 namespace mfront::generic_parallel::material_property {
 
   /*!
-   * \brief This class implements a backend for the parallel STL algorithms
+   * \brief base class of the CUDA and HIP backends: each point is evaluated
+   * by one thread of the device
    */
   struct MFRONT_VISIBILITY_EXPORT CUDABackendBase : BackendBase {
     //! \brief default constructor
@@ -60,8 +61,8 @@ namespace mfront::generic_parallel::material_property {
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&,
         const FileDescription&) const override;
-    //! \brief destructor
     [[nodiscard]] std::string getMemorySpace() const override;
+    //! \brief destructor
     ~CUDABackendBase() noexcept override;
 
    protected:
@@ -74,8 +75,9 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] fd: file description
-     * \param[in] treatUniformArguments: boolean stating if one shall add
-     * support for uniform arguments
+     * \param[in] treatStrides: if true, the kernel handles the strides of the
+     * output and of the arguments. Otherwise, the name of the kernel ends
+     * with `_without_strides`.
      */
     virtual void writeGlobalFunctions2(
         std::ostream&,
@@ -90,8 +92,10 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] fd: file description
-     * \param[in] treatUniformArguments: boolean stating if one shall add
-     * support for uniform arguments
+     * \param[in] treatStrides: if true, the function handles the strides of
+     * the output and of the arguments. Otherwise, the arguments and the
+     * output are contiguous arrays and the name of the function ends with
+     * `2`.
      */
     virtual void writeCImplementations2(
         std::ostream&,
@@ -100,20 +104,24 @@ namespace mfront::generic_parallel::material_property {
         const FileDescription&,
         const bool) const;
     /*!
-     * \brief write the call the kernel inside the body of the material property
+     * \brief write the call to the kernel inside the body of the material
+     * property
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] treatUniformArguments: boolean stating if one shall add
-     * support for uniform arguments
+     * \param[in] treatStrides: boolean stating if strides are treated (see
+     * `writeKernelSelection`)
      */
     virtual void writeKernelCall(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&,
         const bool) const;
-    //! \brief number of blocks
+    /*!
+     * \brief number of threads per block, rounded up to a multiple of the
+     * warp size at runtime (128 by default, as for the behaviours)
+     */
     std::optional<int> number_of_threads_per_block;
   };  // end of CUDABackendBase
 

@@ -58,6 +58,8 @@ typedef struct mfront_gpmp_ExecutionOptions {
    * transferred), as the integration of the behaviours with statistics: the
    * function returns once the computations are submitted to the queue, and
    * the output status only reports invalid arguments and runtime errors.
+   * With the `sycl` backend, an asynchronous evaluation requires an in-order
+   * queue (invalid arguments otherwise).
    * Once the computations are completed, the
    * `<name>_generic_parallel_report` function analyses the statuses, read on
    * the host, and reports the result in an output status, as a synchronous

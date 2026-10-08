@@ -92,6 +92,15 @@ MFront Users are available there:
   element solver is available [here](zmat.html).
 - The description of the interface to the [CalculiX](calculix.de)
   finite element solver is available [here](calculix.html).
+- The `generic` interfaces, which can be used by any solver, are
+  described for [material
+  properties](generic-material-property-interface.html) and for
+  [behaviours](generic-behaviours-interface.html).
+- The `generic-parallel` interfaces, which evaluate material properties
+  and integrate behaviours over a batch of points on CPUs or GPUs, are
+  described for [material
+  properties](generic-parallel-material-property-interface.html) and for
+  [behaviours](generic-parallel-behaviour-interface.html).
 
 # Dedicated pages
 

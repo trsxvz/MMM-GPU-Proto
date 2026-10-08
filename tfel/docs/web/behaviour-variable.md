@@ -410,3 +410,20 @@ updateAuxiliaryStateVariables(b1);
 ~~~~
 
 The last solution is to cherry-pick the variables to be saved by hand.
+
+## Behaviour variables in device code
+
+Behaviour variables can be used in device code, for instance with the
+[`generic-parallel` interface](generic-parallel-behaviour-interface.html):
+
+- the class of a behaviour variable is usable in device code if the class
+  of the calling behaviour is. The `device_compatible_class` DSL option of
+  the calling behaviour, set automatically when the `generic-parallel`
+  interface is selected, is given to its behaviour variables.
+- in device code, a behaviour variable is built by its default
+  constructor. The values of its parameters are read on the host from its
+  parameters initializers and given to the device with the parameters of
+  the calling behaviour. This is done recursively, including for the
+  behaviour variables created by factories.
+- shared data (`@SharedData` keyword) are not supported in behaviour
+  variables.

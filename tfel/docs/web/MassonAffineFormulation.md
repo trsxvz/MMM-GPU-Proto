@@ -382,6 +382,13 @@ const auto& gs =
 	ExtendedPolyCrystalsSlidingSystems::getPolyCrystalsSlidingSystems("polycrystal.csv");
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+> **Note**
+>
+> The file describing the phases can't be read in device code. To use
+> this behaviour with the [`generic-parallel`
+> interface](generic-parallel-behaviour-interface.html), the sliding
+> systems shall be declared by the `@SharedData` keyword.
+
 ### Properties and variables
 
 The state variables are the stresses $\tsigma^r$ on each phase. 

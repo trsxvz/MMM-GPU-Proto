@@ -300,8 +300,8 @@ namespace mfront {
       // initialize function
       for (const auto& p : d.getInitializeFunctions()) {
         out << "/*!\n"
+            << " * \\param[in,out] d: material data\n"
             << " * \\param[in] values: inputs of the initialize function\n"
-            << " * \\param[in] d: material data\n"
             << " */\n"
             << "MFRONT_SHAREDOBJ int " << f << "_InitializeFunction_" << p.first
             << "(mfront_gb_BehaviourData* const,\n"
@@ -892,15 +892,23 @@ namespace mfront {
   void GenericBehaviourInterface::writeBehaviourConstructorHeader(
       std::ostream& os,
       const BehaviourDescription& bd,
-      const Hypothesis,
+      const Hypothesis h,
       const std::string& initStateVarsIncrements) const {
     const auto tdecl = this->getBehaviourConstructorTemplateDeclaration();
     const auto dargs = this->getDataConstructorsArgumentsValues();
-    os << "/*\n"
+    // if not empty, the source of the parameters is an additional argument
+    // of the constructor (`mgpb_parameters` for the `generic-parallel`
+    // interface, see `getBehaviourConstructorArguments`)
+    const auto psrc = this->getParametersSourceInBehaviourConstructor(bd, h);
+    os << "/*!\n"
        << " * \\brief constructor for the " << this->getInterfaceName()
        << " interface\n"
-       << " * \\param[in] mgb_d: behaviour data\n"
-       << " */\n";
+       << " * \\param[in] mgb_d: behaviour data\n";
+    if (!psrc.empty()) {
+      os << " * \\param[in] " << psrc
+         << ": values of the parameters (and copies of the shared data)\n";
+    }
+    os << " */\n";
     if (!tdecl.empty()) {
       os << tdecl << '\n';
     }

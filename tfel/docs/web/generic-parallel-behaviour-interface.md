@@ -55,6 +55,12 @@ int Plasticity_Tridimensional(mfront_gpb_OutputStatus* const,
                               const mfront_gpb_BatchData* const);
 ~~~~
 
+The functions are declared in the
+`MFront/GenericParallelBehaviour/<name>-generic-parallel-<backend>.hxx`
+header, where `<name>` is the name of the generated functions without the
+modelling hypothesis. In the previous example, this header is
+`Plasticity-generic-parallel-cuda.hxx`.
+
 The initialize functions and the post-processings are also executed over
 a batch:
 
@@ -93,7 +99,7 @@ int OrthotropicElastic_Tridimensional_rotateGradients(
 ~~~~
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_RotationData {
   mfront_gb_size_type number_of_points;
   mfront_gpb_Field destination;
   mfront_gpb_ConstField source;             // may be the destination
@@ -118,9 +124,12 @@ objects of each variable by `change_basis`.
 
 The library also exports the same symbols as the `generic` interface
 (names and types of the variables, parameters, etc.) and the functions
-changing the parameters and the out of bounds policy. The `mfront_interface`
-symbol is equal to `GenericParallel`, for the behaviours and for the
-standalone models. The `<name>_generic_parallel_backend` symbol gives the
+changing the parameters and the out of bounds policy. The standalone
+models use their default out of bounds policy: no function changing it is
+generated for them. The `<name>_mfront_interface` symbol is equal to
+`GenericParallel`, for the behaviours and for the standalone models, so
+that a library of this interface can't be taken for a library of the
+`generic` interface. The `<name>_generic_parallel_backend` symbol gives the
 backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or
 `openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
 char*`) tells the calling code where the fields must be located:
@@ -143,7 +152,10 @@ The data structures are declared in
 `MFRONT_GPB_API_VERSION` macro, incremented at each incompatible change, and
 exported by the libraries (`<name>_generic_parallel_api_version` symbol,
 an `unsigned short`), so that the calling code can check that it uses the same
-structures.
+structures. The structures are named (`typedef struct mfront_gpb_BatchData
+{...} mfront_gpb_BatchData;`), so that they can be forward declared.
+In `C++`, they are also available in the `mfront::gpb` namespace
+(`mfront::gpb::BatchData`, `mfront::gpb::OutputStatus`, etc.).
 
 ## Fields
 
@@ -151,7 +163,7 @@ The values of a group of variables (gradients, internal state variables,
 etc.) at all the integration points are described by a field:
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_ConstField {
   const mfront_gb_real* values;
   mfront_gb_size_type point_stride;
   mfront_gb_size_type component_stride;
@@ -168,9 +180,51 @@ The `j`-th component at the `i`-th point is stored at
   coalesced memory accesses.
 - uniform values (inputs only): `point_stride` is null.
 
+`values` may be null if the group is empty or if an optional output
+(energies, time step scaling factors) is not requested.
+
 `mfront_gpb_Field` is the mutable version of `mfront_gpb_ConstField`. The
 group of variables of a point are the ones of the `generic` interface: for
 instance, the temperature is the first external state variable.
+
+## States
+
+The states at the beginning and at the end of the time step are described
+by the following structures:
+
+~~~~{.cxx}
+typedef struct mfront_gpb_InitialState {
+  mfront_gpb_ConstField gradients;
+  mfront_gpb_ConstField thermodynamic_forces;
+  mfront_gpb_ConstField mass_density;
+  mfront_gpb_ConstField material_properties;
+  mfront_gpb_ConstField internal_state_variables;
+  mfront_gpb_ConstField stored_energy;
+  mfront_gpb_ConstField dissipated_energy;
+  mfront_gpb_ConstField external_state_variables;
+  const mfront_gpb_ConstField* material_properties_by_variable;       // optional
+  const mfront_gpb_ConstField* external_state_variables_by_variable;  // optional
+} mfront_gpb_InitialState;
+
+typedef struct mfront_gpb_State {
+  mfront_gpb_ConstField gradients;
+  mfront_gpb_Field thermodynamic_forces;      // output
+  mfront_gpb_ConstField mass_density;
+  mfront_gpb_ConstField material_properties;
+  mfront_gpb_Field internal_state_variables;  // output
+  mfront_gpb_Field stored_energy;             // output, optional
+  mfront_gpb_Field dissipated_energy;         // output, optional
+  mfront_gpb_ConstField external_state_variables;
+  const mfront_gpb_ConstField* material_properties_by_variable;       // optional
+  const mfront_gpb_ConstField* external_state_variables_by_variable;  // optional
+} mfront_gpb_State;
+~~~~
+
+The members have the meaning of the members of the states of the
+`generic` interface. In the state at the end of the time step, the
+thermodynamic forces, the internal state variables and the energies are
+outputs. The energies are optional outputs. The mass density is only
+required if the speed of sound is requested.
 
 ### Material properties and external state variables given variable by variable
 
@@ -203,7 +257,7 @@ point are always copied in local arrays.
 ## Batch data
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_BatchData {
   mfront_gb_size_type number_of_points;
   mfront_gb_real dt;
   mfront_gb_real options[3];   // the three first values of K
@@ -222,7 +276,13 @@ typedef struct {
 `generic` interface (type of computation, stress measure and tangent
 operator for finite strain behaviours). The tangent or prediction operators
 are written in `tangent_operators`, which is not used if no tangent
-operator is requested.
+operator is requested. The time step scaling factors of the points are
+written in `rdts`, if its values are not null. `speed_of_sound` is only
+used if the speed of sound is requested by the options.
+
+If not null, `statuses[i]` is the status of the `i`-th point: `1` if the
+integration succeeded, `0` if it succeeded with a time step scaling factor
+lower than `0.99`, and `-1` if it failed.
 
 For finite strain behaviours, the sizes of the thermodynamic forces and of
 the tangent operator of a point depend on those options, as with the
@@ -241,7 +301,7 @@ are performed.
 ## Output status
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_OutputStatus {
   int status;
   mfront_gb_size_type number_of_failures;
   mfront_gb_size_type first_failure_index;
@@ -280,7 +340,7 @@ maximal value of its type.
 ## Execution options
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_ExecutionOptions {
   void* queue;
   mfront_gpb_BatchStatistics* statistics;  // optional
   int preserve_stack_size;
@@ -288,7 +348,11 @@ typedef struct {
 ~~~~
 
 The meaning of `queue` depends on the backend (see the section of each
-backend).
+backend). A null queue denotes the default stream of the `CUDA` and `HIP`
+backends and the default instance of the execution space of the `Kokkos`
+backend. The `SYCL` backend requires a queue: the arguments are reported
+as invalid (status `-2`) otherwise. The queue is not used by the `stlpar`
+and `openmp` backends.
 
 By default (`statistics` is null), the computations are synchronous: the
 function returns once they are completed and reports the statistics of the
@@ -298,7 +362,7 @@ If `statistics` is not null, the statistics are accumulated in the given
 structure, which must be accessible by the device as the fields:
 
 ~~~~{.cxx}
-typedef struct {
+typedef struct mfront_gpb_BatchStatistics {
   unsigned long long number_of_failures;
   unsigned long long first_failure_index;
   unsigned long long number_of_unreliable_results;
@@ -309,16 +373,23 @@ typedef struct {
 The computations may then be asynchronous: the function returns once they
 are submitted to the queue (`CUDA`, `HIP` and `Kokkos` backends, `SYCL`
 backend if no field is copied). The calling code must synchronize the queue
-before reading the outputs and the statistics. With the `SYCL` backend,
-asynchronous computations require an in-order queue
-(`sycl::property::queue::in_order`): an out-of-order queue gives no order
-between the kernels. With an out-of-order queue, the computations are
-synchronous and the queue is synchronized before the kernel. The output status only
+before reading the outputs and the statistics. The output status only
 reports invalid arguments and runtime errors. This allows to submit the
 integration of several batches, and other computations such as the
 assembly of a finite element system, before a single synchronization. The
 other backends wait for the completion of the computations and accumulate
 the statistics on the host.
+
+The computations are always executed after the computations previously
+submitted to the queue, if any, which may compute the inputs. With the `SYCL`
+backend, an out-of-order queue gives no order between the kernels:
+
+- asynchronous computations require an in-order queue
+  (`sycl::property::queue::in_order`). If statistics are given with an
+  out-of-order queue, the arguments are reported as invalid (status `-2`).
+- in synchronous mode, an out-of-order queue is synchronized before the
+  kernel, so that the computations already submitted to the queue are
+  completed.
 
 The statistics are initialized on the host by
 `mfront_gpb_initializeBatchStatistics`, then copied in device memory if
@@ -415,7 +486,38 @@ interfaces_options: {
 ~~~~
 
 The same section is used by the `generic-parallel` interface for material
-properties, so that the same configuration files can be used.
+properties, so that the same configuration files can be used. If no
+backend is given, the `stlpar` backend is used with its default options.
+
+## Configuration files delivered with `TFEL`
+
+The following configuration files are installed in the
+`share/tfel/mfront/configuration-files` directory, for the configurations
+listed in the `generic-parallel-configurations` variable of `cmake` (see
+the [release notes of Version 5.2](release-notes-5.2.html)). `MFront`
+searches this directory if the file given by the `--configuration-file`
+option is not found in the current directory.
+
+| Configuration file                      | Backend  | Compiler and target                                   |
+|:----------------------------------------|:---------|:------------------------------------------------------|
+| `config-cuda-nvcc.json`                 | `cuda`   | `nvcc`                                                |
+| `config-cuda-clang.json`                | `cuda`   | `clang++`                                             |
+| `config-hip-hipcc.json`                 | `hip`    | `hipcc`                                               |
+| `config-hip-clang-nvidia-platform.json` | `hip`    | `clang++`, NVIDIA platform only                       |
+| `config-stlpar-parunseq-gcc.json`       | `stlpar` | `g++`, threads of the host (TBB)                      |
+| `config-stlpar-parunseq-clang.json`     | `stlpar` | `clang++`, threads of the host (TBB)                  |
+| `config-stlpar-parunseq-icpx.json`      | `stlpar` | `icpx`, threads of the host (TBB)                     |
+| `config-stlpar-parunseq-nvhpc-gpu.json` | `stlpar` | `nvc++ -stdpar=gpu`, NVIDIA GPU                       |
+| `config-sycl-default-icpx.json`         | `sycl`   | `icpx`, automatic data transfers                      |
+| `config-sycl-default-acpp.json`         | `sycl`   | AdaptiveCpp's `acpp`, automatic data transfers        |
+| `config-sycl-default-acpp-2.json`       | `sycl`   | AdaptiveCpp's `acpp`, no data transfer                |
+| `config-kokkos.json`                    | `kokkos` | compiler of Kokkos, default execution space           |
+| `config-kokkos-host.json`               | `kokkos` | compiler of Kokkos, default host execution space      |
+| `config-openmp-host-gcc.json`           | `openmp` | `g++`, threads of the host                            |
+| `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
+
+Those files use the substitutions of `TFEL` (paths to the compilers,
+flags, etc.) described on the [`TFEL/Config` page](tfel-config.html).
 
 ## `CUDA` and `HIP` backends
 
@@ -449,8 +551,9 @@ supports the versions of `CUDA` released before it.
 
 Options:
 
-- `number_of_threads_per_block` (128 by default), rounded up to a multiple
-  of the warp size.
+- `number_of_threads_per_block` (128 by default, 64 in the configuration
+  files delivered with `TFEL`), rounded up to a multiple of the warp size.
+  This option has the same meaning for material properties.
 
 The queue is a `cudaStream_t` or a `hipStream_t` (the default stream if
 null). The fields must be accessible by
@@ -505,10 +608,19 @@ calling code and the generated libraries share the same instance of Kokkos.
 On GPUs, the stack size of the threads is increased if needed, as for the
 `CUDA` and `HIP` backends.
 
+The `kokkos` and `kokkos-host` configurations use the compiler, the
+compilation flags and the linker flags of the Kokkos installation found by
+`cmake` (`TFEL_KOKKOS_CXX_COMPILER`, `TFEL_KOKKOS_CXX_FLAGS` and
+`TFEL_KOKKOS_LINKER_FLAGS` substitutions, see the [`TFEL/Config`
+page](tfel-config.html)). With `CUDA`, Kokkos uses the shared `CUDA`
+runtime (`-cudart shared`): the calling code must use the same runtime.
+
 Options:
 
 - `execution_space`: `Kokkos::DefaultExecutionSpace` by default, for
-  instance `Kokkos::DefaultHostExecutionSpace`.
+  instance `Kokkos::DefaultHostExecutionSpace` (`kokkos-host`
+  configuration). The execution space is copied in the generated code: it
+  must be the name of a type, made of identifiers separated by `::`.
 
 ## SYCL backend (`sycl`)
 
@@ -527,7 +639,8 @@ Options:
   the device. This option has the same meaning as for material properties.
 - `device_stack_size`: minimal stack size, in bytes, of the threads of the
   GPU when the computations are performed on an NVIDIA GPU through the CUDA
-  runtime (AdaptiveCpp).
+  runtime (AdaptiveCpp). 8192 bytes are used in the `sycl-default-acpp`
+  configuration.
 
 With AdaptiveCpp, the generic compiler (default) translates host and device
 code in a single pass: device code is then selected in the whole
@@ -550,13 +663,14 @@ compilers must be linked with `libnvhpcmanaux` (`-lnvhpcmanaux`), whose
 `-stdpar=gpu` but not with `-mp=gpu`. The `openmp-host-gcc`
 configuration uses the threads of the host.
 
-Two constructs lead `nvc++ -mp=gpu` (25.11 to 26.9) to generate wrong
-device code at `-O2` and `-O3`, and are therefore avoided in the generated
-code and in the headers of `TFEL`:
+Two constructs lead `nvc++ -mp=gpu` to generate wrong device code, and
+are therefore avoided in the generated code and in the headers of `TFEL`.
+Both defects have been observed with the versions 25.11 and 26.3 of
+`nvc++`, and the first one also with the version 26.9:
 
-- a local object holding a reference to a local boolean flag. The function
-  objects given to the tangent operator of the implicit DSLs
-  (`getPartialJacobianInvert`) own their status flag.
+- a local object holding a reference to a local boolean flag, at `-O2`
+  and `-O3`. The function objects given to the tangent operator of the
+  implicit DSLs (`getPartialJacobianInvert`) own their status flag.
 - an assertion in device code. Its text is registered as a static block
   which is not emitted, so that the library can't be loaded on the
   device.
@@ -567,7 +681,7 @@ Options:
   default device. Otherwise, they are performed by the threads of the host.
 - `device_stack_size`: minimal stack size, in bytes, of the threads of the
   GPU when the computations are offloaded to an NVIDIA GPU through the CUDA
-  runtime.
+  runtime (16384 bytes in the `openmp-offload-nvhpc-gpu` configuration).
 
 # Writing behaviours compatible with GPUs
 
@@ -585,7 +699,10 @@ exceptions in the `generic` interface are reported as failures.
 
 Behaviours are not polymorphic: the methods expected from a behaviour are
 described by the `tfel::material::MechanicalBehaviourConcept` concept, and
-virtual functions are not supported in device code by SYCL.
+virtual functions are not supported in device code by SYCL. This concept is
+checked by the functions integrating a behaviour at one point
+(`mfront::gb::integrate`), which are shared by the `generic` and
+`generic-parallel` interfaces.
 
 The following rules apply to the code blocks written by the user:
 
@@ -615,6 +732,16 @@ The following rules apply to the code blocks written by the user:
     return tfel::fail<std::runtime_error>("negative value of omega");
   }
   ~~~~
+- in the `IsotropicMisesCreep`, `IsotropicMisesPlasticFlow` and
+  `IsotropicStrainHardeningMisesCreep` DSLs, returning `false` from the
+  `@FlowRule` code block only modifies the correction of the Newton
+  algorithm: in device code, an error reported by `tfel::fail` in this code
+  block makes the integration fail once the maximum number of iterations is
+  reached. The flow rules of the `MultipleIsotropicMisesFlows` DSL return
+  nothing: an error can't be reported in them in device code.
+- the initialize functions and the post-processings return nothing: they
+  can't report an error in device code. On the host, the exceptions they
+  throw are reported as failures.
 - data built on the host at runtime, for instance the slip systems of the
   grains of a polycrystal read from a file, are declared by the
   `@SharedData` keyword:
@@ -626,20 +753,24 @@ The following rules apply to the code blocks written by the user:
 
   The expression is evaluated once on the host. The `generic-parallel`
   interface copies the result in a memory accessible by the device at the
-  first call of a function of the generated library, and never frees it:
+  first call of a function of the generated library. This copy is never
+  freed, except with the `Kokkos` backend:
 
   - with the `CUDA` and `HIP` backends, in the memory of the current device,
     one copy per device;
   - with the `SYCL` backend, in the memory of the device of the queue, one
     copy per device and context;
   - with the `Kokkos` backend, in the memory space of the execution space
-    (Kokkos uses one device per process);
+    (Kokkos uses one device per process). The copy is freed when Kokkos is
+    finalized;
   - otherwise, on the heap, which must be accessible by the device when the
     computations are offloaded (unified or managed memory, as with the
     `stlpar` backend of `nvc++`).
 
   A process using several GPUs can thus share the library between them.
-  The type of the data must be trivially copyable.
+  The type of the data must be trivially copyable. Shared data are not
+  supported in behaviour variables: the behaviour variables are built by
+  their default constructor in device code, which can't build them.
 - the standard streams (`std::cout`) can't be used in device code. They
   can be kept on the host:
 
@@ -689,9 +820,10 @@ The following points are specific to device code:
   code, including the `TDLS` solver (`@LinearSystemSolver TDLS`) when
   `TFEL` is built with `TDLS` support.
 
-The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 on top of
-`nvcc` (NVIDIA platform), `g++` 14, `nvc++` 25.11, Kokkos 5.0.2 and
-AdaptiveCpp 25.10. Some compiler defects found during these tests are
+The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 and 7.2
+on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
+14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2 and AdaptiveCpp 25.10.
+Some compiler defects found during these tests are
 worked around in the generated code and the headers (see the comments of
 `MFront/GenericParallelBehaviour/Integrate.hxx`).
 
@@ -712,7 +844,9 @@ the `build-libraries.sh` script builds the test behaviours twice: with the
 `generic` interface and the default compiler of `MFront` (reference), and
 with the `generic` and `generic-parallel` interfaces and the tested
 configuration (which checks that both interfaces can be used together). The
-reference then does not depend on the tested compiler. The results of the
+reference then does not depend on the tested compiler. The
+`MFRONT_GPB_REFERENCE_CONFIGURATION_FILE` environment variable may give the
+configuration file used to build the reference library. The results of the
 batch integration are compared to the results of the reference on two time
 steps of a random loading, the second one being computed asynchronously,
 for three layouts of the fields (point by point, component by component,
@@ -727,4 +861,10 @@ the `compare-all.sh` script; `compare.cxx` documents its options. The sizes
 of the variables are read in the symbols of the reference library. The
 behaviours using the `TDLS` linear system solver are tested in the `tdls`
 subdirectory of each configuration (`compare-tdls.sh` script) if `TFEL` is
-built with `TDLS` support.
+built with `TDLS` support. The definitions shared by `compare-all.sh` and
+`compare-tdls.sh` are given by the `compare-functions.sh` script.
+
+The tests of a configuration are in the directory of the same name. The
+`sycl-default-acpp-omp` directory also tests the `sycl-default-acpp`
+configuration, with the computations performed on the CPU by the OpenMP
+backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).

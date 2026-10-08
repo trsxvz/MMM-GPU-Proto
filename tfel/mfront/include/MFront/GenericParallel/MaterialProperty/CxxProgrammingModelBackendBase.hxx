@@ -24,8 +24,8 @@ namespace mfront::generic_parallel::material_property {
 
   /*!
    * \brief This intermediate class helps implementing various closely related
-   * backends which defines the kernel as a lambda function. Those backends
-   * include `ParallelSTL`, `SYCL`
+   * backends which define the kernel as a lambda function. Those backends
+   * include `ParallelSTL`, `SYCL`, `Kokkos` and `OpenMP`
    */
   struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
     //! \brief default constructor
@@ -76,7 +76,7 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] mpd: material property description
      * \param[in] fd: file description
      * \param[in] handleStrides: boolean stating if one shall add
-     * support for striedes
+     * support for strides
      */
     virtual void writeCImplementations2(
         std::ostream&,
@@ -102,9 +102,13 @@ namespace mfront::generic_parallel::material_property {
                              const bool) const;
     /*!
      * \brief write the declarations of the variables captured by the kernels
-     * (pointer to the bounds statuses, stored in a container named
-     * `mfront_bounds_statuses_storage` declared by the backend, and values of
-     * the parameters) and the kernels (with and without strides)
+     * (copies of the pointers to the arguments, named `mfront_arg0`,
+     * `mfront_arg1`, etc., and values of the parameters) and the kernels
+     * (without strides and, if strides are treated, with strides).
+     *
+     * If bounds checking is required, the array of statuses
+     * `mfront_bounds_statuses` must have been declared before by the backend
+     * (see `writeBoundsStatusesDeclaration`).
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -147,15 +151,17 @@ namespace mfront::generic_parallel::material_property {
     /*!
      * \brief write the code transferring the data to the device
      *
-     * This method is only called if the `handlesDataTransfer` returns true.
-     * This method shall define a pointer named `mfront_arg`.
-     * All memory allocated on the device shall be handled by RAII
+     * This method is only called if the `handlesDataTransfer` method returns
+     * true. This method shall define `mfront_args`, an array of pointers to
+     * the values of the arguments accessible by the device, and
+     * `mfront_output`, a pointer to the output values accessible by the
+     * device. All memory allocated on the device shall be handled by RAII.
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] handleStrides: boolean stating if one shall add
-     * support for striedes
+     * support for strides
      */
     virtual void writeDataTransfersToDevice(
         std::ostream&,
@@ -169,7 +175,7 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] handleStrides: boolean stating if one shall add
-     * support for striedes
+     * support for strides
      */
     virtual void writeDataTransfersToHost(
         std::ostream&,

@@ -496,6 +496,13 @@ containing the description of the phases.
   const auto& gs = PCSlidingSystems::getPolyCrystalsSlidingSystems("isotrope_240_normalise.csv");
 ~~~~
 
+> **Note**
+>
+> The file describing the phases can't be read in device code. To use
+> this behaviour with the [`generic-parallel`
+> interface](generic-parallel-behaviour-interface.html), the sliding
+> systems shall be declared by the `@SharedData` keyword.
+
 ~~~~{.cxx}
   // macroscopic equivalent stress
   const auto σᵉ = sigmaeq(σ);

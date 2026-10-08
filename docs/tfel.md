@@ -161,16 +161,26 @@ utilise la primitive idiomatique de son modèle de programmation.
 
 | Backend | Primitive | File d'exécution | Asynchrone | Options |
 |---|---|---|---|---|
-| `cuda`, `hip` | un fil par point, vote par warp, opérations atomiques seulement en cas d'événement | flux (`cudaStream_t`, `hipStream_t`) | oui | `number_of_threads_per_block` |
+| `cuda`, `hip` | un fil par point, vote par warp, opérations atomiques seulement en cas d'événement | flux (`cudaStream_t`, `hipStream_t`) | oui | `number_of_threads_per_block` (128 par défaut) |
 | `stlpar` | `std::transform_reduce` sur un itérateur de comptage | aucune | non | `execution_policy`, `device_stack_size` |
 | `kokkos` | `Kokkos::parallel_reduce` avec un foncteur de réduction | instance de l'espace d'exécution | oui | `execution_space` |
-| `sycl` | `parallel_for` et mises à jour atomiques | `sycl::queue`, obligatoire | oui, si aucune valeur n'est copiée | `data_transfer_policy`, `device_stack_size` |
+| `sycl` | `parallel_for` et mises à jour atomiques | `sycl::queue`, obligatoire | oui, si aucune valeur n'est copiée et si la file est ordonnée | `data_transfer_policy`, `device_stack_size` |
 | `openmp` | `target teams distribute parallel for` ou `parallel for` | aucune | non | `offload`, `device_stack_size` |
 
 Quelques choix méritent une explication :
 
 - SYCL n'utilise pas de réduction : leurs barrières font échouer
   AdaptiveCpp sur les gros noyaux exécutés sur CPU.
+- Le noyau doit s'exécuter après les calculs déjà soumis à la file, qui
+  peuvent produire ses entrées. Une file SYCL ordonnée le garantit. Avec
+  une file non ordonnée, un calcul synchrone attend d'abord la fin de la
+  file. Un calcul asynchrone y est refusé (arguments invalides) : rien ne
+  garantirait l'ordre. La règle est la même pour les lois et les
+  propriétés matériau.
+- Le nombre de fils par bloc de CUDA et HIP est arrondi au multiple de la
+  taille du warp, lue sur le GPU à l'exécution. Le vote par warp suppose
+  des warps complets. La même règle vaut pour les lois et les propriétés
+  matériau.
 - Kokkos doit être une bibliothèque **partagée**, compilée **sans code
   relogeable** avec CUDA. Les bibliothèques générées sont chargées par
   `dlopen` : l'appelant et elles doivent partager la même instance de
@@ -332,8 +342,9 @@ Les statuts gardent le sens de l'interface `generic` des propriétés
 matériau : `0` succès, `1` borne violée avec la politique `Warning`, `-1`
 borne physique violée ou borne violée avec la politique `Strict`, `-4`
 résultat non fini. L'interface ajoute `-2` (exception sur l'hôte), `-5`
-(arguments invalides, file SYCL absente), `-6` (erreur du backend) et `-7`
-(sortie uniforme incohérente).
+(arguments invalides, file SYCL absente, évaluation asynchrone sur une file
+SYCL non ordonnée), `-6` (erreur du backend) et `-7` (sortie uniforme
+incohérente).
 
 ## Comparaison entre lois et propriétés matériau
 
@@ -498,10 +509,35 @@ jamais en retirant une fonctionnalité sur GPU. Chacun a un reproducteur :
 
 ## Documentation dans l'arbre de TFEL
 
+La documentation de TFEL, en anglais, est à jour avec ces changements.
+Chaque affirmation a été vérifiée dans le code.
+
 - `tfel/docs/web/generic-parallel-behaviour-interface.md` : utilisation de
   l'interface des lois et des modèles (fonctions, contrat de données,
-  options, backends, écriture de lois compatibles GPU, tests).
+  états, statuts, files de chaque backend, fichiers de configuration
+  livrés, écriture de lois compatibles GPU, tests). La page est
+  construite et figure dans le menu du site.
 - `tfel/docs/web/generic-parallel-material-property-interface.md` :
   utilisation de l'interface des propriétés matériau (prototypes, options
-  d'exécution, évaluation asynchrone, backends).
-- `tfel/docs/web/release-notes-5.2.md` : nouveautés et incompatibilités.
+  d'exécution, évaluation asynchrone, statuts, backends).
+- `tfel/docs/web/release-notes-5.2.md` : lois sur GPU, incompatibilités,
+  nouveautés de `TFEL/Math`, `TFEL/Utilities` et `TFEL/Material`,
+  corrections.
+- Autres pages mises à jour : interface `generic` (rotations de tous les
+  blocs, noms des fonctions des lois en grandes déformations), `TFEL/Config`
+  (substitutions et configurations), `tfel-math` (`abortResolution`),
+  variables de comportement, fonctions d'initialisation, post-traitements,
+  tutoriels des polycristaux, aide des mots-clés (`@SharedData`,
+  `@CompareToNumericalJacobian`, `@Profiling`). La section `@SharedData`
+  est ajoutée aux pages des mots-clés des DSL de lois.
+- Commentaires de code et documentation écrite dans le code généré :
+  espace mémoire des lots, files SYCL, listes de backends, pas des
+  tableaux, paramètres du constructeur.
+
+Les pages de mots-clés ne sont pas régénérées en entier : TFEL a corrigé
+des fautes directement dans ces pages, pas dans les fichiers d'aide dont
+elles sont tirées. Une régénération complète les ferait revenir.
+
+Un défaut de CMake est noté, pas corrigé : les tests `sycl-gpu-acpp`
+utilisent les fichiers de configuration de `sycl-default-acpp`, installés
+seulement si cette configuration est aussi choisie.
