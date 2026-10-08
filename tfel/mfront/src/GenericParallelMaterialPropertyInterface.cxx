@@ -321,7 +321,8 @@ namespace mfront {
     os << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
-       << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n";
+       << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
+       << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n";
     if (useQuantities(mpd)) {
       os << "#include\"TFEL/Math/qt.hxx\"\n"
          << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";

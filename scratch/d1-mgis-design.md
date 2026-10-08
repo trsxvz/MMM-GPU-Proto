@@ -1,7 +1,23 @@
 # D1, MGIS : intégration d'un lot avec une bibliothèque `generic-parallel`
 
-Statut : plan révisé le 2026-10-08, avant tout code. Bases : MGIS master
-`818f0f9` (`mgis/`, à jour avec l'amont), TFEL du proto (`tfel/`, R1 à R6).
+Statut : étapes 1 à 3 faites le 2026-10-09 (branche `gpu-proto` de `mgis/`,
+`patches/mgis`, entrée du journal du 09/10). Plan révisé le 2026-10-08.
+Bases : MGIS master `818f0f9`, TFEL du proto (`tfel/`, R1 à R8 : structures
+en version 2, indice du premier point en échec).
+
+Écarts avec le plan, constatés en codant :
+
+- les valeurs uniformes gardées par MGIS (`real` des `FieldHolder`, matrices
+  de rotation construites depuis des axes) sont en mémoire hôte : refusées
+  avec un message pour `cuda` et `hip`. L'appelant les donne par un
+  `std::span` en mémoire accessible (les propriétés matériau acceptent
+  maintenant un `std::span` d'une valeur, comme les variables externes) ;
+- le premier point en échec (`n`) est connu sans tableau de statuts
+  (indice fourni par TFEL) ;
+- les rotations n'ont pas encore de surcharge prenant une politique
+  d'exécution (file par défaut du backend) ;
+- les bibliothèques ne sont plus déchargées en fin de processus (fils de
+  TBB).
 La version du 2026-10-06 (analyse détaillée de MGIS, numéros de lignes)
 reste dans l'historique git de ce fichier.
 

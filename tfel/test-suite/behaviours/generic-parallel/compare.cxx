@@ -904,6 +904,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
     if (o.status == 1) {
       o.status = mfront_gpb_getStatus(statistics);
       o.number_of_failures = statistics->number_of_failures;
+      o.first_failure_index = statistics->first_failure_index;
       o.number_of_unreliable_results = statistics->number_of_unreliable_results;
       o.rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
     }
@@ -1021,8 +1022,14 @@ static bool isConsistent(const mfront_gpb_OutputStatus& o,
       static_cast<std::size_t>(std::count(status.begin(), status.end(), -1));
   const auto nunreliable =
       static_cast<std::size_t>(std::count(status.begin(), status.end(), 0));
+  const auto first_failure = std::find(status.begin(), status.end(), -1);
+  const auto first_failure_index =
+      first_failure != status.end()
+          ? static_cast<std::size_t>(first_failure - status.begin())
+          : ~std::size_t{};
   const auto expected = nfailures != 0 ? -1 : (nunreliable != 0 ? 0 : 1);
   return (o.status == expected) && (o.number_of_failures == nfailures) &&
+         (o.first_failure_index == first_failure_index) &&
          (o.number_of_unreliable_results == nunreliable);
 }
 

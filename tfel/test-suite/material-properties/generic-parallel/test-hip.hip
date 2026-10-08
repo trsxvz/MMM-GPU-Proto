@@ -34,6 +34,8 @@ createManagedData(const std::size_t s) {
     std::cerr << hipGetErrorString(e) << '\n';
     std::exit(EXIT_FAILURE);
   }
+  // the memory returned by hipMallocManaged is not initialized
+  std::fill_n(ptr, s, 0.);
   return {ptr, +[](double *p) noexcept { std::ignore = hipFree(p); }};
 }  // end of createManagedData
 

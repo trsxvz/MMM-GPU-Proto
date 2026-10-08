@@ -30,6 +30,7 @@
 #define MFRONT_GPB_GPU_API(f) cuda##f
 #endif
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
+#include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::gpu {
@@ -123,6 +124,15 @@ namespace mfront::gpb::gpu {
       return v;
     }  // end of warpSum
 
+    //! \return true if the predicate is true for a thread of the warp
+    __device__ inline bool warpAny(const bool p) {
+#if defined(__HIP_PLATFORM_AMD__)
+      return __any(p);
+#else
+      return __any_sync(0xffffffffu, p);
+#endif
+    }  // end of warpAny
+
     //! \brief minimum of the values of a warp, in the first thread of the warp
     __device__ inline unsigned long long warpMin(unsigned long long v) {
       for (int o = warpSize / 2; o > 0; o /= 2) {
@@ -154,24 +164,35 @@ namespace mfront::gpb::gpu {
       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
                      static_cast<size_type>(threadIdx.x);
       auto failures = 0u;
+      auto first_failure_index =
+          static_cast<unsigned long long>(no_failure_index);
       auto unreliable_results = 0u;
       auto rdt = rdt0;
       if (i < n) {
         const auto r = f(i);
         failures = static_cast<unsigned int>(r.number_of_failures);
+        first_failure_index =
+            static_cast<unsigned long long>(r.first_failure_index);
         unreliable_results =
             static_cast<unsigned int>(r.number_of_unreliable_results);
         rdt = toOrderedKey(r.rdt);
       }
-      // the atomic operations are only performed if a point of the warp
-      // failed or decreased the time step scaling factor
+      // the statistics are only reduced and updated if a point of the warp
+      // failed, gave an unreliable result or decreased the time step
+      // scaling factor: otherwise, the statistics are not accessed
+      if (!warpAny((failures != 0) || (unreliable_results != 0) ||
+                   (rdt < rdt0))) {
+        return;
+      }
       failures = warpSum(failures);
+      first_failure_index = warpMin(first_failure_index);
       unreliable_results = warpSum(unreliable_results);
       rdt = warpMin(rdt);
       if (threadIdx.x % warpSize == 0) {
         if (failures != 0) {
           atomicAdd(&(s->number_of_failures),
                     static_cast<unsigned long long>(failures));
+          atomicMin(&(s->first_failure_index), first_failure_index);
         }
         if (unreliable_results != 0) {
           atomicAdd(&(s->number_of_unreliable_results),
@@ -182,6 +203,18 @@ namespace mfront::gpb::gpu {
         }
       }
     }  // end of apply
+
+    /*!
+     * \return the pool of blocks of managed memory holding the statistics
+     * of the synchronous computations, shared by all the functions of the
+     * library
+     */
+    inline auto& getStatisticsBlocks() noexcept {
+      using Pool =
+          mfront::generic_parallel::StatusBlockPool<AtomicBatchStatistics, int>;
+      static auto pool = Pool{};
+      return pool;
+    }  // end of getStatisticsBlocks
 
   }  // end of namespace internals
 
@@ -238,35 +271,27 @@ namespace mfront::gpb::gpu {
       failed(s, MFRONT_GPB_GPU_API(GetLastError)());
       return s.status;
     }
-    auto statistics = makeAtomicBatchStatistics(rdt0);
-    AtomicBatchStatistics* device_statistics = nullptr;
-    if (failed(s, MFRONT_GPB_GPU_API(MallocAsync)(
-                      reinterpret_cast<void**>(&device_statistics),
-                      sizeof(AtomicBatchStatistics), stream))) {
+    // synchronous computations: the statistics are held by a block of
+    // managed memory, initialized and read by the host. The device only
+    // accesses this block if an event occurs (see internals::apply): no
+    // data is transferred otherwise.
+    const auto block = internals::getStatisticsBlocks().acquire(device, [] {
+      AtomicBatchStatistics* p = nullptr;
+      const auto e = MFRONT_GPB_GPU_API(MallocManaged)(
+          reinterpret_cast<void**>(&p), sizeof(AtomicBatchStatistics));
+      return e == MFRONT_GPB_GPU_API(Success) ? p : nullptr;
+    });
+    auto* const statistics = block.get();
+    if (statistics == nullptr) {
+      return report(s, -3, "unable to allocate the statistics of the batch");
+    }
+    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    k<<<nblocks, nthreads, 0, stream>>>(f, n, statistics, rdt_key);
+    if (failed(s, MFRONT_GPB_GPU_API(GetLastError)()) ||
+        failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream))) {
       return s.status;
     }
-    const auto launched = [&] {
-      if (failed(s, MFRONT_GPB_GPU_API(MemcpyAsync)(
-                        device_statistics, &statistics, sizeof(statistics),
-                        MFRONT_GPB_GPU_API(MemcpyHostToDevice), stream))) {
-        return false;
-      }
-      k<<<nblocks, nthreads, 0, stream>>>(f, n, device_statistics, rdt_key);
-      if (failed(s, MFRONT_GPB_GPU_API(GetLastError)())) {
-        return false;
-      }
-      return !failed(s, MFRONT_GPB_GPU_API(MemcpyAsync)(
-                            &statistics, device_statistics, sizeof(statistics),
-                            MFRONT_GPB_GPU_API(MemcpyDeviceToHost), stream));
-    }();
-    const auto freed =
-        !failed(s, MFRONT_GPB_GPU_API(FreeAsync)(device_statistics, stream));
-    const auto synchronized =
-        !failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream));
-    if (!(launched && freed && synchronized)) {
-      return s.status;
-    }
-    return report(s, getBatchStatistics(statistics));
+    return report(s, getBatchStatistics(*statistics));
   }  // end of apply
 
   /*!

@@ -67,6 +67,8 @@ namespace mfront::gpb::kokkos {
         const auto r = this->f(i);
         if (r.number_of_failures != 0) {
           Kokkos::atomic_add(&(this->statistics->number_of_failures), 1ull);
+          Kokkos::atomic_min(&(this->statistics->first_failure_index),
+                             static_cast<unsigned long long>(i));
         }
         if (r.number_of_unreliable_results != 0) {
           Kokkos::atomic_add(&(this->statistics->number_of_unreliable_results),

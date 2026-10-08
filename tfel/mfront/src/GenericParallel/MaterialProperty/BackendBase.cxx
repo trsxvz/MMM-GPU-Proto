@@ -37,6 +37,33 @@ namespace mfront::generic_parallel::material_property {
     return 2 * (mpd.inputs.size() + 1);
   }  // end of getInvalidResultStatusIndex
 
+  void BackendBase::writeBoundsStatusesDeclaration(
+      std::ostream& os,
+      const MaterialPropertyDescription& mpd,
+      const std::string_view device_type,
+      const std::string_view device,
+      const std::string_view allocation) {
+    const auto n = getStatusesArraySize(mpd);
+    os << "static auto mfront_bounds_statuses_blocks = "
+       << "mfront::generic_parallel::StatusBlockPool<int, " << device_type
+       << ">{};\n"
+       << "const auto mfront_bounds_statuses_block = "
+       << "mfront_bounds_statuses_blocks.acquire(" << device << ", [&]{\n"
+       << "constexpr auto mfront_n = std::size_t{" << n << "};\n"
+       << allocation << "\n"
+       << "});\n"
+       << "auto* const mfront_bounds_statuses = "
+       << "mfront_bounds_statuses_block.get();\n"
+       << "if (mfront_bounds_statuses == nullptr) {\n"
+       << "mfront_output_status->status = -6;\n"
+       << "mfront_report(\"unable to allocate the statuses of the bounds "
+       << "checks\");\n"
+       << "return;\n"
+       << "}\n"
+       << "std::fill(mfront_bounds_statuses, mfront_bounds_statuses + " << n
+       << ", 0);\n";
+  }  // end of writeBoundsStatusesDeclaration
+
   void BackendBase::writeInvalidResultCheck(
       std::ostream& os, const MaterialPropertyDescription& mpd) const {
     const auto v =
@@ -289,6 +316,7 @@ namespace mfront::generic_parallel::material_property {
            << "mfront_output_status->status = -1;\n"
            << "return;\n"
            << "}\n"
+           << "mfront_output_status->status = 1;\n"
            << "}\n";
         os << "if(mfront_bounds_statuses[" << 2 * idx + 1 << "] < 0){\n"
            << "mfront_report(\"" << v.name
@@ -299,8 +327,11 @@ namespace mfront::generic_parallel::material_property {
            << "mfront_output_status->status = -1;\n"
            << "return;\n"
            << "}\n"
+           << "mfront_output_status->status = 1;\n"
            << "}\n";
       };
+      // as with the `generic` interface, the result must be used with
+      // caution (status 1) if a bound is violated with the warning policy
       os << "if((mfront_out_of_bounds_policy==" << prefix
          << "_STRICT_POLICY)||\n"
          << "(mfront_out_of_bounds_policy==" << prefix

@@ -201,11 +201,22 @@ process).
 ## Errors
 
 The entry point reports, through an output status, the number of points
-where the integration failed and whether some results are unreliable
-(`rdt` < 0.99). An optional per point status array gives the location of the
-failures. The error messages of the points are not reported (no exceptions
-and no message buffer per thread in device code): the `generic` interface
-gives the message of a failed point.
+where the integration failed, the index of the first one, and whether some
+results are unreliable (`rdt` < 0.99). An optional per point status array
+gives the location of all the failures. The error messages of the points
+are not reported (no exceptions and no message buffer per thread in device
+code): the `generic` interface gives the message of a failed point.
+
+Reporting the errors costs nothing on success, with the same mechanism for
+behaviours, models and material properties: the devices only write the
+statistics or the statuses when an event occurs at a point (failure,
+unreliable result, decrease of the time step scaling factor, bound
+violated, invalid result). In synchronous mode, the statistics (CUDA, HIP,
+SYCL) and the statuses of the material properties (all backends) are held
+by blocks of memory accessible by the host and the device, allocated at the
+first call on a device and reused (`StatusBlockPool`): the host initializes
+a block and reads it after the synchronization, with no allocation, copy or
+transfer per call.
 
 If the execution options give statistics, they are accumulated in this
 device accessible structure and the CUDA, HIP, Kokkos and SYCL backends
@@ -221,9 +232,11 @@ the batch (`BatchStatistics`: numbers of failures and unreliable results,
 minimal time step scaling factor), each with the idiomatic primitive of its
 programming model:
 
-1. CUDA and HIP (`GPU.hxx`): one thread per point, reduction per warp and
-   atomic operations only when a point failed or decreased the time step
-   scaling factor; the stack size is computed from the kernel attributes;
+1. CUDA and HIP (`GPU.hxx`): one thread per point; a warp vote skips the
+   reductions when no point of the warp failed, gave an unreliable result
+   or decreased the time step scaling factor, the others use one atomic
+   operation per member of the statistics; the stack size is computed from
+   the kernel attributes;
 2. C++ standard parallel algorithms (`ParallelSTL.hxx`):
    `std::transform_reduce` over a counting iterator (gcc/TBB, clang, nvc++
    `-stdpar=gpu`);

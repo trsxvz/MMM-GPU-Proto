@@ -22,7 +22,7 @@
  * the generated libraries (`<name>_generic_parallel_api_version` symbol).
  * It is incremented at each incompatible change of those structures.
  */
-#define MFRONT_GPB_API_VERSION 1
+#define MFRONT_GPB_API_VERSION 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,10 +34,19 @@ extern "C" {
  * `mfront_gpb_ExecutionOptions`). They must be initialized by
  * `mfront_gpb_initializeBatchStatistics`, on the host. They can then be
  * copied in device memory.
+ *
+ * The devices only update the statistics when an event occurs at a point
+ * (failure, unreliable result, decrease of the time step scaling factor).
  */
 typedef struct mfront_gpb_BatchStatistics {
   //! \brief number of points where the integration failed
   unsigned long long number_of_failures;
+  /*!
+   * \brief index of the first point where the integration failed, or the
+   * maximal value of the type if no point failed. This index does not
+   * depend on the order of the computations.
+   */
+  unsigned long long first_failure_index;
   //! \brief number of points where the time step scaling factor is too low
   unsigned long long number_of_unreliable_results;
   /*!
@@ -265,6 +274,13 @@ typedef struct mfront_gpb_OutputStatus {
   int status;
   //! \brief number of points where the integration failed
   mfront_gb_size_type number_of_failures;
+  /*!
+   * \brief index of the first point where the integration failed, or the
+   * maximal value of the type if no point failed. The `generic` interface
+   * of the same behaviour, called at this point, gives the detailed error
+   * message.
+   */
+  mfront_gb_size_type first_failure_index;
   //! \brief number of points where the time step scaling factor is too low
   mfront_gb_size_type number_of_unreliable_results;
   //! \brief minimum of the time step scaling factors over the batch
@@ -284,6 +300,7 @@ static inline void mfront_gpb_initializeBatchStatistics(
   unsigned long long b;
   memcpy(&b, &rdt, sizeof(b));
   s->number_of_failures = 0;
+  s->first_failure_index = ~0ull;
   s->number_of_unreliable_results = 0;
   s->rdt = (b & sign) ? ~b : (b | sign);
 } /* end of mfront_gpb_initializeBatchStatistics */

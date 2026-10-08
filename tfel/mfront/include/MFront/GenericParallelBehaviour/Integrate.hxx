@@ -18,6 +18,7 @@
 #include <bit>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <type_traits>
 #include <cstring>
 #include <exception>
@@ -681,27 +682,40 @@ namespace mfront::gpb {
     return r;
   }  // end of integrate
 
+  //! \brief index of the first failure when no point failed
+  inline constexpr auto no_failure_index = ~size_type{};
+
   /*!
    * \brief statistics on the integration of a batch, combined by
    * parallel reductions
    */
   struct BatchStatistics {
-    //! \return the statistics associated with the result at one point
+    /*!
+     * \return the statistics associated with the result at one point
+     * \param[in] i: index of the point
+     * \param[in] r: result at this point
+     */
     TFEL_HOST_DEVICE static constexpr BatchStatistics from(
-        const PointResult& r) noexcept {
+        const size_type i, const PointResult& r) noexcept {
       return {.number_of_failures = r.status == -1 ? 1u : 0u,
+              .first_failure_index = r.status == -1 ? i : no_failure_index,
               .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
               .rdt = r.rdt};
     }
     //! \brief combine two statistics
     TFEL_HOST_DEVICE friend constexpr BatchStatistics combine(
         const BatchStatistics& a, const BatchStatistics& b) noexcept {
-      return {.number_of_failures = a.number_of_failures + b.number_of_failures,
-              .number_of_unreliable_results = a.number_of_unreliable_results +
-                                              b.number_of_unreliable_results,
-              .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
+      return {
+          .number_of_failures = a.number_of_failures + b.number_of_failures,
+          .first_failure_index = a.first_failure_index < b.first_failure_index
+                                     ? a.first_failure_index
+                                     : b.first_failure_index,
+          .number_of_unreliable_results =
+              a.number_of_unreliable_results + b.number_of_unreliable_results,
+          .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
     }
     size_type number_of_failures = 0;
+    size_type first_failure_index = no_failure_index;
     size_type number_of_unreliable_results = 0;
     real rdt = 1;
   };
@@ -720,24 +734,15 @@ namespace mfront::gpb {
     return (b & sign) ? ~b : (b | sign);
   }  // end of toOrderedKey
 
-  /*!
-   * \return the initial statistics updated by atomic operations
-   * \param[in] rdt: initial value of the time step scaling factor
-   */
-  inline AtomicBatchStatistics makeAtomicBatchStatistics(
-      const real rdt) noexcept {
-    auto s = AtomicBatchStatistics{};
-    mfront_gpb_initializeBatchStatistics(&s, rdt);
-    return s;
-  }  // end of makeAtomicBatchStatistics
-
   //! \return the statistics updated by atomic operations
   inline BatchStatistics getBatchStatistics(
       const AtomicBatchStatistics& s) noexcept {
-    return {.number_of_failures = static_cast<size_type>(s.number_of_failures),
-            .number_of_unreliable_results =
-                static_cast<size_type>(s.number_of_unreliable_results),
-            .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
+    return {
+        .number_of_failures = static_cast<size_type>(s.number_of_failures),
+        .first_failure_index = static_cast<size_type>(s.first_failure_index),
+        .number_of_unreliable_results =
+            static_cast<size_type>(s.number_of_unreliable_results),
+        .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
   }  // end of getBatchStatistics
 
   /*!
@@ -748,7 +753,12 @@ namespace mfront::gpb {
   constexpr void accumulate(AtomicBatchStatistics& s,
                             const BatchStatistics& r) noexcept {
     const auto rdt = toOrderedKey(r.rdt);
+    const auto first_failure_index =
+        static_cast<unsigned long long>(r.first_failure_index);
     s.number_of_failures += r.number_of_failures;
+    s.first_failure_index = first_failure_index < s.first_failure_index
+                                ? first_failure_index
+                                : s.first_failure_index;
     s.number_of_unreliable_results += r.number_of_unreliable_results;
     s.rdt = rdt < s.rdt ? rdt : s.rdt;
   }  // end of accumulate
@@ -785,10 +795,17 @@ namespace mfront::gpb {
    */
   inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
     s.number_of_failures = r.number_of_failures;
+    s.first_failure_index = r.first_failure_index;
     s.number_of_unreliable_results = r.number_of_unreliable_results;
     s.rdt = r.rdt;
     if (r.number_of_failures != 0) {
-      return report(s, -1, "integration failed at some integration points");
+      s.status = -1;
+      std::snprintf(s.msg, sizeof(s.msg),
+                    "computations failed at %zu integration points, the "
+                    "first one being the point %zu",
+                    static_cast<std::size_t>(r.number_of_failures),
+                    static_cast<std::size_t>(r.first_failure_index));
+      return s.status;
     }
     s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
     return s.status;
@@ -823,6 +840,7 @@ namespace mfront::gpb {
   inline void initialize(OutputStatus& s, const real rdt) noexcept {
     s.status = 1;
     s.number_of_failures = 0;
+    s.first_failure_index = no_failure_index;
     s.number_of_unreliable_results = 0;
     s.rdt = rdt;
     s.msg[0] = '\0';
@@ -1036,8 +1054,9 @@ namespace mfront::gpb {
   struct PointIntegrator : PointFunctionData<PointTraits, ParametersType> {
     //! \return the statistics of the integration at the `i`-th point
     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
-      return BatchStatistics::from(integrate<Behaviour, PointTraits>(
-          this->data, this->input_fields, i, this->parameters, this->policy));
+      return BatchStatistics::from(i, integrate<Behaviour, PointTraits>(
+                                          this->data, this->input_fields, i,
+                                          this->parameters, this->policy));
     }
   };
 
@@ -1101,7 +1120,7 @@ namespace mfront::gpb {
         }
       }
       recordStatus(d, i, r);
-      return BatchStatistics::from(r);
+      return BatchStatistics::from(i, r);
     }
     //! \brief values of the inputs of the initialize function
     ConstField inputs;
@@ -1154,7 +1173,7 @@ namespace mfront::gpb {
         }
       }
       recordStatus(d, i, r);
-      return BatchStatistics::from(r);
+      return BatchStatistics::from(i, r);
     }
     //! \brief values of the outputs of the post-processing
     Field outputs;
@@ -1181,7 +1200,7 @@ namespace mfront::gpb {
       internals::gather(rv, this->data.rotation_matrices, i, 9);
       PointRotation{}(dest.data(), src.data(), rv.data());
       internals::scatter(this->data.destination, i, dest, n);
-      return BatchStatistics::from(PointResult{.status = 1, .rdt = 1});
+      return BatchStatistics::from(i, PointResult{.status = 1, .rdt = 1});
     }
     //! \brief rotation data
     RotationData data;

@@ -16,7 +16,6 @@
 
 #include <cstddef>
 #include <cstring>
-#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -24,6 +23,7 @@
 #include <vector>
 #include <sycl/sycl.hpp>
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
+#include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::sycl {
@@ -351,6 +351,8 @@ namespace mfront::gpb::sycl {
         const auto r = this->f(i[0]);
         if (r.number_of_failures != 0) {
           AtomicCounter{this->statistics->number_of_failures}.fetch_add(1);
+          AtomicCounter{this->statistics->first_failure_index}.fetch_min(
+              static_cast<unsigned long long>(i[0]));
         }
         if (r.number_of_unreliable_results != 0) {
           AtomicCounter{this->statistics->number_of_unreliable_results}
@@ -368,6 +370,19 @@ namespace mfront::gpb::sycl {
       //! \brief ordered key of the initial time step scaling factor
       unsigned long long initial_rdt;
     };
+
+    /*!
+     * \return the pool of blocks of shared memory holding the statistics
+     * of the synchronous computations, shared by all the functions of the
+     * library. The blocks are identified by the device and the context of
+     * the queue.
+     */
+    inline auto& getStatisticsBlocks() noexcept {
+      using Pool = mfront::generic_parallel::StatusBlockPool<
+          AtomicBatchStatistics, std::pair<::sycl::device, ::sycl::context>>;
+      static auto pool = Pool{};
+      return pool;
+    }  // end of getStatisticsBlocks
 
   }  // end of namespace internals
 
@@ -431,21 +446,20 @@ namespace mfront::gpb::sycl {
       q.parallel_for(range, Kernel{f, o.statistics, rdt_key});
       return s.status;
     }
-    auto statistics = makeAtomicBatchStatistics(rdt0);
-    const auto deleter = [&q](AtomicBatchStatistics* const ptr) {
-      ::sycl::free(ptr, q);
-    };
-    const auto device_statistics =
-        std::unique_ptr<AtomicBatchStatistics, decltype(deleter)>(
-            ::sycl::malloc_device<AtomicBatchStatistics>(1, q), deleter);
-    if (device_statistics == nullptr) {
-      return report(s, -3, "memory allocation failed on the SYCL device");
+    // synchronous computations: the statistics are held by a block of
+    // shared memory, initialized and read by the host. The device only
+    // accesses this block if an event occurs (see internals::Kernel): no
+    // data is transferred otherwise.
+    const auto block = internals::getStatisticsBlocks().acquire(
+        {q.get_device(), q.get_context()},
+        [&q] { return ::sycl::malloc_shared<AtomicBatchStatistics>(1, q); });
+    auto* const statistics = block.get();
+    if (statistics == nullptr) {
+      return report(s, -3, "unable to allocate the statistics of the batch");
     }
-    q.copy(&statistics, device_statistics.get(), 1).wait_and_throw();
-    q.parallel_for(range, Kernel{f, device_statistics.get(), rdt_key})
-        .wait_and_throw();
-    q.copy(device_statistics.get(), &statistics, 1).wait_and_throw();
-    return report(s, getBatchStatistics(statistics));
+    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    q.parallel_for(range, Kernel{f, statistics, rdt_key}).wait_and_throw();
+    return report(s, getBatchStatistics(*statistics));
   }  // end of apply
 
   /*!

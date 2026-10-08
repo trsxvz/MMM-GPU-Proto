@@ -61,3 +61,14 @@ Patches:
 29. stress computed by the initialize functions exported for all stress
     measures;
 30. formatting.
+
+Latest patches (0070 to 0078):
+
+- shared data copied on each device, backend and version symbols and
+  shared kernel code of the material properties;
+- rotation of all the tangent operator blocks, parameters of the behaviour
+  variables in device code, `nvc++ -stdpar=gpu` without relocatable device
+  code;
+- error reporting without cost on success (index of the first point where
+  the computations failed, reused status blocks), status of the warning
+  policy of the material properties.

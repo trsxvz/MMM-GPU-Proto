@@ -57,6 +57,7 @@ namespace mfront::gpb::openmp {
             const std::size_t device_stack_size = 0) {
     // the statistics are reduced member by member
     auto number_of_failures = size_type{};
+    auto first_failure_index = no_failure_index;
     auto number_of_unreliable_results = size_type{};
     auto rdt = rdt0;
     if constexpr (offload) {
@@ -67,10 +68,13 @@ namespace mfront::gpb::openmp {
       }
 #pragma omp target teams distribute parallel for map(to : f)        \
     reduction(+ : number_of_failures, number_of_unreliable_results) \
-    reduction(min : rdt)
+    reduction(min : first_failure_index, rdt)
       for (size_type i = 0; i < n; ++i) {
         const auto r = f(i);
         number_of_failures += r.number_of_failures;
+        first_failure_index = r.first_failure_index < first_failure_index
+                                  ? r.first_failure_index
+                                  : first_failure_index;
         number_of_unreliable_results += r.number_of_unreliable_results;
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
@@ -78,16 +82,20 @@ namespace mfront::gpb::openmp {
       static_cast<void>(device_stack_size);
 #pragma omp parallel for reduction(+ : number_of_failures,           \
                                        number_of_unreliable_results) \
-    reduction(min : rdt)
+    reduction(min : first_failure_index, rdt)
       for (size_type i = 0; i < n; ++i) {
         const auto r = f(i);
         number_of_failures += r.number_of_failures;
+        first_failure_index = r.first_failure_index < first_failure_index
+                                  ? r.first_failure_index
+                                  : first_failure_index;
         number_of_unreliable_results += r.number_of_unreliable_results;
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
     }
     return report(s, o,
                   BatchStatistics{.number_of_failures = number_of_failures,
+                                  .first_failure_index = first_failure_index,
                                   .number_of_unreliable_results =
                                       number_of_unreliable_results,
                                   .rdt = rdt});

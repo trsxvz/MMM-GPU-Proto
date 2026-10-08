@@ -197,6 +197,28 @@ namespace mfront::generic_parallel::material_property {
     [[nodiscard]] static std::size_t getInvalidResultStatusIndex(
         const MaterialPropertyDescription&);
     /*!
+     * \brief write the declaration of the array of statuses filled by the
+     * kernels (`mfront_bounds_statuses`), initialized to zero.
+     *
+     * This array is a block of a pool of blocks accessible by the host and
+     * by the device (see `mfront::generic_parallel::StatusBlockPool`): no
+     * memory is allocated per call, and the device only accesses the array
+     * if a bound is violated or if the result is invalid.
+     *
+     * \param[in] os: output stream
+     * \param[in] mpd: material property description
+     * \param[in] device_type: type identifying a device
+     * \param[in] device: expression identifying the current device
+     * \param[in] allocation: body of a function allocating a block of
+     * `mfront_n` integers, returning a null pointer on failure
+     */
+    static void writeBoundsStatusesDeclaration(
+        std::ostream&,
+        const MaterialPropertyDescription&,
+        const std::string_view,
+        const std::string_view,
+        const std::string_view);
+    /*!
      * \brief write the code marking the result as invalid if it is not
      * finite. This code is written in the kernel, after the evaluation of
      * the material property.

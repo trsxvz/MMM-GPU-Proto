@@ -65,7 +65,11 @@ the branch, file by file, rather than by cherry-picking.
 
 4. **The `generic-parallel` interface for behaviours** with a first set of
    backends: CUDA, HIP, C++ parallel algorithms and OpenMP on the host.
-   Shared data copied on each device. Tests and documentation.
+   Shared data copied on each device. Errors reported without cost on
+   success: index of the first point where the computations failed,
+   statistics of the synchronous computations held by reused blocks of
+   managed or shared memory (`StatusBlockPool`), warp vote. Tests and
+   documentation.
 
 5. **Additional backends and compilers**: Kokkos, SYCL, nvc++ offloading
    (`stdpar` and OpenMP), clang CUDA and HIP. Most compiler workarounds
@@ -74,7 +78,10 @@ the branch, file by file, rather than by cherry-picking.
 6. **Extensions of the interface for material properties**: Kokkos and
    OpenMP backends, material laws using data or other material laws on
    CUDA and HIP, options shared with the behaviours, backend and API
-   version symbols, kernel code shared by the backends.
+   version symbols, kernel code shared by the backends, statuses of the
+   bounds checks held by reused blocks on all the backends (no allocation
+   per call, synchronization of the stream instead of the device), status 1
+   with the warning policy as with the `generic` interface.
 
 The data contract (`MFront/GenericParallelBehaviour/BatchData.h`) is
 versioned from the fourth pull request on, so that MGIS can check it.

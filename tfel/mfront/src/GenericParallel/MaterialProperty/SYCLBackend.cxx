@@ -154,15 +154,12 @@ namespace mfront::generic_parallel::material_property {
          << "}\n";
     }
     if (requiresBoundsCheck) {
-      os << "using mfront_shared_allocator_type = "
-         << "sycl::usm_allocator<int, sycl::usm::alloc::shared>;\n"
-         << "auto mfront_shared_allocator = "
-            "mfront_shared_allocator_type{*mfront_queue};\n"
-         << "auto mfront_bounds_statuses_storage = "
-         << "std::vector<int, "
-            "mfront_shared_allocator_type>{mfront_shared_allocator};\n"
-         << "mfront_bounds_statuses_storage.resize("
-         << getStatusesArraySize(mpd) << ", 0);\n";
+      // the statuses are held by a block of shared memory, identified by
+      // the device and the context of the queue
+      writeBoundsStatusesDeclaration(
+          os, mpd, "std::pair<sycl::device, sycl::context>",
+          "{mfront_queue->get_device(), mfront_queue->get_context()}",
+          "return sycl::malloc_shared<int>(mfront_n, *mfront_queue);");
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
     auto write_kernel_call = [&os, this, &types](const std::string_view npoints,

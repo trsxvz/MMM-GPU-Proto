@@ -96,6 +96,40 @@ the output are stored contiguously in memory. In other words, this
 prototype is equivalent to the the first prototype when all strides are
 equal to one.
 
+## Output status
+
+The output status (`mfront_gmp_OutputStatus`) follows the conventions of
+the `generic` interface for material properties:
+
+- `0`: the result has been evaluated at all points;
+- `1`: an argument or the result is out of its bounds at one point at
+  least, with the warning policy. The result is evaluated at all points
+  but must be used with caution. `bounds_status` gives the rank of the
+  variable (starting at one);
+- `-1`: an argument or the result is out of its physical bounds, or out
+  of its bounds with the strict policy, at one point at least. The result
+  is not evaluated at those points. `bounds_status` gives the rank of the
+  variable, negative for a physical bound;
+- `-4`: the result is not finite (`nan` or infinite) at one point at
+  least.
+
+The following statuses are specific to this interface:
+
+- `-2`: an exception was thrown on the host (backends based on C++
+  programming models, for instance by a data transfer);
+- `-5`: invalid arguments (number of points, number of arguments,
+  negative stride);
+- `-6`: runtime error of the backend (allocation, launch of a kernel, stack
+  size of the threads of the device), or invalid parameters;
+- `-7`: uniform output (null stride) with several points or with non
+  uniform arguments.
+
+As for behaviours, the error message describes the first error found. It
+is only meaningful if the status is not null. The devices only write the
+statuses when an error occurs: the reporting of the errors costs nothing
+when the evaluation succeeds (see the internal details of the `CUDA`
+backend).
+
 # Backends
 
 Backends are associated with parallel programming models.
@@ -217,9 +251,14 @@ analyses, uncertainty propagation studies or perform a new
 identification. Note that parameters' handling can still be disabled by
 setting the `parameters_as_static_variables` DSL option to `true`.
 
-The errors are handled by allocating a managed array of integers
-associated with all possible kind of errors. This array is only accessed
-if an error occurs, minimizing the cost of error handling. On output,
+The errors are handled by a managed array of integers associated with
+all possible kind of errors. This array is only accessed by the device if
+an error occurs, minimizing the cost of error handling. It is taken from a
+pool of arrays allocated at the first call on a device and reused by the
+following calls (see `mfront::generic_parallel::StatusBlockPool`), so that
+no memory is allocated per call. The other backends handle the errors in
+the same way, with the memory accessible by the host and the device of the
+backend (heap, shared USM memory, `Kokkos::SharedSpace`). On output,
 the user knows if an error occurred, but not where this errors occurred.
 For instance, the `UO2_ShearModulus` function may report that one
 temperature passed on input was negative at one evaluation point. For

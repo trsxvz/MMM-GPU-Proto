@@ -166,10 +166,6 @@ namespace mfront::generic_parallel::material_property {
       os << "const auto mfront_arg" << idx << " = mfront_args[" << idx
          << "];\n";
     }
-    if (isBoundsCheckingRequired(mpd)) {
-      os << "auto* const mfront_bounds_statuses = "
-         << "mfront_bounds_statuses_storage.data();\n";
-    }
     if ((!areParametersTreatedAsStaticVariables(mpd)) &&
         (!mpd.parameters.empty())) {
       const auto name = i.getFunctionName(mpd);

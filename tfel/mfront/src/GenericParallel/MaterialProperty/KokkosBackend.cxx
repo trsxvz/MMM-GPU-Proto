@@ -58,11 +58,18 @@ namespace mfront::generic_parallel::material_property {
        << "}\n"
        << "using mfront_execution_space = " << this->execution_space << ";\n";
     if (this->isBoundsCheckingRequired(mpd)) {
-      // the statuses are written by the kernels and read on the host
-      os << "auto mfront_bounds_statuses_storage = "
-         << "Kokkos::View<int*, Kokkos::SharedSpace>("
-         << "\"mfront_bounds_statuses\", " << getStatusesArraySize(mpd)
-         << ");\n";
+      // the statuses are written by the kernels and read on the host. Kokkos
+      // uses one device per process. The blocks are freed when Kokkos is
+      // finalized.
+      writeBoundsStatusesDeclaration(
+          os, mpd, "int", "0",
+          "auto* const mfront_ptr = static_cast<int*>("
+          "Kokkos::kokkos_malloc<Kokkos::SharedSpace>("
+          "\"mfront_bounds_statuses\", mfront_n * sizeof(int)));\n"
+          "Kokkos::push_finalize_hook([mfront_ptr] {\n"
+          "Kokkos::kokkos_free<Kokkos::SharedSpace>(mfront_ptr);\n"
+          "});\n"
+          "return mfront_ptr;");
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
     auto write_loop = [&os, &types](const std::string_view npoints,

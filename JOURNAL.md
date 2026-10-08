@@ -165,12 +165,23 @@ R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
       propriétés matériau, duplication réduite ; validation sans HMM.
 - [x] R7 paramètres des variables de comportement sur GPU, rotation de
       tous les blocs de l'opérateur tangent.
+- [x] R8 gestion des erreurs homogène, sans coût en cas de succès : indice
+      du premier point en échec, blocs de statut réutilisés (lois et
+      propriétés matériau, tous les backends).
 D. Intégration
 - [ ] D1 MGIS (plan révisé le 08/10 : `scratch/d1-mgis-design.md`) :
       chargement d'une bibliothèque `generic-parallel`, intégration d'un
       lot sans copie sur les tableaux de l'appelant, basculement
       automatique des fonctions existantes, erreurs explicites ; puis
       ressource mémoire, asynchrone et mise à jour sur le GPU.
+  - [x] étapes 1 à 3 (chargement, intégration, fonctions
+        d'initialisation, post-traitements, rotations), sur CPU et sur GPU
+        avec la mémoire de l'appelant (entrée du 09/10, nuit) ;
+  - [x] étape 4a : emplacement des données (`MemoryLocation`), vérifié ;
+  - [ ] étape 4b : ressource mémoire ;
+  - [ ] étape 5 : asynchrone, `update`/`revert` sur le GPU ;
+  - [ ] étapes 6 et 7 : propriétés matériau `generic-parallel`,
+        documentation.
 - [ ] D2 mfem-mgis (plan du 08/10 : `scratch/d2-mfem-mgis-design.md`) :
       chemin par lot à côté du chemin actuel, en trois phases par
       matériau (gradients, intégration du lot, résidu), données dans la
@@ -1814,3 +1825,160 @@ quatre lignes) échoue de -O0 à -O3. Contournement : code device de chaque
 fichier lié seul (`-gpu=nordc` dans `config-stlpar-parunseq-nvhpc-gpu.json`),
 possible car les sources générées n'appellent pas de fonction device
 définie dans un autre fichier. OpenMP déporté n'émet pas ces symboles.
+
+### 2026-10-09 (nuit), gestion des erreurs homogène (R8)
+
+Principe, le même partout : le chemin sans erreur ne coûte rien. Les
+noyaux n'écrivent dans les statistiques ou les statuts que si un événement
+survient en un point (échec, résultat peu fiable, baisse du facteur de pas,
+borne violée, résultat invalide). Pas de chaîne de caractères sur le GPU :
+le message détaillé d'un point s'obtient en le rejouant avec l'interface
+`generic`.
+
+État avant (relevé dans `scratch/r8-map.md`, non versionné) :
+
+- lois, chemin synchrone CUDA/HIP : allocation, deux copies et libération
+  à chaque appel ; SYCL : allocation, trois attentes et libération à
+  chaque appel ;
+- propriétés matériau : tableau de statuts alloué à chaque appel par tous
+  les backends (`cudaMallocManaged` puis `cudaFree`, qui synchronise le
+  GPU ; `std::vector`, donc `cudaMallocManaged` avec nvc++ ;
+  `Kokkos::View` partagée ; vecteur USM partagé), puis
+  `cudaDeviceSynchronize` ;
+- aucun indice du point en échec : il fallait parcourir le tableau des
+  statuts par point.
+
+Après :
+
+- contrat C des lois en version 2 : `first_failure_index` dans
+  `mfront_gpb_BatchStatistics` et `mfront_gpb_OutputStatus`. C'est le plus
+  petit indice en échec, quel que soit l'ordre des calculs (minimum
+  atomique ou réduction). Le message donne le nombre d'échecs et ce point ;
+- CUDA/HIP : un vote par warp ; les warps sans événement ne font plus
+  aucune réduction ni opération atomique ;
+- nouvel en-tête partagé `MFront/GenericParallel/StatusBlockPool.hxx` :
+  réserve de blocs accessibles par l'hôte et le GPU, alloués au premier
+  appel sur un GPU puis réutilisés, un bloc par appel en cours (appels
+  concurrents possibles). Il sert au chemin synchrone des lois (CUDA/HIP :
+  mémoire managée, SYCL : USM partagée, une seule attente) et aux statuts
+  des propriétés matériau de tous les backends (managée, tas, USM
+  partagée, `Kokkos::SharedSpace` libérée au `finalize`). L'hôte
+  initialise le bloc et le lit après la synchronisation : sans événement,
+  aucune donnée ne passe entre l'hôte et le GPU ;
+- propriétés matériau CUDA/HIP : synchronisation du flux au lieu de tout
+  le GPU ;
+- Kokkos synchrone, OpenMP et algorithmes parallèles : réductions
+  inchangées, avec l'indice du premier échec en plus.
+
+Défaut de test révélé : le test HIP des propriétés matériau supposait la
+mémoire de `hipMallocManaged` nulle. Les allocations libérées à chaque
+appel le masquaient. La mémoire est maintenant mise à zéro, comme les
+`thrust::device_vector` du test CUDA.
+
+Le contrat des propriétés matériau (`mfront_gmp_OutputStatus`, commun avec
+l'interface `generic`) n'a pas de champ pour un indice de point : elles
+disent quelle borne est violée, pas où.
+
+Mesure (`reproducers/sync-call-overhead`, RTX 5080, loi élastique, données
+en mémoire managée) : un appel synchrone CUDA passe de 135 à 29 µs pour
+1000 points, et de 546 à 442 µs pour 100000 points. Le coût fixe par appel
+baisse d'environ 105 µs.
+
+Propriétés matériau, dans la foulée : avec la politique `Warning`, une borne
+violée donne maintenant le statut 1 (résultat calculé, à utiliser avec
+précaution), comme l'interface `generic`. Le statut restait nul. Les codes
+propres à l'interface (-2, -5, -6, -7) sont documentés. Nouveau test
+`test14` (tests C++ et CUDA).
+
+Vérifications :
+
+- tests ciblés des lois avec échecs (`ImplicitNortonWithEnergies` en
+  politique stricte, modèle `GenericParallelModelTest`, fonctions
+  d'initialisation, post-traitements) : 50/50 sur cuda-nvcc, hip-hipcc,
+  sycl-default-acpp, kokkos, openmp-host-gcc, stlpar-parunseq-gcc. Une
+  version sans le minimum atomique de l'indice est détectée (12 échecs) ;
+- propriétés matériau : cuda-nvcc, hip-hipcc, stlpar-parunseq-gcc,
+  openmp-host-gcc, kokkos, sycl-default-acpp ;
+- validation complète sans HMM (`validate3.sh 2026-10-09-r8`) : tests de
+  TFEL 6965/6965, matrice -O3 31/31 (stlpar-parunseq-nvhpc-gpu compris,
+  avec `-gpu=nordc`), balayages nvcc et clang 541 OK, comme avant.
+
+`scratch/dev-test.sh` saute en mode ciblé les comparaisons appelées
+directement par un test (lois non construites).
+
+### 2026-10-09 (nuit, suite), MGIS : chargement et calcul de lots (D1, étapes 1 à 3)
+
+Branche `gpu-proto` de `mgis/` (base `818f0f9`). Les patchs sont dans
+`patches/mgis`, régénérés par `scripts/sync-mgis.sh`. MGIS est construit
+dans `build/mgis` contre le TFEL du proto. Le TFEL de spack doit être
+écarté : `CMAKE_PREFIX_PATH` le trouvait en premier.
+
+- Étape 1, chargement. Une bibliothèque `generic-parallel` était chargée
+  sans erreur et ses fonctions de lot appelées avec les arguments d'un
+  point (comportement indéfini). `BehaviourDescription` lit maintenant
+  l'interface, le backend et la version des structures (2). `Behaviour`
+  porte les pointeurs de lot (`batch_b`, `batch_f`, trois rotations).
+  `LibrariesManager` refuse les fonctions d'un point pour une bibliothèque
+  de lots, et inversement. MGIS garde sa copie des structures C
+  (`BatchDataView.hxx`), vérifiée contre `BatchData.h` par un test de
+  disposition mémoire.
+- Étape 2, intégration. `integrate(BatchExecutionPolicy, MaterialDataManager,
+  options, dt[, b, e])` construit la vue du lot sur les tableaux du
+  gestionnaire, sans copie. Les propriétés matériau et les variables
+  externes sont données variable par variable : valeur uniforme ou valeur
+  par point. Les fonctions existantes basculent seules, avec la politique
+  du gestionnaire (`batch_execution_policy`). Les statuts -2 et -3 sont
+  levés comme exceptions, jamais pris pour un échec de convergence. Un
+  échec donne l'indice du premier point (`n`). `integrate_debug` est
+  refusé : la bibliothèque `generic` sert au diagnostic.
+- Étape 3 : fonctions d'initialisation, post-traitements et rotations de
+  lots, avec le même basculement (pool de fils compris).
+
+GPU : avec le backend `cuda`, l'appelant fournit toute la mémoire en
+mémoire managée (initialiseurs de MGIS, `std::span`). Les valeurs uniformes
+gardées par MGIS sont en mémoire hôte : elles sont refusées avec un message
+clair pour `cuda` et `hip`. Test `GenericParallelCUDATest` (option
+`enable-generic-parallel-cuda-tests`) : Norton sur 10 pas et 1000 points,
+élasticité avec module d'Young par point, HMM désactivé. Résultats égaux
+à ceux du calcul par point aux arrondis près, compute-sanitizer sans
+erreur, noyaux vus par Nsight (0,5 ms pour 1000 points).
+
+Défauts de MGIS trouvés en chemin, corrigés dans des commits séparés :
+
+- les axes des matrices de rotation étaient refusés quand leur nombre de
+  valeurs était un multiple de la dimension (test inversé) : aucune
+  `RotationMatrix2D` ni `RotationMatrix3D` ne pouvait être construite. Le
+  nombre de points était aussi comparé à un reste au lieu d'un quotient ;
+- plantage intermittent en fin de processus : les bibliothèques étaient
+  déchargées alors que les fils de TBB (algorithmes parallèles de
+  libstdc++) vivaient encore. Elles ne sont plus déchargées
+  (`RTLD_NODELETE`) ;
+- une propriété matériau ne pouvait pas être donnée par un `std::span`
+  d'une seule valeur, alors que l'évaluation le traitait déjà comme
+  uniforme. C'est la seule façon de placer une valeur uniforme en mémoire
+  accessible par le GPU.
+
+Noté sans correction : `executeInitializeFunction` par point ne met pas
+`exit_status` à -1 en cas d'échec (seul `n` est rempli). Le chemin des lots
+signale l'échec.
+
+Vérifications : 44 tests de MGIS (41 d'origine, chargement, comparaison
+lots/points sur CPU, comparaison sur GPU), chaque cas de comparaison
+vérifié par une version volontairement fausse (décalage de plage,
+rotations uniformes forcées, suffixe de mesure de contrainte faux). Une
+loi orthotrope en grandes déformations a été ajoutée aux tests de MGIS
+pour les rotations avec mesure de contrainte et opérateur tangent.
+
+Étape 4a : l'emplacement des tableaux (`MemoryLocation` : hôte, GPU,
+partagé) est déclaré par l'initialiseur du gestionnaire et vérifié. Un
+backend `cuda` ou `hip` refuse des données en mémoire hôte. Hors de la
+mémoire hôte, tous les tableaux des états doivent être donnés, ainsi que
+ceux des opérateurs tangents et de la vitesse du son s'ils servent : MGIS
+les allouerait en mémoire hôte. `update` et `revert`, qui copient sur
+l'hôte, refusent des données sur le GPU. Chaque refus est testé par son
+message. L'en-tête `BatchExecutionPolicy.hxx` n'était pas installé :
+corrigé.
+
+Reste du plan : ressource mémoire (étape 4b, qui rendra automatique ce que
+le test GPU fait à la main), asynchrone et `update`/`revert` sur le GPU
+(étape 5), propriétés matériau `generic-parallel` et documentation.

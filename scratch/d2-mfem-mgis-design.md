@@ -1,8 +1,10 @@
 # D2, mfem-mgis : calcul sur GPU (plan)
 
 Statut : plan du 2026-10-08, avant tout code. Bases : mfem-mgis master
-`4c8a91d815` (`mfem-mgis/`), MGIS selon `scratch/d1-mgis-design.md`, TFEL du
-proto (R1 à R6). Essais préalables : point fixe à opérateur constant et
+`4c8a91d815` (`mfem-mgis/`), MGIS selon `scratch/d1-mgis-design.md` (étapes 1 à 4a
+faites le 2026-10-09 : chargement, intégration sans copie, fonctions
+d'initialisation, post-traitements, rotations, emplacement des données), TFEL du
+proto (R1 à R8). Essais préalables : point fixe à opérateur constant et
 solveur GPU écrit à la main (loi J2 en CUDA), dossier autonome
 `mfem-mgis-gpu` hors de ce dépôt.
 

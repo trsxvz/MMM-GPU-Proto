@@ -70,11 +70,11 @@ namespace mfront::generic_parallel::material_property {
          << "}\n";
     }
     if (requiresBoundsCheck) {
-      // we do need to use heap allocations as nvc++ would automatically use
-      // managed memory
-      os << "auto mfront_bounds_statuses_storage = std::vector<int>{};\n"
-         << "mfront_bounds_statuses_storage.resize("
-         << getStatusesArraySize(mpd) << ", 0);\n";
+      // the statuses are allocated on the heap, which is accessible by the
+      // device when the computations are offloaded (managed memory with
+      // nvc++)
+      writeBoundsStatusesDeclaration(
+          os, mpd, "int", "0", "return new (std::nothrow) int[mfront_n];");
     }
     this->writeKernels(os, i, mpd, fd, treatStrides);
     auto write_kernel_call = [&os, this, &types](const std::string_view npoints,

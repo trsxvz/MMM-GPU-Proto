@@ -231,6 +231,7 @@ are performed.
 typedef struct {
   int status;
   mfront_gb_size_type number_of_failures;
+  mfront_gb_size_type first_failure_index;
   mfront_gb_size_type number_of_unreliable_results;
   mfront_gb_real rdt;  // minimum over the batch
   char msg[512];
@@ -242,8 +243,8 @@ The status, also returned by the function, is:
 - `1` if the integration succeeded at all points;
 - `0` if the integration succeeded at all points but the time step scaling
   factor is lower than `0.99` at some points;
-- `-1` if the integration failed at some points (see `statuses` to locate
-  them);
+- `-1` if the integration failed at some points (`first_failure_index`
+  gives the first one, `statuses` locates all of them);
 - `-2` if the arguments are invalid (nothing is computed);
 - `-3` in case of a runtime error of the backend (allocation, launch of a
   kernel, etc.).
@@ -256,10 +257,12 @@ properties (`mfront_gmp_OutputStatus`), where `0` denotes a success.
 The message describes invalid arguments and runtime errors. The error
 messages of the points (`error_message` of the `generic` interface) are not
 reported: the code executed on a device can't throw exceptions, and a
-buffer per point would increase the stack of the threads. The `statuses`
-field locates the points where the integration failed: the error message of
-such a point can be obtained by integrating it with the `generic`
-interface.
+buffer per point would increase the stack of the threads. The index of the
+first point where the integration failed is reported, whatever the order
+of the computations, and the `statuses` field locates all of them: the
+error message of such a point can be obtained by integrating it with the
+`generic` interface. If no point failed, `first_failure_index` is the
+maximal value of its type.
 
 ## Execution options
 
@@ -284,6 +287,7 @@ structure, which must be accessible by the device as the fields:
 ~~~~{.cxx}
 typedef struct {
   unsigned long long number_of_failures;
+  unsigned long long first_failure_index;
   unsigned long long number_of_unreliable_results;
   unsigned long long rdt;  // see mfront_gpb_getTimeStepScalingFactor
 } mfront_gpb_BatchStatistics;
@@ -311,6 +315,23 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
 `mfront_gpb_getStatus` gives the status associated with the statistics
 (`1`, `0` or `-1`). The rotations never fail and leave the statistics
 unchanged.
+
+The reporting of the statistics costs nothing when the computations
+succeed: the devices only write in the statistics when an event occurs at
+a point (failure, unreliable result, decrease of the time step scaling
+factor), by atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` in
+asynchronous mode) or by parallel reductions (`Kokkos` in synchronous
+mode, `OpenMP`, C++ parallel algorithms). In synchronous mode, the
+`CUDA`, `HIP` and `SYCL` backends hold the statistics in a block of memory
+accessible by the host and by the device (managed memory, shared USM
+memory), initialized and read by the host: no data is transferred between
+the host and the device when no event occurs. Those blocks are allocated at
+the first call on a device and reused by the following calls (see
+`mfront::generic_parallel::StatusBlockPool`), as the statuses of the
+bounds checks of the material properties. With `CUDA` and `HIP`, on
+devices which do not support concurrent accesses to managed memory by the
+host and the device (for instance on Windows), no other kernel may run
+during a synchronous call.
 
 The stack size of the threads of a GPU is a property of the context of the
 device, shared by all the computations of the process. It is increased if
@@ -387,8 +408,9 @@ properties, so that the same configuration files can be used.
 
 One thread integrates the behaviour at one point. The kernel is launched on
 the queue given by the execution options. The summary of the batch is
-reduced by warp: atomic operations are only used by the warps where a point
-failed or decreased the time step scaling factor.
+reduced by warp: the warps where no point failed, gave an unreliable result
+or decreased the time step scaling factor do nothing more (vote), the
+others use one atomic operation per member of the statistics.
 
 The values of a point are copied in local arrays and the results are
 copied back after the integration, whatever the layout of the fields.

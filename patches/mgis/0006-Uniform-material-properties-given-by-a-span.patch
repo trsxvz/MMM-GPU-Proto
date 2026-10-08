@@ -1,0 +1,77 @@
+From afb1c55daa19b15fff903206b6a54073b0592cae Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 06:13:18 +0200
+Subject: [PATCH] Uniform material properties given by a span
+
+A material property given by a span may hold one value, uniform, as an
+external state variable. The evaluation of the material properties
+already treated such a span as uniform, but the setters refused it.
+
+This is the only way to give a uniform material property in memory
+accessible by a device, a uniform value held by the material state manager
+being in the memory of the host.
+---
+ include/MGIS/Behaviour/MaterialStateManager.hxx | 6 +++---
+ src/MaterialStateManager.cxx                    | 8 ++++++--
+ 2 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index 773eec4..4caff3b 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -258,7 +258,7 @@ namespace mgis::behaviour {
+    * \brief set the given material property
+    * \param[out] m: material state manager
+    * \param[in] n: name
+-   * \param[in] v: values
++   * \param[in] v: values, one per integration point, or a uniform value
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    */
+@@ -291,7 +291,7 @@ namespace mgis::behaviour {
+    * \param[in, out] ctx: execution context
+    * \param[out] m: material state manager
+    * \param[in] n: name
+-   * \param[in] v: values
++   * \param[in] v: values, one per integration point, or a uniform value
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    */
+@@ -310,7 +310,7 @@ namespace mgis::behaviour {
+    * \param[in, out] ctx: execution context
+    * \param[out] m: material state manager
+    * \param[in] n: name
+-   * \param[in] v: values
++   * \param[in] v: values, one per integration point, or a uniform value
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    *
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index 34a8014..9eca5a8 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -224,7 +224,9 @@ namespace mgis::behaviour {
+           "invalid material property (only scalar material property is "
+           "supported)");
+     }
+-    if (static_cast<mgis::size_type>(v.size()) != m.n) {
++    // one value per integration point, or an uniform value, as for the
++    // external state variables
++    if ((static_cast<mgis::size_type>(v.size()) != m.n) && (v.size() != 1)) {
+       return ctx.registerErrorMessage(
+           "invalid number of values (does not match the number of integration "
+           "points)");
+@@ -255,7 +257,9 @@ namespace mgis::behaviour {
+           "invalid material property "
+           "(only scalar material property is supported)");
+     }
+-    if (static_cast<mgis::size_type>(v.size()) != m.n) {
++    // one value per integration point, or an uniform value, as for the
++    // external state variables
++    if ((static_cast<mgis::size_type>(v.size()) != m.n) && (v.size() != 1)) {
+       return ctx.registerErrorMessage(
+           "invalid number of values (does not match the number of integration "
+           "points)");
+-- 
+2.43.0
+

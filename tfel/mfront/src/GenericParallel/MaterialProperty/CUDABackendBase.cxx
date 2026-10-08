@@ -42,11 +42,9 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface&,
       const MaterialPropertyDescription&) const {
-    os << "#include <memory>\n"
-       << "#include <algorithm>\n"
+    os << "#include <algorithm>\n"
        << "#include<type_traits>\n"
-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
-       << "#include\"TFEL/FSAlgorithm/fill.hxx\"\n\n";
+       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
   }  // end of writeSpecificIncludesInSourceFile
 
   void CUDABackendBase::writeGlobalFunctions(
@@ -132,24 +130,23 @@ namespace mfront::generic_parallel::material_property {
     const auto pm = this->getProgrammingModel();
     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
     if (isBoundsCheckingRequired(mpd)) {
-      os << "int *mfront_bounds_statuses;\n"
-         << "const auto mfront_" << pm << "_alloc_managed__error = " << pm
-         << "MallocManaged(&mfront_bounds_statuses,\n"
-         << getStatusesArraySize(mpd) << " * sizeof(int));\n"
-         << "if (mfront_" << pm << "_alloc_managed__error != " << pm
-         << "Success) {\n"
+      // the statuses are held by a block of managed memory of the current
+      // device
+      os << "auto mfront_device = int{};\n"
+         << "const auto mfront_" << pm << "_device_error = " << pm
+         << "GetDevice(&mfront_device);\n"
+         << "if (mfront_" << pm << "_device_error != " << pm << "Success) {\n"
          << "mfront_output_status->status = -6;\n"
          << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
-         << "_alloc_managed__error)"
-         << ");\n"
+         << "_device_error));\n"
          << "return;\n"
-         << "}\n"
-         << "std::unique_ptr<int, void (*)(int *const) noexcept> "
-         << "mfront_bounds_statuses_ptr(mfront_bounds_statuses, "
-         << "+[](int *const mfront_ptr) noexcept {"
-         << "std::ignore = " << pm << "Free(mfront_ptr);});"
-         << "tfel::fsalgo::fill<" << getStatusesArraySize(mpd)
-         << ">::exe(mfront_bounds_statuses, 0);\n";
+         << "}\n";
+      writeBoundsStatusesDeclaration(
+          os, mpd, "int", "mfront_device",
+          "int* mfront_ptr = nullptr;\n"
+          "return " +
+              pm + "MallocManaged(&mfront_ptr, mfront_n * sizeof(int)) == " +
+              pm + "Success ? mfront_ptr : nullptr;");
     }
     this->writeKernelCall(os, i, mpd, treatStrides);
     this->writeResultsAnalysis(os, i, mpd);
@@ -198,7 +195,7 @@ namespace mfront::generic_parallel::material_property {
          << "return;\n"
          << "}\n"
          << "const auto mfront_" << pm << "_kernel_error = " << pm
-         << "DeviceSynchronize();\n"
+         << "StreamSynchronize(nullptr);\n"
          << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n"
          << "mfront_output_status->status = -6;\n"
          << "mfront_report(" << pm << "GetErrorString(mfront_" << pm

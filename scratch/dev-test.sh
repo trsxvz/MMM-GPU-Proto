@@ -84,6 +84,9 @@ grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd
     *compare-all.sh*) cmd="$cmd '$pattern'" ;;
     # DEVTEST_BEHAVIOURS restricts the built behaviours (all by default)
     *build-libraries.sh*) cmd="$cmd ${DEVTEST_BEHAVIOURS:-}" ;;
+    # the comparisons called directly by the test may use behaviours which
+    # are not built in a targeted test
+    ./compare*) [ -n "${DEVTEST_BEHAVIOURS:-}" ] && continue ;;
   esac
   if ! sh -c "$cmd" > cmd.log 2>&1; then
     echo "$c: FAILED: ${cmd:0:120}"

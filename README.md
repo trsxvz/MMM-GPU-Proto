@@ -63,5 +63,6 @@ et les balayages de compilation.
 
 ## Bibliothèques suivantes
 
-MGIS (`818f0f9`) et mfem-mgis (`4c8a91d815`) ne sont pas encore modifiés.
+MGIS part de `818f0f9` (patchs dans `patches/mgis`) ; mfem-mgis
+(`4c8a91d815`) n'est pas encore modifié.
 Ils seront adaptés une fois TFEL finalisé (voir `JOURNAL.md`, plan D1/D2).
