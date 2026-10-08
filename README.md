@@ -17,7 +17,8 @@ GPU.
 - **mfem-mgis**, ses exemples (`mfem-mgis-examples`) et `mm-opera-hpc`
   ne sont pas encore modifiés. Leurs sources sont suivies ici, à leur
   version de base, pour que les changements à venir apparaissent comme des
-  différences. Le plan est à discuter.
+  différences. Les choix sont faits, le travail commence par une API de
+  vues dans MGIS ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)).
 
 ## Différences avec les versions officielles
 

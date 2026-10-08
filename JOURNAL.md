@@ -25,7 +25,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | R12 | statistiques des propriétés matériau calquées sur les lois |
 | R13 | audit final de TFEL et de MGIS, corrections, seconde relecture |
 | D1 | MGIS : lots de lois, de modèles et de propriétés matériau |
-| D2 | mfem-mgis : plan à discuter ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
+| D2 | mfem-mgis : choix retenus, travail à venir ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
 
 ## Conventions
 
@@ -98,6 +98,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | [2026-10-08 (nuit, suite), calcul asynchrone dans MGIS (D1, étape 5)](#2026-10-08-nuit-suite-calcul-asynchrone-dans-mgis-d1-étape-5) |
 | [2026-10-08 (nuit, fin), premier point en échec des propriétés matériau (R12)](#2026-10-08-nuit-fin-premier-point-en-échec-des-propriétés-matériau-r12) |
 | [2026-10-08 (nuit, clôture), audit final de TFEL et de MGIS (R13)](#2026-10-08-nuit-clôture-audit-final-de-tfel-et-de-mgis-r13) |
+| [2026-10-08 (fin), choix pour mfem-mgis (D2)](#2026-10-08-fin-choix-pour-mfem-mgis-d2) |
 
 ## Entrées
 
@@ -2360,3 +2361,27 @@ corrigé.
 En reconstruisant les bibliothèques de test de MGIS avec `-Wshadow`, un
 avertissement est apparu dans le code des post-traitements de lots (une
 variable locale masquait un membre) : corrigé.
+
+### 2026-10-08 (fin), choix pour mfem-mgis (D2)
+
+Le plan pour mfem-mgis est tranché. Il est décrit dans
+[docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md). En bref :
+
+- deux buts : explorer (mesures, variantes) et proposer un code propre aux
+  développeurs de mfem-mgis. Tout est choisissable par des options, le
+  chemin actuel reste le chemin par défaut ;
+- deux points d'entrée dans MFEM : assemblage partiel de `NonlinearForm`
+  et opérateur propre à mfem-mgis, sur les mêmes noyaux par lot ;
+- deux rangements des données aux points de Gauss : point par point et
+  composante par composante. MGIS n'accepte aujourd'hui que le premier :
+  une API sur des vues est la première étape ;
+- trois options de l'opérateur tangent (sans matrice, point fixe élastique,
+  tangente assemblée) et un solveur non linéaire de point fixe ;
+- Ginkgo dans la fabrique de solveurs, solveurs directs gardés sur CPU ;
+- MFEM 4.9, la version utilisée jusqu'ici par mfem-mgis, à compiler avec
+  CUDA. La spécification de `deps/spack/mmm-gpu/spack.yaml` (4.10) sera
+  changée avant la compilation.
+
+Les sources de mfem-mgis (master `a011d97d6f`), de mfem-mgis-examples
+(master `a242567`) et de mm-opera-hpc (main `c31c4bc`) sont suivies dans
+ce dépôt depuis leur base, sans modification (`scripts/sync-repository.sh`).
