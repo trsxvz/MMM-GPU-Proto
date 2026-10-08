@@ -12,7 +12,8 @@ GPU.
   comparés systématiquement à ceux de l'interface `generic`.
 - **MGIS** charge ces bibliothèques et calcule des lots sans copier les
   données. Ses fonctions existantes basculent seules sur le calcul par
-  lot. L'appelant choisit la mémoire et la file d'exécution.
+  lot. L'appelant choisit la mémoire, la file d'exécution, et le calcul
+  synchrone (par défaut) ou asynchrone.
 - **mfem-mgis** n'est pas encore modifié. Son plan est à discuter.
 
 ## Différences avec les versions officielles

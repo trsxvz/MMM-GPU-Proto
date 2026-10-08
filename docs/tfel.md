@@ -360,11 +360,24 @@ incohérente).
 | Statut par point | optionnel | non |
 
 La seule différence vient du statut de sortie des propriétés matériau. Il
-reprend celui de l'interface `generic` des propriétés matériau : statut,
-rang de la variable hors bornes et message. Il n'a pas de champ pour un
-indice de point. Ajouter l'indice demanderait une nouvelle structure de
-statut, incompatible avec l'interface `generic`, et des opérations
-atomiques dans les noyaux de tous les backends. Ce choix reste à discuter.
+reprend celui de l'interface `generic` des propriétés matériau, conçu pour
+un seul point : statut, rang de la variable hors bornes et message. Les
+noyaux n'écrivent que des drapeaux : deux par variable (borne physique,
+borne standard) et un pour un résultat non fini. Un drapeau dit qu'au
+moins un point a violé une borne, pas lequel.
+
+Trois façons de combler l'écart, à discuter :
+
+- **A.** Un statut propre aux propriétés matériau `generic-parallel`,
+  calqué sur celui des lois : nombre d'échecs et premier point en échec,
+  mis à jour par opération atomique seulement en cas d'échec. Les lois ont
+  déjà un statut distinct de celui de l'interface `generic` : c'est la
+  solution la plus symétrique. La signature des fonctions change.
+- **B.** Un pointeur facultatif vers l'indice dans les options
+  d'exécution. Moins de changements, mais l'information n'est pas au même
+  endroit que pour les lois, et le nombre d'échecs manque.
+- **C.** En complément de A, un tableau optionnel de statuts par point,
+  comme celui des lois.
 
 ## Code GPU dans TFEL et MFront
 
@@ -538,6 +551,7 @@ Les pages de mots-clés ne sont pas régénérées en entier : TFEL a corrigé
 des fautes directement dans ces pages, pas dans les fichiers d'aide dont
 elles sont tirées. Une régénération complète les ferait revenir.
 
-Un défaut de CMake est noté, pas corrigé : les tests `sycl-gpu-acpp`
-utilisent les fichiers de configuration de `sycl-default-acpp`, installés
-seulement si cette configuration est aussi choisie.
+Un défaut de CMake a été trouvé pendant cette relecture : les tests
+`sycl-gpu-acpp` utilisent les fichiers de configuration de
+`sycl-default-acpp`, qui n'étaient installés que si cette configuration
+était aussi choisie. Ils sont maintenant installés avec l'une ou l'autre.

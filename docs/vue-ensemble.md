@@ -86,7 +86,8 @@ fonction de lot traite tous ces points en un appel.
 | TFEL/MFront : interface `generic-parallel` des propriétés matériau | étendue (options d'exécution, asynchrone, nouveaux backends) | [tfel.md](tfel.md#interface-generic-parallel-des-propriétés-matériau) |
 | TFEL/MFront : code GPU et corrections | fait | [tfel.md](tfel.md#code-gpu-dans-tfel-et-mfront) |
 | MGIS : lots de lois, de modèles et de propriétés matériau | fait | [mgis.md](mgis.md) |
-| MGIS : calcul asynchrone, mise à jour des états sur GPU | à faire, après les premiers essais de mfem-mgis | [mgis.md](mgis.md#limites-actuelles) |
+| MGIS : calcul asynchrone | fait, synchrone par défaut | [mgis.md](mgis.md#calcul-asynchrone) |
+| MGIS : mise à jour des états sur GPU | à faire, avec mfem-mgis | [mgis.md](mgis.md#limites-actuelles) |
 | Documentation de TFEL et de MGIS (pages web, Doxygen, commentaires) | à jour avec les changements | [tfel.md](tfel.md#documentation-dans-larbre-de-tfel), [mgis.md](mgis.md#documentation-dans-larbre-de-mgis) |
 | mfem-mgis | non modifié, plan à discuter | [plan-mfem-mgis.md](plan-mfem-mgis.md) |
 | Performance des noyaux | non mesurée sérieusement | [plan-mfem-mgis.md](plan-mfem-mgis.md#performance) |

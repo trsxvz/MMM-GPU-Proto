@@ -30,11 +30,11 @@ s'appuie sur TFEL et MGIS tels que décrits dans [tfel.md](tfel.md) et
   Une bibliothèque de lots y est refusée avec un message clair.
 - Politique d'exécution (file), emplacement des tableaux vérifié,
   ressources mémoire.
-- Pas encore : calcul asynchrone et mise à jour des états sur GPU. TFEL
-  offre déjà le calcul asynchrone, pour les lois comme pour les propriétés
-  matériau. MGIS l'exposera pendant ce travail, quand mfem-mgis saura
-  soumettre plusieurs matériaux avant une seule synchronisation (voir
-  [Étapes](#étapes)).
+- Calcul synchrone par défaut, ou asynchrone avec une politique
+  asynchrone : plusieurs matériaux peuvent être soumis avant une seule
+  synchronisation.
+- Pas encore : mise à jour des états sur GPU (`update`, `revert`). Elle
+  sera ajoutée pendant ce travail (voir [Étapes](#étapes)).
 
 ### Essais préalables
 
@@ -177,8 +177,8 @@ profil `nsys`.
 4. Opérateur tangent, options a et b. hypre sur GPU.
 5. Option c : tangente assemblée sur le GPU.
 6. Autres hypothèses et types de gradients, rotations orthotropes.
-7. Calcul asynchrone et mise à jour des états sur GPU dans MGIS, plusieurs
-   matériaux, sorties.
+7. Mise à jour des états sur GPU dans MGIS, plusieurs matériaux soumis en
+   asynchrone, sorties.
 8. Ginkgo, compilation HIP.
 9. Campagne de performance, documentation.
 
@@ -194,13 +194,18 @@ profil `nsys`.
 4. **Premier cas cible** : poutre en plasticité en petites déformations 3D
    (proposé), ou un cas plus proche des études (polycristal, grandes
    déformations) ?
-5. **Calcul asynchrone dans MGIS** : à l'étape 7, ou dès les premiers
-   matériaux multiples ?
+5. **Calcul asynchrone dans mfem-mgis** : MGIS l'offre. Faut-il s'en servir
+   dès les premiers matériaux multiples, ou à l'étape 7 ?
 6. **Propriétés matériau aux points de Gauss** : fonctions de MFEM, ou
    propriétés matériau `generic-parallel` évaluées par MGIS ?
-7. **Indice du point en échec pour les propriétés matériau** : faut-il une
-   nouvelle structure de statut dans TFEL (voir
-   [tfel.md](tfel.md#comparaison-entre-lois-et-propriétés-matériau)) ?
+7. **Indice du point en échec pour les propriétés matériau** (voir
+   [tfel.md](tfel.md#comparaison-entre-lois-et-propriétés-matériau)) :
+   - A. statut propre aux propriétés matériau `generic-parallel`, calqué
+     sur les lois (nombre d'échecs, premier point en échec), coût nul en
+     cas de succès (recommandé) ;
+   - B. pointeur facultatif vers l'indice dans les options d'exécution ;
+   - C. en complément de A, tableau optionnel de statuts par point, comme
+     pour les lois.
 8. **Proposition amont** : un chemin parallèle activé par option, pour
    rester acceptable par les mainteneurs de mfem-mgis.
 

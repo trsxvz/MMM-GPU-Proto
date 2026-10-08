@@ -35,7 +35,8 @@ propriétés matériau calculés par lots, sur CPU ou sur GPU.
   `executePostProcessing`, rotations) basculent seules sur le calcul par
   lot. Le code appelant ne change pas.
 - Chaque fonction de lot existe aussi avec une politique d'exécution, qui
-  choisit la file (flux CUDA, file SYCL, etc.).
+  choisit la file (flux CUDA, file SYCL, etc.). Le calcul est synchrone par
+  défaut, asynchrone avec une politique asynchrone.
 - Les données ne sont jamais copiées : le lot est décrit directement sur
   les tableaux du `MaterialDataManager`.
 - L'appelant déclare où sont ses tableaux. MGIS vérifie qu'ils sont
@@ -203,14 +204,58 @@ propriétés matériau :
 - `preserve_stack_size` : interdit de modifier la taille de pile des fils
   du GPU.
 
-Les calculs de MGIS sont synchrones : la fonction rend la main une fois le
-calcul fini.
+Avec cette politique, le calcul est synchrone : la fonction rend la main
+une fois le calcul fini. C'est le défaut.
 
 Les fonctions sans politique utilisent celle du gestionnaire
 (`batch_execution_policy`), ou une politique par défaut pour les rotations
 et les propriétés matériau. La politique par défaut donne une file nulle.
 SYCL n'a pas de file par défaut : il faut alors passer une politique, ou
 donner une file au gestionnaire.
+
+## Calcul asynchrone
+
+Chaque fonction de lot existe aussi avec une politique asynchrone
+(`mgis::AsynchronousBatchExecutionPolicy`) : intégration, fonctions
+d'initialisation, post-traitements, rotations, évaluation des propriétés
+matériau. Rien ne change pour le code qui ne s'en sert pas.
+
+```cpp
+auto p = AsynchronousBatchExecutionPolicy{};
+p.queue = stream;
+p.resource = &resource;  // mémoire managée
+p.location = MemoryLocation::SHARED;
+const auto pending = integrate(p, m, opts, dt);
+// ... autres calculs soumis au flux, par exemple d'autres matériaux
+cudaStreamSynchronize(stream);
+const auto r = pending.getResult();
+```
+
+- La fonction rend la main dès le calcul soumis. Elle rend un calcul en
+  attente : `PendingBatchComputation` pour les lois et les modèles,
+  `PendingBatchEvaluation` pour les propriétés matériau.
+- Une fois la file synchronisée par l'appelant, `getResult` rend le
+  résultat de la fonction synchrone, indice du premier point en échec
+  compris. MGIS ne peut pas synchroniser la file lui-même : il ne dépend
+  d'aucune bibliothèque GPU.
+- Le calcul en attente garde la mémoire écrite ou lue par le GPU : le
+  statut du calcul (statistiques des lois, statuts des propriétés
+  matériau) et, pour les rotations, les matrices construites à partir des
+  axes du matériau. Il ne doit pas être détruit avant la fin du calcul.
+- Ce statut est initialisé et lu par l'hôte, écrit par le GPU. La
+  politique donne la ressource mémoire qui l'alloue et son emplacement.
+  MGIS vérifie qu'il est accessible par les deux : mémoire de l'hôte pour
+  les calculs sur l'hôte, mémoire partagée sinon.
+
+Les deux modes partagent tout le code, sauf l'obtention du statut : en
+synchrone, la fonction générée le rend ; en asynchrone, il est lu dans les
+statistiques après la synchronisation. Le résultat est donc le même.
+
+Les rotations à partir des axes du matériau (`RotationMatrix2D`,
+`RotationMatrix3D`) construisent les matrices dans la mémoire allouée par
+la ressource de la politique. En asynchrone, elles marchent donc aussi
+pour une bibliothèque qui calcule sur le GPU, ce que la version synchrone
+refuse (matrices construites dans la mémoire de l'hôte).
 
 ## Erreurs
 
@@ -248,9 +293,9 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
 
 ## Limites actuelles
 
-- **Pas de calcul asynchrone dans MGIS.** TFEL le permet pour les lois et
-  les propriétés matériau. MGIS l'exposera avec la mise à jour des états sur
-  GPU (`update`, `revert`), après les premiers essais de mfem-mgis.
+- **Mise à jour des états sur l'hôte.** `update` et `revert` copient les
+  états sur l'hôte. Leur version sur GPU viendra avec mfem-mgis, qui
+  possède la mémoire.
 - **Pas de statut par point** : le tableau optionnel de TFEL n'est pas
   exposé.
 - **Liaisons** : les liaisons C refusent les bibliothèques de lots ; les

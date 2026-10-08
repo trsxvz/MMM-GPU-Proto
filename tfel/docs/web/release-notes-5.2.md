@@ -161,8 +161,8 @@ The following configurations are supported for parallel computations:
   programming model and AdaptiveCpp's `acpp` compiler.
 - `sycl-gpu-acpp`: tests of the `SYCL` backend for material properties on
   the GPU with AdaptiveCpp's `acpp` compiler. Those tests use the
-  configuration files of the `sycl-default-acpp` configuration, which must
-  also be selected.
+  configuration files of the `sycl-default-acpp` configuration, which are
+  installed if one of those two configurations is selected.
 - `kokkos`: configuration associated with the `Kokkos` library, using the
   compiler and the flags of the `Kokkos` installation found by `cmake`
   (default execution space and default host execution space).

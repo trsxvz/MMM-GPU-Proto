@@ -93,6 +93,7 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 | [2026-10-08 (soir, suite), évaluation asynchrone des propriétés matériau (R10, suite)](#2026-10-08-soir-suite-évaluation-asynchrone-des-propriétés-matériau-r10-suite) |
 | [2026-10-08 (soir, fin), files SYCL et blocs de fils des propriétés matériau (R10, fin)](#2026-10-08-soir-fin-files-sycl-et-blocs-de-fils-des-propriétés-matériau-r10-fin) |
 | [2026-10-08 (nuit), documentation de TFEL et de MGIS (R11)](#2026-10-08-nuit-documentation-de-tfel-et-de-mgis-r11) |
+| [2026-10-08 (nuit, suite), calcul asynchrone dans MGIS (D1, étape 5)](#2026-10-08-nuit-suite-calcul-asynchrone-dans-mgis-d1-étape-5) |
 
 ## Entrées
 
@@ -2152,4 +2153,43 @@ mal annotés.
 Seuls des commentaires ont changé dans le code : vérifié en comparant les
 sources sans leurs commentaires (MGIS), en lisant le diff et en compilant
 (TFEL et MGIS).
+
+### 2026-10-08 (nuit, suite), calcul asynchrone dans MGIS (D1, étape 5)
+
+TFEL offrait le calcul asynchrone pour tout. MGIS ne l'exposait pas.
+C'est fait, le synchrone restant le défaut.
+
+- Une politique asynchrone (`mgis::AsynchronousBatchExecutionPolicy`)
+  reprend la file et la pile de la politique synchrone. Elle ajoute la
+  ressource mémoire qui alloue le statut du calcul, et son emplacement.
+- Chaque fonction de lot l'accepte : intégration, fonctions
+  d'initialisation, post-traitements, rotations, évaluation des
+  propriétés matériau. Elle rend un calcul en attente
+  (`PendingBatchComputation`, `PendingBatchEvaluation`).
+- Après la synchronisation de la file par l'appelant, `getResult` rend le
+  résultat de la fonction synchrone. Le code est commun aux deux modes,
+  sauf l'obtention du statut. MGIS ne synchronise rien : il ne dépend
+  d'aucune bibliothèque GPU.
+- Le calcul en attente garde la mémoire que le GPU écrit ou lit : le
+  statut, et les matrices de rotation construites à partir des axes du
+  matériau. Ces matrices sont allouées par la ressource de la politique :
+  en asynchrone, elles marchent aussi pour une loi qui calcule sur le GPU.
+- MGIS vérifie que le statut est accessible par l'hôte (initialisation,
+  lecture) et par les calculs.
+- Les propriétés matériau chargent la fonction de compte rendu et le
+  nombre de statuts de leur bibliothèque.
+
+Tests : sur CPU (`stlpar`), mêmes résultats qu'en synchrone, indice du
+premier point en échec compris, refus d'une loi `generic` et d'un statut
+mal placé. Sur GPU (CUDA, flux non par défaut, mémoire managée, sans HMM) :
+intégration, rotation à partir des axes du matériau, bornes d'une
+propriété matériau. MGIS : 45 tests sur 45.
+
+TFEL : les tests `sycl-gpu-acpp` utilisent les fichiers de configuration
+de `sycl-default-acpp`. Ils sont maintenant installés si l'une des deux
+configurations est choisie (vérifié par une configuration avec
+`sycl-gpu-acpp` seule).
+
+Reste à discuter : l'indice du premier point en échec pour les propriétés
+matériau (trois options dans [docs/tfel.md](docs/tfel.md#comparaison-entre-lois-et-propriétés-matériau)).
 
