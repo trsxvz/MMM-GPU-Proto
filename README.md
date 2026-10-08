@@ -13,19 +13,21 @@ GPU.
 - **MGIS** charge ces bibliothèques et calcule des lots sans copier les
   données. Ses fonctions existantes basculent seules sur le calcul par
   lot. L'appelant choisit la mémoire, la file d'exécution, et le calcul
-  synchrone (par défaut) ou asynchrone.
+  synchrone (par défaut) ou asynchrone. Les données peuvent être rangées
+  composante par composante, ou appartenir à l'appelant et être décrites
+  par des vues, sur GPU compris, fin de pas comprise.
 - **mfem-mgis**, ses exemples (`mfem-mgis-examples`) et `mm-opera-hpc`
   ne sont pas encore modifiés. Leurs sources sont suivies ici, à leur
   version de base, pour que les changements à venir apparaissent comme des
-  différences. Les choix sont faits, le travail commence par une API de
-  vues dans MGIS ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)).
+  différences. Les choix sont faits ; la première étape, l'API de vues de
+  MGIS, est faite ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)).
 
 ## Différences avec les versions officielles
 
 | Bibliothèque | Base officielle | Ce qui change | Détails |
 |---|---|---|---|
 | TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
-| MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, corrections | [docs/mgis.md](docs/mgis.md) |
+| MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
 | mfem-mgis | master `a011d97d6f` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
 | mfem-mgis-examples | master `a242567` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
 | mm-opera-hpc | main `c31c4bc` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |

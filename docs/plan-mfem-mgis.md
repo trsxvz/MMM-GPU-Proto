@@ -335,7 +335,8 @@ profil `nsys`.
 1. **MGIS : API sur des vues** pour les deux rangements des données aux
    points (lois, modèles, propriétés matériau ; synchrone et asynchrone),
    et mise à jour des états sur GPU. Tests sur CPU et CUDA, relecture
-   indépendante.
+   indépendante. Fait le 2026-10-09 (voir
+   [mgis.md](mgis.md#vues-et-rangements)).
 2. **MFEM 4.9 avec CUDA** dans l'environnement `mmm-gpu` (une nuit, peu de
    tâches à la fois : un fichier peut demander 22 Go), avec Ginkgo si on le
    branche par MFEM.
@@ -362,11 +363,12 @@ bundle.
 
 ## Questions ouvertes
 
-- Forme exacte de l'API de vues dans MGIS (étape 1).
 - Propriétaire de la mémoire aux points sur GPU : `mfem::Memory` dans les
-  `PartialQuadratureFunction`, vues par MGIS. Fin d'un pas de temps sans
-  copie vers l'hôte : échange des tableaux de début et de fin de pas, ou
-  copie sur le GPU par `update`.
+  `PartialQuadratureFunction`, vues par MGIS. La fin d'un pas de temps
+  sans copie vers l'hôte est réglée côté MGIS : copie sur le GPU par
+  `update` avec des opérations fournies par l'appelant. L'échange des
+  tableaux est écarté : il n'équivaut pas à `update` (une prédiction
+  n'écrit pas l'état de fin de pas).
 - Proposition amont : un chemin parallèle activé par option, acceptable
   par les mainteneurs de mfem-mgis.
 

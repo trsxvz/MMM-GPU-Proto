@@ -22,10 +22,11 @@ propriétés matériau calculés par lots, sur CPU ou sur GPU.
 6. [Propriétés matériau](#propriétés-matériau)
 7. [Mémoire](#mémoire)
 8. [Politique d'exécution](#politique-dexécution)
-9. [Erreurs](#erreurs)
-10. [Corrections de défauts existants](#corrections-de-défauts-existants)
-11. [Limites actuelles](#limites-actuelles)
-12. [Exemple](#exemple)
+9. [Vues et rangements](#vues-et-rangements)
+10. [Erreurs](#erreurs)
+11. [Corrections de défauts existants](#corrections-de-défauts-existants)
+12. [Limites actuelles](#limites-actuelles)
+13. [Exemple](#exemple)
 
 ## Ce qui change en bref
 
@@ -39,6 +40,10 @@ propriétés matériau calculés par lots, sur CPU ou sur GPU.
   défaut, asynchrone avec une politique asynchrone.
 - Les données ne sont jamais copiées : le lot est décrit directement sur
   les tableaux du `MaterialDataManager`.
+- Les tableaux peuvent être rangés composante par composante, ou
+  appartenir à l'appelant et être décrits par des vues à pas quelconques,
+  sur GPU compris. La fin de pas se fait alors sur le GPU (voir
+  [Vues et rangements](#vues-et-rangements)).
 - L'appelant déclare où sont ses tableaux. MGIS vérifie qu'ils sont
   accessibles par les calculs de la bibliothèque.
 - MGIS ne dépend d'aucune bibliothèque GPU. Les tableaux viennent de
@@ -285,6 +290,69 @@ la ressource de la politique. En asynchrone, elles marchent donc aussi
 pour une bibliothèque qui calcule sur le GPU, ce que la version synchrone
 refuse (matrices construites dans la mémoire de l'hôte).
 
+Chaque appel asynchrone alloue son statut avec la ressource de la
+politique. Avec une ressource de mémoire managée, c'est un
+`cudaMallocManaged` et un `cudaFree` par appel. Le remède est standard :
+un `std::pmr::synchronized_pool_resource` au-dessus de la ressource
+managée, que la doc de MGIS recommande et que les tests utilisent. Les
+ressources de MGIS acceptent pour cela tout alignement (voir
+[Corrections de défauts existants](#corrections-de-défauts-existants)).
+Avec un pool, détruire un calcul en attente avant la fin du calcul
+corrompt l'appel suivant au lieu d'être seulement lent.
+
+## Vues et rangements
+
+Un `MaterialDataManager` range ses tableaux point par point par défaut.
+MFEM et les codes GPU possèdent souvent leurs tableaux, rangés composante
+par composante pour la coalescence. Le prototype ajoute à MGIS une API sur
+des vues, qui décrit ces tableaux sans les copier. TFEL n'a pas eu à
+changer : son contrat décrit déjà chaque champ par deux pas.
+
+- **`FieldView`** : vue sur les valeurs d'un groupe de variables, avec un
+  pas entre deux points et un pas entre deux composantes. Un pas de point
+  nul décrit des valeurs uniformes. Fabriques : `makeFieldView`,
+  `makePointByPointFieldView`, `makeComponentByComponentFieldView`,
+  `makeUniformFieldView`, `getComponents`. Une sortie doit avoir des
+  valeurs distinctes : MGIS le vérifie.
+- **Rangement d'un gestionnaire** : `MaterialDataManagerInitializer::layout`
+  (`POINT_BY_POINT` par défaut, ou `COMPONENT_BY_COMPONENT`). Tout ce qui
+  est donné par point au gestionnaire suit ce rangement : états, blocs de
+  la tangente, vitesse du son, variables externes à plusieurs composantes,
+  entrées des fonctions d'initialisation, sorties des post-traitements,
+  de l'extraction et des conversions des grandes transformations. `save`
+  et `restore` écrivent toujours point par point.
+- **`MaterialDataView`** : les données d'un matériau dans les tableaux de
+  l'appelant. Toutes les fonctions du gestionnaire existent sur une vue.
+  Celles du gestionnaire appellent celles de la vue : un seul chemin de
+  code. Sans politique, elles prennent un espace de travail
+  (`BehaviourIntegrationWorkSpace`), un par fil. Pas de `ThreadPool` sur
+  une vue : le parallélisme CPU passe par les backends `openmp` et
+  `stlpar`.
+- **Rotations et propriétés matériau** : surcharges sur vues. Les
+  surcharges sur tableaux passent par elles.
+- **Fin de pas sur GPU** : `update`, `revert` et `updateValues` prennent
+  des opérations de copie (`FieldOperations`), comme les allocations
+  passent par une `std::pmr::memory_resource`. MGIS sait quels tableaux
+  copier, l'appelant fournit la copie. En-têtes pour CUDA, HIP, SYCL,
+  Kokkos et OpenMP, compilés par l'appelant avec sa chaîne GPU.
+- **`MaterialFunctionManager`** : constructeur avec initialiseur. Rangé
+  composante par composante, il rend des vues *strided coalesced* de
+  `mgis::function`.
+- **Liaisons** : le rangement est exposé en C, Fortran et Python (tableaux
+  numpy avec les pas du rangement).
+- **Coût** : les noyaux de TFEL sont inchangés, seul le calcul des adresses
+  change. Les fonctions du gestionnaire n'allouent plus rien sur le tas à
+  chaque appel dans le cas courant (tampon sur la pile). `evaluate` non
+  plus.
+
+Le rangement par blocs d'élément (`byNODES` des interpolateurs de MFEM)
+n'est pas couvert : il demanderait un troisième pas et un contrat TFEL
+étendu. Les noyaux de MFEM lisent le rangement `byVDIM`, que les vues
+couvrent.
+
+La conception, ses variantes écartées et les relectures sont dans
+[historique/conception-vues-mgis-2026-10-08.md](historique/conception-vues-mgis-2026-10-08.md).
+
 ## Erreurs
 
 MGIS distingue deux cas, comme TFEL :
@@ -317,19 +385,28 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
 - une valeur uniforme de propriété matériau en stockage local est rangée
   comme un scalaire, comme pour les variables externes ;
 - la masse volumique peut être donnée par un `std::span` d'une seule
-  valeur.
+  valeur ;
+- la restauration HDF5 d'une variable externe à plusieurs composantes en
+  stockage local écrivait hors de son tableau (taille d'un point par
+  composante au lieu de toutes) ;
+- les ressources mémoire CUDA, HIP et Kokkos refusaient un alignement plus
+  strict que celui de leur mémoire. Un pool de la bibliothèque standard
+  demande des blocs alignés sur leur taille : il échouait au-delà de
+  256 octets. L'alignement est maintenant obtenu par sur-allocation ;
+- l'initialiseur `MaterialDataManagerInitializer` n'avait pas de
+  constructeur en Python ;
+- le message d'erreur des rotations des blocs de la tangente parlait des
+  forces thermodynamiques.
+
+Un défaut trouvé n'est pas corrigé, faute de lien avec ce travail :
+`MaterialAxisStorage` n'est pas exporté. Copier un `RotationMatrix3D` hors
+de MGIS ne se lie donc pas. La copie serait de toute façon superficielle :
+elle pointerait vers le stockage interne de l'original.
 
 ## Limites actuelles
 
-- **Mise à jour des états sur l'hôte.** `update` et `revert` copient les
-  états sur l'hôte. Leur version sur GPU viendra avec mfem-mgis, qui
-  possède la mémoire.
-- **Agencement point par point.** Les fonctions de lot travaillent sur un
-  `MaterialDataManager`, dont les tableaux sont rangés point par point.
-  TFEL accepte d'autres agencements (composante par composante, pas
-  quelconques), plus favorables à la coalescence sur GPU. Les exposer
-  demande une API sur des vues, à définir avec mfem-mgis selon son
-  rangement des données.
+- **Rangement par blocs d'élément** non couvert (voir
+  [Vues et rangements](#vues-et-rangements)).
 - **Pas de variante avec `Context`** : les fonctions de lot lèvent des
   exceptions, comme les autres fonctions sur un gestionnaire. mfem-mgis
   les enrobera.
@@ -345,8 +422,8 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
 - **Pas de statut par point** : le tableau optionnel de TFEL n'est pas
   exposé.
 - **Liaisons** : les liaisons C refusent les bibliothèques de lots ; les
-  liaisons Python et Fortran ne connaissent pas encore les nouvelles
-  fonctions.
+  liaisons Python et Fortran ne connaissent pas les fonctions de lot. Les
+  trois exposent le rangement des gestionnaires, pas les vues.
 
 ## Exemple
 
@@ -384,6 +461,9 @@ La documentation de MGIS, en anglais, est à jour avec ces changements :
 - `docs/web/generic-parallel.md` : page dédiée aux lots, reliée depuis
   l'accueil, le menu, l'introduction à la bibliothèque C++, la page des
   lois orthotropes et celle de l'analyse des échecs ;
+- `docs/web/views.md` : page dédiée aux vues, aux rangements et aux
+  opérations de fin de pas, reliée depuis l'accueil, le menu et la page
+  des lots ;
 - `docs/web/release-notes-3.2.md` : incompatibilités, nouvelle option de
   `cmake`, nouveautés et corrections ;
 - `README.md`, `INSTALL-cmake.md`, `docs/web/install.md` : présentation,

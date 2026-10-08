@@ -101,7 +101,7 @@ ceux des balayages dans `results/compile-sweep-*.tsv`.
 ## MGIS
 
 MGIS est construit dans `build/mgis` contre le TFEL du prototype. Ses
-tests (`ctest`, 45 tests) comprennent ceux d'origine et :
+tests (`ctest`, 48 tests) comprennent ceux d'origine et :
 
 | Test | Ce qui est vérifié |
 |---|---|
@@ -109,6 +109,17 @@ tests (`ctest`, 45 tests) comprennent ceux d'origine et :
 | `GenericParallelIntegrateTest` | lots sur CPU (`stlpar`) comparés au calcul point par point : intégration, plages, échecs partiels, fonctions d'initialisation, post-traitements, rotations 2D et 3D, grandes déformations, vitesse du son, toutes les sortes de variables externes, modèle, politiques d'exécution, emplacements et ressources mémoire |
 | `GenericParallelEvaluateTest` | propriétés matériau sur CPU : chargement, valeurs, bornes et politiques, emplacements, arguments invalides, politique d'exécution |
 | `GenericParallelCUDATest` | mêmes vérifications sur GPU (`cuda`), données en mémoire managée, ressource mémoire, flux non par défaut, modèle et propriétés matériau |
+| `MaterialDataViewTest` | vues : `FieldView` et ses contrats, intégration, fonctions d'initialisation et post-traitements sur vues dans quatre rangements (point par point, composante par composante, avec ou sans pas plus grand que nécessaire), identiques bit à bit au gestionnaire, avec et sans politique ; `make_view` ; opérations de l'hôte ; `update`, `revert`, `updateValues` ; variables d'une vue d'état et extraction ; refus attendus |
+| `MaterialDataManagerLayoutTest` | gestionnaire rangé composante par composante identique bit à bit au rangement point par point : intégration, grandes déformations, entrées et sorties, variables externes, `MaterialFunctionManager`, `save` et `restore` |
+| `GenericParallelIntegrateTest`, `GenericParallelEvaluateTest` (ajouts) | rotations et `evaluate` sur vues, identiques bit à bit aux surcharges sur tableaux, pour tous les rangements de la source et de la destination, en place ou non, matrices données des cinq façons, sans politique, synchrone et asynchrone |
+| `FieldOperationsCUDATest` | opérations CUDA (copies, transpositions, remplissages), cycle complet sur GPU (tableaux de l'appelant composante par composante en mémoire du GPU seulement, intégration et fin de pas sur le GPU, comparés à l'hôte), rotations et `evaluate` sur vues en mémoire du GPU, calculs asynchrones avec un pool de mémoire managée |
+
+La construction `build/mgis-full` ajoute HDF5 et les liaisons C, Fortran et
+Python (94 tests), dont les tests du rangement dans chaque liaison
+(`LayoutTest`). Le script `scripts/check-mgis-gpu-headers.sh` compile les
+en-têtes GPU de MGIS (opérations de copie et ressources mémoire) avec les
+chaînes CUDA, HIP, SYCL, Kokkos et OpenMP déporté du prototype, et les
+exécute sur le GPU (`reproducers/mgis-gpu-headers/check.cxx`).
 
 Le test CUDA demande l'option CMake `enable-generic-parallel-cuda-tests`.
 Les bibliothèques de lots des tests sont construites par les fonctions de

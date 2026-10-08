@@ -2385,3 +2385,49 @@ Le plan pour mfem-mgis est tranché. Il est décrit dans
 Les sources de mfem-mgis (master `a011d97d6f`), de mfem-mgis-examples
 (master `a242567`) et de mm-opera-hpc (main `c31c4bc`) sont suivies dans
 ce dépôt depuis leur base, sans modification (`scripts/sync-repository.sh`).
+
+### 2026-10-09, API de vues de MGIS (D2, étape 1)
+
+Première étape du plan de mfem-mgis : MGIS accepte des tableaux rangés
+composante par composante, ou appartenant à l'appelant, décrits par des
+vues à pas quelconques. La proposition (version 4, après trois relectures)
+est versionnée dans
+[docs/historique/conception-vues-mgis-2026-10-08.md](docs/historique/conception-vues-mgis-2026-10-08.md).
+L'état est décrit dans [docs/mgis.md](docs/mgis.md#vues-et-rangements).
+
+Ce qui est fait, dans `mgis/` (patchs `0024` à `0033`) :
+
+- `FieldView` (deux pas, type régulier, contrat vérifié à la
+  construction), `MaterialStateView` et `MaterialDataView`, `make_view` ;
+- toutes les fonctions du gestionnaire sur une vue, sans politique (espace
+  de travail explicite), avec politique synchrone ou asynchrone. Les
+  fonctions du gestionnaire appellent celles de la vue : un seul chemin ;
+- rangement d'un gestionnaire (`layout` de l'initialiseur), suivi par tout
+  ce qui est donné par point. `save` et `restore` restent point par point ;
+- `MaterialFunctionManager` avec initialiseur et vues *strided coalesced* ;
+  rangement exposé en C, Fortran et Python ;
+- `FieldOperations` : `update`, `revert` et `updateValues` sur les
+  tableaux de l'appelant, sur GPU compris. En-têtes CUDA, HIP, SYCL, Kokkos
+  et OpenMP, compilés par l'appelant ;
+- rotations et `evaluate` sur vues ; les surcharges sur tableaux passent
+  par elles ;
+- plus d'allocation sur le tas par appel dans le cas courant (tampons sur
+  la pile), pool recommandé pour le statut des calculs asynchrones.
+
+Défauts trouvés en chemin et corrigés : restauration HDF5 d'une variable
+externe à plusieurs composantes (écriture hors du tableau), ressources
+mémoire CUDA, HIP et Kokkos inutilisables sous un pool (alignement refusé),
+initialiseur sans constructeur en Python, message d'erreur des rotations
+de la tangente. Trouvé et non corrigé : `MaterialAxisStorage` non exporté
+(copier un `RotationMatrix3D` hors de MGIS ne se lie pas).
+
+Vérifications : 48 tests de la construction principale (CUDA compris),
+94 de la construction avec HDF5 et les liaisons C, Fortran et Python, et
+les en-têtes GPU compilés et exécutés avec les cinq chaînes
+(`scripts/check-mgis-gpu-headers.sh`). Les résultats sur vues sont
+identiques bit à bit à ceux du gestionnaire, dans tous les rangements. Des
+mutations volontaires du code (recopie omise, pas ignoré, matrices mal
+lues, mise à jour incomplète) sont détectées par les tests.
+
+Documentation de MGIS : page `docs/web/views.md`, page des lots et notes de
+version mises à jour.
