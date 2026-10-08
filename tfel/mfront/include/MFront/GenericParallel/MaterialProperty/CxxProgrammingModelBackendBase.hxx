@@ -132,6 +132,19 @@ namespace mfront::generic_parallel::material_property {
      */
     [[nodiscard]] virtual std::string getKernelSpecifiers() const;
     /*!
+     * \brief write the code preparing the execution, before the data
+     * transfers and the kernels: queue given by the execution options
+     * (`mfront_options`), etc. Nothing is written by default.
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     */
+    virtual void writeExecutionPreparation(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const;
+    /*!
      * \brief write the code transferring the data to the device
      *
      * This method is only called if the `handlesDataTransfer` returns true.

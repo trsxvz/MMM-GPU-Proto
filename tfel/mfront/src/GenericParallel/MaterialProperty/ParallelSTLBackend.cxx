@@ -61,14 +61,9 @@ namespace mfront::generic_parallel::material_property {
       const bool treatStrides) const {
     const auto types = i.getTypesDescription();
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
-    if (this->device_stack_size != 0) {
-      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
-         << this->device_stack_size << ")) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(\"unable to set the stack size of the threads\");\n"
-         << "return;\n"
-         << "}\n";
-    }
+    // the queue of the execution options is not used: the C++ parallel
+    // algorithms have no queue
+    writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
       // the statuses are allocated on the heap, which is accessible by the
       // device when the computations are offloaded (managed memory with

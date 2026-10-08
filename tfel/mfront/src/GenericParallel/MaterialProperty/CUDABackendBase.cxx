@@ -161,12 +161,15 @@ namespace mfront::generic_parallel::material_property {
     const auto pm = this->getProgrammingModel();
     const auto name = i.getFunctionName(mpd);
     const auto block_size = this->number_of_threads_per_block.value_or(64);
+    // stream given by the execution options (default stream if null)
+    os << "const auto mfront_stream = static_cast<" << pm
+       << "Stream_t>(mfront_options.queue);\n";
     auto write_kernel_call = [&](const std::string_view npoints,
                                  const bool handleStrides) {
       os << "mfront_" << name << "_kernel"
          << (handleStrides ? "" : "_without_strides") << "<<<((" << npoints
          << " + " << block_size - 1 << ") / " << block_size << "), "
-         << block_size << ">>>(mfront_output, ";
+         << block_size << ", 0, mfront_stream>>>(mfront_output, ";
       if (handleStrides) {
         os << "mfront_output_stride, ";
       }
@@ -195,7 +198,7 @@ namespace mfront::generic_parallel::material_property {
          << "return;\n"
          << "}\n"
          << "const auto mfront_" << pm << "_kernel_error = " << pm
-         << "StreamSynchronize(nullptr);\n"
+         << "StreamSynchronize(mfront_stream);\n"
          << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n"
          << "mfront_output_status->status = -6;\n"
          << "mfront_report(" << pm << "GetErrorString(mfront_" << pm

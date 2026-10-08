@@ -54,13 +54,10 @@ namespace mfront::generic_parallel::material_property {
       const FileDescription& fd,
       const bool treatStrides) const {
     const auto types = i.getTypesDescription();
-    if ((this->offload) && (this->device_stack_size != 0)) {
-      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
-         << this->device_stack_size << ")) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(\"unable to set the stack size of the threads\");\n"
-         << "return;\n"
-         << "}\n";
+    // the queue of the execution options is not used: the computations are
+    // performed by the OpenMP threads or the default device of OpenMP
+    if (this->offload) {
+      writeDeviceStackSizeSetting(os, this->device_stack_size);
     }
     if (this->isBoundsCheckingRequired(mpd)) {
       // the statuses are allocated on the heap, which must be accessible

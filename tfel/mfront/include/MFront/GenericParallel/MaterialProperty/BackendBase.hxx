@@ -48,24 +48,6 @@ namespace mfront::generic_parallel::material_property {
 
    protected:
     /*!
-     * \brief structure decribing the extra arguments of the C functions
-     */
-    struct ExtraArgumentOfCFunctions {
-      //! \brief type of the argument
-      std::string type;
-      //! \brief name of the argument. Shall start with `mfront_`
-      std::string name;
-      //! \brief description of the argument.
-      std::string description;
-      //! \brief boolean stating if the argument is passed as a pointer
-      bool is_pointer;
-      //! \brief boolean stating if the argument is mutable
-      bool is_mutable;
-    };
-    //! \return the list of extra argument to the C functions
-    [[nodiscard]] virtual std::vector<ExtraArgumentOfCFunctions>
-    getExtraArgumentsOfCFunctions() const;
-    /*!
      * \return true if the kernels report the violations of the bounds and
      * the invalid results in an array of statuses (runtime checks enabled)
      * \param[in] mpd: material property description
@@ -79,7 +61,9 @@ namespace mfront::generic_parallel::material_property {
      * arguments and of the strides. The function returns if there is no
      * point. If strides are treated, the strides of the arguments are copied
      * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
-     * states if all the arguments are uniform.
+     * states if all the arguments are uniform. The execution options are
+     * copied in `mfront_options` (default options if the pointer given by
+     * the calling code is null).
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -218,6 +202,15 @@ namespace mfront::generic_parallel::material_property {
         const std::string_view,
         const std::string_view,
         const std::string_view);
+    /*!
+     * \brief write the code setting the minimal stack size of the threads
+     * of the device (see `MFront/GenericParallel/DeviceStackSize.hxx`), or
+     * checking it if the execution options require to preserve it
+     * \param[in] os: output stream
+     * \param[in] stack_size: minimal stack size, in bytes. Nothing is
+     * written if null
+     */
+    static void writeDeviceStackSizeSetting(std::ostream&, const std::size_t);
     /*!
      * \brief write the code marking the result as invalid if it is not
      * finite. This code is written in the kernel, after the evaluation of

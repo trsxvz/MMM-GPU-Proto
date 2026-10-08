@@ -2122,3 +2122,51 @@ sur les sources.
 
 Reste pour MGIS : asynchrone et `update`/`revert` sur le GPU (étape 5,
 après mfem-mgis), documentation (étape 7).
+
+### 2026-10-08 (soir), options d'exécution des propriétés matériau (R10)
+
+Les fonctions des propriétés matériau `generic-parallel` n'avaient pas
+d'options d'exécution. Le backend SYCL ajoutait la file comme argument
+spécifique, au milieu des autres : la signature dépendait du backend.
+`evaluate` de MGIS, écrit pour la signature commune, aurait appelé une
+bibliothèque SYCL avec des arguments décalés. CUDA lançait sur le flux par
+défaut, Kokkos sur l'instance par défaut avec un `Kokkos::fence()` global.
+
+TFEL, version 2 des fonctions (`MFRONT_GPMP_API_VERSION`) :
+
+- un dernier argument `const mfront_gpmp_ExecutionOptions*` (nul pour les
+  options par défaut) : file et préservation de la taille de pile, même
+  sens que pour les lois. Flux CUDA et HIP, `sycl::queue*` obligatoire
+  (statut -5 sinon), instance de l'espace d'exécution Kokkos (attente de
+  cette instance seulement). Les algorithmes parallèles et OpenMP n'ont
+  pas de file ;
+- l'argument spécifique de SYCL et le mécanisme d'arguments spécifiques
+  disparaissent : une seule signature pour tous les backends ;
+- le code de la taille de pile (`stlpar`, OpenMP déporté, SYCL) est écrit
+  une fois et respecte `preserve_stack_size` ;
+- l'évaluation reste synchrone. L'asynchrone demanderait un autre compte
+  rendu des bornes (le message nomme la variable, il est construit après
+  le calcul) : non fait.
+
+Tests : les six fichiers de test passent les options. Un flux CUDA et HIP
+non bloquant est vérifié par un noyau qui écrit les arguments sur ce flux
+après un délai, sans attente de l'hôte : sur le flux par défaut, le test
+échoue (vérifié). Instance Kokkos (`kokkos-host` reçoit l'espace hôte de sa
+configuration), file SYCL absente refusée. Dix configurations, une par
+backend : `stlpar-parunseq-gcc`, `openmp-host-gcc`, `kokkos-host`,
+`kokkos`, `cuda-nvcc`, `hip-hipcc`, `sycl-default-acpp`, `sycl-gpu-acpp`,
+`stlpar-parunseq-nvhpc-gpu`, `openmp-offload-nvhpc-gpu`. Toutes passent.
+La matrice et la suite complète de TFEL ne sont pas relancées.
+
+MGIS : `BatchExecutionPolicy` passe dans l'espace de noms `mgis`, partagé
+par les lois, les modèles et les propriétés. `evaluate(politique, ...)`
+existe comme `integrate(politique, ...)`. Les statuts d'arguments
+invalides et d'erreur du backend (-5, -6, -7) sont levés comme
+exceptions, comme pour les lois. 45 tests de MGIS, tous verts, dont
+l'évaluation sur un flux CUDA non par défaut.
+
+Lois, modèles et propriétés matériau ont maintenant la même interface
+d'exécution dans TFEL et dans MGIS. Seule différence : les lois savent
+calculer en asynchrone dans TFEL (statistiques sur le GPU), pas les
+propriétés matériau. MGIS n'utilise l'asynchrone pour aucun des deux
+(étape 5).

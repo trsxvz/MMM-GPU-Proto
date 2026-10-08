@@ -33,10 +33,6 @@ namespace mfront::generic_parallel::material_property {
     SYCLBackend(const tfel::utilities::DataMap&);
     //
     [[nodiscard]] std::string getName() const override;
-    void writeSpecificIncludesInHeaderFile(
-        std::ostream&,
-        const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&) const override;
     void writeSpecificIncludesInSourceFile(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
@@ -47,8 +43,10 @@ namespace mfront::generic_parallel::material_property {
 
    protected:
     //
-    [[nodiscard]] std::vector<ExtraArgumentOfCFunctions>
-    getExtraArgumentsOfCFunctions() const override;
+    void writeExecutionPreparation(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&) const override;
     void writeKernelCall(std::ostream&,
                          const GenericParallelMaterialPropertyInterface&,
                          const MaterialPropertyDescription&,

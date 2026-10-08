@@ -64,6 +64,20 @@ namespace mfront::generic_parallel::material_property {
        << ", 0);\n";
   }  // end of writeBoundsStatusesDeclaration
 
+  void BackendBase::writeDeviceStackSizeSetting(std::ostream& os,
+                                                const std::size_t stack_size) {
+    if (stack_size == 0) {
+      return;
+    }
+    os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
+       << stack_size << ", mfront_options.preserve_stack_size != 0)) {\n"
+       << "mfront_output_status->status = -6;\n"
+       << "mfront_report("
+       << "mfront::generic_parallel::stack_size_error_message);\n"
+       << "return;\n"
+       << "}\n";
+  }  // end of writeDeviceStackSizeSetting
+
   void BackendBase::writeInvalidResultCheck(
       std::ostream& os, const MaterialPropertyDescription& mpd) const {
     const auto v =
@@ -80,121 +94,72 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription& mpd) const {
     const auto name = i.getFunctionName(mpd);
     const auto types = i.getTypesDescription();
-    auto document_extra_arguments = [this, &os] {
-      for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
-        if (!arg.is_mutable) {
-          continue;
-        }
-        os << "* \\param " << arg.name << ": " << arg.description << '\n';
-      }
-      for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
-        if (arg.is_mutable) {
-          continue;
-        }
-        os << "* \\param[in] " << arg.name << ": " << arg.description << '\n';
-      }
+    const auto output =
+        this->handlesDataTransfer() ? "mfront_output_host" : "mfront_output";
+    const auto args =
+        this->handlesDataTransfer() ? "mfront_args_host" : "mfront_args";
+    auto document_arguments = [&os, args] {
+      os << " * \\param[in] " << args
+         << ": array of pointers to the values of the arguments\n";
     };
-    auto declare_extra_arguments = [this, &os] {
-      for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
-        if (!arg.is_mutable) {
-          continue;
-        }
-        os << arg.type;
-        if (arg.is_pointer) {
-          os << "* const,";
-        }
-        os << "\n";
-      }
-      for (const auto& arg : this->getExtraArgumentsOfCFunctions()) {
-        if (arg.is_mutable) {
-          continue;
-        }
-        os << "const " << arg.type;
-        if (arg.is_pointer) {
-          os << "* const";
-        }
-        os << "\n";
-      }
+    auto document_last_arguments = [&os] {
+      os << " * \\param[in] mfront_nargs: number of arguments\n"
+         << " * \\param[in] mfront_npoints: number of points in which the "
+         << "material property is computed\n"
+         << " * \\param[in] mfront_out_of_bounds_policy: out of bounds "
+         << "policy\n"
+         << " * \\param[in] mfront_execution_options: options of the "
+         << "execution (queue, stack size), or null for the default "
+         << "options\n";
     };
     os << "/*!\n"
        << " * \\brief compute the value of '" << mpd.className
        << "' material property on a set of points\n"
        << " *\n"
-       << " * \\param[in] mfront_output_status: output status\n";
-    if (this->handlesDataTransfer()) {
-      os << " * \\param[in] mfront_output_host: output values\n";
-    } else {
-      os << " * \\param[in] mfront_output: output values\n";
-    }
-    os << " * \\param[in] mfront_output_stride: output stride\n"
-       << " * If zero, only the first element of the output is computed\n"
-       << " * A zero value is only meaningful if all inputs are uniform\n"
-       << " *\n";
-    document_extra_arguments();
-    if (this->handlesDataTransfer()) {
-      os << " * \\param[in] mfront_args_host: array of pointers to the state "
-         << "variables's values, on the host\n";
-    } else {
-      os << " * \\param[in] mfront_args: array of pointers to the state "
-         << "variables's values\n";
-    }
-    os << " * \\param[in] mfront_strides: array of integers\n"
-       << " *             giving the stride of each argument.\n"
-       << " *             If 0, the associated variable is not uniform\n"
-       << " * \\param[in] mfront_nargs: number of state variables\n"
-       << " * \\param[in] mfront_npoints: number of points in which the "
-       << "material property is computed.\n"
-       << " *\n"
-       << " * \\param[in] mfront_out_of_bounds_policy: out of bounds policy\n"
-       << " *\n"
+       << " * \\param[out] mfront_output_status: output status\n"
+       << " * \\param[out] " << output << ": output values\n"
+       << " * \\param[in] mfront_output_stride: output stride.\n"
+       << " * If zero, only the first element of the output is computed.\n"
+       << " * A zero value is only meaningful if all inputs are uniform\n";
+    document_arguments();
+    os << " * \\param[in] mfront_args_strides: array of integers giving the "
+       << "stride of each argument. If zero, the argument is uniform\n";
+    document_last_arguments();
+    os << " *\n"
        << " * \\note `mfront_npoints` is also the size of the arrays giving\n"
        << " *   the output and the inputs when non uniform\n"
        << " */\n"
        << "MFRONT_SHAREDOBJ void " << name << "(\n"
        << types.output_status_type << "* const,\n"
        << types.real_type << "* const,\n"
-       << "const " << types.integer_type << ",\n";
-    declare_extra_arguments();
-    os << "const " << types.real_type << "* const* const,\n"
+       << "const " << types.integer_type << ",\n"
+       << "const " << types.real_type << "* const* const,\n"
        << "const " << types.integer_type << "*,\n"
        << "const " << types.integer_type << ",\n"
        << "const " << types.integer_type << ",\n"
-       << "const " << types.out_of_bounds_policy_type << ");\n\n"
+       << "const " << types.out_of_bounds_policy_type << ",\n"
+       << "const mfront_gpmp_ExecutionOptions* const);\n\n"
        << "/*!\n"
        << " * \\brief compute the value of '" << mpd.className
-       << "' material property on a set of points\n"
+       << "' material property on a set of points, the output and the "
+       << "arguments being contiguous arrays\n"
        << " *\n"
-       << " * \\param[in] mfront_output_status: output status\n";
-    if (this->handlesDataTransfer()) {
-      os << " * \\param[in] mfront_output_host: output values\n";
-    } else {
-      os << " * \\param[in] mfront_output: output values\n";
-    }
-    document_extra_arguments();
-    if (this->handlesDataTransfer()) {
-      os << " * \\param[in] mfront_args_host: array of pointers to the state "
-         << "variables's values, on the host\n";
-    } else {
-      os << " * \\param[in] mfront_args: array of pointers to the state "
-         << "variables's values\n";
-    }
-    os << " * \\param[in] mfront_nargs: number of state variables'\n"
-       << " * \\param[in] mfront_npoints: number of points in which the "
-       << "material property is computed.\n"
-       << " *\n"
-       << " * \\param[in] mfront_out_of_bounds_policy: out of bounds policy\n"
-       << " *\n"
+       << " * \\param[out] mfront_output_status: output status\n"
+       << " * \\param[out] " << output << ": output values\n";
+    document_arguments();
+    document_last_arguments();
+    os << " *\n"
        << " * \\note `mfront_npoints` is also the size of the arrays giving\n"
-       << " *   the output and the nputs\n"
+       << " *   the output and the inputs\n"
        << " */\n"
        << "MFRONT_SHAREDOBJ void " << name << "2(\n"
        << types.output_status_type << "* const,\n"
-       << types.real_type << "* const,\n";
-    declare_extra_arguments();
-    os << "const " << types.real_type << "* const* const,\n"
+       << types.real_type << "* const,\n"
+       << "const " << types.real_type << "* const* const,\n"
        << "const " << types.integer_type << ",\n"
        << "const " << types.integer_type << ",\n"
-       << "const " << types.out_of_bounds_policy_type << ");\n\n";
+       << "const " << types.out_of_bounds_policy_type << ",\n"
+       << "const mfront_gpmp_ExecutionOptions* const);\n\n";
   }  // end of writeDeclarations
 
   void BackendBase::writeProxyObjects(
@@ -352,11 +317,6 @@ namespace mfront::generic_parallel::material_property {
     os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
   }
 
-  std::vector<BackendBase::ExtraArgumentOfCFunctions>
-  BackendBase::getExtraArgumentsOfCFunctions() const {
-    return {};
-  }  // end of getExtraArgumentsOfCFunctions
-
   bool BackendBase::isBoundsCheckingRequired(
       const MaterialPropertyDescription& mpd) {
     // the array of statuses is also used to report invalid results
@@ -386,19 +346,6 @@ namespace mfront::generic_parallel::material_property {
     if (treatStrides) {
       os << ",\nconst " << types.integer_type << " mfront_output_stride";
     }
-    const auto extra_arguments = this->getExtraArgumentsOfCFunctions();
-    for (const auto is_mutable : {true, false}) {
-      for (const auto& arg : extra_arguments) {
-        if (arg.is_mutable != is_mutable) {
-          continue;
-        }
-        os << ",\n" << (is_mutable ? "" : "const ") << arg.type;
-        if (arg.is_pointer) {
-          os << "* const";
-        }
-        os << " " << arg.name;
-      }
-    }
     os << ",\nconst " << types.real_type << "* const * const";
     if (!mpd.inputs.empty()) {
       os << (this->handlesDataTransfer() ? " mfront_args_host"
@@ -415,8 +362,14 @@ namespace mfront::generic_parallel::material_property {
     os << ",\nconst " << types.integer_type << " mfront_nargs"
        << ",\nconst " << types.integer_type << " mfront_npoints"
        << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
-       << " mfront_out_of_bounds_policy";
+       << " mfront_out_of_bounds_policy"
+       << ",\nconst mfront_gpmp_ExecutionOptions* const "
+       << "mfront_execution_options";
     os << ")\n{\n";
+    // execution options, default options if none is given
+    os << "[[maybe_unused]] const auto mfront_options = "
+       << "(mfront_execution_options != nullptr) ? *mfront_execution_options "
+       << ": mfront_gpmp_ExecutionOptions{};\n";
     // error reporting
     os << "[[maybe_unused]] auto mfront_report = "
        << "[&mfront_output_status](const std::string& "

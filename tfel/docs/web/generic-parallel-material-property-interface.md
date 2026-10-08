@@ -53,15 +53,15 @@ In addition, the `generic-parallel` interface also exports:
 The first generated function matches the following prototype:
 
 ~~~~{.cxx}
-void (*)(mfront_gmp_OutputStatus* const,       // output status
-         mfront_gmp_real* const,               // output values
-         const mfront_gmp_size_type,           // output stride
-         ...,                                  // extra arguments specific to the backend considered
-         const mfront_gmp_real* const,         // values of the arguments
-         const mfront_gmp_size_types* const,   // strides of the arguments
-         const mfront_gmp_size_type,           // number of arguments
-         const mfront_gmp_size_type,           // number of points
-         const mfront_gmp_OutOfBoundsPolicy);  // out of bounds policy
+void (*)(mfront_gmp_OutputStatus* const,     // output status
+         mfront_gmp_real* const,             // output values
+         const mfront_gmp_size_type,         // output stride
+         const mfront_gmp_real* const* const,  // values of the arguments
+         const mfront_gmp_size_type* const,  // strides of the arguments
+         const mfront_gmp_size_type,         // number of arguments
+         const mfront_gmp_size_type,         // number of points
+         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
+         const mfront_gpmp_ExecutionOptions* const);  // execution options
 ~~~~
 
 The `mfront_gmp_OutputStatus` structure and the
@@ -85,19 +85,41 @@ a special case and will use an optimized implementation.
 The second generated function matches the following prototype:
 
 ~~~~{.cxx}
-void (*)(mfront_gmp_OutputStatus* const,       // output status
-         mfront_gmp_real* const,               // output values
-         ...,                                  // extra arguments specific to the backend considered
-         const mfront_gmp_real* const,         // values of the arguments
-         const mfront_gmp_size_type,           // number of arguments
-         const mfront_gmp_size_type,           // number of points
-         const mfront_gmp_OutOfBoundsPolicy);  // out of bounds policy
+void (*)(mfront_gmp_OutputStatus* const,     // output status
+         mfront_gmp_real* const,             // output values
+         const mfront_gmp_real* const* const,  // values of the arguments
+         const mfront_gmp_size_type,         // number of arguments
+         const mfront_gmp_size_type,         // number of points
+         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
+         const mfront_gpmp_ExecutionOptions* const);  // execution options
 ~~~~
 
 This function assumes that the values of the arguments and the values of
 the output are stored contiguously in memory. In other words, this
 prototype is equivalent to the the first prototype when all strides are
 equal to one.
+
+## Execution options
+
+The last argument of both functions gives the options of the execution
+(`mfront_gpmp_ExecutionOptions`, declared in
+`MFront/GenericParallelMaterialProperty/MaterialProperty.h`), or is null
+for the default options. It has the same meaning on all the backends, as
+the execution options of the behaviours:
+
+- `queue`: queue on which the computations are submitted:
+  `cudaStream_t` or `hipStream_t` (the default stream if null), pointer to
+  a `sycl::queue` (required by the `SYCL` backend), pointer to an instance
+  of the Kokkos execution space (default instance if null). It is not used
+  by the C++ parallel algorithms and `OpenMP`. The evaluation is ordered
+  after the computations previously submitted to the queue, which may
+  compute the arguments.
+- `preserve_stack_size`: if not null, the stack size of the threads of the
+  device is never modified and a runtime error is reported if it is too
+  small (`device_stack_size` option of the backends).
+
+The evaluation is synchronous: the function returns once the values are
+computed, and the output status reports the errors.
 
 ## Output status
 
@@ -121,7 +143,7 @@ The following statuses are specific to this interface:
 - `-2`: an exception was thrown on the host (backends based on C++
   programming models, for instance by a data transfer);
 - `-5`: invalid arguments (number of points, number of arguments,
-  negative stride);
+  negative stride, no queue given to the `SYCL` backend);
 - `-6`: runtime error of the backend (allocation, launch of a kernel, stack
   size of the threads of the device), or invalid parameters;
 - `-7`: uniform output (null stride) with several points or with non
@@ -185,7 +207,7 @@ const auto args = std::array<double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
                                      thrust::raw_pointer_cast(d_f.data())};
 const auto args_stride = std::array<mfront_gmp_size_type, 2u>{1, 0};
 UO2_ShearModulus(&output, thrust::raw_pointer_cast(d_G.data()), 1,
-                 args.data(), args_stride.data(), 2, 4, policy);
+                 args.data(), args_stride.data(), 2, 4, policy, nullptr);
 G = d_G;
 ~~~~
 
@@ -286,7 +308,7 @@ const auto policy = mfront_gmp_OutOfBoundsPolicy{};
 const auto args = std::array<const double *, 1u>{T.get()};
 const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
 Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                        args_strides.data(), 1, 4, policy);
+                        args_strides.data(), 1, 4, policy, nullptr);
 ~~~~
 
 where `createManagedData` is a simple wrapper around `hipMallocManaged`
@@ -324,7 +346,7 @@ const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
 const auto args = std::array<const double *, 2u>{T.data(), f.data()};
 const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 0};
 UO2_ShearModulus(&output, G.data(), 1, args.data(), args_strides.data(), 2, 4,
-                 policy);
+                 policy, nullptr);
 ~~~~
 
 #### Example of configuration file for `g++`
@@ -438,14 +460,16 @@ auto d_T = to_device(T, Q);
 const auto policy = mfront_gmp_OutOfBoundsPolicy{};
 const auto args = std::array<const double *, 1u>{d_T.get()};
 const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
-Inconel600_YoungModulus(&output, d_E.get(), 3, &Q, args.data(),
-                        args_strides.data(), 1, 4, policy);
+const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
+                        args_strides.data(), 1, 4, policy, &options);
 ~~~~
 
-### Specific argument
+### Queue
 
-The `SYCL` backend adds one specific argument to the prototype of the
-functions generated by `MFront`: a pointer to the execution queue.
+`SYCL` has no default queue: the queue must be given by the execution
+options. It gives the device and the context of the unified shared memory
+of the calling code.
 
 ### Backend options
 

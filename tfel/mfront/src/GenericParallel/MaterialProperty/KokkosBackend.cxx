@@ -56,7 +56,13 @@ namespace mfront::generic_parallel::material_property {
        << "mfront_report(\"Kokkos is not initialized\");\n"
        << "return;\n"
        << "}\n"
-       << "using mfront_execution_space = " << this->execution_space << ";\n";
+       << "using mfront_execution_space = " << this->execution_space
+       << ";\n"
+       // instance of the execution space given by the execution options
+       << "const auto mfront_space = (mfront_options.queue == nullptr) ? "
+       << "mfront_execution_space{} : "
+       << "*static_cast<const mfront_execution_space*>("
+       << "mfront_options.queue);\n";
     if (this->isBoundsCheckingRequired(mpd)) {
       // the statuses are written by the kernels and read on the host. Kokkos
       // uses one device per process. The blocks are freed when Kokkos is
@@ -76,14 +82,14 @@ namespace mfront::generic_parallel::material_property {
                                     const bool handleStrides) {
       os << "// loop over the points\n"
          << "Kokkos::parallel_for(\"mfront_kernel\", "
-         << "Kokkos::RangePolicy<mfront_execution_space>(0, "
+         << "Kokkos::RangePolicy<mfront_execution_space>(mfront_space, 0, "
          << "static_cast<" << types.integer_type << ">(" << npoints << ")), "
          << "mfront_kernel";
       if (!handleStrides) {
         os << "_without_strides";
       }
       os << ");\n"
-         << "Kokkos::fence();\n";
+         << "mfront_space.fence();\n";
     };
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall

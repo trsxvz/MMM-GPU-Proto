@@ -82,6 +82,7 @@ namespace mfront::generic_parallel::material_property {
     // the data transfers may throw exceptions, which must not cross the
     // boundary of the C function
     os << "try{\n";
+    this->writeExecutionPreparation(os, i, mpd);
     if (this->handlesDataTransfer()) {
       this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
     }
@@ -137,6 +138,12 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernelBody(os, i, mpd, handleStrides);
     os << "}; // end of " << kernel << "\n";
   }  // end of writeKernel
+
+  void CxxProgrammingModelBackendBase::writeExecutionPreparation(
+      std::ostream&,
+      const GenericParallelMaterialPropertyInterface&,
+      const MaterialPropertyDescription&) const {
+  }  // end of writeExecutionPreparation
 
   void CxxProgrammingModelBackendBase::writeDataTransfersToHost(
       std::ostream&,

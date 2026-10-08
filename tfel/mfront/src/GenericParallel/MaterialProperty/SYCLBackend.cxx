@@ -35,22 +35,6 @@ namespace mfront::generic_parallel::material_property {
 
   std::string SYCLBackend::getName() const { return "sycl"; }  // end of getName
 
-  void SYCLBackend::writeSpecificIncludesInHeaderFile(
-      std::ostream& os,
-      const GenericParallelMaterialPropertyInterface& i,
-      const MaterialPropertyDescription& mpd) const {
-    CxxProgrammingModelBackendBase::writeSpecificIncludesInHeaderFile(os, i,
-                                                                      mpd);
-    os << "#ifdef __cplusplus\n"
-       << "#include <sycl/sycl.hpp>\n"
-       << "#endif\n\n"
-       << "#ifdef __cplusplus\n"
-       << "using mfront_gpmp_sycl_queue = sycl::queue;\n"
-       << "#else\n"
-       << "typedef struct mfront_gpmp_sycl_queue mfront_gpmp_sycl_queue;\n"
-       << "#endif\n\n";
-  }  // end of writeSpecificIncludesInSourceFile
-
   void SYCLBackend::writeSpecificIncludesInSourceFile(
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
@@ -128,14 +112,20 @@ namespace mfront::generic_parallel::material_property {
 
   }  // end of writeSpecificIncludesInSourceFile
 
-  std::vector<BackendBase::ExtraArgumentOfCFunctions>
-  SYCLBackend::getExtraArgumentsOfCFunctions() const {
-    return {{.type = "mfront_gpmp_sycl_queue",
-             .name = "mfront_queue",
-             .description = "SYCL queue",
-             .is_pointer = true,
-             .is_mutable = true}};
-  }  // end of getExtraArgumentsOfCFunctions
+  void SYCLBackend::writeExecutionPreparation(
+      std::ostream& os,
+      const GenericParallelMaterialPropertyInterface&,
+      const MaterialPropertyDescription&) const {
+    // SYCL has no default queue: the queue gives the device and the context
+    // of the unified shared memory of the calling code
+    os << "if (mfront_options.queue == nullptr) {\n"
+       << "mfront_output_status->status = -5;\n"
+       << "mfront_report(\"no SYCL queue given\");\n"
+       << "return;\n"
+       << "}\n"
+       << "auto* const mfront_queue = "
+       << "static_cast<::sycl::queue*>(mfront_options.queue);\n";
+  }  // end of writeExecutionPreparation
 
   void SYCLBackend::writeKernelCall(
       std::ostream& os,
@@ -145,14 +135,7 @@ namespace mfront::generic_parallel::material_property {
       const bool treatStrides) const {
     const auto types = i.getTypesDescription();
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
-    if (this->device_stack_size != 0) {
-      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
-         << this->device_stack_size << ")) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(\"unable to set the stack size of the threads\");\n"
-         << "return;\n"
-         << "}\n";
-    }
+    writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
       // the statuses are held by a block of shared memory, identified by
       // the device and the context of the queue

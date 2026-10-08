@@ -52,6 +52,22 @@ createManagedData(const std::initializer_list<double> l) {
   return (ptr.get())[i];
 }  // end of getValue
 
+/*!
+ * \brief kernel writing the given values after a delay, so that the
+ * computations submitted after it on the same stream must wait for it
+ * \param[out] T: written values
+ * \param[in] values: values
+ * \param[in] cycles: number of clock cycles of the delay
+ */
+__global__ void writeAfterDelay(double* const T,
+                                const double* const values,
+                                const long long cycles) {
+  const auto start = clock64();
+  while (clock64() - start < cycles) {
+  }
+  T[threadIdx.x] = values[threadIdx.x];
+}  // end of writeAfterDelay
+
 struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   Iconel600YoungModulusTest()
       : tfel::tests::TestCase("MFront/MaterialProperty/GenericParallel",
@@ -72,6 +88,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test11();
     this->test12();
     this->test13();
+    this->test14();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("hip"));
     return this->result;
   }  // end of execute
@@ -81,6 +98,35 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const double TC = TK - 273.15;
     return (-3.1636e-3 * TC * TC - 3.8654 * TC + 2.1421e+4) * 1e7;
   }  // end of fct
+
+  void test14() {
+    // computations on a stream given by the execution options, which is not
+    // the default stream
+    constexpr auto eps = double{1e-2};
+    auto stream = hipStream_t{};
+    TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(
+                          &stream, hipStreamNonBlocking) == hipSuccess);
+    auto E = createManagedData(4);
+    const auto values = createManagedData({300, 500, 300, 800});
+    const auto T = createManagedData(4);
+    // the temperatures are written on the stream, after a delay: the
+    // material property must be evaluated after this kernel, without
+    // synchronization by the host
+    writeAfterDelay<<<1, 4, 0, stream>>>(T.get(), values.get(), 100'000'000);
+    const auto args = std::array<const double *, 1u>{T.get()};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto options = mfront_gpmp_ExecutionOptions{.queue = stream};
+    auto output = mfront_gmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                            args_strides.data(), 1, 4,
+                            mfront_gmp_OutOfBoundsPolicy{}, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    for (std::size_t i = 0; i != 4; ++i) {
+      TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(values, i))) <
+                        eps);
+    }
+    TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
+  }
 
   void test1() {
     constexpr auto eps = double{1e-2};
@@ -92,11 +138,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                            args_strides.data(), 1, 4, policy);
+                            args_strides.data(), 1, 4, policy, nullptr);
     //
     auto E_qt = createManagedData(4);
     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 1, args.data(),
-                               args_strides.data(), 1, 4, policy);
+                               args_strides.data(), 1, 4, policy, nullptr);
     //
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
@@ -124,9 +170,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
     //
     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                            args_strides.data(), 1, 4, policy);
+                            args_strides.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 1, args.data(),
-                               args_strides.data(), 1, 4, policy);
+                               args_strides.data(), 1, 4, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -151,9 +197,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
     Inconel600_YoungModulus(&output, E.get(), 0, args.data(),
-                            args_strides.data(), 1, 1, policy);
+                            args_strides.data(), 1, 1, policy, nullptr);
     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 0, args.data(),
-                               args_strides.data(), 1, 1, policy);
+                               args_strides.data(), 1, 1, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -174,9 +220,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     //
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     const auto args = std::array<const double *, 1u>{T.get()};
-    Inconel600_YoungModulus2(&output, E.get(), args.data(), 1, 4, policy);
+    Inconel600_YoungModulus2(&output, E.get(), args.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt2(&output_qt, E_qt.get(), args.data(), 1, 4,
-                                policy);
+                                policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -203,9 +249,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                            args_strides.data(), 1, 4, policy);
+                            args_strides.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 1, args.data(),
-                               args_strides.data(), 1, 4, policy);
+                               args_strides.data(), 1, 4, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
@@ -231,9 +277,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     //
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     const auto args = std::array<const double *, 1u>{T.get()};
-    Inconel600_YoungModulus2(&output, E.get(), args.data(), 1, 4, policy);
+    Inconel600_YoungModulus2(&output, E.get(), args.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt2(&output_qt, E_qt.get(), args.data(), 1, 4,
-                                policy);
+                                policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
@@ -262,9 +308,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
     Inconel600_YoungModulus(&output, E.get(), 3, args.data(),
-                            args_strides.data(), 1, 4, policy);
+                            args_strides.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 3, args.data(),
-                               args_strides.data(), 1, 4, policy);
+                               args_strides.data(), 1, 4, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -289,13 +335,13 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                            args_strides.data(), 3, 1, policy);
+                            args_strides.data(), 3, 1, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -5);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "invalid number of arguments (3 given, 1 expected)");
     //
     Inconel600_YoungModulus(&output, E.get(), 0, args.data(),
-                            args_strides.data(), 1, 1, policy);
+                            args_strides.data(), 1, 1, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "if the output is uniform, all the arguments must "
@@ -303,7 +349,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     //
     const auto args_strides2 = std::array<mfront_gmp_size_type, 1u>{0};
     Inconel600_YoungModulus(&output, E.get(), 0, args.data(),
-                            args_strides2.data(), 1, 10, policy);
+                            args_strides2.data(), 1, 10, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "if the output is uniform, the number of points "
@@ -317,7 +363,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto nu = createManagedData(4);
     //
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-    PoissonRatioTest(&output, nu.get(), 1, nullptr, nullptr, 0, 4, policy);
+    PoissonRatioTest(&output, nu.get(), 1, nullptr, nullptr, 0, 4, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -325,7 +371,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(getValue(nu, i) - 0.39991) < eps);
     }
     nu = createManagedData(1);
-    PoissonRatioTest(&output, nu.get(), 0, nullptr, nullptr, 0, 1, policy);
+    PoissonRatioTest(&output, nu.get(), 0, nullptr, nullptr, 0, 1, policy, nullptr);
     TFEL_TESTS_ASSERT(std::abs(*nu - 0.39991) < eps);
   }
 
@@ -336,7 +382,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto nu = createManagedData(4);
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     //
-    PoissonRatioTest2(&output, nu.get(), nullptr, 0, 4, policy);
+    PoissonRatioTest2(&output, nu.get(), nullptr, 0, 4, policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -344,7 +390,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(getValue(nu, i) - 0.39991) < eps);
     }
     nu = createManagedData(1);
-    PoissonRatioTest2(&output, nu.get(), nullptr, 0, 1, policy);
+    PoissonRatioTest2(&output, nu.get(), nullptr, 0, 1, policy, nullptr);
     TFEL_TESTS_ASSERT(std::abs(*nu - 0.39991) < eps);
   }
 
@@ -368,7 +414,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 2u>{T.get(), f.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
     UO2_YoungModulus_Martin1989(&output, E.get(), 1, args.data(),
-                                args_strides.data(), args.size(), 4, policy);
+                                args_strides.data(), args.size(), 4, policy, nullptr);
     //
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
@@ -417,7 +463,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args = std::array<const double *, 1u>{T.get()};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     mp(&output, v.get(), 1, args.data(), args_strides.data(), args.size(),
-       T_values.size(), policy);
+       T_values.size(), policy, nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);

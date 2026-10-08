@@ -25,6 +25,22 @@
 #include "MaterialLawCallTest-generic-parallel-cuda.hxx"
 #include "symbols.hxx"
 
+/*!
+ * \brief kernel writing the given values after a delay, so that the
+ * computations submitted after it on the same stream must wait for it
+ * \param[out] T: written values
+ * \param[in] values: values
+ * \param[in] cycles: number of clock cycles of the delay
+ */
+__global__ void writeAfterDelay(double *const T,
+                                const double *const values,
+                                const long long cycles) {
+  const auto start = clock64();
+  while (clock64() - start < cycles) {
+  }
+  T[threadIdx.x] = values[threadIdx.x];
+}  // end of writeAfterDelay
+
 struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   Iconel600YoungModulusTest()
       : tfel::tests::TestCase("MFront/MaterialProperty/GenericParallel",
@@ -46,6 +62,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     this->test12();
     this->test13();
     this->test14();
+    this->test15();
     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
     return this->result;
   }  // end of execute
@@ -71,14 +88,15 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
-                            args.data(), args_strides.data(), 1, 4, policy);
+                            args.data(), args_strides.data(), 1, 4, policy,
+                            nullptr);
     E = d_E;
     //
     auto E_qt = thrust::host_vector<double>(4);
     thrust::device_vector<double> d_E_qt(E_qt.size());
-    Inconel600_YoungModulus_qt(&output_qt,
-                               thrust::raw_pointer_cast(d_E_qt.data()), 1,
-                               args.data(), args_strides.data(), 1, 4, policy);
+    Inconel600_YoungModulus_qt(
+        &output_qt, thrust::raw_pointer_cast(d_E_qt.data()), 1, args.data(),
+        args_strides.data(), 1, 4, policy, nullptr);
     E_qt = d_E_qt;
     //
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -111,10 +129,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
     //
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
-                            args.data(), args_strides.data(), 1, 4, policy);
-    Inconel600_YoungModulus_qt(&output_qt,
-                               thrust::raw_pointer_cast(d_E_qt.data()), 1,
-                               args.data(), args_strides.data(), 1, 4, policy);
+                            args.data(), args_strides.data(), 1, 4, policy,
+                            nullptr);
+    Inconel600_YoungModulus_qt(
+        &output_qt, thrust::raw_pointer_cast(d_E_qt.data()), 1, args.data(),
+        args_strides.data(), 1, 4, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -146,10 +165,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 0,
-                            args.data(), args_strides.data(), 1, 1, policy);
-    Inconel600_YoungModulus_qt(&output_qt,
-                               thrust::raw_pointer_cast(d_E_qt.data()), 0,
-                               args.data(), args_strides.data(), 1, 1, policy);
+                            args.data(), args_strides.data(), 1, 1, policy,
+                            nullptr);
+    Inconel600_YoungModulus_qt(
+        &output_qt, thrust::raw_pointer_cast(d_E_qt.data()), 0, args.data(),
+        args_strides.data(), 1, 1, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -178,10 +198,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args =
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     Inconel600_YoungModulus2(&output, thrust::raw_pointer_cast(d_E.data()),
-                             args.data(), 1, 4, policy);
+                             args.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt2(&output_qt,
                                 thrust::raw_pointer_cast(d_E_qt.data()),
-                                args.data(), 1, 4, policy);
+                                args.data(), 1, 4, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -214,10 +234,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
-                            args.data(), args_strides.data(), 1, 4, policy);
-    Inconel600_YoungModulus_qt(&output_qt,
-                               thrust::raw_pointer_cast(d_E_qt.data()), 1,
-                               args.data(), args_strides.data(), 1, 4, policy);
+                            args.data(), args_strides.data(), 1, 4, policy,
+                            nullptr);
+    Inconel600_YoungModulus_qt(
+        &output_qt, thrust::raw_pointer_cast(d_E_qt.data()), 1, args.data(),
+        args_strides.data(), 1, 4, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
@@ -250,10 +271,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args =
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     Inconel600_YoungModulus2(&output, thrust::raw_pointer_cast(d_E.data()),
-                             args.data(), 1, 4, policy);
+                             args.data(), 1, 4, policy, nullptr);
     Inconel600_YoungModulus_qt2(&output_qt,
                                 thrust::raw_pointer_cast(d_E_qt.data()),
-                                args.data(), 1, 4, policy);
+                                args.data(), 1, 4, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
@@ -288,10 +309,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 3,
-                            args.data(), args_strides.data(), 1, 4, policy);
-    Inconel600_YoungModulus_qt(&output_qt,
-                               thrust::raw_pointer_cast(d_E_qt.data()), 3,
-                               args.data(), args_strides.data(), 1, 4, policy);
+                            args.data(), args_strides.data(), 1, 4, policy,
+                            nullptr);
+    Inconel600_YoungModulus_qt(
+        &output_qt, thrust::raw_pointer_cast(d_E_qt.data()), 3, args.data(),
+        args_strides.data(), 1, 4, policy, nullptr);
     E = d_E;
     E_qt = d_E_qt;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -319,13 +341,15 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
-                            args.data(), args_strides.data(), 3, 1, policy);
+                            args.data(), args_strides.data(), 3, 1, policy,
+                            nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -5);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "invalid number of arguments (3 given, 1 expected)");
     //
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 0,
-                            args.data(), args_strides.data(), 1, 1, policy);
+                            args.data(), args_strides.data(), 1, 1, policy,
+                            nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "if the output is uniform, all the arguments must "
@@ -333,7 +357,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     //
     const auto args_strides2 = std::array<mfront_gmp_size_type, 1u>{0};
     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 0,
-                            args.data(), args_strides2.data(), 1, 10, policy);
+                            args.data(), args_strides2.data(), 1, 10, policy,
+                            nullptr);
     TFEL_TESTS_CHECK_EQUAL(output.status, -7);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                            "if the output is uniform, the number of points "
@@ -350,7 +375,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     //
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     PoissonRatioTest(&output, thrust::raw_pointer_cast(d_nu.data()), 1, nullptr,
-                     nullptr, 0, 4, policy);
+                     nullptr, 0, 4, policy, nullptr);
     nu = d_nu;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
@@ -361,7 +386,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     nu = thrust::host_vector<double>(1);
     d_nu = thrust::device_vector<double>(nu.size());
     PoissonRatioTest(&output, thrust::raw_pointer_cast(d_nu.data()), 0, nullptr,
-                     nullptr, 0, 1, policy);
+                     nullptr, 0, 1, policy, nullptr);
     nu = d_nu;
     TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
   }
@@ -376,7 +401,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     thrust::device_vector<double> d_nu(nu.size());
     //
     PoissonRatioTest2(&output, thrust::raw_pointer_cast(d_nu.data()), nullptr,
-                      0, 4, policy);
+                      0, 4, policy, nullptr);
     nu = d_nu;
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
@@ -387,7 +412,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     nu = thrust::host_vector<double>(1);
     d_nu = thrust::device_vector<double>(nu.size());
     PoissonRatioTest2(&output, thrust::raw_pointer_cast(d_nu.data()), nullptr,
-                      0, 1, policy);
+                      0, 1, policy, nullptr);
     nu = d_nu;
     TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
   }
@@ -418,7 +443,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
     UO2_YoungModulus_Martin1989(&output, thrust::raw_pointer_cast(d_E.data()),
                                 1, args.data(), args_strides.data(),
-                                args.size(), 4, policy);
+                                args.size(), 4, policy, nullptr);
     E = d_E;
     //
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -455,7 +480,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
     UO2_YoungModulus_Martin1989(&output, thrust::raw_pointer_cast(d_E.data()),
                                 1, args.data(), args_strides.data(),
-                                args.size(), 4, policy);
+                                args.size(), 4, policy, nullptr);
     E = d_E;
     TFEL_TESTS_CHECK_EQUAL(output.status, 1);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
@@ -464,6 +489,39 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
                         eps * std::abs(young(T[i], f[i])));
     }
+  }
+
+  void test15() {
+    // computations on a stream given by the execution options, which is not
+    // the default stream
+    constexpr auto eps = double{1e-2};
+    auto stream = cudaStream_t{};
+    TFEL_TESTS_ASSERT(cudaStreamCreateWithFlags(
+                          &stream, cudaStreamNonBlocking) == cudaSuccess);
+    const auto T = thrust::host_vector<double>{300, 500, 300, 800};
+    const thrust::device_vector<double> d_values(T);
+    thrust::device_vector<double> d_T(T.size(), 0.);
+    thrust::device_vector<double> d_E(T.size());
+    // the temperatures are written on the stream, after a delay: the
+    // material property must be evaluated after this kernel, without
+    // synchronization by the host
+    writeAfterDelay<<<1, 4, 0, stream>>>(
+        thrust::raw_pointer_cast(d_T.data()),
+        thrust::raw_pointer_cast(d_values.data()), 100'000'000);
+    const auto args =
+        std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
+    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+    const auto options = mfront_gpmp_ExecutionOptions{.queue = stream};
+    auto output = mfront_gmp_OutputStatus{};
+    Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                            args.data(), args_strides.data(), 1, 4,
+                            mfront_gmp_OutOfBoundsPolicy{}, &options);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    const auto E = thrust::host_vector<double>(d_E);
+    for (std::size_t i = 0; i != E.size(); ++i) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+    TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
   }
 
   void test12() {
@@ -505,7 +563,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     mp(&output, thrust::raw_pointer_cast(d_v.data()), 1, args.data(),
-       args_strides.data(), args.size(), T.size(), policy);
+       args_strides.data(), args.size(), T.size(), policy, nullptr);
     const auto v = thrust::host_vector<double>(d_v);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);

@@ -84,7 +84,9 @@ the branch, file by file, rather than by cherry-picking.
    bounds checks held by reused blocks on all the backends (no allocation
    per call, synchronization of the stream instead of the device), status 1
    with the warning policy as with the `generic` interface, memory space
-   symbol.
+   symbol, execution options (queue, stack size) given by a last argument
+   with the same meaning on all the backends (version 2 of the functions:
+   the queue of the `SYCL` backend is no longer a specific argument).
 
 The data contract (`MFront/GenericParallelBehaviour/BatchData.h`) is
 versioned from the fourth pull request on, so that MGIS can check it.

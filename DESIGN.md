@@ -284,8 +284,10 @@ Principles:
   strides) for each group or each variable, execution options (queue,
   asynchronous statistics, stack size policy), statuses. The kernels
   receive everything by value. TFEL does not choose the device nor the memory
-  space: the caller gives pointers accessible by the device. Each library
-  exports the memory space in which the fields must be located
+  space: the caller gives pointers accessible by the device. The
+  functions of the material properties take the same execution options
+  (queue, stack size), whatever the backend, and evaluate synchronously.
+  Each library exports the memory space in which the fields must be located
   (`<f>_generic_parallel_memory_space`: `host`, `device` or `any`), set
   when the library is compiled (backend, compiler, unified memory).
 - MGIS maps its data (`MaterialDataManager`, uniform or per point values)
