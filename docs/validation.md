@@ -1,0 +1,122 @@
+# Validation
+
+Ce document décrit comment les changements de TFEL et de MGIS sont
+vérifiés, avec quels outils, et où trouver les résultats.
+
+## Principe
+
+L'interface `generic` sert de référence. Pour chaque loi testée, la même
+source MFront est compilée deux fois : avec l'interface `generic` par le
+compilateur de l'hôte, et avec l'interface `generic-parallel` pour la
+configuration testée. Les deux bibliothèques calculent les mêmes points, et
+les résultats sont comparés. Les écarts admis sont des écarts d'arrondi.
+
+Un test qui ne peut pas échouer ne vaut rien. Les tests importants sont
+donc vérifiés par une version volontairement fausse du code (indice relatif
+au lieu d'absolu, pas d'un champ faux, flux par défaut au lieu du flux de
+l'appelant, etc.) : le test doit la détecter.
+
+## Environnement
+
+- Machine : GPU NVIDIA RTX 5080 (architecture `sm_120`), sans GPU AMD.
+- Environnement spack `mmm-gpu` (`deps/spack/`) : NVIDIA HPC SDK 25.11
+  (nvc++ et CUDA 13.0.2), LLVM 20.1.8, AdaptiveCpp 25.10, Kokkos 5.2.2,
+  HIP 7.2.3 (plateforme NVIDIA), hypre et Ginkgo. Voir
+  `deps/spack/README.md`.
+- `scripts/env.sh` donne l'environnement complet de tous les scripts.
+- La gestion hétérogène de la mémoire (HMM) des pilotes NVIDIA permet au
+  GPU de lire la mémoire ordinaire de l'hôte. Elle masque donc les erreurs
+  d'emplacement. Les validations finales se font sans HMM
+  (`uvm_disable_hmm=1`).
+
+## TFEL
+
+### Tests de l'interface des lois et des modèles
+
+`tfel/test-suite/behaviours/generic-parallel/<configuration>/` : un dossier
+par configuration (voir [tfel.md](tfel.md#configurations-et-compilateurs)).
+Chaque test compile les lois de test avec les deux interfaces, puis
+l'outil `compare.cxx` les compare sur des lots variés :
+
+- trois types de calcul (intégration seule, opérateur tangent, prédiction)
+  et deux rangements mémoire ;
+- valeurs uniformes et valeurs par point, données groupe par groupe ou
+  variable par variable ;
+- fonctions d'initialisation, post-traitements, rotations, modèles,
+  paramètres modifiés à l'exécution, échecs volontaires (indice du premier
+  point en échec, statuts par point), calcul asynchrone ;
+- solveur TDLS dans les lois implicites (sous-test `tdls`).
+
+### Tests de l'interface des propriétés matériau
+
+`tfel/test-suite/material-properties/generic-parallel/<configuration>/` :
+valeurs comparées aux valeurs attendues, arguments uniformes et avec pas,
+bornes et politiques, propriétés appelant d'autres propriétés ou définies
+par des données, options d'exécution (flux CUDA et HIP non bloquant,
+instance Kokkos, file SYCL absente), évaluation asynchrone.
+
+Le test du flux est discriminant : un noyau lent écrit les arguments sur le
+flux de l'appelant juste avant l'évaluation. Les valeurs ne sont justes que
+si la propriété attend ce noyau. Avec le flux par défaut, le test échoue.
+
+### Balayages
+
+Les lois de test de MFront (`tfel/mfront/tests`) sont bien plus nombreuses
+que les lois des tests de l'interface. Des balayages les couvrent toutes :
+
+| Outil | Ce qui est vérifié | Résultat |
+|---|---|---|
+| `scripts/compile-sweep.sh` | compilation de toutes les lois, modèles et propriétés de test, pour nvcc, clang CUDA (qui refuse tout appel d'une fonction hôte depuis le code GPU), AdaptiveCpp et nvc++ | 541 compilations réussies, aucun code utilisateur bloquant |
+| `scripts/runtime-sweep.py` | exécution de toutes les lois et modèles de test, comparée à l'interface `generic`, avec trois amplitudes de chargement | tous les écarts restants sont des écarts d'arrondi, vérifiés |
+| `scripts/property-sweep.py` | exécution des 56 propriétés matériau de test | conformes |
+| `scripts/roundoff-check.sh`, `scripts/roundoff-triage.py` | rejoue une loi sur l'hôte avec et sans contraction des opérations (FMA), comme nvcc sur GPU | les écarts signalés viennent de lois qui amplifient l'arrondi |
+| `scripts/clang-cuda-header-scan.sh` | compilation de chaque en-tête de TFEL par clang CUDA | annotations hôte et GPU cohérentes |
+
+### Validation complète
+
+`scratch/validate3.sh <étiquette>` enchaîne :
+
+1. la reconfiguration et l'installation de TFEL ;
+2. la suite de tests complète de TFEL (`ctest`) : 6965 tests, tous verts ;
+3. la matrice des tests `generic-parallel` à `-O3` pour toutes les
+   configurations (`scripts/run-generic-parallel-tests.sh`) ;
+4. les balayages de compilation avec nvcc et clang.
+
+Les résultats des matrices sont dans `results/generic-parallel-tests-*.txt`,
+ceux des balayages dans `results/compile-sweep-*.tsv`.
+
+### Tests ciblés pendant le développement
+
+- `scratch/dev-test.sh <configuration>` lance un test avec l'arbre de
+  développement (MFront de `scratch/build-dev2`, en-têtes de `tfel-dev`),
+  sans installer TFEL. `DEVTEST_KIND=material-properties` choisit les
+  propriétés matériau.
+- `scratch/targeted-test.sh <configuration> <motif> <loi>...` ne construit
+  que les lois données.
+- `reproducers/` : petits programmes autonomes qui vérifient un point
+  précis (rotations des blocs de l'opérateur tangent, chaînes de caractères
+  dans le code GPU, coût d'un appel synchrone). Voir
+  `reproducers/README.md`.
+
+## MGIS
+
+MGIS est construit dans `build/mgis` contre le TFEL du prototype. Ses
+tests (`ctest`, 45 tests) comprennent ceux d'origine et :
+
+| Test | Ce qui est vérifié |
+|---|---|
+| `GenericParallelLoadTest` | chargement, refus croisés des fonctions d'un point et de lot, disposition mémoire des copies des structures de TFEL |
+| `GenericParallelIntegrateTest` | lots sur CPU (`stlpar`) comparés au calcul point par point : intégration, plages, échecs partiels, fonctions d'initialisation, post-traitements, rotations 2D et 3D, grandes déformations, vitesse du son, toutes les sortes de variables externes, modèle, politiques d'exécution, emplacements et ressources mémoire |
+| `GenericParallelEvaluateTest` | propriétés matériau sur CPU : chargement, valeurs, bornes et politiques, emplacements, arguments invalides, politique d'exécution |
+| `GenericParallelCUDATest` | mêmes vérifications sur GPU (`cuda`), données en mémoire managée, ressource mémoire, flux non par défaut, modèle et propriétés matériau |
+
+Le test CUDA demande l'option CMake `enable-generic-parallel-cuda-tests`.
+Les bibliothèques de lots des tests sont construites par les fonctions de
+`mgis/cmake/modules/generic-parallel.cmake`.
+
+## Défauts de compilateurs
+
+Les défauts rencontrés sont contournés de façon ciblée, avec un
+reproducteur pour chacun : `results/nvhpc-bugs/README.md`. Le script
+`results/nvhpc-bugs/run-nvcxx-reproducers.sh` les rejoue, pour vérifier
+s'ils sont corrigés dans une nouvelle version d'un compilateur.

@@ -1,8 +1,8 @@
 # Dépôts des bibliothèques. Les sources de TFEL modifié sont suivies par ce
 # dépôt (copie du dernier commit du dépôt local `tfel/`, faite par
 # scripts/sync-tfel.sh) ; les fichiers non suivis de `tfel/` sont ignorés.
-# MGIS et mfem-mgis ne sont pas modifiés pour l'instant (commits de base dans
-# README.md).
+# MGIS est suivi par sa série de patchs (patches/mgis). mfem-mgis n'est pas
+# modifié (commits de base dans README.md).
 /tfel/
 /tfel-dev/
 /mgis/
@@ -17,14 +17,11 @@
 /deps/spack/*/.spack-env/
 /deps/spack/*/spack.lock
 /backups/
-# brouillons : seuls les scripts et documents réutilisés sont suivis
+# brouillons : seuls les outils de développement réutilisés sont suivis
 /scratch/*
-!/scratch/validate.sh
-!/scratch/validate2.sh
 !/scratch/validate3.sh
 !/scratch/dev-test.sh
-!/scratch/review-tfel-2026-10-06.md
-!/scratch/d1-mgis-design.md
+!/scratch/targeted-test.sh
 !/scratch/b2/
 /scratch/b2/*
 !/scratch/b2/mfront-dev.sh

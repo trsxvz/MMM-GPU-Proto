@@ -1,7 +1,12 @@
 # D1, MGIS : intégration d'un lot avec une bibliothèque `generic-parallel`
 
-Statut : étapes 1 à 3 faites le 2026-10-09 (branche `gpu-proto` de `mgis/`,
-`patches/mgis`, entrée du journal du 09/10). Plan révisé le 2026-10-08.
+> Document historique. Proposition de conception écrite avant le travail
+> sur MGIS, puis complétée pendant les premières étapes. L'état actuel est
+> décrit dans [mgis.md](../mgis.md), le cheminement dans le
+> [journal](../../JOURNAL.md).
+
+Statut à l'écriture : étapes 1 à 3 faites le 2026-10-08 (branche
+`gpu-proto` de `mgis/`, `patches/mgis`). Plan révisé le 2026-10-08.
 Bases : MGIS master `818f0f9`, TFEL du proto (`tfel/`, R1 à R8 : structures
 en version 2, indice du premier point en échec).
 

@@ -1,69 +1,102 @@
 # MMM-GPU-Proto
 
-Prototype de la chaîne MFront → MGIS → mfem-mgis sur GPU et CPU
-parallèles. Première étape (en cours de finalisation) : TFEL/MFront.
+Prototype de la chaîne MFront (TFEL), MGIS et mfem-mgis, sur CPU et sur
+GPU.
 
-- **Interface `generic-parallel` des lois et des modèles** : MFront génère,
-  pour chaque loi et chaque hypothèse de modélisation, une fonction qui
-  intègre tout un lot de points d'intégration.
-  - Couverture : petites et grandes déformations, fonctions
-    d'initialisation, post-traitements, rotations des lois orthotropes,
-    monocristaux, variables de comportement, brique
-    StandardElastoViscoPlasticity, solveur TDLS.
-  - Backends : CUDA (nvcc, clang), HIP (hipcc, clang ; plateforme
-    NVIDIA), algorithmes parallèles de la bibliothèque standard (g++/TBB,
-    clang, icpx, nvc++ sur GPU), Kokkos, SYCL (AdaptiveCpp, icpx) et
-    OpenMP (g++, nvc++ sur GPU).
-- **Interface `generic-parallel` des propriétés matériau** (existante dans
-  TFEL) : backends Kokkos et OpenMP ajoutés ; propriétés définies par des
-  données ou appelant d'autres lois corrigées sur CUDA et HIP.
-- **Tests** : comparaison systématique avec l'interface `generic`, qui sert
-  de référence, pour chaque configuration (14 pour les lois) ; balayage de
-  compilation de tous les tests de MFront avec nvcc et avec clang, qui
-  refuse tout appel d'une fonction hôte depuis le code GPU.
+## En bref
 
-## Contenu
+- **TFEL/MFront** génère, pour chaque loi de comportement, modèle et
+  propriété matériau, des fonctions qui traitent tout un lot de points
+  d'intégration. Le même fichier MFront compile pour CUDA, HIP, Kokkos,
+  SYCL, OpenMP et les algorithmes parallèles du C++. Les résultats sont
+  comparés systématiquement à ceux de l'interface `generic`.
+- **MGIS** charge ces bibliothèques et calcule des lots sans copier les
+  données. Ses fonctions existantes basculent seules sur le calcul par
+  lot. L'appelant choisit la mémoire et la file d'exécution.
+- **mfem-mgis** n'est pas encore modifié. Son plan est à discuter.
+
+## Différences avec les versions officielles
+
+| Bibliothèque | Base officielle | Ce qui change | Détails |
+|---|---|---|---|
+| TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
+| MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, corrections | [docs/mgis.md](docs/mgis.md) |
+| mfem-mgis | master `4c8a91d815` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+
+## Documentation
+
+À lire dans cet ordre :
+
+1. [docs/vue-ensemble.md](docs/vue-ensemble.md) : but, rôle de chaque
+   bibliothèque, principes, vocabulaire, état d'avancement.
+2. [docs/tfel.md](docs/tfel.md) : changements de TFEL et de MFront, et leurs
+   justifications.
+3. [docs/mgis.md](docs/mgis.md) : changements de MGIS.
+4. [docs/validation.md](docs/validation.md) : tests, balayages, outils et
+   résultats.
+5. [docs/integration-amont.md](docs/integration-amont.md) : découpage en
+   contributions pour les dépôts officiels.
+6. [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) : plan pour mfem-mgis,
+   avec les questions à trancher.
+7. [JOURNAL.md](JOURNAL.md) : cheminement jour par jour.
+
+La documentation des interfaces, en anglais, est aussi dans l'arbre de
+chaque bibliothèque : `tfel/docs/web/generic-parallel-*.md` pour TFEL,
+`mgis/docs/web/` pour MGIS.
+
+## Contenu du dépôt
 
 | Chemin | Contenu |
 |---|---|
-| `JOURNAL.md` | journal daté, plan cochable, état et objectifs : **point d'entrée pour reprendre** |
-| `DESIGN.md` | conception de l'interface `generic-parallel` (données, exécution par point, backends) |
-| `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit de la branche de développement, sans l'historique de TFEL) |
-| `patches/tfel/` | les mêmes modifications sous forme de série de patchs depuis le master `fec0ade99` (`git am`), et son README |
-| `build-tfel.sh` | configuration, construction et installation de TFEL (chemins de la machine de développement) |
-| `scripts/` | environnement (`env.sh`), mise à jour de `tfel/` et des patchs (`sync-tfel.sh`), garde-fou mémoire des longues compilations (`memory-governor.sh`), matrice des backends, balayage de compilation de tous les tests MFront, balayages d'exécution (comparaison de toutes les lois de test et de toutes les propriétés matériau de test aux résultats de l'interface `generic`) et contrôle des écarts d'arrondi, contrôle des annotations hôte/device par clang CUDA |
-| `results/` | résultats des matrices et des balayages, défauts de compilateurs rencontrés avec leurs reproducteurs (`results/nvhpc-bugs/`) |
-| `scratch/` | scripts de validation, configurations de développement, proposition de conception pour MGIS (`d1-mgis-design.md`) |
-| `deps/spack/` | environnement spack du prototype (`mmm-gpu/spack.yaml`), dépôt de paquets complémentaire (recette d'AdaptiveCpp 25.10), préfixe CUDA tiré du HPC SDK ; voir son README |
-| `deps/spack-sycl/` | spécification spack du LLVM utilisé par AdaptiveCpp dans l'ancien environnement |
+| `docs/` | documentation du prototype ; `docs/historique/` garde les documents de travail dépassés (relecture du 06/10, conception initiale de MGIS) |
+| `JOURNAL.md` | journal daté du travail |
+| `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit, sans l'historique de TFEL) |
+| `patches/tfel/` | les mêmes changements en série de patchs depuis le master de TFEL (`git am`) |
+| `patches/mgis/` | changements de MGIS en série de patchs depuis son master |
+| `build-tfel.sh` | configuration, construction et installation de TFEL |
+| `scripts/` | environnement (`env.sh`), synchronisation des patchs (`sync-tfel.sh`, `sync-mgis.sh`), matrice des tests, balayages de compilation et d'exécution, contrôle des arrondis, garde-fou mémoire des longues compilations |
+| `scratch/` | outils de développement suivis : validation complète (`validate3.sh`), tests avec l'arbre de développement (`dev-test.sh`, `targeted-test.sh`), configurations de développement (`b2/`) |
+| `reproducers/` | petits programmes autonomes qui vérifient un point précis |
+| `results/` | résultats des matrices et des balayages ; défauts de compilateurs et leurs reproducteurs (`results/nvhpc-bugs/`) |
+| `deps/spack/` | environnement spack du prototype (`mmm-gpu`) et recettes complémentaires |
+| `deps/spack-sycl/` | spécification du LLVM de l'ancien environnement |
 
-La documentation utilisateur des interfaces est dans
-`tfel/docs/web/generic-parallel-behaviour-interface.md` et
-`tfel/docs/web/generic-parallel-material-property-interface.md`.
+Les dépôts de travail `tfel-dev/` (branche de développement de TFEL),
+`mgis/` et `mfem-mgis/` sont des clones locaux, non suivis par ce dépôt.
 
-## Compiler
+## Construire
 
-`build-tfel.sh` compile `tfel/` dans `build/tfel` et l'installe dans
-`install/tfel`. Pour repartir du dépôt officiel de TFEL avec son historique,
-appliquer les patchs :
+Les chemins des scripts sont ceux de la machine de développement.
+`scripts/env.sh` décrit l'environnement : compilateurs, Kokkos,
+AdaptiveCpp, HIP, CUDA.
+
+TFEL, depuis les sources de ce dépôt :
 
 ```bash
-git clone <dépôt officiel de TFEL> tfel
-cd tfel
-git checkout -b generic-parallel-behaviours fec0ade99
+./build-tfel.sh install   # construit tfel/ et l'installe dans install/tfel-mmm-gpu
+```
+
+TFEL, depuis le dépôt officiel :
+
+```bash
+git clone <dépôt officiel de TFEL> tfel && cd tfel
+git checkout -b generic-parallel fec0ade99
 git am ../patches/tfel/*.patch
 ```
 
-`build-tfel.sh` et `scripts/env.sh` décrivent les compilateurs et les
-dépendances utilisés : nvcc 13.0, hipcc 5.7 sur la plateforme NVIDIA,
-g++ 14, clang 20 (avec le CUDA 12.9 du HPC SDK), nvc++ 25.11, icpx 2026.1,
-Kokkos 5.0.2, AdaptiveCpp 25.10 et TDLS. `scratch/validate3.sh` enchaîne
-l'installation, la régression de TFEL, la matrice des configurations à -O3
-et les balayages de compilation.
+MGIS, depuis le dépôt officiel, contre ce TFEL :
 
-## Bibliothèques suivantes
+```bash
+git clone <dépôt officiel de MGIS> mgis && cd mgis
+git checkout -b gpu-proto 818f0f9
+git am ../patches/mgis/*.patch
+cd .. && source scripts/env.sh
+cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" -DCMAKE_CXX_COMPILER=g++-14 \
+  -Denable-generic-parallel-cuda-tests=ON \
+  -DCMAKE_CUDA_COMPILER="$(which nvcc)" -DCMAKE_CUDA_HOST_COMPILER=g++-14
+cmake --build build/mgis --target check -j16   # construit et lance les tests
+```
 
-MGIS part de `818f0f9` (patchs dans `patches/mgis`) : chargement et calcul
-de lots (lois, modèles, propriétés matériau), politiques d'exécution,
-emplacement des tableaux et ressources mémoire (plan D1, étapes 1 à 4 et 6). mfem-mgis (`4c8a91d815`) n'est pas encore
-modifié (plan D2, voir `JOURNAL.md`).
+Les tests et leur lecture sont décrits dans
+[docs/validation.md](docs/validation.md).

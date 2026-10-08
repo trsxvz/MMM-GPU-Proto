@@ -1,221 +1,95 @@
-# Journal : mfem-mgis-gpu-proto
+# Journal
 
-## ÉTAT
+Ce journal raconte le travail jour par jour : ce qui a été fait, les
+défauts trouvés, les décisions et leurs raisons. Chaque entrée décrit
+l'état au moment où elle a été écrite. Des choix ont pu changer ensuite :
+l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 
-- FAIT : fork de TFEL (`tfel/`, branche `generic-parallel-behaviours`,
-  partie de master `fec0ade99`, 01/10/2026), compilation installée dans
-  `install/tfel` (`build-tfel.sh`, réinstallation : `make -j16 install` dans
-  `build/tfel`, 10 à 60 s).
-- FAIT : jalon 1, code généré compilable pour le GPU.
-- FAIT : jalon 2, interface `generic-parallel` des lois (petites
-  déformations et lois générales), backends `cuda`, `hip` (non testé, pas de
-  GPU AMD) et `stlpar`.
-- FAIT : jalon 3, tests `tfel-check` installés
-  (`test-suite/behaviours/generic-parallel/{cuda-nvcc,stlpar-parunseq-gcc}`) :
-  J2 (3D, déformations planes), Norton implicite (3D, contraintes planes),
-  Hosford (valeurs propres) et StrainHardeningCreep3 (loi de matériau sur
-  GPU, grandeurs) comparés à l'interface `generic` (écart ≤ 6e-13), deux
-  rangements mémoire, trois types de calcul ; les deux configurations
-  passent (CUDA 1 min 31, CPU 32 s).
-- Balayage des 226 lois de test de MFront (`scripts/compile-sweep.sh`,
-  résultats `results/compile-sweep-cuda-2026-10-05.tsv`), passage final :
-  **160 compilent pour le GPU sans aucun appel hôte** (99 au premier
-  passage) ; 33 grandes déformations (non supportées) ; 16 bloquées par du
-  code utilisateur (`throw`, `std::cout`, `static const` calculé) ; 11 avec
-  appels hôte restants : systèmes de glissement des monocristaux (6),
-  code utilisateur (`raise_if`, modèles externes : 4), conversion
-  d'opérateur tangent en grandes déformations (1) ; 6 hors sujet
-  (fragments, modèle, erreur de fichier).
-- FAIT : suite de tests de TFEL complète, 6963/6963 (pas de régression
-  CPU).
-- Commits locaux (7) dans `tfel/`, série de patchs dans `tfel/proto-patches/`.
-- FAIT : backend HIP testé sur le GPU NVIDIA (hipcc 5.7 + CUDA 12.9).
-- FAIT : lois de matériau sur GPU, valeurs propres (8 solveurs), pile CUDA,
-  doc `docs/web/generic-parallel-behaviour-interface.md`.
-- RESTE : systèmes de glissement (monocristaux) ; jalon 4 (TDLS) ;
-  jalon 5 (grandes déformations) ; puis MGIS et mfem-mgis.
+## Phases
 
-## OBJECTIFS ET PRINCIPES
+| Repère | Sujet |
+|---|---|
+| Jalons 1 à 3 | code généré compilable pour GPU, interface `generic-parallel` des lois, premiers tests |
+| B1 à B7 | couverture de MFront : grandes déformations, fonctions d'initialisation, post-traitements, rotations, monocristaux, modèles, TDLS |
+| C1 à C5 | backends : HIP, `stlpar` avec nvc++, Kokkos, SYCL, OpenMP |
+| R1 | corrections de la relecture du 06/10 |
+| R2 | lois de test portables entre CPU et GPU |
+| R3 | essais d'exécution de toutes les lois de test |
+| R4 | validations à `-O3`, environnement spack |
+| R5 | clang-tidy et relecture indépendante |
+| R6, R7 | données partagées par GPU, paramètres des variables de comportement, rotation de tous les blocs |
+| R8 | erreurs sans coût en cas de succès |
+| R9 | espace mémoire des bibliothèques |
+| R10 | options d'exécution et évaluation asynchrone des propriétés matériau |
+| D1 | MGIS : lots de lois, de modèles et de propriétés matériau |
+| D2 | mfem-mgis : plan à discuter ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)) |
 
-- Portabilité CPU et GPU propre, flexible et idiomatique de tout
-  TFEL/MFront (propriétés matériau, lois, modèles...), puis MGIS et
-  mfem-mgis, avec pour but final une infrastructure complète
-  mfem-mgis / MGIS / TFEL-MFront sur GPU.
-- Rester dans l'esprit du code existant, mais corriger directement les
-  défauts évidents, propres et sans casse, y compris dans le code existant.
-- Pas d'optimisation fine GPU pour l'instant (pile, launch bounds...) :
-  tout doit compiler et les performances ne doivent pas être mauvaises.
-- Couvrir tout TFEL/MFront (grandes déformations, monocristaux, fonctions
-  d'initialisation, post-traitements, rotations, modèles autonomes, etc.),
-  sans code spaghetti.
-- Tout doit fonctionner de -O1 à -O3, sur tous les backends : stdpar (gcc
-  et nvc++), CUDA, HIP, Kokkos, SYCL ; OpenMP (hôte et déport) en plus.
-- Organisation : un dossier par bibliothèque adaptée (`tfel/`, `mgis/`,
-  `mfem-mgis/`) ; la série de patchs de TFEL depuis master est dans
-  `patches/tfel/` (lien `tfel/proto-patches`).
-- Tenir `JOURNAL.md` et `DESIGN.md` à jour au fur et à mesure : ils
-  permettent de reprendre le travail.
+## Conventions
 
-## PLAN DE TRAVAIL (cocher au fur et à mesure)
+- Les chemins cités sont ceux du moment. Plusieurs documents ont été
+  déplacés depuis :
+  - `DESIGN.md` est devenu [docs/tfel.md](docs/tfel.md) ;
+  - `UPSTREAM.md` est devenu [docs/integration-amont.md](docs/integration-amont.md) ;
+  - `scratch/review-tfel-2026-10-06.md` est dans
+    [docs/historique/](docs/historique/relecture-tfel-2026-10-06.md) ;
+  - `scratch/d1-mgis-design.md` est dans
+    [docs/historique/](docs/historique/conception-mgis-2026-10-08.md) ;
+  - `scratch/d2-mfem-mgis-design.md` est devenu
+    [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md).
+- `tfel/` désigne le dépôt TFEL du prototype, `tfel-dev/` sa copie de
+  développement (même dépôt, autre arbre de travail).
+- Les mesures de temps sont celles de la machine de développement (GPU RTX
+  5080).
 
-A. Robustesse
-- [x] A1 Suite de tests TFEL complète (05/10, après les 5 commits) :
-      **6963/6963 réussis** avec un environnement propre
-      (`env -u LD_LIBRARY_PATH`, PATH sans spack) et régénération forcée
-      du code généré (`touch build/tfel/mfront/src/mfront`). Les échecs
-      BarBehaviour2/4 et TDLS des passes précédentes venaient de l'ancienne
-      libTFELMFront de spack. Commande : voir l'entrée du 05/10
-      « réorganisation ».
-- [x] A2 Interface `generic-parallel` des propriétés matériau (commit
-      0006) : `stlpar` vraiment parallèle (itérateur de comptage partagé,
-      `MFront/GenericParallel/CountingIterator.hxx`) ; `errno` remplacé par
-      la détection des résultats invalides dans les noyaux (statut -4 :
-      `errno` est par thread, absent sur GPU, et modifié par TBB/CUDA à
-      l'initialisation, d'où les faux échecs du premier appel, cas UO2) ;
-      bornes de la sortie écrites hors du tableau des statuts et jamais
-      analysées ; en-têtes des backends installés à plat (les deux
-      `AbstractBackend.hxx` s'écrasaient). Tests `stlpar-parunseq-gcc` et
-      `cuda-nvcc` des propriétés matériau : OK.
-B. Couverture MFront
-- [~] B1 Tests numériques : Runge-Kutta, lois générales non mécaniques,
-      zones cohésives, énergies, vitesse du son, politiques de bornes :
-      faits (entrée du 05/10 nuit), matrice à repasser.
-- [~] B2 Fonctions d'initialisation et post-traitements : faits, 118/118
-      comparaisons stlpar-gcc ; matrice complète des backends à repasser.
-- [~] B3 Rotations des lois orthotropes (sur les champs du lot) : faites
-      (module partagé avec l'interface `generic`, vecteurs compris),
-      stlpar-gcc OK, matrice à repasser.
-- [~] B4 Monocristaux (systèmes de glissement, matrices d'interaction) :
-      faits (générés et classes TFEL), CUDA et stlpar OK, matrice à
-      repasser. Restent les polycristaux à orientations lues dans un
-      fichier (`PolyCrystalsSlidingSystems`, entrées/sorties hôte).
-- [~] B5 Grandes déformations (Green-Lagrange, Hencky, lois en F),
-      conversions d'opérateurs tangents sur GPU : faits ; CUDA, HIP,
-      Kokkos, SYCL GPU OK ; nvc++ corrigé (voir entrée du 05/10 soir),
-      matrice complète à repasser.
-- [~] B6 Modèles autonomes (`@DSL Model`) : interface `generic-parallel`
-      des modèles faite (entrée du 05/10 nuit, B6) ; stlpar et CUDA OK,
-      matrice à repasser.
-- [~] B7 TDLS dans les lois implicites sur GPU : fonctionne sans
-      changement de code (entrée du 05/10 nuit, B7) ; tests `tdls` par
-      configuration ajoutés, matrice à repasser.
-C. Backends
-- [x] C1 HIP sur GPU NVIDIA (commit 0007) : configuration `hip-hipcc`
-      ajoutée à `build-tfel.sh` (`HIP_PLATFORM=nvidia`, CUDA 12.9 du SDK
-      HPC via `CUDA_PATH`) ; test `behaviours/generic-parallel/hip-hipcc`
-      36/36 comparaisons OK (87 s), propriétés matériau `hip-hipcc` OK ;
-      cuda-nvcc et stlpar-parunseq-gcc (lois et propriétés) relancés : OK.
-- [x] C2 `stlpar` sur GPU avec `nvc++ -stdpar=gpu` : mode
-      `-gpu=mem:managed` (le mode `unified` par défaut est mal compilé par
-      nvc++ 25.11), option `device_stack_size` (16 Ko dans la
-      configuration `stlpar-parunseq-nvhpc-gpu`) ; tests lois (646 s, la
-      compilation nvc++ est lente) et propriétés matériau OK.
-- [x] C3 Kokkos 5.0.2 (partagé, sans RDC, CUDA sm_120 + OpenMP + Serial,
-      `install/kokkos`) : backend `kokkos` (option `execution_space`),
-      tests `kokkos` (CUDA, 151 s) et `kokkos-host` (OpenMP, 71 s) OK.
-- [x] C4 SYCL : AdaptiveCpp 25.10 compilé depuis les sources
-      (`deps/adaptivecpp-25.10.0`, `build/adaptivecpp`,
-      `install/adaptivecpp`) contre un LLVM 20.1.8 construit par spack
-      (`deps/spack-sycl/llvm.spec`) ; backend `sycl` (mises à jour
-      atomiques, transferts automatiques, `device_stack_size`) ; tests
-      `sycl-default-acpp` (GPU) et `sycl-default-acpp-omp` (CPU) OK.
-- [~] C5 OpenMP (backend `openmp`, hôte et déport `target`) : fait (entrées
-      du 05/10 soir, C5) ; `openmp-host-gcc` activée (284/284) ;
-      `openmp-offload-nvhpc-gpu` non activée (deux défauts de nvc++ 25.11,
-      lois et propriétés matériau justes une à une).
-- Matrice complète (`scripts/run-generic-parallel-tests.sh`,
-  `results/generic-parallel-tests-2026-10-05.txt`) : 8 tests de lois et
-  6 de propriétés matériau actifs, tous OK après les corrections ci-dessous
-  (dernière passe en cours au moment de l'écriture).
-R. Après la relecture du 06/10 (`scratch/review-tfel-2026-10-06.md`),
-   dans cet ordre
-- [x] R1 Corriger tous les constats de la relecture :
-  - [x] A4 même définition de la classe de loi sur l'hôte et le GPU ;
-  - [x] A1 référence `generic` des tests compilée par le compilateur hôte ;
-  - [x] A2 paramètres des variables de comportement vérifiés sur l'hôte
-        (les lois matériau n'étaient pas concernées) ;
-  - [x] A3 variante asynchrone, réglage explicite de la pile, mutex commun ;
-  - [x] A5 principe 4 de DESIGN.md corrigé, résultats CPU inchangés
-        (vecteurs propres), incompatibilités dans les notes de version,
-        plan de découpage en PR amont (`UPSTREAM.md`) ;
-  - [x] B1 options communes aux propriétés matériau et aux lois,
-        conventions de statut documentées ;
-  - [x] B2 points d'entrée, `dispatch*`, `gather`/`scatter`, intégrateurs
-        de grandes déformations et SYCL factorisés ;
-  - [x] B3 déduplication du générateur documentée, propriété d'interface
-        explicite (A4) ;
-  - [x] B4 version du contrat C ; messages par point non transmis
-        (décision documentée) ;
-  - [x] B5 liste des lois de test centralisée, tailles lues dans les
-        bibliothèques, rotations sans arguments factices ;
-  - [x] B7 gain du mode direct mesuré : aucun, mode retiré ;
-  - [x] C tous les points mineurs.
-- [x] R2 Rendre les 36 lois de `mfront/tests` dont le code utilisateur
-      n'est pas utilisable sur GPU portables CPU et GPU, sans changer leurs
-      résultats ni leur sémantique.
-- [x] R3 Tester à l'exécution les ~490 lois de `mfront/tests` qui ne sont
-      que compilées (balayage d'exécution) ; balayages de compilation avec
-      nvc++ (OpenMP, stdpar) et AdaptiveCpp.
-- [x] R4 Grandes validations (-O3), puis environnement spack mmm-gpu
-      (MFEM 4.10 reporté à mfem-mgis : compilation CUDA de plusieurs
-      heures, jusqu'à 22 Go pour un fichier).
-- [x] R5 clang-tidy et relecture indépendante de l'interface : défauts
-      corrigés, tests ajoutés (entrée du 08/10, nuit).
-- [x] R6 données partagées copiées sur chaque GPU, symboles des
-      propriétés matériau, duplication réduite ; validation sans HMM.
-- [x] R7 paramètres des variables de comportement sur GPU, rotation de
-      tous les blocs de l'opérateur tangent.
-- [x] R8 gestion des erreurs homogène, sans coût en cas de succès : indice
-      du premier point en échec, blocs de statut réutilisés (lois et
-      propriétés matériau, tous les backends).
-D. Intégration
-- [ ] D1 MGIS (plan révisé le 08/10 : `scratch/d1-mgis-design.md`) :
-      chargement d'une bibliothèque `generic-parallel`, intégration d'un
-      lot sans copie sur les tableaux de l'appelant, basculement
-      automatique des fonctions existantes, erreurs explicites ; puis
-      ressource mémoire, asynchrone et mise à jour sur le GPU.
-  - [x] étapes 1 à 3 (chargement, intégration, fonctions
-        d'initialisation, post-traitements, rotations), sur CPU et sur GPU
-        avec la mémoire de l'appelant (entrée du 09/10, nuit) ;
-  - [x] étape 4a : emplacement des données (`MemoryLocation`), vérifié ;
-  - [ ] étape 4b : ressource mémoire ;
-  - [ ] étape 5 : asynchrone, `update`/`revert` sur le GPU ;
-  - [ ] étapes 6 et 7 : propriétés matériau `generic-parallel`,
-        documentation.
-- [ ] D2 mfem-mgis (plan du 08/10 : `scratch/d2-mfem-mgis-design.md`) :
-      chemin par lot à côté du chemin actuel, en trois phases par
-      matériau (gradients, intégration du lot, résidu), données dans la
-      mémoire de MFEM, opérateur tangent sans matrice, point fixe ou
-      assemblé sur le GPU, hypre ou Ginkgo.
+## Index des entrées
 
-## Organisation
-
-- `tfel/` : TFEL complet adapté (clone du dépôt officiel de TFEL, branche
-  `generic-parallel-behaviours`, base master `fec0ade99`, commits locaux).
-  Le dépôt du prototype suit aussi les sources de `tfel/` (copie du dernier
-  commit, sans l'historique de TFEL) et la série `git format-patch` depuis
-  la base dans `patches/tfel/` (lien `tfel/proto-patches`). Après chaque
-  commit dans `tfel/` : `scripts/sync-tfel.sh` met les deux à jour, puis
-  commit dans le dépôt du prototype.
-- `mgis/` : MGIS (dépôt officiel, base master `818f0f9`, branche
-  `gpu-proto`), non modifié pour l'instant.
-- `mfem-mgis/` : mfem-mgis (dépôt officiel, base master `4c8a91d815`,
-  branche `gpu-proto`), non modifié pour l'instant.
-- `build/tfel`, `install/tfel` : compilation et installation de TFEL
-  (`build-tfel.sh`, puis `make -j16 install` dans `build/tfel`).
-- `scripts/` : `compile-sweep.sh` (balayage des lois de test),
-  `host-calls.sh` (appels hôte depuis le code GPU),
-  `annotate-function-templates.py`.
-- `results/` : résultats des balayages. `scratch/` : sondes jetables.
-- `DESIGN.md` : décisions de conception (anglais).
-- Outils disponibles sans sudo : nvcc 13 (view spack tfelgpu_local), SDK
-  NVIDIA HPC 25.11 (`/opt/nvidia/hpc_sdk/Linux_x86_64/25.11`, `nvc++`,
-  CUDA 12.9 et 13.0), `hipcc` 5.7 (fonctionne sur GPU NVIDIA avec le CUDA
-  12.9 du SDK : `HIP_PLATFORM=nvidia HIP_COMPILER=nvcc CUDA_PATH=...`),
-  Kokkos (view spack, CUDA sm_120). SYCL : AdaptiveCpp à compiler après
-  `sudo apt install libclang-20-dev libclang-cpp20-dev libomp-20-dev lld-20
-  libpolly-20-dev libzstd-dev libedit-dev libboost-context-dev
-  libboost-fiber-dev` (paquets système installés le 05/10).
+| Entrée |
+|---|
+| [2026-10-05, état des lieux de TFEL master](#2026-10-05-état-des-lieux-de-tfel-master) |
+| [2026-10-05, sonde J2 (DSL par défaut) dans un kernel CUDA](#2026-10-05-sonde-j2-dsl-par-défaut-dans-un-kernel-cuda) |
+| [2026-10-05, jalon 1 terminé : code généré compilable pour le GPU](#2026-10-05-jalon-1-terminé--code-généré-compilable-pour-le-gpu) |
+| [2026-10-05, jalon 2 : interface `generic-parallel` des lois](#2026-10-05-jalon-2--interface-generic-parallel-des-lois) |
+| [2026-10-05, jalon 3 et balayage des lois de test](#2026-10-05-jalon-3-et-balayage-des-lois-de-test) |
+| [2026-10-05, lois de matériau, valeurs propres et pile sur GPU](#2026-10-05-lois-de-matériau-valeurs-propres-et-pile-sur-gpu) |
+| [2026-10-05, réorganisation, commits locaux, piège d'environnement](#2026-10-05-réorganisation-commits-locaux-piège-denvironnement) |
+| [2026-10-05, HIP sur GPU NVIDIA (C1, commit 0007)](#2026-10-05-hip-sur-gpu-nvidia-c1-commit-0007) |
+| [2026-10-05, `stlpar` sur GPU avec nvc++ 25.11 (C2, en cours)](#2026-10-05-stlpar-sur-gpu-avec-nvc-2511-c2-en-cours) |
+| [2026-10-05, backends Kokkos et SYCL, factorisation, corrections CMake](#2026-10-05-backends-kokkos-et-sycl-factorisation-corrections-cmake) |
+| [2026-10-05, matrice complète des backends, corrections](#2026-10-05-matrice-complète-des-backends-corrections) |
+| [2026-10-05 (soir), B5 grandes déformations, B2 initialisations et post-traitements](#2026-10-05-soir-b5-grandes-déformations-b2-initialisations-et-post-traitements) |
+| [2026-10-05 (soir, suite), B3 rotations des lois orthotropes](#2026-10-05-soir-suite-b3-rotations-des-lois-orthotropes) |
+| [2026-10-05 (nuit), B4 monocristaux, défauts trouvés par nvcc](#2026-10-05-nuit-b4-monocristaux-défauts-trouvés-par-nvcc) |
+| [2026-10-05 (nuit, suite), B1 couverture numérique, nouveaux défauts nvcc et clang](#2026-10-05-nuit-suite-b1-couverture-numérique-nouveaux-défauts-nvcc-et-clang) |
+| [2026-10-05 (nuit, suite), B6 modèles autonomes](#2026-10-05-nuit-suite-b6-modèles-autonomes) |
+| [2026-10-05 (nuit, suite), B7 solveur TDLS sur GPU](#2026-10-05-nuit-suite-b7-solveur-tdls-sur-gpu) |
+| [2026-10-05 (nuit, suite), variables de comportement et balayage complet](#2026-10-05-nuit-suite-variables-de-comportement-et-balayage-complet) |
+| [2026-10-05 (nuit, suite), brique StandardElastoViscoPlasticity et en-têtes de TFEL](#2026-10-05-nuit-suite-brique-standardelastoviscoplasticity-et-en-têtes-de-tfel) |
+| [2026-10-05 (nuit, suite), commits 0016 à 0018](#2026-10-05-nuit-suite-commits-0016-à-0018) |
+| [2026-10-05 (soir), C5 backend OpenMP, points d'entrée factorisés](#2026-10-05-soir-c5-backend-openmp-points-dentrée-factorisés) |
+| [2026-10-05 (soir, suite), propriétés matériau : backends Kokkos et OpenMP](#2026-10-05-soir-suite-propriétés-matériau--backends-kokkos-et-openmp) |
+| [2026-10-05 (soir, suite), matrice c, OpenMP, modèles compilés par nvc++](#2026-10-05-soir-suite-matrice-c-openmp-modèles-compilés-par-nvc) |
+| [2026-10-06 (nuit), versions de NVHPC et de CUDA, défauts d'OpenMP déporté](#2026-10-06-nuit-versions-de-nvhpc-et-de-cuda-défauts-dopenmp-déporté) |
+| [2026-10-06 (nuit, suite), champs par variable, symboles, rôles](#2026-10-06-nuit-suite-champs-par-variable-symboles-rôles) |
+| [2026-10-06 (nuit, suite), pilotes de l'interface generic, OpenMP en mode direct](#2026-10-06-nuit-suite-pilotes-de-linterface-generic-openmp-en-mode-direct) |
+| [2026-10-06 (matin), configurations clang CUDA et HIP](#2026-10-06-matin-configurations-clang-cuda-et-hip) |
+| [2026-10-06 (matin, suite), balayage clang CUDA de tous les tests de MFront](#2026-10-06-matin-suite-balayage-clang-cuda-de-tous-les-tests-de-mfront) |
+| [2026-10-06 (matin, suite), DSL non exécutés sur GPU et deux défauts de nvc++ OpenMP](#2026-10-06-matin-suite-dsl-non-exécutés-sur-gpu-et-deux-défauts-de-nvc-openmp) |
+| [2026-10-06 (matin, fin), validation de la branche fusionnée](#2026-10-06-matin-fin-validation-de-la-branche-fusionnée) |
+| [2026-10-06 (après-midi), corrections de la relecture (R1)](#2026-10-06-après-midi-corrections-de-la-relecture-r1) |
+| [2026-10-06 (soir), lois de test portables (R2)](#2026-10-06-soir-lois-de-test-portables-r2) |
+| [2026-10-07 (nuit), essais d'exécution de toutes les lois de test (R3)](#2026-10-07-nuit-essais-dexécution-de-toutes-les-lois-de-test-r3) |
+| [2026-10-07 (matin), grandes validations à -O3 (R4, première partie)](#2026-10-07-matin-grandes-validations-à--o3-r4-première-partie) |
+| [2026-10-07 (après-midi), passage à l'environnement spack mmm-gpu (R4, en cours)](#2026-10-07-après-midi-passage-à-lenvironnement-spack-mmm-gpu-r4-en-cours) |
+| [2026-10-07 (soir), environnement mmm-gpu validé (fin de R4)](#2026-10-07-soir-environnement-mmm-gpu-validé-fin-de-r4) |
+| [2026-10-08 (nuit), clang-tidy et relecture indépendante (R5)](#2026-10-08-nuit-clang-tidy-et-relecture-indépendante-r5) |
+| [2026-10-08 (nuit, suite), données partagées, symboles, duplication (R6)](#2026-10-08-nuit-suite-données-partagées-symboles-duplication-r6) |
+| [2026-10-08 (nuit, fin), paramètres des variables de comportement, rotations (R7)](#2026-10-08-nuit-fin-paramètres-des-variables-de-comportement-rotations-r7) |
+| [2026-10-08 (matin), gestion des erreurs homogène (R8)](#2026-10-08-matin-gestion-des-erreurs-homogène-r8) |
+| [2026-10-08 (matin, suite), MGIS : chargement et calcul de lots (D1, étapes 1 à 3)](#2026-10-08-matin-suite-mgis--chargement-et-calcul-de-lots-d1-étapes-1-à-3) |
+| [2026-10-08 (après-midi), espace mémoire (R9) et relecture de MGIS (D1, étape 4b)](#2026-10-08-après-midi-espace-mémoire-r9-et-relecture-de-mgis-d1-étape-4b) |
+| [2026-10-08 (après-midi, suite), MGIS : propriétés matériau et modèles de lots (D1, étape 6)](#2026-10-08-après-midi-suite-mgis--propriétés-matériau-et-modèles-de-lots-d1-étape-6) |
+| [2026-10-08 (soir), options d'exécution des propriétés matériau (R10)](#2026-10-08-soir-options-dexécution-des-propriétés-matériau-r10) |
+| [2026-10-08 (soir, suite), évaluation asynchrone des propriétés matériau (R10, suite)](#2026-10-08-soir-suite-évaluation-asynchrone-des-propriétés-matériau-r10-suite) |
 
 ## Entrées
 
@@ -1899,7 +1773,7 @@ Vérifications :
   version sans le minimum atomique de l'indice est détectée (12 échecs) ;
 - propriétés matériau : cuda-nvcc, hip-hipcc, stlpar-parunseq-gcc,
   openmp-host-gcc, kokkos, sycl-default-acpp ;
-- validation complète sans HMM (`validate3.sh 2026-10-09-r8`) : tests de
+- validation complète sans HMM (`validate3.sh 2026-10-08-r8`) : tests de
   TFEL 6965/6965, matrice -O3 31/31 (stlpar-parunseq-nvhpc-gpu compris,
   avec `-gpu=nordc`), balayages nvcc et clang 541 OK, comme avant.
 

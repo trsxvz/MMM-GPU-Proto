@@ -1,5 +1,10 @@
 # Relecture de conception de la branche generic-parallel-behaviours (TFEL)
 
+> Document historique. Relecture indépendante faite le 06/10, sur l'état de
+> la branche à cette date. Tous ses constats ont été traités (phase R1 du
+> [journal](../../JOURNAL.md)). L'état actuel est décrit dans
+> [tfel.md](../tfel.md).
+
 Date : 2026-10-06. Diff relu : fec0ade99..generic-parallel-behaviours (40 commits, 364 fichiers, +18421/-4875).
 
 ## FICHIERS LUS / RESTANTS
