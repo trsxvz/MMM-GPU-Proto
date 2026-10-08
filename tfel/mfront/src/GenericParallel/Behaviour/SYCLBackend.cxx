@@ -42,6 +42,15 @@ namespace mfront::generic_parallel::behaviour {
     return apply + ")";
   }  // end of getApply
 
+  std::string SYCLBackend::getMemorySpace() const {
+    // with automatic transfers, the fields which are not accessible by the
+    // device are copied
+    if (this->automatic_data_transfers) {
+      return "mfront::generic_parallel::any_memory_space";
+    }
+    return "mfront::generic_parallel::device_memory_space";
+  }  // end of getMemorySpace
+
   std::string SYCLBackend::getSharedDataCopy(
       const std::string_view getter, const std::string_view execution) const {
     return "mfront::gpb::sycl::getSharedDataCopy<" + std::string{getter} +

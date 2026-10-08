@@ -79,6 +79,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <utility>
 #include <type_traits>
@@ -577,7 +578,8 @@ static Sizes readSizes(const std::string& lib,
 
 /*!
  * \brief check that the version of the data structures exported by the
- * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`
+ * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`, and
+ * that the library exports the memory space of the fields
  * \param[in] lib: library
  * \param[in] f: tested function
  */
@@ -586,6 +588,13 @@ static void checkVersion(const std::string& lib, const FunctionName& f) {
       findSymbol(lib, f, "generic_parallel_api_version"));
   if ((v == nullptr) || (*v != MFRONT_GPB_API_VERSION)) {
     fail("invalid version of the data structures in library '" + lib + "'");
+  }
+  const auto* const m = static_cast<const char* const*>(
+      findSymbol(lib, f, "generic_parallel_memory_space"));
+  const auto memory_space = std::string_view{m != nullptr ? *m : ""};
+  if ((memory_space != "host") && (memory_space != "device") &&
+      (memory_space != "any")) {
+    fail("invalid memory space in library '" + lib + "'");
   }
 }
 

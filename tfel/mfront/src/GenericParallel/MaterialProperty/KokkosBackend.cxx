@@ -88,6 +88,14 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall
 
+  std::string KokkosBackend::getMemorySpace() const {
+    // the execution space may access the memory of the host or not
+    return "(Kokkos::SpaceAccessibility<" + this->execution_space +
+           ", Kokkos::HostSpace>::accessible ? "
+           "mfront::generic_parallel::host_memory_space : "
+           "mfront::generic_parallel::device_memory_space)";
+  }  // end of getMemorySpace
+
   KokkosBackend::~KokkosBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::material_property

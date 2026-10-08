@@ -206,6 +206,10 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
   }  // end of writeKernelCall
 
+  std::string CUDABackendBase::getMemorySpace() const {
+    return "mfront::generic_parallel::device_memory_space";
+  }  // end of getMemorySpace
+
   CUDABackendBase::~CUDABackendBase() = default;
 
 }  // end of namespace mfront::generic_parallel::material_property

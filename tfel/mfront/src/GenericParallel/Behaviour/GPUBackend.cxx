@@ -34,6 +34,10 @@ namespace mfront::generic_parallel::behaviour {
            std::to_string(this->number_of_threads_per_block) + ")";
   }  // end of getApply
 
+  std::string GPUBackend::getMemorySpace() const {
+    return "mfront::generic_parallel::device_memory_space";
+  }  // end of getMemorySpace
+
   std::string GPUBackend::getSharedDataCopy(const std::string_view getter,
                                             const std::string_view) const {
     return "mfront::gpb::gpu::getSharedDataCopy<" + std::string{getter} + ">()";

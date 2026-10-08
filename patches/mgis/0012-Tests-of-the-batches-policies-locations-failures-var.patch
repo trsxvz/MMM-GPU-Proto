@@ -1,0 +1,1034 @@
+From cc42bb30d1b7d7ae11c31b3f4cda6f9960bc2b39 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 13:55:03 +0200
+Subject: [PATCH] Tests of the batches: policies, locations, failures,
+ variables
+
+- Integration of a range with new gradients, post-processing on a range,
+  partial failures given by an external state variable out of its
+  physical bounds (absolute index of the first failure).
+- External state variables of every type, arrays of variables included,
+  uniform or given point by point, checked value by value.
+- Finite strain integration with four couples of stress measure and
+  tangent operator, speed of sound with a uniform mass density.
+- 2D rotations, 3D rotations given point by point.
+- Functions taking an execution policy, refused for the behaviours of
+  the generic interface.
+- Arrays allocated by a memory resource, managers without points, arrays
+  located on a device refused by the functions of the host.
+- CUDA: arrays allocated in managed memory by a memory resource, and
+  integration, initialize function, post-processing and rotation on a
+  stream which is not the default one.
+---
+ tests/CMakeLists.txt                   |  10 +-
+ tests/GenericParallelCUDATest.cxx      | 252 ++++++++++++-
+ tests/GenericParallelIntegrateTest.cxx | 504 ++++++++++++++++++++++++-
+ tests/GenericParallelLoadTest.cxx      |  43 ++-
+ 4 files changed, 785 insertions(+), 24 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 98eb9a8..c7fa5c3 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -148,7 +148,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     Plasticity
+     OrthotropicElasticity
+     InitializeFunctionTest
+-    PostProcessingTest)
++    PostProcessingTest
++    BoundsCheckTest
++    TensorialExternalStateVariableTest
++    ComputeSpeedOfSound)
+   add_executable(GenericParallelLoadTest EXCLUDE_FROM_ALL
+     GenericParallelLoadTest.cxx)
+   target_link_libraries(GenericParallelLoadTest PRIVATE MFrontGenericInterface)
+@@ -185,7 +188,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     mfront_generic_parallel_behaviours_check_library(
+       GenericParallelBehaviourTestCUDA cuda
+       Elasticity
+-      Norton)
++      Norton
++      OrthotropicElasticity
++      InitializeFunctionTest
++      PostProcessingTest)
+     add_executable(GenericParallelCUDATest EXCLUDE_FROM_ALL
+       GenericParallelCUDATest.cxx)
+     target_link_libraries(GenericParallelCUDATest
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index 102d43e..6dc27b0 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -5,10 +5,11 @@
+  * allocated by the calling code in managed memory, and compares the results
+  * with the integration point by point of the `generic` interface.
+  *
+- * The data managers use external arrays for all their fields: the arrays
+- * managed by MGIS itself are in the memory of the host, which is not
++ * The data managers use external arrays for all their fields, or arrays
++ * allocated by MGIS with a memory resource allocating managed memory: the
++ * default memory resource allocates memory of the host, which is not
+  * accessible by the device without heterogeneous memory management.
+- * \date   09/10/2026
++ * \date   08/10/2026
+  * \copyright Use, modification and distribution are subject
+  * to one of the following licences:
+  * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
+@@ -19,6 +20,7 @@
+ 
+ #include <cmath>
+ #include <span>
++#include <array>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -31,6 +33,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "MGIS/MemoryResources/CUDAManagedMemoryResource.hxx"
+ 
+ static bool success = true;
+ 
+@@ -130,6 +133,56 @@ static double compare(const std::span<const mgis::real> a,
+   return d;
+ }  // end of compare
+ 
++/*!
++ * \brief compare the results of the integration point by point on the host
++ * and of the integration of a batch on the device
++ * \param[in] name: name of the test
++ * \param[in] r: result of the integration point by point
++ * \param[in] gpu_r: result of the integration of a batch
++ * \param[in] m: material data manager of the integration point by point
++ * \param[in] gpu_m: material data manager of the integration of a batch
++ */
++static void checkResults(
++    const std::string& name,
++    const mgis::behaviour::BehaviourIntegrationResult& r,
++    const mgis::behaviour::BehaviourIntegrationResult& gpu_r,
++    const mgis::behaviour::MaterialDataManager& m,
++    const mgis::behaviour::MaterialDataManager& gpu_m) {
++  check(r.exit_status == gpu_r.exit_status, name + ": invalid status");
++  // the results differ by rounding errors (contraction of the floating
++  // point operations by the CUDA compiler)
++  constexpr auto eps = 1e-10;
++  check(compare(m.s1.thermodynamic_forces, gpu_m.s1.thermodynamic_forces, 1e8) <
++            eps,
++        name + ": invalid thermodynamic forces");
++  check(compare(m.s1.internal_state_variables,
++                gpu_m.s1.internal_state_variables, 1) < eps,
++        name + ": invalid internal state variables");
++  check(compare(m.K, gpu_m.K, 1e10) < eps,
++        name + ": invalid tangent operators");
++}  // end of checkResults
++
++//! \brief stream of CUDA
++struct Stream {
++  Stream() {
++    if (cudaStreamCreate(&(this->stream)) != cudaSuccess) {
++      throw std::runtime_error("creation of a stream failed");
++    }
++  }
++  Stream(Stream&&) = delete;
++  Stream(const Stream&) = delete;
++  Stream& operator=(Stream&&) = delete;
++  Stream& operator=(const Stream&) = delete;
++  ~Stream() { static_cast<void>(cudaStreamDestroy(this->stream)); }
++  //! \return an execution policy submitting the computations on the stream
++  mgis::behaviour::BatchExecutionPolicy policy() const noexcept {
++    auto p = mgis::behaviour::BatchExecutionPolicy{};
++    p.queue = this->stream;
++    return p;
++  }
++  cudaStream_t stream = nullptr;
++};
++
+ /*!
+  * \brief behaviour integrated point by point on the host (generic
+  * interface) and as a batch on the device (cuda backend)
+@@ -156,18 +209,7 @@ struct Managers {
+         IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+     const auto r = mgis::behaviour::integrate(this->m, opts, dt);
+     const auto gpu_r = mgis::behaviour::integrate(this->gpu_m, opts, dt);
+-    check(r.exit_status == gpu_r.exit_status, name + ": invalid status");
+-    // the results differ by rounding errors (contraction of the floating
+-    // point operations by the CUDA compiler)
+-    constexpr auto eps = 1e-10;
+-    check(compare(this->m.s1.thermodynamic_forces,
+-                  this->gpu_m.s1.thermodynamic_forces, 1e8) < eps,
+-          name + ": invalid thermodynamic forces");
+-    check(compare(this->m.s1.internal_state_variables,
+-                  this->gpu_m.s1.internal_state_variables, 1) < eps,
+-          name + ": invalid internal state variables");
+-    check(compare(this->m.K, this->gpu_m.K, 1e10) < eps,
+-          name + ": invalid tangent operators");
++    checkResults(name, r, gpu_r, this->m, this->gpu_m);
+   }
+   const mgis::behaviour::Behaviour b;
+   const mgis::behaviour::Behaviour gpu_b;
+@@ -244,7 +286,7 @@ static void testElasticity(const std::string& library,
+   check(
+       throws([&managers,
+               &opts] { static_cast<void>(integrate(managers.gpu_m, opts, 1)); },
+-             "must be given as a span"),
++             "must be given by a span"),
+       "a uniform value in the memory of the host must be refused");
+ }  // end of testElasticity
+ 
+@@ -284,6 +326,182 @@ static void testMemoryLocations(const std::string& gpu_library) {
+         "the update on the host of data located on a device must be refused");
+ }  // end of testMemoryLocations
+ 
++/*!
++ * \brief arrays allocated by MGIS with a memory resource allocating managed
++ * memory: no array is given by the calling code
++ */
++static void testMemoryResource(const std::string& library,
++                               const std::string& gpu_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{1000};
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  // the resource outlives the material data manager
++  auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
++  const auto b = load(library, "Norton", h);
++  const auto gpu_b = load(gpu_library, "Norton", h);
++  auto i = MaterialDataManagerInitializer{};
++  i.location = MemoryLocation::SHARED;
++  i.resource = &resource;
++  auto m = MaterialDataManager(b, n);
++  auto gpu_m = MaterialDataManager(gpu_b, n, i);
++  auto temperature = ManagedArray(1);
++  temperature.span()[0] = 293.15;
++  for (auto* const s : {&m.s0, &m.s1}) {
++    setExternalStateVariable(*s, "Temperature", 293.15);
++  }
++  for (auto* const s : {&gpu_m.s0, &gpu_m.s1}) {
++    setExternalStateVariable(*s, "Temperature", temperature.span(),
++                             MaterialStateManager::EXTERNAL_STORAGE);
++  }
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  for (int step = 0; step != 3; ++step) {
++    for (auto* const mm : {&m, &gpu_m}) {
++      for (mgis::size_type j = 0; j != n; ++j) {
++        mm->s1.gradients[j * mm->s1.gradients_stride] +=
++            5e-5 * (1 + static_cast<double>(j) / n);
++      }
++    }
++    const auto r = integrate(m, opts, 180);
++    const auto gpu_r = integrate(gpu_m, opts, 180);
++    checkResults("memory resource, step " + std::to_string(step), r, gpu_r, m,
++                 gpu_m);
++    update(m);
++    update(gpu_m);
++  }
++}  // end of testMemoryResource
++
++/*!
++ * \brief computations submitted on a stream which is not the default one:
++ * integration, initialize function, post-processing and rotation
++ */
++static void testStream(const std::string& library,
++                       const std::string& gpu_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{100};
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  const auto stream = Stream{};
++  const auto p = stream.policy();
++  auto temperature = ManagedArray(1);
++  temperature.span()[0] = 293.15;
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  // integration
++  {
++    auto managers = Managers(library, gpu_library, "Norton", n);
++    setExternalStateVariable(managers.m.s0, "Temperature", 293.15);
++    setExternalStateVariable(managers.m.s1, "Temperature", 293.15);
++    for (auto* const s : {&managers.gpu_m.s0, &managers.gpu_m.s1}) {
++      setExternalStateVariable(*s, "Temperature", temperature.span(),
++                               MaterialStateManager::EXTERNAL_STORAGE);
++    }
++    for (auto* const m : {&managers.m, &managers.gpu_m}) {
++      for (mgis::size_type i = 0; i != n; ++i) {
++        m->s1.gradients[i * m->s1.gradients_stride] =
++            2e-4 * (1 + static_cast<double>(i) / n);
++      }
++    }
++    const auto r = integrate(managers.m, opts, 180);
++    const auto gpu_r = integrate(p, managers.gpu_m, opts, 180);
++    checkResults("Norton, stream", r, gpu_r, managers.m, managers.gpu_m);
++  }
++  // initialize function, inputs given point by point in managed memory
++  {
++    auto managers = Managers(library, gpu_library, "InitializeFunctionTest", n);
++    setExternalStateVariable(managers.m.s0, "Temperature", 293.15);
++    setExternalStateVariable(managers.m.s1, "Temperature", 293.15);
++    for (auto* const s : {&managers.gpu_m.s0, &managers.gpu_m.s1}) {
++      setExternalStateVariable(*s, "Temperature", temperature.span(),
++                               MaterialStateManager::EXTERNAL_STORAGE);
++    }
++    auto pressures = ManagedArray(n);
++    for (mgis::size_type i = 0; i != n; ++i) {
++      pressures.span()[i] = -1e5 * static_cast<double>(i + 1);
++    }
++    const auto r = executeInitializeFunction(
++        managers.m, "StressFromInitialPressure", pressures.span());
++    const auto gpu_r = executeInitializeFunction(
++        p, managers.gpu_m, "StressFromInitialPressure", pressures.span());
++    check((r.exit_status == 1) && (gpu_r.exit_status == 1) &&
++              (compare(managers.m.s1.thermodynamic_forces,
++                       managers.gpu_m.s1.thermodynamic_forces, 1e8) < 1e-12),
++          "StressFromInitialPressure, stream: invalid results");
++  }
++  // post-processing, outputs in managed memory
++  {
++    auto managers = Managers(library, gpu_library, "PostProcessingTest", n);
++    auto young = ManagedArray(1);
++    auto nu = ManagedArray(1);
++    young.span()[0] = 150e9;
++    nu.span()[0] = 0.3;
++    for (auto* const s : {&managers.m.s0, &managers.m.s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      setExternalStateVariable(*s, "Temperature", 293.15);
++    }
++    for (auto* const s : {&managers.gpu_m.s0, &managers.gpu_m.s1}) {
++      setMaterialProperty(*s, "YoungModulus", young.span(),
++                          MaterialStateManager::EXTERNAL_STORAGE);
++      setMaterialProperty(*s, "PoissonRatio", nu.span(),
++                          MaterialStateManager::EXTERNAL_STORAGE);
++      setExternalStateVariable(*s, "Temperature", temperature.span(),
++                               MaterialStateManager::EXTERNAL_STORAGE);
++    }
++    for (auto* const m : {&managers.m, &managers.gpu_m}) {
++      for (mgis::size_type i = 0; i != n; ++i) {
++        for (mgis::size_type c = 0; c != 3; ++c) {
++          m->s1.gradients[i * m->s1.gradients_stride + c] =
++              1e-4 * static_cast<double>((i % 7 + 1) * (c + 1));
++        }
++        m->s1.gradients[i * m->s1.gradients_stride + 3] = 1e-4;
++      }
++    }
++    auto outputs =
++        allocatePostProcessingVariables(managers.m, "PrincipalStrain");
++    auto gpu_outputs = ManagedArray(outputs.size());
++    const auto r =
++        executePostProcessing(outputs, managers.m, "PrincipalStrain");
++    const auto gpu_r = executePostProcessing(gpu_outputs.span(), p,
++                                             managers.gpu_m, "PrincipalStrain");
++    check((r.exit_status == 1) && (gpu_r.exit_status == 1) &&
++              (compare(outputs, gpu_outputs.span(), 1) < 1e-12),
++          "PrincipalStrain, stream: invalid outputs");
++  }
++  // rotation of the gradients, data in managed memory
++  {
++    const auto b = load(library, "OrthotropicElasticity", h);
++    const auto gpu_b = load(gpu_library, "OrthotropicElasticity", h);
++    const auto gsize = getArraySize(b.gradients, h);
++    auto g = ManagedArray(gsize * n);
++    auto gpu_rg = ManagedArray(gsize * n);
++    auto matrix = ManagedArray(9);
++    const auto values =
++        std::array<mgis::real, 9>{0.6, 0.8, 0, -0.8, 0.6, 0, 0, 0, 1};
++    std::copy(values.begin(), values.end(), matrix.span().begin());
++    for (mgis::size_type i = 0; i != gsize * n; ++i) {
++      g.span()[i] = std::sin(1 + static_cast<double>(i));
++    }
++    auto rg = std::vector<mgis::real>(gsize * n);
++    rotateGradients(rg, b, g.span(), matrix.span());
++    rotateGradients(p, gpu_rg.span(), gpu_b, g.span(), matrix.span());
++    check(compare(rg, gpu_rg.span(), 1) < 1e-14,
++          "rotateGradients, stream: invalid rotated values");
++    // the rotation matrices built by MGIS are in the memory of the host
++    const auto axis1 = std::vector<mgis::real>{0.6, 0.8, 0};
++    const auto axis2 = std::vector<mgis::real>{-0.8, 0.6, 0};
++    const auto r3d =
++        RotationMatrix3D(axis1, axis2, mgis::StorageMode::EXTERNAL_STORAGE);
++    check(throws(
++              [&p, &gpu_rg, &gpu_b, &g, &r3d] {
++                rotateGradients(p, gpu_rg.span(), gpu_b, g.span(), r3d);
++              },
++              "must be given as an array"),
++          "rotation matrices built in the memory of the host must be refused");
++  }
++}  // end of testStream
++
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 3) {
+     std::cerr << "usage: " << argv[0] << " cuda-library generic-library\n";
+@@ -293,6 +511,8 @@ int main(const int argc, const char* const* const argv) {
+     testNorton(argv[2], argv[1]);
+     testElasticity(argv[2], argv[1]);
+     testMemoryLocations(argv[1]);
++    testMemoryResource(argv[2], argv[1]);
++    testStream(argv[2], argv[1]);
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+     return EXIT_FAILURE;
+diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
+index 18ce6c9..4cd49bd 100644
+--- a/tests/GenericParallelIntegrateTest.cxx
++++ b/tests/GenericParallelIntegrateTest.cxx
+@@ -4,7 +4,7 @@
+  * `generic-parallel` interface of `MFront` on batches of integration points
+  * with the integration point by point of the same behaviours generated by the
+  * `generic` interface, on identical states.
+- * \date   09/10/2026
++ * \date   08/10/2026
+  * \copyright Use, modification and distribution are subject
+  * to one of the following licences:
+  * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
+@@ -18,10 +18,13 @@
+ #include <span>
+ #include <string>
+ #include <vector>
++#include <utility>
+ #include <cstdlib>
+ #include <iostream>
+ #include <algorithm>
++#include <stdexcept>
+ #include <string_view>
++#include <memory_resource>
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+@@ -36,6 +39,20 @@ static bool check(const bool b, const std::string_view msg) {
+   return b;
+ }
+ 
++/*!
++ * \return true if the given function throws an exception whose message
++ * contains the given text
++ */
++template <typename Function>
++static bool throws(const Function& f, const std::string_view text) {
++  try {
++    f();
++  } catch (std::exception& e) {
++    return std::string_view{e.what()}.find(text) != std::string_view::npos;
++  }
++  return false;
++}
++
+ //! \return the maximum of the differences relative to the given scale
+ static double compare(const std::span<const mgis::real> a,
+                       const std::span<const mgis::real> b,
+@@ -61,6 +78,23 @@ struct Managers {
+                                   mgis::behaviour::Hypothesis::TRIDIMENSIONAL)),
+         m(b, n),
+         gp_m(gp_b, n) {}
++  //! \brief constructor for a finite strain behaviour
++  Managers(const mgis::behaviour::FiniteStrainBehaviourOptions& o,
++           const std::string& library,
++           const std::string& gp_library,
++           const std::string& behaviour,
++           const mgis::size_type n)
++      : b(mgis::behaviour::load(o,
++                                library,
++                                behaviour,
++                                mgis::behaviour::Hypothesis::TRIDIMENSIONAL)),
++        gp_b(
++            mgis::behaviour::load(o,
++                                  gp_library,
++                                  behaviour,
++                                  mgis::behaviour::Hypothesis::TRIDIMENSIONAL)),
++        m(b, n),
++        gp_m(gp_b, n) {}
+   //! \brief apply the given function to both managers
+   template <typename Function>
+   void apply(const Function& f) {
+@@ -179,6 +213,13 @@ static void testPlasticity(const std::string& library,
+   opts.integration_type =
+       IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+   managers.integrate("Plasticity", opts, 1);
++  // new gradients: the points outside the range keep their previous state
++  managers.apply([](MaterialDataManager& m) {
++    for (mgis::size_type i = 0; i != m.n; ++i) {
++      m.s1.gradients[i * m.s1.gradients_stride + 3] =
++          1e-3 * static_cast<double>(i) / m.n;
++    }
++  });
+   managers.integrate("Plasticity, range", opts, 1, {10, 50});
+   opts.integration_type = IntegrationType::PREDICTION_ELASTIC_OPERATOR;
+   managers.integrate("Plasticity, prediction", opts, 1);
+@@ -301,6 +342,15 @@ static void testPostProcessing(const std::string& library,
+   check(compare(outputs, gp_outputs, 1) < 1e-14,
+         "PrincipalStrain: invalid outputs");
+   static_cast<void>(r);
++  // range of points: the other outputs are unchanged
++  std::fill(outputs.begin(), outputs.end(), mgis::real{});
++  std::fill(gp_outputs.begin(), gp_outputs.end(), mgis::real{});
++  static_cast<void>(
++      executePostProcessing(outputs, managers.m, "PrincipalStrain", 3, 11));
++  static_cast<void>(executePostProcessing(gp_outputs, managers.gp_m,
++                                          "PrincipalStrain", 3, 11));
++  check(compare(outputs, gp_outputs, 1) < 1e-14,
++        "PrincipalStrain, range: invalid outputs");
+ }  // end of testPostProcessing
+ 
+ /*!
+@@ -374,8 +424,74 @@ static void testRotations(const std::string& library,
+   test("rotateTangentOperatorBlocks, per point", Ksize, rotate_blocks,
+        per_point);
+   test("rotateTangentOperatorBlocks, 3D", Ksize, rotate_blocks, r3d);
++  // material axes given point by point
++  auto axes1 = std::vector<mgis::real>(3 * n);
++  auto axes2 = std::vector<mgis::real>(3 * n);
++  for (mgis::size_type i = 0; i != n; ++i) {
++    const auto t = 0.3 * static_cast<double>(i + 1);
++    axes1[3 * i] = std::cos(t);
++    axes1[3 * i + 1] = std::sin(t);
++    axes2[3 * i] = -std::sin(t);
++    axes2[3 * i + 1] = std::cos(t);
++  }
++  const auto r3d_per_point =
++      RotationMatrix3D(axes1, axes2, mgis::StorageMode::EXTERNAL_STORAGE);
++  test("rotateGradients, 3D, per point", gsize, rotate_gradients,
++       r3d_per_point);
++  test("rotateTangentOperatorBlocks, 3D, per point", Ksize, rotate_blocks,
++       r3d_per_point);
+ }  // end of testRotations
+ 
++/*!
++ * \brief rotations of an orthotropic behaviour in plane strain: uniform
++ * rotation and rotation given point by point
++ */
++static void testRotations2D(const std::string& library,
++                            const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto h = Hypothesis::PLANESTRAIN;
++  constexpr auto n = mgis::size_type{6};
++  const auto b = load(library, "OrthotropicElasticity", h);
++  const auto gp_b = load(gp_library, "OrthotropicElasticity", h);
++  auto axes = std::vector<mgis::real>(2 * n);
++  for (mgis::size_type i = 0; i != n; ++i) {
++    const auto t = 0.4 * static_cast<double>(i + 1);
++    axes[2 * i] = std::cos(t);
++    axes[2 * i + 1] = std::sin(t);
++  }
++  const auto uniform =
++      RotationMatrix2D(std::span<const mgis::real>(axes.data(), 2),
++                       mgis::StorageMode::EXTERNAL_STORAGE);
++  const auto per_point =
++      RotationMatrix2D(axes, mgis::StorageMode::EXTERNAL_STORAGE);
++  const auto gsize = getArraySize(b.gradients, h);
++  const auto Ksize = getTangentOperatorArraySize(b);
++  auto test = [&](const std::string& name, const RotationMatrix2D& r) {
++    auto g = std::vector<mgis::real>(gsize * n);
++    for (mgis::size_type i = 0; i != g.size(); ++i) {
++      g[i] = std::sin(2 + static_cast<double>(i));
++    }
++    auto rg = std::vector<mgis::real>(g.size());
++    auto gp_rg = std::vector<mgis::real>(g.size());
++    rotateGradients(rg, b, g, r);
++    rotateGradients(gp_rg, gp_b, g, r);
++    check(compare(rg, gp_rg, 1) < 1e-14,
++          "rotateGradients, " + name + ": invalid rotated values");
++    auto K = std::vector<mgis::real>(Ksize * n);
++    for (mgis::size_type i = 0; i != K.size(); ++i) {
++      K[i] = std::cos(2 + static_cast<double>(i));
++    }
++    auto rK = std::vector<mgis::real>(K.size());
++    auto gp_rK = std::vector<mgis::real>(K.size());
++    rotateTangentOperatorBlocks(rK, b, K, r);
++    rotateTangentOperatorBlocks(gp_rK, gp_b, K, r);
++    check(compare(rK, gp_rK, 1) < 1e-14,
++          "rotateTangentOperatorBlocks, " + name + ": invalid rotated values");
++  };
++  test("2D, uniform", uniform);
++  test("2D, per point", per_point);
++}  // end of testRotations2D
++
+ /*!
+  * \brief rotations of the thermodynamic forces and of the tangent operator
+  * blocks of an orthotropic finite strain behaviour, for a given stress
+@@ -424,6 +540,385 @@ static void testFiniteStrainRotations(const std::string& library,
+         "rotateTangentOperatorBlocks, dPK1_dF: invalid rotated values");
+ }  // end of testFiniteStrainRotations
+ 
++/*!
++ * \brief failures at some points: the external state variable, given point
++ * by point, is out of its physical bounds at the points 5 and 9
++ */
++static void testPartialFailures(const std::string& library,
++                                const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{12};
++  auto managers = Managers(library, gp_library, "BoundsCheckTest", n);
++  auto ev = std::vector<mgis::real>(n, 300);
++  ev[5] = ev[9] = 600;
++  managers.apply([&ev](MaterialDataManager& m) {
++    for (auto* const s : {&m.s0, &m.s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      setExternalStateVariable(*s, "Temperature", 293.15);
++      setExternalStateVariable(*s, "ExternalStateVariable", ev,
++                               MaterialStateManager::EXTERNAL_STORAGE);
++    }
++    for (mgis::size_type i = 0; i != m.n; ++i) {
++      m.s1.gradients[i * m.s1.gradients_stride] = 1e-3;
++    }
++  });
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  // first, since the integration point by point stops at the first failure
++  // while all the points of a batch are integrated
++  managers.integrate("BoundsCheckTest, range without failure", opts, 1, {0, 5});
++  managers.integrate("BoundsCheckTest", opts, 1);
++  auto gp_r = integrate(managers.gp_m, opts, 1);
++  check((gp_r.exit_status == -1) && (gp_r.n == 5),
++        "BoundsCheckTest: invalid index of the first failure");
++  check(gp_r.error_message.find("2 integration points") != std::string::npos,
++        "BoundsCheckTest: invalid error message");
++  managers.integrate("BoundsCheckTest, range", opts, 1, {7, 12});
++  gp_r = integrate(managers.gp_m, opts, 1, 7, 12);
++  check((gp_r.n == 9) &&
++            (gp_r.error_message.find("point 9") != std::string::npos),
++        "BoundsCheckTest, range: invalid index of the first failure");
++}  // end of testPartialFailures
++
++/*!
++ * \brief external state variables of various types, including arrays of
++ * variables (whose elements are distinct variables), uniform or given point
++ * by point: the behaviour copies their values at the end of the time step in
++ * internal state variables
++ */
++static void testArraysOfExternalStateVariables(const std::string& library,
++                                               const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{5};
++  auto managers =
++      Managers(library, gp_library, "TensorialExternalStateVariableTest", n);
++  const auto h = managers.b.hypothesis;
++  // values of the external state variables, kept alive during the test
++  auto values = std::vector<std::vector<mgis::real>>{};
++  values.reserve(2 * managers.b.esvs.size());
++  for (const auto* const sv : {&managers.m.s0, &managers.m.s1}) {
++    static_cast<void>(sv);
++    for (const auto& v : managers.b.esvs) {
++      const auto vs = getVariableSize(v, h);
++      // the stress tensor is uniform, the other variables are given point
++      // by point
++      const auto uniform = v.name == "s_esv";
++      auto& vv = values.emplace_back(uniform ? vs : n * vs);
++      for (mgis::size_type i = 0; i != vv.size(); ++i) {
++        vv[i] = std::sin(static_cast<double>(values.size() + 7 * i));
++      }
++    }
++  }
++  managers.apply([&values, &managers](MaterialDataManager& m) {
++    auto p = values.begin();
++    for (auto* const s : {&m.s0, &m.s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      for (const auto& v : managers.b.esvs) {
++        if (v.name == "Temperature") {
++          setExternalStateVariable(*s, v.name, 293.15);
++          ++p;
++          continue;
++        }
++        setExternalStateVariable(*s, v.name, *p,
++                                 MaterialStateManager::EXTERNAL_STORAGE);
++        ++p;
++      }
++    }
++  });
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type = IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
++  managers.integrate("TensorialExternalStateVariableTest", opts, 1);
++  // the internal state variables are the values of the external state
++  // variables at the end of the time step
++  const auto& s1 = managers.gp_m.s1;
++  const auto& esvs = managers.b.esvs;
++  for (std::size_t k = 0; k != esvs.size(); ++k) {
++    if (esvs[k].name == "Temperature") {
++      continue;
++    }
++    auto isv = esvs[k].name;
++    isv.replace(isv.find("_esv"), 4, "_isv");
++    const auto o = getVariableOffset(managers.b.isvs, isv, h);
++    const auto vs = getVariableSize(esvs[k], h);
++    const auto& esv = values[esvs.size() + k];
++    auto d = 0.;
++    for (mgis::size_type i = 0; i != n; ++i) {
++      for (mgis::size_type c = 0; c != vs; ++c) {
++        const auto expected = esv.size() == vs ? esv[c] : esv[i * vs + c];
++        d = std::max(
++            d, std::abs(s1.internal_state_variables
++                            [i * s1.internal_state_variables_stride + o + c] -
++                        expected));
++      }
++    }
++    check(d < 1e-14,
++          "TensorialExternalStateVariableTest: invalid value of " + isv);
++  }
++}  // end of testArraysOfExternalStateVariables
++
++/*!
++ * \brief integration of a finite strain behaviour with several stress
++ * measures and tangent operators
++ */
++static void testFiniteStrainIntegration(const std::string& library,
++                                        const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{6};
++  using Options = FiniteStrainBehaviourOptions;
++  const auto options =
++      std::array<std::pair<Options::StressMeasure, Options::TangentOperator>,
++                 4>{std::pair{Options::PK1, Options::DPK1_DF},
++                    std::pair{Options::CAUCHY, Options::DSIG_DF},
++                    std::pair{Options::PK2, Options::DS_DEGL},
++                    std::pair{Options::CAUCHY, Options::DTAU_DDF}};
++  for (const auto& [sm, to] : options) {
++    auto o = Options{};
++    o.stress_measure = sm;
++    o.tangent_operator = to;
++    auto managers = Managers(o, library, gp_library,
++                             "OrthotropicFiniteStrainElasticity", n);
++    managers.apply([](MaterialDataManager& m) {
++      for (auto* const s : {&m.s0, &m.s1}) {
++        setExternalStateVariable(*s, "Temperature", 293.15);
++      }
++      for (mgis::size_type i = 0; i != m.n; ++i) {
++        auto* const F = m.s1.gradients.data() + i * m.s1.gradients_stride;
++        F[0] = 1 + 1e-3 * static_cast<double>(i + 1);
++        F[1] = 1 - 2e-4 * static_cast<double>(i);
++        F[3] = 3e-4;
++        F[4] = -1e-4;
++      }
++    });
++    auto opts = BehaviourIntegrationOptions{};
++    opts.integration_type =
++        IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++    managers.integrate("OrthotropicFiniteStrainElasticity, options " +
++                           std::to_string(static_cast<int>(sm)) + "/" +
++                           std::to_string(static_cast<int>(to)),
++                       opts, 1);
++  }
++}  // end of testFiniteStrainIntegration
++
++/*!
++ * \brief speed of sound, computed with a uniform mass density given by a
++ * span on one value
++ */
++static void testSpeedOfSound(const std::string& library,
++                             const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{4};
++  auto managers = Managers(library, gp_library, "ComputeSpeedOfSound", n);
++  auto rho = std::vector<mgis::real>{7800};
++  managers.apply([&rho](MaterialDataManager& m) {
++    for (auto* const s : {&m.s0, &m.s1}) {
++      setExternalStateVariable(*s, "Temperature", 293.15);
++      setMassDensity(*s, rho, MaterialStateManager::EXTERNAL_STORAGE,
++                     MaterialStateManager::NOUPDATE);
++    }
++  });
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type = IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
++  opts.compute_speed_of_sound = true;
++  managers.integrate("ComputeSpeedOfSound", opts, 1);
++  const auto expected = std::sqrt(150e9 / rho[0]);
++  check(std::all_of(managers.gp_m.speed_of_sound.begin(),
++                    managers.gp_m.speed_of_sound.end(),
++                    [expected](const mgis::real v) {
++                      return std::abs(v - expected) < 1e-10 * expected;
++                    }) &&
++            (compare(managers.m.speed_of_sound, managers.gp_m.speed_of_sound,
++                     expected) < 1e-14),
++        "ComputeSpeedOfSound: invalid speed of sound");
++}  // end of testSpeedOfSound
++
++/*!
++ * \brief functions taking an execution policy: they give the same results as
++ * the functions using the policy of the material data manager, and refuse
++ * the behaviours of the other interfaces
++ */
++static void testExecutionPolicies(const std::string& library,
++                                  const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{8};
++  const auto p = BatchExecutionPolicy{};
++  // initialize functions
++  auto managers = Managers(library, gp_library, "InitializeFunctionTest", n);
++  managers.apply([](MaterialDataManager& m) {
++    setExternalStateVariable(m.s0, "Temperature", 293.15);
++    setExternalStateVariable(m.s1, "Temperature", 293.15);
++  });
++  auto pressures = std::vector<mgis::real>(n);
++  for (mgis::size_type i = 0; i != n; ++i) {
++    pressures[i] = -2e5 * static_cast<double>(i + 1);
++  }
++  static_cast<void>(executeInitializeFunction(
++      managers.m, "StressFromInitialPressure", pressures, 1, 7));
++  const auto r = executeInitializeFunction(
++      p, managers.gp_m, "StressFromInitialPressure", pressures, 1, 7);
++  check((r.exit_status == 1) &&
++            (compare(managers.m.s1.thermodynamic_forces,
++                     managers.gp_m.s1.thermodynamic_forces, 1e8) < 1e-14),
++        "executeInitializeFunction with a policy: invalid results");
++  check(throws(
++            [&p, &managers, &pressures] {
++              static_cast<void>(executeInitializeFunction(
++                  p, managers.m, "StressFromInitialPressure", pressures));
++            },
++            "has not been generated by the generic-parallel interface"),
++        "executeInitializeFunction with a policy: a behaviour of the generic "
++        "interface must be refused");
++  // post-processings
++  auto pmanagers = Managers(library, gp_library, "PostProcessingTest", n);
++  pmanagers.apply([](MaterialDataManager& m) {
++    for (auto* const s : {&m.s0, &m.s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      setExternalStateVariable(*s, "Temperature", 293.15);
++    }
++    for (mgis::size_type i = 0; i != m.n; ++i) {
++      m.s1.gradients[i * m.s1.gradients_stride + 1] =
++          1e-4 * static_cast<double>(i + 1);
++    }
++  });
++  auto outputs =
++      allocatePostProcessingVariables(pmanagers.m, "PrincipalStrain");
++  auto gp_outputs =
++      allocatePostProcessingVariables(pmanagers.gp_m, "PrincipalStrain");
++  static_cast<void>(
++      executePostProcessing(outputs, pmanagers.m, "PrincipalStrain"));
++  const auto pr =
++      executePostProcessing(gp_outputs, p, pmanagers.gp_m, "PrincipalStrain");
++  check((pr.exit_status == 1) && (compare(outputs, gp_outputs, 1) < 1e-14),
++        "executePostProcessing with a policy: invalid outputs");
++  check(throws(
++            [&p, &pmanagers, &outputs] {
++              static_cast<void>(executePostProcessing(outputs, p, pmanagers.m,
++                                                      "PrincipalStrain"));
++            },
++            "has not been generated by the generic-parallel interface"),
++        "executePostProcessing with a policy: a behaviour of the generic "
++        "interface must be refused");
++  // rotations
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  const auto b = load(library, "OrthotropicElasticity", h);
++  const auto gp_b = load(gp_library, "OrthotropicElasticity", h);
++  const auto matrix =
++      std::array<mgis::real, 9>{0.6, 0.8, 0, -0.8, 0.6, 0, 0, 0, 1};
++  const auto gsize = getArraySize(b.gradients, h);
++  auto g = std::vector<mgis::real>(gsize * n);
++  for (mgis::size_type i = 0; i != g.size(); ++i) {
++    g[i] = std::sin(3 + static_cast<double>(i));
++  }
++  auto rg = std::vector<mgis::real>(g.size());
++  auto gp_rg = std::vector<mgis::real>(g.size());
++  const auto rm = std::span<const mgis::real>(matrix);
++  rotateGradients(rg, b, g, rm);
++  rotateGradients(p, gp_rg, gp_b, g, rm);
++  check(compare(rg, gp_rg, 1) < 1e-14,
++        "rotateGradients with a policy: invalid rotated values");
++  check(throws([&p, &rg, &b, &g, &rm] { rotateGradients(p, rg, b, g, rm); },
++               "no rotation function of a batch"),
++        "rotateGradients with a policy: a behaviour of the generic interface "
++        "must be refused");
++}  // end of testExecutionPolicies
++
++/*!
++ * \brief location of the arrays of the material data managers: arrays
++ * allocated by a memory resource, arrays located on a device, managers
++ * without points
++ */
++static void testMemoryLocations(const std::string& library,
++                                const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  constexpr auto n = mgis::size_type{10};
++  const auto b = load(library, "Norton", h);
++  const auto gp_b = load(gp_library, "Norton", h);
++  const auto opts = BehaviourIntegrationOptions{};
++  // arrays allocated by a memory resource, in a shared location (the
++  // resource used here allocates memory of the host)
++  auto shared = MaterialDataManagerInitializer{};
++  shared.location = MemoryLocation::SHARED;
++  shared.resource = std::pmr::new_delete_resource();
++  auto m = MaterialDataManager(b, n);
++  auto gp_m = MaterialDataManager(gp_b, n, shared);
++  for (auto* const mm : {&m, &gp_m}) {
++    for (auto* const s : {&mm->s0, &mm->s1}) {
++      setExternalStateVariable(*s, "Temperature", 293.15);
++    }
++    for (mgis::size_type i = 0; i != n; ++i) {
++      mm->s1.gradients[i * mm->s1.gradients_stride] =
++          2e-3 * static_cast<double>(i + 1) / n;
++    }
++  }
++  const auto ri = integrate(m, opts, 1);
++  const auto gp_ri = integrate(gp_m, opts, 1);
++  check((ri.exit_status == gp_ri.exit_status) &&
++            (compare(m.s1.thermodynamic_forces, gp_m.s1.thermodynamic_forces,
++                     1e8) < 1e-10) &&
++            (compare(m.K, gp_m.K, 1e10) < 1e-10),
++        "arrays allocated by a memory resource: invalid results");
++  // shared location without memory resource: all the arrays must be given
++  auto shared2 = MaterialDataManagerInitializer{};
++  shared2.location = MemoryLocation::SHARED;
++  check(throws([&gp_b, &shared2] { MaterialDataManager(gp_b, n, shared2); },
++               "must be given by the initializer"),
++        "missing arrays in a shared location must be refused");
++  // ... except if there is no point
++  check(
++      !throws([&gp_b, &shared2] { MaterialDataManager(gp_b, 0, shared2); }, ""),
++      "a manager without points must be accepted");
++  // arrays located on a device, refused by the functions of the host
++  auto storage = std::vector<std::vector<mgis::real>>{};
++  auto make = [&storage](const mgis::size_type s) {
++    return std::span<mgis::real>(storage.emplace_back(s));
++  };
++  storage.reserve(16);
++  auto device = MaterialDataManagerInitializer{};
++  device.location = MemoryLocation::DEVICE;
++  device.K = make(n * getTangentOperatorArraySize(b));
++  for (auto* const si : {&device.s0, &device.s1}) {
++    si->gradients = make(n * getArraySize(b.gradients, h));
++    si->thermodynamic_forces =
++        make(n * getArraySize(b.thermodynamic_forces, h));
++    si->internal_state_variables = make(n * getArraySize(b.isvs, h));
++    if (b.computesStoredEnergy) {
++      si->stored_energies = make(n);
++    }
++    if (b.computesDissipatedEnergy) {
++      si->dissipated_energies = make(n);
++    }
++  }
++  auto dm = MaterialDataManager(b, n, device);
++  setExternalStateVariable(dm.s0, "Temperature", 293.15);
++  setExternalStateVariable(dm.s1, "Temperature", 293.15);
++  check(throws([&dm, &opts] { static_cast<void>(integrate(dm, opts, 1)); },
++               "not accessible by the computations"),
++        "the integration on the host of data located on a device must be "
++        "refused");
++  check(throws([&dm] { updateValues(dm.s0, dm.s1); },
++               "not accessible by the host"),
++        "updateValues must refuse data located on a device");
++  auto ev = std::vector<mgis::real>(n);
++  check(throws(
++            [&dm, &ev] {
++              extractInternalStateVariable(ev, dm.s1,
++                                           "EquivalentViscoplasticStrain");
++            },
++            "not accessible by the host"),
++        "extractInternalStateVariable must refuse data located on a device");
++  // a uniform material property stored locally is uniform, whatever the way
++  // it is given
++  auto em = MaterialDataManager(load(library, "Elasticity", h), n);
++  auto nu = std::vector<mgis::real>{0.3};
++  setMaterialProperty(em.s1, "PoissonRatio", nu);
++  check(isMaterialPropertyUniform(em.s1, "PoissonRatio"),
++        "a material property given by one value must be uniform");
++}  // end of testMemoryLocations
++
+ //! \brief failure at all points
+ static void testFailure(const std::string& library,
+                         const std::string& gp_library) {
+@@ -463,7 +958,14 @@ int main(const int argc, const char* const* const argv) {
+     testInitializeFunctions(argv[2], argv[1]);
+     testPostProcessing(argv[2], argv[1]);
+     testRotations(argv[2], argv[1]);
++    testRotations2D(argv[2], argv[1]);
+     testFiniteStrainRotations(argv[2], argv[1]);
++    testArraysOfExternalStateVariables(argv[2], argv[1]);
++    testFiniteStrainIntegration(argv[2], argv[1]);
++    testSpeedOfSound(argv[2], argv[1]);
++    testExecutionPolicies(argv[2], argv[1]);
++    testMemoryLocations(argv[2], argv[1]);
++    testPartialFailures(argv[2], argv[1]);
+     testFailure(argv[2], argv[1]);
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
+index 009e5bf..0bad354 100644
+--- a/tests/GenericParallelLoadTest.cxx
++++ b/tests/GenericParallelLoadTest.cxx
+@@ -4,7 +4,7 @@
+  * `generic-parallel` interface of `MFront`, the refusal of the functions of
+  * a point for those behaviours (and conversely), and the layout of the data
+  * structures copied from `TFEL`.
+- * \date   09/10/2026
++ * \date   08/10/2026
+  * \copyright Use, modification and distribution are subject
+  * to one of the following licences:
+  * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
+@@ -14,12 +14,15 @@
+  */
+ 
+ #include <cstddef>
++#include <vector>
+ #include <cstdlib>
+ #include <iostream>
+ #include <string_view>
+ #include "MFront/GenericParallelBehaviour/BatchData.h"
+ #include "MGIS/LibrariesManager.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MGIS/Behaviour/BehaviourData.hxx"
++#include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/Behaviour/BatchDataView.hxx"
+ 
+ // the data structures copied from TFEL must have the same layout
+@@ -80,13 +83,16 @@ static bool check(const bool b, const std::string_view msg) {
+   return b;
+ }
+ 
+-//! \return true if the given function throws an exception
++/*!
++ * \return true if the given function throws an exception whose message
++ * contains the given text
++ */
+ template <typename Function>
+-static bool throws(const Function& f) {
++static bool throws(const Function& f, const std::string_view text = "") {
+   try {
+     f();
+-  } catch (...) {
+-    return true;
++  } catch (std::exception& e) {
++    return std::string_view{e.what()}.find(text) != std::string_view::npos;
+   }
+   return false;
+ }
+@@ -143,6 +149,33 @@ int main(const int argc, const char* const* const argv) {
+           static_cast<void>(lm.getBatchBehaviour(library, "Plasticity", h));
+         }),
+         "the batch integration function must be refused");
++  // the functions of a point report an error for a batch behaviour
++  constexpr auto no_point_function = "no function of an integration point";
++  auto d = BehaviourData{b};
++  auto v = make_view(d);
++  check(throws([&v, &b] { static_cast<void>(integrate(v, b)); },
++               no_point_function),
++        "the integration of a point must be refused");
++  auto di = BehaviourData{bi};
++  auto vi = make_view(di);
++  check(throws(
++            [&vi, &bi] {
++              static_cast<void>(executeInitializeFunction(
++                  vi, bi, "ElasticStrainFromInitialStress"));
++            },
++            no_point_function),
++        "the initialize function of a point must be refused");
++  auto dp = BehaviourData{bp};
++  auto vp = make_view(dp);
++  const auto& p = bp.postprocessings.begin();
++  auto outputs = std::vector<mgis::real>(getArraySize(p->second.outputs, h));
++  check(
++      throws(
++          [&outputs, &vp, &bp, &p] {
++            static_cast<void>(executePostProcessing(outputs, vp, bp, p->first));
++          },
++          no_point_function),
++      "the post-processing of a point must be refused");
+   // a behaviour of the generic interface is not a batch behaviour
+   const auto g = load(library, "Plasticity", h);
+   check(!isGenericParallelBehaviour(g), "batch behaviour not expected");
+-- 
+2.43.0
+

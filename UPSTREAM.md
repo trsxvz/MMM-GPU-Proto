@@ -68,8 +68,10 @@ the branch, file by file, rather than by cherry-picking.
    Shared data copied on each device. Errors reported without cost on
    success: index of the first point where the computations failed,
    statistics of the synchronous computations held by reused blocks of
-   managed or shared memory (`StatusBlockPool`), warp vote. Tests and
-   documentation.
+   managed or shared memory (`StatusBlockPool`), warp vote. Memory space
+   of the fields exported by each library (`host`, `device`, `any`). The
+   libraries of the `stlpar` backend linked with TBB stay loaded until the
+   end of the process. Tests and documentation.
 
 5. **Additional backends and compilers**: Kokkos, SYCL, nvc++ offloading
    (`stdpar` and OpenMP), clang CUDA and HIP. Most compiler workarounds
@@ -81,7 +83,8 @@ the branch, file by file, rather than by cherry-picking.
    version symbols, kernel code shared by the backends, statuses of the
    bounds checks held by reused blocks on all the backends (no allocation
    per call, synchronization of the stream instead of the device), status 1
-   with the warning policy as with the `generic` interface.
+   with the warning policy as with the `generic` interface, memory space
+   symbol.
 
 The data contract (`MFront/GenericParallelBehaviour/BatchData.h`) is
 versioned from the fourth pull request on, so that MGIS can check it.

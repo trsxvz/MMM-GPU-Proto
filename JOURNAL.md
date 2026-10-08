@@ -1826,7 +1826,7 @@ fichier lié seul (`-gpu=nordc` dans `config-stlpar-parunseq-nvhpc-gpu.json`),
 possible car les sources générées n'appellent pas de fonction device
 définie dans un autre fichier. OpenMP déporté n'émet pas ces symboles.
 
-### 2026-10-09 (nuit), gestion des erreurs homogène (R8)
+### 2026-10-08 (matin), gestion des erreurs homogène (R8)
 
 Principe, le même partout : le chemin sans erreur ne coûte rien. Les
 noyaux n'écrivent dans les statistiques ou les statuts que si un événement
@@ -1906,7 +1906,7 @@ Vérifications :
 `scratch/dev-test.sh` saute en mode ciblé les comparaisons appelées
 directement par un test (lois non construites).
 
-### 2026-10-09 (nuit, suite), MGIS : chargement et calcul de lots (D1, étapes 1 à 3)
+### 2026-10-08 (matin, suite), MGIS : chargement et calcul de lots (D1, étapes 1 à 3)
 
 Branche `gpu-proto` de `mgis/` (base `818f0f9`). Les patchs sont dans
 `patches/mgis`, régénérés par `scripts/sync-mgis.sh`. MGIS est construit
@@ -1982,3 +1982,95 @@ corrigé.
 Reste du plan : ressource mémoire (étape 4b, qui rendra automatique ce que
 le test GPU fait à la main), asynchrone et `update`/`revert` sur le GPU
 (étape 5), propriétés matériau `generic-parallel` et documentation.
+
+### 2026-10-08 (après-midi), espace mémoire (R9) et relecture de MGIS (D1, étape 4b)
+
+TFEL (R9), deux commits plus un de dates :
+
+- chaque bibliothèque exporte l'espace mémoire de ses champs,
+  `<f>_generic_parallel_memory_space` : `host`, `device` ou `any`. La
+  valeur est fixée à la compilation. `cuda` et `hip` : `device`. `stlpar`
+  et `openmp` sur l'hôte : `host`. nvc++ (`-stdpar=gpu`, `-mp=gpu`) :
+  `device`, ou `any` en mémoire unifiée. `kokkos` : selon l'accès de
+  l'espace d'exécution à la mémoire hôte. `sycl` : `any` avec les
+  transferts automatiques, `device` sinon. En-tête
+  `MFront/GenericParallel/MemorySpace.hxx`. Les propriétés matériau
+  exportent le même symbole. `compare` et les tests des propriétés
+  vérifient sa valeur ;
+- les configurations `stlpar` liées à TBB (gcc, clang, icpx) ajoutent
+  `-Wl,-z,nodelete` : la bibliothèque reste chargée jusqu'à la fin du
+  processus. Les fils de TBB tournaient encore quand elle était déchargée
+  à la sortie. MGIS n'a plus besoin de `RTLD_NODELETE` pour toutes les
+  bibliothèques.
+
+MGIS : relecture indépendante de la branche (19 points) et trois points
+relevés avant. Corrigé :
+
+- la liste des backends écrite dans MGIS (`cuda`, `hip`) est remplacée par
+  le symbole de TFEL : `isMemoryLocationAccessible(comportement, lieu)`.
+  Les cas manqués avant (Kokkos sur GPU, OpenMP déporté, SYCL sans
+  transfert, nvc++ sans mémoire unifiée, données sur GPU avec un backend
+  hôte) sont couverts ;
+- les fonctions d'un point (intégration, `integrate_debug`, initialisation,
+  post-traitement, rotations, liaisons C) appelaient un pointeur nul pour
+  une bibliothèque de lots. Elles lèvent une erreur explicite ;
+- les valeurs gardées par MGIS (valeur uniforme, `LOCAL_STORAGE`) sont
+  refusées quand la mémoire hôte n'est pas accessible aux calculs. Avant,
+  seul le scalaire était vérifié : un `std::vector` passait et le noyau
+  CUDA plantait, contexte CUDA perdu ;
+- la masse volumique n'est passée que pour la vitesse du son. Elle peut
+  être donnée par un `std::span` d'une valeur. Une propriété uniforme en
+  `LOCAL_STORAGE` est stockée comme un scalaire ;
+- tableaux de variables : la relecture les croyait refusés. MFront exporte
+  chaque élément comme une variable (`v2_esv[0]`, `v2_esv[1]`) et refuse
+  les types tableau pour les propriétés matériau et les variables
+  externes. Un champ par variable, comme TFEL : le découpage par élément
+  ajouté puis testé était faux pour un type tableau, il est retiré ;
+- initialisation, post-traitements et rotations de lots prennent une
+  politique d'exécution (file), comme l'intégration. Les rotations `sycl`
+  échouaient toujours : file nulle. Les fonctions de rotation de lots sont
+  chargées par des accesseurs typés, et les suffixes de grandes
+  déformations écrits une fois (une valeur inconnue lève une erreur au lieu
+  de prendre PK1) ;
+- les gestionnaires d'état connaissent l'emplacement de leurs tableaux.
+  `update`, `revert`, `updateValues`, l'extraction, `save`, `restore` et
+  le calcul point par point refusent des tableaux sur le GPU. Un
+  gestionnaire sans point, ou un modèle sans opérateur tangent, est
+  accepté hors de la mémoire hôte ;
+- un échec donne l'indice absolu du premier point dans le message, et un
+  statut inattendu lève une exception. Les fonctions de statistiques
+  asynchrones inutilisées sont retirées : elles reviendront avec l'étape 5 ;
+- CMake : architecture CUDA `native` seulement avec CMake 3.24 ; sources
+  des lots régénérées quand `mfront` change (les anciennes sources, sans le
+  nouveau symbole, restaient).
+
+Étape 4b : l'initialiseur du gestionnaire prend une ressource mémoire
+(`std::pmr::memory_resource*`). MGIS alloue avec elle les tableaux non
+donnés. Leurs valeurs sont initialisées par l'hôte : la ressource doit
+allouer de la mémoire accessible par l'hôte (managée ou partagée). Sur le
+GPU seul, tous les tableaux restent à donner. Ressources fournies en
+en-têtes, compilées par le code appelant : mémoire managée CUDA et HIP,
+mémoire partagée SYCL et Kokkos. Elles vérifient l'alignement demandé. Coût :
+un pointeur par tableau, un appel virtuel par allocation, rien par calcul.
+
+Tests ajoutés : plage avec gradients modifiés, post-traitement sur une
+plage, échecs partiels donnés par une variable externe hors bornes
+physiques (indice absolu), toutes les variables de
+`TensorialExternalStateVariableTest` vérifiées valeur par valeur, grandes
+déformations avec quatre couples mesure de contrainte et opérateur
+tangent, vitesse du son, rotations 2D et 3D par point, fonctions avec
+politique, ressource mémoire et emplacements refusés. Sur GPU : ressource
+mémoire managée sans aucun tableau donné, puis intégration,
+initialisation, post-traitement et rotation sur un flux CUDA qui n'est pas
+le flux par défaut. Deux versions volontairement fausses (pas des points
+des variables, indice relatif) sont détectées. Les 44 tests de MGIS
+passent, HMM désactivé. Les en-têtes HIP, SYCL et Kokkos compilent.
+
+Une sauvegarde plus ancienne de `backups/` a été écrasée par un
+renommage. Ses commits restent dans `tfel-dev` (branches et reflog).
+
+Reste pour MGIS : asynchrone et `update`/`revert` sur le GPU (étape 5,
+après mfem-mgis), propriétés matériau `generic-parallel` (étape 6),
+documentation (étape 7). Statuts par point non exposés. Les rotations
+données par `RotationMatrix2D`/`3D` construisent les matrices sur l'hôte à
+chaque appel : pour des rotations répétées, les donner en tableau.

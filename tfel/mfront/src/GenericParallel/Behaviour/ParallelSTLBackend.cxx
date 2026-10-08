@@ -48,6 +48,11 @@ namespace mfront::generic_parallel::behaviour {
     return apply + ")";
   }  // end of getApply
 
+  std::string ParallelSTLBackend::getMemorySpace() const {
+    // the target of the parallel algorithms is selected by the compiler
+    return "mfront::generic_parallel::getParallelSTLMemorySpace()";
+  }  // end of getMemorySpace
+
   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

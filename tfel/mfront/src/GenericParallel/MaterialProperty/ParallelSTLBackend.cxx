@@ -103,6 +103,11 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
   }  // end of writeKernelCall
 
+  std::string ParallelSTLBackend::getMemorySpace() const {
+    // the target of the parallel algorithms is selected by the compiler
+    return "mfront::generic_parallel::getParallelSTLMemorySpace()";
+  }  // end of getMemorySpace
+
   ParallelSTLBackend::~ParallelSTLBackend() = default;
 
 }  // end of namespace mfront::generic_parallel::material_property

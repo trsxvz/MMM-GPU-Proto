@@ -22,17 +22,23 @@
 extern "C" {
 extern const char* Inconel600_YoungModulus_generic_parallel_backend;
 extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
+extern const char* Inconel600_YoungModulus_generic_parallel_memory_space;
 }
 
 /*!
- * \return true if the symbols give the expected backend and the version
+ * \return true if the symbols give the expected backend, the version
  * declared by `MFront/GenericParallelMaterialProperty/MaterialProperty.h`
+ * and a valid memory space
  * \param[in] backend: name of the backend
  */
 inline bool checkGenericParallelSymbols(const std::string_view backend) {
+  const auto memory_space =
+      std::string_view{Inconel600_YoungModulus_generic_parallel_memory_space};
   return (Inconel600_YoungModulus_generic_parallel_backend == backend) &&
          (Inconel600_YoungModulus_generic_parallel_api_version ==
-          MFRONT_GPMP_API_VERSION);
+          MFRONT_GPMP_API_VERSION) &&
+         ((memory_space == "host") || (memory_space == "device") ||
+          (memory_space == "any"));
 }  // end of checkGenericParallelSymbols
 
 #endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX */

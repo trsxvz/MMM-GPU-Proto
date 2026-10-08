@@ -2,7 +2,7 @@
  * \file   mfront/include/MFront/GenericParallel/StatusBlockPool.hxx
  * \brief  This file declares a pool of blocks of memory holding the
  * statuses or the statistics of the computations performed on a device.
- * \date   09/10/2026
+ * \date   08/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with

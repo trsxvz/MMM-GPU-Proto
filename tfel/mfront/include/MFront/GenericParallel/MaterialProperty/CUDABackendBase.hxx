@@ -61,6 +61,7 @@ namespace mfront::generic_parallel::material_property {
         const MaterialPropertyDescription&,
         const FileDescription&) const override;
     //! \brief destructor
+    [[nodiscard]] std::string getMemorySpace() const override;
     ~CUDABackendBase() noexcept override;
 
    protected:

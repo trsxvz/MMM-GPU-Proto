@@ -121,9 +121,22 @@ The library also exports the same symbols as the `generic` interface
 changing the parameters and the out of bounds policy. The `mfront_interface`
 symbol is equal to `GenericParallel`, for the behaviours and for the
 standalone models. The `<name>_generic_parallel_backend` symbol gives the
-backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
-which tells the calling code where the fields must be allocated (see the
-section of each backend).
+backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or
+`openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
+char*`) tells the calling code where the fields must be located:
+
+- `host`: the computations are performed on the host, the fields must be
+  accessible by the host;
+- `device`: the computations are performed on a device which can't access
+  the ordinary memory of the host, the fields must be accessible by the
+  device (memory of the device, managed or shared memory);
+- `any`: the fields may be located anywhere (SYCL backend with automatic
+  transfers, `nvc++` with the unified memory mode).
+
+This memory space is set when the library is compiled, since the target of
+some programming models is selected by the compiler (C++ parallel
+algorithms and OpenMP with `nvc++`) or by the configuration of a library
+(execution space of Kokkos). See `MFront/GenericParallel/MemorySpace.hxx`.
 
 The data structures are declared in
 `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given by the
@@ -449,7 +462,11 @@ The behaviour is integrated by `std::transform_reduce` with the given
 execution policy. The indices of the points are given by a counting
 iterator: with `libstdc++`, iterators of `std::views::iota` are not random
 access iterators in the sense of the C++17 iterator categories and the
-parallel algorithms run sequentially.
+parallel algorithms run sequentially. With `libstdc++`, the parallel
+algorithms use the threads of TBB: the configurations linking TBB mark the
+library as never unloaded (`-Wl,-z,nodelete`), since unloading TBB while its
+threads are alive crashes the process, for instance when the libraries
+loaded by a calling code are closed at the end of the process.
 
 With `nvc++ -stdpar=gpu`, the computations are offloaded to an NVIDIA GPU.
 The memory mode shall be given explicitly by `-gpu=mem:managed` (see the

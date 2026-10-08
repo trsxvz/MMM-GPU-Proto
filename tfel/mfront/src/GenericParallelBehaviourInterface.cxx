@@ -678,7 +678,8 @@ namespace mfront {
     os << "#include\"TFEL/Material/OutOfBoundsPolicy.hxx\"\n"
        << "#include\"TFEL/Material/" << bd.getClassName() << ".hxx\"\n"
        << "#include\"MFront/GenericBehaviour/GenericBehaviourTraits.hxx\"\n"
-       << "#include\"MFront/GenericParallelBehaviour/Integrate.hxx\"\n";
+       << "#include\"MFront/GenericParallelBehaviour/Integrate.hxx\"\n"
+       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
     if (isFiniteStrainBehaviour(bd)) {
       os << "#include\"MFront/GenericParallelBehaviour/"
          << "FiniteStrainIntegrators.hxx\"\n";

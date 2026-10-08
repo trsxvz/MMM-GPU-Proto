@@ -93,6 +93,13 @@ namespace mfront::generic_parallel::material_property {
     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
   }  // end of writeKernelCall
 
+  std::string OpenMPBackend::getMemorySpace() const {
+    if (this->offload) {
+      return "mfront::generic_parallel::getOpenMPOffloadMemorySpace()";
+    }
+    return "mfront::generic_parallel::host_memory_space";
+  }  // end of getMemorySpace
+
   OpenMPBackend::~OpenMPBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::material_property

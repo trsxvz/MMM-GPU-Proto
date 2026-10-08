@@ -76,6 +76,13 @@ namespace mfront::generic_parallel::material_property {
     //! \brief return the extension of the source file
     [[nodiscard]] virtual std::string getSourceFileExtension() const = 0;
     /*!
+     * \return an expression, evaluated when the generated library is
+     * compiled, giving the memory space in which the arguments and the
+     * outputs must be located (see `MFront/GenericParallel/MemorySpace.hxx`):
+     * `host`, `device` or `any`
+     */
+    [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+    /*!
      * \brief write additional headers in the source file
      *
      * \param[in] os: output stream

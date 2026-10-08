@@ -41,6 +41,9 @@ In addition, the `generic-parallel` interface also exports:
   to the `MFRONT_GPMP_API_VERSION` macro of
   `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
   incremented at each incompatible change of the generated functions,
+- the `<name>_generic_parallel_memory_space` symbol, which tells where the
+  arguments and the output must be located (`host`, `device` or `any`, as
+  for the behaviours),
 - a function allowing to modify at runtime the value of the parameters
   of the material property, if modification of parameters is allowed
   (see the DSL options `parameters_as_static_variables` options).

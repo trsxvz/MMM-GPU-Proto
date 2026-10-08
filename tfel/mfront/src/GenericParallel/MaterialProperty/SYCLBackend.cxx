@@ -284,6 +284,15 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription&,
       const bool) const {}
 
+  std::string SYCLBackend::getMemorySpace() const {
+    // with automatic transfers, the arguments and the output which are not
+    // accessible by the device are copied
+    if (this->handlesDataTransfer()) {
+      return "mfront::generic_parallel::any_memory_space";
+    }
+    return "mfront::generic_parallel::device_memory_space";
+  }  // end of getMemorySpace
+
   SYCLBackend::~SYCLBackend() = default;
 
 }  // end of namespace mfront::generic_parallel::material_property

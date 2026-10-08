@@ -181,6 +181,7 @@ namespace mfront {
        << " */\n\n";
     this->backend->writeSpecificIncludes(os);
     os << "#include <cmath>\n"
+       << "#include \"MFront/GenericParallel/MemorySpace.hxx\"\n"
        << "#include <cstring>\n"
        << "#include \"TFEL/PhysicalConstants.hxx\"\n"
        << "#include \"TFEL/Config/TFELTypes.hxx\"\n"

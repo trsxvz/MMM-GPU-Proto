@@ -284,16 +284,25 @@ Principles:
   strides) for each group or each variable, execution options (queue,
   asynchronous statistics, stack size policy), statuses. The kernels
   receive everything by value. TFEL does not choose the device nor the memory
-  space: the caller gives pointers accessible by the device.
+  space: the caller gives pointers accessible by the device. Each library
+  exports the memory space in which the fields must be located
+  (`<f>_generic_parallel_memory_space`: `host`, `device` or `any`), set
+  when the library is compiled (backend, compiler, unified memory).
 - MGIS maps its data (`MaterialDataManager`, uniform or per point values)
   to this contract without copies (per variable fields for the material
   properties and the external state variables). The existing functions of
   MGIS recognize a `generic-parallel` library and call its batch
   functions. MGIS has no dependency on a GPU toolkit: the arrays are given
   by the caller (external storage of the initializers) or allocated by an
-  optional memory resource, and the batch path never reads them on the
-  host. Invalid combinations (host memory with a GPU backend, per point
-  functions of a `generic-parallel` library) are reported as errors.
+  optional memory resource (`std::pmr`, memory accessible by the host and
+  the device, resources for CUDA, HIP, SYCL and Kokkos given as headers),
+  and the batch path never reads them on the host. The caller declares the
+  location of the arrays (host, device, shared): it is checked against the
+  memory space of the library, and the functions of the host refuse arrays
+  located on a device. Every batch function takes an execution policy
+  (queue). Invalid combinations (host memory with a device only library,
+  per point functions of a `generic-parallel` library) are reported as
+  errors.
 - mfem-mgis decides which parts run on the device. On GPUs, the
   assembly has three phases for each material: gradients at all the
   integration points, integration of the batch by MGIS, residual (and
@@ -318,4 +327,8 @@ Principles:
 5. Finite strain behaviours, initialize functions, post-processings,
    rotations, single crystals (done in the prototype).
 6. MGIS: load a `generic-parallel` library, integrate a batch described by
-   views. Then mfem-mgis.
+   views, initialize functions, post-processings and rotations of batches,
+   execution policies, locations of the arrays, memory resources (done in
+   the prototype). Remaining: asynchronous computations and update on the
+   device, material properties of the `generic-parallel` interface,
+   documentation. Then mfem-mgis.

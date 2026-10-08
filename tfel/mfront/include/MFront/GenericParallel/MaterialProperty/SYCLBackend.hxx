@@ -42,6 +42,7 @@ namespace mfront::generic_parallel::material_property {
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const override;
     //! \brief destructor
+    [[nodiscard]] std::string getMemorySpace() const override;
     ~SYCLBackend() noexcept override;
 
    protected:

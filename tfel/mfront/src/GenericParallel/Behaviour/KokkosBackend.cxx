@@ -37,6 +37,14 @@ namespace mfront::generic_parallel::behaviour {
            std::string{status} + ")";
   }  // end of getApply
 
+  std::string KokkosBackend::getMemorySpace() const {
+    // the execution space may access the memory of the host or not
+    return "(Kokkos::SpaceAccessibility<" + this->execution_space +
+           ", Kokkos::HostSpace>::accessible ? "
+           "mfront::generic_parallel::host_memory_space : "
+           "mfront::generic_parallel::device_memory_space)";
+  }  // end of getMemorySpace
+
   std::string KokkosBackend::getSharedDataCopy(const std::string_view getter,
                                                const std::string_view) const {
     return "mfront::gpb::kokkos::getSharedDataCopy<" + this->execution_space +

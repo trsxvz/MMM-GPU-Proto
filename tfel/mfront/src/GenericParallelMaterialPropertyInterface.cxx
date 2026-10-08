@@ -322,7 +322,8 @@ namespace mfront {
        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
        << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
-       << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n";
+       << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n"
+       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
     if (useQuantities(mpd)) {
       os << "#include\"TFEL/Math/qt.hxx\"\n"
          << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
@@ -360,6 +361,8 @@ namespace mfront {
                        this->backend->getName());
     exportSymbol(os, "unsigned short", name + "_generic_parallel_api_version",
                  "MFRONT_GPMP_API_VERSION");
+    exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
+                 this->backend->getMemorySpace());
     writeLawSymbol(os, name, mpd.law);
     writeMaterialSymbol(os, name, mpd.material);
     writeMaterialKnowledgeTypeSymbol(os, name,

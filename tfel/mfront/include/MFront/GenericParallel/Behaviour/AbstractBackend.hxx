@@ -65,9 +65,9 @@ namespace mfront::generic_parallel::behaviour {
     virtual void writeSpecificIncludes(std::ostream&) const = 0;
     /*!
      * \brief write the symbols describing the generated library: name of
-     * the backend (`<f>_generic_parallel_backend`), which tells the calling
-     * code where the fields must be allocated, and version of the data
-     * structures exchanged with the generated functions
+     * the backend (`<f>_generic_parallel_backend`), memory space in which
+     * the fields must be located (`<f>_generic_parallel_memory_space`), and
+     * version of the data structures exchanged with the generated functions
      * (`<f>_generic_parallel_api_version`, see `MFRONT_GPB_API_VERSION`)
      * \param[out] os: output stream
      * \param[in] f: basis of the names of the symbols
@@ -92,6 +92,13 @@ namespace mfront::generic_parallel::behaviour {
      * \param[in] status: name of the output status
      */
     [[nodiscard]] virtual std::string getApply(std::string_view) const = 0;
+    /*!
+     * \return an expression, evaluated when the generated library is
+     * compiled, giving the memory space in which the fields must be located
+     * (see `MFront/GenericParallel/MemorySpace.hxx`): `host`, `device` or
+     * `any`
+     */
+    [[nodiscard]] virtual std::string getMemorySpace() const = 0;
     /*!
      * \brief write the statement returning the result of a function defined
      * in the `MFront/GenericParallelBehaviour/Integrate.hxx` header

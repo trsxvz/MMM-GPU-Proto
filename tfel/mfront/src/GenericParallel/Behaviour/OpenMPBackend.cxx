@@ -53,6 +53,13 @@ namespace mfront::generic_parallel::behaviour {
     return apply + ")";
   }  // end of getApply
 
+  std::string OpenMPBackend::getMemorySpace() const {
+    if (this->offload) {
+      return "mfront::generic_parallel::getOpenMPOffloadMemorySpace()";
+    }
+    return "mfront::generic_parallel::host_memory_space";
+  }  // end of getMemorySpace
+
   OpenMPBackend::~OpenMPBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

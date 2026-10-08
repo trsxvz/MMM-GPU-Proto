@@ -47,6 +47,7 @@ namespace mfront::generic_parallel::behaviour {
     [[nodiscard]] std::string getSourceFileExtension() const override;
     void writeSpecificIncludes(std::ostream&) const override;
     [[nodiscard]] std::string getApply(std::string_view) const override;
+    [[nodiscard]] std::string getMemorySpace() const override;
     //! \brief destructor
     ~ParallelSTLBackend() noexcept override;
 

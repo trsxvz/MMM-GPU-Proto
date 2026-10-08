@@ -41,6 +41,7 @@ namespace mfront::generic_parallel::behaviour {
                                      const std::string_view f) const {
     const auto n = std::string{f} + "_generic_parallel_";
     exportStringSymbol(os, n + "backend", this->getName());
+    exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
     // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
     exportSymbol(os, "unsigned short", n + "api_version",
                  "MFRONT_GPB_API_VERSION");
