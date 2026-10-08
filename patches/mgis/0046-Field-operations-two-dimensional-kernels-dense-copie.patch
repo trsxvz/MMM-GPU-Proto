@@ -1,0 +1,659 @@
+From 6adde23e71e6abaec6f2b32784985ccb5ccdd686 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:26:55 +0200
+Subject: [PATCH] Field operations: two-dimensional kernels, dense copies, SYCL
+ queue
+
+- the kernels of the five backends process the points and the components
+  along two dimensions instead of computing a 64 bits division and
+  remainder per value; consecutive threads still process consecutive
+  points of a component.
+- Kokkos: dense copies and fills by Kokkos::deep_copy; OpenMP: dense
+  copies by omp_target_memcpy.
+- CUDA and HIP: the size of the grid is checked; the memset of a fill by
+  a positive zero assumes real values of 8 bytes, checked statically.
+- SYCLFieldOperations copies the queue, a handle, instead of keeping a
+  reference.
+---
+ .../FieldOperations/CUDAFieldOperations.hxx   | 116 ++++++++++++------
+ .../FieldOperations/HIPFieldOperations.hxx    | 110 +++++++++++------
+ .../FieldOperations/KokkosFieldOperations.hxx |  64 ++++++----
+ .../FieldOperations/OpenMPFieldOperations.hxx |  44 ++++---
+ .../FieldOperations/SYCLFieldOperations.hxx   |  38 +++---
+ 5 files changed, 242 insertions(+), 130 deletions(-)
+
+diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
+index 3b70b44..db5a65c 100644
+--- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
+@@ -15,47 +15,57 @@
+ #define LIB_MGIS_FIELDOPERATIONS_CUDAFIELDOPERATIONS_HXX
+ 
+ #include <bit>
++#include <limits>
+ #include <string>
+ #include <cstdint>
++#include <algorithm>
+ #include <stdexcept>
+ #include <cuda_runtime.h>
+ #include "MGIS/FieldOperations.hxx"
+ 
+ namespace mgis::field_operations::internals {
+ 
+-  //! \brief copy the values of a view in another one, one thread per value
++  /*!
++   * \brief copy the values of a view in another one. The threads of the x
++   * axis of the grid process consecutive points of a component (coalesced
++   * accesses to the values stored component by component), the blocks of
++   * the y axis process the components.
++   */
+   template <typename ValueType>
+   __global__ void cudaCopyFieldView(ValueType* const d,
+-                                  const size_type dps,
+-                                  const size_type dcs,
+-                                  const ValueType* const s,
+-                                  const size_type sps,
+-                                  const size_type scs,
+-                                  const size_type n,
+-                                  const size_type nv) {
+-    const auto k = static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
+-    if (k >= nv) {
++                                    const size_type dps,
++                                    const size_type dcs,
++                                    const ValueType* const s,
++                                    const size_type sps,
++                                    const size_type scs,
++                                    const size_type n,
++                                    const size_type nc) {
++    const auto i =
++        static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
++    if (i >= n) {
+       return;
+     }
+-    // consecutive threads process consecutive points of a component
+-    const auto i = k % n;
+-    const auto j = k / n;
+-    d[i * dps + j * dcs] = s[i * sps + j * scs];
++    for (auto j = static_cast<size_type>(blockIdx.y); j < nc; j += gridDim.y) {
++      d[i * dps + j * dcs] = s[i * sps + j * scs];
++    }
+   }  // end of cudaCopyFieldView
+ 
+-  //! \brief fill a view, one thread per value
++  //! \brief fill a view (see `cudaCopyFieldView`)
+   template <typename ValueType>
+   __global__ void cudaFillFieldView(ValueType* const d,
+-                                  const size_type ps,
+-                                  const size_type cs,
+-                                  const size_type n,
+-                                  const size_type nv,
+-                                  const ValueType v) {
+-    const auto k = static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
+-    if (k >= nv) {
++                                    const size_type ps,
++                                    const size_type cs,
++                                    const size_type n,
++                                    const size_type nc,
++                                    const ValueType v) {
++    const auto i =
++        static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
++    if (i >= n) {
+       return;
+     }
+-    d[(k % n) * ps + (k / n) * cs] = v;
++    for (auto j = static_cast<size_type>(blockIdx.y); j < nc; j += gridDim.y) {
++      d[i * ps + j * cs] = v;
++    }
+   }  // end of cudaFillFieldView
+ 
+   //! \brief report an error of the runtime of CUDA
+@@ -65,6 +75,28 @@ namespace mgis::field_operations::internals {
+     }
+   }  // end of checkCUDAStatus
+ 
++  /*!
++   * \return the grid of the kernels processing `n` points and `nc`
++   * components
++   * \param[in] f: calling function
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] bs: number of threads of a block
++   */
++  inline dim3 getCUDAGrid(const char* const f,
++                          const size_type n,
++                          const size_type nc,
++                          const size_type bs) {
++    const auto nb = (n + bs - 1) / bs;
++    if (nb > static_cast<size_type>(std::numeric_limits<int>::max())) {
++      throw std::runtime_error(std::string{f} + ": too many points");
++    }
++    // maximum number of blocks on the y axis of a grid
++    constexpr auto nby = size_type{65535};
++    return dim3(static_cast<unsigned int>(nb),
++                static_cast<unsigned int>(std::min(nc, nby)));
++  }  // end of getCUDAGrid
++
+ }  // end of namespace mgis::field_operations::internals
+ 
+ namespace mgis::field_operations {
+@@ -84,43 +116,49 @@ namespace mgis::field_operations {
+    */
+   struct CUDAFieldOperations final : FieldOperations {
+     //! \param[in] s: stream (the default stream if null)
+-    explicit CUDAFieldOperations(const cudaStream_t s = nullptr) noexcept : stream(s) {}
++    explicit CUDAFieldOperations(const cudaStream_t s = nullptr) noexcept
++        : stream(s) {}
+ 
+    private:
+     void do_copy(const FieldView<real>& d,
+                  const FieldView<const real>& s) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if (haveSameDenseLayout(d, s)) {
+         internals::checkCUDAStatus(
+-            cudaMemcpyAsync(d.data(), s.data(), nv * sizeof(real), cudaMemcpyDefault,
+-                            this->stream),
++            cudaMemcpyAsync(d.data(), s.data(), n * nc * sizeof(real),
++                            cudaMemcpyDefault, this->stream),
+             "CUDAFieldOperations::copy");
+         return;
+       }
+-      internals::cudaCopyFieldView<real>
+-          <<<(nv + block_size - 1) / block_size, block_size, 0, this->stream>>>(
+-              d.data(), d.getPointStride(), d.getComponentStride(), s.data(),
+-              s.getPointStride(), s.getComponentStride(), n, nv);
+-      internals::checkCUDAStatus(cudaGetLastError(), "CUDAFieldOperations::copy");
++      const auto grid = internals::getCUDAGrid("CUDAFieldOperations::copy", n,
++                                               nc, block_size);
++      internals::cudaCopyFieldView<real><<<grid, block_size, 0, this->stream>>>(
++          d.data(), d.getPointStride(), d.getComponentStride(), s.data(),
++          s.getPointStride(), s.getComponentStride(), n, nc);
++      internals::checkCUDAStatus(cudaGetLastError(),
++                                 "CUDAFieldOperations::copy");
+     }  // end of do_copy
+     void do_fill(const FieldView<real>& d, const real v) override {
++      static_assert(sizeof(real) == sizeof(std::uint64_t));
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if ((isDense(d)) && (std::bit_cast<std::uint64_t>(v) == 0)) {
+         // positive zero: all the bytes are null
+         internals::checkCUDAStatus(
+-            cudaMemsetAsync(d.data(), 0, nv * sizeof(real), this->stream),
++            cudaMemsetAsync(d.data(), 0, n * nc * sizeof(real), this->stream),
+             "CUDAFieldOperations::fill");
+         return;
+       }
+-      internals::cudaFillFieldView<real>
+-          <<<(nv + block_size - 1) / block_size, block_size, 0, this->stream>>>(
+-              d.data(), d.getPointStride(), d.getComponentStride(), n, nv, v);
+-      internals::checkCUDAStatus(cudaGetLastError(), "CUDAFieldOperations::fill");
++      const auto grid = internals::getCUDAGrid("CUDAFieldOperations::fill", n,
++                                               nc, block_size);
++      internals::cudaFillFieldView<real><<<grid, block_size, 0, this->stream>>>(
++          d.data(), d.getPointStride(), d.getComponentStride(), n, nc, v);
++      internals::checkCUDAStatus(cudaGetLastError(),
++                                 "CUDAFieldOperations::fill");
+     }  // end of do_fill
+     //! \brief number of threads of a block
+-    static constexpr size_type block_size = 256;
++    static constexpr unsigned int block_size = 256;
+     //! \brief stream
+     cudaStream_t stream;
+   };  // end of CUDAFieldOperations
+diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
+index da261d4..74751c0 100644
+--- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
+@@ -15,47 +15,57 @@
+ #define LIB_MGIS_FIELDOPERATIONS_HIPFIELDOPERATIONS_HXX
+ 
+ #include <bit>
++#include <limits>
+ #include <string>
+ #include <cstdint>
++#include <algorithm>
+ #include <stdexcept>
+ #include <hip/hip_runtime.h>
+ #include "MGIS/FieldOperations.hxx"
+ 
+ namespace mgis::field_operations::internals {
+ 
+-  //! \brief copy the values of a view in another one, one thread per value
++  /*!
++   * \brief copy the values of a view in another one. The threads of the x
++   * axis of the grid process consecutive points of a component (coalesced
++   * accesses to the values stored component by component), the blocks of
++   * the y axis process the components.
++   */
+   template <typename ValueType>
+   __global__ void hipCopyFieldView(ValueType* const d,
+-                                  const size_type dps,
+-                                  const size_type dcs,
+-                                  const ValueType* const s,
+-                                  const size_type sps,
+-                                  const size_type scs,
+-                                  const size_type n,
+-                                  const size_type nv) {
+-    const auto k = static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
+-    if (k >= nv) {
++                                   const size_type dps,
++                                   const size_type dcs,
++                                   const ValueType* const s,
++                                   const size_type sps,
++                                   const size_type scs,
++                                   const size_type n,
++                                   const size_type nc) {
++    const auto i =
++        static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
++    if (i >= n) {
+       return;
+     }
+-    // consecutive threads process consecutive points of a component
+-    const auto i = k % n;
+-    const auto j = k / n;
+-    d[i * dps + j * dcs] = s[i * sps + j * scs];
++    for (auto j = static_cast<size_type>(blockIdx.y); j < nc; j += gridDim.y) {
++      d[i * dps + j * dcs] = s[i * sps + j * scs];
++    }
+   }  // end of hipCopyFieldView
+ 
+-  //! \brief fill a view, one thread per value
++  //! \brief fill a view (see `hipCopyFieldView`)
+   template <typename ValueType>
+   __global__ void hipFillFieldView(ValueType* const d,
+-                                  const size_type ps,
+-                                  const size_type cs,
+-                                  const size_type n,
+-                                  const size_type nv,
+-                                  const ValueType v) {
+-    const auto k = static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
+-    if (k >= nv) {
++                                   const size_type ps,
++                                   const size_type cs,
++                                   const size_type n,
++                                   const size_type nc,
++                                   const ValueType v) {
++    const auto i =
++        static_cast<size_type>(blockIdx.x) * blockDim.x + threadIdx.x;
++    if (i >= n) {
+       return;
+     }
+-    d[(k % n) * ps + (k / n) * cs] = v;
++    for (auto j = static_cast<size_type>(blockIdx.y); j < nc; j += gridDim.y) {
++      d[i * ps + j * cs] = v;
++    }
+   }  // end of hipFillFieldView
+ 
+   //! \brief report an error of the runtime of HIP
+@@ -65,6 +75,28 @@ namespace mgis::field_operations::internals {
+     }
+   }  // end of checkHIPStatus
+ 
++  /*!
++   * \return the grid of the kernels processing `n` points and `nc`
++   * components
++   * \param[in] f: calling function
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] bs: number of threads of a block
++   */
++  inline dim3 getHIPGrid(const char* const f,
++                         const size_type n,
++                         const size_type nc,
++                         const size_type bs) {
++    const auto nb = (n + bs - 1) / bs;
++    if (nb > static_cast<size_type>(std::numeric_limits<int>::max())) {
++      throw std::runtime_error(std::string{f} + ": too many points");
++    }
++    // maximum number of blocks on the y axis of a grid
++    constexpr auto nby = size_type{65535};
++    return dim3(static_cast<unsigned int>(nb),
++                static_cast<unsigned int>(std::min(nc, nby)));
++  }  // end of getHIPGrid
++
+ }  // end of namespace mgis::field_operations::internals
+ 
+ namespace mgis::field_operations {
+@@ -84,43 +116,47 @@ namespace mgis::field_operations {
+    */
+   struct HIPFieldOperations final : FieldOperations {
+     //! \param[in] s: stream (the default stream if null)
+-    explicit HIPFieldOperations(const hipStream_t s = nullptr) noexcept : stream(s) {}
++    explicit HIPFieldOperations(const hipStream_t s = nullptr) noexcept
++        : stream(s) {}
+ 
+    private:
+     void do_copy(const FieldView<real>& d,
+                  const FieldView<const real>& s) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if (haveSameDenseLayout(d, s)) {
+         internals::checkHIPStatus(
+-            hipMemcpyAsync(d.data(), s.data(), nv * sizeof(real), hipMemcpyDefault,
+-                            this->stream),
++            hipMemcpyAsync(d.data(), s.data(), n * nc * sizeof(real),
++                           hipMemcpyDefault, this->stream),
+             "HIPFieldOperations::copy");
+         return;
+       }
+-      internals::hipCopyFieldView<real>
+-          <<<(nv + block_size - 1) / block_size, block_size, 0, this->stream>>>(
+-              d.data(), d.getPointStride(), d.getComponentStride(), s.data(),
+-              s.getPointStride(), s.getComponentStride(), n, nv);
++      const auto grid =
++          internals::getHIPGrid("HIPFieldOperations::copy", n, nc, block_size);
++      internals::hipCopyFieldView<real><<<grid, block_size, 0, this->stream>>>(
++          d.data(), d.getPointStride(), d.getComponentStride(), s.data(),
++          s.getPointStride(), s.getComponentStride(), n, nc);
+       internals::checkHIPStatus(hipGetLastError(), "HIPFieldOperations::copy");
+     }  // end of do_copy
+     void do_fill(const FieldView<real>& d, const real v) override {
++      static_assert(sizeof(real) == sizeof(std::uint64_t));
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if ((isDense(d)) && (std::bit_cast<std::uint64_t>(v) == 0)) {
+         // positive zero: all the bytes are null
+         internals::checkHIPStatus(
+-            hipMemsetAsync(d.data(), 0, nv * sizeof(real), this->stream),
++            hipMemsetAsync(d.data(), 0, n * nc * sizeof(real), this->stream),
+             "HIPFieldOperations::fill");
+         return;
+       }
+-      internals::hipFillFieldView<real>
+-          <<<(nv + block_size - 1) / block_size, block_size, 0, this->stream>>>(
+-              d.data(), d.getPointStride(), d.getComponentStride(), n, nv, v);
++      const auto grid =
++          internals::getHIPGrid("HIPFieldOperations::fill", n, nc, block_size);
++      internals::hipFillFieldView<real><<<grid, block_size, 0, this->stream>>>(
++          d.data(), d.getPointStride(), d.getComponentStride(), n, nc, v);
+       internals::checkHIPStatus(hipGetLastError(), "HIPFieldOperations::fill");
+     }  // end of do_fill
+     //! \brief number of threads of a block
+-    static constexpr size_type block_size = 256;
++    static constexpr unsigned int block_size = 256;
+     //! \brief stream
+     hipStream_t stream;
+   };  // end of HIPFieldOperations
+diff --git a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
+index b55632a..2db1400 100644
+--- a/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/KokkosFieldOperations.hxx
+@@ -20,9 +20,9 @@
+ namespace mgis::field_operations::internals {
+ 
+   /*!
+-   * \brief copy the values of a view in another one, one thread per value
+-   * (free function: an extended lambda can't be defined in a private member
+-   * function with CUDA)
++   * \brief copy the values of a view in another one (free function: an
++   * extended lambda can't be defined in a private member function with
++   * CUDA). Consecutive threads process consecutive points of a component.
+    */
+   template <typename ExecutionSpace>
+   void kokkosCopyFieldView(const ExecutionSpace& space,
+@@ -33,32 +33,33 @@ namespace mgis::field_operations::internals {
+                            const size_type sps,
+                            const size_type scs,
+                            const size_type n,
+-                           const size_type nv) {
++                           const size_type nc) {
++    using Policy = Kokkos::MDRangePolicy<
++        ExecutionSpace,
++        Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>;
+     Kokkos::parallel_for(
+-        "mgis::field_operations::copy",
+-        Kokkos::RangePolicy<ExecutionSpace>(space, 0, nv),
+-        KOKKOS_LAMBDA(const size_type k) {
+-          // consecutive threads process consecutive points of a component
+-          const auto i = k % n;
+-          const auto j = k / n;
++        "mgis::field_operations::copy", Policy(space, {0, 0}, {nc, n}),
++        KOKKOS_LAMBDA(const size_type j, const size_type i) {
+           dv[i * dps + j * dcs] = sv[i * sps + j * scs];
+         });
+   }  // end of kokkosCopyFieldView
+ 
+-  //! \brief fill a view, one thread per value
++  //! \brief fill a view (see `kokkosCopyFieldView`)
+   template <typename ExecutionSpace>
+   void kokkosFillFieldView(const ExecutionSpace& space,
+                            real* const dv,
+                            const size_type ps,
+                            const size_type cs,
+                            const size_type n,
+-                           const size_type nv,
++                           const size_type nc,
+                            const real v) {
++    using Policy = Kokkos::MDRangePolicy<
++        ExecutionSpace,
++        Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>;
+     Kokkos::parallel_for(
+-        "mgis::field_operations::fill",
+-        Kokkos::RangePolicy<ExecutionSpace>(space, 0, nv),
+-        KOKKOS_LAMBDA(const size_type k) {
+-          dv[(k % n) * ps + (k / n) * cs] = v;
++        "mgis::field_operations::fill", Policy(space, {0, 0}, {nc, n}),
++        KOKKOS_LAMBDA(const size_type j, const size_type i) {
++          dv[i * ps + j * cs] = v;
+         });
+   }  // end of kokkosFillFieldView
+ 
+@@ -71,7 +72,10 @@ namespace mgis::field_operations {
+    * given execution space, with an instance of this execution space.
+    *
+    * The operations are submitted to the instance: the calling code must
+-   * fence the instance before reading the values on the host.
++   * fence the instance before reading the values on the host. A copy
++   * between two views with the same dense layout, and the fill of a dense
++   * view, are made by `Kokkos::deep_copy`; the other operations use a
++   * parallel loop.
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code with its Kokkos installation.
+@@ -88,16 +92,34 @@ namespace mgis::field_operations {
+     void do_copy(const FieldView<real>& d,
+                  const FieldView<const real>& s) override {
+       const auto n = d.getNumberOfPoints();
++      const auto nc = d.getNumberOfComponents();
++      if (haveSameDenseLayout(d, s)) {
++        using MemorySpace = typename ExecutionSpace::memory_space;
++        using Unmanaged = Kokkos::MemoryTraits<Kokkos::Unmanaged>;
++        Kokkos::deep_copy(
++            this->space,
++            Kokkos::View<real*, MemorySpace, Unmanaged>(d.data(), n * nc),
++            Kokkos::View<const real*, MemorySpace, Unmanaged>(s.data(),
++                                                              n * nc));
++        return;
++      }
+       internals::kokkosCopyFieldView(
+           this->space, d.data(), d.getPointStride(), d.getComponentStride(),
+-          s.data(), s.getPointStride(), s.getComponentStride(), n,
+-          n * d.getNumberOfComponents());
++          s.data(), s.getPointStride(), s.getComponentStride(), n, nc);
+     }  // end of do_copy
+     void do_fill(const FieldView<real>& d, const real v) override {
+       const auto n = d.getNumberOfPoints();
++      const auto nc = d.getNumberOfComponents();
++      if (isDense(d)) {
++        using MemorySpace = typename ExecutionSpace::memory_space;
++        using Unmanaged = Kokkos::MemoryTraits<Kokkos::Unmanaged>;
++        Kokkos::deep_copy(
++            this->space,
++            Kokkos::View<real*, MemorySpace, Unmanaged>(d.data(), n * nc), v);
++        return;
++      }
+       internals::kokkosFillFieldView(this->space, d.data(), d.getPointStride(),
+-                                     d.getComponentStride(), n,
+-                                     n * d.getNumberOfComponents(), v);
++                                     d.getComponentStride(), n, nc, v);
+     }  // end of do_fill
+     //! \brief instance of the execution space
+     ExecutionSpace space;
+diff --git a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
+index 39e1b1f..19a759a 100644
+--- a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
+@@ -15,6 +15,7 @@
+ #ifndef LIB_MGIS_FIELDOPERATIONS_OPENMPFIELDOPERATIONS_HXX
+ #define LIB_MGIS_FIELDOPERATIONS_OPENMPFIELDOPERATIONS_HXX
+ 
++#include <stdexcept>
+ #include <omp.h>
+ #include "MGIS/FieldOperations.hxx"
+ 
+@@ -26,47 +27,60 @@ namespace mgis::field_operations {
+    *
+    * The addresses of the views must be addresses of the device (for
+    * instance, allocated by `omp_target_alloc`). The operations are
+-   * synchronous.
++   * synchronous. A copy between two views with the same dense layout is a
++   * copy of a contiguous memory region (`omp_target_memcpy`); the other
++   * copies, and the fills, use a target region.
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code with a compiler supporting the offloading of OpenMP.
+    */
+   struct OpenMPFieldOperations final : FieldOperations {
+     //! \param[in] d: device
+-    explicit OpenMPFieldOperations(const int d = omp_get_default_device()) noexcept
++    explicit OpenMPFieldOperations(
++        const int d = omp_get_default_device()) noexcept
+         : device(d) {}
+ 
+    private:
+     void do_copy(const FieldView<real>& d,
+                  const FieldView<const real>& s) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       auto* const dv = d.data();
++      const auto* const sv = s.data();
++      const auto dev = this->device;
++      if (haveSameDenseLayout(d, s)) {
++        if (omp_target_memcpy(dv, sv, n * nc * sizeof(real), 0, 0, dev, dev) !=
++            0) {
++          throw std::runtime_error("OpenMPFieldOperations::copy: copy failed");
++        }
++        return;
++      }
+       const auto dps = d.getPointStride();
+       const auto dcs = d.getComponentStride();
+-      const auto* const sv = s.data();
+       const auto sps = s.getPointStride();
+       const auto scs = s.getComponentStride();
+-      const auto dev = this->device;
+-#pragma omp target teams distribute parallel for device(dev) \
++      // consecutive threads process consecutive points of a component
++#pragma omp target teams distribute parallel for collapse(2) device(dev) \
+     is_device_ptr(dv, sv)
+-      for (size_type k = 0; k < nv; ++k) {
+-        // consecutive threads process consecutive points of a component
+-        const auto i = k % n;
+-        const auto j = k / n;
+-        dv[i * dps + j * dcs] = sv[i * sps + j * scs];
++      for (size_type j = 0; j < nc; ++j) {
++        for (size_type i = 0; i < n; ++i) {
++          dv[i * dps + j * dcs] = sv[i * sps + j * scs];
++        }
+       }
+     }  // end of do_copy
+     void do_fill(const FieldView<real>& d, const real v) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       auto* const dv = d.data();
+       const auto ps = d.getPointStride();
+       const auto cs = d.getComponentStride();
+       const auto dev = this->device;
+-#pragma omp target teams distribute parallel for device(dev) is_device_ptr(dv)
+-      for (size_type k = 0; k < nv; ++k) {
+-        dv[(k % n) * ps + (k / n) * cs] = v;
++#pragma omp target teams distribute parallel for collapse(2) device(dev) \
++    is_device_ptr(dv)
++      for (size_type j = 0; j < nc; ++j) {
++        for (size_type i = 0; i < n; ++i) {
++          dv[i * ps + j * cs] = v;
++        }
+       }
+     }  // end of do_fill
+     //! \brief device
+diff --git a/include/MGIS/FieldOperations/SYCLFieldOperations.hxx b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
+index 26d2ffe..2a66f70 100644
+--- a/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/SYCLFieldOperations.hxx
+@@ -34,16 +34,16 @@ namespace mgis::field_operations {
+    * code with its SYCL compiler.
+    */
+   struct SYCLFieldOperations final : FieldOperations {
+-    //! \param[in] q: queue
+-    explicit SYCLFieldOperations(sycl::queue& q) noexcept : queue(q) {}
++    //! \param[in] q: queue (a handle, copied)
++    explicit SYCLFieldOperations(const sycl::queue& q) noexcept : queue(q) {}
+ 
+    private:
+     void do_copy(const FieldView<real>& d,
+                  const FieldView<const real>& s) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if (haveSameDenseLayout(d, s)) {
+-        this->queue.memcpy(d.data(), s.data(), nv * sizeof(real));
++        this->queue.memcpy(d.data(), s.data(), n * nc * sizeof(real));
+         return;
+       }
+       auto* const dv = d.data();
+@@ -52,31 +52,33 @@ namespace mgis::field_operations {
+       const auto* const sv = s.data();
+       const auto sps = s.getPointStride();
+       const auto scs = s.getComponentStride();
+-      this->queue.parallel_for(sycl::range<1>(nv), [=](const sycl::id<1> id) {
+-        const auto k = static_cast<size_type>(id[0]);
+-        // consecutive work-items process consecutive points of a component
+-        const auto i = k % n;
+-        const auto j = k / n;
+-        dv[i * dps + j * dcs] = sv[i * sps + j * scs];
+-      });
++      // consecutive work-items process consecutive points of a component
++      this->queue.parallel_for(sycl::range<2>(nc, n),
++                               [=](const sycl::id<2> id) {
++                                 const auto j = static_cast<size_type>(id[0]);
++                                 const auto i = static_cast<size_type>(id[1]);
++                                 dv[i * dps + j * dcs] = sv[i * sps + j * scs];
++                               });
+     }  // end of do_copy
+     void do_fill(const FieldView<real>& d, const real v) override {
+       const auto n = d.getNumberOfPoints();
+-      const auto nv = n * d.getNumberOfComponents();
++      const auto nc = d.getNumberOfComponents();
+       if (isDense(d)) {
+-        this->queue.fill(d.data(), v, nv);
++        this->queue.fill(d.data(), v, n * nc);
+         return;
+       }
+       auto* const dv = d.data();
+       const auto ps = d.getPointStride();
+       const auto cs = d.getComponentStride();
+-      this->queue.parallel_for(sycl::range<1>(nv), [=](const sycl::id<1> id) {
+-        const auto k = static_cast<size_type>(id[0]);
+-        dv[(k % n) * ps + (k / n) * cs] = v;
+-      });
++      this->queue.parallel_for(sycl::range<2>(nc, n),
++                               [=](const sycl::id<2> id) {
++                                 const auto j = static_cast<size_type>(id[0]);
++                                 const auto i = static_cast<size_type>(id[1]);
++                                 dv[i * ps + j * cs] = v;
++                               });
+     }  // end of do_fill
+     //! \brief queue
+-    sycl::queue& queue;
++    sycl::queue queue;
+   };  // end of SYCLFieldOperations
+ 
+ }  // end of namespace mgis::field_operations
+-- 
+2.43.0
+

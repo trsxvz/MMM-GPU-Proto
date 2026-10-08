@@ -96,7 +96,7 @@ struct Backend {
 #endif
   }
   void toDevice(real* const d, const std::vector<real>& h) {
-    const auto s = h.size() * sizeof(real);
+    [[maybe_unused]] const auto s = h.size() * sizeof(real);
 #if defined(MGIS_CHECK_CUDA)
     static_cast<void>(cudaMemcpy(d, h.data(), s, cudaMemcpyHostToDevice));
 #elif defined(MGIS_CHECK_HIP)
@@ -116,7 +116,7 @@ struct Backend {
   }
   std::vector<real> toHost(const real* const d, const size_type n) {
     auto h = std::vector<real>(n);
-    const auto s = n * sizeof(real);
+    [[maybe_unused]] const auto s = n * sizeof(real);
 #if defined(MGIS_CHECK_CUDA)
     static_cast<void>(cudaMemcpy(h.data(), d, s, cudaMemcpyDeviceToHost));
 #elif defined(MGIS_CHECK_HIP)

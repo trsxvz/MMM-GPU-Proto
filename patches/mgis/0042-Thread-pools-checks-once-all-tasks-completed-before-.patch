@@ -1,0 +1,494 @@
+From 79fe9340d659955197514be2adf92560975ccee2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:18:35 +0200
+Subject: [PATCH] Thread pools: checks once, all tasks completed before an
+ error
+
+- the forms taking a thread pool check the material data view, the
+  inputs and the outputs once in the calling thread; the tasks only check
+  their workspace and their range of points.
+- all the tasks are completed before an exception is reported: a task
+  which failed no longer leaves the other tasks reading the objects of the
+  calling function after its return.
+- the behaviour of a material data view is checked not to be null before
+  being used, and the workspace is checked whatever the interface of the
+  behaviour.
+---
+ src/Integrate.cxx                       | 222 ++++++++++++++++++------
+ tests/MaterialDataManagerLayoutTest.cxx |  13 ++
+ tests/MaterialDataViewTest.cxx          |  13 ++
+ 3 files changed, 194 insertions(+), 54 deletions(-)
+
+diff --git a/src/Integrate.cxx b/src/Integrate.cxx
+index 664a27b..3ab5cd4 100644
+--- a/src/Integrate.cxx
++++ b/src/Integrate.cxx
+@@ -117,6 +117,19 @@ namespace mgis::behaviour::internals {
+     }
+   }  // end of checkIntegrationPointsRange
+ 
++  /*!
++   * \return the behaviour of a material data view, checked not to be null
++   * \param[in] f: name of the calling function
++   * \param[in] v: material data view
++   */
++  static const Behaviour& getBehaviour(const std::string_view f,
++                                       const MaterialDataView& v) {
++    if (v.b == nullptr) {
++      mgis::raise(std::string{f} + ": no behaviour");
++    }
++    return *(v.b);
++  }  // end of getBehaviour
++
+   /*!
+    * \brief description of the values checked by `checkFieldView`, made of
+    * three parts which are only concatenated to report an error, so that a
+@@ -293,9 +306,7 @@ namespace mgis::behaviour::internals {
+    */
+   static void checkMaterialDataView(const std::string_view f,
+                                     const MaterialDataView& v) {
+-    if (v.b == nullptr) {
+-      mgis::raise(std::string{f} + ": no behaviour");
+-    }
++    static_cast<void>(getBehaviour(f, v));
+     checkMemoryLocation(f, v);
+     checkMaterialStateView(f, v.s0, v, false);
+     checkMaterialStateView(f, v.s1, v, true);
+@@ -594,7 +605,9 @@ namespace mgis::behaviour::internals {
+                              const real dt,
+                              const size_type b,
+                              const size_type e) {
+-    checkBatchComputations("integrate", v.b->batch_b != nullptr, v, b, e);
++    checkBatchComputations("integrate",
++                           getBehaviour("integrate", v).batch_b != nullptr, v,
++                           b, e);
+     checkIntegrationOutputs("integrate", v, opts);
+     // same initial value of the time step scaling factor as the integration
+     // point by point
+@@ -1000,25 +1013,6 @@ namespace mgis::behaviour::internals {
+     return v;
+   }  // end of initializeBehaviourDataView
+ 
+-  /*!
+-   * \brief check the arguments of computations point by point
+-   * \param[in] f: name of the calling function
+-   * \param[in] ws: workspace
+-   * \param[in] v: material data view
+-   * \param[in] b: index of the first point
+-   * \param[in] e: index after the last point
+-   */
+-  static void checkPointwiseComputations(
+-      const std::string_view f,
+-      const BehaviourIntegrationWorkSpace& ws,
+-      const MaterialDataView& v,
+-      const size_type b,
+-      const size_type e) {
+-    checkMaterialDataView(f, v);
+-    checkWorkspace(f, ws, v);
+-    checkIntegrationPointsRange(v.n, b, e);
+-  }  // end of checkPointwiseComputations
+-
+   /*!
+    * \brief integrate the behaviour point by point over the points `[b, e)`
+    * of a material data view.
+@@ -1075,21 +1069,19 @@ namespace mgis::behaviour::internals {
+   }  // end of integratePointwise
+ 
+   /*!
+-   * \brief integrate the behaviour point by point over the points `[b, e)`
+-   * of a material data view.
++   * \brief check the arguments of an integration point by point, except the
++   * workspace and the range of points
++   * \param[in] v: material data view
++   * \param[in] opts: options
+    * \param[in] analyser: failure analyser, null for the standard
+    * integration
+    */
+-  static BehaviourIntegrationResult integratePointwise(
+-      BehaviourIntegrationWorkSpace& ws,
++  static void checkPointwiseIntegration(
+       const MaterialDataView& v,
+       const BehaviourIntegrationOptions& opts,
+-      const real dt,
+-      const size_type b,
+-      const size_type e,
+       const debug::BehaviourIntegrationFailureAnalyser* const analyser) {
+     const auto* const f = analyser == nullptr ? "integrate" : "integrate_debug";
+-    checkPointwiseComputations(f, ws, v, b, e);
++    checkMaterialDataView(f, v);
+     if (v.b->b == nullptr) {
+       if (analyser != nullptr) {
+         mgis::raise(
+@@ -1102,6 +1094,27 @@ namespace mgis::behaviour::internals {
+           "has been generated by the generic-parallel interface)");
+     }
+     checkIntegrationOutputs(f, v, opts);
++  }  // end of checkPointwiseIntegration
++
++  /*!
++   * \brief integrate the behaviour point by point over the points `[b, e)`
++   * of a material data view, checked by `checkPointwiseIntegration`. The
++   * workspace and the range of points, which are specific to a task, are
++   * checked.
++   * \param[in] analyser: failure analyser, null for the standard
++   * integration
++   */
++  static BehaviourIntegrationResult integrateCheckedPointwise(
++      BehaviourIntegrationWorkSpace& ws,
++      const MaterialDataView& v,
++      const BehaviourIntegrationOptions& opts,
++      const real dt,
++      const size_type b,
++      const size_type e,
++      const debug::BehaviourIntegrationFailureAnalyser* const analyser) {
++    const auto* const f = analyser == nullptr ? "integrate" : "integrate_debug";
++    checkWorkspace(f, ws, v);
++    checkIntegrationPointsRange(v.n, b, e);
+     auto memory = TemporaryMemory{};
+     const auto evaluators = BehaviourEvaluators(ws, v, memory.get());
+     const auto data =
+@@ -1113,6 +1126,24 @@ namespace mgis::behaviour::internals {
+     }
+     return integratePointwise<false>(ws, v, data, evaluators, opts, dt, b, e,
+                                      analyser);
++  }  // end of integrateCheckedPointwise
++
++  /*!
++   * \brief integrate the behaviour point by point over the points `[b, e)`
++   * of a material data view.
++   * \param[in] analyser: failure analyser, null for the standard
++   * integration
++   */
++  static BehaviourIntegrationResult integratePointwise(
++      BehaviourIntegrationWorkSpace& ws,
++      const MaterialDataView& v,
++      const BehaviourIntegrationOptions& opts,
++      const real dt,
++      const size_type b,
++      const size_type e,
++      const debug::BehaviourIntegrationFailureAnalyser* const analyser) {
++    checkPointwiseIntegration(v, opts, analyser);
++    return integrateCheckedPointwise(ws, v, opts, dt, b, e, analyser);
+   }  // end of integratePointwise
+ 
+   /*!
+@@ -1150,22 +1181,37 @@ namespace mgis::behaviour::internals {
+     return r;
+   }  // end of executeInitializeFunctionPointwise
+ 
++  /*!
++   * \brief check the arguments of the execution of an initialize function
++   * point by point, except the workspace, the range of points and the
++   * inputs
++   * \param[in] v: material data view
++   * \param[in] f: initialize function
++   */
++  static void checkPointwiseInitializeFunction(
++      const MaterialDataView& v, const BehaviourInitializeFunction& f) {
++    checkMaterialDataView("executeInitializeFunction", v);
++    if (f.f == nullptr) {
++      raiseMissingFunctionOfAPoint("executeInitializeFunction");
++    }
++  }  // end of checkPointwiseInitializeFunction
++
+   /*!
+    * \brief execute an initialize function point by point over the points
+-   * `[b, e)` of a material data view.
++   * `[b, e)` of a material data view, checked by
++   * `checkPointwiseInitializeFunction`. The workspace and the range of
++   * points, which are specific to a task, are checked.
+    * \param[in] inputs: inputs (empty if the initialize function has no input)
+    */
+-  static BehaviourIntegrationResult executeInitializeFunctionPointwise(
++  static BehaviourIntegrationResult executeInitializeFunctionCheckedPointwise(
+       BehaviourIntegrationWorkSpace& ws,
+       const MaterialDataView& v,
+       const BehaviourInitializeFunction& f,
+       const FieldView<const real>& inputs,
+       const size_type b,
+       const size_type e) {
+-    checkPointwiseComputations("executeInitializeFunction", ws, v, b, e);
+-    if (f.f == nullptr) {
+-      raiseMissingFunctionOfAPoint("executeInitializeFunction");
+-    }
++    checkWorkspace("executeInitializeFunction", ws, v);
++    checkIntegrationPointsRange(v.n, b, e);
+     auto memory = TemporaryMemory{};
+     const auto evaluators = BehaviourEvaluators(ws, v, memory.get());
+     const auto data = PointwiseData(ws, v, false, false);
+@@ -1177,6 +1223,22 @@ namespace mgis::behaviour::internals {
+     }
+     return executeInitializeFunctionPointwise<false>(ws, data, evaluators, f, i,
+                                                      b, e);
++  }  // end of executeInitializeFunctionCheckedPointwise
++
++  /*!
++   * \brief execute an initialize function point by point over the points
++   * `[b, e)` of a material data view.
++   * \param[in] inputs: inputs (empty if the initialize function has no input)
++   */
++  static BehaviourIntegrationResult executeInitializeFunctionPointwise(
++      BehaviourIntegrationWorkSpace& ws,
++      const MaterialDataView& v,
++      const BehaviourInitializeFunction& f,
++      const FieldView<const real>& inputs,
++      const size_type b,
++      const size_type e) {
++    checkPointwiseInitializeFunction(v, f);
++    return executeInitializeFunctionCheckedPointwise(ws, v, f, inputs, b, e);
+   }  // end of executeInitializeFunctionPointwise
+ 
+   /*!
+@@ -1214,21 +1276,35 @@ namespace mgis::behaviour::internals {
+     return r;
+   }  // end of executePostProcessingPointwise
+ 
++  /*!
++   * \brief check the arguments of the execution of a post-processing point
++   * by point, except the workspace, the range of points and the outputs
++   * \param[in] v: material data view
++   * \param[in] p: post-processing
++   */
++  static void checkPointwisePostProcessing(const MaterialDataView& v,
++                                           const BehaviourPostProcessing& p) {
++    checkMaterialDataView("executePostProcessing", v);
++    if (p.f == nullptr) {
++      raiseMissingFunctionOfAPoint("executePostProcessing");
++    }
++  }  // end of checkPointwisePostProcessing
++
+   /*!
+    * \brief execute a post-processing point by point over the points `[b, e)`
+-   * of a material data view.
++   * of a material data view, checked by `checkPointwisePostProcessing`. The
++   * workspace and the range of points, which are specific to a task, are
++   * checked.
+    */
+-  static BehaviourIntegrationResult executePostProcessingPointwise(
++  static BehaviourIntegrationResult executePostProcessingCheckedPointwise(
+       const FieldView<real>& outputs,
+       BehaviourIntegrationWorkSpace& ws,
+       const MaterialDataView& v,
+       const BehaviourPostProcessing& p,
+       const size_type b,
+       const size_type e) {
+-    checkPointwiseComputations("executePostProcessing", ws, v, b, e);
+-    if (p.f == nullptr) {
+-      raiseMissingFunctionOfAPoint("executePostProcessing");
+-    }
++    checkWorkspace("executePostProcessing", ws, v);
++    checkIntegrationPointsRange(v.n, b, e);
+     auto memory = TemporaryMemory{};
+     const auto evaluators = BehaviourEvaluators(ws, v, memory.get());
+     const auto data = PointwiseData(ws, v, false, false);
+@@ -1239,6 +1315,21 @@ namespace mgis::behaviour::internals {
+     }
+     return executePostProcessingPointwise<false>(o, ws, data, evaluators, p, b,
+                                                  e);
++  }  // end of executePostProcessingCheckedPointwise
++
++  /*!
++   * \brief execute a post-processing point by point over the points `[b, e)`
++   * of a material data view.
++   */
++  static BehaviourIntegrationResult executePostProcessingPointwise(
++      const FieldView<real>& outputs,
++      BehaviourIntegrationWorkSpace& ws,
++      const MaterialDataView& v,
++      const BehaviourPostProcessing& p,
++      const size_type b,
++      const size_type e) {
++    checkPointwisePostProcessing(v, p);
++    return executePostProcessingCheckedPointwise(outputs, ws, v, p, b, e);
+   }  // end of executePostProcessingPointwise
+ 
+ }  // namespace mgis::behaviour::internals
+@@ -1502,7 +1593,9 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \brief execute a task on the points of a material data manager, divided
+-   * in as many ranges as threads
++   * in as many ranges as threads. The arguments shall have been checked by
++   * the calling thread: the tasks only check their workspace and their
++   * range of points.
+    * \param[in] p: thread pool
+    * \param[in] m: material data manager
+    * \param[in] task: task, called as `task(b, e)` for the range `[b, e)`
+@@ -1522,6 +1615,11 @@ namespace mgis::behaviour {
+       tasks.push_back(p.addTask([&task, b, e] { return task(b, e); }));
+       b = e;
+     }
++    // all the tasks are completed before an exception is reported: they
++    // refer to objects of the calling function
++    for (auto& t : tasks) {
++      t.wait();
++    }
+     auto res = MultiThreadedBehaviourIntegrationResult{};
+     for (auto& t : tasks) {
+       const auto ri = *(t.get());
+@@ -1543,7 +1641,9 @@ namespace mgis::behaviour {
+       const std::string_view n,
+       const size_type b,
+       const size_type e) {
+-    const auto& f = getBehaviourInitializeFunction(*(v.b), n);
++    const auto& f = getBehaviourInitializeFunction(
++        internals::getBehaviour("executeInitializeFunction", v), n);
++    internals::checkWorkspace("executeInitializeFunction", ws, v);
+     checkNoInitializeFunctionInputs(f, n);
+     if (f.batch_f != nullptr) {
+       return internals::executeBatchInitializeFunction(
+@@ -1560,7 +1660,9 @@ namespace mgis::behaviour {
+       const FieldView<const real>& inputs,
+       const size_type b,
+       const size_type e) {
+-    const auto& f = getBehaviourInitializeFunction(*(v.b), n);
++    const auto& f = getBehaviourInitializeFunction(
++        internals::getBehaviour("executeInitializeFunction", v), n);
++    internals::checkWorkspace("executeInitializeFunction", ws, v);
+     checkInitializeFunctionInputs(v, f, n, inputs);
+     if (f.batch_f != nullptr) {
+       return internals::executeBatchInitializeFunction(v.batch_execution_policy,
+@@ -1600,7 +1702,8 @@ namespace mgis::behaviour {
+       const std::optional<FieldView<const real>>& inputs,
+       const size_type b,
+       const size_type e) {
+-    const auto& f = getBehaviourInitializeFunction(*(v.b), n);
++    const auto& f = getBehaviourInitializeFunction(
++        internals::getBehaviour("executeInitializeFunction", v), n);
+     if (inputs.has_value()) {
+       checkInitializeFunctionInputs(v, f, n, *inputs);
+       return internals::executeBatchInitializeFunction(p, v, f, *inputs, b, e);
+@@ -1824,9 +1927,10 @@ namespace mgis::behaviour {
+     m.setThreadSafe(true);
+     auto memory = internals::TemporaryMemory{};
+     const auto v = make_view(m, memory.get());
++    internals::checkPointwiseInitializeFunction(v, f);
+     return executeOnThreadPool(
+         p, m, [&m, &v, &f](const size_type b, const size_type e) {
+-          return internals::executeInitializeFunctionPointwise(
++          return internals::executeInitializeFunctionCheckedPointwise(
+               m.getBehaviourIntegrationWorkSpace(), v, f,
+               FieldView<const real>{}, b, e);
+         });
+@@ -1845,9 +1949,11 @@ namespace mgis::behaviour {
+     m.setThreadSafe(true);
+     auto memory = internals::TemporaryMemory{};
+     const auto v = make_view(m, memory.get());
++    internals::checkPointwiseInitializeFunction(v, f);
++    checkInitializeFunctionInputs(v, f, n, i);
+     return executeOnThreadPool(
+         p, m, [&m, &v, &f, &i](const size_type b, const size_type e) {
+-          return internals::executeInitializeFunctionPointwise(
++          return internals::executeInitializeFunctionCheckedPointwise(
+               m.getBehaviourIntegrationWorkSpace(), v, f, i, b, e);
+         });
+   }  // end of executeInitializeFunction
+@@ -1896,7 +2002,9 @@ namespace mgis::behaviour {
+                                        const real dt,
+                                        const size_type b,
+                                        const size_type e) {
+-    if (isGenericParallelBehaviour(*(v.b))) {
++    const auto& bv = internals::getBehaviour("integrate", v);
++    internals::checkWorkspace("integrate", ws, v);
++    if (isGenericParallelBehaviour(bv)) {
+       return internals::integrateBatch(v.batch_execution_policy, v, opts, dt, b,
+                                        e);
+     }
+@@ -2078,10 +2186,11 @@ namespace mgis::behaviour {
+     internals::allocate(m, opts);
+     auto memory = internals::TemporaryMemory{};
+     const auto v = make_view(m, memory.get());
++    internals::checkPointwiseIntegration(v, opts, analyser);
+     return executeOnThreadPool(
+         p, m,
+         [&m, &v, &opts, dt, analyser](const size_type b, const size_type e) {
+-          return internals::integratePointwise(
++          return internals::integrateCheckedPointwise(
+               m.getBehaviourIntegrationWorkSpace(), v, opts, dt, b, e,
+               analyser);
+         });
+@@ -2288,7 +2397,9 @@ namespace mgis::behaviour {
+       const std::string_view n,
+       const size_type b,
+       const size_type e) {
+-    const auto& p = getBehaviourPostProcessing(*(v.b), n);
++    const auto& p = getBehaviourPostProcessing(
++        internals::getBehaviour("executePostProcessing", v), n);
++    internals::checkWorkspace("executePostProcessing", ws, v);
+     checkPostProcessingOutputs(outputs, v, p, n);
+     if (p.batch_f != nullptr) {
+       return internals::executeBatchPostProcessing(
+@@ -2316,7 +2427,8 @@ namespace mgis::behaviour {
+                                            const std::string_view n,
+                                            const size_type b,
+                                            const size_type e) {
+-    const auto& post = getBehaviourPostProcessing(*(v.b), n);
++    const auto& post = getBehaviourPostProcessing(
++        internals::getBehaviour("executePostProcessing", v), n);
+     checkPostProcessingOutputs(outputs, v, post, n);
+     return internals::executeBatchPostProcessing(outputs, p, v, post, b, e);
+   }  // end of executePostProcessingOnBatch
+@@ -2450,9 +2562,11 @@ namespace mgis::behaviour {
+     m.setThreadSafe(true);
+     auto memory = internals::TemporaryMemory{};
+     const auto v = make_view(m, memory.get());
++    internals::checkPointwisePostProcessing(v, post);
++    checkPostProcessingOutputs(o, v, post, n);
+     return executeOnThreadPool(
+         p, m, [&m, &v, &o, &post](const size_type b, const size_type e) {
+-          return internals::executePostProcessingPointwise(
++          return internals::executePostProcessingCheckedPointwise(
+               o, m.getBehaviourIntegrationWorkSpace(), v, post, b, e);
+         });
+   }  // end of executePostProcessing
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 43809d0..154c1d7 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -486,6 +486,19 @@ static void testExecutionForms(const std::string& library) {
+           .exit_status;
+     });
+   }
++  // an error reported by the tasks of a thread pool: no external state
++  // variable
++  {
++    auto me = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
++    auto thrown = false;
++    try {
++      static_cast<void>(integrate(pool, *me, opts, 180));
++    } catch (std::exception&) {
++      thrown = true;
++    }
++    check(thrown,
++          "Norton, thread pool: missing temperature not detected, " + library);
++  }
+   // revert
+   for (auto* const m : {mr.get(), mc.get()}) {
+     copyStates(*m, *mi);
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index dd939bd..78ca037 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -960,6 +960,19 @@ static void testErrors(const std::string& library,
+   check(throws([&] { static_cast<void>(integrate(sp, gd.v, opts, 1, 3, 5)); },
+                "invalid upper bound"),
+         "errors: invalid range not detected (policy)");
++  // view without behaviour
++  gcopy = gd.v;
++  gcopy.b = nullptr;
++  check(throws([&] { static_cast<void>(integrate(gp_ws, gcopy, opts, 1)); },
++               "no behaviour"),
++        "errors: view without behaviour not detected");
++  check(throws([&] { static_cast<void>(integrate(sp, gcopy, opts, 1)); },
++               "no behaviour"),
++        "errors: view without behaviour not detected (policy)");
++  // workspace built for another behaviour, generic-parallel interface
++  check(throws([&] { static_cast<void>(integrate(ews, gd.v, opts, 1)); },
++               "workspace has not been built"),
++        "errors: invalid workspace not detected (generic-parallel)");
+   // extraction in a view of invalid extents
+   auto ops = mgis::HostFieldOperations{};
+   auto o = std::vector<real>(5 * n);
+-- 
+2.43.0
+

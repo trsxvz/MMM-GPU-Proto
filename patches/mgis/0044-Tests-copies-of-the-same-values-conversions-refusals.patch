@@ -1,0 +1,183 @@
+From b14b76a1957e4c0d509e69b0b9a4bf7b97e8c159 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:22:16 +0200
+Subject: [PATCH] Tests: copies of the same values, conversions refusals, mass
+ density
+
+---
+ tests/FieldOperationsCUDATest.cu        | 15 +++++++
+ tests/MaterialDataManagerLayoutTest.cxx | 58 +++++++++++++++++++++++++
+ tests/MaterialDataViewTest.cxx          | 48 ++++++++++++++++++++
+ 3 files changed, 121 insertions(+)
+
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index 65412fe..dadcd76 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -291,6 +291,21 @@ static void testAsynchronousComputationsWithPool(
+   p.location = mgis::MemoryLocation::SHARED;
+   auto opts = BehaviourIntegrationOptions{};
+   opts.integration_type = IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
++  // a mass density held by the manager on the host is not accessible by the
++  // device: the reason is reported
++  {
++    setMassDensity(m.s0, 7800.);
++    setMassDensity(m.s1, 7800.);
++    auto opts = BehaviourIntegrationOptions{};
++    opts.compute_speed_of_sound = true;
++    check(
++        throws(
++            [&m, &opts] {
++              static_cast<void>(integrate(BatchExecutionPolicy{}, m, opts, 1));
++            },
++            "the mass density is held by the material data manager"),
++        "mass density held on the host: invalid error");
++  }
+   for (int k = 0; k != 3; ++k) {
+     auto pending = std::vector<PendingBatchComputation>{};
+     pending.reserve(4);
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 154c1d7..5c535fd 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -60,6 +60,20 @@ static bool check(const bool b, const std::string_view msg) {
+   return b;
+ }
+ 
++/*!
++ * \return true if the given function throws an exception whose message
++ * contains the given text
++ */
++template <typename Function>
++static bool throws(const Function& f, const std::string_view text) {
++  try {
++    f();
++  } catch (std::exception& e) {
++    return std::string_view{e.what()}.find(text) != std::string_view::npos;
++  }
++  return false;
++}
++
+ //! \return true if two values are identical, bit for bit
+ static bool same(const real a, const real b) {
+   return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+@@ -786,6 +800,50 @@ static void testFiniteStrainConversionsOnViews(const std::string& library) {
+       check(same(kv,
+                  mgis::makeFieldView(std::span<const real>(K), l, n, gs * gs)),
+             t + ": invalid derivative of the first Piola-Kirchhoff stress");
++      // conversions in views, on the material data manager
++      auto Pm = std::vector<real>(gs * n, real{-1});
++      convertFiniteStrainStress(
++          mgis::makePointByPointFieldView(std::span(Pm), n, gs, gs), *m,
++          FiniteStrainStress::PK1);
++      check(same(mgis::makeFieldView(std::span<const real>(Pm),
++                                     FieldLayout::POINT_BY_POINT, n, gs),
++                 mgis::makeFieldView(std::span<const real>(P), l, n, gs)),
++            t + ": invalid first Piola-Kirchhoff stress (manager)");
++      auto Km = std::vector<real>(gs * gs * n, real{-1});
++      convertFiniteStrainTangentOperator(
++          mgis::makeComponentByComponentFieldView(std::span(Km), n, gs * gs, n),
++          *m, FiniteStrainTangentOperator::DPK1_DF);
++      check(same(mgis::makeFieldView(std::span<const real>(Km),
++                                     FieldLayout::COMPONENT_BY_COMPONENT, n,
++                                     gs * gs),
++                 mgis::makeFieldView(std::span<const real>(K), l, n, gs * gs)),
++            t + ": invalid tangent operator (manager)");
++      // invalid outputs
++      check(throws(
++                [&] {
++                  convertFiniteStrainStress(
++                      mgis::makeUniformFieldView(std::span(Pv).first(gs), n), v,
++                      FiniteStrainStress::PK1);
++                },
++                "overlap"),
++            t + ": an uniform output must be refused");
++      check(throws(
++                [&] {
++                  convertFiniteStrainStress(FieldView<real>{}, v,
++                                            FiniteStrainStress::PK1);
++                },
++                "invalid number of points"),
++            t + ": an output without point must be refused");
++      check(throws(
++                [&] {
++                  convertFiniteStrainTangentOperator(
++                      mgis::makePointByPointFieldView(std::span(Kv), n,
++                                                      gs * gs - 1, gs * gs),
++                      *m, FiniteStrainTangentOperator::DPK1_DF);
++                },
++                "invalid number of components"),
++            t + ": an output with an invalid number of components must be "
++                "refused");
+       // definition of the first Piola-Kirchhoff stress
+       const auto s = getThermodynamicForcesView(m->s1);
+       for (size_type i = 0; i != n; ++i) {
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index cc3fffb..97e28fd 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -1037,6 +1037,33 @@ static void testHostFieldOperations() {
+     check(a.equals(expected) && a.hasUnusedValuesUnchanged(),
+           "HostFieldOperations, " + getName(as) + ": invalid fill");
+   }
++  // operations counting the copies actually performed
++  struct CountingOperations final : mgis::FieldOperations {
++    size_type copies = 0;
++
++   private:
++    void do_copy(const FieldView<real>& d,
++                 const FieldView<const real>& src) override {
++      ++(this->copies);
++      mgis::HostFieldOperations{}.copy(d, src);
++    }
++    void do_fill(const FieldView<real>& d, const real v) override {
++      mgis::HostFieldOperations{}.fill(d, v);
++    }
++  };
++  auto counting = CountingOperations{};
++  // two views of the same scalar values, whose component strides differ
++  auto scalars = std::vector<real>(n, 1);
++  counting.copy(
++      mgis::makeFieldView(std::span(scalars),
++                          FieldLayout::COMPONENT_BY_COMPONENT, n, 1),
++      mgis::makePointByPointFieldView(std::span<const real>(scalars), n, 1, 1));
++  check(counting.copies == 0,
++        "HostFieldOperations: copy of the same values not detected");
++  // two empty views of different extents
++  auto e2 = Array(n, 0, Arrangement::POINT_BY_POINT);
++  counting.copy(e2.view, FieldView<const real>{});
++  check(counting.copies == 0, "HostFieldOperations: copy of empty views");
+   // empty views
+   auto a = Array(n, nc, Arrangement::POINT_BY_POINT);
+   auto e = Array(n, 0, Arrangement::COMPONENT_BY_COMPONENT);
+@@ -1324,6 +1351,27 @@ static void testSpeedOfSound(const std::string& library) {
+   const auto ct = IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+   compareIntegrations("ComputeSpeedOfSound, " + library, b, n, setup,
+                       loadStrain, 1, {0, 0}, ct, true);
++  // a missing mass density is null for a behaviour integrated point by
++  // point, and required by a behaviour generated by the generic-parallel
++  // interface
++  {
++    auto m = MaterialDataManager(b, n);
++    auto d = ViewData(b, n, Arrangement::COMPONENT_BY_COMPONENT);
++    setupTemperature(m, d.v);
++    d.copyFrom(m);
++    auto ws = BehaviourIntegrationWorkSpace(b);
++    auto opts = BehaviourIntegrationOptions{};
++    opts.compute_speed_of_sound = true;
++    if (isGenericParallelBehaviour(b)) {
++      check(throws([&] { static_cast<void>(integrate(ws, d.v, opts, 1)); },
++                   "no value given for the mass density at the beginning of "
++                   "the time step"),
++            "ComputeSpeedOfSound: missing mass density not detected");
++    } else {
++      check(integrate(ws, d.v, opts, 1).exit_status == 1,
++            "ComputeSpeedOfSound: missing mass density refused");
++    }
++  }
+   compareIntegrations("ComputeSpeedOfSound, range, " + library, b, n, setup,
+                       loadStrain, 1, {1, 4}, ct, true);
+ }  // end of testSpeedOfSound
+-- 
+2.43.0
+

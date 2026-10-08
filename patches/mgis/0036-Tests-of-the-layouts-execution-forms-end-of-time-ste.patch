@@ -1,0 +1,554 @@
+From b9b61c753beb5d67981cc51efd4758f4f15fc813 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:04:25 +0200
+Subject: [PATCH] Tests of the layouts: execution forms, end of time step,
+ conversions
+
+- integration of managers stored point by point and component by
+  component on ranges, empty ranges, with a thread pool, with the
+  synchronous and asynchronous policies, and revert.
+- initialize functions and post-processings with and without inputs, on
+  ranges, with a thread pool and with policies.
+- update and revert of the material properties and of the external state
+  variables given by external arrays, local arrays and uniform values,
+  with the update policies, with and without field operations.
+- conversions of the finite strain stresses and tangent operators on
+  views, in 3D and in plane strain, and first Piola-Kirchhoff stress
+  compared to its definition.
+- views on the variables and strided coalesced views of the
+  thermodynamic forces and of the internal state variables.
+---
+ tests/MaterialDataManagerLayoutTest.cxx | 495 ++++++++++++++++++++++++
+ 1 file changed, 495 insertions(+)
+
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 61a03a6..ef765b7 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -20,6 +20,8 @@
+ #include <cmath>
+ #include <span>
+ #include <array>
++#include <variant>
++#include <algorithm>
+ #include <string>
+ #include <vector>
+ #include <memory>
+@@ -36,7 +38,9 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/MaterialFunctionManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "MGIS/ThreadPool.hxx"
+ #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
++#include "MGIS/Behaviour/MaterialDataView.hxx"
+ #ifdef MGIS_HAVE_HDF5
+ #include "MGIS/Utilities/HDF5Support.hxx"
+ #endif /* MGIS_HAVE_HDF5 */
+@@ -405,6 +409,492 @@ static void testMaterialFunctionManager(const std::string& library) {
+   }
+ }  // end of testMaterialFunctionManager
+ 
++//! \brief set the tangent operator blocks of a material data manager to zero
++static void resetTangentOperatorBlocks(
++    mgis::behaviour::MaterialDataManager& m) {
++  std::fill(m.K.begin(), m.K.end(), real{});
++}  // end of resetTangentOperatorBlocks
++
++/*!
++ * \brief execution forms of the integration on managers stored point by
++ * point and component by component, compared to the integration of a
++ * manager stored point by point without policy: ranges, empty ranges,
++ * thread pool, synchronous and asynchronous policies (generic-parallel
++ * interface), revert
++ */
++static void testExecutionForms(const std::string& library) {
++  using namespace mgis::behaviour;
++  const auto b = load(library, "Norton", Hypothesis::TRIDIMENSIONAL);
++  const auto gp = isGenericParallelBehaviour(b);
++  constexpr auto n = size_type{9};
++  // initial states, reference, and managers tested
++  auto mi = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++  auto mr = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++  auto ma = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++  auto mc = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
++  for (auto* const m : {mi.get(), mr.get(), ma.get(), mc.get()}) {
++    setExternalStateVariable(m->s0, "Temperature", 293.15);
++    setExternalStateVariable(m->s1, "Temperature", 293.15);
++    m->allocateArrayOfTangentOperatorBlocks();
++  }
++  const auto e = getGradientsView(mi->s1);
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type c = 0; c != 6; ++c) {
++      e(i, c) =
++          1e-4 * static_cast<real>(c + 1) * (1 + 0.1 * static_cast<real>(i));
++    }
++  }
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  auto pool = mgis::ThreadPool{3};
++  // compare an execution form on both managers with the reference, all the
++  // managers starting from the initial states
++  const auto compare = [&](const std::string& t, const size_type first,
++                           const size_type last, const auto& execute) {
++    for (auto* const m : {mr.get(), ma.get(), mc.get()}) {
++      copyStates(*m, *mi);
++      resetTangentOperatorBlocks(*m);
++    }
++    const auto r = integrate(*mr, opts, 180, first, last);
++    for (auto* const m : {ma.get(), mc.get()}) {
++      const auto l = std::string{m == ma.get() ? ", point by point"
++                                               : ", component by component"};
++      const auto s = execute(*m);
++      check(s == r.exit_status,
++            "Norton, " + t + l + ": invalid status, " + library);
++      check(haveSameOutputs(*mr, *m),
++            "Norton, " + t + l + ": invalid outputs, " + library);
++    }
++  };
++  compare("range", 2, 7, [&](MaterialDataManager& m) {
++    return integrate(m, opts, 180, 2, 7).exit_status;
++  });
++  compare("empty range", 4, 4, [&](MaterialDataManager& m) {
++    return integrate(m, opts, 180, 4, 4).exit_status;
++  });
++  compare("thread pool", 0, n, [&](MaterialDataManager& m) {
++    return integrate(pool, m, opts, 180).exit_status;
++  });
++  if (gp) {
++    compare("synchronous policy, range", 1, 6, [&](MaterialDataManager& m) {
++      return integrate(BatchExecutionPolicy{}, m, opts, 180, 1, 6).exit_status;
++    });
++    compare("asynchronous policy", 0, n, [&](MaterialDataManager& m) {
++      return integrate(AsynchronousBatchExecutionPolicy{}, m, opts, 180)
++          .getResult()
++          .exit_status;
++    });
++  }
++  // revert
++  for (auto* const m : {mr.get(), mc.get()}) {
++    copyStates(*m, *mi);
++    static_cast<void>(integrate(*m, opts, 180));
++    revert(*m);
++  }
++  check(same(getThermodynamicForcesView(mr->s1),
++             getThermodynamicForcesView(mc->s1)) &&
++            same(getInternalStateVariablesView(mr->s1),
++                 getInternalStateVariablesView(mc->s1)) &&
++            same(getGradientsView(mr->s1), getGradientsView(mc->s1)) &&
++            same(getGradientsView(mc->s1), getGradientsView(mc->s0)) &&
++            std::all_of(mc->K.begin(), mc->K.end(),
++                        [](const real x) { return same(x, 0); }),
++        "Norton, revert: invalid states, " + library);
++}  // end of testExecutionForms
++
++/*!
++ * \brief execution forms of the initialize functions and of the
++ * post-processings on managers stored point by point and component by
++ * component: ranges, thread pool, synchronous and asynchronous policies
++ * (generic-parallel interface)
++ */
++static void testInitializeFunctionsAndPostProcessingsForms(
++    const std::string& library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = size_type{8};
++  auto pool = mgis::ThreadPool{3};
++  {
++    const auto b =
++        load(library, "InitializeFunctionTest", Hypothesis::TRIDIMENSIONAL);
++    const auto gp = isGenericParallelBehaviour(b);
++    auto ma = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++    auto mc = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
++    auto pressures = std::vector<real>(n);
++    for (size_type i = 0; i != n; ++i) {
++      pressures[i] = -1e5 * static_cast<real>(i + 1);
++    }
++    for (auto* const m : {ma.get(), mc.get()}) {
++      setExternalStateVariable(m->s0, "Temperature", 293.15);
++      setExternalStateVariable(m->s1, "Temperature", 293.15);
++    }
++    const auto compare = [&](const std::string& t, const auto& execute) {
++      for (auto* const m : {ma.get(), mc.get()}) {
++        for (auto* const s : {&m->s0, &m->s1}) {
++          const auto tf = getThermodynamicForcesView(*s);
++          const auto isvs = getInternalStateVariablesView(*s);
++          for (size_type i = 0; i != n; ++i) {
++            for (size_type c = 0; c != tf.getNumberOfComponents(); ++c) {
++              tf(i, c) = 1e5 * static_cast<real>(i + c);
++            }
++            for (size_type c = 0; c != isvs.getNumberOfComponents(); ++c) {
++              isvs(i, c) = 0;
++            }
++          }
++        }
++        check(execute(*m) == 1,
++              "initialize function, " + t + ": invalid status, " + library);
++      }
++      check(same(getThermodynamicForcesView(ma->s1),
++                 getThermodynamicForcesView(mc->s1)) &&
++                same(getInternalStateVariablesView(ma->s1),
++                     getInternalStateVariablesView(mc->s1)),
++            "initialize function, " + t + ": invalid outputs, " + library);
++    };
++    const auto* const f1 = "StressFromInitialPressure";
++    const auto* const f2 = "ElasticStrainFromInitialStress";
++    compare("inputs, range", [&](MaterialDataManager& m) {
++      return executeInitializeFunction(m, f1, pressures, 2, 6).exit_status;
++    });
++    compare("no input", [&](MaterialDataManager& m) {
++      return executeInitializeFunction(m, f2).exit_status;
++    });
++    compare("no input, range", [&](MaterialDataManager& m) {
++      return executeInitializeFunction(m, f2, 1, 5).exit_status;
++    });
++    compare("thread pool", [&](MaterialDataManager& m) {
++      return executeInitializeFunction(pool, m, f1, pressures).exit_status;
++    });
++    compare("thread pool, no input", [&](MaterialDataManager& m) {
++      return executeInitializeFunction(pool, m, f2).exit_status;
++    });
++    if (gp) {
++      compare("synchronous policy", [&](MaterialDataManager& m) {
++        return executeInitializeFunction(BatchExecutionPolicy{}, m, f1,
++                                         pressures, 3, 7)
++            .exit_status;
++      });
++      compare("asynchronous policy", [&](MaterialDataManager& m) {
++        return executeInitializeFunction(AsynchronousBatchExecutionPolicy{}, m,
++                                         f2)
++            .getResult()
++            .exit_status;
++      });
++    }
++  }
++  const auto b =
++      load(library, "PostProcessingTest", Hypothesis::TRIDIMENSIONAL);
++  const auto gp = isGenericParallelBehaviour(b);
++  auto ma = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++  auto mc = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
++  for (auto* const m : {ma.get(), mc.get()}) {
++    for (auto* const s : {&m->s0, &m->s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      setExternalStateVariable(*s, "Temperature", 293.15);
++    }
++    const auto e = getGradientsView(m->s1);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type c = 0; c != 3; ++c) {
++        e(i, c) = 1e-3 * static_cast<real>((i + 1) * (c + 1));
++      }
++      e(i, 3) = 1e-4;
++    }
++  }
++  const auto compare = [&](const std::string& t, const auto& execute) {
++    auto oa = std::vector<real>(3 * n, real{-1});
++    auto oc = std::vector<real>(3 * n, real{-1});
++    check(execute(oa, *ma) == 1,
++          "post-processing, " + t + ": invalid status, " + library);
++    check(execute(oc, *mc) == 1,
++          "post-processing, " + t + ": invalid status, " + library);
++    check(same(mgis::makeFieldView(std::span<const real>(oa),
++                                   FieldLayout::POINT_BY_POINT, n, 3),
++               mgis::makeFieldView(std::span<const real>(oc),
++                                   FieldLayout::COMPONENT_BY_COMPONENT, n, 3)),
++          "post-processing, " + t + ": invalid outputs, " + library);
++  };
++  const auto* const pp = "PrincipalStrain";
++  compare("range", [&](std::vector<real>& o, MaterialDataManager& m) {
++    return executePostProcessing(o, m, pp, 2, 6).exit_status;
++  });
++  compare("thread pool", [&](std::vector<real>& o, MaterialDataManager& m) {
++    return executePostProcessing(o, pool, m, pp).exit_status;
++  });
++  if (gp) {
++    compare("synchronous policy", [&](std::vector<real>& o,
++                                      MaterialDataManager& m) {
++      return executePostProcessing(o, BatchExecutionPolicy{}, m, pp, 1, 7)
++          .exit_status;
++    });
++    compare("asynchronous policy", [&](std::vector<real>& o,
++                                       MaterialDataManager& m) {
++      return executePostProcessing(o, AsynchronousBatchExecutionPolicy{}, m, pp)
++          .getResult()
++          .exit_status;
++    });
++  }
++}  // end of testInitializeFunctionsAndPostProcessingsForms
++
++/*!
++ * \brief end of a time step with material properties and external state
++ * variables given by the calling code (external arrays), stored by the
++ * manager (local arrays) or uniform, with the update policies, by `update`
++ * and `revert` with and without field operations, in both layouts
++ */
++static void testUpdateOfMaterialPropertiesAndExternalStateVariables(
++    const std::string& library) {
++  using namespace mgis::behaviour;
++  const auto b = load(library, "Elasticity", Hypothesis::TRIDIMENSIONAL);
++  constexpr auto n = size_type{5};
++  auto ops = mgis::HostFieldOperations{};
++  const auto values = [](const real v0) {
++    auto v = std::vector<real>(n);
++    for (size_type i = 0; i != n; ++i) {
++      v[i] = v0 + static_cast<real>(i);
++    }
++    return v;
++  };
++  for (const auto l :
++       {FieldLayout::POINT_BY_POINT, FieldLayout::COMPONENT_BY_COMPONENT}) {
++    for (const auto with_operations : {false, true}) {
++      for (const auto revert_states : {false, true}) {
++        const auto t = std::string{"update of the material properties, "} +
++                       (revert_states ? "revert" : "update") +
++                       (with_operations ? " with operations, " : ", ") +
++                       library;
++        auto m = makeManager(b, n, l);
++        auto& from = revert_states ? m->s0 : m->s1;
++        auto& to = revert_states ? m->s1 : m->s0;
++        // external arrays
++        auto E_from = values(150e9);
++        auto E_to = values(100e9);
++        setMaterialProperty(from, "YoungModulus", E_from,
++                            MaterialStateManager::EXTERNAL_STORAGE);
++        setMaterialProperty(to, "YoungModulus", E_to,
++                            MaterialStateManager::EXTERNAL_STORAGE);
++        // local arrays
++        auto nu_from = values(0.3);
++        auto nu_to = values(0.2);
++        setMaterialProperty(from, "PoissonRatio", nu_from,
++                            MaterialStateManager::LOCAL_STORAGE);
++        setMaterialProperty(to, "PoissonRatio", nu_to,
++                            MaterialStateManager::LOCAL_STORAGE);
++        // uniform value which shall not be updated
++        auto T_from = values(300);
++        setExternalStateVariable(from, "Temperature", T_from,
++                                 MaterialStateManager::EXTERNAL_STORAGE);
++        setExternalStateVariable(to, "Temperature", 293.15,
++                                 MaterialStateManager::NOUPDATE);
++        if (revert_states) {
++          if (with_operations) {
++            revert(*m, ops);
++          } else {
++            revert(*m);
++          }
++        } else {
++          if (with_operations) {
++            update(*m, ops);
++          } else {
++            update(*m);
++          }
++        }
++        check(E_to == E_from, t + ": invalid external array");
++        const auto& nu = std::get<MaterialStateManager::MutableFieldHolder>(
++                             to.material_properties.at("PoissonRatio"))
++                             .value;
++        check(std::holds_alternative<std::vector<real>>(nu) &&
++                  (std::get<std::vector<real>>(nu) == nu_from),
++              t + ": invalid local array");
++        const auto& T = std::get<MaterialStateManager::MutableFieldHolder>(
++                            to.external_state_variables.at("Temperature"))
++                            .value;
++        check(
++            std::holds_alternative<real>(T) && same(std::get<real>(T), 293.15),
++            t + ": a value which shall not be updated was modified");
++      }
++    }
++  }
++}  // end of testUpdateOfMaterialPropertiesAndExternalStateVariables
++
++/*!
++ * \brief conversions of the stresses and of the tangent operator of a finite
++ * strain behaviour on views, with outputs in an arbitrary layout, compared
++ * to the conversions on arrays, and first Piola-Kirchhoff stress compared to
++ * its definition, \f$P = J\,\sigma\,F^{-T}\f$
++ */
++static void testFiniteStrainConversionsOnViews(const std::string& library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = size_type{4};
++  for (const auto h : {Hypothesis::TRIDIMENSIONAL, Hypothesis::PLANESTRAIN}) {
++    const auto b = load(FiniteStrainBehaviourOptions{}, library,
++                        "OrthotropicFiniteStrainElasticity", h);
++    const auto t = std::string{"finite strain conversions on views, "} +
++                   toString(h) + ", " + library;
++    const auto gs = getArraySize(b.gradients, h);
++    const auto ts = getArraySize(b.thermodynamic_forces, h);
++    for (const auto l :
++         {FieldLayout::POINT_BY_POINT, FieldLayout::COMPONENT_BY_COMPONENT}) {
++      auto m = makeManager(b, n, l);
++      setExternalStateVariable(m->s0, "Temperature", 293.15);
++      setExternalStateVariable(m->s1, "Temperature", 293.15);
++      const auto F = getGradientsView(m->s1);
++      for (size_type i = 0; i != n; ++i) {
++        F(i, 0) = 1 + 1e-2 * static_cast<real>(i + 1);
++        F(i, 1) = 1 - 2e-3 * static_cast<real>(i);
++        F(i, 3) = 3e-3;
++        F(i, 4) = -1e-3;
++      }
++      auto opts = BehaviourIntegrationOptions{};
++      opts.integration_type =
++          IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++      static_cast<void>(integrate(*m, opts, 1));
++      // conversions on arrays, in the layout of the manager
++      auto P = std::vector<real>(gs * n);
++      auto sP = std::span<real>(P);
++      convertFiniteStrainStress(sP, *m, FiniteStrainStress::PK1);
++      auto K = std::vector<real>(gs * gs * n);
++      auto sK = std::span<real>(K);
++      convertFiniteStrainTangentOperator(sK, *m,
++                                         FiniteStrainTangentOperator::DPK1_DF);
++      // conversions on views, in another layout with a padding
++      const auto v = make_view(*m);
++      auto Pv = std::vector<real>((gs + 2) * n, real{-1});
++      const auto pv =
++          mgis::makePointByPointFieldView(std::span(Pv), n, gs, gs + 2);
++      convertFiniteStrainStress(pv, v, FiniteStrainStress::PK1);
++      check(same(pv, mgis::makeFieldView(std::span<const real>(P), l, n, gs)),
++            t + ": invalid first Piola-Kirchhoff stress");
++      auto Kv = std::vector<real>(gs * gs * (n + 3), real{-1});
++      const auto kv = mgis::makeComponentByComponentFieldView(std::span(Kv), n,
++                                                              gs * gs, n + 3);
++      convertFiniteStrainTangentOperator(kv, v,
++                                         FiniteStrainTangentOperator::DPK1_DF);
++      check(same(kv,
++                 mgis::makeFieldView(std::span<const real>(K), l, n, gs * gs)),
++            t + ": invalid derivative of the first Piola-Kirchhoff stress");
++      // definition of the first Piola-Kirchhoff stress
++      const auto s = getThermodynamicForcesView(m->s1);
++      for (size_type i = 0; i != n; ++i) {
++        // components of F and of P: F11, F22, F33, F12, F21, F13, F31, F23,
++        // F32; components of the stress: s11, s22, s33, sqrt(2) s12,
++        // sqrt(2) s13, sqrt(2) s23
++        const auto c = [&F, i, gs](const size_type k) {
++          return k < gs ? F(i, k) : real{0};
++        };
++        const auto f = std::array<std::array<real, 3>, 3>{
++            std::array<real, 3>{c(0), c(3), c(5)},
++            std::array<real, 3>{c(4), c(1), c(7)},
++            std::array<real, 3>{c(6), c(8), c(2)}};
++        const auto r2 = std::sqrt(real{2});
++        const auto sc = [&s, i, ts](const size_type k) {
++          return k < ts ? s(i, k) : real{0};
++        };
++        const auto sig = std::array<std::array<real, 3>, 3>{
++            std::array<real, 3>{sc(0), sc(3) / r2, sc(4) / r2},
++            std::array<real, 3>{sc(3) / r2, sc(1), sc(5) / r2},
++            std::array<real, 3>{sc(4) / r2, sc(5) / r2, sc(2)}};
++        const auto J = f[0][0] * (f[1][1] * f[2][2] - f[1][2] * f[2][1]) -
++                       f[0][1] * (f[1][0] * f[2][2] - f[1][2] * f[2][0]) +
++                       f[0][2] * (f[1][0] * f[2][1] - f[1][1] * f[2][0]);
++        // cofactor matrix of F, i.e. J F^{-T}
++        auto cof = std::array<std::array<real, 3>, 3>{};
++        for (size_type a = 0; a != 3; ++a) {
++          for (size_type bb = 0; bb != 3; ++bb) {
++            const auto a1 = (a + 1) % 3, a2 = (a + 2) % 3;
++            const auto b1 = (bb + 1) % 3, b2 = (bb + 2) % 3;
++            cof[a][bb] = f[a1][b1] * f[a2][b2] - f[a1][b2] * f[a2][b1];
++          }
++        }
++        static_cast<void>(J);
++        auto p = std::array<std::array<real, 3>, 3>{};
++        for (size_type a = 0; a != 3; ++a) {
++          for (size_type bb = 0; bb != 3; ++bb) {
++            for (size_type k = 0; k != 3; ++k) {
++              p[a][bb] += sig[a][k] * cof[k][bb];
++            }
++          }
++        }
++        const auto pc =
++            std::array<real, 9>{p[0][0], p[1][1], p[2][2], p[0][1], p[1][0],
++                                p[0][2], p[2][0], p[1][2], p[2][1]};
++        auto d = real{};
++        for (size_type k = 0; k != gs; ++k) {
++          d = std::max(d, std::abs(pv(i, k) - pc[k]));
++        }
++        check(d < 1e-8 * std::max(real{1}, std::abs(s(i, 0))),
++              t +
++                  ": first Piola-Kirchhoff stress different from its "
++                  "definition (" +
++                  std::to_string(d) + ")");
++      }
++    }
++  }
++}  // end of testFiniteStrainConversionsOnViews
++
++/*!
++ * \brief views on the variables of a manager stored component by component
++ * and strided coalesced views of all the kinds of variables
++ */
++static void testVariablesViews(const std::string& library) {
++  using namespace mgis::behaviour;
++  using mgis::function::BasicLinearSpace;
++  const auto b = load(library, "Norton", Hypothesis::TRIDIMENSIONAL);
++  constexpr auto n = size_type{4};
++  auto ma = makeManager(b, n, FieldLayout::POINT_BY_POINT);
++  auto mc = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
++  for (auto* const m : {ma.get(), mc.get()}) {
++    for (const auto& v :
++         {getGradientsView(m->s1), getThermodynamicForcesView(m->s1),
++          getInternalStateVariablesView(m->s1)}) {
++      for (size_type i = 0; i != n; ++i) {
++        for (size_type c = 0; c != v.getNumberOfComponents(); ++c) {
++          v(i, c) = static_cast<real>(100 * i + c);
++        }
++      }
++    }
++  }
++  check(same(getGradientView(ma->s1, "Strain"),
++             getGradientView(mc->s1, "Strain")) &&
++            same(getThermodynamicForceView(ma->s1, "Stress"),
++                 getThermodynamicForceView(mc->s1, "Stress")),
++        "views of the variables: invalid views, " + library);
++  // strided coalesced views
++  auto qspace = std::make_shared<BasicLinearSpace>(n);
++  auto i = MaterialDataManagerInitializer{};
++  i.layout = FieldLayout::COMPONENT_BY_COMPONENT;
++  auto m = MaterialFunctionManager<BasicLinearSpace>{qspace, b, i};
++  for (const auto& v : {getThermodynamicForcesView(m.s1),
++                        getInternalStateVariablesView(m.s1)}) {
++    for (size_type k = 0; k != n; ++k) {
++      for (size_type c = 0; c != v.getNumberOfComponents(); ++c) {
++        v(k, c) = static_cast<real>(10 * k + c);
++      }
++    }
++  }
++  auto ctx = mgis::Context{};
++  const auto sf = getStridedCoalescedThermodynamicForce<6>(ctx, m, "Stress");
++  if (check(sf.has_value(), "no strided coalesced view of the stress")) {
++    check(
++        same(mgis::function::makeFieldView(*sf),
++             FieldView<const real>(getThermodynamicForceView(m.s1, "Stress"))),
++        "invalid strided coalesced view of the stress, " + library);
++  }
++  const auto se =
++      getStridedCoalescedInternalStateVariable<6>(ctx, m, "ElasticStrain");
++  if (check(se.has_value(),
++            "no strided coalesced view of the elastic strain")) {
++    check(same(mgis::function::makeFieldView(*se),
++               FieldView<const real>(
++                   getInternalStateVariableView(m.s1, "ElasticStrain"))),
++          "invalid strided coalesced view of the elastic strain, " + library);
++  }
++  check(!getStridedCoalescedInternalStateVariable<6>(
++             ctx, m, "EquivalentViscoplasticStrain")
++             .has_value(),
++        "a strided coalesced view of a scalar of invalid size must be refused");
++}  // end of testVariablesViews
++
+ #ifdef MGIS_HAVE_HDF5
+ 
+ //! \brief files written by a manager and restored by a manager with another
+@@ -497,6 +987,11 @@ int main(const int argc, const char* const* const argv) {
+       testFiniteStrain(library);
+       testInputsAndOutputs(library);
+       testExternalStateVariables(library);
++      testExecutionForms(library);
++      testInitializeFunctionsAndPostProcessingsForms(library);
++      testUpdateOfMaterialPropertiesAndExternalStateVariables(library);
++      testFiniteStrainConversionsOnViews(library);
++      testVariablesViews(library);
+     }
+     testMaterialFunctionManager(argv[2]);
+ #ifdef MGIS_HAVE_HDF5
+-- 
+2.43.0
+

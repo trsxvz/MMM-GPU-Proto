@@ -1,0 +1,121 @@
+From b17bd2cf58112c5ec78bf8471853fda79353e0fc Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:32:23 +0200
+Subject: [PATCH] State views: behaviour checked before use
+
+The setters, the variable accessors and updateValues of the state views
+check that the behaviour is not null before using it.
+---
+ src/MaterialDataView.cxx       | 36 +++++++++++++++++++++++++++-------
+ tests/MaterialDataViewTest.cxx | 11 ++++++++++-
+ 2 files changed, 39 insertions(+), 8 deletions(-)
+
+diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
+index 01b8b18..f6afd0a 100644
+--- a/src/MaterialDataView.cxx
++++ b/src/MaterialDataView.cxx
+@@ -92,6 +92,9 @@ namespace mgis::behaviour {
+                            MaterialStateView& s,
+                            std::string_view n,
+                            const FieldView<const real>& v) noexcept {
++    if (s.b == nullptr) {
++      return ctx.registerErrorMessage("setMaterialProperty: no behaviour");
++    }
+     return setVariableView(ctx, s.material_properties, s, s.b->mps,
+                            "material property", n, v);
+   }  // end of setMaterialProperty
+@@ -107,6 +110,9 @@ namespace mgis::behaviour {
+                                 MaterialStateView& s,
+                                 std::string_view n,
+                                 const FieldView<const real>& v) noexcept {
++    if (s.b == nullptr) {
++      return ctx.registerErrorMessage("setExternalStateVariable: no behaviour");
++    }
+     return setVariableView(ctx, s.external_state_variables, s, s.b->esvs,
+                            "external state variable", n, v);
+   }  // end of setExternalStateVariable
+@@ -362,24 +368,39 @@ namespace mgis::behaviour {
+     return getComponents(values, getVariableOffset(variables, n, h), vs);
+   }  // end of getVariableView
+ 
++  /*!
++   * \return the behaviour of a state view, checked not to be null
++   * \param[in] f: calling function
++   * \param[in] s: state view
++   */
++  static const Behaviour& getBehaviour(const char* const f,
++                                       const MaterialStateView& s) {
++    if (s.b == nullptr) {
++      mgis::raise(std::string{f} + ": no behaviour");
++    }
++    return *(s.b);
++  }  // end of getBehaviour
++
+   FieldView<real> getGradientView(const MaterialStateView& s,
+                                   const std::string_view n) {
+     return getVariableView("getGradientView", "gradients", s, s.gradients,
+-                           s.b->gradients, n);
++                           getBehaviour("getGradientView", s).gradients, n);
+   }  // end of getGradientView
+ 
+   FieldView<real> getThermodynamicForceView(const MaterialStateView& s,
+                                             const std::string_view n) {
+-    return getVariableView("getThermodynamicForceView", "thermodynamic forces",
+-                           s, s.thermodynamic_forces, s.b->thermodynamic_forces,
+-                           n);
++    return getVariableView(
++        "getThermodynamicForceView", "thermodynamic forces", s,
++        s.thermodynamic_forces,
++        getBehaviour("getThermodynamicForceView", s).thermodynamic_forces, n);
+   }  // end of getThermodynamicForceView
+ 
+   FieldView<real> getInternalStateVariableView(const MaterialStateView& s,
+                                                const std::string_view n) {
+-    return getVariableView("getInternalStateVariableView",
+-                           "internal state variables", s,
+-                           s.internal_state_variables, s.b->isvs, n);
++    return getVariableView(
++        "getInternalStateVariableView", "internal state variables", s,
++        s.internal_state_variables,
++        getBehaviour("getInternalStateVariableView", s).isvs, n);
+   }  // end of getInternalStateVariableView
+ 
+   void extractInternalStateVariable(const FieldView<real>& o,
+@@ -392,6 +413,7 @@ namespace mgis::behaviour {
+   void updateValues(const MaterialStateView& o,
+                     const MaterialStateView& i,
+                     FieldOperations& ops) {
++    static_cast<void>(getBehaviour("updateValues", o));
+     if ((o.b != i.b) || (o.n != i.n)) {
+       mgis::raise(
+           "updateValues: the states are not associated with the same "
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index 3168206..da867fa 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -1031,12 +1031,21 @@ static void testErrors(const std::string& library,
+   check(throws([&] { static_cast<void>(integrate(sp, gcopy, opts, 1)); },
+                "no behaviour"),
+         "errors: view without behaviour not detected (policy)");
++  auto ops = mgis::HostFieldOperations{};
++  // state views without behaviour
++  auto sb = gd.v.s1;
++  sb.b = nullptr;
++  check(throws([&] { setExternalStateVariable(sb, "Temperature", T); },
++               "no behaviour") &&
++            throws([&] { static_cast<void>(getGradientView(sb, "Strain")); },
++                   "no behaviour") &&
++            throws([&] { updateValues(sb, gd.v.s0, ops); }, "no behaviour"),
++        "errors: state view without behaviour not detected");
+   // workspace built for another behaviour, generic-parallel interface
+   check(throws([&] { static_cast<void>(integrate(ews, gd.v, opts, 1)); },
+                "workspace has not been built"),
+         "errors: invalid workspace not detected (generic-parallel)");
+   // extraction in a view of invalid extents
+-  auto ops = mgis::HostFieldOperations{};
+   auto o = std::vector<real>(5 * n);
+   check(throws(
+             [&] {
+-- 
+2.43.0
+

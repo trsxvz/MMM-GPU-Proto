@@ -1,0 +1,39 @@
+From 0fd130e78d0392b755d16c6e1ea4b375f24bb07d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:08:36 +0200
+Subject: [PATCH] CUDA test: rotation without policy on views of the device
+
+---
+ tests/FieldOperationsCUDATest.cu | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index a7d09c4..65412fe 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -446,6 +446,22 @@ static void testViewsOnDevice(const std::string& gp_library,
+         "views on the device: invalid status of the asynchronous rotation");
+   check(compareComponentByComponent(drg.copyToHost(), rg, n, gs, ld) < 1e-14,
+         "views on the device: invalid rotated gradients");
++  // rotation of the thermodynamic forces without policy (default queue), in
++  // place, the matrices being given by a view of the device
++  const auto ts = getArraySize(b.thermodynamic_forces, b.hypothesis);
++  const auto tf = values(n * ts);
++  auto rtf = std::vector<real>(n * ts);
++  rotateThermodynamicForces(rtf, b, tf, std::span<const real>(matrices));
++  auto dtf = DeviceArray(ts * ld);
++  dtf.copyFrom(storeComponentByComponent(tf, n, ts, ld));
++  rotateThermodynamicForces(
++      mgis::makeComponentByComponentFieldView(dtf.span(), n, ts, ld), gp_b,
++      mgis::makeComponentByComponentFieldView(std::span<const real>(dm.span()),
++                                              n, 9, ld),
++      mgis::MemoryLocation::DEVICE);
++  checkCUDA(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
++  check(compareComponentByComponent(dtf.copyToHost(), rtf, n, ts, ld) < 1e-14,
++        "views on the device: invalid rotated thermodynamic forces");
+   // evaluation of a material property: temperatures stored with a stride of
+   // 3, values with a stride of 2
+   {
+-- 
+2.43.0
+
