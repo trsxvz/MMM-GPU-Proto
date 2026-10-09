@@ -40,8 +40,10 @@ spack:
   # distributed matrices and solvers of Ginkgo (MPI)
   - ginkgo@1.11.0 +cuda +openmp +mpi cuda_arch=120
   - hypre@3.2.0 +mpi +cuda +umpire ~int64 cuda_arch=120
-  # GAMG on the GPU (aijkokkos, aijcusparse), with hypre
-  - petsc@3.26.0 +mpi +cuda +kokkos +hypre +metis ~fortran ~hdf5 cuda_arch=120
+  # GAMG on the GPU (aijkokkos, aijcusparse), with hypre; OpenMP as Kokkos
+  # (the headers of a Kokkos built with OpenMP require it)
+  - petsc@3.26.0 +mpi +cuda +kokkos +openmp +hypre +metis ~fortran ~hdf5
+    cuda_arch=120
   # KINSOL (fixed point with Anderson acceleration, Newton-Krylov)
   - sundials +mpi +cuda cuda_arch=120
   - superlu-dist +cuda cuda_arch=120
