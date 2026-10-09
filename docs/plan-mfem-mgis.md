@@ -140,11 +140,12 @@ prend 22,6 s, le point fixe 67 s. Aucune méthode ne gagne partout.
 6. **Plusieurs matériaux** : traités, avec le calcul asynchrone de MGIS.
 7. **Sorties, post-traitements, reprises** : fonctionnement actuel par
    défaut (copie vers l'hôte).
-8. **Version de MFEM : 4.9**, celle utilisée jusqu'ici par mfem-mgis. Pour
-   le GPU, MFEM 4.9 doit être compilé avec CUDA (et avec Ginkgo si on le
-   branche par MFEM). `deps/spack/mmm-gpu/spack.yaml` est passé à
-   `mfem@4.9.0` le 09/10/2026. MFEM 4.10 apporte cuDSS et Ginkgo distribué
-   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-49-ou-410)).
+8. **Version de MFEM : 4.10** pour tout le prototype (décision du
+   09/10/2026 ; mfem-mgis était utilisé avec 4.9). MFEM 4.10 apporte
+   cuDSS, Ginkgo distribué et `GroupCommunicator` sur le périphérique
+   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-410)). Compilé avec CUDA,
+   Ginkgo, PETSc, SUNDIALS, AmgX, cuDSS, SuperLU_DIST, STRUMPACK, MUMPS et
+   SuiteSparse dans `deps/spack/mmm-gpu`, avec un OpenMPI compatible GPU.
 9. **Mesures fines plus tard.** Priorité à un cadre propre qui marche.
    Les premières mesures servent à comparer les variantes.
 10. **Solveurs** : choisir les combinaisons qui marchent sur GPU (Krylov de
@@ -266,7 +267,7 @@ Fabrique `src/LinearSolverFactory.cxx` :
 
 Les options « élasticité » de BoomerAMG (grossissement nodal, vecteurs de
 modes rigides) ne marchent pas sur GPU : `SetElasticityOptions` arrête le
-programme avec hypre GPU (vérifié dans MFEM 4.9). La stratégie
+programme avec hypre GPU (vérifié dans MFEM 4.9 et 4.10). La stratégie
 « Elasticity » de mfem-mgis devra être refusée sur GPU, ou remplacée par
 « System » (`SetSystemsOptions`, qui marche sur GPU).
 
@@ -337,9 +338,9 @@ critères de fin, paramètres proposés) est dans
    et mise à jour des états sur GPU. Tests sur CPU et CUDA, relecture
    indépendante. Fait le 2026-10-09 (voir
    [mgis.md](mgis.md#vues-et-rangements)).
-2. **MFEM 4.9 avec CUDA** dans l'environnement `mmm-gpu` (une nuit, peu de
-   tâches à la fois : un fichier peut demander 22 Go), avec Ginkgo si on le
-   branche par MFEM.
+2. **MFEM 4.10 avec CUDA** dans l'environnement `mmm-gpu`, avec toutes
+   les bibliothèques de solveurs (peu de tâches à la fois : `ptxas` prend
+   22 Go pour un fichier).
 3. **mfem-mgis sur CPU** : données aux points dans la mémoire de MFEM, puis
    noyaux par lot (gradients, MGIS, résidu, action de la tangente), petites
    déformations 3D, résultats identiques au chemin actuel. Les deux points
@@ -374,7 +375,9 @@ bundle.
 
 ## Risques
 
-- Compilation de MFEM 4.9 avec CUDA 13 : durée et compatibilité.
+- Compilation de MFEM 4.10 avec CUDA 13 : durée et mémoire.
+- mfem-mgis n'a été utilisé qu'avec MFEM 4.8 et 4.9 : compatibilité avec
+  4.10 à vérifier en premier.
 - Ampleur : mfem-mgis a beaucoup d'intégrateurs. Le chemin par lot est
   générique et commence par les cas les plus utilisés.
 - Coût de construction de l'AMG sur GPU, mémoire.

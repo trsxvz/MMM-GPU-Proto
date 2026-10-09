@@ -27,7 +27,7 @@ machine. « À vérifier » veut dire non confirmé.
 10. [Problèmes couplés](#problèmes-couplés)
 11. [Outils de mesure](#outils-de-mesure)
 12. [Écartés (CPU seul)](#écartés-cpu-seul)
-13. [MFEM 4.9 ou 4.10](#mfem-49-ou-410)
+13. [MFEM 4.10](#mfem-410)
 14. [Correspondance avec l'environnement spack](#correspondance-avec-lenvironnement-spack)
 15. [Sources](#sources)
 
@@ -60,7 +60,7 @@ plusieurs lignes.
 | KINSOL de SUNDIALS par MFEM (`KINSolver` : point fixe avec Anderson, JFNK, recherche linéaire) | les deux | 6 | SUNDIALS 7.9, MFEM ; demande un opérateur dont `Mult` intègre la loi |
 | Ajout : prédiction par extrapolation de l'incrément de déplacement | les deux | 5 | mfem-mgis |
 | AmgX par `AmgXSolver` de MFEM (point de comparaison avec BoomerAMG, modes MPI) | GPU NVIDIA | 5 | AmgX, MFEM |
-| cuDSS (solveur direct NVIDIA, un ou plusieurs GPU, MPI, refactorisation) | GPU NVIDIA | 5 | cuDSS ; enveloppe dans MFEM 4.10, pas dans 4.9 |
+| cuDSS (solveur direct NVIDIA, un ou plusieurs GPU, MPI, refactorisation) | GPU NVIDIA | 5 | cuDSS ; enveloppe `CuDSSSolver` de MFEM 4.10 |
 | Ajout : Krylov pipeliné (CG pipeliné de Ginkgo, `KSPPIPECG` de PETSc) | les deux | 5 | Ginkgo 1.10, PETSc |
 | Ajout : Ratel comme calcul de référence sur le même cas | les deux | 5 | Ratel, PETSc, libCEED |
 | SuperLU_DIST et STRUMPACK sur GPU (enveloppes MFEM existantes) | les deux | 4 | MFEM |
@@ -349,9 +349,9 @@ Intérêt pour les petits cas, les configurations mixtes et comme référence.
   MPI. MFEM 4.10 l'enveloppe (`CuDSSSolver`, avec
   `SetReorderingReuse` : l'analyse symbolique est gardée quand seule la
   valeur des coefficients change, ce qui est le cas d'une itération de
-  Newton à l'autre). MFEM 4.9 n'a pas d'enveloppe. La recette spack de
-  MFEM 4.10 accepte cuDSS 0.6 à 0.7.1 ; l'environnement installe cuDSS
-  0.7.1 pour CUDA 13.
+  Newton à l'autre). La recette spack de MFEM 4.10 accepte cuDSS 0.6 à
+  0.7.1 ; l'environnement installe cuDSS 0.7.1 pour CUDA 13 et MFEM avec
+  `+cudss`.
 - **SuperLU_DIST** (intérêt 4) : factorisation sur GPU (CUDA). MFEM 4.10
   ajoute `SuperLUSolver::SetDeviceOffload`.
 - **STRUMPACK** (intérêt 4) : `STRUMPACKSolverBase::EnableGPU` dans MFEM
@@ -365,24 +365,21 @@ Utile pour l'étude sur grappe (un processus par GPU).
   distribués, multigrille distribuée avec grossissement PGM (1.8),
   Schwarz à deux niveaux (1.10), CG pipeliné (1.10), communications recouvertes par le calcul
   (1.11). Enveloppes MFEM pour les solveurs et préconditionneurs
-  distribués dans MFEM 4.10 seulement (exemple `examples/ginkgo/ex1p`,
-  demande Ginkgo 1.11 compilé avec MPI). En MFEM 4.9, l'enveloppe ne
-  prend que des matrices séquentielles : seuls les préconditionneurs de
-  Ginkgo ont un sens, appliqués au bloc local de chaque processus
-  (Jacobi par blocs de processus) ; un Krylov de Ginkgo n'y est pas un
-  solveur global.
+  distribués dans MFEM 4.10 (exemple `examples/ginkgo/ex1p`, demande
+  Ginkgo 1.11 compilé avec MPI, ce qu'a l'environnement). Avant 4.10,
+  l'enveloppe ne prenait que des matrices séquentielles.
 - **Krylov pipeliné** (ajout, intérêt 5) : une seule réduction globale par
   itération, recouverte par le calcul. CG pipeliné de Ginkgo, `KSPPIPECG`
   et voisins dans PETSc. Gain seulement à grand nombre de GPU.
 - **MPI compatible GPU** (outil, intérêt 5) : échanges directement entre
   mémoires GPU. `Device::SetGPUAwareMPI` ou variable `MFEM_GPU_AWARE_MPI`
-  (MFEM 4.9) ; variante `+gpu-aware-mpi` de hypre. Sur une seule carte,
-  sans effet : l'OpenMPI de l'environnement est compilé sans CUDA (avec
-  CUDA, il demande un hwloc avec CUDA, dont le changement reconstruirait
-  LLVM et TBB, utilisés par TFEL). PETSc doit alors être lancé avec
-  `-use_gpu_aware_mpi 0`. Sur une grappe, le MPI de la grappe. Sans MPI
-  compatible GPU, les échanges de la prolongation et ceux de hypre passent
-  par l'hôte à chaque application : « aucune copie cachée » n'est alors
+  (depuis MFEM 4.9) ; `GroupCommunicator` sur le périphérique (MFEM
+  4.10) ; variante `+gpu-aware-mpi` de hypre (pas activée). L'OpenMPI de
+  l'environnement est compilé avec CUDA (hwloc interne sans OpenCL), pour
+  que le code reste générique ; sur une seule carte, l'effet est nul. Sur
+  une grappe, le MPI de la grappe. Sans MPI compatible GPU, les échanges
+  de la prolongation et ceux de hypre passent par l'hôte à chaque
+  application : « aucune copie cachée » n'est alors
   atteignable qu'en un seul processus.
 
 ## Assemblage et opérateur tangent
@@ -468,10 +465,11 @@ Indispensables aux études de performance, sans être des solveurs.
 - libCEED par MFEM : l'assemblage partiel de MFEM couvre le besoin ;
   libCEED reste utile à travers Ratel.
 
-## MFEM 4.9 ou 4.10
+## MFEM 4.10
 
-Le plan retient MFEM 4.9, la version de mfem-mgis. MFEM 4.10 (01/09/2026)
-apporte, pour cette étude (notes de version et sources de 4.10) :
+Tout le prototype utilise MFEM 4.10 (décision du 09/10/2026 ; mfem-mgis
+était jusqu'ici utilisé avec 4.9). MFEM 4.10 (01/09/2026) apporte, pour
+cette étude (notes de version et sources de 4.10) :
 
 - enveloppe de cuDSS (`CuDSSSolver`) ;
 - solveurs et préconditionneurs distribués de Ginkgo ;
@@ -480,31 +478,29 @@ apporte, pour cette étude (notes de version et sources de 4.10) :
 - noyaux d'assemblage partiel améliorés (diagonale de l'élasticité) ;
 - assemblage LOR par lots sur maillages très connectés.
 
-Proposition : garder 4.9 dans `mmm-gpu` (référence de mfem-mgis), et
-ajouter plus tard un second environnement avec MFEM 4.10 (mêmes
-dépendances, cuDSS et Ginkgo distribué), pour ces comparaisons. À
-décider.
+Les faits vérifiés sur les sources de 4.9 et cités dans ce document
+(BoomerAMG sur GPU, L-BFGS, `mfem::forall`, AmgX, Ginkgo, assemblage
+partiel des formes non linéaires) ont été revérifiés sur celles de 4.10.
 
 ## Correspondance avec l'environnement spack
 
 | Technique | Paquet et variante de `mmm-gpu` |
 |---|---|
-| Krylov de MFEM, lisseurs sans matrice, p-MG, LOR, `BatchedLinAlg` | `mfem@4.9.0 +cuda` |
+| Krylov de MFEM, lisseurs sans matrice, p-MG, LOR, `BatchedLinAlg` | `mfem@4.10.0 +cuda cxxstd=20` |
 | Newton inexact, recherche linéaire, point fixe et Anderson, L-BFGS préconditionné | à écrire dans mfem-mgis |
 | BoomerAMG, MGR, FSAI, ILU, Krylov de hypre | `hypre@3.2.0 +cuda +umpire` |
-| Ginkgo (local en MFEM 4.9, distribué ensuite) | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
-| GAMG, SNES, Krylov pipeliné | `petsc@3.26.0 +cuda +kokkos +hypre`, `kokkos-kernels`, `mfem +petsc` |
+| Ginkgo, distribué compris | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
+| GAMG, SNES, Krylov pipeliné | `petsc@3.26.0 +cuda +kokkos +openmp +hypre`, `kokkos-kernels`, `mfem +petsc` |
 | KINSOL | `sundials +cuda +mpi`, `mfem +sundials` |
 | AmgX | `amgx` (commit compatible CUDA 13), `mfem +amgx` |
-| cuDSS | `cudss@0.7.1-13 +mpi` (pas d'enveloppe en MFEM 4.9) |
+| cuDSS | `cudss@0.7.1-13 +mpi`, `mfem +cudss` |
 | SuperLU_DIST, STRUMPACK sur GPU | `superlu-dist +cuda`, `strumpack +cuda`, `mfem +superlu-dist +strumpack` |
-| MPI | `openmpi@5` sans CUDA (voir [Plusieurs GPU](#plusieurs-gpu)) |
+| MPI compatible GPU | `openmpi@5 +cuda` (hwloc interne sans OpenCL) |
 | Pools mémoire | `umpire +cuda`, `mfem +umpire`, `hypre +umpire` |
 | Solveurs directs CPU de mfem-mgis | `mfem +mumps +suite-sparse` |
 
 Pas encore dans l'environnement : Caliper, hypre `+gpu-profiling`, hypre
-en précision mixte, MueLu, Ratel (qui demande PETSc 3.24), MFEM 4.10, MPI
-compatible GPU.
+en précision mixte, MueLu, Ratel (qui demande PETSc 3.24).
 
 ## Sources
 

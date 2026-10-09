@@ -4,7 +4,7 @@ Contenu :
 
 - `mmm-gpu/spack.yaml` : environnement. NVIDIA HPC SDK 25.11 et son CUDA
   13.0.2 en externes ; Kokkos 5.2.2, HIP 7.2.3, LLVM 20.1.8, AdaptiveCpp
-  25.10.0, TBB 2023.1.0 (chaînes de TFEL) ; MFEM 4.9.0 avec CUDA et les
+  25.10.0, TBB 2023.1.0 (chaînes de TFEL) ; MFEM 4.10.0 avec CUDA et les
   bibliothèques de solveurs de l'étude (hypre 3.2.0, Ginkgo 1.11.0 avec
   MPI, PETSc 3.26.0 avec Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
   MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. Le choix des
@@ -16,10 +16,13 @@ Contenu :
   - `amgx` : version `2.5.0.20260701`, commit de la branche principale
     avec deux corrections complémentaires pour CUDA 13, postérieures à la
     version 2.5.0 (C++17 avec CUDA 13.1 et plus, tuples de CUDA 13) ;
-  - `petsc` : copie de la recette de spack, avec deux changements. La
-    variante `cuda_lambda` de Kokkos n'existe plus en Kokkos 5 (les
-    lambdas CUDA sont toujours actives) ; un OpenMPI sans CUDA est
-    accepté ;
+  - `openmpi` : hwloc interne sans OpenCL (voir [MPI](#mpi)) ;
+  - `mfem` : une construction partielle reprend sans tout recompiler
+    (`make config` réécrit `config/config.mk`, dont dépendent tous les
+    objets : sa date est gardée quand son contenu ne change pas) ;
+  - `petsc` : copie de la recette de spack. La variante `cuda_lambda` de
+    Kokkos n'existe plus en Kokkos 5 (les lambdas CUDA sont toujours
+    actives) ;
 - `make-nvhpc-cuda-prefix.sh` : préfixe CUDA à la disposition du toolkit
   autonome, construit à partir du SDK (dont les bibliothèques
   mathématiques sont dans un dossier séparé) ;
@@ -59,13 +62,15 @@ installations de spack de la machine, dont le dépôt `builtin` peut être à
 un autre commit, ce qui casse l'index des patchs.
 
 `install-mmm-gpu.sh` installe d'abord tout sauf MFEM (deux paquets à la
-fois, 4 tâches chacun), sous `scripts/memory-governor.sh`, qui met la
-construction en pause quand la mémoire disponible est trop basse. Puis
-MFEM seul, avec une tâche et sans le régulateur : `ptxas` prend environ
-22 Go pour les noyaux de `fem/lor/lor_batched.cpp` (MFEM 4.9, sm_120), les
-autres fichiers jusqu'à 8 Go. Mettre ce processus en pause ne libère pas
-sa mémoire : le régulateur attendrait sans fin. Une construction
-interrompue reprend où elle s'est arrêtée (`--dont-restage`).
+fois, 4 tâches chacun), puis MFEM seul avec 2 tâches. Chaque phase tourne
+sous `scripts/memory-governor.sh` : quand la mémoire disponible est trop
+basse, il suspend tous les processus de la construction sauf le plus gros
+(et ses ancêtres), qui peut ainsi finir et libérer sa mémoire ; tout
+reprend ensuite. `ptxas` prend environ 22 Go pour les noyaux de
+`fem/lor/lor_batched.cpp` (sm_120), les autres fichiers jusqu'à 8 Go.
+Chaque phase est relancée jusqu'à trois fois en cas d'échec (manque de
+mémoire), MFEM avec une seule tâche ; une construction interrompue reprend
+où elle s'est arrêtée (`--dont-restage` et recette `mfem` de `mmm_gpu`).
 
 ## Préfixe CUDA
 
@@ -77,11 +82,13 @@ explicitement, comme Kokkos Kernels).
 
 ## MPI
 
-OpenMPI est compilé sans CUDA. Avec CUDA, il lui faut soit son hwloc
-interne, qui ne se compile pas avec CUDA (chemin d'OpenCL invalide), soit
-le hwloc de spack avec CUDA, dont le changement reconstruit LLVM et TBB,
-utilisés par TFEL. Avec un seul GPU, un MPI compatible GPU n'apporte rien.
-PETSc doit être lancé avec l'option `-use_gpu_aware_mpi 0`.
+OpenMPI est compilé avec CUDA (MPI compatible GPU), pour que le code
+reste générique, même si la machine n'a qu'un GPU. Il utilise son hwloc
+interne, construit sans son greffon OpenCL : avec CUDA, ce hwloc trouve
+la bibliothèque OpenCL du toolkit et échoue à l'édition de liens (`cannot
+determine absolute directory name of 'no/opencl/lib/'`). La recette
+`openmpi` de `mmm_gpu` ajoute `--disable-opencl`. Le hwloc de spack avec
+CUDA n'est pas utilisé : partagé avec LLVM et TBB, il les reconstruirait.
 
 ## Contraintes entre paquets
 
