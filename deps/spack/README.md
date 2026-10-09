@@ -96,6 +96,24 @@ determine absolute directory name of 'no/opencl/lib/'`). La recette
 `openmpi` de `mmm_gpu` ajoute `--disable-opencl`. Le hwloc de spack avec
 CUDA n'est pas utilisé : partagé avec LLVM et TBB, il les reconstruirait.
 
+## État de l'installation du 09/10/2026
+
+L'installation actuelle de MFEM (hachage `zxpdstv`) a été finie à la main
+pour tenir les délais ; son contenu est celui que donnent les recettes,
+mais pas encore par une construction directe :
+
+- `fem/integ/bilininteg_convection_ea.cpp` a été compilé depuis la version
+  patchée (même contenu que `mfem-4.10-convection-ea-cuda13.patch`), dans le
+  dossier de construction ;
+- la bibliothèque statique de gslib (`libgs.a`, dans le préfixe de gslib) a
+  été recompilée avec `-fPIC` (mêmes sources, mêmes options) : non
+  relogeable, elle ne pouvait pas entrer dans `libmfem.so`. L'originale est
+  gardée hors du dépôt.
+
+À faire : imposer gslib `+shared` dans `mmm-gpu/spack.yaml`, reconcrétiser
+et reconstruire MFEM (environ 3 h), pour une installation entièrement
+produite par les recettes.
+
 ## Contraintes entre paquets
 
 - PETSc avec `+openmp` : les en-têtes d'un Kokkos compilé avec OpenMP

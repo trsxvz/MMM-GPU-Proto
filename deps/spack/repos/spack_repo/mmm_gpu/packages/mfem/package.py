@@ -19,8 +19,12 @@ class Mfem(BuiltinMfem):
     The objects of MFEM depend on `config/config.mk`, written again by
     `make config` at each build: resuming a partial build (spack install
     --dont-restage) would compile everything again (several hours with CUDA).
-    The previous configuration files keep their date when their content does
-    not change.
+    The previous configuration files keep their date when the lines which
+    matter for the compilation of the objects do not change.
+
+    With CUDA 13, `-lnvToolsExt` is removed from the link flags: the default
+    link flags of AmgX in MFEM name this library, removed from CUDA 13 (NVTX 3
+    is header-only, and AmgX only uses its headers).
 
     With CUDA 13 (sm_120), cicc does not finish compiling
     `fem/integ/bilininteg_convection_ea.cpp` (more than 2 h 30 and 17 GB,
@@ -33,6 +37,14 @@ class Mfem(BuiltinMfem):
 
     _configuration_files = ["config/config.mk", "config/_config.hpp"]
 
+    @staticmethod
+    def _compilation_lines(f):
+        """lines of a configuration file which matter for the compilation of
+        the objects: the libraries given to the linker (`MFEM_EXT_LIBS`)
+        do not"""
+        with open(f) as fh:
+            return [line for line in fh if not line.startswith("MFEM_EXT_LIBS")]
+
     def configure(self, spec, prefix):
         with working_dir(self.stage.source_path):
             for f in self._configuration_files:
@@ -40,11 +52,17 @@ class Mfem(BuiltinMfem):
                     shutil.copy2(f, f + ".mmm-previous")
         super().configure(spec, prefix)
         with working_dir(self.stage.source_path):
+            if spec.satisfies("+cuda ^cuda@13:"):
+                # the default link flags of AmgX (config/defaults.mk) name
+                # libnvToolsExt, removed from CUDA 13 (NVTX 3 is header-only)
+                filter_file(r" -lnvToolsExt\b", "", "config/config.mk")
             for f in self._configuration_files:
                 previous = f + ".mmm-previous"
                 if not os.path.exists(previous):
                     continue
-                if os.path.exists(f) and filecmp.cmp(f, previous, shallow=False):
+                if os.path.exists(f) and (
+                    self._compilation_lines(f) == self._compilation_lines(previous)
+                ):
                     s = os.stat(previous)
                     os.utime(f, (s.st_atime, s.st_mtime))
                 os.remove(previous)
