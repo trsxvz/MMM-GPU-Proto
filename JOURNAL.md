@@ -2513,3 +2513,32 @@ volontaires détectées par les nouveaux tests.
   PETSc lancé avec `-use_gpu_aware_mpi 0`) ; préfixe CUDA dont `bin` était
   un lien, si bien que nvcc prenait les en-têtes du SDK sans cuBLAS
   (`make-nvhpc-cuda-prefix.sh` corrigé, préfixes 13.0 et 12.9 refaits).
+
+### 2026-10-09 (nuit, suite), plan détaillé de mfem-mgis et relecture
+
+- **Cartographie de mfem-mgis** (lecture seule) : boucle de résolution,
+  intégrateurs, données aux points, solveurs, paramètres, tests, avec les
+  références `fichier:ligne`. Elle sert de base au plan.
+- **Plan détaillé** : [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md),
+  onze lots (L0 à L10) avec fichiers touchés, tests et critères de fin,
+  paramètres proposés, stratégie de test, campagne de mesures.
+- **Relecture indépendante** de la liste des solveurs et du plan : 50
+  constats, tous intégrés. Les plus importants :
+  - le `Mult` de mfem-mgis n'intègre pas la loi (c'est une action du
+    Newton de mfem-mgis) : les solveurs non linéaires de MFEM, SUNDIALS
+    et PETSc demandent un opérateur qui l'intègre ; en mode PETSc, un
+    échec de la loi arrête le programme ;
+  - le Newton de mfem-mgis n'est pas celui de MFEM (Newton inexact et
+    recherche linéaire à y écrire) ; L-BFGS de MFEM ignore le
+    préconditionneur ;
+  - `mfem::forall` ne lance de noyau CUDA que dans un fichier compilé par
+    nvcc ;
+  - règle d'intégration à 27 points sur l'hexaèdre d'ordre 1 (option de
+    règle ajoutée : environ 3,4 fois moins de calcul avec 8 points) ;
+  - les forces thermodynamiques ne sont pas tournées à l'intégration ;
+  - le chemin actuel suppose partout le rangement point par point ;
+  - validité des copies hôte et GPU de `mfem::Memory` autour des appels à
+    MGIS ;
+  - `SystemHypreBoomerAMG` écrase deux réglages de BoomerAMG à chaque
+    `SetOperator` ; `AmgXSolver::UpdateOperator` est une réutilisation
+    complète, pas partielle.

@@ -14,7 +14,8 @@ Contenu :
   - `adaptivecpp` : AdaptiveCpp 25.10 (le paquet `hipsycl` de spack
     s'arrête à 24.10, qui ne compile pas avec CUDA 13) ;
   - `amgx` : version `2.5.0.20260701`, commit de la branche principale
-    avec les corrections pour CUDA 13 (postérieures à la version 2.5.0) ;
+    avec deux corrections complémentaires pour CUDA 13, postérieures à la
+    version 2.5.0 (C++17 avec CUDA 13.1 et plus, tuples de CUDA 13) ;
   - `petsc` : copie de la recette de spack, avec deux changements. La
     variante `cuda_lambda` de Kokkos n'existe plus en Kokkos 5 (les
     lambdas CUDA sont toujours actives) ; un OpenMPI sans CUDA est
