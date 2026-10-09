@@ -3178,3 +3178,13 @@ gradients sont calculés sur l'hôte ; matrice de la prédiction en double
 de la tangente ; chaque processus réserve environ 5 Go sur le GPU
 (réserve Umpire de hypre), et hypre serait compilé sans MPI compatible
 GPU, ce qui pourrait expliquer la lenteur de deux processus sur un GPU.
+
+### 2026-10-09 (nuit), polycristal sur GPU
+
+Polycristal de mm-opera-hpc (loi de monocristal de l'UO2 compilée pour
+`cuda`, 10 pas, `results/L6-polycristal-2026-10-09/`) : **13,18 s sur un
+GPU contre 31,65 s sur 8 cœurs** (151 s sur un cœur), mêmes contraintes
+macroscopiques à 4e-13 près de l'échelle des contraintes. La loi, qui
+domine sur CPU, prend 5,7 s sur le GPU, autant que la résolution. Avec la
+loi sur l'hôte, le GPU ne gagne rien (107 s). Deux processus sur le même
+GPU : résolution 14 fois plus lente, comme pour la poutre.
