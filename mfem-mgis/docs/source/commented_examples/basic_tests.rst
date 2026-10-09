@@ -364,6 +364,9 @@ Available options
 |                                      | the mesh. Not for                 |                        |
 |                                      | ``ssna303_3d_mumps``.             |                        |
 +--------------------------------------+-----------------------------------+------------------------+
+| ``--profiling`` or ``-prof``,        | Print the time spent in each      | no profiling           |
+| ``--no-profiling`` or ``-no-prof``   | phase of the computation.         |                        |
++--------------------------------------+-----------------------------------+------------------------+
 | ``--use-petsc`` and                  | Use PETSc with the given          | ``rc_ex10p`` for       |
 | ``--petsc-configuration-file``       | configuration file. It requires   | ``ssna303_3d_petsc``,  |
 |                                      | MFEM built with PETSc. Not for    | no PETSc otherwise     |

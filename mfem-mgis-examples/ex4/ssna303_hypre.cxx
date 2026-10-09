@@ -26,7 +26,6 @@
 int main(int argc, char** argv) {
   auto ctx = mfem_mgis::Context{};
   auto or_die = ctx.getFatalFailureHandler();
-  // ctx.enableProfiling(true);
   mfem_mgis::initialize(argc, argv);
   constexpr const auto dim = mfem_mgis::size_type{3};
   const char* mesh_file = "ssna303_3d.msh";
@@ -41,6 +40,7 @@ int main(int argc, char** argv) {
   auto order = 1;
   auto nbsteps = 50;
   auto end_time = mfem_mgis::real{1};
+  auto profiling = false;
 
   // options treatment
   mfem::OptionsParser args(argc, argv);
@@ -58,6 +58,9 @@ int main(int argc, char** argv) {
                  "Preconditioner of the linear solver.");
   args.AddOption(&refinement, "-r", "--refinement",
                  "Number of uniform refinements of the mesh.");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time spent in each phase of the computation.");
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -69,6 +72,7 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  ctx.enableProfiling(profiling);
 
   // loading the mesh
   {
@@ -235,6 +239,8 @@ int main(int argc, char** argv) {
       }
     }
   }
-  // mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+  if (profiling) {
+    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+  }
   return EXIT_SUCCESS;
 }

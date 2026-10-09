@@ -1,0 +1,26 @@
+From 02789ec495492767e5e498978d8db3bf7979206b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:06:59 +0200
+Subject: [PATCH] Docs: --profiling option of the ssna303 examples in 3D
+
+---
+ docs/source/commented_examples/basic_tests.rst | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/docs/source/commented_examples/basic_tests.rst b/docs/source/commented_examples/basic_tests.rst
+index d85428754a..1145f441c2 100644
+--- a/docs/source/commented_examples/basic_tests.rst
++++ b/docs/source/commented_examples/basic_tests.rst
+@@ -364,6 +364,9 @@ Available options
+ |                                      | the mesh. Not for                 |                        |
+ |                                      | ``ssna303_3d_mumps``.             |                        |
+ +--------------------------------------+-----------------------------------+------------------------+
++| ``--profiling`` or ``-prof``,        | Print the time spent in each      | no profiling           |
++| ``--no-profiling`` or ``-no-prof``   | phase of the computation.         |                        |
+++--------------------------------------+-----------------------------------+------------------------+
+ | ``--use-petsc`` and                  | Use PETSc with the given          | ``rc_ex10p`` for       |
+ | ``--petsc-configuration-file``       | configuration file. It requires   | ``ssna303_3d_petsc``,  |
+ |                                      | MFEM built with PETSc. Not for    | no PETSc otherwise     |
+-- 
+2.43.0
+

@@ -15,12 +15,14 @@
 #endif /* MFEM_USE_MPI */
 #include "mfem/general/error.hpp"
 #include "mfem/general/device.hpp"
+#include "mfem/general/backends.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/general/communication.hpp"
 #ifdef MFEM_USE_PETSC
 #include "mfem/linalg/petsc.hpp"
 #endif /*MFEM_USE_PETSC */
 #include "MGIS/Raise.hxx"
+#include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
 
@@ -122,6 +124,20 @@ namespace mfem_mgis {
 #endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
   }  // end of getDeviceIdentifier
 
+  /*!
+   * \brief waits for the end of the kernels launched on the GPU, so that
+   * their duration is counted in the profiling section which launched them
+   */
+  static void synchronizeDevice() noexcept {
+#if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
+    try {
+      MFEM_DEVICE_SYNC;
+    } catch (...) {
+      // an error of the GPU is reported by the next call to the GPU
+    }
+#endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
+  }  // end of synchronizeDevice
+
   Finalizer::Finalizer() = default;
 
 #ifdef MFEM_USE_PETSC
@@ -183,6 +199,12 @@ namespace mfem_mgis {
     if (device_configuration != nullptr) {
       this->device = std::make_unique<mfem::Device>(
           device_configuration, getDeviceIdentifier(device_configuration));
+      // the kernels are launched asynchronously on a GPU: the profiling
+      // sections wait for them
+      if (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                               mfem::Backend::HIP_MASK)) {
+        mgis::setProfilingSynchronization(&synchronizeDevice);
+      }
     }
 #ifdef MFEM_USE_PETSC
     if (this->use_petsc) {

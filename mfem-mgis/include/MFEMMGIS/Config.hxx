@@ -131,7 +131,9 @@ namespace mfem_mgis {
    * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
    * device is created with this configuration (for instance `cuda`), after
    * the initialization of hypre and before the one of PETSc. The processes
-   * of a node use the GPUs of the node in turn. An application which uses
+   * of a node use the GPUs of the node in turn. With a GPU, the profiling
+   * sections wait for the end of the kernels launched on the GPU (see
+   * `mgis::setProfilingSynchronization`). An application which uses
    * this option must neither create its own `mfem::Device` (MFEM refuses a
    * second configuration of the device) nor declare its own `--device`,
    * `-dev` options.

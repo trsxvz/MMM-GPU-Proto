@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
   auto order = 1;
   auto nbsteps = 50;
   auto end_time = mfem_mgis::real{1};
+  auto profiling = false;
   auto refinement = 0;
 
   // options treatment
@@ -63,6 +64,9 @@ int main(int argc, char** argv) {
                  "boundary, no comparison if empty.");
   args.AddOption(&refinement, "-r", "--refinement",
                  "Number of uniform refinements of the mesh.");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time spent in each phase of the computation.");
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -74,6 +78,7 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  ctx.enableProfiling(profiling);
 
   {
     // loading the mesh and timer
@@ -190,6 +195,9 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
       }
     }
+  }
+  if (profiling) {
+    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   }
   mfem_mgis::finalize();
   return EXIT_SUCCESS;

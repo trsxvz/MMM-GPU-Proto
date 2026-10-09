@@ -1,0 +1,111 @@
+From 005506173c2d0a59bec2d9373a223a242ec67ab4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:06:59 +0200
+Subject: [PATCH] Config: the profiling sections wait for the kernels launched
+ on the GPU
+
+With a CUDA or HIP device, `initialize` sets the synchronization function
+of the profiling sections of MGIS (`mgis::setProfilingSynchronization`):
+the kernels are launched asynchronously, and their duration was counted
+in the first later section waiting for them. Tested by DeviceForallTest.
+---
+ include/MFEMMGIS/Config.hxx |  4 +++-
+ src/Config.cxx              | 22 ++++++++++++++++++++++
+ tests/DeviceForallTest.cxx  |  6 ++++++
+ 3 files changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 69714a69d2..73bcd9eb5c 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -131,7 +131,9 @@ namespace mfem_mgis {
+    * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
+    * device is created with this configuration (for instance `cuda`), after
+    * the initialization of hypre and before the one of PETSc. The processes
+-   * of a node use the GPUs of the node in turn. An application which uses
++   * of a node use the GPUs of the node in turn. With a GPU, the profiling
++   * sections wait for the end of the kernels launched on the GPU (see
++   * `mgis::setProfilingSynchronization`). An application which uses
+    * this option must neither create its own `mfem::Device` (MFEM refuses a
+    * second configuration of the device) nor declare its own `--device`,
+    * `-dev` options.
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 34fb6fc976..d7740aa354 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -15,12 +15,14 @@
+ #endif /* MFEM_USE_MPI */
+ #include "mfem/general/error.hpp"
+ #include "mfem/general/device.hpp"
++#include "mfem/general/backends.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/general/communication.hpp"
+ #ifdef MFEM_USE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+ #endif /*MFEM_USE_PETSC */
+ #include "MGIS/Raise.hxx"
++#include "MGIS/Profiling.hxx"
+ #include <MFEMMGIS/Profiler.hxx>
+ #include "MFEMMGIS/Config.hxx"
+ 
+@@ -122,6 +124,20 @@ namespace mfem_mgis {
+ #endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
+   }  // end of getDeviceIdentifier
+ 
++  /*!
++   * \brief waits for the end of the kernels launched on the GPU, so that
++   * their duration is counted in the profiling section which launched them
++   */
++  static void synchronizeDevice() noexcept {
++#if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
++    try {
++      MFEM_DEVICE_SYNC;
++    } catch (...) {
++      // an error of the GPU is reported by the next call to the GPU
++    }
++#endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
++  }  // end of synchronizeDevice
++
+   Finalizer::Finalizer() = default;
+ 
+ #ifdef MFEM_USE_PETSC
+@@ -183,6 +199,12 @@ namespace mfem_mgis {
+     if (device_configuration != nullptr) {
+       this->device = std::make_unique<mfem::Device>(
+           device_configuration, getDeviceIdentifier(device_configuration));
++      // the kernels are launched asynchronously on a GPU: the profiling
++      // sections wait for them
++      if (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
++                               mfem::Backend::HIP_MASK)) {
++        mgis::setProfilingSynchronization(&synchronizeDevice);
++      }
+     }
+ #ifdef MFEM_USE_PETSC
+     if (this->use_petsc) {
+diff --git a/tests/DeviceForallTest.cxx b/tests/DeviceForallTest.cxx
+index 35257096a5..9cd998afdc 100644
+--- a/tests/DeviceForallTest.cxx
++++ b/tests/DeviceForallTest.cxx
+@@ -13,6 +13,7 @@
+ #include "mfem/general/forall.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/linalg/vector.hpp"
++#include "MGIS/Profiling.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ 
+ int main(int argc, char** argv) {
+@@ -34,6 +35,11 @@ int main(int argc, char** argv) {
+     std::cerr << "unexpected backend\n";
+     return EXIT_FAILURE;
+   }
++  // with a GPU, the profiling sections wait for the kernels
++  if ((mgis::getProfilingSynchronization() != nullptr) != cuda) {
++    std::cerr << "unexpected synchronization of the profiling sections\n";
++    return EXIT_FAILURE;
++  }
+   constexpr int n = 1000;
+   auto v = mfem::Vector(n);
+   v.UseDevice(true);
+-- 
+2.43.0
+

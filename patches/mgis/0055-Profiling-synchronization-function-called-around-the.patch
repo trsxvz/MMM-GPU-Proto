@@ -1,0 +1,187 @@
+From d2497ccd820687eb452993fe55fbc67af9d42327 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 13:59:35 +0200
+Subject: [PATCH] Profiling: synchronization function called around the timed
+ sections
+
+Computations launched asynchronously (for instance kernels on a GPU) end
+after the function which launched them: their duration was counted in
+the first later section waiting for them. `setProfilingSynchronization`
+sets a function called at the beginning and at the end of each active
+section, before reading the time (none by default, shared by all the
+contexts). Test and documentation.
+---
+ docs/web/profiling.md      | 22 ++++++++++++++++++++++
+ include/MGIS/Profiling.hxx | 19 +++++++++++++++++++
+ src/Profiling.cxx          | 25 +++++++++++++++++++++++++
+ tests/ProfilingTest.cxx    | 34 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 100 insertions(+)
+
+diff --git a/docs/web/profiling.md b/docs/web/profiling.md
+index 8850169..984a438 100644
+--- a/docs/web/profiling.md
++++ b/docs/web/profiling.md
+@@ -65,6 +65,28 @@ In some specific debugging scenarios, a developer might want to force the profil
+ CatchLocalTimeSection(ctx, "ForcedSection", true); 
+ ~~~~
+ 
++# Asynchronous computations
++
++Computations launched asynchronously, for instance kernels launched on a
++GPU, end after the function which launched them. Without care, their
++duration is counted in a later section, the first one which waits for
++them. The function `setProfilingSynchronization` sets a function called
++at the beginning and at the end of each active profiling section, before
++reading the time:
++
++~~~~{.cxx}
++// waits for the end of the kernels launched on the GPU
++static void synchronizeDevice() noexcept { cudaDeviceSynchronize(); }
++
++mgis::setProfilingSynchronization(&synchronizeDevice);
++~~~~
++
++The function is shared by all contexts. By default, no function is set
++(no synchronization). The synchronization has a cost: it only happens in
++active sections, and it is only useful when computations are launched
++asynchronously. `getProfilingSynchronization` returns the current
++function.
++
+ # Aggregation and Loops
+ 
+ To prevent the profiling tree from growing indefinitely and consuming too much memory, the system automatically aggregates repeated calls to the same section within the same parent scope. 
+diff --git a/include/MGIS/Profiling.hxx b/include/MGIS/Profiling.hxx
+index a3af5ea..ab31705 100644
+--- a/include/MGIS/Profiling.hxx
++++ b/include/MGIS/Profiling.hxx
+@@ -32,6 +32,25 @@ namespace mgis {
+ 
+   struct Context;
+ 
++  /*!
++   * \brief type of a function waiting for the end of the computations
++   * launched asynchronously, for instance on a GPU
++   */
++  using ProfilingSynchronization = void (*)() noexcept;
++
++  /*!
++   * \brief sets the function called at the beginning and at the end of each
++   * active profiling section, before reading the time: the computations
++   * launched asynchronously (for instance on a GPU) are then counted in the
++   * section which launched them, not in a later one.
++   * \param[in] f: function, or `nullptr` (no synchronization, the default)
++   * \return the previous function
++   */
++  MGIS_EXPORT ProfilingSynchronization
++  setProfilingSynchronization(ProfilingSynchronization) noexcept;
++  //! \return the function set by `setProfilingSynchronization`
++  MGIS_EXPORT ProfilingSynchronization getProfilingSynchronization() noexcept;
++
+   struct MGIS_EXPORT ProfilingSection {
+     //! \brief Standard constructor (active or inactive depending on the
+     //! 'enabled' flag)
+diff --git a/src/Profiling.cxx b/src/Profiling.cxx
+index e78bafb..27bcb82 100644
+--- a/src/Profiling.cxx
++++ b/src/Profiling.cxx
+@@ -3,23 +3,48 @@
+  * \brief  This file implements the `Profiling` class
+  */
+ 
++#include <atomic>
+ #include "MGIS/Profiling.hxx"
+ #include "MGIS/Context.hxx"
+ 
+ namespace mgis {
+ 
++  //! \return the function set by `setProfilingSynchronization`
++  static std::atomic<ProfilingSynchronization>& getSynchronization() noexcept {
++    static std::atomic<ProfilingSynchronization> f{nullptr};
++    return f;
++  }  // end of getSynchronization
++
++  //! \brief calls the function set by `setProfilingSynchronization`, if any
++  static void synchronize() noexcept {
++    if (const auto f = getSynchronization().load(); f != nullptr) {
++      f();
++    }
++  }  // end of synchronize
++
++  ProfilingSynchronization setProfilingSynchronization(
++      ProfilingSynchronization f) noexcept {
++    return getSynchronization().exchange(f);
++  }  // end of setProfilingSynchronization
++
++  ProfilingSynchronization getProfilingSynchronization() noexcept {
++    return getSynchronization().load();
++  }  // end of getProfilingSynchronization
++
+   ProfilingSection::ProfilingSection(Context& c,
+                                      std::string n,
+                                      bool enabled) noexcept
+       : ctx_ptr(&c), active(enabled) {
+     if (this->active && this->ctx_ptr != nullptr) {
+       this->ctx_ptr->pushProfilingNode(std::move(n));
++      synchronize();
+       this->start = std::chrono::high_resolution_clock::now();
+     }
+   }  // end of ProfilingSection
+ 
+   ProfilingSection::~ProfilingSection() noexcept {
+     if (this->active && this->ctx_ptr != nullptr) {
++      synchronize();
+       const auto end = std::chrono::high_resolution_clock::now();
+       const std::chrono::duration<double> dt = end - this->start;
+ 
+diff --git a/tests/ProfilingTest.cxx b/tests/ProfilingTest.cxx
+index 19e18ea..4dc0ee7 100644
+--- a/tests/ProfilingTest.cxx
++++ b/tests/ProfilingTest.cxx
+@@ -29,10 +29,44 @@ struct ProfilingTest final : public tfel::tests::TestCase {
+     this->testAccumulation();
+     this->testDisabledState();
+     this->testLocalForcedState();
++    this->testSynchronization();
+     return this->result;
+   }
+ 
+  private:
++  //! \brief number of calls to `countSynchronizations`
++  static inline int synchronizations = 0;
++  //! \brief synchronization function counting its calls
++  static void countSynchronizations() noexcept { ++synchronizations; }
++
++  void testSynchronization() {
++    TFEL_TESTS_ASSERT(mgis::getProfilingSynchronization() == nullptr);
++    const auto previous =
++        mgis::setProfilingSynchronization(&countSynchronizations);
++    TFEL_TESTS_ASSERT(previous == nullptr);
++    TFEL_TESTS_ASSERT(mgis::getProfilingSynchronization() ==
++                      &countSynchronizations);
++    synchronizations = 0;
++    mgis::Context ctx;
++    ctx.enableProfiling(true);
++    // one synchronization at the beginning and one at the end of each
++    // active section
++    {
++      CatchTimeSection(ctx, "Parent");
++      TFEL_TESTS_CHECK_EQUAL(synchronizations, 1);
++      { CatchTimeSection(ctx, "Child"); }
++      TFEL_TESTS_CHECK_EQUAL(synchronizations, 3);
++    }
++    TFEL_TESTS_CHECK_EQUAL(synchronizations, 4);
++    // no synchronization for an inactive section
++    ctx.enableProfiling(false);
++    { CatchTimeSection(ctx, "Inactive"); }
++    TFEL_TESTS_CHECK_EQUAL(synchronizations, 4);
++    TFEL_TESTS_ASSERT(mgis::setProfilingSynchronization(nullptr) ==
++                      &countSynchronizations);
++    TFEL_TESTS_ASSERT(mgis::getProfilingSynchronization() == nullptr);
++  }
++
+   void testToggle() {
+     mgis::Context ctx;
+ 
+-- 
+2.43.0
+

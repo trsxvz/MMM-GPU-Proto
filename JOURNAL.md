@@ -2663,3 +2663,19 @@ Tous sont traités :
 Reconstruction complète dans un dossier neuf : mfem-mgis 132/132,
 mfem-mgis-examples 20/20, mm-opera-hpc 6/6, dont le noyau de MFEM sur le
 GPU à un et deux processus.
+
+### 2026-10-09 (après-midi), profilage et GPU
+
+- MGIS : `mgis::setProfilingSynchronization` fixe une fonction appelée au
+  début et à la fin de chaque section de profilage active, avant la
+  lecture du temps (aucune par défaut). Sans elle, la durée des noyaux
+  lancés de façon asynchrone sur le GPU tombait dans la première section
+  suivante qui les attend. Test exact du nombre d'appels.
+- mfem-mgis : avec un périphérique CUDA ou HIP, `initialize` y met une
+  synchronisation du GPU.
+- Exemples ssna303 en 3D (ex4) : option `--profiling`. Sur un pas, à deux
+  processus, l'intégration des lois (dans
+  `NS::processNewUnknownsEstimate`) prend déjà 25 % du temps, la tangente
+  et la résolution 24 % chacune.
+- Suites : MGIS 50/50, mfem-mgis 132/132, exemples 20/20, mm-opera-hpc
+  6/6.

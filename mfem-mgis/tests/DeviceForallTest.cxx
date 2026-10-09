@@ -13,6 +13,7 @@
 #include "mfem/general/forall.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/vector.hpp"
+#include "MGIS/Profiling.hxx"
 #include "MFEMMGIS/Config.hxx"
 
 int main(int argc, char** argv) {
@@ -32,6 +33,11 @@ int main(int argc, char** argv) {
   const auto cuda = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
   if ((std::strcmp(expected, "cuda") == 0) != cuda) {
     std::cerr << "unexpected backend\n";
+    return EXIT_FAILURE;
+  }
+  // with a GPU, the profiling sections wait for the kernels
+  if ((mgis::getProfilingSynchronization() != nullptr) != cuda) {
+    std::cerr << "unexpected synchronization of the profiling sections\n";
     return EXIT_FAILURE;
   }
   constexpr int n = 1000;

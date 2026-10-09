@@ -1,0 +1,152 @@
+From 57a3cd84d3400e481eb1bd83331eaffe84d4ad61 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:06:59 +0200
+Subject: [PATCH] ex4: --profiling option
+
+Prints the time spent in each phase of the computation (profiling
+sections of mfem-mgis), for the three variants (MUMPS, hypre, PETSc).
+---
+ ex4/ssna303_hypre.cxx | 10 ++++++++--
+ ex4/ssna303_mumps.cxx | 10 ++++++++--
+ ex4/ssna303_petsc.cxx |  8 ++++++++
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
+index 0d7efbf..10d921c 100644
+--- a/ex4/ssna303_hypre.cxx
++++ b/ex4/ssna303_hypre.cxx
+@@ -26,7 +26,6 @@
+ int main(int argc, char** argv) {
+   auto ctx = mfem_mgis::Context{};
+   auto or_die = ctx.getFatalFailureHandler();
+-  // ctx.enableProfiling(true);
+   mfem_mgis::initialize(argc, argv);
+   constexpr const auto dim = mfem_mgis::size_type{3};
+   const char* mesh_file = "ssna303_3d.msh";
+@@ -41,6 +40,7 @@ int main(int argc, char** argv) {
+   auto order = 1;
+   auto nbsteps = 50;
+   auto end_time = mfem_mgis::real{1};
++  auto profiling = false;
+ 
+   // options treatment
+   mfem::OptionsParser args(argc, argv);
+@@ -58,6 +58,9 @@ int main(int argc, char** argv) {
+                  "Preconditioner of the linear solver.");
+   args.AddOption(&refinement, "-r", "--refinement",
+                  "Number of uniform refinements of the mesh.");
++  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
++                 "--no-profiling",
++                 "Print the time spent in each phase of the computation.");
+   args.Parse();
+   if (args.Help()) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+@@ -69,6 +72,7 @@ int main(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  ctx.enableProfiling(profiling);
+ 
+   // loading the mesh
+   {
+@@ -235,6 +239,8 @@ int main(int argc, char** argv) {
+       }
+     }
+   }
+-  // mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
++  if (profiling) {
++    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
++  }
+   return EXIT_SUCCESS;
+ }
+diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
+index 80ecdcc..d3e53e3 100644
+--- a/ex4/ssna303_mumps.cxx
++++ b/ex4/ssna303_mumps.cxx
+@@ -34,7 +34,6 @@
+ int main(int argc, char** argv) {
+   auto ctx = mfem_mgis::Context{};
+   auto or_die = ctx.getFatalFailureHandler();
+-  // ctx.enableProfiling(true);
+   mfem_mgis::initialize(argc, argv);
+   constexpr const auto dim = mfem_mgis::size_type{3};
+   const char* mesh_file = "ssna303_3d.msh";
+@@ -49,6 +48,7 @@ int main(int argc, char** argv) {
+   auto order = 1;
+   auto nbsteps = 50;
+   auto end_time = mfem_mgis::real{1};
++  auto profiling = false;
+ 
+   // options treatment
+   mfem::OptionsParser args(argc, argv);
+@@ -64,6 +64,9 @@ int main(int argc, char** argv) {
+   args.AddOption(&reference_file, "-rf", "--reference-file",
+                  "Reference values of the resultant force on the upper "
+                  "boundary, no comparison if empty.");
++  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
++                 "--no-profiling",
++                 "Print the time spent in each phase of the computation.");
+ #ifdef MGIS_HAVE_TFEL
+   args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
+                  "Use the FBar formulation.");
+@@ -83,6 +86,7 @@ int main(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  ctx.enableProfiling(profiling);
+   const auto* const output_file = use_fbar ? "force-fbar.txt" : "force.txt";
+   // the non linear problem
+   auto problem =
+@@ -235,6 +239,8 @@ int main(int argc, char** argv) {
+       return EXIT_FAILURE;
+     }
+   }
+-  // mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
++  if (profiling) {
++    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
++  }
+   return EXIT_SUCCESS;
+ }
+diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
+index 797ed9b..cd21e7e 100644
+--- a/ex4/ssna303_petsc.cxx
++++ b/ex4/ssna303_petsc.cxx
+@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
+   auto order = 1;
+   auto nbsteps = 50;
+   auto end_time = mfem_mgis::real{1};
++  auto profiling = false;
+   auto refinement = 0;
+ 
+   // options treatment
+@@ -63,6 +64,9 @@ int main(int argc, char** argv) {
+                  "boundary, no comparison if empty.");
+   args.AddOption(&refinement, "-r", "--refinement",
+                  "Number of uniform refinements of the mesh.");
++  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
++                 "--no-profiling",
++                 "Print the time spent in each phase of the computation.");
+   args.Parse();
+   if (args.Help()) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+@@ -74,6 +78,7 @@ int main(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  ctx.enableProfiling(profiling);
+ 
+   {
+     // loading the mesh and timer
+@@ -191,6 +196,9 @@ int main(int argc, char** argv) {
+       }
+     }
+   }
++  if (profiling) {
++    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
++  }
+   mfem_mgis::finalize();
+   return EXIT_SUCCESS;
+ }
+-- 
+2.43.0
+

@@ -34,7 +34,6 @@
 int main(int argc, char** argv) {
   auto ctx = mfem_mgis::Context{};
   auto or_die = ctx.getFatalFailureHandler();
-  // ctx.enableProfiling(true);
   mfem_mgis::initialize(argc, argv);
   constexpr const auto dim = mfem_mgis::size_type{3};
   const char* mesh_file = "ssna303_3d.msh";
@@ -49,6 +48,7 @@ int main(int argc, char** argv) {
   auto order = 1;
   auto nbsteps = 50;
   auto end_time = mfem_mgis::real{1};
+  auto profiling = false;
 
   // options treatment
   mfem::OptionsParser args(argc, argv);
@@ -64,6 +64,9 @@ int main(int argc, char** argv) {
   args.AddOption(&reference_file, "-rf", "--reference-file",
                  "Reference values of the resultant force on the upper "
                  "boundary, no comparison if empty.");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time spent in each phase of the computation.");
 #ifdef MGIS_HAVE_TFEL
   args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
                  "Use the FBar formulation.");
@@ -83,6 +86,7 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  ctx.enableProfiling(profiling);
   const auto* const output_file = use_fbar ? "force-fbar.txt" : "force.txt";
   // the non linear problem
   auto problem =
@@ -235,6 +239,8 @@ int main(int argc, char** argv) {
       return EXIT_FAILURE;
     }
   }
-  // mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+  if (profiling) {
+    mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+  }
   return EXIT_SUCCESS;
 }
