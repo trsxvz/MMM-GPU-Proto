@@ -5,16 +5,18 @@
 # MFEM 4.10 de l'environnement spack `mmm-gpu`, le MGIS installé par
 # build-mgis.sh et le TFEL installé par build-tfel.sh.
 #
-# usage : ./build-mfem-mgis.sh [mfem-mgis|examples|opera ...]
-# Sans argument : les trois, dans cet ordre. mfem-mgis est installé dans
-# install/mfem-mgis, où les deux autres le trouvent.
+# usage : ./build-mfem-mgis.sh [mfem-mgis|examples|opera|cas ...]
+# Sans argument : les quatre, dans cet ordre. mfem-mgis est installé dans
+# install/mfem-mgis, où les autres le trouvent. `cas` : cas de la campagne
+# de mesures propres au prototype (dossier cas/).
 #
 # Un dossier de construction existant est réutilisé, et reconfiguré avec
 # les options de ce script à chaque appel. Pour repartir de zéro, le
 # supprimer avant.
 #
 # Les compilateurs CUDA (nvcc et son compilateur hôte) sont ceux de MFEM,
-# choisis par mfem-mgis (voir cmake/modules/MFEMMGISDeviceCode.cmake).
+# choisis par mfem-mgis (voir cmake/modules/MFEMMGISDeviceCode.cmake) :
+# ceux qu'un ancien dossier garde dans son cache sont retirés.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
@@ -33,6 +35,7 @@ build() {
   cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
     -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
+    -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER \
     "$@"
   cmake --build "$b" -j "$JOBS"
   # the tests are built by `check`
@@ -41,7 +44,7 @@ build() {
     cmake --install "$b"
   fi
 }
-for what in ${@:-mfem-mgis examples opera}; do
+for what in ${@:-mfem-mgis examples opera cas}; do
   case "$what" in
     mfem-mgis)
       build mfem-mgis "$P/mfem-mgis" yes \
@@ -60,8 +63,13 @@ for what in ${@:-mfem-mgis examples opera}; do
         -DMFEMMGIS_DIR="$P/install/mfem-mgis/share/mfem-mgis/cmake" \
         -DMFEM_DIR="$MFEM"
       ;;
+    cas)
+      build cas "$P/cas" no \
+        -DMFEMMGIS_DIR="$P/install/mfem-mgis/share/mfem-mgis/cmake" \
+        -DMFEM_DIR="$MFEM"
+      ;;
     *)
-      echo "usage: $0 [mfem-mgis|examples|opera ...]" >&2
+      echo "usage: $0 [mfem-mgis|examples|opera|cas ...]" >&2
       exit 1
       ;;
   esac

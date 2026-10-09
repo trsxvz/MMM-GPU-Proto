@@ -2639,8 +2639,9 @@ Tous sont traités :
   avant mfem-mgis. nvcc et son compilateur hôte sont par défaut ceux de
   MFEM (`mpic++` d'OpenMPI, qui trouve `mpi.h`). Architectures lues sous
   toutes les formes des options de nvcc. Erreurs explicites pour HIP et
-  quand le langage CUDA n'est pas activé. Runtime CUDA partagé (comme
-  MFEM). Définitions et options de visibilité du C++ données aux sources
+  quand le langage CUDA n'est pas activé. Runtime CUDA partagé
+  (`CUDA::cudart`, comme le reste du code de mfem-mgis ; MFEM embarque sa
+  propre copie statique du runtime). Définitions et options de visibilité du C++ données aux sources
   CUDA. Tests du GPU hors du bloc TFEL, option `enable-gpu-tests`, test
   du GPU à deux processus.
 - **TFEL** : seules les options `-I` et `-L` de `tfel-config` sont lues ;
@@ -2679,3 +2680,33 @@ GPU à un et deux processus.
   et la résolution 24 % chacune.
 - Suites : MGIS 50/50, mfem-mgis 132/132, exemples 20/20, mm-opera-hpc
   6/6.
+
+### 2026-10-09 (après-midi), seconde relecture des corrections du lot L0
+
+Une seconde relecture indépendante des corrections a confirmé 18
+constats corrigés et en a trouvé 6 partiels et 1 non corrigé, plus 9
+nouveaux défauts mineurs (gravité 1 ou 2). Tous sont traités :
+
+- choix du GPU de chaque processus aussi pour l'alias `gpu` de MFEM (et
+  `raja-gpu`, `ceed-gpu`...), qui mettait tous les processus sur le
+  premier GPU ; erreur si le périphérique de MFEM est déjà configuré ;
+  le test vérifie le GPU de chaque processus ;
+- toolkit CUDA pris à côté du nvcc de MFEM ; CMake 3.18 vérifié dès que
+  MFEM utilise CUDA ; avertissement si le compilateur CUDA n'est pas celui
+  de MFEM ; langage CUDA vérifié dans le dossier de la cible ; C++20 au
+  moins pour les sources CUDA ; module documenté dans le guide
+  d'installation ; avec un MFEM HIP, la configuration n'échoue plus ;
+- `env.sh` : une ligne par dossier de bibliothèques de TFEL, écrite à la
+  configuration (compatible zsh) ;
+- régulateur de mémoire : un processus suspendu qui reçoit un signal (par
+  exemple SIGTERM de spack) est repris aussitôt pour le recevoir (essayé) ;
+- `build-mfem-mgis.sh` retire du cache les compilateurs CUDA d'un ancien
+  dossier.
+
+Nouveau dossier `cas/` : cas de la campagne propres au prototype. `poutre`
+(plasticité J2, Newton de mfem-mgis) ; ses tests comparent la norme de la
+solution finale, identique pour PCG et BoomerAMG, MUMPS et UMFPACK, et un
+test vérifie que la comparaison détecte une solution fausse.
+`cas/mesures-reference.sh` mesure les temps de référence du lot L0.
+
+Suites : mfem-mgis 132/132, exemples 20/20, mm-opera-hpc 6/6, cas 4/4.

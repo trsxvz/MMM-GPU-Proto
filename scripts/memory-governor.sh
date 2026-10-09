@@ -11,7 +11,8 @@
 #
 # The paused processes are the ones recorded at the pause: they are resumed
 # even if they left the tree (parent killed), and when the root or this
-# script ends.
+# script ends. A paused process with a pending signal (for instance SIGTERM
+# sent by spack) is resumed at once, so that it receives it.
 # usage: scripts/memory-governor.sh root-pid [low MiB] [high MiB] [timeout s]
 root=$1
 low=${2:-3500}
@@ -60,7 +61,15 @@ while kill -0 "$root" 2> /dev/null; do
     paused=1
     since=$(date +%s)
     echo "$(date +%H:%M:%S) paused all but $largest (${available} MiB available)"
-  elif [ "$paused" = 1 ] && { [ "$available" -gt "$high" ] ||
+  elif [ "$paused" = 1 ]; then
+    for p in $stopped; do
+      if awk '/^(SigPnd|ShdPnd):/ && $2 !~ /^0+$/ {f = 1} END {exit !f}' \
+        "/proc/$p/status" 2> /dev/null; then
+        kill -CONT "$p" 2> /dev/null
+      fi
+    done
+  fi
+  if [ "$paused" = 1 ] && { [ "$available" -gt "$high" ] ||
     [ $(($(date +%s) - since)) -gt "$timeout" ]; }; then
     resume
     echo "$(date +%H:%M:%S) resumed (${available} MiB available)"

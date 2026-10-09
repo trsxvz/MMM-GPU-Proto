@@ -1,0 +1,213 @@
+/*!
+ * \file   poutre.cxx
+ * \brief  Bending of a beam in J2 plasticity (small strains, 3D), solved
+ * by the Newton solver of mfem-mgis: reference of the current path for the
+ * measurement campaign.
+ */
+
+#include <cmath>
+#include <chrono>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <vector>
+#include "mfem/general/optparser.hpp"
+#include "MGIS/Behaviour/Behaviour.hxx"
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+
+int main(int argc, char** argv) {
+  using namespace mfem_mgis;
+  initialize(argc, argv);
+  const char* mesh = "beam-tet.mesh";
+  const char* library = "src/libBehaviour.so";
+  const char* linear_solver = "pcg-amg";
+  auto parallel = true;
+  auto refinements = 3;
+  auto steps = 10;
+  auto max_iterations = 50;
+  auto prediction = true;
+  auto profiling = false;
+  auto displacement = real{0.5};
+  auto relative_tolerance = real{1e-8};
+  auto linear_tolerance = real{1e-10};
+  auto expected_norm = real{-1};
+  auto norm_tolerance = real{1e-6};
+  mfem::OptionsParser args(argc, argv);
+  declareDefaultOptions(args);
+  args.AddOption(&mesh, "-m", "--mesh", "Mesh file.");
+  args.AddOption(&library, "-l", "--library", "Behaviour library.");
+  args.AddOption(&linear_solver, "-ls", "--linear-solver",
+                 "Linear solver: mumps (parallel), umfpack (sequential) or "
+                 "pcg-amg (parallel, PCG of hypre and BoomerAMG).");
+  args.AddOption(&linear_tolerance, "-lt", "--linear-tolerance",
+                 "Relative tolerance of the iterative linear solver.");
+  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                 "Parallel computation.");
+  args.AddOption(&refinements, "-r", "--refinements",
+                 "Number of uniform refinements of the mesh.");
+  args.AddOption(&steps, "-n", "--steps", "Number of time steps.");
+  args.AddOption(&max_iterations, "-mi", "--max-iterations",
+                 "Maximum number of Newton iterations per step.");
+  args.AddOption(&prediction, "-pr", "--prediction", "-no-pr",
+                 "--no-prediction",
+                 "Elastic prediction at the beginning of each step.");
+  args.AddOption(&displacement, "-u", "--displacement",
+                 "Transverse displacement imposed at the end of the beam.");
+  args.AddOption(&relative_tolerance, "-rt", "--relative-tolerance",
+                 "Relative tolerance of the Newton solver.");
+  args.AddOption(&expected_norm, "-en", "--expected-norm",
+                 "Expected norm of the final solution (no check if "
+                 "negative).");
+  args.AddOption(&norm_tolerance, "-nt", "--norm-tolerance",
+                 "Relative tolerance of the comparison to the expected norm.");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time spent in each phase of the computation.");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    abort(EXIT_FAILURE);
+  }
+  auto ctx = Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  ctx.enableProfiling(profiling);
+  auto success = true;
+  {
+    auto problem =
+        construct<NonLinearEvolutionProblem>(
+            ctx, Parameters{{"MeshFileName", mesh},
+                            {"FiniteElementFamily", "H1"},
+                            {"FiniteElementOrder", 1},
+                            {"UnknownsSize", 3},
+                            {"NumberOfUniformRefinements", refinements},
+                            {"Hypothesis", "Tridimensional"},
+                            {"Parallel", parallel}}) |
+        or_die;
+    // the two element attributes of beam-tet.mesh
+    for (const auto m : {1, 2}) {
+      problem.addBehaviourIntegrator(ctx, "Mechanics", m, library,
+                                     "IsotropicLinearHardeningPlasticity") |
+          or_die;
+      auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
+      for (auto* s : {&mat.s0, &mat.s1}) {
+        mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                  293.15) |
+            or_die;
+      }
+    }
+    // clamped end, transverse displacement at the other end
+    for (const auto c : {0, 1, 2}) {
+      problem.addUniformDirichletBoundaryCondition(
+          ctx, {{"Boundary", 1}, {"Component", c}}) |
+          or_die;
+    }
+    problem.addUniformDirichletBoundaryCondition(
+        ctx, {{"Boundary", 2},
+              {"Component", 1},
+              {"LoadingEvolution",
+               [displacement](const real t) { return displacement * t; }}}) |
+        or_die;
+    if (prediction) {
+      auto pp = PredictionPolicy{};
+      pp.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION;
+      pp.prediction_operator = PredictionOperator::ELASTIC;
+      problem.setPredictionPolicy(pp);
+    }
+    const auto ls = std::string{linear_solver};
+    if (ls == "mumps") {
+      problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}}) |
+          or_die;
+    } else if (ls == "umfpack") {
+      problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+    } else if (ls == "pcg-amg") {
+      problem.setLinearSolver(
+          ctx, "HyprePCG",
+          {{"VerbosityLevel", 0},
+           {"Tolerance", linear_tolerance},
+           {"MaximumNumberOfIterations", 2000},
+           {"Preconditioner",
+            Parameters{{"Name", "HypreBoomerAMG"},
+                       {"Options", Parameters{{"VerbosityLevel", 0}}}}}}) |
+          or_die;
+    } else {
+      std::cerr << "invalid linear solver '" << ls << "'\n";
+      abort(EXIT_FAILURE);
+    }
+    problem.setSolverParameters(
+        ctx, {{"VerbosityLevel", 0},
+              {"RelativeTolerance", relative_tolerance},
+              {"AbsoluteTolerance", 0.},
+              {"MaximumNumberOfIterations", max_iterations}}) |
+        or_die;
+    // loop over the time steps
+    const auto dt = real{1} / steps;
+    auto t = real{0};
+    auto iterations = std::vector<int>{};
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i != steps; ++i) {
+      const auto r = problem.solve(ctx, t, dt);
+      if (!r.status) {
+        std::cerr << "step " << i + 1 << ": not converged\n";
+        abort(EXIT_FAILURE);
+      }
+      iterations.push_back(r.iterations);
+      problem.update(ctx) | or_die;
+      t += dt;
+    }
+    auto total =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    // norm of the final solution, to compare the solvers
+    const auto& u = problem.getUnknowns(bts);
+    auto unorm = mfem::InnerProduct(u, u);
+#ifdef MFEM_USE_MPI
+    if (parallel) {
+      MPI_Allreduce(MPI_IN_PLACE, &unorm, 1, MPI_DOUBLE, MPI_SUM,
+                    MPI_COMM_WORLD);
+      MPI_Allreduce(MPI_IN_PLACE, &total, 1, MPI_DOUBLE, MPI_MAX,
+                    MPI_COMM_WORLD);
+    }
+#endif /* MFEM_USE_MPI */
+    const auto& fed = problem.getFiniteElementDiscretization();
+    const auto ndofs =
+        fed.describesAParallelComputation()
+            ? static_cast<long long>(
+                  fed.getFiniteElementSpace<true>().GlobalTrueVSize())
+            : static_cast<long long>(
+                  fed.getFiniteElementSpace<false>().GetTrueVSize());
+    if (isMainProcess(fed)) {
+      auto sum = 0;
+      std::cout << "dofs " << ndofs << " | ls " << ls << " | ||u|| "
+                << std::setprecision(10) << std::sqrt(unorm)
+                << " | iterations per step:";
+      for (const auto n : iterations) {
+        std::cout << ' ' << n;
+        sum += n;
+      }
+      std::cout << " | total " << sum << '\n'
+                << std::fixed << std::setprecision(3) << "time " << total
+                << " s\n";
+    }
+    if ((expected_norm >= 0) && (std::abs(std::sqrt(unorm) - expected_norm) >
+                                 norm_tolerance * expected_norm)) {
+      if (isMainProcess(fed)) {
+        std::cerr << "the norm of the solution differs from the expected one ("
+                  << std::setprecision(10) << expected_norm << ")\n";
+      }
+      success = false;
+    }
+    if (profiling) {
+      Profiler::OutputManager::printTimeTable(ctx);
+    }
+  }  // the problem is destroyed before the finalization of MPI
+  finalize();
+  return success ? EXIT_SUCCESS : EXIT_FAILURE;
+}  // end of main
