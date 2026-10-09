@@ -92,11 +92,12 @@ separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
 # `-isystem` is followed by its directory: both are given together, since
 # `add_compile_options` removes duplicated options. The flags written in
 # the syntax of nvcc are given as such to the sources compiled as CUDA code
-# (see `mfem_mgis_compile_as_device_code`) and translated for the others.
+# by nvcc (see `MFEMMGISDeviceCode.cmake`) and translated for the others.
 set(_isystem OFF)
+set(_nvcc "$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CUDA_COMPILER_ID:NVIDIA>>")
 foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
   if(_isystem)
-    add_compile_options("SHELL:-isystem ${FLAG}")
+    add_compile_options("SHELL:-isystem \"${FLAG}\"")
     set(_isystem OFF)
   elseif(FLAG STREQUAL "-isystem")
     set(_isystem ON)
@@ -106,40 +107,18 @@ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
       add_compile_options(${FLAG})
     else()
       foreach(_host_flag IN LISTS _host_flags)
-        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${_host_flag}>")
+        add_compile_options("$<$<NOT:${_nvcc}>:${_host_flag}>")
       endforeach(_host_flag)
-      add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:${FLAG}>")
+      add_compile_options("$<${_nvcc}:${FLAG}>")
     endif()
   endif()
 endforeach(FLAG)
 
-# GPU architecture of MFEM compiled with CUDA (`-arch=sm_XX` in the flags of
-# nvcc), given to the sources compiled as CUDA code
-set(MFEM_CUDA_ARCHITECTURES "")
-if(MFEM_USE_CUDA STREQUAL "YES")
-  if(MFEM_CXXFLAGS MATCHES "-arch=sm_([0-9]+)")
-    set(MFEM_CUDA_ARCHITECTURES "${CMAKE_MATCH_1}")
-  endif()
-endif()
-
-# usage: mfem_mgis_compile_as_device_code(target sources...)
-# Sources containing kernels of MFEM (`mfem::forall`) are compiled as CUDA
-# code when MFEM is compiled with CUDA (MFEM requires it), with the options
-# of nvcc required by the kernels of MFEM. The project must have enabled the
-# CUDA language in this case. Otherwise, nothing is done.
-function(mfem_mgis_compile_as_device_code target)
-  if(MFEM_USE_CUDA STREQUAL "YES")
-    set_source_files_properties(${ARGN}
-      TARGET_DIRECTORY ${target} PROPERTIES LANGUAGE CUDA)
-    set_target_properties(${target} PROPERTIES
-      CUDA_STANDARD 20
-      CUDA_ARCHITECTURES "${MFEM_CUDA_ARCHITECTURES}"
-      LINKER_LANGUAGE CXX)
-    target_compile_options(${target} PRIVATE
-      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
-      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
-  endif()
-endfunction(mfem_mgis_compile_as_device_code)
+# Description of MFEM used to compile its kernels (see
+# `MFEMMGISDeviceCode.cmake`)
+include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISDeviceCode.cmake")
+mfem_mgis_set_mfem_device_properties("${MFEM_USE_CUDA}" "${MFEM_USE_HIP}"
+  "${MFEM_CXX}" "${MFEM_HOST_CXX}" "${MFEM_CXXFLAGS}")
 
 
 # Find the library

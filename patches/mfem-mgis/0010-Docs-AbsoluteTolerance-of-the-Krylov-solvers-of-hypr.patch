@@ -1,0 +1,43 @@
+From 9039f117a8db198a022c30bdf855b61351ff4ead Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 13:58:04 +0200
+Subject: [PATCH] Docs: AbsoluteTolerance of the Krylov solvers of hypre
+
+---
+ docs/source/user_guide/glossary.rst | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index b0cabe023f..50100011f9 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -282,6 +282,8 @@ Preconditioned Conjugate Gradient (HyprePCG)
+ +-------------------------------+--------------------------------------------------+
+ | ``Tolerance``                 | Define the tolerance, >0. [double]               |
+ +-------------------------------+--------------------------------------------------+
++| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
+++-------------------------------+--------------------------------------------------+
+ | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
+ +-------------------------------+--------------------------------------------------+
+ 
+@@ -323,6 +325,8 @@ Generalized Minimal Residual (HypreGMRES)
+ +-------------------------------+--------------------------------------------------+
+ | ``Tolerance``                 | Define the tolerance, >0. [double]               |
+ +-------------------------------+--------------------------------------------------+
++| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
+++-------------------------------+--------------------------------------------------+
+ | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
+ +-------------------------------+--------------------------------------------------+
+ 
+@@ -364,6 +368,8 @@ Flexible GMRES (HypreFGMRES)
+ +-------------------------------+--------------------------------------------------+
+ | ``Tolerance``                 | Define the tolerance, >0. [double]               |
+ +-------------------------------+--------------------------------------------------+
++| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
+++-------------------------------+--------------------------------------------------+
+ | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
+ +-------------------------------+--------------------------------------------------+
+ 
+-- 
+2.43.0
+

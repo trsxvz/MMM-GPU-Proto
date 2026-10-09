@@ -29,6 +29,27 @@ if (NOT TARGET MFEM::mfem)
 
 endif(NOT TARGET MFEM::mfem)
 
+# Compilation of the sources containing kernels of MFEM: if MFEM was found
+# before mfem-mgis, the description of MFEM is the one used to build
+# mfem-mgis
+include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISDeviceCode.cmake")
+get_property(_mfem_mgis_mfem_described GLOBAL
+             PROPERTY MFEM_MGIS_MFEM_USE_CUDA SET)
+if(NOT _mfem_mgis_mfem_described)
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA
+               "@MFEM_MGIS_MFEM_USE_CUDA@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP
+               "@MFEM_MGIS_MFEM_USE_HIP@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_COMPILER
+               "@MFEM_MGIS_MFEM_CUDA_COMPILER@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_HOST_COMPILER
+               "@MFEM_MGIS_MFEM_CUDA_HOST_COMPILER@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES
+               "@MFEM_MGIS_MFEM_CUDA_ARCHITECTURES@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD
+               "@MFEM_MGIS_MFEM_CXX_STANDARD@")
+endif()
+
 # Require MGIS
 if (NOT TARGET mgis::MFrontGenericInterface)
   set(_MGIS_MODULE_PATH "@MFrontGenericInterface_DIR@")

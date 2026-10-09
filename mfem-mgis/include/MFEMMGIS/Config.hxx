@@ -127,6 +127,14 @@ namespace mfem_mgis {
    *
    * In parallel, this function calls the `MPI_Init` function.
    * It is safe to call this function multiple times.
+   *
+   * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
+   * device is created with this configuration (for instance `cuda`), after
+   * the initialization of hypre and before the one of PETSc. The processes
+   * of a node use the GPUs of the node in turn. An application which uses
+   * this option must neither create its own `mfem::Device` (MFEM refuses a
+   * second configuration of the device) nor declare its own `--device`,
+   * `-dev` options.
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!

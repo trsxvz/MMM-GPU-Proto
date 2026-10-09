@@ -749,34 +749,46 @@ if(MFEM_MGIS_HAVE_TFEL)
         "$<TARGET_FILE:BehaviourTest>")
   endif()
 
-  # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
-  # when MFEM is compiled with CUDA
-  add_test_executable(DeviceForallTest)
-  mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
-  add_test(NAME DeviceForallTest-cpu
-           COMMAND DeviceForallTest --expected cpu)
-  if(MFEM_USE_CUDA STREQUAL "YES")
-    add_test(NAME DeviceForallTest-cuda
-             COMMAND DeviceForallTest --device cuda --expected cuda)
-  endif()
-
-  # DeviceOptionTest executable
-  add_test_executable(DeviceOptionTest)
-  add_test(NAME DeviceOptionTest-none
-           COMMAND DeviceOptionTest --expected none)
-  add_test(NAME DeviceOptionTest-debug
-           COMMAND DeviceOptionTest --device debug --expected debug)
-
   # HypreBoomerAMGTest executable
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)
     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
-    add_test_executable(HypreKrylovAbsoluteToleranceTest)
-    add_test(NAME HypreKrylovAbsoluteToleranceTestP
-             COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)
+
+# HypreKrylovAbsoluteToleranceTest executable
+if(MFEM_USE_MPI)
+  add_test_executable(HypreKrylovAbsoluteToleranceTest)
+  add_test(NAME HypreKrylovAbsoluteToleranceTestP
+           COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
+endif(MFEM_USE_MPI)
+
+# DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
+# when MFEM is compiled with CUDA. The test on the GPU requires one.
+add_test_executable(DeviceForallTest)
+mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
+add_test(NAME DeviceForallTest-cpu
+         COMMAND DeviceForallTest --expected cpu)
+if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+  add_test(NAME DeviceForallTest-cuda
+           COMMAND DeviceForallTest --device cuda --expected cuda)
+  # the processes of a node use its GPUs in turn
+  if(MFEM_USE_MPI)
+    add_test(NAME DeviceForallTestP-cuda
+             COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
+                     --expected cuda)
+  endif(MFEM_USE_MPI)
+endif()
+
+# DeviceOptionTest executable
+add_test_executable(DeviceOptionTest)
+add_test(NAME DeviceOptionTest-none
+         COMMAND DeviceOptionTest --expected none)
+add_test(NAME DeviceOptionTest-debug
+         COMMAND DeviceOptionTest --device debug --expected debug)
+add_test(NAME DeviceOptionTest-debug-short
+         COMMAND DeviceOptionTest -dev debug --expected debug)
 
 # Install the example 1, based on UniaxialTensileTest
 

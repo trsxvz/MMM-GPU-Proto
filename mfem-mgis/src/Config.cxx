@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <memory>
+#include <string_view>
 #include <iostream>
 #ifdef MFEM_USE_MPI
 #include "mpi.h"
@@ -33,6 +34,8 @@ namespace mfem_mgis {
     static const char* const petsc_configuration_file_option;
     //! \brief option used to select the configuration of the MFEM device
     static const char* const device_option;
+    //! \brief short name of the option `device_option`
+    static const char* const device_short_option;
     //! \return the unique instance of this class
     static Finalizer& get();
     /*!
@@ -80,6 +83,45 @@ namespace mfem_mgis {
 
   const char* const Finalizer::device_option = "--device";
 
+  const char* const Finalizer::device_short_option = "-dev";
+
+  /*!
+   * \return the identifier of the GPU used by this process: the processes
+   * of a node use the GPUs of the node in turn (several processes may share
+   * a GPU)
+   * \param[in] configuration: configuration of the device
+   */
+  static int getDeviceIdentifier(const char* const configuration) {
+#if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
+    // MFEM aborts if the number of GPUs is queried on a machine without GPU:
+    // it is only queried for a configuration using a GPU
+    const auto c = std::string_view{configuration};
+    if ((c.find("cuda") == std::string_view::npos) &&
+        (c.find("hip") == std::string_view::npos)) {
+      return 0;
+    }
+    const auto n = mfem::Device::GetDeviceCount();
+    if (n <= 0) {
+      return 0;
+    }
+#ifdef MFEM_USE_MPI
+    auto local = MPI_Comm{};
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
+                        &local);
+    auto r = int{};
+    MPI_Comm_rank(local, &r);
+    MPI_Comm_free(&local);
+    return r % n;
+#else  /* MFEM_USE_MPI */
+    return 0;
+#endif /* MFEM_USE_MPI */
+#else  /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
+    // without GPU support, MFEM aborts if the number of GPUs is queried
+    static_cast<void>(configuration);
+    return 0;
+#endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
+  }  // end of getDeviceIdentifier
+
   Finalizer::Finalizer() = default;
 
 #ifdef MFEM_USE_PETSC
@@ -99,7 +141,8 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_PETSC */
     const char* device_configuration = nullptr;
     for (const auto* a = argv; a != argv + argc; ++a) {
-      if (std::strcmp(*a, device_option) == 0) {
+      if ((std::strcmp(*a, device_option) == 0) ||
+          (std::strcmp(*a, device_short_option) == 0)) {
         if (device_configuration != nullptr) {
           mgis::raise("initialize: MFEM device already specified");
         }
@@ -111,10 +154,17 @@ namespace mfem_mgis {
         continue;
       }
 #ifdef MFEM_USE_PETSC
-      if (std::strcmp(*a, "--use-petsc") == 0) {
+      // long and short names, as declared by `declareDefaultOptions`
+      if ((std::strcmp(*a, "--use-petsc") == 0) ||
+          (std::strcmp(*a, "-up") == 0)) {
         this->use_petsc = true;
       }
-      if (std::strcmp(*a, petsc_configuration_file_option) == 0) {
+      if ((std::strcmp(*a, "--donot-use-petsc") == 0) ||
+          (std::strcmp(*a, "-no-up") == 0)) {
+        this->use_petsc = false;
+      }
+      if ((std::strcmp(*a, petsc_configuration_file_option) == 0) ||
+          (std::strcmp(*a, "petscrc_file") == 0)) {
         if (petscrc_file != nullptr) {
           mgis::raise("initialize: PETSc configuration file already specified");
         }
@@ -127,6 +177,13 @@ namespace mfem_mgis {
       }
 #endif /* MFEM_USE_PETSC */
     }
+    // the device is configured after the initialization of hypre and
+    // before the one of PETSc, which uses the GPU of the device, as in the
+    // parallel examples of MFEM
+    if (device_configuration != nullptr) {
+      this->device = std::make_unique<mfem::Device>(
+          device_configuration, getDeviceIdentifier(device_configuration));
+    }
 #ifdef MFEM_USE_PETSC
     if (this->use_petsc) {
       if (petscrc_file == nullptr) {
@@ -135,11 +192,6 @@ namespace mfem_mgis {
       mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
     }
 #endif /* MFEM_USE_PETSC */
-    // the device is configured after the initialization of hypre, as in
-    // the parallel examples of MFEM
-    if (device_configuration != nullptr) {
-      this->device = std::make_unique<mfem::Device>(device_configuration);
-    }
   }    // end of initialize
 
   Finalizer& Finalizer::get() {
@@ -241,11 +293,13 @@ namespace mfem_mgis {
   void declareDefaultOptions(mfem::OptionsParser& parser) {
     // the device is created by `initialize`: the option is only declared
     // here, so that the parser accepts it
-    static const char* device_configuration = "cpu";
-    parser.AddOption(&device_configuration, "-dev", Finalizer::device_option,
+    static const char* device_configuration = "";
+    parser.AddOption(&device_configuration, Finalizer::device_short_option,
+                     Finalizer::device_option,
                      "Configuration of the MFEM device (for instance cpu, "
                      "cuda, hip, omp or debug), created by "
-                     "mfem_mgis::initialize.");
+                     "mfem_mgis::initialize. No device is created by "
+                     "default.");
 #ifdef MFEM_USE_PETSC
     static bool use_petsc = false;
     static const char* petscrc_file = "";

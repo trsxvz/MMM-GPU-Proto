@@ -253,8 +253,16 @@ If left unchanged, those default values select:
 -  the standard formulation, without FBar.
 -  no comparison to reference values.
 
+The ``mfem_mgis::declareDefaultOptions`` function adds the option
+``--device`` (or ``-dev``), which selects the configuration of the
+``MFEM`` device (for instance ``cuda``). The device is created by
+``mfem_mgis::initialize``; no device is created if the option is not
+given. An application using this option must not create its own
+``mfem::Device`` nor declare its own ``--device`` option.
+
 If ``MFEM`` was built with support of ``PETSc`` library, the following
-options are added by the ``mfem_mgis::declareDefaultOptions`` function:
+options are also added by the ``mfem_mgis::declareDefaultOptions``
+function:
 
 -  ``--use-petsc`` which specifies that linear and non linear solvers of
    the ``PETSc`` toolkit must be used.

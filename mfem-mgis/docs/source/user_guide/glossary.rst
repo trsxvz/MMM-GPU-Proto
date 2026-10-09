@@ -282,6 +282,8 @@ Preconditioned Conjugate Gradient (HyprePCG)
 +-------------------------------+--------------------------------------------------+
 | ``Tolerance``                 | Define the tolerance, >0. [double]               |
 +-------------------------------+--------------------------------------------------+
+| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
++-------------------------------+--------------------------------------------------+
 | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
 +-------------------------------+--------------------------------------------------+
 
@@ -323,6 +325,8 @@ Generalized Minimal Residual (HypreGMRES)
 +-------------------------------+--------------------------------------------------+
 | ``Tolerance``                 | Define the tolerance, >0. [double]               |
 +-------------------------------+--------------------------------------------------+
+| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
++-------------------------------+--------------------------------------------------+
 | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
 +-------------------------------+--------------------------------------------------+
 
@@ -363,6 +367,8 @@ Flexible GMRES (HypreFGMRES)
 | ``VerbosityLevel``            | Define the verbosity of the solver. [int: 0,1]   |
 +-------------------------------+--------------------------------------------------+
 | ``Tolerance``                 | Define the tolerance, >0. [double]               |
++-------------------------------+--------------------------------------------------+
+| ``AbsoluteTolerance``         | Define the absolute tolerance, >= 0. [double]    |
 +-------------------------------+--------------------------------------------------+
 | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
 +-------------------------------+--------------------------------------------------+
