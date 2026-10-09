@@ -89,9 +89,10 @@ function(mfem_mgis_host_flags out)
 endfunction(mfem_mgis_host_flags)
 
 separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
-mfem_mgis_host_flags(MFEM_EXTRA_INC_DIRS ${MFEM_EXTRA_INC_DIRS})
 # `-isystem` is followed by its directory: both are given together, since
-# `add_compile_options` removes duplicated options
+# `add_compile_options` removes duplicated options. The flags written in
+# the syntax of nvcc are given as such to the sources compiled as CUDA code
+# (see `mfem_mgis_compile_as_device_code`) and translated for the others.
 set(_isystem OFF)
 foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
   if(_isystem)
@@ -100,9 +101,45 @@ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
   elseif(FLAG STREQUAL "-isystem")
     set(_isystem ON)
   else()
-    add_compile_options(${FLAG})
+    mfem_mgis_host_flags(_host_flags ${FLAG})
+    if("${_host_flags}" STREQUAL "${FLAG}")
+      add_compile_options(${FLAG})
+    else()
+      foreach(_host_flag IN LISTS _host_flags)
+        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${_host_flag}>")
+      endforeach(_host_flag)
+      add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:${FLAG}>")
+    endif()
   endif()
 endforeach(FLAG)
+
+# GPU architecture of MFEM compiled with CUDA (`-arch=sm_XX` in the flags of
+# nvcc), given to the sources compiled as CUDA code
+set(MFEM_CUDA_ARCHITECTURES "")
+if(MFEM_USE_CUDA STREQUAL "YES")
+  if(MFEM_CXXFLAGS MATCHES "-arch=sm_([0-9]+)")
+    set(MFEM_CUDA_ARCHITECTURES "${CMAKE_MATCH_1}")
+  endif()
+endif()
+
+# usage: mfem_mgis_compile_as_device_code(target sources...)
+# Sources containing kernels of MFEM (`mfem::forall`) are compiled as CUDA
+# code when MFEM is compiled with CUDA (MFEM requires it), with the options
+# of nvcc required by the kernels of MFEM. The project must have enabled the
+# CUDA language in this case. Otherwise, nothing is done.
+function(mfem_mgis_compile_as_device_code target)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    set_source_files_properties(${ARGN}
+      TARGET_DIRECTORY ${target} PROPERTIES LANGUAGE CUDA)
+    set_target_properties(${target} PROPERTIES
+      CUDA_STANDARD 20
+      CUDA_ARCHITECTURES "${MFEM_CUDA_ARCHITECTURES}"
+      LINKER_LANGUAGE CXX)
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+  endif()
+endfunction(mfem_mgis_compile_as_device_code)
 
 
 # Find the library

@@ -749,6 +749,17 @@ if(MFEM_MGIS_HAVE_TFEL)
         "$<TARGET_FILE:BehaviourTest>")
   endif()
 
+  # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
+  # when MFEM is compiled with CUDA
+  add_test_executable(DeviceForallTest)
+  mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
+  add_test(NAME DeviceForallTest-cpu
+           COMMAND DeviceForallTest --expected cpu)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    add_test(NAME DeviceForallTest-cuda
+             COMMAND DeviceForallTest --device cuda --expected cuda)
+  endif()
+
   # DeviceOptionTest executable
   add_test_executable(DeviceOptionTest)
   add_test(NAME DeviceOptionTest-none

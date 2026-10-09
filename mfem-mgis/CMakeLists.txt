@@ -40,6 +40,11 @@ if(MFEM_DIR)
   set(MFEM_MGIS_MFEM_DIR "${MFEM_DIR}")
 endif(MFEM_DIR)
 find_package(MFEM REQUIRED)
+# MFEM compiled with CUDA: the sources containing kernels of MFEM are
+# compiled as CUDA code (see `mfem_mgis_compile_as_device_code`)
+if(MFEM_USE_CUDA STREQUAL "YES")
+  enable_language(CUDA)
+endif()
 
 if (MFEM_USE_MPI)
   message(STATUS "MFEM: using MPI, so mfem_mgis will use MPI")

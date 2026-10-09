@@ -30,6 +30,8 @@ build() {
     cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
       -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
+      -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
+      -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
       "$@"
   fi
   cmake --build "$b" -j "$JOBS"

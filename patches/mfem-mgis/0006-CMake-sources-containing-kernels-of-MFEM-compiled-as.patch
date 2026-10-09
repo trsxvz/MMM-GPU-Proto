@@ -1,0 +1,197 @@
+From eed4b597f08a8cad10911d609cc02cb74bb9725d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 13:15:45 +0200
+Subject: [PATCH] CMake: sources containing kernels of MFEM compiled as CUDA
+ code
+
+When MFEM is compiled with CUDA, its kernels (mfem::forall) must be
+compiled as CUDA code (static assertion of MFEM 4.10). The CUDA language
+is enabled, and the new function mfem_mgis_compile_as_device_code
+compiles the given sources of a target as CUDA code, with the
+architecture of MFEM and the options of nvcc required by the kernels of
+MFEM (extended lambdas, relaxed constexpr). The flags of MFEM written in
+the syntax of nvcc are given as such to these sources, and translated for
+the sources compiled by the C++ compiler. Nothing changes when MFEM is not
+compiled with CUDA.
+
+New test DeviceForallTest: a kernel of MFEM in a source of mfem-mgis, run
+on the host and, when MFEM is compiled with CUDA, on the CUDA device.
+---
+ CMakeLists.txt               |  5 +++
+ cmake/modules/FindMFEM.cmake | 43 ++++++++++++++++++++++++--
+ tests/CMakeLists.txt         | 11 +++++++
+ tests/DeviceForallTest.cxx   | 59 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 115 insertions(+), 3 deletions(-)
+ create mode 100644 tests/DeviceForallTest.cxx
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b0100e2673..db169c6064 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -40,6 +40,11 @@ if(MFEM_DIR)
+   set(MFEM_MGIS_MFEM_DIR "${MFEM_DIR}")
+ endif(MFEM_DIR)
+ find_package(MFEM REQUIRED)
++# MFEM compiled with CUDA: the sources containing kernels of MFEM are
++# compiled as CUDA code (see `mfem_mgis_compile_as_device_code`)
++if(MFEM_USE_CUDA STREQUAL "YES")
++  enable_language(CUDA)
++endif()
+ 
+ if (MFEM_USE_MPI)
+   message(STATUS "MFEM: using MPI, so mfem_mgis will use MPI")
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index aea8ca2c11..4519995052 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -89,9 +89,10 @@ function(mfem_mgis_host_flags out)
+ endfunction(mfem_mgis_host_flags)
+ 
+ separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
+-mfem_mgis_host_flags(MFEM_EXTRA_INC_DIRS ${MFEM_EXTRA_INC_DIRS})
+ # `-isystem` is followed by its directory: both are given together, since
+-# `add_compile_options` removes duplicated options
++# `add_compile_options` removes duplicated options. The flags written in
++# the syntax of nvcc are given as such to the sources compiled as CUDA code
++# (see `mfem_mgis_compile_as_device_code`) and translated for the others.
+ set(_isystem OFF)
+ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
+   if(_isystem)
+@@ -100,10 +101,46 @@ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
+   elseif(FLAG STREQUAL "-isystem")
+     set(_isystem ON)
+   else()
+-    add_compile_options(${FLAG})
++    mfem_mgis_host_flags(_host_flags ${FLAG})
++    if("${_host_flags}" STREQUAL "${FLAG}")
++      add_compile_options(${FLAG})
++    else()
++      foreach(_host_flag IN LISTS _host_flags)
++        add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${_host_flag}>")
++      endforeach(_host_flag)
++      add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:${FLAG}>")
++    endif()
+   endif()
+ endforeach(FLAG)
+ 
++# GPU architecture of MFEM compiled with CUDA (`-arch=sm_XX` in the flags of
++# nvcc), given to the sources compiled as CUDA code
++set(MFEM_CUDA_ARCHITECTURES "")
++if(MFEM_USE_CUDA STREQUAL "YES")
++  if(MFEM_CXXFLAGS MATCHES "-arch=sm_([0-9]+)")
++    set(MFEM_CUDA_ARCHITECTURES "${CMAKE_MATCH_1}")
++  endif()
++endif()
++
++# usage: mfem_mgis_compile_as_device_code(target sources...)
++# Sources containing kernels of MFEM (`mfem::forall`) are compiled as CUDA
++# code when MFEM is compiled with CUDA (MFEM requires it), with the options
++# of nvcc required by the kernels of MFEM. The project must have enabled the
++# CUDA language in this case. Otherwise, nothing is done.
++function(mfem_mgis_compile_as_device_code target)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    set_source_files_properties(${ARGN}
++      TARGET_DIRECTORY ${target} PROPERTIES LANGUAGE CUDA)
++    set_target_properties(${target} PROPERTIES
++      CUDA_STANDARD 20
++      CUDA_ARCHITECTURES "${MFEM_CUDA_ARCHITECTURES}"
++      LINKER_LANGUAGE CXX)
++    target_compile_options(${target} PRIVATE
++      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
++      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
++  endif()
++endfunction(mfem_mgis_compile_as_device_code)
++
+ 
+ # Find the library
+ find_library(MFEM_LIBRARY mfem
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 95f4398a01..554f2d6e8a 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -749,6 +749,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+         "$<TARGET_FILE:BehaviourTest>")
+   endif()
+ 
++  # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
++  # when MFEM is compiled with CUDA
++  add_test_executable(DeviceForallTest)
++  mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
++  add_test(NAME DeviceForallTest-cpu
++           COMMAND DeviceForallTest --expected cpu)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    add_test(NAME DeviceForallTest-cuda
++             COMMAND DeviceForallTest --device cuda --expected cuda)
++  endif()
++
+   # DeviceOptionTest executable
+   add_test_executable(DeviceOptionTest)
+   add_test(NAME DeviceOptionTest-none
+diff --git a/tests/DeviceForallTest.cxx b/tests/DeviceForallTest.cxx
+new file mode 100644
+index 0000000000..35257096a5
+--- /dev/null
++++ b/tests/DeviceForallTest.cxx
+@@ -0,0 +1,59 @@
++/*!
++ * \file   DeviceForallTest.cxx
++ * \brief  Test of a kernel of MFEM (`mfem::forall`) in a source of mfem-mgis
++ * compiled as CUDA code when MFEM is compiled with CUDA, on the device
++ * selected by the `--device` option
++ * \date   09/10/2026
++ */
++
++#include <cstdlib>
++#include <cstring>
++#include <iostream>
++#include "mfem/general/device.hpp"
++#include "mfem/general/forall.hpp"
++#include "mfem/general/optparser.hpp"
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++int main(int argc, char** argv) {
++  mfem_mgis::initialize(argc, argv);
++  // `cpu` if the kernel is expected to run on the host, `cuda` if it is
++  // expected to run on a CUDA device
++  const char* expected = "cpu";
++  auto args = mfem::OptionsParser(argc, argv);
++  mfem_mgis::declareDefaultOptions(args);
++  args.AddOption(&expected, "-e", "--expected",
++                 "expected backend of the kernel: cpu or cuda");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  const auto cuda = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
++  if ((std::strcmp(expected, "cuda") == 0) != cuda) {
++    std::cerr << "unexpected backend\n";
++    return EXIT_FAILURE;
++  }
++  constexpr int n = 1000;
++  auto v = mfem::Vector(n);
++  v.UseDevice(true);
++  auto* const d = v.Write();
++  mfem::forall(n, [=] MFEM_HOST_DEVICE(int i) { d[i] = 2 * i + 1; });
++  // the values are written by the kernel where the vector lives (on the
++  // device for a CUDA device), then copied to the host
++  const auto* const h = v.HostRead();
++  for (int i = 0; i != n; ++i) {
++    if (h[i] != 2 * i + 1) {
++      std::cerr << "invalid value at " << i << ": " << h[i] << '\n';
++      return EXIT_FAILURE;
++    }
++  }
++  // with a CUDA device, the values have been computed on the device
++  if (cuda && !v.GetMemory().DeviceIsValid()) {
++    std::cerr << "the vector is not valid on the device\n";
++    return EXIT_FAILURE;
++  }
++  std::cout << "kernel run on the " << (cuda ? "CUDA device" : "host")
++            << '\n';
++  return EXIT_SUCCESS;
++}  // end of main
+-- 
+2.43.0
+
