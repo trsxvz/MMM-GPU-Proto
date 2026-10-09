@@ -242,7 +242,18 @@ namespace mfem_mgis {
                 "the Operator is not set (use SetOperator).");
     MFEM_ASSERT(this->prec != nullptr,
                 "the Solver is not set (use setLinearSolver).");
-    this->prec->SetOperator(this->getJacobian(u));
+    // the assembly of the tangent operator and the setup of the linear solver
+    // (and of its preconditioner) are timed separately
+    auto &J = this->getJacobian(u);
+    {
+      auto profiler_setup =
+          this->ctx_ptr != nullptr
+              ? this->ctx_ptr->startNewProfiling(
+                    "NS::setLinearSolverOperator",
+                    this->ctx_ptr->isProfilingEnabled())
+              : mgis::ProfilingSection{};
+      this->prec->SetOperator(J);
+    }
     {
       auto profiler_mfem =
           this->ctx_ptr != nullptr

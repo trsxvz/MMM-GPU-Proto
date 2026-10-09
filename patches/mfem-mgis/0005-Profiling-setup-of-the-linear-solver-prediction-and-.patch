@@ -1,0 +1,82 @@
+From 175751d6616237e08594bd8fb7c50ca16adb51af Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 12:58:54 +0200
+Subject: [PATCH] Profiling: setup of the linear solver, prediction and end of
+ time step
+
+- NS::setLinearSolverOperator: the operator given to the linear solver
+  (and to its preconditioner) is timed separately from the assembly of the
+  tangent operator (NS::getJacobian). Note that the hypre solvers build
+  their preconditioner at their first Mult (lazy setup): it is then timed
+  in MFEM::Mult(r,c).
+- NLEPIB::computePrediction, NLEPIB::update, NLEPIB::revert: new sections.
+---
+ src/NewtonSolver.cxx                                | 13 ++++++++++++-
+ src/NonLinearEvolutionProblemImplementationBase.cxx | 13 ++++++++++---
+ 2 files changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index 4ec24fd37f..9b384512a0 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -242,7 +242,18 @@ namespace mfem_mgis {
+                 "the Operator is not set (use SetOperator).");
+     MFEM_ASSERT(this->prec != nullptr,
+                 "the Solver is not set (use setLinearSolver).");
+-    this->prec->SetOperator(this->getJacobian(u));
++    // the assembly of the tangent operator and the setup of the linear solver
++    // (and of its preconditioner) are timed separately
++    auto &J = this->getJacobian(u);
++    {
++      auto profiler_setup =
++          this->ctx_ptr != nullptr
++              ? this->ctx_ptr->startNewProfiling(
++                    "NS::setLinearSolverOperator",
++                    this->ctx_ptr->isProfilingEnabled())
++              : mgis::ProfilingSection{};
++      this->prec->SetOperator(J);
++    }
+     {
+       auto profiler_mfem =
+           this->ctx_ptr != nullptr
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index d2913c24ff..f337aec71b 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -101,7 +101,9 @@ namespace mfem_mgis {
+     return this->u1;
+   }  // end of getUnknowns
+ 
+-  bool NonLinearEvolutionProblemImplementationBase::revert(Context&) noexcept {
++  bool NonLinearEvolutionProblemImplementationBase::revert(
++      Context& ctx) noexcept {
++    CatchTimeSection(ctx, "NLEPIB::revert");
+     this->u1 = this->u0;
+     if (this->mgis_integrator != nullptr) {
+       this->mgis_integrator->revert();
+@@ -109,7 +111,9 @@ namespace mfem_mgis {
+     return true;
+   }  // end of revert
+ 
+-  bool NonLinearEvolutionProblemImplementationBase::update(Context&) noexcept {
++  bool NonLinearEvolutionProblemImplementationBase::update(
++      Context& ctx) noexcept {
++    CatchTimeSection(ctx, "NLEPIB::update");
+     this->u0 = this->u1;
+     if (this->mgis_integrator != nullptr) {
+       this->mgis_integrator->update();
+@@ -449,7 +453,10 @@ namespace mfem_mgis {
+     NonLinearResolutionOutput output;
+     if (this->prediction_policy.strategy !=
+         PredictionStrategy::DEFAULT_PREDICTION) {
+-      const auto onorm = this->computePrediction(ctx, t, dt);
++      const auto onorm = [this, &ctx, t, dt] {
++        CatchTimeSection(ctx, "NLEPIB::computePrediction");
++        return this->computePrediction(ctx, t, dt);
++      }();
+       if (isInvalid(onorm)) {
+         output.status = false;
+         return output;
+-- 
+2.43.0
+

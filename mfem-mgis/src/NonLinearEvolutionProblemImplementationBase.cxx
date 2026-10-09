@@ -101,7 +101,9 @@ namespace mfem_mgis {
     return this->u1;
   }  // end of getUnknowns
 
-  bool NonLinearEvolutionProblemImplementationBase::revert(Context&) noexcept {
+  bool NonLinearEvolutionProblemImplementationBase::revert(
+      Context& ctx) noexcept {
+    CatchTimeSection(ctx, "NLEPIB::revert");
     this->u1 = this->u0;
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->revert();
@@ -109,7 +111,9 @@ namespace mfem_mgis {
     return true;
   }  // end of revert
 
-  bool NonLinearEvolutionProblemImplementationBase::update(Context&) noexcept {
+  bool NonLinearEvolutionProblemImplementationBase::update(
+      Context& ctx) noexcept {
+    CatchTimeSection(ctx, "NLEPIB::update");
     this->u0 = this->u1;
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->update();
@@ -449,7 +453,10 @@ namespace mfem_mgis {
     NonLinearResolutionOutput output;
     if (this->prediction_policy.strategy !=
         PredictionStrategy::DEFAULT_PREDICTION) {
-      const auto onorm = this->computePrediction(ctx, t, dt);
+      const auto onorm = [this, &ctx, t, dt] {
+        CatchTimeSection(ctx, "NLEPIB::computePrediction");
+        return this->computePrediction(ctx, t, dt);
+      }();
       if (isInvalid(onorm)) {
         output.status = false;
         return output;
