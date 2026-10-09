@@ -1,0 +1,1951 @@
+From d2ce6e3831f284e9d4dc8e9d69a265e48223992a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 16:33:19 +0200
+Subject: [PATCH] Material arrays: review of lot L1
+
+Synchronization of the arrays of the materials on the host:
+- `solve` synchronizes them before the resolution: with PETSc, the
+  behaviours are integrated by the assembly of the residual, without
+  `integrate`;
+- `PointWiseModel::computeNextState` synchronizes them before the
+  integration by MGIS;
+- `computeResultantForceOnBoundary` and
+  `computeMeanThermodynamicForcesValues` synchronize the selected
+  materials for reading;
+- the rotated thermodynamic forces and gradients evaluators synchronize
+  their material for reading in `check`, and refuse the component by
+  component layout (`checkPointByPointLayout`, now exported);
+- the post-processings synchronize the materials for reading, keeping
+  the copies on the device valid;
+- `update` and `revert` synchronize once, in `Material`.
+The complete rule is documented: a phase of accesses on the host starts
+with the synchronization, and no access on the device may happen during
+this phase.
+
+`MaterialArrays`: the arrays are private (no reallocation behind MGIS),
+accessed through `getArray`, `ReadWrite`, `Write`; sizes computed with
+`std::size_t` (the checks against the range of MFEM could not fail).
+`Material::updateMaterialStates` and `revertMaterialStates` use
+`mgis::HostFieldOperations`, which copies dense arrays at once (the
+generic kernels were 3.5 to 12 times slower on the host);
+`MFEMFieldOperations` delegates to it on the host. The synchronizations
+called by `noexcept` functions report the exceptions in the context.
+
+PartialQuadratureSpace: number of points counted on 64 bits and checked;
+the element numbers are documented as local numbers.
+
+CMake: the library carries its dependency to the runtime of CUDA
+(`CUDA::cudart`); the version of MGIS is checked at configuration (field
+operations); with MFEM compiled with HIP, the sources containing kernels
+of MFEM are left out instead of failing the configuration.
+
+Tests: each entry point (accessors, integration, post-processings,
+revert, update) is called after writing all the arrays on the device;
+update and revert in both layouts; the six accessors refused in the
+component by component layout; a behaviour computing the stored energy;
+a material without point; copies and fills of views in both directions
+and layouts. Removing the synchronization of the integration, of revert,
+of update, of the tangent operator blocks or of an accessor makes the
+test fail (debug device, and cuda device where values are compared).
+---
+ CMakeLists.txt                                |  12 +
+ .../MFEMMGIS/Batch/MFEMFieldOperations.hxx    |  21 +-
+ include/MFEMMGIS/Material.hxx                 |  45 ++-
+ include/MFEMMGIS/MaterialArrays.hxx           | 109 ++++--
+ .../MultiMaterialNonLinearIntegrator.hxx      |   6 +
+ ...onLinearEvolutionProblemImplementation.ixx |  56 ++-
+ include/MFEMMGIS/PartialQuadratureSpace.hxx   |  22 +-
+ include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx  |  12 +-
+ include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx  |  14 +
+ include/MFEMMGIS/StateManager.hxx             |   5 +
+ src/Batch/MFEMFieldOperations.cxx             |  32 +-
+ src/CMakeLists.txt                            |  19 +-
+ src/MFEMMGISConfig.cmake.in                   |   6 +
+ src/Material.cxx                              |  88 +++--
+ src/MaterialArrays.cxx                        | 138 +++++--
+ src/MultiMaterialNonLinearIntegrator.cxx      |  21 +-
+ ...onLinearEvolutionProblemImplementation.cxx |  32 +-
+ ...nearEvolutionProblemImplementationBase.cxx |  25 +-
+ src/PartialQuadratureSpace.cxx                |  21 +-
+ src/PointWiseModel.cxx                        |  20 +-
+ tests/MFEMFieldOperationsTest.cxx             |  54 ++-
+ tests/MaterialArraysTest.cxx                  | 355 ++++++++++++++----
+ 22 files changed, 871 insertions(+), 242 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8297edbfb4..104f2c82f1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -67,6 +67,18 @@ endif(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP)
+ 
+ # MFontGenericInterface
+ find_package (MFrontGenericInterface REQUIRED PATH_SUFFIXES share/mgis/cmake)
++# the arrays of the materials are given to MGIS with their location and
++# layout, and updated with field operations (`MGIS/FieldOperations.hxx`)
++get_target_property(_mgis_include_directories
++  mgis::MFrontGenericInterface INTERFACE_INCLUDE_DIRECTORIES)
++find_file(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER MGIS/FieldOperations.hxx
++  PATHS ${_mgis_include_directories} NO_DEFAULT_PATH)
++if(NOT MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
++  message(FATAL_ERROR "mfem-mgis requires a version of MGIS providing "
++          "field operations (MGIS/FieldOperations.hxx), the location and "
++          "the layout of the arrays of the material data managers")
++endif()
++mark_as_advanced(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
+ set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
+ if(MGIS_HAVE_TFEL)
+   if(TARGET tfel::TFELTests)
+diff --git a/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx b/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
+index be0e16185c..4400b2ef0b 100644
+--- a/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
++++ b/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
+@@ -14,15 +14,18 @@ namespace mfem_mgis::batch {
+ 
+   /*!
+    * \brief copies and fills of views of MGIS (`mgis::FieldView`) by kernels
+-   * of MFEM (`mfem::forall`), used by the update and the revert of the
+-   * states of a material (`mgis::behaviour::update`,
+-   * `mgis::behaviour::revert`).
++   * of MFEM (`mfem::forall`), for the update and the revert of the states of
++   * a material (`mgis::behaviour::update`, `mgis::behaviour::revert`) whose
++   * arrays are located on the device.
+    *
+-   * The operations run on the device of MFEM if the views are located in
+-   * its memory (pointers given by `Read`, `Write`, `ReadWrite` of a
+-   * `mfem::Memory`), and on the host otherwise. On a GPU, they are
+-   * asynchronous, on the stream of MFEM: an access on the host must go
+-   * through the copies of MFEM (`HostRead`, ...), which wait for them.
++   * The operations run on the device if the object was constructed with
++   * `true`: the views must then be located in the memory of the device
++   * (pointers given by `Read`, `Write`, `ReadWrite` of a `mfem::Memory`).
++   * Otherwise, the views must be located on the host, and the operations
++   * are the ones of `mgis::HostFieldOperations`. Nothing is detected. On a
++   * GPU, the operations are asynchronous, on the stream of MFEM: an access
++   * on the host must go through the copies of MFEM (`HostRead`, ...), which
++   * wait for them.
+    */
+   struct MFEM_MGIS_EXPORT MFEMFieldOperations final : mgis::FieldOperations {
+     /*!
+@@ -30,7 +33,7 @@ namespace mfem_mgis::batch {
+      * \param[in] d: if true, the views are located in the memory of the
+      * device of MFEM (if a device is enabled), and the operations run on the
+      * device. Otherwise, the views are located in the memory of the host,
+-     * and the operations run on the host.
++     * and the operations run on the host, as `mgis::HostFieldOperations`.
+      */
+     explicit MFEMFieldOperations(const bool) noexcept;
+     //! \brief destructor
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index 8591c199ee..2793cd2f4d 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -85,25 +85,36 @@ namespace mfem_mgis {
+      */
+     void setRotationMatrix(const RotationMatrix3D &r);
+     /*!
+-     * \brief makes the copies of the arrays on the host valid before an
+-     * access on the host, and invalidates their copies on the device (see
+-     * `MaterialArrays`). Required before a direct access to the states (`s0`,
+-     * `s1`) or to the tangent operator blocks (`K`) after a computation on
+-     * the device. The accessors (`getInternalStateVariable`, ...), the
+-     * integration of the behaviours, `update`, `revert` and the
+-     * post-processings call it.
++     * \brief makes the copies of the arrays on the host valid at the
++     * beginning of a phase of accesses on the host, and invalidates their
++     * copies on the device (see `MaterialArrays` for the complete rules).
++     * Required before a direct access to the states (`s0`, `s1`) or to the
++     * tangent operator blocks (`K`) after a computation on the device. It is
++     * called by the mutable accessors (`getInternalStateVariable`, ...), by
++     * the integration of the behaviours (`integrate` and `solve` of the
++     * non linear evolution problems, `computeNextState` of the point-wise
++     * models), by `updateMaterialStates` and by `revertMaterialStates`.
++     *
++     * \note the arrays of a material used by another one as external
++     * storage (material properties or external state variables given with
++     * the `EXTERNAL_STORAGE` mode) are not synchronized by the other
++     * material: the code which integrates the other material must
++     * synchronize this one first.
+      */
+     using MaterialArrays::synchronizeOnHost;
+     /*!
+-     * \brief makes the copies of the arrays on the host valid before a
+-     * read-only access on the host, keeping their copies on the device valid
++     * \brief makes the copies of the arrays on the host valid at the
++     * beginning of a phase of read-only accesses on the host, keeping their
++     * copies on the device valid. It is called by the read-only accessors,
++     * before the post-processings, and by the functions computing mean
++     * values or resultant forces from the thermodynamic forces.
+      */
+     using MaterialArrays::synchronizeOnHostForReading;
+     /*!
+      * \brief copies the state at the end of the time step on the state at
+-     * the beginning of the time step (see `mgis::behaviour::update`). The
+-     * arrays are copied by kernels of MFEM (`batch::MFEMFieldOperations`),
+-     * in the memory where MGIS uses them (the host).
++     * the beginning of the time step (see `mgis::behaviour::update`), after
++     * the synchronization of the arrays on the host, where MGIS uses them.
++     * The arrays are copied by `mgis::HostFieldOperations`.
+      */
+     void updateMaterialStates();
+     /*!
+@@ -171,6 +182,16 @@ namespace mfem_mgis {
+ 
+   };  // end of struct Material
+ 
++  /*!
++   * \return true if the arrays of the material are in the point by point
++   * layout, required by the accessors and the evaluators based on a stride
++   * between points; otherwise, an error message is registered in the context
++   * \param[in, out] ctx: execution context
++   * \param[in] m: material
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool checkPointByPointLayout(
++      Context &, const Material &) noexcept;
++
+   /*!
+    * \brief get a gradient of the material
+    * \return a partial quadrature function for the given gradient
+diff --git a/include/MFEMMGIS/MaterialArrays.hxx b/include/MFEMMGIS/MaterialArrays.hxx
+index 3dc362be7d..c87582e1c4 100644
+--- a/include/MFEMMGIS/MaterialArrays.hxx
++++ b/include/MFEMMGIS/MaterialArrays.hxx
+@@ -19,7 +19,7 @@ namespace mfem_mgis {
+   /*!
+    * \brief arrays of the data of a material at its integration points, in
+    * the memory of MFEM (`mfem::Memory`, with a copy on the host and, with a
+-   * GPU device, a copy on the device): gradients, thermodynamic forces,
++   * device, a copy on the device): gradients, thermodynamic forces,
+    * internal state variables and energies at the beginning and at the end
+    * of the time step, and blocks of the tangent operator.
+    *
+@@ -27,24 +27,42 @@ namespace mfem_mgis {
+    * `getInitializer`). It is given the pointers of their copies on the
+    * host, at the `HOST` location, in the layout chosen at construction
+    * (point by point by default, or component by component, which gives
+-   * coalesced accesses on a GPU).
++   * coalesced accesses on a GPU). The arrays are never reallocated: they
++   * are private, and only pointers to their values are given.
+    *
+    * Validity of the copies: MFEM keeps track of the valid copies of each
+-   * array. MGIS reads and writes the arrays through the pointers given at
+-   * construction, which MFEM does not see. Hence:
++   * array, but MGIS (and the views returned by the accessors of the
++   * material) read and write the arrays through the pointers of the host,
++   * which MFEM does not see. Hence:
+    *
+-   * - the code accessing the arrays through MGIS on the host (integration
+-   *   of the behaviours, accessors of the material, post-processings...)
+-   *   must first call `synchronizeOnHost`, which copies the arrays back to
++   * - a phase of accesses on the host (integration of the behaviours by
++   *   MGIS, update, revert, accessors of the material, post-processings...)
++   *   must start with `synchronizeOnHost`, which copies the arrays back to
+    *   the host if a kernel modified them on the device, and invalidates
+-   *   their copies on the device;
+-   * - a kernel accessing the arrays on the device must get its pointers
+-   *   with `Read`, `Write` or `ReadWrite`, which copy the arrays to the
+-   *   device if needed.
++   *   their copies on the device, or with `synchronizeOnHostForReading` for
++   *   read-only accesses, which keeps the copies on the device valid;
++   * - no access on the device may happen during such a phase: a kernel
++   *   which reads an array (`Read`) after the synchronization makes its
++   *   copy on the device valid again, and a later write on the host would
++   *   leave this copy valid but outdated. The views returned by the
++   *   accessors are only valid until the next access on the device;
++   * - a kernel accessing the arrays on the device gets its pointers with
++   *   `Read`, `Write` or `ReadWrite`, which copy the arrays to the device
++   *   if needed.
+    *
+-   * Without GPU device, both steps do nothing.
++   * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
++   * device of MFEM, the copies are made between the memory of the host and
++   * a separate memory, which detects the violations of these rules.
+    */
+   struct MFEM_MGIS_EXPORT MaterialArrays {
++    //! \brief arrays of a state of the material
++    enum struct StateArray {
++      GRADIENTS,
++      THERMODYNAMIC_FORCES,
++      INTERNAL_STATE_VARIABLES,
++      STORED_ENERGIES,
++      DISSIPATED_ENERGIES
++    };
+     /*!
+      * \brief constructor
+      * \param[in] b: behaviour
+@@ -64,36 +82,69 @@ namespace mfem_mgis {
+     /*!
+      * \brief makes the copies of the arrays on the host valid (copying them
+      * from the device if needed) and invalidates the copies on the device,
+-     * before an access of the arrays by MGIS on the host.
++     * at the beginning of a phase of accesses on the host.
+      */
+     void synchronizeOnHost();
+     /*!
+      * \brief makes the copies of the arrays on the host valid (copying them
+      * from the device if needed), keeping the copies on the device valid,
+-     * before a read-only access of the arrays on the host.
++     * at the beginning of a phase of read-only accesses on the host.
+      */
+     void synchronizeOnHostForReading() const;
+-    //! \brief destructor
+-    ~MaterialArrays();
+-    //! \brief gradients, at the beginning and at the end of the time step
+-    std::array<mfem::Vector, 2u> gradients;
+-    //! \brief thermodynamic forces
+-    std::array<mfem::Vector, 2u> thermodynamic_forces;
+-    //! \brief internal state variables
+-    std::array<mfem::Vector, 2u> internal_state_variables;
+-    //! \brief stored energies (empty if the behaviour does not compute them)
+-    std::array<mfem::Vector, 2u> stored_energies;
+     /*!
+-     * \brief dissipated energies (empty if the behaviour does not compute
+-     * them)
++     * \return an array of a state, for read-only accesses (`Read`,
++     * `HostRead`). The array is empty if the behaviour does not use it.
++     * \param[in] a: array
++     * \param[in] s: state
+      */
+-    std::array<mfem::Vector, 2u> dissipated_energies;
+-    //! \brief blocks of the tangent operator
+-    mfem::Vector tangent_operator_blocks;
++    const mfem::Vector& getArray(const StateArray, const TimeStepStage) const;
++    //! \return the blocks of the tangent operator, for read-only accesses
++    const mfem::Vector& getTangentOperatorBlocks() const;
++    /*!
++     * \return a pointer to the values of an array of a state, for reading
++     * and writing them on the device (or on the host): see
++     * `mfem::Vector::ReadWrite`
++     * \param[in] a: array
++     * \param[in] s: state
++     * \param[in] d: if true, the values are accessed on the device (if a
++     * device is enabled)
++     */
++    real* ReadWrite(const StateArray, const TimeStepStage, const bool = true);
++    /*!
++     * \return a pointer to the values of an array of a state, for writing
++     * them on the device (or on the host): see `mfem::Vector::Write`
++     * \param[in] a: array
++     * \param[in] s: state
++     * \param[in] d: if true, the values are accessed on the device (if a
++     * device is enabled)
++     */
++    real* Write(const StateArray, const TimeStepStage, const bool = true);
++    /*!
++     * \return a pointer to the blocks of the tangent operator, for reading
++     * and writing them on the device (or on the host)
++     * \param[in] d: if true, the values are accessed on the device (if a
++     * device is enabled)
++     */
++    real* ReadWriteTangentOperatorBlocks(const bool = true);
++    /*!
++     * \return a pointer to the blocks of the tangent operator, for writing
++     * them on the device (or on the host)
++     * \param[in] d: if true, the values are accessed on the device (if a
++     * device is enabled)
++     */
++    real* WriteTangentOperatorBlocks(const bool = true);
++    //! \brief destructor
++    ~MaterialArrays();
+     //! \brief layout of the arrays
+     const mgis::FieldLayout array_layout;
+ 
+    private:
++    //! \return an array of a state
++    mfem::Vector& getMutableArray(const StateArray, const TimeStepStage);
++    //! \brief arrays of the two states, indexed by `StateArray`
++    std::array<std::array<mfem::Vector, 2u>, 5u> state_arrays;
++    //! \brief blocks of the tangent operator
++    mfem::Vector tangent_operator_blocks;
+     //! \brief copy constructor (disabled)
+     MaterialArrays(const MaterialArrays&) = delete;
+     //! \brief move constructor (disabled)
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index ef7f0912e0..9448982cb0 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -187,6 +187,12 @@ namespace mfem_mgis {
+      * valid before an access on the host (see `Material::synchronizeOnHost`)
+      */
+     void synchronizeOnHost();
++    /*!
++     * \brief makes the copies of the arrays of the materials on the host
++     * valid before a read-only access on the host (see
++     * `Material::synchronizeOnHostForReading`)
++     */
++    void synchronizeOnHostForReading() const;
+     /*!
+      * \brief set the macroscopic gradients
+      * \param[in] g: macroscopic gradients
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+index bea9d830e7..d648858ad8 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+@@ -36,6 +36,47 @@ namespace mfem_mgis::internals {
+            m2.s1.thermodynamic_forces_stride;
+   }  // end of haveSameThermodynamicForces
+ 
++  /*!
++   * \brief synchronize on the host, for reading, the arrays of the
++   * materials of the selected behaviour integrators (see
++   * `Material::synchronizeOnHostForReading`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] p: non linear evolution problem
++   * \param[in] selection: selection of the behaviour integrators
++   */
++  template <bool parallel>
++  bool synchronizeSelectedMaterialsOnHostForReading(
++      Context& ctx,
++      NonLinearEvolutionProblemImplementation<parallel>& p,
++      const BehaviourIntegratorsSelection& selection) noexcept {
++    for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
++      const auto obis = getSelectedBehaviourIntegrators(ctx, p, m, selection);
++      if (isInvalid(obis)) {
++        return false;
++      }
++      for (auto b = obis->first; b != obis->second; ++b) {
++        const auto obi = p.getBehaviourIntegrator(ctx, m, b);
++        if (isInvalid(obi)) {
++          return ctx.registerErrorMessage("invalid behaviour integrator");
++        }
++        if (!obi->hasMaterial()) {
++          continue;
++        }
++        const auto om = obi->getMaterial(ctx);
++        if (isInvalid(om)) {
++          return false;
++        }
++        try {
++          om->synchronizeOnHostForReading();
++        } catch (...) {
++          return registerExceptionInErrorBacktrace(ctx);
++        }
++      }
++    }
++    return true;
++  }  // end of synchronizeSelectedMaterialsOnHostForReading
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ namespace mfem_mgis {
+@@ -55,11 +96,11 @@ namespace mfem_mgis {
+     F.SetSize(nc);
+     F = real{0};
+     // the selection is checked for all the materials, so that all the
+-    // processes report the same errors
+-    for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
+-      if (isInvalid(getSelectedBehaviourIntegrators(ctx, p, m, selection))) {
+-        return false;
+-      }
++    // processes report the same errors, and the thermodynamic forces are
++    // read on the host
++    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
++                                                                 selection)) {
++      return false;
+     }
+     for (const auto& e : elements) {
+       const auto& fe = *(fes.GetFE(e.first));
+@@ -94,6 +135,11 @@ namespace mfem_mgis {
+       Context& ctx,
+       NonLinearEvolutionProblemImplementation<parallel>& p,
+       const BehaviourIntegratorsSelection& selection) noexcept {
++    // the thermodynamic forces are read on the host
++    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
++                                                                 selection)) {
++      return {};
++    }
+     auto nmax = p.getFiniteElementSpace().GetMesh()->attributes.Max() + 1;
+     std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
+     const auto& mis = p.getAssignedMaterialsIdentifiers();
+diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+index 2d06ece865..220219b160 100644
+--- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
++++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+@@ -165,14 +165,16 @@ namespace mfem_mgis {
+     [[nodiscard]] std::optional<size_type> getNumberOfQuadraturePoints(
+         Context &ctx, const size_type e) const noexcept;
+     /*!
+-     * \return the hash table associating global element numbers and
+-     * local offsets.
++     * \return the hash table associating the element numbers (local
++     * numbering of the finite element space) and the offsets of their
++     * integration points.
+      */
+     [[nodiscard]] const std::unordered_map<size_type, size_type> &getOffsets()
+         const noexcept;
+     /*!
+      * \brief return the offset associated with an element
+-     * \param[in] i: element number (global numbering)
++     * \param[in] i: element number (local numbering of the finite element
++     * space)
+      * \return the offset
+      */
+     [[nodiscard]] size_type getOffset(const size_type i) const;
+@@ -241,12 +243,18 @@ namespace mfem_mgis {
+     std::function<const mfem::IntegrationRule &(
+         const mfem::FiniteElement &, const mfem::ElementTransformation &)>
+         integration_rule_selector;
+-    //! \brief offsets associated with elements
+-    std::unordered_map<size_type,  // element number (global numbering)
++    /*!
++     * \brief offsets associated with elements (local numbering of the
++     * finite element space)
++     */
++    std::unordered_map<size_type,  // element number
+                        size_type>  // offset
+         offsets;
+-    //! \brief number of quadrature points associated with elements
+-    std::unordered_map<size_type,  // element number (global numbering)
++    /*!
++     * \brief number of quadrature points associated with elements (local
++     * numbering of the finite element space)
++     */
++    std::unordered_map<size_type,  // element number
+                        size_type>  // number of quadrature points
+         number_of_quadrature_points;
+     //! \brief elements of the space, in the order of their points
+diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx
+index 070ba7421e..b6c7807c04 100644
+--- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx
++++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx
+@@ -87,7 +87,11 @@ namespace mfem_mgis {
+     [[nodiscard]] const PartialQuadratureSpace& getPartialQuadratureSpace()
+         const;
+     /*!
+-     * \brief perform consistency checks
++     * \brief perform consistency checks (orthotropic behaviour, point by
++     * point layout of the arrays of the material), and synchronize the
++     * arrays of the material on the host for reading (see
++     * `Material::synchronizeOnHostForReading`): the evaluations which follow
++     * read them on the host
+      * \param[in, out] ctx: error handler
+      * \return true on success
+      */
+@@ -156,7 +160,11 @@ namespace mfem_mgis {
+         const Material& m,
+         const Material::StateSelection s = Material::END_OF_TIME_STEP);
+     /*!
+-     * \brief perform consistency checks
++     * \brief perform consistency checks (orthotropic behaviour, point by
++     * point layout of the arrays of the material), and synchronize the
++     * arrays of the material on the host for reading (see
++     * `Material::synchronizeOnHostForReading`): the evaluations which follow
++     * read them on the host
+      * \param[in, out] ctx: error handler
+      * \return true on success
+      */
+diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
+index 712dd4a3f9..0d14587c57 100644
+--- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
++++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
+@@ -98,6 +98,13 @@ namespace mfem_mgis {
+     if (this->material.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+       return ctx.registerErrorMessage("material is not orthotropic");
+     }
++    // the values are read with a stride between points, on the host
++    if (this->material.layout != mgis::FieldLayout::POINT_BY_POINT) {
++      return ctx.registerErrorMessage(
++          "the evaluator requires the point by point layout of the arrays of "
++          "the material");
++    }
++    this->material.synchronizeOnHostForReading();
+     if constexpr (ThermodynamicForcesSize != dynamic_extent) {
+       const auto& sm = getStateManager(this->material, this->stage);
+       const auto thsize = sm.thermodynamic_forces_stride;
+@@ -181,6 +188,13 @@ namespace mfem_mgis {
+     if (this->material.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+       return ctx.registerErrorMessage("material is not orthotropic");
+     }
++    // the values are read with a stride between points, on the host
++    if (this->material.layout != mgis::FieldLayout::POINT_BY_POINT) {
++      return ctx.registerErrorMessage(
++          "the evaluator requires the point by point layout of the arrays of "
++          "the material");
++    }
++    this->material.synchronizeOnHostForReading();
+     if constexpr (GradientsSize != dynamic_extent) {
+       const auto& sm = getStateManager(this->material, this->stage);
+       const auto gsize = sm.gradients_stride;
+diff --git a/include/MFEMMGIS/StateManager.hxx b/include/MFEMMGIS/StateManager.hxx
+index e78b1baaf5..228fade82d 100644
+--- a/include/MFEMMGIS/StateManager.hxx
++++ b/include/MFEMMGIS/StateManager.hxx
+@@ -26,6 +26,11 @@ namespace mfem_mgis {
+   /*!
+    * \brief structure containing the state of a physical system or a set of non
+    * linear evolution problems.
++   *
++   * \note the views on the arrays of the materials registered in a state
++   * manager are synchronized on the host when they are taken (see
++   * `Material::synchronizeOnHostForReading`). After a computation on the
++   * device, they must be taken again.
+    */
+   struct MFEM_MGIS_EXPORT StateManager
+       : PartialQuadratureSpaceIdentifiersManager {
+diff --git a/src/Batch/MFEMFieldOperations.cxx b/src/Batch/MFEMFieldOperations.cxx
+index 1add5a43da..5837b3e942 100644
+--- a/src/Batch/MFEMFieldOperations.cxx
++++ b/src/Batch/MFEMFieldOperations.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <limits>
++#include <cstddef>
+ #include "mfem/general/forall.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
+@@ -18,9 +19,9 @@ namespace mfem_mgis::batch {
+    * \param[in] n: number of points
+    * \param[in] nc: number of components
+    */
+-  static int getNumberOfValues(const size_type n, const size_type nc) {
++  static int getNumberOfValues(const std::size_t n, const std::size_t nc) {
+     if ((nc != 0) &&
+-        (n > static_cast<size_type>(std::numeric_limits<int>::max()) / nc)) {
++        (n > static_cast<std::size_t>(std::numeric_limits<int>::max()) / nc)) {
+       mgis::raise("MFEMFieldOperations: too many values");
+     }
+     return static_cast<int>(n * nc);
+@@ -49,14 +50,14 @@ namespace mfem_mgis::batch {
+     // consecutive threads process consecutive values of the destination
+     if (dcs <= dps) {
+       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
+-        const auto i = static_cast<size_type>(k) / nc;
+-        const auto j = static_cast<size_type>(k) % nc;
++        const auto i = static_cast<std::size_t>(k) / nc;
++        const auto j = static_cast<std::size_t>(k) % nc;
+         dv[i * dps + j * dcs] = sv[i * sps + j * scs];
+       });
+     } else {
+       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
+-        const auto i = static_cast<size_type>(k) % n;
+-        const auto j = static_cast<size_type>(k) / n;
++        const auto i = static_cast<std::size_t>(k) % n;
++        const auto j = static_cast<std::size_t>(k) / n;
+         dv[i * dps + j * dcs] = sv[i * sps + j * scs];
+       });
+     }
+@@ -79,14 +80,14 @@ namespace mfem_mgis::batch {
+     const auto nv = getNumberOfValues(n, nc);
+     if (cs <= ps) {
+       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
+-        const auto i = static_cast<size_type>(k) / nc;
+-        const auto j = static_cast<size_type>(k) % nc;
++        const auto i = static_cast<std::size_t>(k) / nc;
++        const auto j = static_cast<std::size_t>(k) % nc;
+         dv[i * ps + j * cs] = v;
+       });
+     } else {
+       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
+-        const auto i = static_cast<size_type>(k) % n;
+-        const auto j = static_cast<size_type>(k) / n;
++        const auto i = static_cast<std::size_t>(k) % n;
++        const auto j = static_cast<std::size_t>(k) / n;
+         dv[i * ps + j * cs] = v;
+       });
+     }
+@@ -97,11 +98,22 @@ namespace mfem_mgis::batch {
+ 
+   void MFEMFieldOperations::do_copy(const mgis::FieldView<real>& d,
+                                     const mgis::FieldView<const real>& s) {
++    if (!this->use_device) {
++      // dense copies on the host
++      auto ops = mgis::HostFieldOperations{};
++      ops.copy(d, s);
++      return;
++    }
+     copyFieldView(this->use_device, d, s);
+   }  // end of do_copy
+ 
+   void MFEMFieldOperations::do_fill(const mgis::FieldView<real>& d,
+                                     const real v) {
++    if (!this->use_device) {
++      auto ops = mgis::HostFieldOperations{};
++      ops.fill(d, v);
++      return;
++    }
+     fillFieldView(this->use_device, d, v);
+   }  // end of do_fill
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 9f2f857ef6..fa37539161 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -144,13 +144,28 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+        PartialQuadratureFunctionsSet.cxx)
+ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+ 
+-# batch processing (sources containing kernels of MFEM)
++# batch processing (sources containing kernels of MFEM, compiled as CUDA
++# code when MFEM is compiled with CUDA). The compilation of kernels of MFEM
++# compiled with HIP is not supported yet: those sources are then left out.
+ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/MFEMFieldOperations.cxx)
++if(MFEM_USE_HIP STREQUAL "YES")
++  message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
++          "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
++  set(MFEMMGIS_DEVICE_SOURCES)
++endif()
+ list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+-mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
++if(MFEMMGIS_DEVICE_SOURCES)
++  mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
++endif()
++# the kernels of the library use the runtime of CUDA: the dependency is
++# carried by the library itself, not only by the target of MFEM, which a
++# project may define on its own
++if(MFEM_USE_CUDA STREQUAL "YES")
++  target_link_libraries(MFEMMGIS PUBLIC CUDA::cudart)
++endif()
+ if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
+  target_compile_definitions(MFEMMGIS PUBLIC 
+    MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR)
+diff --git a/src/MFEMMGISConfig.cmake.in b/src/MFEMMGISConfig.cmake.in
+index 487ac2e67a..9bb9a77f6c 100644
+--- a/src/MFEMMGISConfig.cmake.in
++++ b/src/MFEMMGISConfig.cmake.in
+@@ -29,6 +29,12 @@ if (NOT TARGET MFEM::mfem)
+ 
+ endif(NOT TARGET MFEM::mfem)
+ 
++# the library uses the runtime of CUDA when MFEM is compiled with CUDA
++if(("@MFEM_USE_CUDA@" STREQUAL "YES") AND (NOT TARGET CUDA::cudart))
++  include(CMakeFindDependencyMacro)
++  find_dependency(CUDAToolkit)
++endif()
++
+ # Compilation of the sources containing kernels of MFEM: if MFEM was found
+ # before mfem-mgis, the description of MFEM is the one used to build
+ # mfem-mgis
+diff --git a/src/Material.cxx b/src/Material.cxx
+index b7c4f6ca89..d3395b9b2a 100644
+--- a/src/Material.cxx
++++ b/src/Material.cxx
+@@ -10,7 +10,6 @@
+ #include "MGIS/Behaviour/RotationMatrix.hxx"
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+-#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ 
+ namespace mfem_mgis {
+@@ -70,13 +69,13 @@ namespace mfem_mgis {
+   void Material::updateMaterialStates() {
+     // MGIS uses the copies of the arrays on the host
+     this->synchronizeOnHost();
+-    auto ops = batch::MFEMFieldOperations(false);
++    auto ops = mgis::HostFieldOperations{};
+     mgis::behaviour::update(*this, ops);
+   }  // end of updateMaterialStates
+ 
+   void Material::revertMaterialStates() {
+     this->synchronizeOnHost();
+-    auto ops = batch::MFEMFieldOperations(false);
++    auto ops = mgis::HostFieldOperations{};
+     mgis::behaviour::revert(*this, ops);
+   }  // end of revertMaterialStates
+ 
+@@ -294,20 +293,47 @@ namespace mfem_mgis {
+          .data_stride = static_cast<size_type>(*ostride)});
+   }  // end of buildImmutablePartialQuadratureFunctionView
+ 
++  bool checkPointByPointLayout(Context &ctx, const Material &m) noexcept {
++    if (m.layout != mgis::FieldLayout::POINT_BY_POINT) {
++      return ctx.registerErrorMessage(
++          "the accessors and the evaluators of the material require the "
++          "point by point layout of its arrays");
++    }
++    return true;
++  }  // end of checkPointByPointLayout
++
+   /*!
+-   * \return true if the accessors based on a stride between points can be
+-   * used, i.e. if the layout of the arrays is point by point
++   * \brief synchronize the arrays of a material on the host, reporting the
++   * exceptions in the context
++   * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in] m: material
+    */
+-  static bool checkPointByPointLayout(Context &ctx, const Material &m) {
+-    if (m.layout != mgis::FieldLayout::POINT_BY_POINT) {
+-      return ctx.registerErrorMessage(
+-          "the accessors of the material require the point by point layout "
+-          "of its arrays");
++  static bool synchronizeOnHost(Context &ctx, Material &m) noexcept {
++    try {
++      m.synchronizeOnHost();
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
+     }
+     return true;
+-  }  // end of checkPointByPointLayout
++  }  // end of synchronizeOnHost
++
++  /*!
++   * \brief synchronize the arrays of a material on the host for reading,
++   * reporting the exceptions in the context
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] m: material
++   */
++  static bool synchronizeOnHostForReading(Context &ctx,
++                                          const Material &m) noexcept {
++    try {
++      m.synchronizeOnHostForReading();
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    return true;
++  }  // end of synchronizeOnHostForReading
+ 
+   std::optional<PartialQuadratureFunction> getGradient(
+       Context &ctx,
+@@ -317,7 +343,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHost();
++    if (!synchronizeOnHost(ctx, m)) {
++      return {};
++    }
+     return buildPartialQuadratureFunction(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
+@@ -331,7 +359,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHostForReading();
++    if (!synchronizeOnHostForReading(ctx, m)) {
++      return {};
++    }
+     return buildImmutablePartialQuadratureFunctionView(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
+@@ -345,7 +375,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHost();
++    if (!synchronizeOnHost(ctx, m)) {
++      return {};
++    }
+     return buildPartialQuadratureFunction(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
+@@ -360,7 +392,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHostForReading();
++    if (!synchronizeOnHostForReading(ctx, m)) {
++      return {};
++    }
+     return buildImmutablePartialQuadratureFunctionView(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
+@@ -375,7 +409,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHost();
++    if (!synchronizeOnHost(ctx, m)) {
++      return {};
++    }
+     return buildPartialQuadratureFunction(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
+@@ -390,7 +426,9 @@ namespace mfem_mgis {
+     if (!checkPointByPointLayout(ctx, m)) {
+       return {};
+     }
+-    m.synchronizeOnHostForReading();
++    if (!synchronizeOnHostForReading(ctx, m)) {
++      return {};
++    }
+     return buildImmutablePartialQuadratureFunctionView(
+         ctx, m.getPartialQuadratureSpacePointer(),
+         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
+@@ -400,7 +438,9 @@ namespace mfem_mgis {
+   std::optional<PartialQuadratureFunction> getStoredEnergy(
+       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
+     // one component: same array in both layouts
+-    m.synchronizeOnHost();
++    if (!synchronizeOnHost(ctx, m)) {
++      return {};
++    }
+     const auto &sm = getStateManager(m, s);
+     if (!sm.b.computesStoredEnergy) {
+       return ctx.registerErrorMessage(
+@@ -416,7 +456,9 @@ namespace mfem_mgis {
+       const Material &m,
+       const Material::StateSelection s) noexcept {
+     // one component: same array in both layouts
+-    m.synchronizeOnHostForReading();
++    if (!synchronizeOnHostForReading(ctx, m)) {
++      return {};
++    }
+     const auto &sm = getStateManager(m, s);
+     if (!sm.b.computesStoredEnergy) {
+       return ctx.registerErrorMessage(
+@@ -430,7 +472,9 @@ namespace mfem_mgis {
+   std::optional<PartialQuadratureFunction> getDissipatedEnergy(
+       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
+     // one component: same array in both layouts
+-    m.synchronizeOnHost();
++    if (!synchronizeOnHost(ctx, m)) {
++      return {};
++    }
+     const auto &sm = getStateManager(m, s);
+     if (!sm.b.computesDissipatedEnergy) {
+       return ctx.registerErrorMessage(
+@@ -446,7 +490,9 @@ namespace mfem_mgis {
+       const Material &m,
+       const Material::StateSelection s) noexcept {
+     // one component: same array in both layouts
+-    m.synchronizeOnHostForReading();
++    if (!synchronizeOnHostForReading(ctx, m)) {
++      return {};
++    }
+     const auto &sm = getStateManager(m, s);
+     if (!sm.b.computesDissipatedEnergy) {
+       return ctx.registerErrorMessage(
+diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
+index 6d7930c190..540bab3418 100644
+--- a/src/MaterialArrays.cxx
++++ b/src/MaterialArrays.cxx
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <limits>
++#include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Raise.hxx"
+ #include "MGIS/MemoryLocation.hxx"
+@@ -19,8 +20,8 @@ namespace mfem_mgis {
+    * \param[out] v: array
+    * \param[in] s: size of the array
+    */
+-  static void allocateMaterialArray(mfem::Vector& v, const size_type s) {
+-    if (s > static_cast<size_type>(std::numeric_limits<int>::max())) {
++  static void allocateMaterialArray(mfem::Vector& v, const std::size_t s) {
++    if (s > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+       mgis::raise("MaterialArrays: array too large for MFEM");
+     }
+     v.SetSize(static_cast<int>(s));
+@@ -42,40 +43,65 @@ namespace mfem_mgis {
+     return {v.HostReadWrite(), static_cast<std::size_t>(v.Size())};
+   }  // end of getHostView
+ 
++  //! \return the index of a state
++  static std::size_t getStateIndex(const TimeStepStage s) {
++    return s == TimeStepStage::BEGINNING_OF_TIME_STEP ? 0 : 1;
++  }  // end of getStateIndex
++
++  //! \return the index of an array of a state
++  static std::size_t getArrayIndex(const MaterialArrays::StateArray a) {
++    return static_cast<std::size_t>(a);
++  }  // end of getArrayIndex
++
+   MaterialArrays::MaterialArrays(const Behaviour& b,
+                                  const size_type n,
+                                  const mgis::FieldLayout l)
+       : array_layout(l) {
+     using mgis::behaviour::getArraySize;
+-    const auto gs = getArraySize(b.gradients, b.hypothesis);
+-    const auto ts = getArraySize(b.thermodynamic_forces, b.hypothesis);
+-    const auto is = getArraySize(b.isvs, b.hypothesis);
++    // sizes computed with the type of the sizes of MGIS, checked against the
++    // range of the sizes of MFEM by `allocateMaterialArray`
++    const auto np = static_cast<std::size_t>(n);
++    const auto gs =
++        static_cast<std::size_t>(getArraySize(b.gradients, b.hypothesis));
++    const auto ts = static_cast<std::size_t>(
++        getArraySize(b.thermodynamic_forces, b.hypothesis));
++    const auto is =
++        static_cast<std::size_t>(getArraySize(b.isvs, b.hypothesis));
+     for (std::size_t i = 0; i != 2; ++i) {
+-      allocateMaterialArray(this->gradients[i], n * gs);
+-      allocateMaterialArray(this->thermodynamic_forces[i], n * ts);
+-      allocateMaterialArray(this->internal_state_variables[i], n * is);
++      auto& arrays = this->state_arrays;
++      allocateMaterialArray(arrays[getArrayIndex(StateArray::GRADIENTS)][i],
++                            np * gs);
++      allocateMaterialArray(
++          arrays[getArrayIndex(StateArray::THERMODYNAMIC_FORCES)][i], np * ts);
++      allocateMaterialArray(
++          arrays[getArrayIndex(StateArray::INTERNAL_STATE_VARIABLES)][i],
++          np * is);
+       if (b.computesStoredEnergy) {
+-        allocateMaterialArray(this->stored_energies[i], n);
++        allocateMaterialArray(
++            arrays[getArrayIndex(StateArray::STORED_ENERGIES)][i], np);
+       }
+       if (b.computesDissipatedEnergy) {
+-        allocateMaterialArray(this->dissipated_energies[i], n);
++        allocateMaterialArray(
++            arrays[getArrayIndex(StateArray::DISSIPATED_ENERGIES)][i], np);
+       }
+     }
+-    allocateMaterialArray(this->tangent_operator_blocks,
+-                          n * mgis::behaviour::getTangentOperatorArraySize(b));
++    allocateMaterialArray(
++        this->tangent_operator_blocks,
++        np * static_cast<std::size_t>(
++                 mgis::behaviour::getTangentOperatorArraySize(b)));
+     // the deformation gradients are initialized to the identity, as MGIS
+     // does for the arrays it allocates (the first three components are the
+     // diagonal ones)
+     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
+-        (n != 0)) {
++        (np != 0)) {
+       const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
+-      const auto ps = pbp ? gs : size_type{1};
+-      const auto cs = pbp ? size_type{1} : n;
+-      for (auto& g : this->gradients) {
++      const auto ps = pbp ? gs : std::size_t{1};
++      const auto cs = pbp ? std::size_t{1} : np;
++      for (auto& g : this->state_arrays[getArrayIndex(StateArray::GRADIENTS)]) {
+         auto* const F = g.HostReadWrite();
+-        for (size_type i = 0; i != n; ++i) {
+-          for (size_type c = 0; c != 3; ++c) {
++        for (std::size_t i = 0; i != np; ++i) {
++          for (std::size_t c = 0; c != 3; ++c) {
+             F[i * ps + c * cs] = real{1};
+           }
+         }
+@@ -87,16 +113,20 @@ namespace mfem_mgis {
+   MaterialArrays::getInitializer() {
+     auto i = mgis::behaviour::MaterialDataManagerInitializer{};
+     auto state = [this](mgis::behaviour::MaterialStateManagerInitializer& si,
+-                        const std::size_t s) {
+-      si.gradients = getHostView(this->gradients[s]);
+-      si.thermodynamic_forces = getHostView(this->thermodynamic_forces[s]);
+-      si.internal_state_variables =
+-          getHostView(this->internal_state_variables[s]);
+-      si.stored_energies = getHostView(this->stored_energies[s]);
+-      si.dissipated_energies = getHostView(this->dissipated_energies[s]);
++                        const TimeStepStage s) {
++      si.gradients =
++          getHostView(this->getMutableArray(StateArray::GRADIENTS, s));
++      si.thermodynamic_forces = getHostView(
++          this->getMutableArray(StateArray::THERMODYNAMIC_FORCES, s));
++      si.internal_state_variables = getHostView(
++          this->getMutableArray(StateArray::INTERNAL_STATE_VARIABLES, s));
++      si.stored_energies =
++          getHostView(this->getMutableArray(StateArray::STORED_ENERGIES, s));
++      si.dissipated_energies = getHostView(
++          this->getMutableArray(StateArray::DISSIPATED_ENERGIES, s));
+     };
+-    state(i.s0, 0);
+-    state(i.s1, 1);
++    state(i.s0, TimeStepStage::BEGINNING_OF_TIME_STEP);
++    state(i.s1, TimeStepStage::END_OF_TIME_STEP);
+     i.K = getHostView(this->tangent_operator_blocks);
+     i.location = mgis::MemoryLocation::HOST;
+     i.layout = this->array_layout;
+@@ -104,12 +134,10 @@ namespace mfem_mgis {
+   }  // end of getInitializer
+ 
+   void MaterialArrays::synchronizeOnHost() {
+-    for (std::size_t i = 0; i != 2; ++i) {
+-      static_cast<void>(getHostView(this->gradients[i]));
+-      static_cast<void>(getHostView(this->thermodynamic_forces[i]));
+-      static_cast<void>(getHostView(this->internal_state_variables[i]));
+-      static_cast<void>(getHostView(this->stored_energies[i]));
+-      static_cast<void>(getHostView(this->dissipated_energies[i]));
++    for (auto& arrays : this->state_arrays) {
++      for (auto& v : arrays) {
++        static_cast<void>(getHostView(v));
++      }
+     }
+     static_cast<void>(getHostView(this->tangent_operator_blocks));
+   }  // end of synchronizeOnHost
+@@ -120,16 +148,48 @@ namespace mfem_mgis {
+         static_cast<void>(v.HostRead());
+       }
+     };
+-    for (std::size_t i = 0; i != 2; ++i) {
+-      read(this->gradients[i]);
+-      read(this->thermodynamic_forces[i]);
+-      read(this->internal_state_variables[i]);
+-      read(this->stored_energies[i]);
+-      read(this->dissipated_energies[i]);
++    for (const auto& arrays : this->state_arrays) {
++      for (const auto& v : arrays) {
++        read(v);
++      }
+     }
+     read(this->tangent_operator_blocks);
+   }  // end of synchronizeOnHostForReading
+ 
++  const mfem::Vector& MaterialArrays::getArray(const StateArray a,
++                                               const TimeStepStage s) const {
++    return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
++  }  // end of getArray
++
++  mfem::Vector& MaterialArrays::getMutableArray(const StateArray a,
++                                                const TimeStepStage s) {
++    return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
++  }  // end of getMutableArray
++
++  const mfem::Vector& MaterialArrays::getTangentOperatorBlocks() const {
++    return this->tangent_operator_blocks;
++  }  // end of getTangentOperatorBlocks
++
++  real* MaterialArrays::ReadWrite(const StateArray a,
++                                  const TimeStepStage s,
++                                  const bool d) {
++    return this->getMutableArray(a, s).ReadWrite(d);
++  }  // end of ReadWrite
++
++  real* MaterialArrays::Write(const StateArray a,
++                              const TimeStepStage s,
++                              const bool d) {
++    return this->getMutableArray(a, s).Write(d);
++  }  // end of Write
++
++  real* MaterialArrays::ReadWriteTangentOperatorBlocks(const bool d) {
++    return this->tangent_operator_blocks.ReadWrite(d);
++  }  // end of ReadWriteTangentOperatorBlocks
++
++  real* MaterialArrays::WriteTangentOperatorBlocks(const bool d) {
++    return this->tangent_operator_blocks.Write(d);
++  }  // end of WriteTangentOperatorBlocks
++
+   MaterialArrays::~MaterialArrays() = default;
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 4023224fd7..1f94fb6da6 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -506,8 +506,25 @@ namespace mfem_mgis {
+     }
+   }  // end of synchronizeOnHost
+ 
++  void MultiMaterialNonLinearIntegrator::synchronizeOnHostForReading() const {
++    auto ctx = Context{};
++    for (const auto& bis : this->behaviour_integrators) {
++      for (const auto& bi : bis) {
++        if (!bi->hasMaterial()) {
++          continue;
++        }
++        const auto om =
++            static_cast<const AbstractBehaviourIntegrator&>(*bi).getMaterial(
++                ctx);
++        if (!isInvalid(om)) {
++          om->synchronizeOnHostForReading();
++        }
++      }
++    }
++  }  // end of synchronizeOnHostForReading
++
+   void MultiMaterialNonLinearIntegrator::revert() {
+-    this->synchronizeOnHost();
++    // the materials synchronize their arrays (`Material::revertMaterialStates`)
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         bi->revert();
+@@ -516,7 +533,7 @@ namespace mfem_mgis {
+   }  // end of revert
+ 
+   void MultiMaterialNonLinearIntegrator::update() {
+-    this->synchronizeOnHost();
++    // the materials synchronize their arrays (`Material::updateMaterialStates`)
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         bi->update();
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 1e0dac7c98..dc31236847 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -442,9 +442,13 @@ namespace mfem_mgis {
+   bool
+   NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
+       Context& ctx, const real t) noexcept {
+-    // the post-processings access the materials on the host
++    // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->synchronizeOnHost();
++      try {
++        this->mgis_integrator->synchronizeOnHostForReading();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     for (auto& p : this->postprocessings) {
+       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+@@ -458,9 +462,13 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
+-    // the post-processings access the materials on the host
++    // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->synchronizeOnHost();
++      try {
++        this->mgis_integrator->synchronizeOnHostForReading();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     auto success = true;
+     for (auto& p : this->postprocessings) {
+@@ -660,9 +668,13 @@ namespace mfem_mgis {
+   bool
+   NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
+       Context& ctx, const real t) noexcept {
+-    // the post-processings access the materials on the host
++    // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->synchronizeOnHost();
++      try {
++        this->mgis_integrator->synchronizeOnHostForReading();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     for (auto& p : this->postprocessings) {
+       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
+@@ -676,9 +688,13 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
+-    // the post-processings access the materials on the host
++    // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->synchronizeOnHost();
++      try {
++        this->mgis_integrator->synchronizeOnHostForReading();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     auto success = true;
+     for (auto& p : this->postprocessings) {
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index f337aec71b..993740c46b 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -106,7 +106,11 @@ namespace mfem_mgis {
+     CatchTimeSection(ctx, "NLEPIB::revert");
+     this->u1 = this->u0;
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->revert();
++      try {
++        this->mgis_integrator->revert();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     return true;
+   }  // end of revert
+@@ -116,7 +120,11 @@ namespace mfem_mgis {
+     CatchTimeSection(ctx, "NLEPIB::update");
+     this->u0 = this->u1;
+     if (this->mgis_integrator != nullptr) {
+-      this->mgis_integrator->update();
++      try {
++        this->mgis_integrator->update();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
+     return true;
+   }  // end of update
+@@ -451,6 +459,19 @@ namespace mfem_mgis {
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEPIB::solve");
+     NonLinearResolutionOutput output;
++    // the behaviours are integrated on the host, also by the assembly of the
++    // residual when PETSc is used (which does not call `integrate`): nothing
++    // may access the arrays of the materials on the device during the
++    // resolution
++    if (this->mgis_integrator != nullptr) {
++      try {
++        this->mgis_integrator->synchronizeOnHost();
++      } catch (...) {
++        std::ignore = registerExceptionInErrorBacktrace(ctx);
++        output.status = false;
++        return output;
++      }
++    }
+     if (this->prediction_policy.strategy !=
+         PredictionStrategy::DEFAULT_PREDICTION) {
+       const auto onorm = [this, &ctx, t, dt] {
+diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
+index 3f2a94e8b6..c0734fac8d 100644
+--- a/src/PartialQuadratureSpace.cxx
++++ b/src/PartialQuadratureSpace.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <cmath>
+ #include <limits>
++#include <cstdint>
+ #include <vector>
+ #include <iterator>
+ #include <algorithm>
+@@ -32,7 +33,9 @@ namespace mfem_mgis {
+       const std::function<const mfem::IntegrationRule&(
+           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+           integration_rule_selector) {
+-    auto ng = size_type{};
++    // number of points counted on 64 bits, and checked against the range of
++    // the sizes of MFEM (and of `size_type`) after each element
++    auto ng = std::int64_t{};
+     auto e = std::vector<int>{};
+     auto o = std::vector<int>{};
+     for (size_type i = 0; i != fespace.GetNE(); ++i) {
+@@ -41,17 +44,17 @@ namespace mfem_mgis {
+       }
+       const auto& fe = *(fespace.GetFE(i));
+       const auto& tr = *(fespace.GetElementTransformation(i));
+-      offsets[i] = ng;
++      offsets[i] = static_cast<size_type>(ng);
+       e.push_back(static_cast<int>(i));
+       o.push_back(static_cast<int>(ng));
+       const auto& ir = integration_rule_selector(fe, tr);
+       const auto lng = ir.GetNPoints();
+       ng += lng;
++      if (ng > std::numeric_limits<int>::max()) {
++        raise("PartialQuadratureSpace: too many integration points for MFEM");
++      }
+       number_of_quadrature_points[i] = lng;
+     }
+-    if (ng > static_cast<size_type>(std::numeric_limits<int>::max())) {
+-      raise("PartialQuadratureSpace: too many integration points for MFEM");
+-    }
+     o.push_back(static_cast<int>(ng));
+     // arrays in the memory of MFEM, filled on the host
+     auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
+@@ -60,7 +63,7 @@ namespace mfem_mgis {
+     };
+     copy(elements, e);
+     copy(element_offsets, o);
+-    return ng;
++    return static_cast<size_type>(ng);
+   }  // end of buildPartialQuadratureSpaceOffsets
+ 
+   void PartialQuadratureSpace::treatInvalidElementIndex(const size_type id,
+@@ -228,7 +231,8 @@ namespace mfem_mgis {
+       }
+       this->ng = buildPartialQuadratureSpaceOffsets<true>(
+           this->offsets, this->number_of_quadrature_points, this->elements,
+-          this->element_offsets, *(this->parallel_fespace), this->id, this->integration_rule_selector);
++          this->element_offsets, *(this->parallel_fespace), this->id,
++          this->integration_rule_selector);
+       return;
+     }
+ #endif /* MFEM_USE_MPI */
+@@ -243,7 +247,8 @@ namespace mfem_mgis {
+     }
+     this->ng = buildPartialQuadratureSpaceOffsets<false>(
+         this->offsets, this->number_of_quadrature_points, this->elements,
+-        this->element_offsets, *(this->sequential_fespace), this->id, this->integration_rule_selector);
++        this->element_offsets, *(this->sequential_fespace), this->id,
++        this->integration_rule_selector);
+   }  // end of initialize
+ 
+   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
+diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
+index 60bc52cdad..101d39f447 100644
+--- a/src/PointWiseModel.cxx
++++ b/src/PointWiseModel.cxx
+@@ -76,6 +76,14 @@ namespace mfem_mgis {
+         .integration_type =
+             mgis::behaviour::IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
+         .compute_speed_of_sound = false};  // end of BehaviourIntegrationOptions
++    // the behaviour is integrated by MGIS on the host
++    try {
++      this->synchronizeOnHost();
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++      s.update(ExitStatus::unrecoverableError);
++      return {s, ooutput};
++    }
+     const auto r = mgis::behaviour::integrate(*this, opts, ts.dt);
+     if (r.exit_status == 0) {
+       s.update(ExitStatus::unreliableResults);
+@@ -105,7 +113,11 @@ namespace mfem_mgis {
+     if (!ModelBase::update(ctx)) {
+       return false;
+     }
+-    this->updateMaterialStates();
++    try {
++      this->updateMaterialStates();
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
+     return true;
+   }  // end of update
+ 
+@@ -113,7 +125,11 @@ namespace mfem_mgis {
+     if (!ModelBase::revert(ctx)) {
+       return false;
+     }
+-    this->revertMaterialStates();
++    try {
++      this->revertMaterialStates();
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
+     return true;
+   }  // end of revert
+ 
+diff --git a/tests/MFEMFieldOperationsTest.cxx b/tests/MFEMFieldOperationsTest.cxx
+index db1117cf5d..b94ae16340 100644
+--- a/tests/MFEMFieldOperationsTest.cxx
++++ b/tests/MFEMFieldOperationsTest.cxx
+@@ -60,8 +60,6 @@ static void test(const bool d) {
+   }
+   // copy from the point by point layout to the component by component one
+   ops.copy(getView(b, d, n, nc, 1, n), getView(a, d, n, nc, nc, 1));
+-  check(!d || !mfem::Device::IsEnabled() || b.GetMemory().DeviceIsValid(),
+-        where + ": the copy did not run on the device");
+   const auto* hb = b.HostRead();
+   auto ok = true;
+   for (size_type i = 0; i != n; ++i) {
+@@ -96,6 +94,58 @@ static void test(const bool d) {
+     ok = ok && ((k % nc == 1) ? (hb[k] == -2) : (hb[k] != -2));
+   }
+   check(ok, where + ": fill of one component");
++  // copy from the component by component layout to the point by point one
++  auto c = mfem::Vector(n * nc);
++  c.UseDevice(true);
++  auto* const hc = c.HostWrite();
++  for (size_type i = 0; i != n * nc; ++i) {
++    hc[i] = static_cast<real>(-1);
++  }
++  auto* const hb2 = b.HostWrite();
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type j = 0; j != nc; ++j) {
++      hb2[j * n + i] = static_cast<real>(100 * i + j);
++    }
++  }
++  ops.copy(getView(c, d, n, nc, nc, 1), getView(b, d, n, nc, 1, n));
++  const auto* hc2 = c.HostRead();
++  ok = true;
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type j = 0; j != nc; ++j) {
++      ok = ok && (hc2[i * nc + j] == static_cast<real>(100 * i + j));
++    }
++  }
++  check(ok, where + ": copy from the component by component layout");
++  // fill of the third component in the component by component layout (the
++  // values of a component are contiguous: stride between points equal to
++  // one)
++  {
++    auto* const p = d ? b.ReadWrite() : b.HostReadWrite();
++    ops.fill(mgis::FieldView<real>{std::span<real>(p + 2 * n,
++                                                   static_cast<std::size_t>(n)),
++                                   n, 1, 1, n},
++             real{-3});
++  }
++  hb = b.HostRead();
++  ok = true;
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type j = 0; j != nc; ++j) {
++      ok = ok && ((j == 2) ? (hb[j * n + i] == -3)
++                           : (hb[j * n + i] == static_cast<real>(100 * i + j)));
++    }
++  }
++  check(ok, where +
++                ": fill of one component in the component by component "
++                "layout");
++  // fill of all the components of a view in the component by component
++  // layout (the points are processed first by the kernels)
++  ops.fill(getView(b, d, n, nc, 1, n), real{5});
++  hb = b.HostRead();
++  ok = true;
++  for (size_type k = 0; k != n * nc; ++k) {
++    ok = ok && (hb[k] == 5);
++  }
++  check(ok, where + ": fill in the component by component layout");
+ }  // end of test
+ 
+ int main(int argc, char** argv) {
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+index a7b77db6a1..8a6c9bd4ae 100644
+--- a/tests/MaterialArraysTest.cxx
++++ b/tests/MaterialArraysTest.cxx
+@@ -2,8 +2,15 @@
+  * \file   MaterialArraysTest.cxx
+  * \brief  Test of the arrays of the materials in the memory of MFEM
+  * (`MaterialArrays`): sizes, use without copy by MGIS, identity of the
+- * deformation gradients, validity of the copies on the host and on the
+- * device selected by the `--device` option
++ * deformation gradients, layouts, validity of the copies on the host and on
++ * the device selected by the `--device` option at each access of
++ * mfem-mgis on the host, arrays of the elements of a partial quadrature
++ * space.
++ *
++ * With the `debug` device of MFEM, an access on the host to an array whose
++ * copy on the host is not valid stops the program (protected memory): each
++ * entry point is called after writing all the arrays on the device, so
++ * that a missing synchronization makes the test fail.
+  * \date   09/10/2026
+  */
+ 
+@@ -18,6 +25,7 @@
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ 
+ //! \brief number of failed checks
+@@ -30,6 +38,85 @@ static void check(const bool b, const std::string& msg) {
+   }
+ }  // end of check
+ 
++using StateArray = mfem_mgis::MaterialArrays::StateArray;
++
++//! \brief arrays of a state
++static constexpr StateArray state_arrays[] = {
++    StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
++    StateArray::INTERNAL_STATE_VARIABLES, StateArray::STORED_ENERGIES,
++    StateArray::DISSIPATED_ENERGIES};
++
++//! \brief states
++static constexpr mfem_mgis::TimeStepStage states[] = {mfem_mgis::bts,
++                                                      mfem_mgis::ets};
++
++/*!
++ * \return the value written at the first index of an array by
++ * `writeAllOnTheDevice`
++ * \param[in] k: value of the call
++ * \param[in] a: array
++ * \param[in] s: state
++ */
++static int getFirstValue(const int k,
++                         const StateArray a,
++                         const mfem_mgis::TimeStepStage s) {
++  return k + 1000 * static_cast<int>(a) + (s == mfem_mgis::ets ? 500 : 0);
++}  // end of getFirstValue
++
++/*!
++ * \brief writes the values `3 * i + k` in an array on the device
++ * \param[in] d: pointer to the values on the device
++ * \param[in] n: number of values
++ * \param[in] k: value at the first index, different for each call, so that
++ * a stale copy on the host can't hold the expected values
++ */
++static void writeOnTheDevice(mfem_mgis::real* const d,
++                             const int n,
++                             const int k) {
++  mfem::forall(n, [=] MFEM_HOST_DEVICE(int i) { d[i] = 3 * i + k; });
++}  // end of writeOnTheDevice
++
++/*!
++ * \brief writes all the arrays of a material on the device (values
++ * `3 * i + getFirstValue(k, a, s)`, and `3 * i + k + 6000` for the tangent
++ * operator blocks)
++ * \param[in] a: arrays
++ * \param[in] k: value of the call
++ */
++static void writeAllOnTheDevice(mfem_mgis::MaterialArrays& a, const int k) {
++  for (const auto s : states) {
++    for (const auto sa : state_arrays) {
++      const auto n = a.getArray(sa, s).Size();
++      if (n != 0) {
++        writeOnTheDevice(a.ReadWrite(sa, s), n, getFirstValue(k, sa, s));
++      }
++    }
++  }
++  const auto n = a.getTangentOperatorBlocks().Size();
++  if (n != 0) {
++    writeOnTheDevice(a.ReadWriteTangentOperatorBlocks(), n, k + 6000);
++  }
++}  // end of writeAllOnTheDevice
++
++/*!
++ * \return true if the values of an array are `3 * i * stride + k`
++ * \param[in] v: values
++ * \param[in] stride: stride between two values
++ * \param[in] n: number of values
++ * \param[in] k: value at the first index
++ */
++static bool checkWrittenValues(const mfem_mgis::real* const v,
++                               const mfem_mgis::size_type stride,
++                               const mfem_mgis::size_type n,
++                               const int k) {
++  for (mfem_mgis::size_type i = 0; i != n; ++i) {
++    if (v[i * stride] != static_cast<mfem_mgis::real>(3 * i * stride + k)) {
++      return false;
++    }
++  }
++  return true;
++}  // end of checkWrittenValues
++
+ /*!
+  * \brief checks that MGIS uses an array of the memory of MFEM without copy
+  * \param[in] v: array of the memory of MFEM
+@@ -39,13 +126,31 @@ static void check(const bool b, const std::string& msg) {
+ static void checkAlias(const mfem::Vector& v,
+                        const std::span<mfem_mgis::real> s,
+                        const std::string& n) {
+-  if (v.Size() == 0) {
+-    return;
+-  }
+   check(static_cast<std::size_t>(v.Size()) == s.size(), n + ": size");
+-  check(v.HostRead() == s.data(), n + ": MGIS does not use the array");
++  if (v.Size() != 0) {
++    check(v.HostRead() == s.data(), n + ": MGIS does not use the array");
++  }
+ }  // end of checkAlias
+ 
++/*!
++ * \return true if two arrays have the same values on the host
++ * \param[in] a: first array
++ * \param[in] b: second array
++ */
++static bool haveSameValues(const mfem::Vector& a, const mfem::Vector& b) {
++  if (a.Size() != b.Size()) {
++    return false;
++  }
++  const auto* const ha = a.HostRead();
++  const auto* const hb = b.HostRead();
++  for (int i = 0; i != a.Size(); ++i) {
++    if (ha[i] != hb[i]) {
++      return false;
++    }
++  }
++  return true;
++}  // end of haveSameValues
++
+ static void testMaterial(
+     mfem_mgis::Context& ctx,
+     std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+@@ -69,25 +174,33 @@ static void testMaterial(
+             (m.s1.layout == layout),
+         name + ": layout not given to MGIS");
+   // sizes and use without copy
+-  for (std::size_t i = 0; i != 2; ++i) {
+-    auto& s = i == 0 ? m.s0 : m.s1;
++  for (const auto st : states) {
++    auto& s = st == bts ? m.s0 : m.s1;
+     check(
+-        static_cast<size_type>(a.gradients[i].Size()) == n * s.gradients_stride,
++        static_cast<size_type>(a.getArray(StateArray::GRADIENTS, st).Size()) ==
++            n * s.gradients_stride,
+         name + ": size of the gradients");
+-    checkAlias(a.gradients[i], s.gradients, name + ": gradients");
+-    checkAlias(a.thermodynamic_forces[i], s.thermodynamic_forces,
+-               name + ": thermodynamic forces");
+-    checkAlias(a.internal_state_variables[i], s.internal_state_variables,
+-               name + ": internal state variables");
+-    checkAlias(a.stored_energies[i], s.stored_energies,
++    checkAlias(a.getArray(StateArray::GRADIENTS, st), s.gradients,
++               name + ": gradients");
++    checkAlias(a.getArray(StateArray::THERMODYNAMIC_FORCES, st),
++               s.thermodynamic_forces, name + ": thermodynamic forces");
++    checkAlias(a.getArray(StateArray::INTERNAL_STATE_VARIABLES, st),
++               s.internal_state_variables, name + ": internal state variables");
++    checkAlias(a.getArray(StateArray::STORED_ENERGIES, st), s.stored_energies,
+                name + ": stored energies");
+-    checkAlias(a.dissipated_energies[i], s.dissipated_energies,
+-               name + ": dissipated energies");
++    checkAlias(a.getArray(StateArray::DISSIPATED_ENERGIES, st),
++               s.dissipated_energies, name + ": dissipated energies");
++    check(m.b.computesStoredEnergy ==
++              (a.getArray(StateArray::STORED_ENERGIES, st).Size() != 0),
++          name + ": stored energies allocated if and only if computed");
++    check(m.b.computesDissipatedEnergy ==
++              (a.getArray(StateArray::DISSIPATED_ENERGIES, st).Size() != 0),
++          name + ": dissipated energies allocated if and only if computed");
+   }
+-  check(static_cast<size_type>(a.tangent_operator_blocks.Size()) ==
++  check(static_cast<size_type>(a.getTangentOperatorBlocks().Size()) ==
+             n * m.K_stride,
+         name + ": size of the tangent operator blocks");
+-  checkAlias(a.tangent_operator_blocks, m.K,
++  checkAlias(a.getTangentOperatorBlocks(), m.K,
+              name + ": tangent operator blocks");
+   // identity of the deformation gradients
+   if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+@@ -105,32 +218,48 @@ static void testMaterial(
+     }
+   }
+   // the accessors based on a stride between points require the point by
+-  // point layout
+-  if (!m.b.isvs.empty()) {
+-    auto ctx2 = Context{};
+-    const auto o =
+-        getInternalStateVariable(ctx2, m, m.b.isvs.front().name, ets);
+-    check(isInvalid(o) != pbp, name + ": accessor and layout");
++  // point layout (the six accessors, mutable and read-only)
++  {
++    const auto& cm = static_cast<const Material&>(m);
++    auto refused = [](const auto& o) { return isInvalid(o); };
++    const auto g = m.b.gradients.front().name;
++    const auto t = m.b.thermodynamic_forces.front().name;
++    auto c = Context{};
++    check(refused(getGradient(c, m, g, ets)) != pbp,
++          name + ": layout and mutable accessor of the gradients");
++    check(refused(getGradient(c, cm, g, ets)) != pbp,
++          name + ": layout and read-only accessor of the gradients");
++    check(refused(getThermodynamicForce(c, m, t, ets)) != pbp,
++          name + ": layout and mutable accessor of the thermodynamic forces");
++    check(refused(getThermodynamicForce(c, cm, t, ets)) != pbp,
++          name + ": layout and read-only accessor of the thermodynamic forces");
++    if (!m.b.isvs.empty()) {
++      const auto i = m.b.isvs.front().name;
++      check(refused(getInternalStateVariable(c, m, i, ets)) != pbp,
++            name +
++                ": layout and mutable accessor of the internal state "
++                "variables");
++      check(refused(getInternalStateVariable(c, cm, i, ets)) != pbp,
++            name +
++                ": layout and read-only accessor of the internal state "
++                "variables");
++    }
++    check(!refused(getStoredEnergy(c, cm, ets)) == m.b.computesStoredEnergy,
++          name + ": the energies are accessible in both layouts");
+   }
+   // validity of the copies: values written by a kernel on the device are
+   // seen by MGIS on the host after `synchronizeOnHost`
+-  auto& v = a.thermodynamic_forces[1];
++  const auto& v = a.getArray(StateArray::THERMODYNAMIC_FORCES, ets);
+   const auto size = v.Size();
+-  auto* const d = v.ReadWrite();
+-  mfem::forall(size, [=] MFEM_HOST_DEVICE(int i) { d[i] = 3 * i + 1; });
++  writeOnTheDevice(a.ReadWrite(StateArray::THERMODYNAMIC_FORCES, ets), size, 1);
+   a.synchronizeOnHost();
+-  const auto& sig = m.s1.thermodynamic_forces;
+-  for (int i = 0; i != size; ++i) {
+-    if (sig[i] != 3 * i + 1) {
+-      check(false, name + ": values of the device not seen by MGIS");
+-      break;
+-    }
+-  }
++  check(checkWrittenValues(m.s1.thermodynamic_forces.data(), 1, size, 1),
++        name + ": values of the device not seen by MGIS");
+   // the copy on the device is invalid: MGIS may modify the values on the
+   // host, a kernel then reads them
+   check(!v.GetMemory().DeviceIsValid() || !mfem::Device::IsEnabled(),
+         name + ": the copy on the device is still valid");
+-  sig[0] = -1;
++  m.s1.thermodynamic_forces[0] = -1;
+   auto* const r = v.Read();
+   auto first = mfem::Vector(1);
+   first.UseDevice(true);
+@@ -138,43 +267,69 @@ static void testMaterial(
+   mfem::forall(1, [=] MFEM_HOST_DEVICE(int) { f[0] = r[0]; });
+   check(first.HostRead()[0] == -1,
+         name + ": values of MGIS not seen on the device");
++  // update and revert, in the layout of the material: the arrays written on
++  // the device are copied from a state to the other one
++  const auto copied = {StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
++                       StateArray::INTERNAL_STATE_VARIABLES,
++                       StateArray::STORED_ENERGIES};
++  writeAllOnTheDevice(a, 7);
++  m.updateMaterialStates();
++  for (const auto sa : copied) {
++    const auto& v0 = a.getArray(sa, bts);
++    check(haveSameValues(v0, a.getArray(sa, ets)) &&
++              checkWrittenValues(v0.HostRead(), 1, v0.Size(),
++                                 getFirstValue(7, sa, ets)),
++          name + ": update of array " + std::to_string(static_cast<int>(sa)));
++  }
++  writeAllOnTheDevice(a, 8);
++  m.revertMaterialStates();
++  for (const auto sa : copied) {
++    const auto& v1 = a.getArray(sa, ets);
++    check(haveSameValues(a.getArray(sa, bts), v1) &&
++              checkWrittenValues(v1.HostRead(), 1, v1.Size(),
++                                 getFirstValue(8, sa, bts)),
++          name + ": revert of array " + std::to_string(static_cast<int>(sa)));
++  }
+ }  // end of testMaterial
+ 
+ /*!
+- * \brief writes the values `3 * i + k` in an array on the device
+- * \param[in] v: array
+- * \param[in] k: value at the first index, different for each call, so that
+- * a stale copy on the host can't hold the expected values
++ * \brief a material without integration point (as on a process which owns
++ * no element of the material)
+  */
+-static void writeOnTheDevice(mfem::Vector& v, const int k) {
+-  auto* const d = v.ReadWrite();
+-  mfem::forall(v.Size(), [=] MFEM_HOST_DEVICE(int i) { d[i] = 3 * i + k; });
+-}  // end of writeOnTheDevice
+-
+-/*!
+- * \brief checks the values written by `writeOnTheDevice`
+- * \param[in] v: values
+- * \param[in] stride: stride between two values
+- * \param[in] n: number of values
+- * \param[in] k: value at the first index
+- * \param[in] msg: message
+- */
+-static void checkWrittenValues(const mfem_mgis::real* const v,
+-                               const mfem_mgis::size_type stride,
+-                               const mfem_mgis::size_type n,
+-                               const int k,
+-                               const std::string& msg) {
+-  for (mfem_mgis::size_type i = 0; i != n; ++i) {
+-    if (v[i * stride] != static_cast<mfem_mgis::real>(3 * i * stride + k)) {
+-      check(false, msg);
+-      return;
++static void testEmptyMaterial(mfem_mgis::Context& ctx,
++                              const char* const library) {
++  using namespace mfem_mgis;
++  auto b = mfem_mgis::load(ctx, library, "SaintVenantKirchhoffElasticityV2",
++                           Hypothesis::TRIDIMENSIONAL);
++  if (isInvalid(b)) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    ++failures;
++    return;
++  }
++  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
++                       mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
++    try {
++      auto a = MaterialArrays(*b, 0, l);
++      auto m = mgis::behaviour::MaterialDataManager(*b, 0, a.getInitializer());
++      a.synchronizeOnHost();
++      a.synchronizeOnHostForReading();
++      auto ops = mgis::HostFieldOperations{};
++      mgis::behaviour::update(m, ops);
++      mgis::behaviour::revert(m, ops);
++      check(a.getTangentOperatorBlocks().Size() == 0,
++            "material without point: tangent operator blocks");
++    } catch (std::exception& e) {
++      check(false, std::string{"material without point: "} + e.what());
+     }
+   }
+-}  // end of checkWrittenValues
++}  // end of testEmptyMaterial
+ 
+ /*!
+- * \brief the accessors of the materials and the update of a problem see
+- * the values written on the device
++ * \brief each entry point of mfem-mgis accessing the arrays on the host is
++ * called after writing all the arrays on the device: the accessors, the
++ * integration of the behaviours, the post-processings, revert and update
++ * see the values written on the device (and, with the `debug` device of
++ * MFEM, do not access an invalid copy on the host)
+  */
+ static void testHostAccesses(mfem_mgis::Context& ctx,
+                              const char* const mesh,
+@@ -193,23 +348,35 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
+   problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                  "IsotropicLinearHardeningPlasticity") |
+       or_die;
++  for (const auto* const pp :
++       {"MeanThermodynamicForces", "ComputeResultantForceOnBoundary"}) {
++    auto params = Parameters{
++        {"OutputFileName", std::string{pp} + "-MaterialArraysTest.txt"}};
++    if (std::string_view{pp} == "ComputeResultantForceOnBoundary") {
++      params.insert(throwing, {{"Boundary", 1}});
++    }
++    problem.addPostProcessing(ctx, pp, params) | or_die;
++  }
+   auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+-  auto& isvs = m.getArrays().internal_state_variables[1];
++  auto& a = m.getArrays();
+   const auto n = m.n;
+   const auto stride = m.s1.internal_state_variables_stride;
++  const auto first = [](const int k, const TimeStepStage s) {
++    return getFirstValue(k, StateArray::INTERNAL_STATE_VARIABLES, s);
++  };
+   // first internal state variable (first component of the elastic strain)
+   // at the end of the time step, through the accessor
+-  writeOnTheDevice(isvs, 1);
++  writeAllOnTheDevice(a, 1);
+   const auto of = getInternalStateVariable(ctx, m, "ElasticStrain", ets);
+   if (isInvalid(of)) {
+     std::cerr << ctx.getErrorMessage() << '\n';
+     ++failures;
+     return;
+   }
+-  checkWrittenValues(of->getValues().data(), stride, n, 1,
+-                     "accessor: values of the device not seen");
++  check(checkWrittenValues(of->getValues().data(), stride, n, first(1, ets)),
++        "accessor: values of the device not seen");
+   // read-only accessor: the copy on the device stays valid
+-  writeOnTheDevice(isvs, 2);
++  writeAllOnTheDevice(a, 2);
+   const auto& cm = static_cast<const Material&>(m);
+   const auto ocf = getInternalStateVariable(ctx, cm, "ElasticStrain", ets);
+   if (isInvalid(ocf)) {
+@@ -217,20 +384,42 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
+     ++failures;
+     return;
+   }
+-  checkWrittenValues(ocf->getValues().data(), stride, n, 2,
+-                     "read-only accessor: values of the device not seen");
+-  check(!mfem::Device::IsEnabled() || isvs.GetMemory().DeviceIsValid(),
++  check(checkWrittenValues(ocf->getValues().data(), stride, n, first(2, ets)),
++        "read-only accessor: values of the device not seen");
++  check(!mfem::Device::IsEnabled() ||
++            a.getArray(StateArray::INTERNAL_STATE_VARIABLES, ets)
++                .GetMemory()
++                .DeviceIsValid(),
+         "read-only accessor: the copy on the device is invalidated");
++  // integration of the behaviours (gradients computed from the unknowns,
++  // all the arrays of the end of the time step written)
++  writeAllOnTheDevice(a, 3);
++  auto u = mfem::Vector(problem.getUnknowns(ets).Size());
++  u = real{0};
++  check(problem.integrate(
++            u, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR, 1),
++        "integration");
++  // the integration writes the arrays of the end of the time step on the
++  // host: with the debug device, a missing synchronization stops the program
++  // (the values computed from the values written on the device are not
++  // checked)
++  // post-processings, which read the arrays on the host
++  writeAllOnTheDevice(a, 4);
++  check(problem.executePostProcessings(ctx, 0, 1), "post-processings");
++  // revert: the values of the beginning of the time step written on the
++  // device are copied at the end of the time step
++  writeAllOnTheDevice(a, 5);
++  check(problem.revert(ctx), "revert");
++  check(checkWrittenValues(m.s1.internal_state_variables.data(), 1, n * stride,
++                           first(5, bts)),
++        "revert: values of the device not seen");
+   // update: the values at the end of the time step written on the device
+   // are copied at the beginning of the time step
+-  writeOnTheDevice(isvs, 3);
+-  if (!problem.update(ctx)) {
+-    std::cerr << ctx.getErrorMessage() << '\n';
+-    ++failures;
+-    return;
+-  }
+-  checkWrittenValues(m.s0.internal_state_variables.data(), 1, n * stride, 3,
+-                     "update: values of the device not seen");
++  writeAllOnTheDevice(a, 6);
++  check(problem.update(ctx), "update");
++  check(checkWrittenValues(m.s0.internal_state_variables.data(), 1, n * stride,
++                           first(6, ets)),
++        "update: values of the device not seen");
+ }  // end of testHostAccesses
+ 
+ /*!
+@@ -310,14 +499,16 @@ int main(int argc, char** argv) {
+           -> const mfem::IntegrationRule& {
+         return mfem::IntRules.Get(e.GetGeomType(), 2 * tr.OrderGrad(&e));
+       });
++  // the second Saint-Venant Kirchhoff behaviour computes the stored energy
+   for (const auto* const b :
+        {"IsotropicLinearHardeningPlasticity", "SaintVenantKirchhoffElasticity",
+-        "IsotropicLinearElasticity"}) {
++        "SaintVenantKirchhoffElasticityV2", "IsotropicLinearElasticity"}) {
+     for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
+                          mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+       testMaterial(ctx, qspace, library, b, l);
+     }
+   }
++  testEmptyMaterial(ctx, library);
+   testHostAccesses(ctx, mesh, library);
+   testQuadratureSpaceArrays(*qspace);
+   {
+-- 
+2.43.0
+

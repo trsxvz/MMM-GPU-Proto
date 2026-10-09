@@ -188,6 +188,12 @@ namespace mfem_mgis {
      */
     void synchronizeOnHost();
     /*!
+     * \brief makes the copies of the arrays of the materials on the host
+     * valid before a read-only access on the host (see
+     * `Material::synchronizeOnHostForReading`)
+     */
+    void synchronizeOnHostForReading() const;
+    /*!
      * \brief set the macroscopic gradients
      * \param[in] g: macroscopic gradients
      */

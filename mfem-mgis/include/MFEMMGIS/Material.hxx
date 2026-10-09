@@ -85,25 +85,36 @@ namespace mfem_mgis {
      */
     void setRotationMatrix(const RotationMatrix3D &r);
     /*!
-     * \brief makes the copies of the arrays on the host valid before an
-     * access on the host, and invalidates their copies on the device (see
-     * `MaterialArrays`). Required before a direct access to the states (`s0`,
-     * `s1`) or to the tangent operator blocks (`K`) after a computation on
-     * the device. The accessors (`getInternalStateVariable`, ...), the
-     * integration of the behaviours, `update`, `revert` and the
-     * post-processings call it.
+     * \brief makes the copies of the arrays on the host valid at the
+     * beginning of a phase of accesses on the host, and invalidates their
+     * copies on the device (see `MaterialArrays` for the complete rules).
+     * Required before a direct access to the states (`s0`, `s1`) or to the
+     * tangent operator blocks (`K`) after a computation on the device. It is
+     * called by the mutable accessors (`getInternalStateVariable`, ...), by
+     * the integration of the behaviours (`integrate` and `solve` of the
+     * non linear evolution problems, `computeNextState` of the point-wise
+     * models), by `updateMaterialStates` and by `revertMaterialStates`.
+     *
+     * \note the arrays of a material used by another one as external
+     * storage (material properties or external state variables given with
+     * the `EXTERNAL_STORAGE` mode) are not synchronized by the other
+     * material: the code which integrates the other material must
+     * synchronize this one first.
      */
     using MaterialArrays::synchronizeOnHost;
     /*!
-     * \brief makes the copies of the arrays on the host valid before a
-     * read-only access on the host, keeping their copies on the device valid
+     * \brief makes the copies of the arrays on the host valid at the
+     * beginning of a phase of read-only accesses on the host, keeping their
+     * copies on the device valid. It is called by the read-only accessors,
+     * before the post-processings, and by the functions computing mean
+     * values or resultant forces from the thermodynamic forces.
      */
     using MaterialArrays::synchronizeOnHostForReading;
     /*!
      * \brief copies the state at the end of the time step on the state at
-     * the beginning of the time step (see `mgis::behaviour::update`). The
-     * arrays are copied by kernels of MFEM (`batch::MFEMFieldOperations`),
-     * in the memory where MGIS uses them (the host).
+     * the beginning of the time step (see `mgis::behaviour::update`), after
+     * the synchronization of the arrays on the host, where MGIS uses them.
+     * The arrays are copied by `mgis::HostFieldOperations`.
      */
     void updateMaterialStates();
     /*!
@@ -170,6 +181,16 @@ namespace mfem_mgis {
     const std::unique_ptr<const Behaviour> behaviour_ptr;
 
   };  // end of struct Material
+
+  /*!
+   * \return true if the arrays of the material are in the point by point
+   * layout, required by the accessors and the evaluators based on a stride
+   * between points; otherwise, an error message is registered in the context
+   * \param[in, out] ctx: execution context
+   * \param[in] m: material
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool checkPointByPointLayout(
+      Context &, const Material &) noexcept;
 
   /*!
    * \brief get a gradient of the material

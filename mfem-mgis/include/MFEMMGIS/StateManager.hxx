@@ -26,6 +26,11 @@ namespace mfem_mgis {
   /*!
    * \brief structure containing the state of a physical system or a set of non
    * linear evolution problems.
+   *
+   * \note the views on the arrays of the materials registered in a state
+   * manager are synchronized on the host when they are taken (see
+   * `Material::synchronizeOnHostForReading`). After a computation on the
+   * device, they must be taken again.
    */
   struct MFEM_MGIS_EXPORT StateManager
       : PartialQuadratureSpaceIdentifiersManager {

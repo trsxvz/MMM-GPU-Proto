@@ -6,6 +6,7 @@
  */
 
 #include <limits>
+#include <cstddef>
 #include "mfem/general/forall.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
@@ -18,9 +19,9 @@ namespace mfem_mgis::batch {
    * \param[in] n: number of points
    * \param[in] nc: number of components
    */
-  static int getNumberOfValues(const size_type n, const size_type nc) {
+  static int getNumberOfValues(const std::size_t n, const std::size_t nc) {
     if ((nc != 0) &&
-        (n > static_cast<size_type>(std::numeric_limits<int>::max()) / nc)) {
+        (n > static_cast<std::size_t>(std::numeric_limits<int>::max()) / nc)) {
       mgis::raise("MFEMFieldOperations: too many values");
     }
     return static_cast<int>(n * nc);
@@ -49,14 +50,14 @@ namespace mfem_mgis::batch {
     // consecutive threads process consecutive values of the destination
     if (dcs <= dps) {
       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
-        const auto i = static_cast<size_type>(k) / nc;
-        const auto j = static_cast<size_type>(k) % nc;
+        const auto i = static_cast<std::size_t>(k) / nc;
+        const auto j = static_cast<std::size_t>(k) % nc;
         dv[i * dps + j * dcs] = sv[i * sps + j * scs];
       });
     } else {
       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
-        const auto i = static_cast<size_type>(k) % n;
-        const auto j = static_cast<size_type>(k) / n;
+        const auto i = static_cast<std::size_t>(k) % n;
+        const auto j = static_cast<std::size_t>(k) / n;
         dv[i * dps + j * dcs] = sv[i * sps + j * scs];
       });
     }
@@ -79,14 +80,14 @@ namespace mfem_mgis::batch {
     const auto nv = getNumberOfValues(n, nc);
     if (cs <= ps) {
       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
-        const auto i = static_cast<size_type>(k) / nc;
-        const auto j = static_cast<size_type>(k) % nc;
+        const auto i = static_cast<std::size_t>(k) / nc;
+        const auto j = static_cast<std::size_t>(k) % nc;
         dv[i * ps + j * cs] = v;
       });
     } else {
       mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
-        const auto i = static_cast<size_type>(k) % n;
-        const auto j = static_cast<size_type>(k) / n;
+        const auto i = static_cast<std::size_t>(k) % n;
+        const auto j = static_cast<std::size_t>(k) / n;
         dv[i * ps + j * cs] = v;
       });
     }
@@ -97,11 +98,22 @@ namespace mfem_mgis::batch {
 
   void MFEMFieldOperations::do_copy(const mgis::FieldView<real>& d,
                                     const mgis::FieldView<const real>& s) {
+    if (!this->use_device) {
+      // dense copies on the host
+      auto ops = mgis::HostFieldOperations{};
+      ops.copy(d, s);
+      return;
+    }
     copyFieldView(this->use_device, d, s);
   }  // end of do_copy
 
   void MFEMFieldOperations::do_fill(const mgis::FieldView<real>& d,
                                     const real v) {
+    if (!this->use_device) {
+      auto ops = mgis::HostFieldOperations{};
+      ops.fill(d, v);
+      return;
+    }
     fillFieldView(this->use_device, d, v);
   }  // end of do_fill
 

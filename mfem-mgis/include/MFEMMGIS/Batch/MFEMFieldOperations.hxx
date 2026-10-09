@@ -14,15 +14,18 @@ namespace mfem_mgis::batch {
 
   /*!
    * \brief copies and fills of views of MGIS (`mgis::FieldView`) by kernels
-   * of MFEM (`mfem::forall`), used by the update and the revert of the
-   * states of a material (`mgis::behaviour::update`,
-   * `mgis::behaviour::revert`).
+   * of MFEM (`mfem::forall`), for the update and the revert of the states of
+   * a material (`mgis::behaviour::update`, `mgis::behaviour::revert`) whose
+   * arrays are located on the device.
    *
-   * The operations run on the device of MFEM if the views are located in
-   * its memory (pointers given by `Read`, `Write`, `ReadWrite` of a
-   * `mfem::Memory`), and on the host otherwise. On a GPU, they are
-   * asynchronous, on the stream of MFEM: an access on the host must go
-   * through the copies of MFEM (`HostRead`, ...), which wait for them.
+   * The operations run on the device if the object was constructed with
+   * `true`: the views must then be located in the memory of the device
+   * (pointers given by `Read`, `Write`, `ReadWrite` of a `mfem::Memory`).
+   * Otherwise, the views must be located on the host, and the operations
+   * are the ones of `mgis::HostFieldOperations`. Nothing is detected. On a
+   * GPU, the operations are asynchronous, on the stream of MFEM: an access
+   * on the host must go through the copies of MFEM (`HostRead`, ...), which
+   * wait for them.
    */
   struct MFEM_MGIS_EXPORT MFEMFieldOperations final : mgis::FieldOperations {
     /*!
@@ -30,7 +33,7 @@ namespace mfem_mgis::batch {
      * \param[in] d: if true, the views are located in the memory of the
      * device of MFEM (if a device is enabled), and the operations run on the
      * device. Otherwise, the views are located in the memory of the host,
-     * and the operations run on the host.
+     * and the operations run on the host, as `mgis::HostFieldOperations`.
      */
     explicit MFEMFieldOperations(const bool) noexcept;
     //! \brief destructor

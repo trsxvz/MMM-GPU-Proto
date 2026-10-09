@@ -60,8 +60,6 @@ static void test(const bool d) {
   }
   // copy from the point by point layout to the component by component one
   ops.copy(getView(b, d, n, nc, 1, n), getView(a, d, n, nc, nc, 1));
-  check(!d || !mfem::Device::IsEnabled() || b.GetMemory().DeviceIsValid(),
-        where + ": the copy did not run on the device");
   const auto* hb = b.HostRead();
   auto ok = true;
   for (size_type i = 0; i != n; ++i) {
@@ -96,6 +94,58 @@ static void test(const bool d) {
     ok = ok && ((k % nc == 1) ? (hb[k] == -2) : (hb[k] != -2));
   }
   check(ok, where + ": fill of one component");
+  // copy from the component by component layout to the point by point one
+  auto c = mfem::Vector(n * nc);
+  c.UseDevice(true);
+  auto* const hc = c.HostWrite();
+  for (size_type i = 0; i != n * nc; ++i) {
+    hc[i] = static_cast<real>(-1);
+  }
+  auto* const hb2 = b.HostWrite();
+  for (size_type i = 0; i != n; ++i) {
+    for (size_type j = 0; j != nc; ++j) {
+      hb2[j * n + i] = static_cast<real>(100 * i + j);
+    }
+  }
+  ops.copy(getView(c, d, n, nc, nc, 1), getView(b, d, n, nc, 1, n));
+  const auto* hc2 = c.HostRead();
+  ok = true;
+  for (size_type i = 0; i != n; ++i) {
+    for (size_type j = 0; j != nc; ++j) {
+      ok = ok && (hc2[i * nc + j] == static_cast<real>(100 * i + j));
+    }
+  }
+  check(ok, where + ": copy from the component by component layout");
+  // fill of the third component in the component by component layout (the
+  // values of a component are contiguous: stride between points equal to
+  // one)
+  {
+    auto* const p = d ? b.ReadWrite() : b.HostReadWrite();
+    ops.fill(mgis::FieldView<real>{std::span<real>(p + 2 * n,
+                                                   static_cast<std::size_t>(n)),
+                                   n, 1, 1, n},
+             real{-3});
+  }
+  hb = b.HostRead();
+  ok = true;
+  for (size_type i = 0; i != n; ++i) {
+    for (size_type j = 0; j != nc; ++j) {
+      ok = ok && ((j == 2) ? (hb[j * n + i] == -3)
+                           : (hb[j * n + i] == static_cast<real>(100 * i + j)));
+    }
+  }
+  check(ok, where +
+                ": fill of one component in the component by component "
+                "layout");
+  // fill of all the components of a view in the component by component
+  // layout (the points are processed first by the kernels)
+  ops.fill(getView(b, d, n, nc, 1, n), real{5});
+  hb = b.HostRead();
+  ok = true;
+  for (size_type k = 0; k != n * nc; ++k) {
+    ok = ok && (hb[k] == 5);
+  }
+  check(ok, where + ": fill in the component by component layout");
 }  // end of test
 
 int main(int argc, char** argv) {

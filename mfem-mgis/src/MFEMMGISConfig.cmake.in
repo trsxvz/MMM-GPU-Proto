@@ -29,6 +29,12 @@ if (NOT TARGET MFEM::mfem)
 
 endif(NOT TARGET MFEM::mfem)
 
+# the library uses the runtime of CUDA when MFEM is compiled with CUDA
+if(("@MFEM_USE_CUDA@" STREQUAL "YES") AND (NOT TARGET CUDA::cudart))
+  include(CMakeFindDependencyMacro)
+  find_dependency(CUDAToolkit)
+endif()
+
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
 # before mfem-mgis, the description of MFEM is the one used to build
 # mfem-mgis

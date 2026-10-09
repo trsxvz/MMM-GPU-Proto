@@ -67,6 +67,18 @@ endif(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP)
 
 # MFontGenericInterface
 find_package (MFrontGenericInterface REQUIRED PATH_SUFFIXES share/mgis/cmake)
+# the arrays of the materials are given to MGIS with their location and
+# layout, and updated with field operations (`MGIS/FieldOperations.hxx`)
+get_target_property(_mgis_include_directories
+  mgis::MFrontGenericInterface INTERFACE_INCLUDE_DIRECTORIES)
+find_file(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER MGIS/FieldOperations.hxx
+  PATHS ${_mgis_include_directories} NO_DEFAULT_PATH)
+if(NOT MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
+  message(FATAL_ERROR "mfem-mgis requires a version of MGIS providing "
+          "field operations (MGIS/FieldOperations.hxx), the location and "
+          "the layout of the arrays of the material data managers")
+endif()
+mark_as_advanced(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
 set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
 if(MGIS_HAVE_TFEL)
   if(TARGET tfel::TFELTests)

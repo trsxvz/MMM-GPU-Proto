@@ -10,7 +10,6 @@
 #include "MGIS/Behaviour/RotationMatrix.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
-#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
 #include "MFEMMGIS/Material.hxx"
 
 namespace mfem_mgis {
@@ -70,13 +69,13 @@ namespace mfem_mgis {
   void Material::updateMaterialStates() {
     // MGIS uses the copies of the arrays on the host
     this->synchronizeOnHost();
-    auto ops = batch::MFEMFieldOperations(false);
+    auto ops = mgis::HostFieldOperations{};
     mgis::behaviour::update(*this, ops);
   }  // end of updateMaterialStates
 
   void Material::revertMaterialStates() {
     this->synchronizeOnHost();
-    auto ops = batch::MFEMFieldOperations(false);
+    auto ops = mgis::HostFieldOperations{};
     mgis::behaviour::revert(*this, ops);
   }  // end of revertMaterialStates
 
@@ -294,20 +293,47 @@ namespace mfem_mgis {
          .data_stride = static_cast<size_type>(*ostride)});
   }  // end of buildImmutablePartialQuadratureFunctionView
 
-  /*!
-   * \return true if the accessors based on a stride between points can be
-   * used, i.e. if the layout of the arrays is point by point
-   * \param[in, out] ctx: execution context
-   * \param[in] m: material
-   */
-  static bool checkPointByPointLayout(Context &ctx, const Material &m) {
+  bool checkPointByPointLayout(Context &ctx, const Material &m) noexcept {
     if (m.layout != mgis::FieldLayout::POINT_BY_POINT) {
       return ctx.registerErrorMessage(
-          "the accessors of the material require the point by point layout "
-          "of its arrays");
+          "the accessors and the evaluators of the material require the "
+          "point by point layout of its arrays");
     }
     return true;
   }  // end of checkPointByPointLayout
+
+  /*!
+   * \brief synchronize the arrays of a material on the host, reporting the
+   * exceptions in the context
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in] m: material
+   */
+  static bool synchronizeOnHost(Context &ctx, Material &m) noexcept {
+    try {
+      m.synchronizeOnHost();
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return true;
+  }  // end of synchronizeOnHost
+
+  /*!
+   * \brief synchronize the arrays of a material on the host for reading,
+   * reporting the exceptions in the context
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in] m: material
+   */
+  static bool synchronizeOnHostForReading(Context &ctx,
+                                          const Material &m) noexcept {
+    try {
+      m.synchronizeOnHostForReading();
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return true;
+  }  // end of synchronizeOnHostForReading
 
   std::optional<PartialQuadratureFunction> getGradient(
       Context &ctx,
@@ -317,7 +343,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHost();
+    if (!synchronizeOnHost(ctx, m)) {
+      return {};
+    }
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
@@ -331,7 +359,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHostForReading();
+    if (!synchronizeOnHostForReading(ctx, m)) {
+      return {};
+    }
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
@@ -345,7 +375,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHost();
+    if (!synchronizeOnHost(ctx, m)) {
+      return {};
+    }
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
@@ -360,7 +392,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHostForReading();
+    if (!synchronizeOnHostForReading(ctx, m)) {
+      return {};
+    }
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
@@ -375,7 +409,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHost();
+    if (!synchronizeOnHost(ctx, m)) {
+      return {};
+    }
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
@@ -390,7 +426,9 @@ namespace mfem_mgis {
     if (!checkPointByPointLayout(ctx, m)) {
       return {};
     }
-    m.synchronizeOnHostForReading();
+    if (!synchronizeOnHostForReading(ctx, m)) {
+      return {};
+    }
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
@@ -400,7 +438,9 @@ namespace mfem_mgis {
   std::optional<PartialQuadratureFunction> getStoredEnergy(
       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
     // one component: same array in both layouts
-    m.synchronizeOnHost();
+    if (!synchronizeOnHost(ctx, m)) {
+      return {};
+    }
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesStoredEnergy) {
       return ctx.registerErrorMessage(
@@ -416,7 +456,9 @@ namespace mfem_mgis {
       const Material &m,
       const Material::StateSelection s) noexcept {
     // one component: same array in both layouts
-    m.synchronizeOnHostForReading();
+    if (!synchronizeOnHostForReading(ctx, m)) {
+      return {};
+    }
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesStoredEnergy) {
       return ctx.registerErrorMessage(
@@ -430,7 +472,9 @@ namespace mfem_mgis {
   std::optional<PartialQuadratureFunction> getDissipatedEnergy(
       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
     // one component: same array in both layouts
-    m.synchronizeOnHost();
+    if (!synchronizeOnHost(ctx, m)) {
+      return {};
+    }
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesDissipatedEnergy) {
       return ctx.registerErrorMessage(
@@ -446,7 +490,9 @@ namespace mfem_mgis {
       const Material &m,
       const Material::StateSelection s) noexcept {
     // one component: same array in both layouts
-    m.synchronizeOnHostForReading();
+    if (!synchronizeOnHostForReading(ctx, m)) {
+      return {};
+    }
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesDissipatedEnergy) {
       return ctx.registerErrorMessage(

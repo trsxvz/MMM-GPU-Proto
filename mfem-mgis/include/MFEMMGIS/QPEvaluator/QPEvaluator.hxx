@@ -87,7 +87,11 @@ namespace mfem_mgis {
     [[nodiscard]] const PartialQuadratureSpace& getPartialQuadratureSpace()
         const;
     /*!
-     * \brief perform consistency checks
+     * \brief perform consistency checks (orthotropic behaviour, point by
+     * point layout of the arrays of the material), and synchronize the
+     * arrays of the material on the host for reading (see
+     * `Material::synchronizeOnHostForReading`): the evaluations which follow
+     * read them on the host
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -156,7 +160,11 @@ namespace mfem_mgis {
         const Material& m,
         const Material::StateSelection s = Material::END_OF_TIME_STEP);
     /*!
-     * \brief perform consistency checks
+     * \brief perform consistency checks (orthotropic behaviour, point by
+     * point layout of the arrays of the material), and synchronize the
+     * arrays of the material on the host for reading (see
+     * `Material::synchronizeOnHostForReading`): the evaluations which follow
+     * read them on the host
      * \param[in, out] ctx: error handler
      * \return true on success
      */

@@ -76,6 +76,14 @@ namespace mfem_mgis {
         .integration_type =
             mgis::behaviour::IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
         .compute_speed_of_sound = false};  // end of BehaviourIntegrationOptions
+    // the behaviour is integrated by MGIS on the host
+    try {
+      this->synchronizeOnHost();
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+      s.update(ExitStatus::unrecoverableError);
+      return {s, ooutput};
+    }
     const auto r = mgis::behaviour::integrate(*this, opts, ts.dt);
     if (r.exit_status == 0) {
       s.update(ExitStatus::unreliableResults);
@@ -105,7 +113,11 @@ namespace mfem_mgis {
     if (!ModelBase::update(ctx)) {
       return false;
     }
-    this->updateMaterialStates();
+    try {
+      this->updateMaterialStates();
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
     return true;
   }  // end of update
 
@@ -113,7 +125,11 @@ namespace mfem_mgis {
     if (!ModelBase::revert(ctx)) {
       return false;
     }
-    this->revertMaterialStates();
+    try {
+      this->revertMaterialStates();
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
     return true;
   }  // end of revert
 

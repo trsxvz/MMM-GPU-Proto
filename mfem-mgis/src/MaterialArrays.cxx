@@ -5,6 +5,7 @@
  */
 
 #include <limits>
+#include <cstddef>
 #include <algorithm>
 #include "MGIS/Raise.hxx"
 #include "MGIS/MemoryLocation.hxx"
@@ -19,8 +20,8 @@ namespace mfem_mgis {
    * \param[out] v: array
    * \param[in] s: size of the array
    */
-  static void allocateMaterialArray(mfem::Vector& v, const size_type s) {
-    if (s > static_cast<size_type>(std::numeric_limits<int>::max())) {
+  static void allocateMaterialArray(mfem::Vector& v, const std::size_t s) {
+    if (s > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
       mgis::raise("MaterialArrays: array too large for MFEM");
     }
     v.SetSize(static_cast<int>(s));
@@ -42,40 +43,65 @@ namespace mfem_mgis {
     return {v.HostReadWrite(), static_cast<std::size_t>(v.Size())};
   }  // end of getHostView
 
+  //! \return the index of a state
+  static std::size_t getStateIndex(const TimeStepStage s) {
+    return s == TimeStepStage::BEGINNING_OF_TIME_STEP ? 0 : 1;
+  }  // end of getStateIndex
+
+  //! \return the index of an array of a state
+  static std::size_t getArrayIndex(const MaterialArrays::StateArray a) {
+    return static_cast<std::size_t>(a);
+  }  // end of getArrayIndex
+
   MaterialArrays::MaterialArrays(const Behaviour& b,
                                  const size_type n,
                                  const mgis::FieldLayout l)
       : array_layout(l) {
     using mgis::behaviour::getArraySize;
-    const auto gs = getArraySize(b.gradients, b.hypothesis);
-    const auto ts = getArraySize(b.thermodynamic_forces, b.hypothesis);
-    const auto is = getArraySize(b.isvs, b.hypothesis);
+    // sizes computed with the type of the sizes of MGIS, checked against the
+    // range of the sizes of MFEM by `allocateMaterialArray`
+    const auto np = static_cast<std::size_t>(n);
+    const auto gs =
+        static_cast<std::size_t>(getArraySize(b.gradients, b.hypothesis));
+    const auto ts = static_cast<std::size_t>(
+        getArraySize(b.thermodynamic_forces, b.hypothesis));
+    const auto is =
+        static_cast<std::size_t>(getArraySize(b.isvs, b.hypothesis));
     for (std::size_t i = 0; i != 2; ++i) {
-      allocateMaterialArray(this->gradients[i], n * gs);
-      allocateMaterialArray(this->thermodynamic_forces[i], n * ts);
-      allocateMaterialArray(this->internal_state_variables[i], n * is);
+      auto& arrays = this->state_arrays;
+      allocateMaterialArray(arrays[getArrayIndex(StateArray::GRADIENTS)][i],
+                            np * gs);
+      allocateMaterialArray(
+          arrays[getArrayIndex(StateArray::THERMODYNAMIC_FORCES)][i], np * ts);
+      allocateMaterialArray(
+          arrays[getArrayIndex(StateArray::INTERNAL_STATE_VARIABLES)][i],
+          np * is);
       if (b.computesStoredEnergy) {
-        allocateMaterialArray(this->stored_energies[i], n);
+        allocateMaterialArray(
+            arrays[getArrayIndex(StateArray::STORED_ENERGIES)][i], np);
       }
       if (b.computesDissipatedEnergy) {
-        allocateMaterialArray(this->dissipated_energies[i], n);
+        allocateMaterialArray(
+            arrays[getArrayIndex(StateArray::DISSIPATED_ENERGIES)][i], np);
       }
     }
-    allocateMaterialArray(this->tangent_operator_blocks,
-                          n * mgis::behaviour::getTangentOperatorArraySize(b));
+    allocateMaterialArray(
+        this->tangent_operator_blocks,
+        np * static_cast<std::size_t>(
+                 mgis::behaviour::getTangentOperatorArraySize(b)));
     // the deformation gradients are initialized to the identity, as MGIS
     // does for the arrays it allocates (the first three components are the
     // diagonal ones)
     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
-        (n != 0)) {
+        (np != 0)) {
       const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
-      const auto ps = pbp ? gs : size_type{1};
-      const auto cs = pbp ? size_type{1} : n;
-      for (auto& g : this->gradients) {
+      const auto ps = pbp ? gs : std::size_t{1};
+      const auto cs = pbp ? std::size_t{1} : np;
+      for (auto& g : this->state_arrays[getArrayIndex(StateArray::GRADIENTS)]) {
         auto* const F = g.HostReadWrite();
-        for (size_type i = 0; i != n; ++i) {
-          for (size_type c = 0; c != 3; ++c) {
+        for (std::size_t i = 0; i != np; ++i) {
+          for (std::size_t c = 0; c != 3; ++c) {
             F[i * ps + c * cs] = real{1};
           }
         }
@@ -87,16 +113,20 @@ namespace mfem_mgis {
   MaterialArrays::getInitializer() {
     auto i = mgis::behaviour::MaterialDataManagerInitializer{};
     auto state = [this](mgis::behaviour::MaterialStateManagerInitializer& si,
-                        const std::size_t s) {
-      si.gradients = getHostView(this->gradients[s]);
-      si.thermodynamic_forces = getHostView(this->thermodynamic_forces[s]);
-      si.internal_state_variables =
-          getHostView(this->internal_state_variables[s]);
-      si.stored_energies = getHostView(this->stored_energies[s]);
-      si.dissipated_energies = getHostView(this->dissipated_energies[s]);
+                        const TimeStepStage s) {
+      si.gradients =
+          getHostView(this->getMutableArray(StateArray::GRADIENTS, s));
+      si.thermodynamic_forces = getHostView(
+          this->getMutableArray(StateArray::THERMODYNAMIC_FORCES, s));
+      si.internal_state_variables = getHostView(
+          this->getMutableArray(StateArray::INTERNAL_STATE_VARIABLES, s));
+      si.stored_energies =
+          getHostView(this->getMutableArray(StateArray::STORED_ENERGIES, s));
+      si.dissipated_energies = getHostView(
+          this->getMutableArray(StateArray::DISSIPATED_ENERGIES, s));
     };
-    state(i.s0, 0);
-    state(i.s1, 1);
+    state(i.s0, TimeStepStage::BEGINNING_OF_TIME_STEP);
+    state(i.s1, TimeStepStage::END_OF_TIME_STEP);
     i.K = getHostView(this->tangent_operator_blocks);
     i.location = mgis::MemoryLocation::HOST;
     i.layout = this->array_layout;
@@ -104,12 +134,10 @@ namespace mfem_mgis {
   }  // end of getInitializer
 
   void MaterialArrays::synchronizeOnHost() {
-    for (std::size_t i = 0; i != 2; ++i) {
-      static_cast<void>(getHostView(this->gradients[i]));
-      static_cast<void>(getHostView(this->thermodynamic_forces[i]));
-      static_cast<void>(getHostView(this->internal_state_variables[i]));
-      static_cast<void>(getHostView(this->stored_energies[i]));
-      static_cast<void>(getHostView(this->dissipated_energies[i]));
+    for (auto& arrays : this->state_arrays) {
+      for (auto& v : arrays) {
+        static_cast<void>(getHostView(v));
+      }
     }
     static_cast<void>(getHostView(this->tangent_operator_blocks));
   }  // end of synchronizeOnHost
@@ -120,15 +148,47 @@ namespace mfem_mgis {
         static_cast<void>(v.HostRead());
       }
     };
-    for (std::size_t i = 0; i != 2; ++i) {
-      read(this->gradients[i]);
-      read(this->thermodynamic_forces[i]);
-      read(this->internal_state_variables[i]);
-      read(this->stored_energies[i]);
-      read(this->dissipated_energies[i]);
+    for (const auto& arrays : this->state_arrays) {
+      for (const auto& v : arrays) {
+        read(v);
+      }
     }
     read(this->tangent_operator_blocks);
   }  // end of synchronizeOnHostForReading
+
+  const mfem::Vector& MaterialArrays::getArray(const StateArray a,
+                                               const TimeStepStage s) const {
+    return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
+  }  // end of getArray
+
+  mfem::Vector& MaterialArrays::getMutableArray(const StateArray a,
+                                                const TimeStepStage s) {
+    return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
+  }  // end of getMutableArray
+
+  const mfem::Vector& MaterialArrays::getTangentOperatorBlocks() const {
+    return this->tangent_operator_blocks;
+  }  // end of getTangentOperatorBlocks
+
+  real* MaterialArrays::ReadWrite(const StateArray a,
+                                  const TimeStepStage s,
+                                  const bool d) {
+    return this->getMutableArray(a, s).ReadWrite(d);
+  }  // end of ReadWrite
+
+  real* MaterialArrays::Write(const StateArray a,
+                              const TimeStepStage s,
+                              const bool d) {
+    return this->getMutableArray(a, s).Write(d);
+  }  // end of Write
+
+  real* MaterialArrays::ReadWriteTangentOperatorBlocks(const bool d) {
+    return this->tangent_operator_blocks.ReadWrite(d);
+  }  // end of ReadWriteTangentOperatorBlocks
+
+  real* MaterialArrays::WriteTangentOperatorBlocks(const bool d) {
+    return this->tangent_operator_blocks.Write(d);
+  }  // end of WriteTangentOperatorBlocks
 
   MaterialArrays::~MaterialArrays() = default;
 

@@ -165,14 +165,16 @@ namespace mfem_mgis {
     [[nodiscard]] std::optional<size_type> getNumberOfQuadraturePoints(
         Context &ctx, const size_type e) const noexcept;
     /*!
-     * \return the hash table associating global element numbers and
-     * local offsets.
+     * \return the hash table associating the element numbers (local
+     * numbering of the finite element space) and the offsets of their
+     * integration points.
      */
     [[nodiscard]] const std::unordered_map<size_type, size_type> &getOffsets()
         const noexcept;
     /*!
      * \brief return the offset associated with an element
-     * \param[in] i: element number (global numbering)
+     * \param[in] i: element number (local numbering of the finite element
+     * space)
      * \return the offset
      */
     [[nodiscard]] size_type getOffset(const size_type i) const;
@@ -241,12 +243,18 @@ namespace mfem_mgis {
     std::function<const mfem::IntegrationRule &(
         const mfem::FiniteElement &, const mfem::ElementTransformation &)>
         integration_rule_selector;
-    //! \brief offsets associated with elements
-    std::unordered_map<size_type,  // element number (global numbering)
+    /*!
+     * \brief offsets associated with elements (local numbering of the
+     * finite element space)
+     */
+    std::unordered_map<size_type,  // element number
                        size_type>  // offset
         offsets;
-    //! \brief number of quadrature points associated with elements
-    std::unordered_map<size_type,  // element number (global numbering)
+    /*!
+     * \brief number of quadrature points associated with elements (local
+     * numbering of the finite element space)
+     */
+    std::unordered_map<size_type,  // element number
                        size_type>  // number of quadrature points
         number_of_quadrature_points;
     //! \brief elements of the space, in the order of their points

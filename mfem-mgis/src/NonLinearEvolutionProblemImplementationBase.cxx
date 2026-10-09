@@ -106,7 +106,11 @@ namespace mfem_mgis {
     CatchTimeSection(ctx, "NLEPIB::revert");
     this->u1 = this->u0;
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->revert();
+      try {
+        this->mgis_integrator->revert();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     return true;
   }  // end of revert
@@ -116,7 +120,11 @@ namespace mfem_mgis {
     CatchTimeSection(ctx, "NLEPIB::update");
     this->u0 = this->u1;
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->update();
+      try {
+        this->mgis_integrator->update();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     return true;
   }  // end of update
@@ -451,6 +459,19 @@ namespace mfem_mgis {
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::solve");
     NonLinearResolutionOutput output;
+    // the behaviours are integrated on the host, also by the assembly of the
+    // residual when PETSc is used (which does not call `integrate`): nothing
+    // may access the arrays of the materials on the device during the
+    // resolution
+    if (this->mgis_integrator != nullptr) {
+      try {
+        this->mgis_integrator->synchronizeOnHost();
+      } catch (...) {
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+        output.status = false;
+        return output;
+      }
+    }
     if (this->prediction_policy.strategy !=
         PredictionStrategy::DEFAULT_PREDICTION) {
       const auto onorm = [this, &ctx, t, dt] {

@@ -102,8 +102,10 @@ inline std::map<std::string, FieldStatistics> computePhysicsStatistics(
   stats["DisplacementNorm"] =
       computeFieldStatistics(getOwnedNodalValues(U), comm);
   // fields at the integration points of the fuel
-  const auto& swelling =
-      setup.swelling_model->getMaterial().s1.internal_state_variables;
+  const auto& swelling_material = setup.swelling_model->getMaterial();
+  // read on the host
+  swelling_material.synchronizeOnHostForReading();
+  const auto& swelling = swelling_material.s1.internal_state_variables;
   stats["Swelling"] = computeFieldStatistics(
       std::vector<double>(swelling.begin(), swelling.end()), comm);
   stats["PowerDensity"] =

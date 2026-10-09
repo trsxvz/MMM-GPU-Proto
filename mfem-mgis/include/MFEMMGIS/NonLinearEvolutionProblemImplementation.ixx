@@ -36,6 +36,47 @@ namespace mfem_mgis::internals {
            m2.s1.thermodynamic_forces_stride;
   }  // end of haveSameThermodynamicForces
 
+  /*!
+   * \brief synchronize on the host, for reading, the arrays of the
+   * materials of the selected behaviour integrators (see
+   * `Material::synchronizeOnHostForReading`)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in] p: non linear evolution problem
+   * \param[in] selection: selection of the behaviour integrators
+   */
+  template <bool parallel>
+  bool synchronizeSelectedMaterialsOnHostForReading(
+      Context& ctx,
+      NonLinearEvolutionProblemImplementation<parallel>& p,
+      const BehaviourIntegratorsSelection& selection) noexcept {
+    for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
+      const auto obis = getSelectedBehaviourIntegrators(ctx, p, m, selection);
+      if (isInvalid(obis)) {
+        return false;
+      }
+      for (auto b = obis->first; b != obis->second; ++b) {
+        const auto obi = p.getBehaviourIntegrator(ctx, m, b);
+        if (isInvalid(obi)) {
+          return ctx.registerErrorMessage("invalid behaviour integrator");
+        }
+        if (!obi->hasMaterial()) {
+          continue;
+        }
+        const auto om = obi->getMaterial(ctx);
+        if (isInvalid(om)) {
+          return false;
+        }
+        try {
+          om->synchronizeOnHostForReading();
+        } catch (...) {
+          return registerExceptionInErrorBacktrace(ctx);
+        }
+      }
+    }
+    return true;
+  }  // end of synchronizeSelectedMaterialsOnHostForReading
+
 }  // end of namespace mfem_mgis::internals
 
 namespace mfem_mgis {
@@ -55,11 +96,11 @@ namespace mfem_mgis {
     F.SetSize(nc);
     F = real{0};
     // the selection is checked for all the materials, so that all the
-    // processes report the same errors
-    for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
-      if (isInvalid(getSelectedBehaviourIntegrators(ctx, p, m, selection))) {
-        return false;
-      }
+    // processes report the same errors, and the thermodynamic forces are
+    // read on the host
+    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+                                                                 selection)) {
+      return false;
     }
     for (const auto& e : elements) {
       const auto& fe = *(fes.GetFE(e.first));
@@ -94,6 +135,11 @@ namespace mfem_mgis {
       Context& ctx,
       NonLinearEvolutionProblemImplementation<parallel>& p,
       const BehaviourIntegratorsSelection& selection) noexcept {
+    // the thermodynamic forces are read on the host
+    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+                                                                 selection)) {
+      return {};
+    }
     auto nmax = p.getFiniteElementSpace().GetMesh()->attributes.Max() + 1;
     std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
     const auto& mis = p.getAssignedMaterialsIdentifiers();

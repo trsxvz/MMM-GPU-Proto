@@ -442,9 +442,13 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
-    // the post-processings access the materials on the host
+    // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->synchronizeOnHost();
+      try {
+        this->mgis_integrator->synchronizeOnHostForReading();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
@@ -458,9 +462,13 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
-    // the post-processings access the materials on the host
+    // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->synchronizeOnHost();
+      try {
+        this->mgis_integrator->synchronizeOnHostForReading();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     auto success = true;
     for (auto& p : this->postprocessings) {
@@ -660,9 +668,13 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
-    // the post-processings access the materials on the host
+    // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->synchronizeOnHost();
+      try {
+        this->mgis_integrator->synchronizeOnHostForReading();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
@@ -676,9 +688,13 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
-    // the post-processings access the materials on the host
+    // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
-      this->mgis_integrator->synchronizeOnHost();
+      try {
+        this->mgis_integrator->synchronizeOnHostForReading();
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
     }
     auto success = true;
     for (auto& p : this->postprocessings) {
