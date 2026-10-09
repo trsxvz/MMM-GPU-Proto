@@ -256,7 +256,7 @@ de bord ou à marqueurs.
   tests existants ne changent pas.
 - **Travail dans `mfem-mgis/`, `mfem-mgis-examples/` et `mm-opera-hpc/`,
   branche `gpu-proto` de chacun** (bases `a011d97d6f`, `8397eec`,
-  `c31c4bc`), copiés dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
+  `8bd56eb`), copiés dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
   en anglais. Un lot fini est un ensemble de commits relus.
 - **Code nouveau regroupé** : `include/MFEMMGIS/Batch/` et `src/Batch/`
   (nom à discuter). Les classes existantes gagnent des points

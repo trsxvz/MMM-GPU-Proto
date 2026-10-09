@@ -31,7 +31,7 @@ GPU.
 | MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
 | mfem-mgis | master `a011d97d6f` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
 | mfem-mgis-examples | master `8397eec` (dépôt `latug0/mfem-mgis-examples`) | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
-| mm-opera-hpc | main `c31c4bc` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+| mm-opera-hpc | main `8bd56eb` (dépôt `rprat-pro/mm-opera-hpc`) | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
 
 ## Documentation
 

@@ -15,11 +15,11 @@ repository=${1:?usage: scripts/sync-repository.sh repository}
 # base commits: master of mfem-mgis (thelfer/mfem-mgis) and of
 # mfem-mgis-examples (latug0/mfem-mgis-examples, the reference repository of
 # the examples, consistent with this commit of mfem-mgis), main of
-# mm-opera-hpc
+# mm-opera-hpc (rprat-pro/mm-opera-hpc, its reference repository)
 case "$repository" in
   mfem-mgis) BASE=a011d97d6f ;;
   mfem-mgis-examples) BASE=8397eec ;;
-  mm-opera-hpc) BASE=c31c4bc ;;
+  mm-opera-hpc) BASE=8bd56eb ;;
   *)
     echo "unknown repository '$repository'" >&2
     exit 1
