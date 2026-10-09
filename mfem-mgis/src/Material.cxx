@@ -316,20 +316,37 @@ namespace mfem_mgis {
     if (size == 0) {
       return;
     }
-    this->synchronizeOnHostForReading(a, s);
     auto r = mfem::Vector{};
     // the gradients are rotated by the transposed matrices, from the
     // material frame to the global frame
-    const auto matrices = this->computeRotationMatrices(r, gradients);
+    const auto hmatrices = this->computeRotationMatrices(r, gradients);
+    const auto hsource = gradients
+                             ? mgis::behaviour::getGradientsView(sm)
+                             : mgis::behaviour::getThermodynamicForcesView(sm);
+    // the values are rotated on the host, or on the copies of the arrays on
+    // the device if the computations of the behaviour can't access the
+    // memory of the host
+    const auto host = mgis::behaviour::isMemoryLocationAccessible(
+        this->b, mgis::MemoryLocation::HOST);
+    if (host) {
+      this->synchronizeOnHostForReading(a, s);
+    }
+    const auto l =
+        host ? mgis::MemoryLocation::HOST : getDeviceMemoryLocation();
+    const auto &array = this->getArray(a, s);
+    const auto source = host ? mgis::FieldView<const real>(hsource)
+                             : relocate(mgis::FieldView<const real>(hsource),
+                                        array.Read(), array.Size());
+    const auto matrices =
+        host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
+    auto *const values = host ? v.HostWrite() : v.Write();
     const auto d = mgis::makePointByPointFieldView(
-        std::span<real>(v.HostWrite(), size), np, nc, nc);
+        std::span<real>(values, size), np, nc, nc);
     if (gradients) {
-      mgis::behaviour::rotateGradients(
-          d, this->b, mgis::behaviour::getGradientsView(sm), matrices);
+      mgis::behaviour::rotateGradients(d, this->b, source, matrices, l);
     } else {
-      mgis::behaviour::rotateThermodynamicForces(
-          d, this->b, mgis::behaviour::getThermodynamicForcesView(sm),
-          matrices);
+      mgis::behaviour::rotateThermodynamicForces(d, this->b, source, matrices,
+                                                 l);
     }
   }  // end of computeValuesInGlobalFrame
 

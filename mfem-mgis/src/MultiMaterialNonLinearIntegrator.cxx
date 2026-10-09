@@ -344,15 +344,38 @@ namespace mfem_mgis {
     // all the behaviour integrators are integrated, even if one of them
     // fails, as all the points of a batch
     auto success = true;
+    const auto host_readers = (!this->inner_forces_computed_by_kernels) ||
+                              (!this->stiffness_matrices_computed_by_kernels);
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         if (!bi->integrateBatch(it)) {
           success = false;
         }
+        if ((host_readers) && (bi->integratesBatchesOnDevice())) {
+          auto ctx = Context{};
+          auto om = bi->getMaterial(ctx);
+          if (!isInvalid(om)) {
+            om->synchronizeOnHostForReading();
+          }
+        }
       }
     }
     return success;
   }  // end of integrateBatch
+
+  bool MultiMaterialNonLinearIntegrator::integratesBatchesOnDevice()
+      const noexcept {
+    auto empty = true;
+    for (const auto& bis : this->behaviour_integrators) {
+      for (const auto& bi : bis) {
+        if (!bi->integratesBatchesOnDevice()) {
+          return false;
+        }
+        empty = false;
+      }
+    }
+    return !empty;
+  }  // end of integratesBatchesOnDevice
 
   bool MultiMaterialNonLinearIntegrator::checkKernelsSupport(
       Context& ctx) const noexcept {

@@ -7,6 +7,7 @@
 #include <limits>
 #include <cstddef>
 #include <algorithm>
+#include "mfem/general/device.hpp"
 #include "MGIS/Raise.hxx"
 #include "MGIS/MemoryLocation.hxx"
 #include "MGIS/FieldView.hxx"
@@ -211,5 +212,11 @@ namespace mfem_mgis {
   }  // end of writeTangentOperatorBlocks
 
   MaterialArrays::~MaterialArrays() = default;
+
+  mgis::MemoryLocation getDeviceMemoryLocation() noexcept {
+    return mfem::Device::Allows(mfem::Backend::DEBUG_DEVICE)
+               ? mgis::MemoryLocation::HOST
+               : mgis::MemoryLocation::DEVICE;
+  }  // end of getDeviceMemoryLocation
 
 }  // end of namespace mfem_mgis

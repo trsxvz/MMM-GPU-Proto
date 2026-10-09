@@ -7,8 +7,13 @@
 #ifndef LIB_MFEM_MGIS_MATERIALARRAYS_HXX
 #define LIB_MFEM_MGIS_MATERIALARRAYS_HXX
 
+#include <span>
 #include <array>
+#include <string>
 #include "mfem/linalg/vector.hpp"
+#include "MGIS/Raise.hxx"
+#include "MGIS/FieldView.hxx"
+#include "MGIS/MemoryLocation.hxx"
 #include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
@@ -177,6 +182,38 @@ namespace mfem_mgis {
     //! \brief move assignment (disabled)
     MaterialArrays& operator=(MaterialArrays&&) = delete;
   };  // end of struct MaterialArrays
+
+  /*!
+   * \return the location, for MGIS, of the copies of the arrays on the device
+   * enabled in MFEM (`Read`, `Write`, `ReadWrite`): the memory of the host
+   * for the `debug` device of MFEM, whose copies on the device are in the
+   * memory of the host, the memory of the device otherwise
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] mgis::MemoryLocation
+  getDeviceMemoryLocation() noexcept;
+
+  /*!
+   * \return a view of the values of a view covering an array, in a copy of
+   * this array (for instance its copy on the device), with the same layout
+   * \param[in] v: view of the array (an empty view is returned unchanged)
+   * \param[in] p: address of the copy of the array
+   * \param[in] n: size of the copy, which must be the size of the array
+   */
+  template <typename ValueType>
+  [[nodiscard]] mgis::FieldView<ValueType> relocate(
+      const mgis::FieldView<ValueType>& v, ValueType* const p, const int n) {
+    if (v.empty()) {
+      return v;
+    }
+    if (static_cast<std::size_t>(n) != v.getValues().size()) {
+      mgis::raise("relocate: unexpected size of an array (" +
+                  std::to_string(n) + " values instead of " +
+                  std::to_string(v.getValues().size()) + ")");
+    }
+    return mgis::FieldView<ValueType>(
+        std::span<ValueType>(p, v.getValues().size()), v.getNumberOfPoints(),
+        v.getNumberOfComponents(), v.getPointStride(), v.getComponentStride());
+  }  // end of relocate
 
 }  // end of namespace mfem_mgis
 

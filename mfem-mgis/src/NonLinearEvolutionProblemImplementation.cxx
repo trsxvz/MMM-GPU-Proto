@@ -42,6 +42,26 @@
 namespace mfem_mgis {
 
   /*!
+   * \return true if all the behaviours are integrated on the device, without
+   * gradients computed on the host: the arrays of the materials do not need
+   * to be synchronized on the host
+   * \param[in] mi: multi-material integrator
+   * \param[in] batch: if true, the behaviours are integrated by batches
+   * \param[in] kernels: if true, the gradients are computed by kernels
+   * \param[in] it: integration type
+   */
+  static bool integratesOnDevice(const MultiMaterialNonLinearIntegrator& mi,
+                                 const bool batch,
+                                 const bool kernels,
+                                 const IntegrationType it) noexcept {
+    const auto prediction =
+        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+    return batch && (kernels || prediction) && mi.integratesBatchesOnDevice();
+  }  // end of integratesOnDevice
+
+  /*!
    * \brief integrate the behaviours by batches: gradients computed element
    * by element, or by kernels (not for a prediction), then one call per
    * behaviour integrator
@@ -68,12 +88,14 @@ namespace mfem_mgis {
         getErrorStream() << ctx.getErrorMessage() << '\n';
         return false;
       }
-      // the behaviours are integrated on the host
-      try {
-        mi.synchronizeOnHost();
-      } catch (std::exception& e) {
-        getErrorStream() << "integrate: " << e.what() << '\n';
-        return false;
+      // the behaviours integrated on the host read the gradients there
+      if (!mi.integratesBatchesOnDevice()) {
+        try {
+          mi.synchronizeOnHost();
+        } catch (std::exception& e) {
+          getErrorStream() << "integrate: " << e.what() << '\n';
+          return false;
+        }
       }
     } else if (!prediction) {
       mfem::Array<int> vdofs;
@@ -749,15 +771,20 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       return true;
     }
-    // the behaviours are integrated on the host
-    try {
-      this->mgis_integrator->synchronizeOnHost();
-    } catch (std::exception& e) {
-      getErrorStream() << "integrate: " << e.what() << '\n';
-      return false;
-    } catch (...) {
-      getErrorStream() << "integrate: unknown exception\n";
-      return false;
+    // the behaviours are integrated on the host, unless they are all
+    // integrated on the device from gradients computed by kernels (or
+    // without gradients, for a prediction)
+    if (!integratesOnDevice(*(this->mgis_integrator), this->batch_integration,
+                            this->gradients_kernels, it)) {
+      try {
+        this->mgis_integrator->synchronizeOnHost();
+      } catch (std::exception& e) {
+        getErrorStream() << "integrate: " << e.what() << '\n';
+        return false;
+      } catch (...) {
+        getErrorStream() << "integrate: unknown exception\n";
+        return false;
+      }
     }
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {
@@ -1068,15 +1095,20 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       return true;
     }
-    // the behaviours are integrated on the host
-    try {
-      this->mgis_integrator->synchronizeOnHost();
-    } catch (std::exception& e) {
-      getErrorStream() << "integrate: " << e.what() << '\n';
-      return false;
-    } catch (...) {
-      getErrorStream() << "integrate: unknown exception\n";
-      return false;
+    // the behaviours are integrated on the host, unless they are all
+    // integrated on the device from gradients computed by kernels (or
+    // without gradients, for a prediction)
+    if (!integratesOnDevice(*(this->mgis_integrator), this->batch_integration,
+                            this->gradients_kernels, it)) {
+      try {
+        this->mgis_integrator->synchronizeOnHost();
+      } catch (std::exception& e) {
+        getErrorStream() << "integrate: " << e.what() << '\n';
+        return false;
+      } catch (...) {
+        getErrorStream() << "integrate: unknown exception\n";
+        return false;
+      }
     }
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {

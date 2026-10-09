@@ -38,6 +38,10 @@ namespace mfem_mgis {
     return false;
   }  // end of integrateBatch
 
+  bool AbstractBehaviourIntegrator::integratesBatchesOnDevice() const noexcept {
+    return false;
+  }  // end of integratesBatchesOnDevice
+
   bool AbstractBehaviourIntegrator::supportsKernels() const noexcept {
     return false;
   }  // end of supportsKernels

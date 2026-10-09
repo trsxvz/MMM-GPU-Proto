@@ -5,13 +5,16 @@
  * \date   13/10/2020
  */
 
+#include <span>
 #include <limits>
 #include <utility>
 #include <variant>
+#include "mfem/general/device.hpp"
 #include "MGIS/Raise.hxx"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/Integrate.hxx"
 #include "MGIS/Behaviour/BehaviourDataView.hxx"
+#include "MGIS/Behaviour/MaterialDataView.hxx"
 #include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
@@ -822,9 +825,186 @@ namespace mfem_mgis {
 
   }  // end of namespace
 
+  bool BehaviourIntegratorBase::integratesBatchesOnDevice() const noexcept {
+    return mfem::Device::Allows(mfem::Backend::DEVICE_MASK) &&
+           mgis::behaviour::isGenericParallelBehaviour(this->b) &&
+           mgis::behaviour::isMemoryLocationAccessible(
+               this->b, getDeviceMemoryLocation());
+  }  // end of integratesBatchesOnDevice
+
+  /*!
+   * \return a view of a copy, readable on the device, of the values of a
+   * material property, of an external state variable or of the mass
+   * density, given by a view of their values on the host
+   * \param[out] c: copy, stored point by point (one point for uniform
+   * values)
+   * \param[in] v: view of the values on the host
+   */
+  static mgis::FieldView<const real> copyToDevice(
+      mfem::Vector& c, const mgis::FieldView<const real>& v) {
+    const auto np = v.isUniform() ? size_type{1} : v.getNumberOfPoints();
+    const auto nc = v.getNumberOfComponents();
+    const auto size = static_cast<std::size_t>(np) * nc;
+    if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      raise("BehaviourIntegratorBase: array too large for MFEM");
+    }
+    c.UseDevice(true);
+    c.SetSize(static_cast<int>(size));
+    auto* const values = c.HostWrite();
+    const auto* const h = v.data();
+    const auto ps = v.getPointStride();
+    const auto cs = v.getComponentStride();
+    for (size_type i = 0; i != np; ++i) {
+      for (size_type j = 0; j != nc; ++j) {
+        values[i * nc + j] = h[i * ps + j * cs];
+      }
+    }
+    const auto d = std::span<const real>(c.Read(), size);
+    if (v.isUniform()) {
+      return mgis::makeUniformFieldView(d, v.getNumberOfPoints());
+    }
+    return mgis::makePointByPointFieldView(d, np, nc, nc);
+  }  // end of copyToDevice
+
+  bool BehaviourIntegratorBase::integrateBatchOnDevice(
+      const IntegrationType it) {
+    using StateArray = mfem_mgis::MaterialArrays::StateArray;
+    const auto orthotropic =
+        this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
+    const auto prediction =
+        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+    const auto tangent = it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
+    const auto l = getDeviceMemoryLocation();
+    this->wks.has_rotated_thermodynamic_forces = false;
+    const auto opts = mgis::behaviour::BehaviourIntegrationOptions{
+        .integration_type =
+            static_cast<mgis::behaviour::IntegrationType>(static_cast<int>(it)),
+        .compute_speed_of_sound = false};
+    auto r = mgis::behaviour::BehaviourIntegrationResult{};
+    try {
+      auto& arrays = this->getArrays();
+      // the material properties at the end of the time step are given as the
+      // ones at the beginning of the time step (see `integrateBatch`)
+      const auto guard = MaterialPropertiesAtTheBeginningOfTheTimeStepGuard(
+          this->s0, this->s1);
+      // view of the arrays on the host, whose views are replaced by views of
+      // the copies on the device
+      auto v = mgis::behaviour::make_unchecked_view(*this);
+      v.memory_location = l;
+      // arrays read by the behaviour (`Read`), which are not modified by it,
+      // or read and written (`ReadWrite`)
+      const auto relocateArray =
+          [&arrays](mgis::FieldView<real>& view, const StateArray a,
+                    const TimeStepStage s, const bool output) {
+            const auto& array = arrays.getArray(a, s);
+            auto* const p = output ? arrays.readWrite(a, s)
+                                   : const_cast<real*>(array.Read());
+            view = relocate(view, p, array.Size());
+          };
+      for (const auto& [view, a] :
+           {std::pair{&v.s0.gradients, StateArray::GRADIENTS},
+            std::pair{&v.s0.thermodynamic_forces,
+                      StateArray::THERMODYNAMIC_FORCES},
+            std::pair{&v.s0.internal_state_variables,
+                      StateArray::INTERNAL_STATE_VARIABLES},
+            std::pair{&v.s0.stored_energies, StateArray::STORED_ENERGIES},
+            std::pair{&v.s0.dissipated_energies,
+                      StateArray::DISSIPATED_ENERGIES}}) {
+        relocateArray(*view, a, bts, false);
+      }
+      // the gradients at the end of the time step of an orthotropic behaviour
+      // are rotated in place, as on the host
+      relocateArray(v.s1.gradients, StateArray::GRADIENTS, ets,
+                    orthotropic && !prediction);
+      for (const auto& [view, a] :
+           {std::pair{&v.s1.thermodynamic_forces,
+                      StateArray::THERMODYNAMIC_FORCES},
+            std::pair{&v.s1.internal_state_variables,
+                      StateArray::INTERNAL_STATE_VARIABLES},
+            std::pair{&v.s1.stored_energies, StateArray::STORED_ENERGIES},
+            std::pair{&v.s1.dissipated_energies,
+                      StateArray::DISSIPATED_ENERGIES}}) {
+        relocateArray(*view, a, ets, true);
+      }
+      if (tangent) {
+        v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
+                       arrays.getTangentOperatorBlocks().Size());
+      } else {
+        v.K = {};
+      }
+      v.speed_of_sound = {};
+      // material properties, external state variables and mass density
+      // copied to the device
+      auto inputs = std::vector<mgis::FieldView<const real>*>{};
+      for (auto* const st : {&v.s0, &v.s1}) {
+        for (auto& mp : st->material_properties) {
+          inputs.push_back(&mp);
+        }
+        for (auto& esv : st->external_state_variables) {
+          inputs.push_back(&esv);
+        }
+        inputs.push_back(&(st->mass_density));
+      }
+      auto& copies = this->wks.device_inputs;
+      copies.resize(inputs.size());
+      for (std::size_t i = 0; i != inputs.size(); ++i) {
+        if (!inputs[i]->empty()) {
+          *(inputs[i]) = copyToDevice(copies[i], *(inputs[i]));
+        }
+      }
+      // rotation matrices, computed on the host and copied to the device
+      auto matrices = mgis::FieldView<const real>{};
+      if (orthotropic) {
+        // `computeRotationMatrices` resizes the array before its copy
+        auto& rm = this->wks.rotation_matrices;
+        const auto hmatrices = this->computeRotationMatrices(rm);
+        matrices = relocate(hmatrices, rm.Read(), rm.Size());
+      }
+      if (orthotropic && !prediction) {
+        mgis::behaviour::rotateGradients(v.s1.gradients, this->b, matrices, l);
+      }
+      r = mgis::behaviour::integrate(v.batch_execution_policy, v, opts,
+                                     this->time_increment);
+      if (!((r.exit_status == 0) || (r.exit_status == 1))) {
+        std::cerr << "behaviour integration failed: " << r.error_message
+                  << " (exit value: " << r.exit_status
+                  << ", first point in failure: " << r.n << ")" << std::endl;
+        return false;
+      }
+      if (orthotropic && tangent) {
+        mgis::behaviour::rotateTangentOperatorBlocks(v.K, this->b, matrices, l);
+      }
+      if (requiresRotatedThermodynamicForces(this->b)) {
+        const auto np = static_cast<size_type>(this->n);
+        const auto nc = this->s1.thermodynamic_forces_stride;
+        const auto size = static_cast<std::size_t>(np) * nc;
+        if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+          raise("BehaviourIntegratorBase: array too large for MFEM");
+        }
+        auto& rf = this->wks.rotated_thermodynamic_forces;
+        rf.UseDevice(true);
+        rf.SetSize(static_cast<int>(size));
+        const auto d = mgis::makePointByPointFieldView(
+            std::span<real>(rf.Write(), size), np, nc, nc);
+        mgis::behaviour::rotateThermodynamicForces(
+            d, this->b, v.s1.thermodynamic_forces, matrices, l);
+        this->wks.has_rotated_thermodynamic_forces = true;
+      }
+    } catch (std::exception& e) {
+      std::cerr << "behaviour integration failed: " << e.what() << std::endl;
+      return false;
+    }
+    return true;
+  }  // end of integrateBatchOnDevice
+
   bool BehaviourIntegratorBase::integrateBatch(const IntegrationType it) {
     if (!this->supportsBatchIntegration()) {
       return false;
+    }
+    if (this->integratesBatchesOnDevice()) {
+      return this->integrateBatchOnDevice(it);
     }
     const auto orthotropic =
         this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
@@ -901,10 +1081,11 @@ namespace mfem_mgis {
       return {};
     }
     if (!this->wks.has_rotated_thermodynamic_forces) {
-      this->synchronizeOnHostForReading(
-          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
-      this->computeRotatedThermodynamicForces(
-          this->computeRotationMatrices(this->wks.rotation_matrices));
+      // on the host, or on the device if the computations of the behaviour
+      // can't access the memory of the host
+      this->computeThermodynamicForcesInGlobalFrame(
+          this->wks.rotated_thermodynamic_forces);
+      this->wks.has_rotated_thermodynamic_forces = true;
     }
     const auto& v = this->wks.rotated_thermodynamic_forces;
     if (v.Size() == 0) {

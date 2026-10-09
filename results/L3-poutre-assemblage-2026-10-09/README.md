@@ -96,3 +96,18 @@ dichotomie au lieu d'un parcours de la ligne.
 - loi sur le GPU (bibliothèque `generic-parallel` CUDA) ;
 - test MPI des noyaux dans mfem-mgis ;
 - variante du noyau à un fil par élément, pour comparer sur CPU.
+
+## Loi intégrée sur le GPU (mfem-mgis ee1f31fa1c, MGIS a0b5140)
+
+Loi `generic-parallel` compilée pour `cuda`, intégrée par MGIS sur les
+copies des tableaux du matériau sur le GPU (vue de MGIS sur les copies
+de MFEM), propriétés et variables externes copiées sur le GPU à chaque
+appel ; tous les noyaux. Poutre r4, 3 pas, 1 processus :
+
+| Cas | Total | Intégration | Résidu | Tangente | Résolution | Prédiction |
+|---|---|---|---|---|---|---|
+| GPU, loi `generic` (hôte) | 6,51 | 0,47 (13) | 0,02 (13) | 0,15 (10) | 0,76 | 4,85 |
+| GPU, loi `cuda` | 6,25 | 0,24 (13) | 0,01 (13) | 0,12 (10) | 0,77 | 4,80 |
+
+Même solution. Il reste la prédiction (77 % du temps), qui assemble ses
+opérateurs élément par élément sur l'hôte.

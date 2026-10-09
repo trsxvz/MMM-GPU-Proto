@@ -135,6 +135,13 @@ namespace mfem_mgis {
      */
     [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
     /*!
+     * \return true if `integrateBatch` integrates the behaviour on the
+     * copies of the arrays of the material on the device, which are then
+     * the valid ones (see `MaterialArrays`)
+     * \note the default implementation returns false
+     */
+    [[nodiscard]] virtual bool integratesBatchesOnDevice() const noexcept;
+    /*!
      * \return true if the gradients, the inner forces and the stiffness
      * matrices of the behaviour integrator can be computed by kernels (see
      * `computeGradientsByKernels`, `addInnerForcesByKernels` and

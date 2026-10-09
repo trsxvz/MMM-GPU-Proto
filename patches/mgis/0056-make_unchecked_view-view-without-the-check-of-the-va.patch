@@ -1,0 +1,232 @@
+From a0b51409cac18c139378fd641b75c091f963ed5e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 21:59:36 +0200
+Subject: [PATCH] make_unchecked_view: view without the check of the values
+ held on the host
+
+make_view refuses the values held by a material data manager on the
+host (uniform values, values stored locally) if the computations of the
+behaviour can't access the memory of the host. make_unchecked_view gives
+their views: the calling code replaces the views of the arrays by views
+of their copies on a device, and copies these values in a memory
+accessible by the computations (integration on the device of the arrays
+of a material held by the calling code).
+---
+ include/MGIS/Behaviour/MaterialDataView.hxx | 18 +++++++
+ src/MaterialDataView.cxx                    | 60 +++++++++++++++------
+ tests/GenericParallelCUDATest.cxx           | 19 +++++++
+ 3 files changed, 82 insertions(+), 15 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
+index fb1a289..a73d1d0 100644
+--- a/include/MGIS/Behaviour/MaterialDataView.hxx
++++ b/include/MGIS/Behaviour/MaterialDataView.hxx
+@@ -263,6 +263,24 @@ namespace mgis::behaviour {
+    */
+   MGIS_EXPORT MaterialDataView
+   make_view(MaterialDataManager&, std::pmr::memory_resource* const = nullptr);
++  /*!
++   * \return a view on the arrays of a material data manager, as `make_view`,
++   * without checking that the values held by the material data manager on
++   * the host are accessible by the computations of the behaviour (the
++   * views of those values are given, including the mass density).
++   *
++   * This view is meant to be modified before its use by the calling code,
++   * which, for instance, replaces the views of the arrays by views of their
++   * copies on a device, and copies the values held on the host in a memory
++   * accessible by the computations.
++   *
++   * \param[in] m: material data manager
++   * \param[in] r: memory resource used to allocate the vectors of the views
++   * of the material properties and of the external state variables, or null
++   * for the default memory resource
++   */
++  MGIS_EXPORT MaterialDataView make_unchecked_view(
++      MaterialDataManager&, std::pmr::memory_resource* const = nullptr);
+ 
+   /*!
+    * \return a view on the values of a gradient of a state, extracted from the
+diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
+index f6afd0a..f310a14 100644
+--- a/src/MaterialDataView.cxx
++++ b/src/MaterialDataView.cxx
+@@ -189,11 +189,14 @@ namespace mgis::behaviour {
+    * \param[in] m: material data manager
+    * \param[in] v: variable
+    * \param[in] fh: field holder
++   * \param[in] check: if true, the values held by the material data manager
++   * on the host must be accessible by the computations of the behaviour
+    */
+   static FieldView<const real> makeVariableView(
+       const MaterialDataManager& m,
+       const Variable& v,
+-      const MaterialStateManager::FieldHolder& fh) {
++      const MaterialStateManager::FieldHolder& fh,
++      const bool check) {
+     const auto s = getVariableSize(v, m.b.hypothesis);
+     const auto from_values = [&m, &v, s](const std::span<const real> values) {
+       if (values.size() == s) {
+@@ -216,7 +219,7 @@ namespace mgis::behaviour {
+       return from_values(std::get<std::span<real>>(mfh.value));
+     }
+     // values held by the material state manager
+-    if (!areHostValuesAccessible(m)) {
++    if ((check) && (!areHostValuesAccessible(m))) {
+       raiseInaccessibleHostValues(m, v.name);
+     }
+     if (std::holds_alternative<real>(mfh.value)) {
+@@ -237,6 +240,7 @@ namespace mgis::behaviour {
+    * \param[in] m: material data manager
+    * \param[in] variables: variables
+    * \param[in] values: field holders
++   * \param[in] check: see `makeVariableView`
+    */
+   static void makeVariablesViews(
+       std::pmr::vector<FieldView<const real>>& views,
+@@ -244,11 +248,12 @@ namespace mgis::behaviour {
+       const std::vector<Variable>& variables,
+       const std::map<std::string,
+                      MaterialStateManager::FieldHolder,
+-                     std::less<>>& values) {
++                     std::less<>>& values,
++      const bool check) {
+     for (size_type i = 0; i != variables.size(); ++i) {
+       const auto p = values.find(variables[i].name);
+       if (p != values.end()) {
+-        views[i] = makeVariableView(m, variables[i], p->second);
++        views[i] = makeVariableView(m, variables[i], p->second, check);
+       }
+     }
+   }  // end of makeVariablesViews
+@@ -262,9 +267,14 @@ namespace mgis::behaviour {
+    * required.
+    * \param[in] m: material data manager
+    * \param[in] s: material state manager
++   * \param[in] check: if true, the view is empty if the mass density is
++   * held by the material data manager in a memory which is not accessible by
++   * the computations
+    */
+   static FieldView<const real> makeMassDensityView(
+-      const MaterialDataManager& m, const MaterialStateManager& s) {
++      const MaterialDataManager& m,
++      const MaterialStateManager& s,
++      const bool check) {
+     if (!s.mass_density.has_value()) {
+       return FieldView<const real>{};
+     }
+@@ -282,7 +292,7 @@ namespace mgis::behaviour {
+       return from_values(std::get<std::span<real>>(v));
+     }
+     // values held by the material state manager
+-    if (!areHostValuesAccessible(m)) {
++    if ((check) && (!areHostValuesAccessible(m))) {
+       return FieldView<const real>{};
+     }
+     if (std::holds_alternative<real>(v)) {
+@@ -297,10 +307,12 @@ namespace mgis::behaviour {
+    * \param[out] v: view of the state
+    * \param[in] m: material data manager
+    * \param[in] s: material state manager
++   * \param[in] check: see `makeVariableView`
+    */
+   static void makeStateView(MaterialStateView& v,
+                             const MaterialDataManager& m,
+-                            MaterialStateManager& s) {
++                            MaterialStateManager& s,
++                            const bool check) {
+     const auto l = m.layout;
+     v.gradients = makeFieldView(s.gradients, l, m.n, s.gradients_stride);
+     v.thermodynamic_forces = makeFieldView(s.thermodynamic_forces, l, m.n,
+@@ -313,19 +325,27 @@ namespace mgis::behaviour {
+     if (s.dissipated_energies.size() == m.n) {
+       v.dissipated_energies = makeFieldView(s.dissipated_energies, l, m.n, 1);
+     }
+-    makeVariablesViews(v.material_properties, m, m.b.mps,
+-                       s.material_properties);
++    makeVariablesViews(v.material_properties, m, m.b.mps, s.material_properties,
++                       check);
+     makeVariablesViews(v.external_state_variables, m, m.b.esvs,
+-                       s.external_state_variables);
+-    v.mass_density = makeMassDensityView(m, s);
++                       s.external_state_variables, check);
++    v.mass_density = makeMassDensityView(m, s, check);
+   }  // end of makeStateView
+ 
+-  MaterialDataView make_view(MaterialDataManager& m,
+-                             std::pmr::memory_resource* const r) {
++  /*!
++   * \return a view on the arrays of a material data manager (see `make_view`
++   * and `make_unchecked_view`)
++   * \param[in] m: material data manager
++   * \param[in] r: memory resource
++   * \param[in] check: see `makeVariableView`
++   */
++  static MaterialDataView make_view(MaterialDataManager& m,
++                                    std::pmr::memory_resource* const r,
++                                    const bool check) {
+     const auto l = m.layout;
+     auto v = MaterialDataView(m.b, m.n, m.memory_location, r);
+-    makeStateView(v.s0, m, m.s0);
+-    makeStateView(v.s1, m, m.s1);
++    makeStateView(v.s0, m, m.s0, check);
++    makeStateView(v.s1, m, m.s1, check);
+     if (!m.K.empty()) {
+       v.K = makeFieldView(m.K, l, m.n, m.K_stride);
+     }
+@@ -336,6 +356,16 @@ namespace mgis::behaviour {
+     return v;
+   }  // end of make_view
+ 
++  MaterialDataView make_view(MaterialDataManager& m,
++                             std::pmr::memory_resource* const r) {
++    return make_view(m, r, true);
++  }  // end of make_view
++
++  MaterialDataView make_unchecked_view(MaterialDataManager& m,
++                                       std::pmr::memory_resource* const r) {
++    return make_view(m, r, false);
++  }  // end of make_unchecked_view
++
+   /*!
+    * \return a view on the values of a variable of a state, extracted from
+    * the view of its group of variables
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index bbcf40c..f87dcec 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -27,6 +27,7 @@
+ #include <vector>
+ #include <cstdlib>
+ #include <iostream>
++#include <iterator>
+ #include <algorithm>
+ #include <stdexcept>
+ #include <string_view>
+@@ -290,6 +291,24 @@ static void testElasticity(const std::string& library,
+               &opts] { static_cast<void>(integrate(managers.gpu_m, opts, 1)); },
+              "must be given by a span"),
+       "a uniform value in the memory of the host must be refused");
++  // views: refused by `make_view`, given by `make_unchecked_view`, to be
++  // copied by the calling code
++  check(throws([&managers] { static_cast<void>(make_view(managers.gpu_m)); },
++               "must be given by a span"),
++        "make_view must refuse a uniform value in the memory of the host");
++  const auto v = make_unchecked_view(managers.gpu_m);
++  const auto& mps = managers.gpu_m.b.mps;
++  const auto p = std::find_if(mps.begin(), mps.end(), [](const Variable& mp) {
++    return mp.name == "PoissonRatio";
++  });
++  check(p != mps.end(), "PoissonRatio not found");
++  if (p != mps.end()) {
++    const auto& nu1 = v.s1.material_properties[static_cast<std::size_t>(
++        std::distance(mps.begin(), p))];
++    check(nu1.isUniform() && (std::abs(nu1.data()[0] - 0.3) < 1e-14),
++          "make_unchecked_view: invalid view of a uniform value held on the "
++          "host");
++  }
+ }  // end of testElasticity
+ 
+ //! \brief the location of the data is checked against the memory space
+-- 
+2.43.0
+

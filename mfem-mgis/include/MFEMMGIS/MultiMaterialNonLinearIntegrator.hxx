@@ -115,11 +115,22 @@ namespace mfem_mgis {
     /*!
      * \brief integrate the behaviours at all the integration points, by
      * batches (one call per behaviour integrator, see
-     * `AbstractBehaviourIntegrator::integrateBatch`)
+     * `AbstractBehaviourIntegrator::integrateBatch`). After the integration
+     * of a behaviour on the device, the arrays of its material are
+     * synchronized on the host for reading, unless the inner forces and the
+     * stiffness matrices are computed by kernels: the element loops of MFEM
+     * read them on the host.
      * \param[in] it: integration type
      * \return true on success
      */
     [[nodiscard]] bool integrateBatch(const IntegrationType it);
+    /*!
+     * \return true if all the behaviours are integrated by batches on the
+     * device (see `AbstractBehaviourIntegrator::integratesBatchesOnDevice`):
+     * the arrays of the materials do not need to be synchronized on the host
+     * before `integrateBatch`, if the gradients are computed by kernels
+     */
+    [[nodiscard]] bool integratesBatchesOnDevice() const noexcept;
     /*!
      * \return true if the gradients of all the behaviour integrators can be
      * computed by kernels (see

@@ -37,18 +37,28 @@ function(add_mfront_library target)
   add_custom_target(${target} ALL DEPENDS "${wd}/src/libBehaviour.so")
 endfunction()
 
-# usage: add_generic_parallel_mfront_libraries(target sources...)
-# Behaviours compiled by MFront with the generic-parallel interface on the
-# host, for each backend whose configuration file is provided by TFEL
-# (openmp, stlpar), in
+# usage: add_generic_parallel_mfront_libraries(target [CUDA] sources...)
+# Behaviours compiled by MFront with the generic-parallel interface, on the
+# host for each backend whose configuration file is provided by TFEL
+# (openmp, stlpar), and on the GPU with the CUDA option if nvcc is found
+# (cuda), in
 # <current binary dir>/generic-parallel-<backend>/src/libGenericParallelBehaviour-<backend>.so
 # (targets <target>-<backend>). The backends are returned in the variable
 # <target>_BACKENDS.
 function(add_generic_parallel_mfront_libraries target)
+  cmake_parse_arguments(_gp "CUDA" "" "" ${ARGN})
+  set(_sources ${_gp_UNPARSED_ARGUMENTS})
   get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
+  set(_configurations openmp:config-openmp-host-gcc.json
+                      stlpar:config-stlpar-parunseq-gcc.json)
+  if(_gp_CUDA)
+    find_program(_nvcc nvcc)
+    if(_nvcc)
+      list(APPEND _configurations cuda:config-cuda-nvcc.json)
+    endif()
+  endif()
   set(_backends)
-  foreach(backend_configuration openmp:config-openmp-host-gcc.json
-                                stlpar:config-stlpar-parunseq-gcc.json)
+  foreach(backend_configuration ${_configurations})
     string(REPLACE ":" ";" _bc "${backend_configuration}")
     list(GET _bc 0 _backend)
     list(GET _bc 1 _configuration)
@@ -60,9 +70,9 @@ function(add_generic_parallel_mfront_libraries target)
       add_custom_command(
         OUTPUT "${_library}"
         COMMAND ${MFRONT} --obuild --interface=generic-parallel
-                "--configuration-file=${_configuration}" ${ARGN}
+                "--configuration-file=${_configuration}" ${_sources}
         WORKING_DIRECTORY "${_directory}"
-        DEPENDS ${ARGN}
+        DEPENDS ${_sources}
         COMMENT "MFront: behaviours of ${target}, generic-parallel (${_backend})")
       add_custom_target(${target}-${_backend} ALL DEPENDS "${_library}")
       list(APPEND _backends ${_backend})
