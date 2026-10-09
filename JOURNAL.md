@@ -2475,3 +2475,41 @@ Vérifications finales : 50 tests (construction principale, CUDA compris),
 96 tests (HDF5 et liaisons C, Fortran, Python, par `check`), les cinq
 chaînes GPU (`scripts/check-mgis-gpu-headers.sh`), et des mutations
 volontaires détectées par les nouveaux tests.
+
+### 2026-10-09 (nuit), verrouillage de MGIS, liste des solveurs, environnement spack
+
+- **MGIS verrouillé.** Nouveau script `build-mgis.sh` : construction
+  neuve de `build/mgis` (50 tests, CUDA compris) et installation dans
+  `install/mgis`, où mfem-mgis le trouvera ; `build-mgis.sh full` pour
+  `build/mgis-full` (HDF5, liaisons C, Fortran, Python : 96 tests). Les
+  deux reconstruites depuis des dossiers vides, vertes.
+- **Fuite d'environnement corrigée.** La première construction neuve a
+  échoué : l'environnement spack `tfelgpu_local`, activé dans le shell,
+  fournissait HDF5, et sa vue contient un ancien TFEL dont les en-têtes
+  passaient avant ceux du TFEL du prototype. `scripts/env.sh` et
+  `build-tfel.sh` neutralisent maintenant cet environnement pour
+  `mmm-gpu`. Une configuration neuve de TFEL donne le même cache que
+  `build/tfel-mmm-gpu`, aux bibliothèques CUDA inutilisées près (cuFile,
+  nvfatbin) et au hachage git affiché par TFEL, figé à la configuration
+  (`9f10d65a4` au lieu de `631019468`, cosmétique).
+- **MGIS, patch 0054** : les lois CUDA des tests sont compilées avec les
+  options de la configuration `cuda-nvcc` de TFEL (avertissements de nvcc
+  sur les en-têtes de TFEL masqués, appels de fonctions hôte depuis le GPU
+  en erreur). Plus aucun avertissement de nvcc.
+- **Liste des solveurs** : [docs/solveurs-gpu.md](docs/solveurs-gpu.md).
+  Points notables, vérifiés dans les sources : la stratégie
+  « Elasticity » de BoomerAMG dans mfem-mgis arrête le programme avec
+  hypre GPU (`SetElasticityOptions`) ; MFEM 4.10 enveloppe cuDSS et les
+  solveurs distribués de Ginkgo ; AmgX 2.5.0 précède les corrections pour
+  CUDA 13 ; l'enveloppe AmgX de MFEM est en double seulement.
+- **Environnement spack** : MFEM 4.9 avec CUDA, Ginkgo, PETSc (Kokkos),
+  SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK, MUMPS, UMFPACK ; cuDSS seul.
+  Problèmes rencontrés et réglés : cache de spack partagé entre deux
+  installations (index des patchs) ; BLAS du HPC SDK choisi par défaut
+  (OpenBLAS imposé) ; Kokkos 5 sans variante `cuda_lambda` exigée par la
+  recette de PETSc (recette modifiée dans `mmm_gpu`) ; AmgX 2.5.0 trop
+  ancien pour CUDA 13 (commit de la branche principale) ; OpenMPI avec
+  CUDA impossible sans reconstruire LLVM et TBB (OpenMPI sans CUDA,
+  PETSc lancé avec `-use_gpu_aware_mpi 0`) ; préfixe CUDA dont `bin` était
+  un lien, si bien que nvcc prenait les en-têtes du SDK sans cuBLAS
+  (`make-nvhpc-cuda-prefix.sh` corrigé, préfixes 13.0 et 12.9 refaits).
