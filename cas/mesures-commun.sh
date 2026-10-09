@@ -77,7 +77,8 @@ command_of() {
     polycristal)
       echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
         --duration 10 -l "$library" \
-        --macroscopic-stress-output-file "$out/$name.res"
+        --macroscopic-stress-output-file "$out/$name.res" \
+        ${device:+--device $device}
       ;;
   esac
 }
