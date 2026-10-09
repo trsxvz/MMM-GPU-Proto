@@ -79,6 +79,11 @@ struct ComputationOptions {
    * `InnerForcesComputation`)
    */
   bool inner_forces_kernels = false;
+  /*!
+   * \brief if true, the stiffness matrices are computed by kernels
+   * (parameter `TangentOperatorComputation`)
+   */
+  bool tangent_operator_kernels = false;
 };
 
 /*!
@@ -126,6 +131,8 @@ static Results compute(mfem_mgis::Context& ctx,
       opts.gradients_kernels ? "Kernels" : "ElementByElement";
   const auto* const inner_forces =
       opts.inner_forces_kernels ? "Kernels" : "ElementByElement";
+  const auto* const tangent_operator =
+      opts.tangent_operator_kernels ? "Kernels" : "ElementByElement";
   // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
   // (5) and x = 1 (4)
   auto problem =
@@ -144,6 +151,7 @@ static Results compute(mfem_mgis::Context& ctx,
                            {"BehaviourIntegration", mode},
                            {"GradientsComputation", gradients},
                            {"InnerForcesComputation", inner_forces},
+                           {"TangentOperatorComputation", tangent_operator},
                            {"Parallel", false}}
               : Parameters{{"MeshFileName", mesh},
                            {"FiniteElementFamily", "H1"},
@@ -159,6 +167,7 @@ static Results compute(mfem_mgis::Context& ctx,
                            {"BehaviourIntegration", mode},
                            {"GradientsComputation", gradients},
                            {"InnerForcesComputation", inner_forces},
+                           {"TangentOperatorComputation", tangent_operator},
                            {"Parallel", false}}) |
       or_die;
   if (opts.fbar) {
@@ -648,18 +657,27 @@ int main(int argc, char** argv) {
           {b,
            {.gradients_kernels = true, .inner_forces_kernels = true},
            ", gradients and inner forces"});
+      cases.push_back(
+          {b, {.tangent_operator_kernels = true}, ", stiffness matrices"});
+      cases.push_back({b,
+                       {.gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
+                       ", all"});
     }
     for (const auto* const b : {"OrthotropicElasticity",
                                 "OrthotropicSaintVenantKirchhoffElasticity"}) {
       cases.push_back({b,
                        {.plane_strain = true,
                         .gradients_kernels = true,
-                        .inner_forces_kernels = true},
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
                        ", plane strain"});
       cases.push_back({b,
                        {.prediction = true,
                         .gradients_kernels = true,
-                        .inner_forces_kernels = true},
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
                        ", prediction"});
     }
     for (const auto& [b, opts, name] : cases) {
@@ -667,6 +685,7 @@ int main(int argc, char** argv) {
       auto reference = opts;
       reference.gradients_kernels = false;
       reference.inner_forces_kernels = false;
+      reference.tangent_operator_kernels = false;
       compare(compute(ctx, m, library, b, "PointByPoint", reference),
               compute(ctx, m, library, b, "Batch", opts),
               b + " (kernels" + name + ")", 1e-10);

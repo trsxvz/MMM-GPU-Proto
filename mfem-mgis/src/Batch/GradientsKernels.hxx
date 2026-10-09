@@ -19,8 +19,15 @@ namespace mfem_mgis::batch::internals {
     const int* elements = nullptr;
     //! \brief offsets of the integration points of the elements
     const int* offsets = nullptr;
-    //! \brief derivatives of the unknowns (see `UnknownsDerivatives`)
+    /*!
+     * \brief derivatives of the unknowns with respect to the reference
+     * coordinates (see `UnknownsDerivatives`)
+     */
     const real* derivatives = nullptr;
+    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
+    const real* jacobians = nullptr;
+    //! \brief determinants of the jacobians (`nq x ne`)
+    const real* determinants = nullptr;
     //! \brief gradients of the material
     real* gradients = nullptr;
     //! \brief number of elements of the material

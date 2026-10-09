@@ -13,6 +13,7 @@
 #include "mfem/general/device.hpp"
 #include "mfem/fem/fespace.hpp"
 #include "mfem/mesh/mesh.hpp"
+#include "mfem/fem/fe/fe_base.hpp"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
 #ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
@@ -20,51 +21,6 @@
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
-
-  bool computeElementsGeometry(Context& ctx,
-                               ElementsGeometry& g,
-                               const mfem::FiniteElementSpace& fes,
-                               const mfem::IntegrationRule& ir) noexcept {
-    try {
-      auto& mesh = *(fes.GetMesh());
-      if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
-        return ctx.registerErrorMessage(
-            "computeElementsGeometry: meshes mixing several geometries are "
-            "not supported");
-      }
-      if (mesh.SpaceDimension() != mesh.Dimension()) {
-        return ctx.registerErrorMessage(
-            "computeElementsGeometry: the dimension of the space must be the "
-            "dimension of the mesh");
-      }
-      g.rule = &ir;
-      g.dim = mesh.Dimension();
-      g.nq = ir.GetNPoints();
-      g.ne = fes.GetNE();
-      if (g.ne == 0) {
-        return true;
-      }
-      const auto* const fe = fes.GetTypicalFE();
-      g.maps = &(fe->GetDofToQuad(ir, mfem::DofToQuad::FULL));
-      g.nd = fe->GetDof();
-      g.factors = mesh.GetGeometricFactors(
-          ir, mfem::GeometricFactors::JACOBIANS |
-                  mfem::GeometricFactors::DETERMINANTS);
-      g.weights.UseDevice(true);
-      g.weights.SetSize(g.nq);
-      auto* const w = g.weights.HostWrite();
-      for (int q = 0; q != g.nq; ++q) {
-        w[q] = ir.IntPoint(q).weight;
-      }
-    } catch (std::exception& e) {
-      return ctx.registerErrorMessage(std::string{"computeElementsGeometry: "} +
-                                      e.what());
-    } catch (...) {
-      return ctx.registerErrorMessage(
-          "computeElementsGeometry: unknown exception");
-    }
-    return true;
-  }  // end of computeElementsGeometry
 
   bool addInnerForces(Context& ctx,
                       mfem::Vector& f,

@@ -15,6 +15,7 @@
 #include "MFEMMGIS/TimeStepStage.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
+#include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
 
 namespace mfem_mgis {
 
@@ -134,9 +135,10 @@ namespace mfem_mgis {
      */
     [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
     /*!
-     * \return true if the gradients and the inner forces of the behaviour
-     * integrator can be computed by kernels (see `computeGradientsByKernels`
-     * and `addInnerForcesByKernels`). The default implementation returns
+     * \return true if the gradients, the inner forces and the stiffness
+     * matrices of the behaviour integrator can be computed by kernels (see
+     * `computeGradientsByKernels`, `addInnerForcesByKernels` and
+     * `addStiffnessMatricesByKernels`). The default implementation returns
      * false.
      */
     [[nodiscard]] virtual bool supportsKernels() const noexcept;
@@ -152,10 +154,14 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] d: derivatives of the unknowns, which must contain the ones
      * of the integration rule of the elements
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool computeGradientsByKernels(
-        Context&, const batch::UnknownsDerivativesSet&) noexcept;
+        Context&,
+        const batch::UnknownsDerivativesSet&,
+        const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief add the inner forces of all the elements, computed by kernels
      * from the thermodynamic forces at the end of the time step, to values
@@ -169,6 +175,19 @@ namespace mfem_mgis {
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addInnerForcesByKernels(
+        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+    /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels from the tangent operator blocks, to matrices stored element by
+     * element (see `batch::addStiffnessMatrices`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] m: matrices element by element
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
         Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief compute the contribution of the given element to the inner forces

@@ -243,7 +243,9 @@ namespace mfem_mgis {
 
   template <typename Child>
   bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
-      Context& ctx, const batch::UnknownsDerivativesSet& d) noexcept {
+      Context& ctx,
+      const batch::UnknownsDerivativesSet& d,
+      const batch::ElementsGeometrySet& g) noexcept {
     const auto* const r = this->quadrature_space->getUniformIntegrationRule();
     if (r == nullptr) {
       if (this->quadrature_space->getNumberOfElements() == 0) {
@@ -259,12 +261,14 @@ namespace mfem_mgis {
           "computeGradientsByKernels: unsupported behaviour");
     }
     const auto p = d.find(r);
-    if (p == d.end()) {
+    const auto pg = g.find(r);
+    if ((p == d.end()) || (pg == g.end())) {
       return ctx.registerErrorMessage(
-          "computeGradientsByKernels: the derivatives of the unknowns are not "
-          "computed for the integration rule of the material");
+          "computeGradientsByKernels: the derivatives of the unknowns or the "
+          "geometric data are not computed for the integration rule of the "
+          "material");
     }
-    return batch::computeGradients(ctx, *this, p->second, *k);
+    return batch::computeGradients(ctx, *this, p->second, pg->second, *k);
   }  // end of computeGradientsByKernels
 
   template <typename Child>
@@ -324,6 +328,52 @@ namespace mfem_mgis {
           "addInnerForcesByKernels: unknown exception");
     }
   }  // end of addInnerForcesByKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+      Context& ctx,
+      mfem::Vector& m,
+      const batch::ElementsGeometrySet& g) noexcept {
+    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+    if (r == nullptr) {
+      if (this->quadrature_space->getNumberOfElements() == 0) {
+        return true;
+      }
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesByKernels: the elements of the material do not "
+          "use the same integration rule");
+    }
+    const auto k = batch::getGradientsKind(this->b);
+    if (!k.has_value()) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesByKernels: unsupported behaviour");
+    }
+    const auto p = g.find(r);
+    if (p == g.end()) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesByKernels: the geometric data are not computed "
+          "for the integration rule of the material");
+    }
+    try {
+      // the tangent operator blocks are in the global frame (rotated after
+      // the integration of the behaviour for an orthotropic behaviour)
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto& v = this->getArrays().getTangentOperatorBlocks();
+      const auto s = std::span<const real>(v.Read(use_device),
+                                           static_cast<std::size_t>(v.Size()));
+      return batch::addStiffnessMatrices(
+          ctx, m, *(this->quadrature_space),
+          mgis::makeFieldView(s, this->getArrays().array_layout,
+                              static_cast<size_type>(this->n), this->K_stride),
+          p->second, *k);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addStiffnessMatricesByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesByKernels: unknown exception");
+    }
+  }  // end of addStiffnessMatricesByKernels
 
   template <typename Child>
   void StandardBehaviourIntegratorCRTPBase<Child>::implementUpdateResidual(

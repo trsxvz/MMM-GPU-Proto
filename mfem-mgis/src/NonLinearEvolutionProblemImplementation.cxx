@@ -357,6 +357,21 @@ namespace mfem_mgis {
     r.SetSubVector(essential_dofs, real{0});
   }  // end of addInnerForcesComputedByKernels
 
+  /*!
+   * \brief computes the stiffness matrices of the elements by kernels, given
+   * to the assembly of the tangent operator by MFEM
+   * \param[in, out] mi: multi-material integrator
+   * \param[in] fes: finite element space
+   */
+  static void computeStiffnessMatricesByKernels(
+      MultiMaterialNonLinearIntegrator& mi,
+      const mfem::FiniteElementSpace& fes) {
+    auto ctx = Context{};
+    if (!mi.computeStiffnessMatricesByKernels(ctx, fes)) {
+      raise("computation of the tangent operator: " + ctx.getErrorMessage());
+    }
+  }  // end of computeStiffnessMatricesByKernels
+
 #ifdef MFEM_USE_MPI
 
   NonLinearEvolutionProblemImplementation<true>::
@@ -454,6 +469,16 @@ namespace mfem_mgis {
                                       this->ess_tdof_list, r);
     }
   }  // end of Mult
+
+  mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
+      const mfem::Vector& u) const {
+    if ((this->tangent_operator_kernels) &&
+        (this->mgis_integrator != nullptr)) {
+      computeStiffnessMatricesByKernels(*(this->mgis_integrator),
+                                        this->getFiniteElementSpace());
+    }
+    return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+  }  // end of GetGradient
 
   bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
       Context& ctx,
@@ -725,6 +750,16 @@ namespace mfem_mgis {
                                       this->ess_tdof_list, r);
     }
   }  // end of Mult
+
+  mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
+      const mfem::Vector& u) const {
+    if ((this->tangent_operator_kernels) &&
+        (this->mgis_integrator != nullptr)) {
+      computeStiffnessMatricesByKernels(*(this->mgis_integrator),
+                                        this->getFiniteElementSpace());
+    }
+    return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+  }  // end of GetGradient
 
   bool NonLinearEvolutionProblemImplementation<false>::addBoundaryCondition(
       Context& ctx,

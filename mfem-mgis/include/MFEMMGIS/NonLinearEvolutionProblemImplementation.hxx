@@ -66,6 +66,11 @@ namespace mfem_mgis {
      * \param[out] r: residual
      */
     void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
+    /*!
+     * \brief compute the tangent operator
+     * \param[in] u: current estimate of the unknowns
+     */
+    mfem::Operator& GetGradient(const mfem::Vector& u) const override;
     //
     [[nodiscard]] bool addBoundaryCondition(
         Context& ctx,
@@ -156,6 +161,11 @@ namespace mfem_mgis {
      * \param[out] r: residual
      */
     void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
+    /*!
+     * \brief compute the tangent operator
+     * \param[in] u: current estimate of the unknowns
+     */
+    mfem::Operator& GetGradient(const mfem::Vector& u) const override;
     //
     [[nodiscard]] bool addBoundaryCondition(
         Context& ctx,

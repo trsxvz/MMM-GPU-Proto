@@ -166,6 +166,24 @@ namespace mfem_mgis {
      * \param[in] b: boolean
      */
     void setInnerForcesComputedByKernels(const bool) noexcept;
+    /*!
+     * \brief compute the stiffness matrices of all the elements by kernels,
+     * from the tangent operator blocks (see
+     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). They are
+     * given to MFEM by `AssembleElementGrad` if
+     * `setStiffnessMatricesComputedByKernels` was called.
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     */
+    [[nodiscard]] bool computeStiffnessMatricesByKernels(
+        Context& ctx, const mfem::FiniteElementSpace& fes) noexcept;
+    /*!
+     * \brief if true, `AssembleElementGrad` gives the stiffness matrices
+     * computed by `computeStiffnessMatricesByKernels`
+     * \param[in] b: boolean
+     */
+    void setStiffnessMatricesComputedByKernels(const bool) noexcept;
     //! \return the current time increment
     [[nodiscard]] real getTimeIncrement() const noexcept;
     /*!
@@ -319,12 +337,29 @@ namespace mfem_mgis {
      * `computeGradientsByKernels`, kept to avoid reallocations)
      */
     batch::UnknownsDerivativesSet unknowns_derivatives;
-    //! \brief geometric data (workspace of `addInnerForcesByKernels`)
+    /*!
+     * \brief geometric data of the integration rules of the behaviour
+     * integrators, computed once (see `computeElementsGeometry`)
+     */
     batch::ElementsGeometrySet elements_geometry;
     //! \brief inner forces element by element (workspace)
     mfem::Vector inner_forces_element_values;
     //! \brief see `setInnerForcesComputedByKernels`
     bool inner_forces_computed_by_kernels = false;
+    //! \brief stiffness matrices element by element (workspace)
+    mfem::Vector stiffness_matrices;
+    //! \brief see `setStiffnessMatricesComputedByKernels`
+    bool stiffness_matrices_computed_by_kernels = false;
+    /*!
+     * \brief computes the geometric data of the integration rules of the
+     * behaviour integrators which are not computed yet (see
+     * `elements_geometry`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     */
+    [[nodiscard]] bool computeElementsGeometry(
+        Context&, const mfem::FiniteElementSpace&) noexcept;
   };  // end of MultiMaterialNonLinearIntegrator
 
 }  // end of namespace mfem_mgis

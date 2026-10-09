@@ -5,7 +5,9 @@
  * \date   8/06/2020
  */
 
+#include <limits>
 #include <string>
+#include <cstdint>
 #include <utility>
 #include <algorithm>
 #include <exception>
@@ -397,9 +399,13 @@ namespace mfem_mgis {
         return false;
       }
     }
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
-        if (!bi->computeGradientsByKernels(ctx, this->unknowns_derivatives)) {
+        if (!bi->computeGradientsByKernels(ctx, this->unknowns_derivatives,
+                                           this->elements_geometry)) {
           return false;
         }
       }
@@ -411,21 +417,10 @@ namespace mfem_mgis {
       Context& ctx,
       const mfem::FiniteElementSpace& fes,
       mfem::Vector& f) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
     try {
-      // geometric data, computed again at each call (they are kept by MFEM)
-      this->elements_geometry.clear();
-      for (const auto& bis : this->behaviour_integrators) {
-        for (const auto& bi : bis) {
-          const auto* const r =
-              bi->getPartialQuadratureSpace().getUniformIntegrationRule();
-          if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
-            if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
-                                                fes, *r)) {
-              return false;
-            }
-          }
-        }
-      }
       const auto* const restriction =
           fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
       auto& fe = this->inner_forces_element_values;
@@ -454,6 +449,66 @@ namespace mfem_mgis {
       const bool b) noexcept {
     this->inner_forces_computed_by_kernels = b;
   }  // end of setInnerForcesComputedByKernels
+
+  bool MultiMaterialNonLinearIntegrator::computeElementsGeometry(
+      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+    // computed once for each integration rule (the mesh does not change)
+    for (const auto& bis : this->behaviour_integrators) {
+      for (const auto& bi : bis) {
+        const auto* const r =
+            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
+        if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
+          if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
+                                              fes, *r)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }  // end of computeElementsGeometry
+
+  bool MultiMaterialNonLinearIntegrator::computeStiffnessMatricesByKernels(
+      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
+    try {
+      const auto* const fe = fes.GetTypicalFE();
+      const auto ndofs =
+          static_cast<std::int64_t>(fe != nullptr ? fe->GetDof() : 0) *
+          fes.GetVDim();
+      const auto size = ndofs * ndofs * fes.GetNE();
+      if (size > std::numeric_limits<int>::max()) {
+        return ctx.registerErrorMessage(
+            "computeStiffnessMatricesByKernels: too many values for MFEM");
+      }
+      auto& m = this->stiffness_matrices;
+      m.UseDevice(true);
+      m.SetSize(static_cast<int>(size));
+      m = real{0};
+      for (auto& bis : this->behaviour_integrators) {
+        for (auto& bi : bis) {
+          if (!bi->addStiffnessMatricesByKernels(ctx, m,
+                                                 this->elements_geometry)) {
+            return false;
+          }
+        }
+      }
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"computeStiffnessMatricesByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "computeStiffnessMatricesByKernels: unknown exception");
+    }
+    return true;
+  }  // end of computeStiffnessMatricesByKernels
+
+  void MultiMaterialNonLinearIntegrator::setStiffnessMatricesComputedByKernels(
+      const bool b) noexcept {
+    this->stiffness_matrices_computed_by_kernels = b;
+  }  // end of setStiffnessMatricesComputedByKernels
 
   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
       const mfem::FiniteElement& e,
@@ -508,6 +563,18 @@ namespace mfem_mgis {
       mfem::ElementTransformation& tr,
       const mfem::Vector& U,
       mfem::DenseMatrix& K) {
+    if (this->stiffness_matrices_computed_by_kernels) {
+      // matrix computed by `computeStiffnessMatricesByKernels`
+      const auto ndofs =
+          e.GetDof() * getNumberOfComponents(*(this->fe_discretization));
+      K.SetSize(ndofs);
+      const auto* const m = this->stiffness_matrices.HostRead() +
+                            static_cast<std::size_t>(ndofs) *
+                                static_cast<std::size_t>(ndofs) *
+                                static_cast<std::size_t>(tr.ElementNo);
+      std::copy(m, m + ndofs * ndofs, K.GetData());
+      return;
+    }
     const auto m = tr.Attribute;
     checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
                                           "AssembleElementGrad", m);

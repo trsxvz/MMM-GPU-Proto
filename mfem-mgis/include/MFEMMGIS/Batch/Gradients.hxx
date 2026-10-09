@@ -14,6 +14,7 @@
 #include "mfem/linalg/vector.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
+#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
 
 namespace mfem {
   // forward declarations
@@ -37,11 +38,15 @@ namespace mfem_mgis::batch {
     //! \brief integration rule
     const mfem::IntegrationRule* rule = nullptr;
     /*!
-     * \brief derivatives, in the layout `byVDIM` of MFEM: the derivative of
-     * the `i`-th component of the unknowns with respect to the `j`-th
+     * \brief derivatives with respect to the coordinates of the reference
+     * element, in the layout `byVDIM` of MFEM: the derivative of the `i`-th
+     * component of the unknowns with respect to the `j`-th reference
      * coordinate at the `q`-th point of the `e`-th element is the value
      * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
-     * on the device if a device is enabled.
+     * on the device if a device is enabled. They are converted to physical
+     * derivatives by the kernels with the jacobians of the element
+     * transformations (see `ElementsGeometry`), the physical derivatives of
+     * the quadrature interpolator requiring nodes in the mesh.
      */
     mfem::Vector values;
     //! \brief values of the unknowns element by element (workspace)
@@ -125,8 +130,9 @@ namespace mfem_mgis::batch {
   /*!
    * \brief computes the derivatives of the unknowns at the points of an
    * integration rule, for all the elements of the mesh: element
-   * restriction, then physical derivatives by the quadrature interpolator
-   * of MFEM, on the device if a device is enabled
+   * restriction, then derivatives with respect to the reference coordinates
+   * by the quadrature interpolator of MFEM, on the device if a device is
+   * enabled
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[out] d: derivatives
@@ -153,12 +159,14 @@ namespace mfem_mgis::batch {
    * \param[in, out] m: material. All the elements of its quadrature space
    * must use the integration rule of the derivatives.
    * \param[in] d: derivatives of the unknowns
+   * \param[in] g: geometric data of the integration rule of the derivatives
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradients(
       Context&,
       Material&,
       const UnknownsDerivatives&,
+      const ElementsGeometry&,
       const GradientsKind) noexcept;
 
 }  // end of namespace mfem_mgis::batch

@@ -110,7 +110,7 @@ namespace mfem_mgis::batch {
       // the interpolator is shared: its options are set before each use
       qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
       qi->DisableTensorProducts();
-      qi->PhysDerivatives(d.element_values, d.values);
+      qi->Derivatives(d.element_values, d.values);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
           std::string{"computeUnknownsDerivatives: "} + e.what());
@@ -145,10 +145,12 @@ namespace mfem_mgis::batch {
   bool computeGradients(Context& ctx,
                         Material& m,
                         const UnknownsDerivatives& d,
+                        const ElementsGeometry& g,
                         const GradientsKind k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
     static_cast<void>(d);
+    static_cast<void>(g);
     static_cast<void>(k);
     return ctx.registerErrorMessage(
         "computeGradients: the kernels computing the gradients are not "
@@ -160,10 +162,13 @@ namespace mfem_mgis::batch {
     if (elements.Size() == 0) {
       return true;
     }
-    if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule)) {
+    if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
+        (g.rule != d.rule) || (g.factors == nullptr) || (g.nq != d.nq) ||
+        (g.ne != d.ne)) {
       return ctx.registerErrorMessage(
           "computeGradients: the elements of the material do not use the "
-          "integration rule of the derivatives of the unknowns");
+          "integration rule of the derivatives of the unknowns and of the "
+          "geometric data");
     }
     const auto gsize = getGradientsSize(k);
     const auto dim = getSpaceDimension(k);
@@ -204,6 +209,8 @@ namespace mfem_mgis::batch {
       a.elements = elements.Read(use_device);
       a.offsets = offsets.Read(use_device);
       a.derivatives = d.values.Read(use_device);
+      a.jacobians = g.factors->J.Read(use_device);
+      a.determinants = g.factors->detJ.Read(use_device);
       a.gradients = m.getArrays().write(MaterialArrays::StateArray::GRADIENTS,
                                         ets, use_device);
       internals::launchGradientsKernel(k, a, use_device);

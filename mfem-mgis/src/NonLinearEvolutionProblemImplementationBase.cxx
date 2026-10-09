@@ -40,16 +40,20 @@ namespace mfem_mgis {
   const char* const
       NonLinearEvolutionProblemImplementationBase::InnerForcesComputation =
           "InnerForcesComputation";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation =
+          "TangentOperatorComputation";
 
   std::vector<std::string>
   NonLinearEvolutionProblemImplementationBase::getParametersList() {
-    return {
-        NonLinearEvolutionProblemImplementationBase::
-            UseMultiMaterialNonLinearIntegrator,
-        NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
-        NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
-        NonLinearEvolutionProblemImplementationBase::GradientsComputation,
-        NonLinearEvolutionProblemImplementationBase::InnerForcesComputation};
+    return {NonLinearEvolutionProblemImplementationBase::
+                UseMultiMaterialNonLinearIntegrator,
+            NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
+            NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
+            NonLinearEvolutionProblemImplementationBase::GradientsComputation,
+            NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
+            NonLinearEvolutionProblemImplementationBase::
+                TangentOperatorComputation};
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
@@ -141,9 +145,18 @@ namespace mfem_mgis {
             throwing,
             p,
             NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
-            "MFEM_MGIS_INNER_FORCES_COMPUTATION")) {
-    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
-      this->mgis_integrator->setInnerForcesComputedByKernels(true);
+            "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
+        tangent_operator_kernels(
+            useKernels(throwing,
+                       p,
+                       NonLinearEvolutionProblemImplementationBase::
+                           TangentOperatorComputation,
+                       "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION")) {
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->setInnerForcesComputedByKernels(
+          this->inner_forces_kernels);
+      this->mgis_integrator->setStiffnessMatricesComputedByKernels(
+          this->tangent_operator_kernels);
     }
     this->u0 = real{0};
     this->u1 = real{0};
@@ -471,7 +484,8 @@ namespace mfem_mgis {
               "BehaviourIntegration set to Batch)");
           return false;
         }
-        if (((this->gradients_kernels) || (this->inner_forces_kernels)) &&
+        if (((this->gradients_kernels) || (this->inner_forces_kernels) ||
+             (this->tangent_operator_kernels)) &&
             (!this->mgis_integrator->checkKernelsSupport(ctx))) {
           return false;
         }
@@ -479,10 +493,11 @@ namespace mfem_mgis {
           return false;
         }
       }
-      if ((this->inner_forces_kernels) && (usePETSc())) {
+      if (((this->inner_forces_kernels) || (this->tangent_operator_kernels)) &&
+          (usePETSc())) {
         std::ignore = ctx.registerErrorMessage(
-            "the computation of the inner forces by kernels is not supported "
-            "with PETSc");
+            "the computation of the inner forces or of the stiffness matrices "
+            "by kernels is not supported with PETSc");
         return false;
       }
       if ((this->batch_integration) && (usePETSc())) {

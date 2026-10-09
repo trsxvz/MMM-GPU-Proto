@@ -43,7 +43,9 @@ namespace mfem_mgis {
   }  // end of supportsKernels
 
   bool AbstractBehaviourIntegrator::computeGradientsByKernels(
-      Context& ctx, const batch::UnknownsDerivativesSet&) noexcept {
+      Context& ctx,
+      const batch::UnknownsDerivativesSet&,
+      const batch::ElementsGeometrySet&) noexcept {
     return ctx.registerErrorMessage(
         "AbstractBehaviourIntegrator::computeGradientsByKernels: the "
         "gradients of this behaviour integrator can't be computed by "
@@ -56,6 +58,14 @@ namespace mfem_mgis {
         "AbstractBehaviourIntegrator::addInnerForcesByKernels: the inner "
         "forces of this behaviour integrator can't be computed by kernels");
   }  // end of addInnerForcesByKernels
+
+  bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
+      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addStiffnessMatricesByKernels: the "
+        "stiffness matrices of this behaviour integrator can't be computed by "
+        "kernels");
+  }  // end of addStiffnessMatricesByKernels
 
   template <bool parallel, typename Functor>
   static void performLoopOverIntegrationPoints(

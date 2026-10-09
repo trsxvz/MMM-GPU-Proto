@@ -150,7 +150,8 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
 set(MFEMMGIS_DEVICE_SOURCES
   Batch/MFEMFieldOperations.cxx
   Batch/GradientsKernels.cxx
-  Batch/InnerForcesKernels.cxx)
+  Batch/InnerForcesKernels.cxx
+  Batch/StiffnessMatricesKernels.cxx)
 if(MFEM_USE_HIP STREQUAL "YES")
   message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
           "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
@@ -159,7 +160,11 @@ endif()
 list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
 # host part of the computations by kernels (gradients, inner forces), which
 # reports an error if the kernels are not compiled
-list(APPEND MFEMMGIS_SOURCES Batch/Gradients.cxx Batch/InnerForces.cxx)
+list(APPEND MFEMMGIS_SOURCES
+  Batch/ElementsGeometry.cxx
+  Batch/Gradients.cxx
+  Batch/InnerForces.cxx
+  Batch/StiffnessMatrices.cxx)
 
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
 if(MFEMMGIS_DEVICE_SOURCES)

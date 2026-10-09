@@ -44,8 +44,14 @@ namespace mfem_mgis {
                                         const mfem::Vector&) override;
     [[nodiscard]] bool supportsKernels() const noexcept override;
     [[nodiscard]] bool computeGradientsByKernels(
-        Context&, const batch::UnknownsDerivativesSet&) noexcept override;
+        Context&,
+        const batch::UnknownsDerivativesSet&,
+        const batch::ElementsGeometrySet&) noexcept override;
     [[nodiscard]] bool addInnerForcesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
         Context&,
         mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;

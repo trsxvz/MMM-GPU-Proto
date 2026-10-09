@@ -1,9 +1,10 @@
 /*!
  * \file   GradientsKernelsTest.cxx
- * \brief  Test of the computations of the gradients of the behaviours and
- * of the inner forces by kernels
- * (`AbstractBehaviourIntegrator::computeGradientsByKernels` and
- * `addInnerForcesByKernels`): same values as the computations element by
+ * \brief  Test of the computations of the gradients of the behaviours, of
+ * the inner forces and of the stiffness matrices by kernels
+ * (`AbstractBehaviourIntegrator::computeGradientsByKernels`,
+ * `addInnerForcesByKernels` and `addStiffnessMatricesByKernels`): same
+ * values as the computations element by
  * element, for small and finite strain behaviours, isotropic and
  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
  * materials with macroscopic gradients) and under the plane strain
@@ -30,6 +31,7 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
+#include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -161,7 +163,12 @@ static void testCase(mfem_mgis::Context& ctx,
             name + ": computation of the derivatives of the unknowns (" +
                 ctx.getErrorMessage() + ")");
     }
-    check(bi.computeGradientsByKernels(ctx, derivatives),
+    if (!geometry.contains(r)) {
+      check(batch::computeElementsGeometry(ctx, geometry[r], fes, *r),
+            name + ": computation of the geometric data (" +
+                ctx.getErrorMessage() + ")");
+    }
+    check(bi.computeGradientsByKernels(ctx, derivatives, geometry),
           name + ": computation of the gradients by kernels");
     mat.synchronizeOnHostForReading();
     auto d = real{};
@@ -179,11 +186,6 @@ static void testCase(mfem_mgis::Context& ctx,
     mat.synchronizeOnHost();
     for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
       mat.s1.thermodynamic_forces[i] = std::sin(real(i));
-    }
-    if (!geometry.contains(r)) {
-      check(batch::computeElementsGeometry(ctx, geometry[r], fes, *r),
-            name + ": computation of the geometric data (" +
-                ctx.getErrorMessage() + ")");
     }
     const auto& g = geometry[r];
     auto f = mfem::Vector{};
@@ -216,6 +218,44 @@ static void testCase(mfem_mgis::Context& ctx,
     std::cout << name << ": inner forces, maximum difference " << df
               << " (maximum value " << fmax << ")\n";
     check((fmax != 0) && (df <= 1e-13 * fmax), name + ": inner forces");
+    // stiffness matrices computed from arbitrary tangent operator blocks
+    mat.synchronizeOnHost();
+    for (std::size_t i = 0; i != mat.K.size(); ++i) {
+      mat.K[i] = std::cos(real(i));
+    }
+    const auto ndofs = g.nd * dim;
+    auto ke = mfem::Vector{};
+    ke.UseDevice(true);
+    ke.SetSize(ndofs * ndofs * g.ne);
+    ke = real{0};
+    check(bi.addStiffnessMatricesByKernels(ctx, ke, geometry),
+          name + ": computation of the stiffness matrices by kernels (" +
+              ctx.getErrorMessage() + ")");
+    const auto* const kv = ke.HostRead();
+    mat.synchronizeOnHostForReading();
+    auto dk = real{};
+    auto kmax = real{};
+    auto Ke = mfem::DenseMatrix{};
+    for (int i = 0; i != fes.GetNE(); ++i) {
+      if (fes.GetAttribute(i) != static_cast<int>(m)) {
+        continue;
+      }
+      fes.GetElementVDofs(i, vdofs);
+      u.GetSubVector(vdofs, ue);
+      bi.updateJacobian(Ke, *(fes.GetFE(i)), *(fes.GetElementTransformation(i)),
+                        ue);
+      check((Ke.Height() == ndofs) && (Ke.Width() == ndofs),
+            name + ": size of the stiffness matrix");
+      const auto* const k = Ke.GetData();
+      for (int j = 0; j != ndofs * ndofs; ++j) {
+        const auto v = kv[j + static_cast<std::size_t>(ndofs) * ndofs * i];
+        dk = std::max(dk, std::abs(v - k[j]));
+        kmax = std::max(kmax, std::abs(k[j]));
+      }
+    }
+    std::cout << name << ": stiffness matrices, maximum difference " << dk
+              << " (maximum value " << kmax << ")\n";
+    check((kmax != 0) && (dk <= 1e-13 * kmax), name + ": stiffness matrices");
   }
 }  // end of testCase
 

@@ -1,0 +1,54 @@
+/*!
+ * \file   include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+ * \brief  This file declares the computation of the stiffness matrices of
+ * the elements of the standard mechanical behaviour integrators by kernels
+ * of MFEM, for all the elements of a material at once
+ * \date   09/10/2026
+ */
+
+#ifndef LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+#define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+
+#include "mfem/linalg/vector.hpp"
+#include "MGIS/FieldView.hxx"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Batch/Gradients.hxx"
+#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+
+namespace mfem_mgis {
+  // forward declaration
+  struct PartialQuadratureSpace;
+}  // end of namespace mfem_mgis
+
+namespace mfem_mgis::batch {
+
+  /*!
+   * \brief adds the stiffness matrices of the elements of a material, `Σ Bᵀ
+   * K B w det J` summed over the integration points, to matrices stored
+   * element by element, on the device if a device is enabled. The matrix of
+   * an element has `n = nd * vdim` rows and columns, the degrees of freedom
+   * being ordered as in the element restriction of MFEM (native ordering of
+   * the nodes, `node + nd * component`). It is stored column by column, as
+   * a `mfem::DenseMatrix`, at the offset `n * n * e` for the element `e` of
+   * the mesh.
+   * \return true on success
+   * \param[in, out] m: matrices element by element
+   * \param[in] qs: quadrature space of the material. All its elements must
+   * use the integration rule of the geometric data.
+   * \param[in] K: tangent operator blocks in the global frame at all the
+   * points of the material, row by row, located on the device if a device
+   * is enabled
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients, which defines the operator `B`
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
+      Context&,
+      mfem::Vector&,
+      const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
+      const ElementsGeometry&,
+      const GradientsKind) noexcept;
+
+}  // end of namespace mfem_mgis::batch
+
+#endif /* LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX */

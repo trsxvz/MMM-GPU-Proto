@@ -91,6 +91,18 @@ namespace mfem_mgis {
      * `MFEM_MGIS_INNER_FORCES_COMPUTATION`, if defined.
      */
     static const char* const InnerForcesComputation;
+    /*!
+     * \brief name of the parameter selecting the computation of the
+     * stiffness matrices of the elements of the behaviour integrators of
+     * mfem-mgis in the tangent operator: `ElementByElement` (default) or
+     * `Kernels` (computed for all the elements by kernels from the tangent
+     * operator blocks, on the device if a device is enabled, then given to
+     * the assembly of MFEM). `Kernels` is supported for the same behaviour
+     * integrators and meshes as for `GradientsComputation`, not with PETSc.
+     * The default value is given by the environment variable
+     * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
+     */
+    static const char* const TangentOperatorComputation;
     //! \return the list of valid parameters
     static std::vector<std::string> getParametersList();
     /*!
@@ -316,6 +328,11 @@ namespace mfem_mgis {
     const bool gradients_kernels;
     //! \brief if true, the inner forces are computed by kernels
     const bool inner_forces_kernels;
+    /*!
+     * \brief if true, the stiffness matrices of the elements are computed by
+     * kernels
+     */
+    const bool tangent_operator_kernels;
   };  // end of struct NonLinearEvolutionProblemImplementationBase
 
 }  // end of namespace mfem_mgis
