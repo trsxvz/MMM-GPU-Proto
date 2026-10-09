@@ -7,7 +7,8 @@
 #
 # Arguments : cas (poutre ou polycristal), dossier de résultats (par défaut
 # results/<lot>-<cas>-<date>). Définit `run` (voir plus bas), `generic`,
-# `openmp` et `stlpar` (bibliothèques de la loi du cas).
+# `openmp` et `stlpar` (bibliothèques de la loi du cas), et les variables
+# `device`, `linear_solver` et `options` lues par `run`.
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -65,14 +66,18 @@ out=$(cd "$out" && pwd)
 } | tee -a "$out/resume.txt"
 # périphérique de MFEM des calculs (option --device), vide pour le CPU
 device=""
+# poutre : solveur linéaire (option -ls) et options supplémentaires (par
+# exemple `-pu 2`, voir cas/poutre/poutre.cxx)
+linear_solver=pcg-amg
+options=""
 # usage : command_of bibliothèque nom
 # affiche la commande du cas
 command_of() {
   local library=$1 name=$2
   case "$case_name" in
     poutre)
-      echo ./poutre -r 4 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 -l "$library" \
-        --profiling ${device:+--device $device}
+      echo ./poutre -r 4 -n 10 -mi 3000 -ls "$linear_solver" -lt 1e-4 \
+        -l "$library" --profiling ${device:+--device $device} $options
       ;;
     polycristal)
       echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
