@@ -9,8 +9,12 @@
 # Sans argument : les trois, dans cet ordre. mfem-mgis est installé dans
 # install/mfem-mgis, où les deux autres le trouvent.
 #
-# Un dossier de construction existant est réutilisé. Pour repartir de zéro,
-# le supprimer avant.
+# Un dossier de construction existant est réutilisé, et reconfiguré avec
+# les options de ce script à chaque appel. Pour repartir de zéro, le
+# supprimer avant.
+#
+# Les compilateurs CUDA (nvcc et son compilateur hôte) sont ceux de MFEM,
+# choisis par mfem-mgis (voir cmake/modules/MFEMMGISDeviceCode.cmake).
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
@@ -26,14 +30,10 @@ build() {
   local name=$1 source=$2 install=$3
   shift 3
   local b=$P/build/$name
-  if [ ! -f "$b/CMakeCache.txt" ]; then
-    cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
-      -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
-      -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
-      -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
-      "$@"
-  fi
+  cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+    -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
+    "$@"
   cmake --build "$b" -j "$JOBS"
   # the tests are built by `check`
   cmake --build "$b" -j "$JOBS" --target check

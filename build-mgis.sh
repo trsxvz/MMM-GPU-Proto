@@ -13,8 +13,9 @@
 # C, Fortran et Python (HDF5, pybind11, Python et numpy de l'installation
 # spack de la machine), cible `check`, sans installation.
 #
-# Un dossier de construction existant est réutilisé. Pour repartir de zéro,
-# le supprimer avant.
+# Un dossier de construction existant est réutilisé, et reconfiguré avec
+# les options de ce script à chaque appel. Pour repartir de zéro, le
+# supprimer avant.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
@@ -46,14 +47,12 @@ case "${1:-default}" in
     exit 1
     ;;
 esac
-if [ ! -f "$BUILD/CMakeCache.txt" ]; then
-  cmake -S "$P/mgis" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
-    -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
-    -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
-    -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" \
-    -Denable-testing=ON -Denable-mgis-function=ON "${OPTIONS[@]}"
-fi
+cmake -S "$P/mgis" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
+  -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
+  -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" \
+  -Denable-testing=ON -Denable-mgis-function=ON "${OPTIONS[@]}"
 cmake --build "$BUILD" -j8
 # the tests of the C and Fortran bindings are built by `check`, not by
 # `build-tests`

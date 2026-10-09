@@ -6,8 +6,9 @@
 #
 # Phases, each one under scripts/memory-governor.sh, which pauses all the
 # build but its largest process when the available memory is too low:
-# 1. everything but MFEM, two packages at a time, 4 jobs each (the
-#    dependencies of MFEM, then the other roots);
+# 1. everything but MFEM, two packages at a time, 4 jobs each: the
+#    dependencies of MFEM, then the roots which do not depend on MFEM
+#    (LLVM is long to build: it must not be built with one job);
 # 2. MFEM, alone, 2 jobs. ptxas takes about 22 GB for the CUDA kernels of
 #    fem/lor/lor_batched.cpp (sm_120): if the build fails (lack of memory),
 #    it is resumed with one job, where it stopped (--dont-restage, and the
@@ -41,7 +42,7 @@ retry() {
 }
 status=0
 retry 4 4 -p 2 --only dependencies mfem || status=1
-retry 4 4 -p 2 kokkos kokkos-kernels cudss || status=1
+retry 4 4 -p 2 nvhpc hip llvm adaptivecpp intel-tbb cmake || status=1
 retry 2 1 -p 1 || status=1
 echo "$(date '+%F %T') done (status $status)"
 exit $status

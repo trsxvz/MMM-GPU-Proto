@@ -21,14 +21,17 @@ Contenu :
   - `mfem` : une construction partielle reprend sans tout recompiler
     (`make config` réécrit `config/config.mk`, dont dépendent tous les
     objets : sa date est gardée quand son contenu ne change pas) ; patch
-    `mfem-4.10-convection-ea-cuda13.patch` : avec CUDA 13 (sm_120), cicc ne
+    `mfem-4.10-convection-ea-cuda13.patch` (CUDA 13 seulement) : avec
+    CUDA 13 (sm_120), cicc ne
     finit pas `fem/integ/bilininteg_convection_ea.cpp` (plus de 2 h 30 et
     17 Go, puis tué faute de mémoire) ; les noyaux 3D de l'assemblage par
     élément de la convection ne sont plus spécialisés au-delà de l'ordre 3,
     le noyau générique du même fichier prend les ordres plus élevés ;
-  - `petsc` : copie de la recette de spack. La variante `cuda_lambda` de
-    Kokkos n'existe plus en Kokkos 5 (les lambdas CUDA sont toujours
-    actives) ;
+  - `petsc` : copie complète de la recette de spack-packages (commit
+    3b7fdffc24), dont les corrections ultérieures ne sont pas reprises.
+    Seule modification : la variante `cuda_lambda` de Kokkos n'est exigée
+    que jusqu'à Kokkos 4 (elle n'existe plus en Kokkos 5, où les lambdas
+    CUDA sont toujours actives) ;
 - `make-nvhpc-cuda-prefix.sh` : préfixe CUDA à la disposition du toolkit
   autonome, construit à partir du SDK (dont les bibliothèques
   mathématiques sont dans un dossier séparé) ;
@@ -112,7 +115,9 @@ mais pas encore par une construction directe :
 
 À faire : imposer gslib `+shared` dans `mmm-gpu/spack.yaml`, reconcrétiser
 et reconstruire MFEM (environ 3 h), pour une installation entièrement
-produite par les recettes.
+produite par les recettes. La condition du patch de la convection
+(`^cuda@13:`, ajoutée après l'installation) change aussi le hachage de
+MFEM : la même reconcrétisation la prend en compte.
 
 ## Contraintes entre paquets
 
@@ -123,6 +128,15 @@ produite par les recettes.
   C++20 ; MFEM se compile en C++17 par défaut.
 - kokkos-kernels partagé exige Kokkos `+pic` : Kokkos a été reconstruit
   avec cette variante (même version, mêmes options sinon).
+- hypre en entiers 32 bits (`~int64`) : la recette spack de mfem-mgis
+  demande `hypre+int64` par défaut (variante `int64` de mfem-mgis), que
+  hypre refuse avec CUDA (« Use +mixedint for 64-bit integer support for
+  GPUs! »). Une installation de mfem-mgis par sa recette avec CUDA demande
+  donc `mfem-mgis~int64`. Les entiers 32 bits limitent le nombre total
+  d'inconnues à environ 2 milliards, sans gêne pour le prototype.
+- hypre est construit sans `+gpu-aware-mpi` (valeur par défaut) : ses
+  échanges MPI passent par l'hôte, même avec OpenMPI compatible CUDA.
+  Variante à comparer pour les mesures sur GPU à plusieurs processus.
 
 ## Pilotes
 

@@ -2621,3 +2621,45 @@ volontaires détectées par les nouveaux tests.
     utilisait `mfem::forall`, qui exige depuis MFEM 4.10 une compilation
     CUDA quand MFEM a CUDA (et lancerait la boucle sur le GPU) :
     `mfem::hypre_forall_cpu`.
+
+### 2026-10-09 (après-midi), relecture du lot L0 et corrections
+
+Une relecture indépendante des commits du lot L0 a donné 25 constats.
+Tous sont traités :
+
+- **Option `--device`** : le nom court `-dev` n'était pas reconnu par
+  `initialize` (le calcul tournait sur l'hôte sans message), comme les
+  noms courts des options de PETSc. Le périphérique est maintenant créé
+  avant l'initialisation de PETSc. Chaque processus d'un nœud prend un GPU
+  du nœud à tour de rôle. Le nombre de GPU n'est demandé que pour une
+  configuration `cuda` ou `hip` : MFEM s'arrête sinon quand il n'a pas de
+  GPU, ou sur une machine sans GPU.
+- **Sources contenant des noyaux de MFEM** : module CMake installé
+  `MFEMMGISDeviceCode.cmake`, chargé aussi quand un projet trouve MFEM
+  avant mfem-mgis. nvcc et son compilateur hôte sont par défaut ceux de
+  MFEM (`mpic++` d'OpenMPI, qui trouve `mpi.h`). Architectures lues sous
+  toutes les formes des options de nvcc. Erreurs explicites pour HIP et
+  quand le langage CUDA n'est pas activé. Runtime CUDA partagé (comme
+  MFEM). Définitions et options de visibilité du C++ données aux sources
+  CUDA. Tests du GPU hors du bloc TFEL, option `enable-gpu-tests`, test
+  du GPU à deux processus.
+- **TFEL** : seules les options `-I` et `-L` de `tfel-config` sont lues ;
+  `env.sh` ajoute chaque dossier de bibliothèques (mfem-mgis et
+  mm-opera-hpc).
+- **Documentation** : `AbsoluteTolerance` des Krylov de hypre ; entiers
+  32 bits de hypre et absence de `+gpu-aware-mpi` (`deps/spack/README.md`).
+- **Scripts du prototype** : LLVM et les autres racines indépendantes de
+  MFEM sont construits avec 4 tâches (et non 1 ou 2) ; le régulateur de
+  mémoire reprend les processus qu'il a suspendus, même s'ils ont quitté
+  l'arbre et même quand il s'arrête ; les dossiers de construction sont
+  reconfigurés à chaque appel ; patch de la convection limité à CUDA 13 ;
+  recette PETSc décrite comme copie complète.
+- **Boucle des bulles de mm-opera-hpc** : `hypre_forall_cpu` ajoute une
+  boucle OpenMP quand hypre est compilé avec OpenMP, ce que l'ancien
+  `mfem::forall` sans périphérique ne faisait pas. Sans effet ici (hypre
+  sans OpenMP), à surveiller si hypre passe en OpenMP (sursouscription
+  avec plusieurs processus par nœud).
+
+Reconstruction complète dans un dossier neuf : mfem-mgis 132/132,
+mfem-mgis-examples 20/20, mm-opera-hpc 6/6, dont le noyau de MFEM sur le
+GPU à un et deux processus.

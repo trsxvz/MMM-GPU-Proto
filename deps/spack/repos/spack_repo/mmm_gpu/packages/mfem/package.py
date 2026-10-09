@@ -33,7 +33,7 @@ class Mfem(BuiltinMfem):
     the specializations up to the order 3 and leaves the higher orders to the
     generic kernel of the same file."""
 
-    patch("mfem-4.10-convection-ea-cuda13.patch", when="@4.10.0 +cuda")
+    patch("mfem-4.10-convection-ea-cuda13.patch", when="@4.10.0 +cuda ^cuda@13:")
 
     _configuration_files = ["config/config.mk", "config/_config.hpp"]
 

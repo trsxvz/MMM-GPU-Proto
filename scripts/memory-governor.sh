@@ -8,6 +8,10 @@
 # memory, and the other ones are resumed. Pausing it too would wait forever
 # (a ptxas process of MFEM takes about 22 GB on its own). If the memory is
 # still low after `timeout` seconds, the tree is resumed anyway.
+#
+# The paused processes are the ones recorded at the pause: they are resumed
+# even if they left the tree (parent killed), and when the root or this
+# script ends.
 # usage: scripts/memory-governor.sh root-pid [low MiB] [high MiB] [timeout s]
 root=$1
 low=${2:-3500}
@@ -15,6 +19,17 @@ high=${3:-7000}
 timeout=${4:-1800}
 paused=0
 since=0
+# processes paused by this script
+stopped=""
+resume() {
+  if [ -n "$stopped" ]; then
+    kill -CONT $stopped 2> /dev/null
+  fi
+  stopped=""
+  paused=0
+}
+trap resume EXIT
+trap 'exit 1' INT TERM HUP
 tree() {
   echo "$1"
   for c in $(ps -o pid= --ppid "$1"); do
@@ -39,7 +54,7 @@ while kill -0 "$root" 2> /dev/null; do
     for p in $processes; do
       case "$keep" in
         *" $p "*) ;;
-        *) kill -STOP "$p" 2> /dev/null ;;
+        *) kill -STOP "$p" 2> /dev/null && stopped="$stopped $p" ;;
       esac
     done
     paused=1
@@ -47,8 +62,7 @@ while kill -0 "$root" 2> /dev/null; do
     echo "$(date +%H:%M:%S) paused all but $largest (${available} MiB available)"
   elif [ "$paused" = 1 ] && { [ "$available" -gt "$high" ] ||
     [ $(($(date +%s) - since)) -gt "$timeout" ]; }; then
-    kill -CONT $(tree "$root") 2> /dev/null
-    paused=0
+    resume
     echo "$(date +%H:%M:%S) resumed (${available} MiB available)"
   fi
   sleep 2

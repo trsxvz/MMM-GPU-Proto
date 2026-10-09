@@ -14,6 +14,12 @@ class Petsc(Package, CudaPackage, ROCmPackage):
     """PETSc is a suite of data structures and routines for the scalable
     (parallel) solution of scientific applications modeled by partial
     differential equations.
+
+    mmm_gpu: full copy of the package of the repository builtin of
+    spack-packages (commit 3b7fdffc24). The only change: the variant
+    `cuda_lambda` of Kokkos is required only up to Kokkos 4 (Kokkos 5 has
+    no such variant and always enables the CUDA lambdas). The later fixes
+    of the package of builtin are not included.
     """
 
     homepage = "https://petsc.org"
