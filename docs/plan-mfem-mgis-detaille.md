@@ -6,12 +6,15 @@ inventoriées ; oublis et couvertures partielles intégrés). Avancement
 au 09/10/2026 au soir : L0, L1 et L2 faits et relus (voir le
 [journal](../JOURNAL.md)). L3 avancé : gradients, résidu et tangente
 assemblée par noyaux, par les points d'entrée de
-`NonLinearEvolutionProblemImplementation` (`Mult`, `GetGradient`) ;
-restent l'action sans matrice, la diagonale, l'opérateur propre complet
-et l'assemblage partiel de MFEM. Tranche minimale de L6 faite (loi `cuda`
-intégrée sur les tableaux du GPU, validation par le périphérique `debug`),
-prédiction de L4 par noyaux faite. Poutre r4 en 4,06 s sur un GPU contre
-17,54 s sur 8 cœurs (`results/L6-poutre-2026-10-09/`). Les choix
+`NonLinearEvolutionProblemImplementation` (`Mult`, `GetGradient`), action
+et diagonale de la tangente sans assemblage (option `MatrixFree`, avec un
+préconditionneur de Jacobi seulement) ; restent les blocs nodaux,
+l'opérateur propre complet et l'assemblage partiel de MFEM. Tranche
+minimale de L6 faite (loi `cuda` intégrée sur les tableaux du GPU, fin de
+pas sur le GPU, validation par le périphérique `debug`, profil sans copie
+cachée), prédiction de L4 par noyaux faite. Sur un GPU : poutre r4 en
+3,3 s contre 17,5 s sur 8 cœurs, polycristal en 13,2 s contre 31,7 s
+(`results/L6-*`). Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
