@@ -1,0 +1,1358 @@
+From cbe693a9a81d93c60b484c5a8c98de6892c3db5c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 23:54:43 +0200
+Subject: [PATCH] Kernels: action and diagonal of the tangent operator without
+ assembly
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The action of the tangent operator on increments of the unknowns,
+Σ Bᵀ K B x w det J, and its diagonal are computed by kernels from the
+tangent operator blocks, without assembling it (lot L3):
+- batch::computeGradientsIncrements: increments of the gradients, by
+  the kernel of the gradients, without the macroscopic gradients nor the
+  identity of the deformation gradient;
+- batch::multiplyByTangentOperatorBlocks: ds = K dg at each point;
+- the kernel of the inner forces adds Bᵀ ds w det J;
+- batch::addStiffnessMatricesDiagonals: the kernel of the stiffness
+  matrices restricted to the pairs of a node with itself, the diagonals
+  being added element by element in the layout of the element
+  restriction of MFEM;
+- AbstractBehaviourIntegrator::addTangentOperatorActionByKernels and
+  addTangentOperatorDiagonalByKernels, implemented by the standard
+  behaviour integrators, and the corresponding methods of
+  MultiMaterialNonLinearIntegrator on the local vectors of the finite
+  element space.
+
+The checks shared by the computations by kernels of the standard
+behaviour integrators (integration rule, kind of the gradients,
+geometric data) are factored (getKernelsData), as the view of the
+tangent operator blocks (readTangentOperatorBlocks).
+
+GradientsKernelsTest compares the action and the diagonal with the
+product by the matrix assembled by MFEM and its diagonal.
+---
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  31 +++
+ include/MFEMMGIS/Batch/Gradients.hxx          |  26 +-
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  38 +++
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  |  11 +
+ .../MultiMaterialNonLinearIntegrator.hxx      |  46 ++++
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |  45 ++++
+ .../StandardBehaviourIntegratorCRTPBase.ixx   | 231 ++++++++++++------
+ src/AbstractBehaviourIntegrator.cxx           |  19 ++
+ src/Batch/Gradients.cxx                       | 183 ++++++++++----
+ src/Batch/StiffnessMatrices.cxx               |  90 +++++++
+ src/Batch/StiffnessMatricesKernels.cxx        |  86 +++++--
+ src/Batch/StiffnessMatricesKernels.hxx        |  37 +++
+ src/MultiMaterialNonLinearIntegrator.cxx      |  82 ++++++-
+ tests/GradientsKernelsTest.cxx                |  66 +++++
+ 14 files changed, 853 insertions(+), 138 deletions(-)
+
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index 573aeea968..7300080603 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -210,6 +210,37 @@ namespace mfem_mgis {
+         Context&,
+         const batch::AssembledStiffnessMatrix&,
+         const batch::ElementsGeometrySet&) noexcept;
++    /*!
++     * \brief add the action of the stiffness matrices of all the elements,
++     * computed by kernels from the tangent operator blocks without
++     * assembling them, on the increments of the unknowns given by their
++     * derivatives: `Σ Bᵀ K B dx w det J`, in the layout of the element
++     * restriction of MFEM (see `addInnerForcesByKernels`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] y: values element by element
++     * \param[in] dx: derivatives of the increments of the unknowns, for each
++     * integration rule
++     * \param[in] g: geometric data
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool addTangentOperatorActionByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::UnknownsDerivativesSet&,
++        const batch::ElementsGeometrySet&) noexcept;
++    /*!
++     * \brief add the diagonals of the stiffness matrices of all the elements,
++     * computed by kernels, in the layout of the element restriction of MFEM
++     * (see `addInnerForcesByKernels`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] d: values element by element
++     * \param[in] g: geometric data
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool addTangentOperatorDiagonalByKernels(
++        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief compute the contribution of the given element to the inner forces
+      * \param[out] Fe: inner forces
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index b29aaf96a1..187ec9ed24 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -23,8 +23,9 @@ namespace mfem {
+ }  // end of namespace mfem
+ 
+ namespace mfem_mgis {
+-  // forward declaration
++  // forward declarations
+   struct Material;
++  struct PartialQuadratureSpace;
+ }  // end of namespace mfem_mgis
+ 
+ namespace mfem_mgis::batch {
+@@ -168,6 +169,29 @@ namespace mfem_mgis::batch {
+       const UnknownsDerivatives&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
++  /*!
++   * \brief computes the increments of the gradients of a material at all its
++   * integration points associated with increments of the unknowns given by
++   * their derivatives, by a kernel: same operator `B` as `computeGradients`,
++   * without the macroscopic gradients (nor the identity of the deformation
++   * gradient), on the device if a device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] v: increments of the gradients, stored point by point
++   * (resized)
++   * \param[in] qs: quadrature space of the material. All its elements must
++   * use the integration rule of the derivatives.
++   * \param[in] d: derivatives of the increments of the unknowns
++   * \param[in] g: geometric data of the integration rule of the derivatives
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradientsIncrements(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const UnknownsDerivatives&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
+ 
+ }  // end of namespace mfem_mgis::batch
+ 
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index de3bada519..f3517fceae 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -57,6 +57,44 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+ 
++  /*!
++   * \brief adds the diagonals of the stiffness matrices of the elements of a
++   * material to values stored element by element, in the layout of the
++   * element restriction of MFEM (`node + nd * (component + dim * element)`,
++   * as `addInnerForces`), on the device if a device is enabled
++   * \return true on success
++   * \param[in, out] d: values element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks in the global frame
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesDiagonals(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief computes the increments of the thermodynamic forces associated
++   * with increments of the gradients, `ds = K dg`, at all the points of a
++   * material, on the device if a device is enabled
++   * \return true on success
++   * \param[out] ds: increments of the thermodynamic forces, stored point by
++   * point (resized)
++   * \param[in] K: tangent operator blocks in the global frame
++   * \param[in] dg: increments of the gradients, stored point by point (see
++   * `computeGradientsIncrements`)
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool multiplyByTangentOperatorBlocks(
++      Context&,
++      mfem::Vector&,
++      const mgis::FieldView<const real>&,
++      const mfem::Vector&,
++      const GradientsKind) noexcept;
++
+   /*!
+    * \brief sparse matrix in which the stiffness matrices of the elements are
+    * assembled by kernels (see `addStiffnessMatrices`)
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index d836003584..136b0965e3 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -342,6 +342,17 @@ namespace mfem_mgis {
+        * `integrateBatch` (integration on the device)
+        */
+       std::vector<mfem::Vector> device_inputs;
++      /*!
++       * \brief increments of the gradients, stored point by point, used by
++       * the computation of the action of the tangent operator by kernels
++       */
++      mfem::Vector gradients_increments;
++      /*!
++       * \brief increments of the thermodynamic forces, stored point by
++       * point, used by the computation of the action of the tangent
++       * operator by kernels
++       */
++      mfem::Vector thermodynamic_forces_increments;
+       //! \brief see `getRotatedThermodynamicForces`
+       mfem::Vector rotated_thermodynamic_forces;
+       /*!
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 2d536ee650..06bb9e8b4f 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -195,6 +195,36 @@ namespace mfem_mgis {
+      * \param[in] b: boolean
+      */
+     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
++    /*!
++     * \brief add the action of the tangent operator, assembled from the
++     * stiffness matrices of the elements computed by kernels from the
++     * tangent operator blocks, on increments of the unknowns, without
++     * assembling it: `y += Σ Bᵀ K B x w det J` (see
++     * `AbstractBehaviourIntegrator::addTangentOperatorActionByKernels`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in] x: increments of the unknowns (local vector of the finite
++     * element space)
++     * \param[in, out] y: action (local vector of the finite element space)
++     */
++    [[nodiscard]] bool addTangentOperatorActionByKernels(
++        Context&,
++        const mfem::FiniteElementSpace&,
++        const mfem::Vector&,
++        mfem::Vector&) noexcept;
++    /*!
++     * \brief add the diagonal of the tangent operator assembled from the
++     * stiffness matrices of the elements computed by kernels (see
++     * `AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in, out] d: diagonal (local vector of the finite element
++     * space)
++     */
++    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
++        Context&, const mfem::FiniteElementSpace&, mfem::Vector&) noexcept;
+     /*!
+      * \brief create the sparse matrix in which
+      * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
+@@ -395,6 +425,22 @@ namespace mfem_mgis {
+      * `computeElementsDegreesOfFreedom`
+      */
+     mfem::Array<int> element_dofs;
++    /*!
++     * \brief derivatives of the increments of the unknowns, for each
++     * integration rule (see `addTangentOperatorActionByKernels`)
++     */
++    batch::UnknownsDerivativesSet increments_derivatives;
++    /*!
++     * \brief values element by element of the action or of the diagonal of
++     * the tangent operator
++     */
++    mfem::Vector tangent_operator_element_values;
++    /*!
++     * \return the integration rules of the behaviour integrators (rules
++     * shared by all the elements of a material)
++     */
++    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
++    getIntegrationRules() const;
+     /*!
+      * \brief computes the degrees of freedom of all the elements if they are
+      * not computed yet
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index bf35017cb4..57e2c4dd4f 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -60,7 +60,52 @@ namespace mfem_mgis {
+         const batch::AssembledStiffnessMatrix&,
+         const batch::ElementsGeometrySet&) noexcept override;
+ 
++    [[nodiscard]] bool addTangentOperatorActionByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::UnknownsDerivativesSet&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++
+    protected:
++    //! \brief data of the computations by kernels on the material
++    struct KernelsData {
++      //! \brief kind of the gradients
++      batch::GradientsKind kind = batch::GradientsKind::SMALL_STRAIN_3D;
++      //! \brief integration rule of the material, null if it has no element
++      const mfem::IntegrationRule* rule = nullptr;
++      //! \brief geometric data of this rule
++      const batch::ElementsGeometry* geometry = nullptr;
++    };
++    /*!
++     * \brief checks that the material can be processed by kernels (same
++     * integration rule for all its elements, supported behaviour, geometric
++     * data of its rule computed) and gets the data of the computations
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[out] data: data, whose rule is null if the material has no
++     * element (nothing to compute)
++     * \param[in] name: name of the calling method, for the messages
++     * \param[in] g: geometric data of the integration rules
++     */
++    [[nodiscard]] bool getKernelsData(
++        Context&,
++        KernelsData&,
++        const char* const,
++        const batch::ElementsGeometrySet&) const noexcept;
++    /*!
++     * \return a view of the tangent operator blocks, in the global frame
++     * (rotated after the integration of the behaviour for an orthotropic
++     * behaviour), readable on the device if `d` is true (see
++     * `MaterialArrays`)
++     * \param[in] d: if true, the view is located on the device (if a device
++     * is enabled)
++     */
++    [[nodiscard]] mgis::FieldView<const real> readTangentOperatorBlocks(
++        const bool) const;
+     /*!
+      * \brief implementation of `addStiffnessMatricesByKernels`
+      * \tparam Destination: matrices element by element (`mfem::Vector`) or
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index e35ccd74e2..f806b9971d 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -250,59 +250,84 @@ namespace mfem_mgis {
+   }  // end of supportsKernels
+ 
+   template <typename Child>
+-  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
+-      Context& ctx,
+-      const batch::UnknownsDerivativesSet& d,
+-      const batch::ElementsGeometrySet& g) noexcept {
+-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
++  bool StandardBehaviourIntegratorCRTPBase<Child>::getKernelsData(
++      Context &ctx,
++      KernelsData &data,
++      const char *const name,
++      const batch::ElementsGeometrySet &g) const noexcept {
++    data = KernelsData{};
++    const auto *const r = this->quadrature_space->getUniformIntegrationRule();
+     if (r == nullptr) {
+       if (this->quadrature_space->getNumberOfElements() == 0) {
+         return true;
+       }
+       return ctx.registerErrorMessage(
+-          "computeGradientsByKernels: the elements of the material do not "
+-          "use the same integration rule");
++          std::string{name} +
++          ": the elements of the material do not use the same integration "
++          "rule");
+     }
+     const auto k = batch::getGradientsKind(this->b);
+     if (!k.has_value()) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unsupported behaviour");
++    }
++    const auto p = g.find(r);
++    if (p == g.end()) {
+       return ctx.registerErrorMessage(
+-          "computeGradientsByKernels: unsupported behaviour");
++          std::string{name} +
++          ": the geometric data are not computed for the integration rule of "
++          "the material");
+     }
+-    const auto p = d.find(r);
+-    const auto pg = g.find(r);
+-    if ((p == d.end()) || (pg == g.end())) {
++    data.kind = *k;
++    data.rule = r;
++    data.geometry = &(p->second);
++    return true;
++  }  // end of getKernelsData
++
++  template <typename Child>
++  mgis::FieldView<const real>
++  StandardBehaviourIntegratorCRTPBase<Child>::readTangentOperatorBlocks(
++      const bool d) const {
++    const auto &v = this->getArrays().getTangentOperatorBlocks();
++    const auto s =
++        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
++    return mgis::makeFieldView(s, this->getArrays().array_layout,
++                               static_cast<size_type>(this->n), this->K_stride);
++  }  // end of readTangentOperatorBlocks
++
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
++      Context &ctx,
++      const batch::UnknownsDerivativesSet &d,
++      const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "computeGradientsByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    const auto p = d.find(data.rule);
++    if (p == d.end()) {
+       return ctx.registerErrorMessage(
+-          "computeGradientsByKernels: the derivatives of the unknowns or the "
+-          "geometric data are not computed for the integration rule of the "
+-          "material");
++          "computeGradientsByKernels: the derivatives of the unknowns are not "
++          "computed for the integration rule of the material");
+     }
+-    return batch::computeGradients(ctx, *this, p->second, pg->second, *k);
++    return batch::computeGradients(ctx, *this, p->second, *(data.geometry),
++                                   data.kind);
+   }  // end of computeGradientsByKernels
+ 
+   template <typename Child>
+   bool StandardBehaviourIntegratorCRTPBase<Child>::addInnerForcesByKernels(
+-      Context& ctx,
+-      mfem::Vector& f,
+-      const batch::ElementsGeometrySet& g) noexcept {
+-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+-    if (r == nullptr) {
+-      if (this->quadrature_space->getNumberOfElements() == 0) {
+-        return true;
+-      }
+-      return ctx.registerErrorMessage(
+-          "addInnerForcesByKernels: the elements of the material do not use "
+-          "the same integration rule");
+-    }
+-    const auto k = batch::getGradientsKind(this->b);
+-    if (!k.has_value()) {
+-      return ctx.registerErrorMessage(
+-          "addInnerForcesByKernels: unsupported behaviour");
++      Context &ctx,
++      mfem::Vector &f,
++      const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "addInnerForcesByKernels", g)) {
++      return false;
+     }
+-    const auto p = g.find(r);
+-    if (p == g.end()) {
+-      return ctx.registerErrorMessage(
+-          "addInnerForcesByKernels: the geometric data are not computed for "
+-          "the integration rule of the material");
++    if (data.rule == nullptr) {
++      return true;
+     }
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+@@ -318,7 +343,8 @@ namespace mfem_mgis {
+             v.Read(use_device), static_cast<std::size_t>(v.Size()));
+         return batch::addInnerForces(
+             ctx, f, *(this->quadrature_space),
+-            mgis::makePointByPointFieldView(s, np, nc, nc), p->second, *k);
++            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
++            data.kind);
+       }
+       const auto& v = this->getArrays().getArray(
+           mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
+@@ -327,10 +353,10 @@ namespace mfem_mgis {
+       return batch::addInnerForces(
+           ctx, f, *(this->quadrature_space),
+           mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
+-          p->second, *k);
+-    } catch (std::exception& e) {
+-      return ctx.registerErrorMessage(
+-          std::string{"addInnerForcesByKernels: "} + e.what());
++          *(data.geometry), data.kind);
++    } catch (std::exception &e) {
++      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
++                                      e.what());
+     } catch (...) {
+       return ctx.registerErrorMessage(
+           "addInnerForcesByKernels: unknown exception");
+@@ -341,42 +367,23 @@ namespace mfem_mgis {
+   template <typename Destination>
+   bool StandardBehaviourIntegratorCRTPBase<Child>::
+       implementAddStiffnessMatricesByKernels(
+-          Context& ctx,
+-          Destination& m,
+-          const batch::ElementsGeometrySet& g) noexcept {
+-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+-    if (r == nullptr) {
+-      if (this->quadrature_space->getNumberOfElements() == 0) {
+-        return true;
+-      }
+-      return ctx.registerErrorMessage(
+-          "addStiffnessMatricesByKernels: the elements of the material do not "
+-          "use the same integration rule");
+-    }
+-    const auto k = batch::getGradientsKind(this->b);
+-    if (!k.has_value()) {
+-      return ctx.registerErrorMessage(
+-          "addStiffnessMatricesByKernels: unsupported behaviour");
++          Context &ctx,
++          Destination &m,
++          const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "addStiffnessMatricesByKernels", g)) {
++      return false;
+     }
+-    const auto p = g.find(r);
+-    if (p == g.end()) {
+-      return ctx.registerErrorMessage(
+-          "addStiffnessMatricesByKernels: the geometric data are not computed "
+-          "for the integration rule of the material");
++    if (data.rule == nullptr) {
++      return true;
+     }
+     try {
+-      // the tangent operator blocks are in the global frame (rotated after
+-      // the integration of the behaviour for an orthotropic behaviour)
+       const auto use_device = mfem::Device::IsEnabled();
+-      const auto& v = this->getArrays().getTangentOperatorBlocks();
+-      const auto s = std::span<const real>(v.Read(use_device),
+-                                           static_cast<std::size_t>(v.Size()));
+       return batch::addStiffnessMatrices(
+           ctx, m, *(this->quadrature_space),
+-          mgis::makeFieldView(s, this->getArrays().array_layout,
+-                              static_cast<size_type>(this->n), this->K_stride),
+-          p->second, *k);
+-    } catch (std::exception& e) {
++          this->readTangentOperatorBlocks(use_device), *(data.geometry),
++          data.kind);
++    } catch (std::exception &e) {
+       return ctx.registerErrorMessage(
+           std::string{"addStiffnessMatricesByKernels: "} + e.what());
+     } catch (...) {
+@@ -385,6 +392,88 @@ namespace mfem_mgis {
+     }
+   }  // end of implementAddStiffnessMatricesByKernels
+ 
++  template <typename Child>
++  bool
++  StandardBehaviourIntegratorCRTPBase<Child>::addTangentOperatorActionByKernels(
++      Context &ctx,
++      mfem::Vector &y,
++      const batch::UnknownsDerivativesSet &dx,
++      const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "addTangentOperatorActionByKernels",
++                              g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    const auto p = dx.find(data.rule);
++    if (p == dx.end()) {
++      return ctx.registerErrorMessage(
++          "addTangentOperatorActionByKernels: the derivatives of the "
++          "increments of the unknowns are not computed for the integration "
++          "rule of the material");
++    }
++    try {
++      // increments of the gradients, then of the thermodynamic forces, whose
++      // contributions are added as inner forces
++      const auto use_device = mfem::Device::IsEnabled();
++      auto &dg = this->wks.gradients_increments;
++      auto &ds = this->wks.thermodynamic_forces_increments;
++      if ((!batch::computeGradientsIncrements(
++              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
++              data.kind)) ||
++          (!batch::multiplyByTangentOperatorBlocks(
++              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
++              data.kind))) {
++        return false;
++      }
++      const auto np = static_cast<size_type>(this->n);
++      const auto gs = batch::getGradientsSize(data.kind);
++      const auto s = std::span<const real>(ds.Read(use_device),
++                                           static_cast<std::size_t>(ds.Size()));
++      return batch::addInnerForces(
++          ctx, y, *(this->quadrature_space),
++          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
++          data.kind);
++    } catch (std::exception &e) {
++      return ctx.registerErrorMessage(
++          std::string{"addTangentOperatorActionByKernels: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addTangentOperatorActionByKernels: unknown exception");
++    }
++  }  // end of addTangentOperatorActionByKernels
++
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::
++      addTangentOperatorDiagonalByKernels(
++          Context &ctx,
++          mfem::Vector &d,
++          const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "addTangentOperatorDiagonalByKernels",
++                              g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      return batch::addStiffnessMatricesDiagonals(
++          ctx, d, *(this->quadrature_space),
++          this->readTangentOperatorBlocks(use_device), *(data.geometry),
++          data.kind);
++    } catch (std::exception &e) {
++      return ctx.registerErrorMessage(
++          std::string{"addTangentOperatorDiagonalByKernels: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addTangentOperatorDiagonalByKernels: unknown exception");
++    }
++  }  // end of addTangentOperatorDiagonalByKernels
++
+   template <typename Child>
+   bool
+   StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 0785d48130..6c656e0e15 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -71,6 +71,25 @@ namespace mfem_mgis {
+         "kernels");
+   }  // end of addStiffnessMatricesByKernels
+ 
++  bool AbstractBehaviourIntegrator::addTangentOperatorActionByKernels(
++      Context& ctx,
++      mfem::Vector&,
++      const batch::UnknownsDerivativesSet&,
++      const batch::ElementsGeometrySet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::addTangentOperatorActionByKernels: the "
++        "action of the tangent operator of this behaviour integrator can't be "
++        "computed by kernels");
++  }  // end of addTangentOperatorActionByKernels
++
++  bool AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels(
++      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels: the "
++        "diagonal of the tangent operator of this behaviour integrator can't "
++        "be computed by kernels");
++  }  // end of addTangentOperatorDiagonalByKernels
++
+   bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
+       Context& ctx,
+       const batch::AssembledStiffnessMatrix&,
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 391db6811f..d16d87d825 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -176,75 +176,117 @@ namespace mfem_mgis::batch {
+                : 2;
+   }  // end of getSpaceDimension
+ 
+-  bool computeGradients(Context& ctx,
+-                        Material& m,
+-                        const UnknownsDerivatives& d,
+-                        const ElementsGeometry& g,
+-                        const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(d);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return ctx.registerErrorMessage(
+-        "computeGradients: the kernels computing the gradients are not "
+-        "compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-    const auto& qs = m.getPartialQuadratureSpace();
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++
++  /*!
++   * \brief checks the arguments of the computation of the gradients of a
++   * material and fills the arguments of the kernel which do not depend on
++   * the destination
++   * \return true on success, false if there is nothing to do or on error
++   * (see `error`)
++   * \param[in, out] ctx: execution context
++   * \param[out] a: arguments of the kernel
++   * \param[out] error: true on error
++   * \param[in] name: name of the calling function, for the messages
++   * \param[in] qs: quadrature space of the material
++   * \param[in] d: derivatives of the unknowns
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients
++   * \param[in] use_device: if true, the pointers are located on the device
++   */
++  static bool getGradientsKernelArguments(
++      Context& ctx,
++      internals::GradientsKernelArguments& a,
++      bool& error,
++      const std::string& name,
++      const PartialQuadratureSpace& qs,
++      const UnknownsDerivatives& d,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const bool use_device) {
++    error = false;
+     const auto& elements = qs.getElements();
+     const auto& offsets = qs.getElementOffsets();
+     if (elements.Size() == 0) {
+-      return true;
++      return false;
+     }
++    error = true;
+     if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
+         (g.rule != d.rule) || (g.factors == nullptr) || (g.nq != d.nq) ||
+         (g.ne != d.ne)) {
+       return ctx.registerErrorMessage(
+-          "computeGradients: the elements of the material do not use the "
+-          "integration rule of the derivatives of the unknowns and of the "
+-          "geometric data");
++          name +
++          ": the elements of the material do not use the integration rule "
++          "of the derivatives of the unknowns and of the geometric data");
+     }
+-    const auto gsize = getGradientsSize(k);
+     const auto dim = getSpaceDimension(k);
+     if ((d.vdim != dim) || (d.dim != dim)) {
+       return ctx.registerErrorMessage(
+-          "computeGradients: unexpected number of components of the "
+-          "unknowns or dimension of the space (" +
++          name +
++          ": unexpected number of components of the unknowns or dimension "
++          "of the space (" +
+           std::to_string(d.vdim) + ", " + std::to_string(d.dim) +
+           "), the expected value being " + std::to_string(dim));
+     }
+-    if (m.s1.gradients_stride != gsize) {
+-      return ctx.registerErrorMessage(
+-          "computeGradients: unexpected number of components of the "
+-          "gradients (" +
+-          std::to_string(m.s1.gradients_stride) + " instead of " +
+-          std::to_string(gsize) + ")");
+-    }
+-    if (static_cast<std::int64_t>(elements.Size()) * d.nq !=
+-        static_cast<std::int64_t>(m.n)) {
++    const auto n = std::int64_t{elements.Size()} * d.nq;
++    if (n != std::int64_t{qs.getNumberOfIntegrationPoints()}) {
+       return ctx.registerErrorMessage(
+-          "computeGradients: unexpected number of integration points");
++          name + ": unexpected number of integration points");
+     }
+-    const auto macroscopic_gradients = m.getMacroscopicGradients();
+-    auto a = internals::GradientsKernelArguments{};
+     a.number_of_elements = elements.Size();
+     a.nq = d.nq;
+     a.vdim = d.vdim;
+     a.dim = d.dim;
+-    a.number_of_points = static_cast<int>(m.n);
+-    a.gradients_size = static_cast<int>(gsize);
+-    a.point_by_point =
+-        m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
+-    for (size_type c = 0; c != gsize; ++c) {
+-      a.macroscopic_gradients[c] = macroscopic_gradients[c];
++    a.number_of_points = static_cast<int>(n);
++    a.gradients_size = static_cast<int>(getGradientsSize(k));
++    a.elements = elements.Read(use_device);
++    a.offsets = offsets.Read(use_device);
++    a.derivatives = d.values.Read(use_device);
++    a.jacobians = g.factors->J.Read(use_device);
++    a.determinants = g.factors->detJ.Read(use_device);
++    error = false;
++    return true;
++  }  // end of getGradientsKernelArguments
++
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  bool computeGradients(Context& ctx,
++                        Material& m,
++                        const UnknownsDerivatives& d,
++                        const ElementsGeometry& g,
++                        const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(d);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "computeGradients: the kernels computing the gradients are not "
++        "compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto gsize = getGradientsSize(k);
++    if (m.s1.gradients_stride != gsize) {
++      return ctx.registerErrorMessage(
++          "computeGradients: unexpected number of components of the "
++          "gradients (" +
++          std::to_string(m.s1.gradients_stride) + " instead of " +
++          std::to_string(gsize) + ")");
+     }
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+-      a.elements = elements.Read(use_device);
+-      a.offsets = offsets.Read(use_device);
+-      a.derivatives = d.values.Read(use_device);
+-      a.jacobians = g.factors->J.Read(use_device);
+-      a.determinants = g.factors->detJ.Read(use_device);
++      auto a = internals::GradientsKernelArguments{};
++      auto error = false;
++      if (!getGradientsKernelArguments(ctx, a, error, "computeGradients",
++                                       m.getPartialQuadratureSpace(), d, g, k,
++                                       use_device)) {
++        return !error;
++      }
++      a.point_by_point =
++          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
++      const auto macroscopic_gradients = m.getMacroscopicGradients();
++      for (size_type c = 0; c != gsize; ++c) {
++        a.macroscopic_gradients[c] = macroscopic_gradients[c];
++      }
+       a.gradients = m.getArrays().write(MaterialArrays::StateArray::GRADIENTS,
+                                         ets, use_device);
+       internals::launchGradientsKernel(k, a, use_device);
+@@ -258,4 +300,55 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeGradients
+ 
++  bool computeGradientsIncrements(Context& ctx,
++                                  mfem::Vector& v,
++                                  const PartialQuadratureSpace& qs,
++                                  const UnknownsDerivatives& d,
++                                  const ElementsGeometry& g,
++                                  const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(v);
++    static_cast<void>(qs);
++    static_cast<void>(d);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "computeGradientsIncrements: the kernels computing the gradients are "
++        "not compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::GradientsKernelArguments{};
++      auto error = false;
++      if (!getGradientsKernelArguments(ctx, a, error,
++                                       "computeGradientsIncrements", qs, d, g,
++                                       k, use_device)) {
++        if (!error) {
++          v.SetSize(0);
++        }
++        return !error;
++      }
++      const auto size =
++          std::int64_t{a.number_of_points} * std::int64_t{a.gradients_size};
++      if (size > std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "computeGradientsIncrements: too many values for MFEM");
++      }
++      v.UseDevice(true);
++      v.SetSize(static_cast<int>(size));
++      // stored point by point, without macroscopic gradients
++      a.point_by_point = true;
++      a.gradients = v.Write(use_device);
++      internals::launchGradientsKernel(k, a, use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"computeGradientsIncrements: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeGradientsIncrements: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeGradientsIncrements
++
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 133a099571..7dda821727 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -148,6 +148,96 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatrices
+ 
++  bool addStiffnessMatricesDiagonals(Context& ctx,
++                                     mfem::Vector& d,
++                                     const PartialQuadratureSpace& qs,
++                                     const mgis::FieldView<const real>& K,
++                                     const ElementsGeometry& g,
++                                     const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(d);
++    static_cast<void>(qs);
++    static_cast<void>(K);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
++        "matrices are not compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::StiffnessMatricesKernelArguments{};
++      auto error = false;
++      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
++                                               use_device)) {
++        return !error;
++      }
++      const auto size =
++          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
++      if (static_cast<std::int64_t>(d.Size()) != size) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatricesDiagonals: unexpected size of the values "
++            "element by element");
++      }
++      internals::launchStiffnessMatricesDiagonalsKernel(
++          k, a, d.ReadWrite(use_device), use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addStiffnessMatricesDiagonals: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addStiffnessMatricesDiagonals: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addStiffnessMatricesDiagonals
++
++  bool multiplyByTangentOperatorBlocks(Context& ctx,
++                                       mfem::Vector& ds,
++                                       const mgis::FieldView<const real>& K,
++                                       const mfem::Vector& dg,
++                                       const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(ds);
++    static_cast<void>(K);
++    static_cast<void>(dg);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "multiplyByTangentOperatorBlocks: the kernels are not compiled (MFEM "
++        "compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto gs = static_cast<int>(getGradientsSize(k));
++      const auto n = dg.Size() / gs;
++      if ((n * gs != dg.Size()) ||
++          (K.getNumberOfPoints() != static_cast<size_type>(n)) ||
++          (K.getNumberOfComponents() != static_cast<size_type>(gs * gs))) {
++        return ctx.registerErrorMessage(
++            "multiplyByTangentOperatorBlocks: unexpected number of points or "
++            "of components");
++      }
++      ds.UseDevice(true);
++      ds.SetSize(dg.Size());
++      if (n == 0) {
++        return true;
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      internals::launchTangentOperatorBlocksProductKernel(
++          ds.Write(use_device), K.data(),
++          static_cast<long long>(K.getPointStride()),
++          static_cast<long long>(K.getComponentStride()), dg.Read(use_device),
++          n, gs, use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"multiplyByTangentOperatorBlocks: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "multiplyByTangentOperatorBlocks: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of multiplyByTangentOperatorBlocks
++
+   bool computeElementsDegreesOfFreedom(
+       Context& ctx,
+       mfem::Array<int>& dofs,
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index bd62a47738..ea91906e35 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -121,6 +121,23 @@ namespace mfem_mgis::batch::internals {
+     }
+   };
+ 
++  //! \brief adds the diagonals of the blocks to values element by element
++  struct ElementDiagonalsStorage {
++    //! \brief values element by element (layout of the element restriction)
++    real* values;
++    //! \brief see `ElementMatricesStorage::add`
++    template <int N>
++    MFEM_HOST_DEVICE void add(const std::size_t e,
++                              const std::size_t nd,
++                              const std::size_t na,
++                              const std::size_t,
++                              const real (&m)[N][N]) const {
++      for (std::size_t c = 0; c != N; ++c) {
++        this->values[na + nd * (c + N * e)] += m[c][c];
++      }
++    }
++  };
++
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+    * elements of a material: one thread per pair of nodes of an element,
+@@ -128,21 +145,25 @@ namespace mfem_mgis::batch::internals {
+    * \tparam K: kind of the gradients
+    * \tparam N: dimension
+    * \tparam Output: destination of the blocks
++   * \tparam diagonal: if true, only the pairs of a node with itself are
++   * computed
+    */
+-  template <GradientsKind K, int N, typename Output>
++  template <GradientsKind K, int N, typename Output, bool diagonal = false>
+   static void launchStiffnessMatricesKernel(
+       const StiffnessMatricesKernelArguments& a,
+       const Output o,
+       const bool use_device) {
+-    const auto n = a.number_of_elements * a.nd * a.nd;
+-    mfem::forall_switch(use_device, n, [a, o] MFEM_HOST_DEVICE(int i) {
++    const auto npairs = diagonal ? a.nd : a.nd * a.nd;
++    const auto n = a.number_of_elements * npairs;
++    mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
+       const auto nd = static_cast<std::size_t>(a.nd);
+       const auto nq = static_cast<std::size_t>(a.nq);
+       const auto gs = static_cast<std::size_t>(a.gradients_size);
+-      const auto k = static_cast<std::size_t>(i) / (nd * nd);
+-      const auto r = static_cast<std::size_t>(i) - k * nd * nd;
+-      const auto na = r % nd;
+-      const auto nb = r / nd;
++      const auto np = static_cast<std::size_t>(npairs);
++      const auto k = static_cast<std::size_t>(i) / np;
++      const auto r = static_cast<std::size_t>(i) - k * np;
++      const auto na = diagonal ? r : r % nd;
++      const auto nb = diagonal ? r : r / nd;
+       const auto e = static_cast<std::size_t>(a.elements[k]);
+       real m[N][N] = {};
+       for (std::size_t q = 0; q != nq; ++q) {
+@@ -190,28 +211,30 @@ namespace mfem_mgis::batch::internals {
+   /*!
+    * \brief launches the kernel for the given kind of gradients
+    * \tparam Output: destination of the blocks
++   * \tparam diagonal: if true, only the pairs of a node with itself are
++   * computed
+    */
+-  template <typename Output>
++  template <typename Output, bool diagonal = false>
+   static void dispatch(const GradientsKind k,
+                        const StiffnessMatricesKernelArguments& a,
+                        const Output& o,
+                        const bool use_device) {
+     switch (k) {
+       case GradientsKind::SMALL_STRAIN_3D:
+-        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, 3>(
+-            a, o, use_device);
++        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, 3, Output,
++                                      diagonal>(a, o, use_device);
+         break;
+       case GradientsKind::SMALL_STRAIN_2D:
+-        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, 2>(
+-            a, o, use_device);
++        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, 2, Output,
++                                      diagonal>(a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_3D:
+-        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D,
+-                                      3>(a, o, use_device);
++        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D, 3,
++                                      Output, diagonal>(a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_2D:
+-        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D,
+-                                      2>(a, o, use_device);
++        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D, 2,
++                                      Output, diagonal>(a, o, use_device);
+         break;
+     }
+   }  // end of dispatch
+@@ -229,6 +252,37 @@ namespace mfem_mgis::batch::internals {
+     dispatch(k, a, SparseMatrixAssembly{o}, use_device);
+   }  // end of launchStiffnessMatricesKernel
+ 
++  void launchStiffnessMatricesDiagonalsKernel(
++      const GradientsKind k,
++      const StiffnessMatricesKernelArguments& a,
++      real* const d,
++      const bool use_device) {
++    dispatch<ElementDiagonalsStorage, true>(k, a, ElementDiagonalsStorage{d},
++                                            use_device);
++  }  // end of launchStiffnessMatricesDiagonalsKernel
++
++  void launchTangentOperatorBlocksProductKernel(real* const ds,
++                                                const real* const K,
++                                                const long long ps,
++                                                const long long cs,
++                                                const real* const dg,
++                                                const int n,
++                                                const int gs,
++                                                const bool use_device) {
++    mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(int i) {
++      const auto* const Ki = K + static_cast<long long>(i) * ps;
++      const auto* const dgi = dg + static_cast<std::size_t>(i) * gs;
++      auto* const dsi = ds + static_cast<std::size_t>(i) * gs;
++      for (int r = 0; r != gs; ++r) {
++        auto v = real{0};
++        for (int c = 0; c != gs; ++c) {
++          v += Ki[static_cast<long long>(r * gs + c) * cs] * dgi[c];
++        }
++        dsi[r] = v;
++      }
++    });
++  }  // end of launchTangentOperatorBlocksProductKernel
++
+   void zeroValues(real* const v, const int n, const bool use_device) {
+     mfem::forall_switch(use_device, n,
+                         [v] MFEM_HOST_DEVICE(int i) { v[i] = real{0}; });
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index 934e77ead3..ebd51ae6fc 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -80,6 +80,43 @@ namespace mfem_mgis::batch::internals {
+                                      const StiffnessMatricesKernelArguments&,
+                                      const SparseMatrixOutput&,
+                                      const bool);
++  /*!
++   * \brief launches the kernel adding the diagonals of the stiffness
++   * matrices of the elements of a material to values stored element by
++   * element, in the layout of the element restriction of MFEM (`node + nd *
++   * (component + dim * element)`)
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments (`matrices` is not used)
++   * \param[in, out] d: values element by element
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchStiffnessMatricesDiagonalsKernel(
++      const GradientsKind,
++      const StiffnessMatricesKernelArguments&,
++      real* const,
++      const bool);
++  /*!
++   * \brief launches the kernel computing `ds = K dg` at all the points of a
++   * material
++   * \param[out] ds: increments of the thermodynamic forces, point by point
++   * \param[in] K: tangent operator blocks
++   * \param[in] ps: stride between two points of the tangent operator blocks
++   * \param[in] cs: stride between two components of the tangent operator
++   * blocks
++   * \param[in] dg: increments of the gradients, point by point
++   * \param[in] n: number of points
++   * \param[in] gs: number of components of the gradients and of the
++   * thermodynamic forces
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchTangentOperatorBlocksProductKernel(real* const,
++                                                const real* const,
++                                                const long long,
++                                                const long long,
++                                                const real* const,
++                                                const int,
++                                                const int,
++                                                const bool);
+   /*!
+    * \brief sets values to zero
+    * \param[out] v: values
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 54c3a11809..bdfab85c62 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -441,11 +441,8 @@ namespace mfem_mgis {
+     return true;
+   }  // end of checkKernelsSupport
+ 
+-  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
+-      Context& ctx,
+-      const mfem::FiniteElementSpace& fes,
+-      const mfem::Vector& u) noexcept {
+-    // derivatives of the unknowns, computed once for each integration rule
++  std::vector<const mfem::IntegrationRule*>
++  MultiMaterialNonLinearIntegrator::getIntegrationRules() const {
+     auto rules = std::vector<const mfem::IntegrationRule*>{};
+     for (const auto& bis : this->behaviour_integrators) {
+       for (const auto& bi : bis) {
+@@ -457,6 +454,15 @@ namespace mfem_mgis {
+         }
+       }
+     }
++    return rules;
++  }  // end of getIntegrationRules
++
++  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Vector& u) noexcept {
++    // derivatives of the unknowns, computed once for each integration rule
++    const auto rules = this->getIntegrationRules();
+     // the derivatives of the rules which are no longer used are released
+     std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
+       return std::find(rules.begin(), rules.end(), d.first) == rules.end();
+@@ -580,6 +586,72 @@ namespace mfem_mgis {
+     this->stiffness_matrices_computed_by_kernels = b;
+   }  // end of setStiffnessMatricesComputedByKernels
+ 
++  bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Vector& x,
++      mfem::Vector& y) noexcept {
++    if (!this->computeElementsGeometry(ctx, fes)) {
++      return false;
++    }
++    try {
++      for (const auto* const r : this->getIntegrationRules()) {
++        if (!batch::computeUnknownsDerivatives(
++                ctx, this->increments_derivatives[r], fes, x, *r)) {
++          return false;
++        }
++      }
++      const auto* const restriction =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      auto& ye = this->tangent_operator_element_values;
++      ye.UseDevice(true);
++      ye.SetSize(restriction->Height());
++      ye = real{0};
++      for (auto& bis : this->behaviour_integrators) {
++        for (auto& bi : bis) {
++          if (!bi->addTangentOperatorActionByKernels(
++                  ctx, ye, this->increments_derivatives,
++                  this->elements_geometry)) {
++            return false;
++          }
++        }
++      }
++      restriction->AddMultTranspose(ye, y);
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    return true;
++  }  // end of addTangentOperatorActionByKernels
++
++  bool MultiMaterialNonLinearIntegrator::addTangentOperatorDiagonalByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      mfem::Vector& d) noexcept {
++    if (!this->computeElementsGeometry(ctx, fes)) {
++      return false;
++    }
++    try {
++      const auto* const restriction =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      auto& de = this->tangent_operator_element_values;
++      de.UseDevice(true);
++      de.SetSize(restriction->Height());
++      de = real{0};
++      for (auto& bis : this->behaviour_integrators) {
++        for (auto& bi : bis) {
++          if (!bi->addTangentOperatorDiagonalByKernels(
++                  ctx, de, this->elements_geometry)) {
++            return false;
++          }
++        }
++      }
++      restriction->AddMultTranspose(de, d);
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    return true;
++  }  // end of addTangentOperatorDiagonalByKernels
++
+   bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
+       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+     if ((this->element_dofs.Size() != 0) || (fes.GetNE() == 0)) {
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index c31e601fa2..c5557d01c3 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -26,6 +26,7 @@
+ #include <algorithm>
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
++#include "mfem/fem/restriction.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -308,6 +309,71 @@ static void testCase(mfem_mgis::Context& ctx,
+               << " values, maximum difference " << da << " (maximum value "
+               << amax << ")\n";
+     check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
++    // action and diagonal of the tangent operator computed by kernels
++    // without assembly, compared to the product by the assembled matrix and
++    // to its diagonal
++    {
++      const auto* const restriction =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      auto x = mfem::Vector(fes.GetVSize());
++      x.UseDevice(true);
++      {
++        auto* const xv = x.HostWrite();
++        for (int i = 0; i != x.Size(); ++i) {
++          xv[i] = std::sin(0.7 * real(i)) + 0.1 * std::cos(real(i));
++        }
++      }
++      auto dx = batch::UnknownsDerivativesSet{};
++      check(batch::computeUnknownsDerivatives(ctx, dx[r], fes, x, *r),
++            name + ": derivatives of the increments of the unknowns (" +
++                ctx.getErrorMessage() + ")");
++      auto ye = mfem::Vector(restriction->Height());
++      ye.UseDevice(true);
++      ye = real{0};
++      check(bi.addTangentOperatorActionByKernels(ctx, ye, dx, geometry),
++            name + ": action of the tangent operator (" +
++                ctx.getErrorMessage() + ")");
++      auto y = mfem::Vector(fes.GetVSize());
++      y.UseDevice(true);
++      y = real{0};
++      restriction->AddMultTranspose(ye, y);
++      auto de = mfem::Vector(restriction->Height());
++      de.UseDevice(true);
++      de = real{0};
++      check(bi.addTangentOperatorDiagonalByKernels(ctx, de, geometry),
++            name + ": diagonal of the tangent operator (" +
++                ctx.getErrorMessage() + ")");
++      auto diag = mfem::Vector(fes.GetVSize());
++      diag.UseDevice(true);
++      diag = real{0};
++      restriction->AddMultTranspose(de, diag);
++      auto yref = mfem::Vector(fes.GetVSize());
++      reference_matrix.Mult(x, yref);
++      auto dref = mfem::Vector{};
++      reference_matrix.GetDiag(dref);
++      const auto* const yv = y.HostRead();
++      const auto* const yr = yref.HostRead();
++      const auto* const dv = diag.HostRead();
++      const auto* const dr = dref.HostRead();
++      auto dy = real{};
++      auto ymax = real{};
++      auto dd = real{};
++      auto dmax = real{};
++      for (int i = 0; i != y.Size(); ++i) {
++        dy = std::max(dy, std::abs(yv[i] - yr[i]));
++        ymax = std::max(ymax, std::abs(yr[i]));
++        dd = std::max(dd, std::abs(dv[i] - dr[i]));
++        dmax = std::max(dmax, std::abs(dr[i]));
++      }
++      std::cout << name << ": action of the tangent operator, maximum "
++                << "difference " << dy << " (maximum value " << ymax
++                << "), diagonal, maximum difference " << dd
++                << " (maximum value " << dmax << ")\n";
++      check((ymax != 0) && (dy <= 1e-13 * ymax),
++            name + ": action of the tangent operator");
++      check((dmax != 0) && (dd <= 1e-13 * dmax),
++            name + ": diagonal of the tangent operator");
++    }
+     // entries outside of the pattern of the matrix are detected
+     auto diagonal_matrix = mfem::SparseMatrix(fes.GetVSize());
+     for (int i = 0; i != fes.GetVSize(); ++i) {
+-- 
+2.43.0
+

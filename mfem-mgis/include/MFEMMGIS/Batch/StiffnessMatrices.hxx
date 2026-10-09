@@ -58,6 +58,44 @@ namespace mfem_mgis::batch {
       const GradientsKind) noexcept;
 
   /*!
+   * \brief adds the diagonals of the stiffness matrices of the elements of a
+   * material to values stored element by element, in the layout of the
+   * element restriction of MFEM (`node + nd * (component + dim * element)`,
+   * as `addInnerForces`), on the device if a device is enabled
+   * \return true on success
+   * \param[in, out] d: values element by element
+   * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks in the global frame
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesDiagonals(
+      Context&,
+      mfem::Vector&,
+      const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
+      const ElementsGeometry&,
+      const GradientsKind) noexcept;
+  /*!
+   * \brief computes the increments of the thermodynamic forces associated
+   * with increments of the gradients, `ds = K dg`, at all the points of a
+   * material, on the device if a device is enabled
+   * \return true on success
+   * \param[out] ds: increments of the thermodynamic forces, stored point by
+   * point (resized)
+   * \param[in] K: tangent operator blocks in the global frame
+   * \param[in] dg: increments of the gradients, stored point by point (see
+   * `computeGradientsIncrements`)
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool multiplyByTangentOperatorBlocks(
+      Context&,
+      mfem::Vector&,
+      const mgis::FieldView<const real>&,
+      const mfem::Vector&,
+      const GradientsKind) noexcept;
+
+  /*!
    * \brief sparse matrix in which the stiffness matrices of the elements are
    * assembled by kernels (see `addStiffnessMatrices`)
    */

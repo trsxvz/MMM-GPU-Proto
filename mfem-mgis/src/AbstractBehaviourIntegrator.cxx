@@ -71,6 +71,25 @@ namespace mfem_mgis {
         "kernels");
   }  // end of addStiffnessMatricesByKernels
 
+  bool AbstractBehaviourIntegrator::addTangentOperatorActionByKernels(
+      Context& ctx,
+      mfem::Vector&,
+      const batch::UnknownsDerivativesSet&,
+      const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addTangentOperatorActionByKernels: the "
+        "action of the tangent operator of this behaviour integrator can't be "
+        "computed by kernels");
+  }  // end of addTangentOperatorActionByKernels
+
+  bool AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels(
+      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels: the "
+        "diagonal of the tangent operator of this behaviour integrator can't "
+        "be computed by kernels");
+  }  // end of addTangentOperatorDiagonalByKernels
+
   bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
       Context& ctx,
       const batch::AssembledStiffnessMatrix&,

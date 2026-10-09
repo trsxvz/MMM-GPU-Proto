@@ -26,6 +26,7 @@
 #include <algorithm>
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/sparsemat.hpp"
+#include "mfem/fem/restriction.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -308,6 +309,71 @@ static void testCase(mfem_mgis::Context& ctx,
               << " values, maximum difference " << da << " (maximum value "
               << amax << ")\n";
     check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
+    // action and diagonal of the tangent operator computed by kernels
+    // without assembly, compared to the product by the assembled matrix and
+    // to its diagonal
+    {
+      const auto* const restriction =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      auto x = mfem::Vector(fes.GetVSize());
+      x.UseDevice(true);
+      {
+        auto* const xv = x.HostWrite();
+        for (int i = 0; i != x.Size(); ++i) {
+          xv[i] = std::sin(0.7 * real(i)) + 0.1 * std::cos(real(i));
+        }
+      }
+      auto dx = batch::UnknownsDerivativesSet{};
+      check(batch::computeUnknownsDerivatives(ctx, dx[r], fes, x, *r),
+            name + ": derivatives of the increments of the unknowns (" +
+                ctx.getErrorMessage() + ")");
+      auto ye = mfem::Vector(restriction->Height());
+      ye.UseDevice(true);
+      ye = real{0};
+      check(bi.addTangentOperatorActionByKernels(ctx, ye, dx, geometry),
+            name + ": action of the tangent operator (" +
+                ctx.getErrorMessage() + ")");
+      auto y = mfem::Vector(fes.GetVSize());
+      y.UseDevice(true);
+      y = real{0};
+      restriction->AddMultTranspose(ye, y);
+      auto de = mfem::Vector(restriction->Height());
+      de.UseDevice(true);
+      de = real{0};
+      check(bi.addTangentOperatorDiagonalByKernels(ctx, de, geometry),
+            name + ": diagonal of the tangent operator (" +
+                ctx.getErrorMessage() + ")");
+      auto diag = mfem::Vector(fes.GetVSize());
+      diag.UseDevice(true);
+      diag = real{0};
+      restriction->AddMultTranspose(de, diag);
+      auto yref = mfem::Vector(fes.GetVSize());
+      reference_matrix.Mult(x, yref);
+      auto dref = mfem::Vector{};
+      reference_matrix.GetDiag(dref);
+      const auto* const yv = y.HostRead();
+      const auto* const yr = yref.HostRead();
+      const auto* const dv = diag.HostRead();
+      const auto* const dr = dref.HostRead();
+      auto dy = real{};
+      auto ymax = real{};
+      auto dd = real{};
+      auto dmax = real{};
+      for (int i = 0; i != y.Size(); ++i) {
+        dy = std::max(dy, std::abs(yv[i] - yr[i]));
+        ymax = std::max(ymax, std::abs(yr[i]));
+        dd = std::max(dd, std::abs(dv[i] - dr[i]));
+        dmax = std::max(dmax, std::abs(dr[i]));
+      }
+      std::cout << name << ": action of the tangent operator, maximum "
+                << "difference " << dy << " (maximum value " << ymax
+                << "), diagonal, maximum difference " << dd
+                << " (maximum value " << dmax << ")\n";
+      check((ymax != 0) && (dy <= 1e-13 * ymax),
+            name + ": action of the tangent operator");
+      check((dmax != 0) && (dd <= 1e-13 * dmax),
+            name + ": diagonal of the tangent operator");
+    }
     // entries outside of the pattern of the matrix are detected
     auto diagonal_matrix = mfem::SparseMatrix(fes.GetVSize());
     for (int i = 0; i != fes.GetVSize(); ++i) {

@@ -211,6 +211,37 @@ namespace mfem_mgis {
         const batch::AssembledStiffnessMatrix&,
         const batch::ElementsGeometrySet&) noexcept;
     /*!
+     * \brief add the action of the stiffness matrices of all the elements,
+     * computed by kernels from the tangent operator blocks without
+     * assembling them, on the increments of the unknowns given by their
+     * derivatives: `Σ Bᵀ K B dx w det J`, in the layout of the element
+     * restriction of MFEM (see `addInnerForcesByKernels`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] y: values element by element
+     * \param[in] dx: derivatives of the increments of the unknowns, for each
+     * integration rule
+     * \param[in] g: geometric data
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addTangentOperatorActionByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::UnknownsDerivativesSet&,
+        const batch::ElementsGeometrySet&) noexcept;
+    /*!
+     * \brief add the diagonals of the stiffness matrices of all the elements,
+     * computed by kernels, in the layout of the element restriction of MFEM
+     * (see `addInnerForcesByKernels`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] d: values element by element
+     * \param[in] g: geometric data
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addTangentOperatorDiagonalByKernels(
+        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+    /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces
      * \param[in] e: finite element

@@ -121,6 +121,23 @@ namespace mfem_mgis::batch::internals {
     }
   };
 
+  //! \brief adds the diagonals of the blocks to values element by element
+  struct ElementDiagonalsStorage {
+    //! \brief values element by element (layout of the element restriction)
+    real* values;
+    //! \brief see `ElementMatricesStorage::add`
+    template <int N>
+    MFEM_HOST_DEVICE void add(const std::size_t e,
+                              const std::size_t nd,
+                              const std::size_t na,
+                              const std::size_t,
+                              const real (&m)[N][N]) const {
+      for (std::size_t c = 0; c != N; ++c) {
+        this->values[na + nd * (c + N * e)] += m[c][c];
+      }
+    }
+  };
+
   /*!
    * \brief launches the kernel adding the stiffness matrices of the
    * elements of a material: one thread per pair of nodes of an element,
@@ -128,21 +145,25 @@ namespace mfem_mgis::batch::internals {
    * \tparam K: kind of the gradients
    * \tparam N: dimension
    * \tparam Output: destination of the blocks
+   * \tparam diagonal: if true, only the pairs of a node with itself are
+   * computed
    */
-  template <GradientsKind K, int N, typename Output>
+  template <GradientsKind K, int N, typename Output, bool diagonal = false>
   static void launchStiffnessMatricesKernel(
       const StiffnessMatricesKernelArguments& a,
       const Output o,
       const bool use_device) {
-    const auto n = a.number_of_elements * a.nd * a.nd;
-    mfem::forall_switch(use_device, n, [a, o] MFEM_HOST_DEVICE(int i) {
+    const auto npairs = diagonal ? a.nd : a.nd * a.nd;
+    const auto n = a.number_of_elements * npairs;
+    mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
       const auto nd = static_cast<std::size_t>(a.nd);
       const auto nq = static_cast<std::size_t>(a.nq);
       const auto gs = static_cast<std::size_t>(a.gradients_size);
-      const auto k = static_cast<std::size_t>(i) / (nd * nd);
-      const auto r = static_cast<std::size_t>(i) - k * nd * nd;
-      const auto na = r % nd;
-      const auto nb = r / nd;
+      const auto np = static_cast<std::size_t>(npairs);
+      const auto k = static_cast<std::size_t>(i) / np;
+      const auto r = static_cast<std::size_t>(i) - k * np;
+      const auto na = diagonal ? r : r % nd;
+      const auto nb = diagonal ? r : r / nd;
       const auto e = static_cast<std::size_t>(a.elements[k]);
       real m[N][N] = {};
       for (std::size_t q = 0; q != nq; ++q) {
@@ -190,28 +211,30 @@ namespace mfem_mgis::batch::internals {
   /*!
    * \brief launches the kernel for the given kind of gradients
    * \tparam Output: destination of the blocks
+   * \tparam diagonal: if true, only the pairs of a node with itself are
+   * computed
    */
-  template <typename Output>
+  template <typename Output, bool diagonal = false>
   static void dispatch(const GradientsKind k,
                        const StiffnessMatricesKernelArguments& a,
                        const Output& o,
                        const bool use_device) {
     switch (k) {
       case GradientsKind::SMALL_STRAIN_3D:
-        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, 3>(
-            a, o, use_device);
+        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, 3, Output,
+                                      diagonal>(a, o, use_device);
         break;
       case GradientsKind::SMALL_STRAIN_2D:
-        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, 2>(
-            a, o, use_device);
+        launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, 2, Output,
+                                      diagonal>(a, o, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_3D:
-        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D,
-                                      3>(a, o, use_device);
+        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D, 3,
+                                      Output, diagonal>(a, o, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_2D:
-        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D,
-                                      2>(a, o, use_device);
+        launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D, 2,
+                                      Output, diagonal>(a, o, use_device);
         break;
     }
   }  // end of dispatch
@@ -228,6 +251,37 @@ namespace mfem_mgis::batch::internals {
                                      const bool use_device) {
     dispatch(k, a, SparseMatrixAssembly{o}, use_device);
   }  // end of launchStiffnessMatricesKernel
+
+  void launchStiffnessMatricesDiagonalsKernel(
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      real* const d,
+      const bool use_device) {
+    dispatch<ElementDiagonalsStorage, true>(k, a, ElementDiagonalsStorage{d},
+                                            use_device);
+  }  // end of launchStiffnessMatricesDiagonalsKernel
+
+  void launchTangentOperatorBlocksProductKernel(real* const ds,
+                                                const real* const K,
+                                                const long long ps,
+                                                const long long cs,
+                                                const real* const dg,
+                                                const int n,
+                                                const int gs,
+                                                const bool use_device) {
+    mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(int i) {
+      const auto* const Ki = K + static_cast<long long>(i) * ps;
+      const auto* const dgi = dg + static_cast<std::size_t>(i) * gs;
+      auto* const dsi = ds + static_cast<std::size_t>(i) * gs;
+      for (int r = 0; r != gs; ++r) {
+        auto v = real{0};
+        for (int c = 0; c != gs; ++c) {
+          v += Ki[static_cast<long long>(r * gs + c) * cs] * dgi[c];
+        }
+        dsi[r] = v;
+      }
+    });
+  }  // end of launchTangentOperatorBlocksProductKernel
 
   void zeroValues(real* const v, const int n, const bool use_device) {
     mfem::forall_switch(use_device, n,

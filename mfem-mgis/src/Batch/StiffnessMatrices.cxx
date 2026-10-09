@@ -148,6 +148,96 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatrices
 
+  bool addStiffnessMatricesDiagonals(Context& ctx,
+                                     mfem::Vector& d,
+                                     const PartialQuadratureSpace& qs,
+                                     const mgis::FieldView<const real>& K,
+                                     const ElementsGeometry& g,
+                                     const GradientsKind k) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(d);
+    static_cast<void>(qs);
+    static_cast<void>(K);
+    static_cast<void>(g);
+    static_cast<void>(k);
+    return ctx.registerErrorMessage(
+        "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
+        "matrices are not compiled (MFEM compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      auto a = internals::StiffnessMatricesKernelArguments{};
+      auto error = false;
+      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
+                                               use_device)) {
+        return !error;
+      }
+      const auto size =
+          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
+      if (static_cast<std::int64_t>(d.Size()) != size) {
+        return ctx.registerErrorMessage(
+            "addStiffnessMatricesDiagonals: unexpected size of the values "
+            "element by element");
+      }
+      internals::launchStiffnessMatricesDiagonalsKernel(
+          k, a, d.ReadWrite(use_device), use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addStiffnessMatricesDiagonals: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesDiagonals: unknown exception");
+    }
+    return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of addStiffnessMatricesDiagonals
+
+  bool multiplyByTangentOperatorBlocks(Context& ctx,
+                                       mfem::Vector& ds,
+                                       const mgis::FieldView<const real>& K,
+                                       const mfem::Vector& dg,
+                                       const GradientsKind k) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(ds);
+    static_cast<void>(K);
+    static_cast<void>(dg);
+    static_cast<void>(k);
+    return ctx.registerErrorMessage(
+        "multiplyByTangentOperatorBlocks: the kernels are not compiled (MFEM "
+        "compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+    try {
+      const auto gs = static_cast<int>(getGradientsSize(k));
+      const auto n = dg.Size() / gs;
+      if ((n * gs != dg.Size()) ||
+          (K.getNumberOfPoints() != static_cast<size_type>(n)) ||
+          (K.getNumberOfComponents() != static_cast<size_type>(gs * gs))) {
+        return ctx.registerErrorMessage(
+            "multiplyByTangentOperatorBlocks: unexpected number of points or "
+            "of components");
+      }
+      ds.UseDevice(true);
+      ds.SetSize(dg.Size());
+      if (n == 0) {
+        return true;
+      }
+      const auto use_device = mfem::Device::IsEnabled();
+      internals::launchTangentOperatorBlocksProductKernel(
+          ds.Write(use_device), K.data(),
+          static_cast<long long>(K.getPointStride()),
+          static_cast<long long>(K.getComponentStride()), dg.Read(use_device),
+          n, gs, use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"multiplyByTangentOperatorBlocks: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "multiplyByTangentOperatorBlocks: unknown exception");
+    }
+    return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of multiplyByTangentOperatorBlocks
+
   bool computeElementsDegreesOfFreedom(
       Context& ctx,
       mfem::Array<int>& dofs,

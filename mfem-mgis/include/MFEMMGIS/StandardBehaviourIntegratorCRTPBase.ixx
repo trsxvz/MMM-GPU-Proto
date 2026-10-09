@@ -250,59 +250,84 @@ namespace mfem_mgis {
   }  // end of supportsKernels
 
   template <typename Child>
-  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
-      Context& ctx,
-      const batch::UnknownsDerivativesSet& d,
-      const batch::ElementsGeometrySet& g) noexcept {
-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+  bool StandardBehaviourIntegratorCRTPBase<Child>::getKernelsData(
+      Context &ctx,
+      KernelsData &data,
+      const char *const name,
+      const batch::ElementsGeometrySet &g) const noexcept {
+    data = KernelsData{};
+    const auto *const r = this->quadrature_space->getUniformIntegrationRule();
     if (r == nullptr) {
       if (this->quadrature_space->getNumberOfElements() == 0) {
         return true;
       }
       return ctx.registerErrorMessage(
-          "computeGradientsByKernels: the elements of the material do not "
-          "use the same integration rule");
+          std::string{name} +
+          ": the elements of the material do not use the same integration "
+          "rule");
     }
     const auto k = batch::getGradientsKind(this->b);
     if (!k.has_value()) {
-      return ctx.registerErrorMessage(
-          "computeGradientsByKernels: unsupported behaviour");
-    }
-    const auto p = d.find(r);
-    const auto pg = g.find(r);
-    if ((p == d.end()) || (pg == g.end())) {
-      return ctx.registerErrorMessage(
-          "computeGradientsByKernels: the derivatives of the unknowns or the "
-          "geometric data are not computed for the integration rule of the "
-          "material");
-    }
-    return batch::computeGradients(ctx, *this, p->second, pg->second, *k);
-  }  // end of computeGradientsByKernels
-
-  template <typename Child>
-  bool StandardBehaviourIntegratorCRTPBase<Child>::addInnerForcesByKernels(
-      Context& ctx,
-      mfem::Vector& f,
-      const batch::ElementsGeometrySet& g) noexcept {
-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
-    if (r == nullptr) {
-      if (this->quadrature_space->getNumberOfElements() == 0) {
-        return true;
-      }
-      return ctx.registerErrorMessage(
-          "addInnerForcesByKernels: the elements of the material do not use "
-          "the same integration rule");
-    }
-    const auto k = batch::getGradientsKind(this->b);
-    if (!k.has_value()) {
-      return ctx.registerErrorMessage(
-          "addInnerForcesByKernels: unsupported behaviour");
+      return ctx.registerErrorMessage(std::string{name} +
+                                      ": unsupported behaviour");
     }
     const auto p = g.find(r);
     if (p == g.end()) {
       return ctx.registerErrorMessage(
-          "addInnerForcesByKernels: the geometric data are not computed for "
-          "the integration rule of the material");
+          std::string{name} +
+          ": the geometric data are not computed for the integration rule of "
+          "the material");
+    }
+    data.kind = *k;
+    data.rule = r;
+    data.geometry = &(p->second);
+    return true;
+  }  // end of getKernelsData
+
+  template <typename Child>
+  mgis::FieldView<const real>
+  StandardBehaviourIntegratorCRTPBase<Child>::readTangentOperatorBlocks(
+      const bool d) const {
+    const auto &v = this->getArrays().getTangentOperatorBlocks();
+    const auto s =
+        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
+    return mgis::makeFieldView(s, this->getArrays().array_layout,
+                               static_cast<size_type>(this->n), this->K_stride);
+  }  // end of readTangentOperatorBlocks
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
+      Context &ctx,
+      const batch::UnknownsDerivativesSet &d,
+      const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "computeGradientsByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    const auto p = d.find(data.rule);
+    if (p == d.end()) {
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: the derivatives of the unknowns are not "
+          "computed for the integration rule of the material");
+    }
+    return batch::computeGradients(ctx, *this, p->second, *(data.geometry),
+                                   data.kind);
+  }  // end of computeGradientsByKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::addInnerForcesByKernels(
+      Context &ctx,
+      mfem::Vector &f,
+      const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "addInnerForcesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
     }
     try {
       const auto use_device = mfem::Device::IsEnabled();
@@ -318,7 +343,8 @@ namespace mfem_mgis {
             v.Read(use_device), static_cast<std::size_t>(v.Size()));
         return batch::addInnerForces(
             ctx, f, *(this->quadrature_space),
-            mgis::makePointByPointFieldView(s, np, nc, nc), p->second, *k);
+            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
+            data.kind);
       }
       const auto& v = this->getArrays().getArray(
           mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
@@ -327,10 +353,10 @@ namespace mfem_mgis {
       return batch::addInnerForces(
           ctx, f, *(this->quadrature_space),
           mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
-          p->second, *k);
-    } catch (std::exception& e) {
-      return ctx.registerErrorMessage(
-          std::string{"addInnerForcesByKernels: "} + e.what());
+          *(data.geometry), data.kind);
+    } catch (std::exception &e) {
+      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
+                                      e.what());
     } catch (...) {
       return ctx.registerErrorMessage(
           "addInnerForcesByKernels: unknown exception");
@@ -341,42 +367,23 @@ namespace mfem_mgis {
   template <typename Destination>
   bool StandardBehaviourIntegratorCRTPBase<Child>::
       implementAddStiffnessMatricesByKernels(
-          Context& ctx,
-          Destination& m,
-          const batch::ElementsGeometrySet& g) noexcept {
-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
-    if (r == nullptr) {
-      if (this->quadrature_space->getNumberOfElements() == 0) {
-        return true;
-      }
-      return ctx.registerErrorMessage(
-          "addStiffnessMatricesByKernels: the elements of the material do not "
-          "use the same integration rule");
+          Context &ctx,
+          Destination &m,
+          const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "addStiffnessMatricesByKernels", g)) {
+      return false;
     }
-    const auto k = batch::getGradientsKind(this->b);
-    if (!k.has_value()) {
-      return ctx.registerErrorMessage(
-          "addStiffnessMatricesByKernels: unsupported behaviour");
-    }
-    const auto p = g.find(r);
-    if (p == g.end()) {
-      return ctx.registerErrorMessage(
-          "addStiffnessMatricesByKernels: the geometric data are not computed "
-          "for the integration rule of the material");
+    if (data.rule == nullptr) {
+      return true;
     }
     try {
-      // the tangent operator blocks are in the global frame (rotated after
-      // the integration of the behaviour for an orthotropic behaviour)
       const auto use_device = mfem::Device::IsEnabled();
-      const auto& v = this->getArrays().getTangentOperatorBlocks();
-      const auto s = std::span<const real>(v.Read(use_device),
-                                           static_cast<std::size_t>(v.Size()));
       return batch::addStiffnessMatrices(
           ctx, m, *(this->quadrature_space),
-          mgis::makeFieldView(s, this->getArrays().array_layout,
-                              static_cast<size_type>(this->n), this->K_stride),
-          p->second, *k);
-    } catch (std::exception& e) {
+          this->readTangentOperatorBlocks(use_device), *(data.geometry),
+          data.kind);
+    } catch (std::exception &e) {
       return ctx.registerErrorMessage(
           std::string{"addStiffnessMatricesByKernels: "} + e.what());
     } catch (...) {
@@ -384,6 +391,88 @@ namespace mfem_mgis {
           "addStiffnessMatricesByKernels: unknown exception");
     }
   }  // end of implementAddStiffnessMatricesByKernels
+
+  template <typename Child>
+  bool
+  StandardBehaviourIntegratorCRTPBase<Child>::addTangentOperatorActionByKernels(
+      Context &ctx,
+      mfem::Vector &y,
+      const batch::UnknownsDerivativesSet &dx,
+      const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "addTangentOperatorActionByKernels",
+                              g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    const auto p = dx.find(data.rule);
+    if (p == dx.end()) {
+      return ctx.registerErrorMessage(
+          "addTangentOperatorActionByKernels: the derivatives of the "
+          "increments of the unknowns are not computed for the integration "
+          "rule of the material");
+    }
+    try {
+      // increments of the gradients, then of the thermodynamic forces, whose
+      // contributions are added as inner forces
+      const auto use_device = mfem::Device::IsEnabled();
+      auto &dg = this->wks.gradients_increments;
+      auto &ds = this->wks.thermodynamic_forces_increments;
+      if ((!batch::computeGradientsIncrements(
+              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
+              data.kind)) ||
+          (!batch::multiplyByTangentOperatorBlocks(
+              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
+              data.kind))) {
+        return false;
+      }
+      const auto np = static_cast<size_type>(this->n);
+      const auto gs = batch::getGradientsSize(data.kind);
+      const auto s = std::span<const real>(ds.Read(use_device),
+                                           static_cast<std::size_t>(ds.Size()));
+      return batch::addInnerForces(
+          ctx, y, *(this->quadrature_space),
+          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
+          data.kind);
+    } catch (std::exception &e) {
+      return ctx.registerErrorMessage(
+          std::string{"addTangentOperatorActionByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addTangentOperatorActionByKernels: unknown exception");
+    }
+  }  // end of addTangentOperatorActionByKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::
+      addTangentOperatorDiagonalByKernels(
+          Context &ctx,
+          mfem::Vector &d,
+          const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "addTangentOperatorDiagonalByKernels",
+                              g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      return batch::addStiffnessMatricesDiagonals(
+          ctx, d, *(this->quadrature_space),
+          this->readTangentOperatorBlocks(use_device), *(data.geometry),
+          data.kind);
+    } catch (std::exception &e) {
+      return ctx.registerErrorMessage(
+          std::string{"addTangentOperatorDiagonalByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addTangentOperatorDiagonalByKernels: unknown exception");
+    }
+  }  // end of addTangentOperatorDiagonalByKernels
 
   template <typename Child>
   bool

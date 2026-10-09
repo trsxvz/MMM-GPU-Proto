@@ -196,6 +196,36 @@ namespace mfem_mgis {
      */
     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
     /*!
+     * \brief add the action of the tangent operator, assembled from the
+     * stiffness matrices of the elements computed by kernels from the
+     * tangent operator blocks, on increments of the unknowns, without
+     * assembling it: `y += Σ Bᵀ K B x w det J` (see
+     * `AbstractBehaviourIntegrator::addTangentOperatorActionByKernels`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in] x: increments of the unknowns (local vector of the finite
+     * element space)
+     * \param[in, out] y: action (local vector of the finite element space)
+     */
+    [[nodiscard]] bool addTangentOperatorActionByKernels(
+        Context&,
+        const mfem::FiniteElementSpace&,
+        const mfem::Vector&,
+        mfem::Vector&) noexcept;
+    /*!
+     * \brief add the diagonal of the tangent operator assembled from the
+     * stiffness matrices of the elements computed by kernels (see
+     * `AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in, out] d: diagonal (local vector of the finite element
+     * space)
+     */
+    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
+        Context&, const mfem::FiniteElementSpace&, mfem::Vector&) noexcept;
+    /*!
      * \brief create the sparse matrix in which
      * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
      * all the elements (see `batch::makeAssembledStiffnessMatrix`)
@@ -395,6 +425,22 @@ namespace mfem_mgis {
      * `computeElementsDegreesOfFreedom`
      */
     mfem::Array<int> element_dofs;
+    /*!
+     * \brief derivatives of the increments of the unknowns, for each
+     * integration rule (see `addTangentOperatorActionByKernels`)
+     */
+    batch::UnknownsDerivativesSet increments_derivatives;
+    /*!
+     * \brief values element by element of the action or of the diagonal of
+     * the tangent operator
+     */
+    mfem::Vector tangent_operator_element_values;
+    /*!
+     * \return the integration rules of the behaviour integrators (rules
+     * shared by all the elements of a material)
+     */
+    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
+    getIntegrationRules() const;
     /*!
      * \brief computes the degrees of freedom of all the elements if they are
      * not computed yet

@@ -176,6 +176,80 @@ namespace mfem_mgis::batch {
                : 2;
   }  // end of getSpaceDimension
 
+#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+
+  /*!
+   * \brief checks the arguments of the computation of the gradients of a
+   * material and fills the arguments of the kernel which do not depend on
+   * the destination
+   * \return true on success, false if there is nothing to do or on error
+   * (see `error`)
+   * \param[in, out] ctx: execution context
+   * \param[out] a: arguments of the kernel
+   * \param[out] error: true on error
+   * \param[in] name: name of the calling function, for the messages
+   * \param[in] qs: quadrature space of the material
+   * \param[in] d: derivatives of the unknowns
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   * \param[in] use_device: if true, the pointers are located on the device
+   */
+  static bool getGradientsKernelArguments(
+      Context& ctx,
+      internals::GradientsKernelArguments& a,
+      bool& error,
+      const std::string& name,
+      const PartialQuadratureSpace& qs,
+      const UnknownsDerivatives& d,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const bool use_device) {
+    error = false;
+    const auto& elements = qs.getElements();
+    const auto& offsets = qs.getElementOffsets();
+    if (elements.Size() == 0) {
+      return false;
+    }
+    error = true;
+    if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
+        (g.rule != d.rule) || (g.factors == nullptr) || (g.nq != d.nq) ||
+        (g.ne != d.ne)) {
+      return ctx.registerErrorMessage(
+          name +
+          ": the elements of the material do not use the integration rule "
+          "of the derivatives of the unknowns and of the geometric data");
+    }
+    const auto dim = getSpaceDimension(k);
+    if ((d.vdim != dim) || (d.dim != dim)) {
+      return ctx.registerErrorMessage(
+          name +
+          ": unexpected number of components of the unknowns or dimension "
+          "of the space (" +
+          std::to_string(d.vdim) + ", " + std::to_string(d.dim) +
+          "), the expected value being " + std::to_string(dim));
+    }
+    const auto n = std::int64_t{elements.Size()} * d.nq;
+    if (n != std::int64_t{qs.getNumberOfIntegrationPoints()}) {
+      return ctx.registerErrorMessage(
+          name + ": unexpected number of integration points");
+    }
+    a.number_of_elements = elements.Size();
+    a.nq = d.nq;
+    a.vdim = d.vdim;
+    a.dim = d.dim;
+    a.number_of_points = static_cast<int>(n);
+    a.gradients_size = static_cast<int>(getGradientsSize(k));
+    a.elements = elements.Read(use_device);
+    a.offsets = offsets.Read(use_device);
+    a.derivatives = d.values.Read(use_device);
+    a.jacobians = g.factors->J.Read(use_device);
+    a.determinants = g.factors->detJ.Read(use_device);
+    error = false;
+    return true;
+  }  // end of getGradientsKernelArguments
+
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+
   bool computeGradients(Context& ctx,
                         Material& m,
                         const UnknownsDerivatives& d,
@@ -190,29 +264,7 @@ namespace mfem_mgis::batch {
         "computeGradients: the kernels computing the gradients are not "
         "compiled (MFEM compiled with HIP)");
 #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-    const auto& qs = m.getPartialQuadratureSpace();
-    const auto& elements = qs.getElements();
-    const auto& offsets = qs.getElementOffsets();
-    if (elements.Size() == 0) {
-      return true;
-    }
-    if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
-        (g.rule != d.rule) || (g.factors == nullptr) || (g.nq != d.nq) ||
-        (g.ne != d.ne)) {
-      return ctx.registerErrorMessage(
-          "computeGradients: the elements of the material do not use the "
-          "integration rule of the derivatives of the unknowns and of the "
-          "geometric data");
-    }
     const auto gsize = getGradientsSize(k);
-    const auto dim = getSpaceDimension(k);
-    if ((d.vdim != dim) || (d.dim != dim)) {
-      return ctx.registerErrorMessage(
-          "computeGradients: unexpected number of components of the "
-          "unknowns or dimension of the space (" +
-          std::to_string(d.vdim) + ", " + std::to_string(d.dim) +
-          "), the expected value being " + std::to_string(dim));
-    }
     if (m.s1.gradients_stride != gsize) {
       return ctx.registerErrorMessage(
           "computeGradients: unexpected number of components of the "
@@ -220,31 +272,21 @@ namespace mfem_mgis::batch {
           std::to_string(m.s1.gradients_stride) + " instead of " +
           std::to_string(gsize) + ")");
     }
-    if (static_cast<std::int64_t>(elements.Size()) * d.nq !=
-        static_cast<std::int64_t>(m.n)) {
-      return ctx.registerErrorMessage(
-          "computeGradients: unexpected number of integration points");
-    }
-    const auto macroscopic_gradients = m.getMacroscopicGradients();
-    auto a = internals::GradientsKernelArguments{};
-    a.number_of_elements = elements.Size();
-    a.nq = d.nq;
-    a.vdim = d.vdim;
-    a.dim = d.dim;
-    a.number_of_points = static_cast<int>(m.n);
-    a.gradients_size = static_cast<int>(gsize);
-    a.point_by_point =
-        m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
-    for (size_type c = 0; c != gsize; ++c) {
-      a.macroscopic_gradients[c] = macroscopic_gradients[c];
-    }
     try {
       const auto use_device = mfem::Device::IsEnabled();
-      a.elements = elements.Read(use_device);
-      a.offsets = offsets.Read(use_device);
-      a.derivatives = d.values.Read(use_device);
-      a.jacobians = g.factors->J.Read(use_device);
-      a.determinants = g.factors->detJ.Read(use_device);
+      auto a = internals::GradientsKernelArguments{};
+      auto error = false;
+      if (!getGradientsKernelArguments(ctx, a, error, "computeGradients",
+                                       m.getPartialQuadratureSpace(), d, g, k,
+                                       use_device)) {
+        return !error;
+      }
+      a.point_by_point =
+          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
+      const auto macroscopic_gradients = m.getMacroscopicGradients();
+      for (size_type c = 0; c != gsize; ++c) {
+        a.macroscopic_gradients[c] = macroscopic_gradients[c];
+      }
       a.gradients = m.getArrays().write(MaterialArrays::StateArray::GRADIENTS,
                                         ets, use_device);
       internals::launchGradientsKernel(k, a, use_device);
@@ -257,5 +299,56 @@ namespace mfem_mgis::batch {
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeGradients
+
+  bool computeGradientsIncrements(Context& ctx,
+                                  mfem::Vector& v,
+                                  const PartialQuadratureSpace& qs,
+                                  const UnknownsDerivatives& d,
+                                  const ElementsGeometry& g,
+                                  const GradientsKind k) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(v);
+    static_cast<void>(qs);
+    static_cast<void>(d);
+    static_cast<void>(g);
+    static_cast<void>(k);
+    return ctx.registerErrorMessage(
+        "computeGradientsIncrements: the kernels computing the gradients are "
+        "not compiled (MFEM compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      auto a = internals::GradientsKernelArguments{};
+      auto error = false;
+      if (!getGradientsKernelArguments(ctx, a, error,
+                                       "computeGradientsIncrements", qs, d, g,
+                                       k, use_device)) {
+        if (!error) {
+          v.SetSize(0);
+        }
+        return !error;
+      }
+      const auto size =
+          std::int64_t{a.number_of_points} * std::int64_t{a.gradients_size};
+      if (size > std::numeric_limits<int>::max()) {
+        return ctx.registerErrorMessage(
+            "computeGradientsIncrements: too many values for MFEM");
+      }
+      v.UseDevice(true);
+      v.SetSize(static_cast<int>(size));
+      // stored point by point, without macroscopic gradients
+      a.point_by_point = true;
+      a.gradients = v.Write(use_device);
+      internals::launchGradientsKernel(k, a, use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"computeGradientsIncrements: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "computeGradientsIncrements: unknown exception");
+    }
+    return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of computeGradientsIncrements
 
 }  // end of namespace mfem_mgis::batch

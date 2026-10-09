@@ -441,11 +441,8 @@ namespace mfem_mgis {
     return true;
   }  // end of checkKernelsSupport
 
-  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
-      Context& ctx,
-      const mfem::FiniteElementSpace& fes,
-      const mfem::Vector& u) noexcept {
-    // derivatives of the unknowns, computed once for each integration rule
+  std::vector<const mfem::IntegrationRule*>
+  MultiMaterialNonLinearIntegrator::getIntegrationRules() const {
     auto rules = std::vector<const mfem::IntegrationRule*>{};
     for (const auto& bis : this->behaviour_integrators) {
       for (const auto& bi : bis) {
@@ -457,6 +454,15 @@ namespace mfem_mgis {
         }
       }
     }
+    return rules;
+  }  // end of getIntegrationRules
+
+  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Vector& u) noexcept {
+    // derivatives of the unknowns, computed once for each integration rule
+    const auto rules = this->getIntegrationRules();
     // the derivatives of the rules which are no longer used are released
     std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
       return std::find(rules.begin(), rules.end(), d.first) == rules.end();
@@ -579,6 +585,72 @@ namespace mfem_mgis {
       const bool b) noexcept {
     this->stiffness_matrices_computed_by_kernels = b;
   }  // end of setStiffnessMatricesComputedByKernels
+
+  bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Vector& x,
+      mfem::Vector& y) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
+    try {
+      for (const auto* const r : this->getIntegrationRules()) {
+        if (!batch::computeUnknownsDerivatives(
+                ctx, this->increments_derivatives[r], fes, x, *r)) {
+          return false;
+        }
+      }
+      const auto* const restriction =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      auto& ye = this->tangent_operator_element_values;
+      ye.UseDevice(true);
+      ye.SetSize(restriction->Height());
+      ye = real{0};
+      for (auto& bis : this->behaviour_integrators) {
+        for (auto& bi : bis) {
+          if (!bi->addTangentOperatorActionByKernels(
+                  ctx, ye, this->increments_derivatives,
+                  this->elements_geometry)) {
+            return false;
+          }
+        }
+      }
+      restriction->AddMultTranspose(ye, y);
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return true;
+  }  // end of addTangentOperatorActionByKernels
+
+  bool MultiMaterialNonLinearIntegrator::addTangentOperatorDiagonalByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      mfem::Vector& d) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
+    try {
+      const auto* const restriction =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      auto& de = this->tangent_operator_element_values;
+      de.UseDevice(true);
+      de.SetSize(restriction->Height());
+      de = real{0};
+      for (auto& bis : this->behaviour_integrators) {
+        for (auto& bi : bis) {
+          if (!bi->addTangentOperatorDiagonalByKernels(
+                  ctx, de, this->elements_geometry)) {
+            return false;
+          }
+        }
+      }
+      restriction->AddMultTranspose(de, d);
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return true;
+  }  // end of addTangentOperatorDiagonalByKernels
 
   bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
