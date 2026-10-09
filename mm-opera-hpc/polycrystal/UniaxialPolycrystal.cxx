@@ -220,6 +220,8 @@ int main(int argc, char *argv[]) {
 
 static void parseCommandLineArguments(mfem::OptionsParser &args,
                                       TestParameters &p) {
+  // options of mfem-mgis (device of MFEM...)
+  mfem_mgis::declareDefaultOptions(args);
   args.AddOption(&p.output_file, "", "--macroscopic-stress-output-file",
                  "main output file containing the evolution of the diagonal "
                  "components of the deformation gradient and the  diagonal "

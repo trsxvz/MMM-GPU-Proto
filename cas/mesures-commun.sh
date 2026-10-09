@@ -110,6 +110,7 @@ run() {
   if [ -f "$out/$name.res" ] && [ -f "$reference" ] &&
     [ "$out/$name.res" != "$reference" ]; then
     python3 "$P/cas/comparer-sorties.py" "$reference" \
-      "$out/$name.res" --rtol 1e-8 | sed 's/^/   /' | tee -a "$out/resume.txt"
+      "$out/$name.res" --rtol 1e-8 --groupes 0 1-3 4-6 | sed 's/^/   /' |
+      tee -a "$out/resume.txt"
   fi
 }

@@ -9,7 +9,7 @@ set(MM_OPERA_HPC_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../mm-opera-hpc"
 set(MM_OPERA_HPC_POLYCRYSTAL_DIR
   "${CMAKE_BINARY_DIR}/../mm-opera-hpc/polycrystal"
   CACHE PATH "build directory of the polycrystal of mm-opera-hpc")
-add_generic_parallel_mfront_libraries(polycristal-behaviours
+add_generic_parallel_mfront_libraries(polycristal-behaviours CUDA
   "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")
 
 # short tests: one time step on two processes, by batches with each backend,
@@ -37,23 +37,36 @@ if(Python3_Interpreter_FOUND AND
   add_test(NAME polycristal-comparison-noyaux
     COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/../comparer-sorties.py"
-            "${_reference}" "${_output}" --rtol 1e-8)
+            "${_reference}" "${_output}" --rtol 1e-8
+            --groupes 0 1-3 4-6)
   set_tests_properties(polycristal-comparison-noyaux PROPERTIES
     FIXTURES_REQUIRED "polycristal-reference;polycristal-noyaux")
   foreach(_backend ${polycristal-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-batch-${_backend}.res")
-    add_test(NAME polycristal-batch-${_backend}
-      COMMAND ${_run} -l "${_library}"
-              --macroscopic-stress-output-file "${_output}"
-      WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
-    set_tests_properties(polycristal-batch-${_backend} PROPERTIES
-      ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2"
-      FIXTURES_SETUP polycristal-${_backend})
+    if(_backend STREQUAL "cuda")
+      # behaviour integrated on the GPU, all the computations by kernels
+      add_test(NAME polycristal-batch-${_backend}
+        COMMAND ${_run} --device cuda -l "${_library}"
+                --macroscopic-stress-output-file "${_output}"
+        WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
+      set_tests_properties(polycristal-batch-${_backend} PROPERTIES
+        ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+        FIXTURES_SETUP polycristal-${_backend})
+    else()
+      add_test(NAME polycristal-batch-${_backend}
+        COMMAND ${_run} -l "${_library}"
+                --macroscopic-stress-output-file "${_output}"
+        WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
+      set_tests_properties(polycristal-batch-${_backend} PROPERTIES
+        ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2"
+        FIXTURES_SETUP polycristal-${_backend})
+    endif()
     add_test(NAME polycristal-comparison-${_backend}
       COMMAND ${Python3_EXECUTABLE}
               "${CMAKE_CURRENT_SOURCE_DIR}/../comparer-sorties.py"
-              "${_reference}" "${_output}" --rtol 1e-8)
+              "${_reference}" "${_output}" --rtol 1e-8
+            --groupes 0 1-3 4-6)
     set_tests_properties(polycristal-comparison-${_backend} PROPERTIES
       FIXTURES_REQUIRED "polycristal-reference;polycristal-${_backend}")
   endforeach()
