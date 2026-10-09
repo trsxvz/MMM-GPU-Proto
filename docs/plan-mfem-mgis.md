@@ -1,6 +1,8 @@
 # Plan pour mfem-mgis
 
-Statut : choix retenus le 08/10/2026, travail pas encore commencé.
+Statut : choix retenus le 08/10/2026, première étape (API de vues de MGIS)
+faite le 09/10/2026, plan détaillé le 09/10/2026
+([plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md)).
 mfem-mgis n'est pas encore modifié (base master `a011d97d6f`, dépôt
 `mfem-mgis/`). Ce plan s'appuie sur TFEL et MGIS tels que décrits dans
 [tfel.md](tfel.md) et [mgis.md](mgis.md).
@@ -247,40 +249,25 @@ Fabrique `src/LinearSolverFactory.cxx` :
 | Krylov de hypre (PCG, GMRES, FGMRES) | oui, avec hypre compilé pour CUDA ou HIP |
 | `HypreBoomerAMG` | oui avec hypre GPU, pour une partie des options (grossissement PMIS, interpolations directe et étendues, lisseurs Jacobi, l1-Jacobi, Gauss-Seidel hybride, Chebyshev) ; MFEM choisit des valeurs compatibles sur GPU |
 | `HypreDiagScale` | oui |
-| `HypreILU` | en partie, selon la version de hypre |
+| `HypreILU` | oui avec hypre 2.29 et plus (sans mémoire unifiée) |
 | `HypreEuclid`, `HypreParaSails` | non |
 | `MUMPSSolver`, `UMFPackSolver` | non : solveurs directs sur CPU, matrice copiée vers l'hôte |
 | PETSc | seulement avec PETSc compilé pour GPU ; chemin à réparer |
-| Ginkgo (enveloppes `mfem::Ginkgo`) | CPU (OpenMP) et GPU (CUDA, HIP, SYCL) avec le même code, choisi par l'exécuteur ; Krylov, Jacobi, ILU, IC, ISAI, AMG ; matrices séquentielles ou opérateurs sans matrice ; pas de matrice distribuée MPI dans les enveloppes (à confirmer pour MFEM 4.9) ; demande MFEM compilé avec Ginkgo |
+| Ginkgo (enveloppes `mfem::Ginkgo`) | CPU (OpenMP) et GPU (CUDA, HIP, SYCL) avec le même code, choisi par l'exécuteur ; Krylov, Jacobi, ILU, IC, ISAI, AMG ; matrices séquentielles ou opérateurs sans matrice ; matrices séquentielles seulement dans les enveloppes de MFEM 4.9 (distribuées en MFEM 4.10) ; demande MFEM compilé avec Ginkgo |
 
 Les options « élasticité » de BoomerAMG (grossissement nodal, vecteurs de
-modes rigides) ne sont pas annoncées sur GPU.
+modes rigides) ne marchent pas sur GPU : `SetElasticityOptions` arrête le
+programme avec hypre GPU (vérifié dans MFEM 4.9). La stratégie
+« Elasticity » de mfem-mgis devra être refusée sur GPU, ou remplacée par
+« System » (`SetSystemsOptions`, qui marche sur GPU).
 
 ### Ajouts envisagés
 
-Intérêt pour ce projet, sur 10 (Ginkgo mis à part, déjà prévu) :
-
-| Ajout | CPU/GPU | Intérêt |
-|---|---|---|
-| Réutiliser le préconditionneur (AMG construit une fois, sur l'opérateur élastique, ou gardé plusieurs itérations ou pas de temps) | les deux | 9 |
-| Point fixe accéléré par Anderson | les deux | 9 |
-| Newton inexact (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol`) | les deux | 8 |
-| Lisseurs sans matrice Jacobi et Chebyshev sur la diagonale (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), indispensables à l'option a | les deux | 8 |
-| Réglages GPU de BoomerAMG exposés (PMIS, ext+i, l1-Jacobi, Chebyshev, nombre de niveaux, seuils) | les deux | 8 |
-| L-BFGS préconditionné par un cycle AMG ou p-MG (`LBFGSSolver`), comme Ratel | les deux | 7 |
-| p-multigrille sans matrice avec AMG sur le Q1 (ordre 2 et plus), ou LOR (`LORSolver`) | les deux | 7 |
-| Recherche linéaire pour Newton (`ComputeScalingFactor`) | les deux | 6 |
-| Précision mixte : préconditionneur en simple précision, Krylov en double ; gain fort sur un GPU grand public (FP64 lent), plus faible sur A100 ou H100 | surtout GPU | 6 (8 sur GPU grand public) |
-| AMG élasticité avec modes rigides sur GPU (GAMG de PETSc avec espace quasi nul, Kokkos) ; demande de réparer le chemin PETSc | les deux | 6 |
-| KINSOL de SUNDIALS par MFEM (`KINSolver` : point fixe avec Anderson, JFNK, recherche linéaire) ; GPU à vérifier | les deux | 6 |
-| AmgX par `AmgXSolver` de MFEM (comparaison avec BoomerAMG) | GPU NVIDIA | 5 |
-| cuDSS (solveur direct NVIDIA, refactorisation) ; pas d'enveloppe MFEM | GPU NVIDIA | 5 |
-| Ratel comme calcul de référence sur le même cas (chaîne concurrente, PETSc et libCEED, lois écrites à la main : on reprend ses idées, pas son code) | les deux | 5 |
-| SuperLU_DIST et STRUMPACK sur GPU (enveloppes MFEM existantes) | les deux | 4 |
-| MGR de hypre pour les problèmes couplés monolithiques | les deux | 4 |
-| FSAI et ILU de hypre sur GPU | les deux | 4 |
-| dFEM de MFEM (opérateurs non linéaires sans matrice, différentiation automatique) : à surveiller, la tangente vient déjà de MFront | les deux | 3 |
-| libCEED par MFEM, recyclage de Krylov (HPDDM), BDDC/FETI, Trilinos | variable | 2 à 3 |
+La liste complète des solveurs, préconditionneurs et techniques retenus
+pour l'étude (CPU et GPU, ou GPU seul), avec leur intérêt, ce qui a été
+vérifié et les paquets de l'environnement correspondants, est dans
+[solveurs-gpu.md](solveurs-gpu.md). L'ordre dans lequel ils entrent dans
+mfem-mgis est donné par le [plan détaillé](plan-mfem-mgis-detaille.md).
 
 Référence principale : Ratel (`https://gitlab.com/micromorph/ratel`,
 arXiv 2204.01722). p-multigrille sans matrice avec lisseurs Chebyshev ou
@@ -331,6 +318,10 @@ profil `nsys`.
   contre GPU, les trois options de l'opérateur tangent sur les mêmes cas.
 
 ## Étapes
+
+Le découpage détaillé de ces étapes en lots (fichiers touchés, tests,
+critères de fin, paramètres proposés) est dans
+[plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md).
 
 1. **MGIS : API sur des vues** pour les deux rangements des données aux
    points (lois, modèles, propriétés matériau ; synchrone et asynchrone),

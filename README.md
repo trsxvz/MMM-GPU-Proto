@@ -20,7 +20,8 @@ GPU.
   ne sont pas encore modifiés. Leurs sources sont suivies ici, à leur
   version de base, pour que les changements à venir apparaissent comme des
   différences. Les choix sont faits ; la première étape, l'API de vues de
-  MGIS, est faite ([docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md)).
+  MGIS, est faite ; le plan est découpé en lots
+  ([docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md)).
 
 ## Différences avec les versions officielles
 
@@ -46,8 +47,12 @@ GPU.
 5. [docs/integration-amont.md](docs/integration-amont.md) : découpage en
    contributions pour les dépôts officiels.
 6. [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) : plan pour mfem-mgis,
-   avec les questions à trancher.
-7. [JOURNAL.md](JOURNAL.md) : cheminement jour par jour.
+   avec les questions à trancher, et son découpage en lots
+   ([docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md)).
+7. [docs/solveurs-gpu.md](docs/solveurs-gpu.md) : solveurs,
+   préconditionneurs et techniques CPU et GPU retenus pour l'étude de
+   mfem-mgis.
+8. [JOURNAL.md](JOURNAL.md) : cheminement jour par jour.
 
 La documentation des interfaces, en anglais, est aussi dans l'arbre de
 chaque bibliothèque : `tfel/docs/web/generic-parallel-*.md` pour TFEL,
