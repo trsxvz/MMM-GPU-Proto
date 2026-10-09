@@ -10,15 +10,44 @@
 # (the mathematical libraries of the SDK are in a separate directory). The GPU
 # architecture is given by `cuda_arch`: 120 (Blackwell, RTX 5080) here, 80
 # for A100 (Kokkos supports one architecture per build).
+#
+# Solvers and preconditioners: MFEM 4.9 (version used by mfem-mgis) with
+# CUDA and with all the libraries of interest for the study of the solvers
+# on CPU and GPU (see docs/solveurs-gpu.md): hypre, Ginkgo, PETSc (with
+# Kokkos, for GAMG), SUNDIALS (KINSOL), AmgX, SuperLU_DIST, STRUMPACK, and
+# the direct solvers of mfem-mgis on CPU (MUMPS, UMFPACK). cuDSS is
+# installed alone: MFEM 4.9 has no interface to it (MFEM 4.10 has one).
+# The packages of the repository mmm_gpu (deps/spack/repos) replace the
+# ones of spack for AdaptiveCpp, AmgX (commit compatible with CUDA 13) and
+# PETSc (Kokkos 5).
 spack:
   specs:
   - nvhpc@25.11
   - cuda@13.0.2
+  # MPI able to exchange GPU buffers (GPU-aware MPI of MFEM and hypre)
+  - openmpi@5 +cuda
   # Kokkos 5 always enables the CUDA lambdas
   - kokkos@5.2.2 +cuda +openmp +serial +shared +wrapper ~cuda_relocatable_device_code
     +cuda_constexpr cxxstd=20 cuda_arch=120
-  - ginkgo@1.11.0 +cuda +openmp cuda_arch=120
-  - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 ^hypre +cuda cuda_arch=120
+  # as built by PETSc itself: libraries of CUDA, instantiations for the
+  # execution spaces
+  - kokkos-kernels@5.2.2 +cuda +openmp +shared +cublas +cusparse +cusolver
+    +execspace_cuda +execspace_openmp +execspace_serial +memspace_cudaspace
+    cuda_arch=120
+  # distributed matrices and solvers of Ginkgo (MPI)
+  - ginkgo@1.11.0 +cuda +openmp +mpi cuda_arch=120
+  - hypre@3.2.0 +mpi +cuda +umpire ~int64 cuda_arch=120
+  # GAMG on the GPU (aijkokkos, aijcusparse), with hypre
+  - petsc@3.26.0 +mpi +cuda +kokkos +hypre +metis ~fortran ~hdf5 cuda_arch=120
+  # KINSOL (fixed point with Anderson acceleration, Newton-Krylov)
+  - sundials +mpi +cuda cuda_arch=120
+  - superlu-dist +cuda cuda_arch=120
+  # without the compressions of STRUMPACK on the CPU (ButterflyPACK, ZFP)
+  - strumpack +mpi +cuda ~butterflypack ~zfp cuda_arch=120
+  - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
+  - cudss@0.7.1-13 +mpi
+  - mfem@4.9.0 +mpi +shared ~static +cuda cuda_arch=120 +ginkgo +petsc +sundials
+    +superlu-dist +strumpack +amgx +umpire +suite-sparse +mumps +gslib
   - hip@7.2.3 +cuda ~rocm
   # one LLVM: AdaptiveCpp 25.10 supports LLVM 15 to 20
   - llvm@20.1.8 +clang +lld ~lldb ~flang ~mlir ~python ~lua +offload +libomptarget
@@ -27,6 +56,11 @@ spack:
   - intel-tbb@2023.1.0
   - cmake
   view: true
+  config:
+    # cache of this instance of spack: the cache of the user (~/.spack/cache)
+    # is shared with the other instances of spack of the machine, whose
+    # repository `builtin` may be at another commit (index of the patches)
+    misc_cache: $spack/var/spack/misc-cache
   concretizer:
     unify: true
     reuse: false
@@ -36,6 +70,11 @@ spack:
   packages:
     all:
       require: [target=x86_64_v3]
+    # OpenBLAS rather than the BLAS and LAPACK of the HPC SDK
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
     c:
       require: [gcc@14.2.0]
     cxx:
@@ -55,7 +94,8 @@ spack:
     nvhpc:
       buildable: false
       externals:
-      - spec: nvhpc@25.11
+      # BLAS and LAPACK of OpenBLAS (see above)
+      - spec: nvhpc@25.11 ~blas ~lapack ~mpi
         prefix: /opt/nvidia/hpc_sdk
     cuda:
       buildable: false

@@ -44,6 +44,14 @@ case "$PROTO_ENVIRONMENT" in
     export PROTO_ACPP=$PROTO_SPACK_VIEW
     export PROTO_TFEL_BUILD=$P/build/tfel-mmm-gpu
     export PROTO_TFEL_INSTALL=$P/install/tfel-mmm-gpu
+    # a spack environment activated in the shell must not be seen by CMake:
+    # its view may contain an older TFEL, whose headers come before the ones
+    # of the installed TFEL as soon as a package of the view is found
+    # (HDF5 for instance)
+    unset SPACK_ENV SPACK_ENV_VIEW NVHPC_CUDA_HOME ACLOCAL_PATH
+    export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_SPACK_VIEW
+    export PKG_CONFIG_PATH=$PROTO_SPACK_VIEW/lib/pkgconfig:$PROTO_SPACK_VIEW/share/pkgconfig
+    export CUDA_HOME=$PROTO_CUDA
     ;;
   *)
     echo "env.sh: unknown environment '$PROTO_ENVIRONMENT'" >&2

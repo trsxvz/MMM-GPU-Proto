@@ -40,6 +40,12 @@ case "${PROTO_ENVIRONMENT:-mmm-gpu}" in
     CLANGXX=$V/bin/clang++
     BUILD=$P/build/tfel-mmm-gpu
     INSTALL=$P/install/tfel-mmm-gpu
+    # environnement spack éventuellement activé dans le shell : invisible
+    # pour CMake (voir scripts/env.sh)
+    unset SPACK_ENV SPACK_ENV_VIEW NVHPC_CUDA_HOME ACLOCAL_PATH
+    export CMAKE_PREFIX_PATH=$V
+    export PKG_CONFIG_PATH=$V/lib/pkgconfig:$V/share/pkgconfig
+    export CUDA_HOME=$CUDA
     ;;
   *)
     echo "unknown environment '$PROTO_ENVIRONMENT'" >&2

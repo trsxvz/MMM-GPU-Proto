@@ -1,0 +1,36 @@
+From 5c0985f3a4c058285305cf36784e6a80220afe17 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 02:11:27 +0200
+Subject: [PATCH] Tests: nvcc options of the cuda-nvcc configuration of TFEL
+ for the cuda laws
+
+The laws of the tests generated with the cuda backend are compiled with
+the options of the cuda-nvcc configuration of TFEL: the warnings of nvcc
+on the headers of TFEL (20012, 20208, 2810, 3189) are disabled, and calls
+to host functions from device code (20011, 20014) are errors.
+---
+ cmake/modules/generic-parallel.cmake | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
+index ccebbc3..700b4e3 100644
+--- a/cmake/modules/generic-parallel.cmake
++++ b/cmake/modules/generic-parallel.cmake
+@@ -61,8 +61,13 @@ function(_mfront_generic_parallel_check_library name kind backend)
+       # architecture of the GPUs of the machine
+       set_target_properties(${name} PROPERTIES CUDA_ARCHITECTURES native)
+     endif(NOT CMAKE_VERSION VERSION_LESS 3.24)
++    # options of the `cuda-nvcc` configuration of TFEL: the warnings of nvcc
++    # on the headers of TFEL are disabled and calls to host functions from
++    # device code are errors
+     target_compile_options(${name} PRIVATE
+-      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
++      $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
++      "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-diag-suppress 20012,20208,2810,3189>"
++      "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-diag-error 20011,20014>")
+   endif(backend STREQUAL "cuda")
+   if(backend STREQUAL "stlpar")
+     # the parallel algorithms of libstdc++ use TBB
+-- 
+2.43.0
+
