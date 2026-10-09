@@ -2558,3 +2558,30 @@ volontaires détectées par les nouveaux tests.
 - Leçon d'outillage : dans les surveillances de journaux, `grep` du shell
   est une fonction (ugrep) qui ne remontait rien ; attendre plutôt la fin
   d'un processus par son PID.
+
+### 2026-10-09 (matin), MFEM 4.10, OpenMPI compatible GPU, constructions surveillées
+
+- **Tout le prototype passe en MFEM 4.10** (cuDSS, Ginkgo distribué,
+  `GroupCommunicator` sur le périphérique), avec les backends OpenMP et
+  libCEED. Les faits vérifiés sur 4.9 ont été revérifiés sur 4.10.
+- **OpenMPI avec CUDA.** Son hwloc interne activait le greffon OpenCL avec
+  un chemin invalide ; la recette `openmpi` de `mmm_gpu` le construit avec
+  `--disable-opencl`. Le hwloc de spack avec CUDA aurait reconstruit LLVM
+  et TBB.
+- **Constructions robustes.** Le régulateur de mémoire suspend tous les
+  processus de la construction sauf le plus gros (qui tient la mémoire et
+  doit finir) ; chaque phase de `install-mmm-gpu.sh` est relancée jusqu'à
+  trois fois ; une recette `mfem` garde la date de `config.mk` pour qu'une
+  construction interrompue reprenne sans tout recompiler. Un superviseur
+  hors de la session relance l'installation jusqu'au succès.
+- **Deux fichiers de MFEM 4.10 démesurés avec CUDA 13** (sm_120) :
+  `fem/lor/lor_batched.cpp` (`ptxas` à 23 Go) et
+  `fem/integ/bilininteg_convection_ea.cpp` (`cicc` pendant plus de deux
+  heures : noyau 3D spécialisé jusqu'aux ordres 8×9, boucles déroulées).
+  Avec deux tâches, le noyau a tué `ptxas` faute de mémoire malgré la
+  pause du régulateur ; la phase repart avec une tâche, en gardant les
+  objets compilés.
+- **Plan** : confronté à tout le code de mfem-mgis (82 fonctionnalités) et
+  complété ; techniques de point fixe de l'étude préalable ajoutées (point
+  fixe sur `K0`, accélérateurs de MTest portés, Newton modifié, AMG de `K0`
+  gelé, simple précision, prédiction).
