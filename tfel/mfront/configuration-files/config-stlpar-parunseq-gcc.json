@@ -9,7 +9,7 @@ interfaces_options: {
 compilation_options : {
   cxx : {
     compiler: "@TFEL_GXX_COMPILER@",
-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native" 
+    compilation_flags: "-O2 -ftree-vectorize -DNDEBUG -DTFEL_NO_RUNTIME_CHECK_BOUNDS -std=c++@TFEL_CXX_STANDARD@ -march=native" 
   }
 },
 linking_options : {
