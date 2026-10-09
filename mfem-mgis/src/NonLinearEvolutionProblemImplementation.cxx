@@ -41,24 +41,39 @@ namespace mfem_mgis {
 
   /*!
    * \brief integrate the behaviours by batches: gradients computed element
-   * by element (not for a prediction), then one call per behaviour
-   * integrator
+   * by element, or by kernels (not for a prediction), then one call per
+   * behaviour integrator
    * \return true on success
    * \param[in] mi: multi-material integrator
    * \param[in] fespace: finite element space
    * \param[in] u: unknowns (local degrees of freedom)
    * \param[in] it: integration type
+   * \param[in] kernels: if true, the gradients are computed by kernels
    */
   template <typename FiniteElementSpaceType>
   static bool integrateByBatches(MultiMaterialNonLinearIntegrator& mi,
                                  const FiniteElementSpaceType& fespace,
                                  const mfem::Vector& u,
-                                 const IntegrationType it) {
+                                 const IntegrationType it,
+                                 const bool kernels) {
     const auto prediction =
         (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
         (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
         (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
-    if (!prediction) {
+    if ((!prediction) && (kernels)) {
+      auto ctx = Context{};
+      if (!mi.computeGradientsByKernels(ctx, fespace, u)) {
+        getErrorStream() << ctx.getErrorMessage() << '\n';
+        return false;
+      }
+      // the behaviours are integrated on the host
+      try {
+        mi.synchronizeOnHost();
+      } catch (std::exception& e) {
+        getErrorStream() << "integrate: " << e.what() << '\n';
+        return false;
+      }
+    } else if (!prediction) {
       mfem::Array<int> vdofs;
       mfem::Vector ue;
       for (size_type i = 0; i != fespace.GetNE(); ++i) {
@@ -310,6 +325,38 @@ namespace mfem_mgis {
     std::function<void(const real, const real)> f;
   };  // end of struct StdFunctionPostProcessing
 
+  /*!
+   * \brief adds the inner forces computed by kernels to the residual (true
+   * degrees of freedom), and cancels the residual at the essential degrees
+   * of freedom
+   * \param[in, out] mi: multi-material integrator
+   * \param[in] fes: finite element space
+   * \param[in] essential_dofs: essential true degrees of freedom
+   * \param[in, out] r: residual
+   */
+  static void addInnerForcesComputedByKernels(
+      MultiMaterialNonLinearIntegrator& mi,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Array<int>& essential_dofs,
+      mfem::Vector& r) {
+    auto ctx = Context{};
+    auto f = mfem::Vector{};
+    f.UseDevice(true);
+    f.SetSize(fes.GetVSize());
+    f = real{0};
+    if (!mi.addInnerForcesByKernels(ctx, fes, f)) {
+      raise("computation of the residual: " + ctx.getErrorMessage());
+    }
+    // from the local vector of the finite element space to the true degrees
+    // of freedom
+    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
+      P->AddMultTranspose(f, r);
+    } else {
+      r += f;
+    }
+    r.SetSubVector(essential_dofs, real{0});
+  }  // end of addInnerForcesComputedByKernels
+
 #ifdef MFEM_USE_MPI
 
   NonLinearEvolutionProblemImplementation<true>::
@@ -398,7 +445,14 @@ namespace mfem_mgis {
 
   void NonLinearEvolutionProblemImplementation<true>::Mult(
       const mfem::Vector& u, mfem::Vector& r) const {
-    return mfem_mgis::NonlinearForm<true>::Mult(u, r);
+    // with the inner forces computed by kernels, the integrator of mfem-mgis
+    // gives null contributions to the residual assembled by MFEM
+    mfem_mgis::NonlinearForm<true>::Mult(u, r);
+    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
+      addInnerForcesComputedByKernels(*(this->mgis_integrator),
+                                      this->getFiniteElementSpace(),
+                                      this->ess_tdof_list, r);
+    }
   }  // end of Mult
 
   bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
@@ -560,7 +614,8 @@ namespace mfem_mgis {
     mfem::Vector ue;
     bool success = true;
     if (this->batch_integration) {
-      success = integrateByBatches(*(this->mgis_integrator), fespace, pu, it);
+      success = integrateByBatches(*(this->mgis_integrator), fespace, pu, it,
+                                   this->gradients_kernels);
     } else {
       for (size_type i = 0; success && (i != fespace.GetNE()); ++i) {
         const auto& e = *(fespace.GetFE(i));
@@ -659,6 +714,17 @@ namespace mfem_mgis {
     this->u1 -= oresult->mdu->GetTrueVector();
     return oresult->initial_residual_norm;
   }  // end of computePrediction
+
+  void NonLinearEvolutionProblemImplementation<false>::Mult(
+      const mfem::Vector& u, mfem::Vector& r) const {
+    // see the parallel version
+    mfem_mgis::NonlinearForm<false>::Mult(u, r);
+    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
+      addInnerForcesComputedByKernels(*(this->mgis_integrator),
+                                      this->getFiniteElementSpace(),
+                                      this->ess_tdof_list, r);
+    }
+  }  // end of Mult
 
   bool NonLinearEvolutionProblemImplementation<false>::addBoundaryCondition(
       Context& ctx,
@@ -819,7 +885,8 @@ namespace mfem_mgis {
     mfem::Array<int> vdofs;
     mfem::Vector ue;
     if (this->batch_integration) {
-      if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it)) {
+      if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it,
+                              this->gradients_kernels)) {
         this->mgis_integrator->setTimeIncrement(dt);
         return false;
       }

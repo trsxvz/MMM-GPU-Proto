@@ -65,6 +65,32 @@ namespace mfem_mgis {
      * `MFEM_MGIS_BEHAVIOUR_INTEGRATION`, if defined.
      */
     static const char* const BehaviourIntegration;
+    /*!
+     * \brief name of the parameter selecting the computation of the
+     * gradients in the integration by batches: `ElementByElement` (default:
+     * the behaviour integrators compute the gradients element by element)
+     * or `Kernels` (the derivatives of the unknowns are computed for all the
+     * elements by the quadrature interpolator of MFEM, then each behaviour
+     * integrator computes its gradients by a kernel, on the device if a
+     * device is enabled). `Kernels` requires `BehaviourIntegration` set to
+     * `Batch`, and is supported for the standard mechanical behaviours in
+     * 3D, plane strain and plane stress, without FBar, on meshes with one
+     * geometry. The default value is given by the environment variable
+     * `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
+     */
+    static const char* const GradientsComputation;
+    /*!
+     * \brief name of the parameter selecting the computation of the inner
+     * forces of the behaviour integrators of mfem-mgis in the residual:
+     * `ElementByElement` (default) or `Kernels` (computed for all the
+     * elements by kernels from the thermodynamic forces, on the device if a
+     * device is enabled, then summed by the transposed element restriction
+     * of MFEM). `Kernels` is supported for the same behaviour integrators
+     * and meshes as for `GradientsComputation`, not with PETSc. The default
+     * value is given by the environment variable
+     * `MFEM_MGIS_INNER_FORCES_COMPUTATION`, if defined.
+     */
+    static const char* const InnerForcesComputation;
     //! \return the list of valid parameters
     static std::vector<std::string> getParametersList();
     /*!
@@ -283,6 +309,13 @@ namespace mfem_mgis {
     const Hypothesis hypothesis;
     //! \brief if true, the behaviours are integrated by batches
     const bool batch_integration;
+    /*!
+     * \brief if true, the gradients of the integration by batches are
+     * computed by kernels
+     */
+    const bool gradients_kernels;
+    //! \brief if true, the inner forces are computed by kernels
+    const bool inner_forces_kernels;
   };  // end of struct NonLinearEvolutionProblemImplementationBase
 
 }  // end of namespace mfem_mgis

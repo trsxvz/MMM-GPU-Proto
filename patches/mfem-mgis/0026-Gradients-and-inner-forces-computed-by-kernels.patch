@@ -1,0 +1,2634 @@
+From 06e1a0e79f5e26ed2b96b7771cfcddebe3c6c1ef Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 19:53:07 +0200
+Subject: [PATCH] Gradients and inner forces computed by kernels
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+First kernels of the batch path (lot L3), in `src/Batch/`, compiled as
+CUDA code when MFEM is compiled with CUDA:
+
+- gradients: element restriction (native ordering) and physical
+  derivatives at the integration points by the quadrature interpolator of
+  MFEM, once per integration rule for all the materials
+  (`batch::computeUnknownsDerivatives`), then one kernel per material
+  writing the gradients of the behaviour (linearised strain or deformation
+  gradient, macroscopic gradients included) in the array of the material,
+  in its layout (`batch::computeGradients`);
+- inner forces: gradients of the shape functions on the reference element
+  (`DofToQuad`), jacobians and determinants (`GeometricFactors`), one
+  thread per node of an element, `Bᵀ σ w det J` with the operator `B` of
+  the generated behaviour integrators, added to values element by element
+  in the layout of the element restriction (`batch::addInnerForces`); the
+  orthotropic behaviours use the thermodynamic forces in the global frame
+  of all the points;
+- behaviour integrators: `supportsKernels`, `computeGradientsByKernels`,
+  `addInnerForcesByKernels`, implemented by the standard CRTP base
+  (mechanics in 3D, plane strain and plane stress, small and finite
+  strain, without FBar, one integration rule for all the elements of a
+  material); `PartialQuadratureSpace::getUniformIntegrationRule`,
+  `Material::getMacroscopicGradients`;
+- new parameters of the non linear evolution problems, defaults given by
+  environment variables: `GradientsComputation` (`ElementByElement` or
+  `Kernels`, with `BehaviourIntegration` set to `Batch`) and
+  `InnerForcesComputation` (`ElementByElement` or `Kernels`: the integrator
+  of mfem-mgis gives null element vectors to MFEM, and `Mult` adds the
+  inner forces computed by kernels, summed by the transposed element
+  restriction and prolongation); refused with PETSc.
+
+`QuadratureInterpolator::MultTranspose` is not implemented in MFEM 4.10:
+the kernel of the inner forces is written here.
+
+Tests: GradientsKernelsTest compares the gradients and the inner forces
+computed by kernels to the ones computed element by element (hexahedra and
+tetrahedra, orders 1 and 2, small and finite strain, orthotropic, plane
+strain, two materials with macroscopic gradients; differences of the order
+of 1e-16), on the host, on the debug device of MFEM and on the GPU;
+BatchIntegrationTest compares complete computations with the kernels to
+the integration point by point (differences below 1e-12, the numbers of
+Newton iterations differing at most by one at each time step). 142/142;
+with all the kernels enabled by the environment variables, only the
+expected refusals fail (heat transfer, micromorphic damage).
+---
+ include/CMakeLists.txt                        |   4 +
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  39 +++
+ include/MFEMMGIS/Batch/Gradients.hxx          | 166 +++++++++
+ include/MFEMMGIS/Batch/InnerForces.hxx        | 102 ++++++
+ include/MFEMMGIS/Material.hxx                 |   3 +
+ .../MultiMaterialNonLinearIntegrator.hxx      |  59 ++++
+ ...onLinearEvolutionProblemImplementation.hxx |   6 +
+ ...nearEvolutionProblemImplementationBase.hxx |  33 ++
+ include/MFEMMGIS/PartialQuadratureSpace.hxx   |   9 +
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |   7 +
+ .../StandardBehaviourIntegratorCRTPBase.ixx   | 105 ++++++
+ src/AbstractBehaviourIntegrator.cxx           |  19 +
+ src/Batch/Gradients.cxx                       | 220 ++++++++++++
+ src/Batch/GradientsKernels.cxx                | 135 +++++++
+ src/Batch/GradientsKernels.hxx                |  58 +++
+ src/Batch/InnerForces.cxx                     | 140 ++++++++
+ src/Batch/InnerForcesKernels.cxx              | 155 +++++++++
+ src/Batch/InnerForcesKernels.hxx              |  65 ++++
+ src/CMakeLists.txt                            |   8 +-
+ src/Material.cxx                              |   4 +
+ src/MultiMaterialNonLinearIntegrator.cxx      | 113 ++++++
+ ...onLinearEvolutionProblemImplementation.cxx |  81 ++++-
+ ...nearEvolutionProblemImplementationBase.cxx |  77 +++-
+ src/PartialQuadratureSpace.cxx                |  26 +-
+ tests/BatchIntegrationTest.cxx                |  75 +++-
+ tests/CMakeLists.txt                          |  22 ++
+ tests/GradientsKernelsTest.cxx                | 329 ++++++++++++++++++
+ 27 files changed, 2041 insertions(+), 19 deletions(-)
+ create mode 100644 include/MFEMMGIS/Batch/Gradients.hxx
+ create mode 100644 include/MFEMMGIS/Batch/InnerForces.hxx
+ create mode 100644 src/Batch/Gradients.cxx
+ create mode 100644 src/Batch/GradientsKernels.cxx
+ create mode 100644 src/Batch/GradientsKernels.hxx
+ create mode 100644 src/Batch/InnerForces.cxx
+ create mode 100644 src/Batch/InnerForcesKernels.cxx
+ create mode 100644 src/Batch/InnerForcesKernels.hxx
+ create mode 100644 tests/GradientsKernelsTest.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index c26653ca12..2fa23abb7c 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -37,6 +37,10 @@ mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
+ if(NOT MFEM_USE_HIP STREQUAL "YES")
+   mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
+ endif()
++# computations by kernels (an error is reported if the kernels are not
++# compiled)
++mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
++mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+ mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index 3a0b4d355c..751ca04e07 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -13,6 +13,8 @@
+ #include <memory>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/TimeStepStage.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "MFEMMGIS/Batch/InnerForces.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -131,6 +133,43 @@ namespace mfem_mgis {
+      * \note the default implementation returns false
+      */
+     [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
++    /*!
++     * \return true if the gradients and the inner forces of the behaviour
++     * integrator can be computed by kernels (see `computeGradientsByKernels`
++     * and `addInnerForcesByKernels`). The default implementation returns
++     * false.
++     */
++    [[nodiscard]] virtual bool supportsKernels() const noexcept;
++    /*!
++     * \brief compute the gradients at all the integration points by
++     * kernels, from the derivatives of the unknowns at the points of the
++     * integration rule of the elements (see
++     * `PartialQuadratureSpace::getUniformIntegrationRule`): first step of
++     * the integration by batches, replacing the calls to `computeGradients`
++     * element by element. As with `computeGradients`, the gradients are left
++     * in the global frame.
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] d: derivatives of the unknowns, which must contain the ones
++     * of the integration rule of the elements
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool computeGradientsByKernels(
++        Context&, const batch::UnknownsDerivativesSet&) noexcept;
++    /*!
++     * \brief add the inner forces of all the elements, computed by kernels
++     * from the thermodynamic forces at the end of the time step, to values
++     * element by element in the layout of the element restriction of MFEM
++     * (see `batch::addInnerForces`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] f: values element by element
++     * \param[in] g: geometric data, which must contain the ones of the
++     * integration rule of the elements
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool addInnerForcesByKernels(
++        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief compute the contribution of the given element to the inner forces
+      * \param[out] Fe: inner forces
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+new file mode 100644
+index 0000000000..6af376f57d
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -0,0 +1,166 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/Gradients.hxx
++ * \brief  This file declares the computation of the gradients of the
++ * behaviours by kernels of MFEM, for all the integration points of a
++ * material at once
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_GRADIENTS_HXX
++#define LIB_MFEM_MGIS_BATCH_GRADIENTS_HXX
++
++#include <map>
++#include <optional>
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
++
++namespace mfem {
++  // forward declarations
++  class FiniteElementSpace;
++  class IntegrationRule;
++}  // end of namespace mfem
++
++namespace mfem_mgis {
++  // forward declaration
++  struct Material;
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief derivatives of the unknowns at the integration points of all the
++   * elements of the mesh, for one integration rule, computed by the
++   * quadrature interpolator of MFEM (see `computeUnknownsDerivatives`)
++   */
++  struct MFEM_MGIS_EXPORT UnknownsDerivatives {
++    //! \brief integration rule
++    const mfem::IntegrationRule* rule = nullptr;
++    /*!
++     * \brief derivatives, in the layout `byVDIM` of MFEM: the derivative of
++     * the `i`-th component of the unknowns with respect to the `j`-th
++     * coordinate at the `q`-th point of the `e`-th element is the value
++     * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
++     * on the device if a device is enabled.
++     */
++    mfem::Vector values;
++    //! \brief values of the unknowns element by element (workspace)
++    mfem::Vector element_values;
++    //! \brief number of components of the unknowns
++    int vdim = 0;
++    //! \brief dimension of the space
++    int dim = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief number of elements
++    int ne = 0;
++  };
++
++  /*!
++   * \brief derivatives of the unknowns for the integration rules of several
++   * materials, computed once for each integration rule
++   */
++  using UnknownsDerivativesSet =
++      std::map<const mfem::IntegrationRule*, UnknownsDerivatives>;
++
++  /*!
++   * \brief gradients of the behaviours computed by the kernels, from the
++   * derivatives of the displacement, in the order of the gradients of the
++   * behaviours (as the behaviour integrators generated by mfem-mgis)
++   */
++  enum struct GradientsKind {
++    /*!
++     * \brief linearised strain in 3D: `(e11, e22, e33, √2 e12, √2 e13,
++     * √2 e23)`
++     */
++    SMALL_STRAIN_3D,
++    /*!
++     * \brief linearised strain in 2D (plane strain and plane stress):
++     * `(e11, e22, 0, √2 e12)`
++     */
++    SMALL_STRAIN_2D,
++    /*!
++     * \brief deformation gradient in 3D: `(F11, F22, F33, F12, F21, F13,
++     * F31, F23, F32)`, the identity being given by the macroscopic
++     * gradients
++     */
++    DEFORMATION_GRADIENT_3D,
++    /*!
++     * \brief deformation gradient in 2D (plane strain and plane stress):
++     * `(F11, F22, F33, F12, F21)`, `F33` and the identity being given by the
++     * macroscopic gradients
++     */
++    DEFORMATION_GRADIENT_2D
++  };
++
++  /*!
++   * \return the kind of the gradients of a behaviour computed by the
++   * kernels, if supported: small strain and finite strain (deformation
++   * gradient) mechanical behaviours in 3D, plane strain and plane stress
++   * \param[in] b: behaviour
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<GradientsKind> getGradientsKind(
++      const Behaviour&) noexcept;
++  /*!
++   * \return the number of components of the gradients of the given kind,
++   * which is also the number of components of the associated thermodynamic
++   * forces
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] size_type getGradientsSize(
++      const GradientsKind) noexcept;
++  /*!
++   * \return the dimension of the space, which is also the number of
++   * components of the unknowns, for the given kind of gradients
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] int getSpaceDimension(
++      const GradientsKind) noexcept;
++  /*!
++   * \return true if the kernels computing the gradients are compiled. They
++   * are not when MFEM is compiled with HIP (see the `CMakeLists.txt` of the
++   * sources).
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsKernelsAvailable() noexcept;
++  /*!
++   * \brief computes the derivatives of the unknowns at the points of an
++   * integration rule, for all the elements of the mesh: element
++   * restriction, then physical derivatives by the quadrature interpolator
++   * of MFEM, on the device if a device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] d: derivatives
++   * \param[in] fes: finite element space. Its elements must have the same
++   * geometry and be supported by the quadrature interpolator of MFEM.
++   * \param[in] u: unknowns (local vector of the finite element space,
++   * after the prolongation for a parallel space)
++   * \param[in] ir: integration rule
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeUnknownsDerivatives(
++      Context&,
++      UnknownsDerivatives&,
++      const mfem::FiniteElementSpace&,
++      const mfem::Vector&,
++      const mfem::IntegrationRule&) noexcept;
++  /*!
++   * \brief computes the gradients at the end of the time step of a material
++   * at all its integration points, by a kernel: macroscopic gradients plus
++   * the contributions of the unknowns, written in the array of the
++   * gradients of the material (in its layout), on the device if a device is
++   * enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: material. All the elements of its quadrature space
++   * must use the integration rule of the derivatives.
++   * \param[in] d: derivatives of the unknowns
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradients(
++      Context&,
++      Material&,
++      const UnknownsDerivatives&,
++      const GradientsKind) noexcept;
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_GRADIENTS_HXX */
+diff --git a/include/MFEMMGIS/Batch/InnerForces.hxx b/include/MFEMMGIS/Batch/InnerForces.hxx
+new file mode 100644
+index 0000000000..4e9c829b22
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/InnerForces.hxx
+@@ -0,0 +1,102 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/InnerForces.hxx
++ * \brief  This file declares the computation of the inner forces of the
++ * standard mechanical behaviour integrators by kernels of MFEM, for all the
++ * elements of a material at once
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_INNERFORCES_HXX
++#define LIB_MFEM_MGIS_BATCH_INNERFORCES_HXX
++
++#include <map>
++#include "mfem/linalg/vector.hpp"
++#include "MGIS/FieldView.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++
++namespace mfem {
++  // forward declarations
++  class DofToQuad;
++  class GeometricFactors;
++}  // end of namespace mfem
++
++namespace mfem_mgis {
++  // forward declaration
++  struct PartialQuadratureSpace;
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief geometric data of all the elements of the mesh for one
++   * integration rule: gradients of the shape functions on the reference
++   * element (`mfem::DofToQuad`, owned by the finite element) and jacobians
++   * of the element transformations (`mfem::GeometricFactors`, owned by the
++   * mesh)
++   */
++  struct MFEM_MGIS_EXPORT ElementsGeometry {
++    //! \brief integration rule
++    const mfem::IntegrationRule* rule = nullptr;
++    //! \brief values and gradients of the shape functions at the points
++    const mfem::DofToQuad* maps = nullptr;
++    //! \brief jacobians and their determinants at the points
++    const mfem::GeometricFactors* factors = nullptr;
++    //! \brief weights of the integration points (in the memory of MFEM)
++    mfem::Vector weights;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief dimension of the space
++    int dim = 0;
++    //! \brief number of elements
++    int ne = 0;
++  };
++
++  //! \brief geometric data for the integration rules of several materials
++  using ElementsGeometrySet =
++      std::map<const mfem::IntegrationRule*, ElementsGeometry>;
++
++  /*!
++   * \brief computes the geometric data of all the elements of the mesh for
++   * an integration rule
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] g: geometric data
++   * \param[in] fes: finite element space. Its elements must have the same
++   * geometry.
++   * \param[in] ir: integration rule
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsGeometry(
++      Context&,
++      ElementsGeometry&,
++      const mfem::FiniteElementSpace&,
++      const mfem::IntegrationRule&) noexcept;
++  /*!
++   * \brief adds the inner forces of the elements of a material, `Bᵀ σ w det
++   * J` summed over the integration points, to a vector of values element by
++   * element, in the layout of the element restriction of MFEM (`nd x vdim x
++   * ne`, native ordering of the degrees of freedom), on the device if a
++   * device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] f: values element by element
++   * \param[in] qs: quadrature space of the material. All its elements must
++   * use the integration rule of the geometric data.
++   * \param[in] s: thermodynamic forces in the global frame at all the
++   * points of the material, located on the device if a device is enabled
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients, which defines the operator `B`
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addInnerForces(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_INNERFORCES_HXX */
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index e0f95cd029..c347ce3b8f 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -72,6 +72,9 @@ namespace mfem_mgis {
+      * \param[in] g: macroscopic gradients
+      */
+     void setMacroscopicGradients(std::span<const real> g);
++    //! \return the macroscopic gradients
++    [[nodiscard]] std::span<const real> getMacroscopicGradients()
++        const noexcept;
+     /*!
+      * \brief set the rotation matrix
+      * \param[in] r: rotation matrix
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index b4766827cd..3d40ef8441 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -14,6 +14,8 @@
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "MFEMMGIS/Batch/InnerForces.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ 
+ namespace mfem_mgis {
+@@ -118,6 +120,52 @@ namespace mfem_mgis {
+      * \return true on success
+      */
+     [[nodiscard]] bool integrateBatch(const IntegrationType it);
++    /*!
++     * \return true if the gradients of all the behaviour integrators can be
++     * computed by kernels (see
++     * `AbstractBehaviourIntegrator::supportsKernels`); otherwise,
++     * an error message naming the first behaviour integrator which does not
++     * support them is registered
++     * \param[in, out] ctx: execution context
++     */
++    [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
++    /*!
++     * \brief compute the gradients of all the behaviour integrators by
++     * kernels (first step of the integration by batches, replacing the calls
++     * to `computeGradients` element by element): the derivatives of the
++     * unknowns are computed once for each integration rule of the
++     * materials, then each behaviour integrator computes its gradients
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in] u: unknowns (local vector of the finite element space)
++     */
++    [[nodiscard]] bool computeGradientsByKernels(
++        Context& ctx,
++        const mfem::FiniteElementSpace& fes,
++        const mfem::Vector& u) noexcept;
++    /*!
++     * \brief add the inner forces of all the behaviour integrators, computed
++     * by kernels from the thermodynamic forces at the end of the time step
++     * (see `AbstractBehaviourIntegrator::addInnerForcesByKernels`), to a
++     * local vector of the finite element space (transposed element
++     * restriction)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in, out] f: local vector of the finite element space
++     */
++    [[nodiscard]] bool addInnerForcesByKernels(
++        Context& ctx,
++        const mfem::FiniteElementSpace& fes,
++        mfem::Vector& f) noexcept;
++    /*!
++     * \brief if true, `AssembleElementVector` gives null vectors: the inner
++     * forces are computed by kernels by the non linear evolution problem
++     * (see `addInnerForcesByKernels`)
++     * \param[in] b: boolean
++     */
++    void setInnerForcesComputedByKernels(const bool) noexcept;
+     //! \return the current time increment
+     [[nodiscard]] real getTimeIncrement() const noexcept;
+     /*!
+@@ -266,6 +314,17 @@ namespace mfem_mgis {
+      */
+     std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>
+         behaviour_integrators;
++    /*!
++     * \brief derivatives of the unknowns, by integration rule (workspace of
++     * `computeGradientsByKernels`, kept to avoid reallocations)
++     */
++    batch::UnknownsDerivativesSet unknowns_derivatives;
++    //! \brief geometric data (workspace of `addInnerForcesByKernels`)
++    batch::ElementsGeometrySet elements_geometry;
++    //! \brief inner forces element by element (workspace)
++    mfem::Vector inner_forces_element_values;
++    //! \brief see `setInnerForcesComputedByKernels`
++    bool inner_forces_computed_by_kernels = false;
+   };  // end of MultiMaterialNonLinearIntegrator
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+index d64e895e37..1b1793a8c5 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+@@ -150,6 +150,12 @@ namespace mfem_mgis {
+     //! \return the finite element space
+     [[nodiscard]] const FiniteElementSpace<false>& getFiniteElementSpace()
+         const noexcept;
++    /*!
++     * \brief compute the residual
++     * \param[in] u: current estimate of the unknowns
++     * \param[out] r: residual
++     */
++    void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
+     //
+     [[nodiscard]] bool addBoundaryCondition(
+         Context& ctx,
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index e1377c8490..1a8bd2cf40 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -65,6 +65,32 @@ namespace mfem_mgis {
+      * `MFEM_MGIS_BEHAVIOUR_INTEGRATION`, if defined.
+      */
+     static const char* const BehaviourIntegration;
++    /*!
++     * \brief name of the parameter selecting the computation of the
++     * gradients in the integration by batches: `ElementByElement` (default:
++     * the behaviour integrators compute the gradients element by element)
++     * or `Kernels` (the derivatives of the unknowns are computed for all the
++     * elements by the quadrature interpolator of MFEM, then each behaviour
++     * integrator computes its gradients by a kernel, on the device if a
++     * device is enabled). `Kernels` requires `BehaviourIntegration` set to
++     * `Batch`, and is supported for the standard mechanical behaviours in
++     * 3D, plane strain and plane stress, without FBar, on meshes with one
++     * geometry. The default value is given by the environment variable
++     * `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
++     */
++    static const char* const GradientsComputation;
++    /*!
++     * \brief name of the parameter selecting the computation of the inner
++     * forces of the behaviour integrators of mfem-mgis in the residual:
++     * `ElementByElement` (default) or `Kernels` (computed for all the
++     * elements by kernels from the thermodynamic forces, on the device if a
++     * device is enabled, then summed by the transposed element restriction
++     * of MFEM). `Kernels` is supported for the same behaviour integrators
++     * and meshes as for `GradientsComputation`, not with PETSc. The default
++     * value is given by the environment variable
++     * `MFEM_MGIS_INNER_FORCES_COMPUTATION`, if defined.
++     */
++    static const char* const InnerForcesComputation;
+     //! \return the list of valid parameters
+     static std::vector<std::string> getParametersList();
+     /*!
+@@ -283,6 +309,13 @@ namespace mfem_mgis {
+     const Hypothesis hypothesis;
+     //! \brief if true, the behaviours are integrated by batches
+     const bool batch_integration;
++    /*!
++     * \brief if true, the gradients of the integration by batches are
++     * computed by kernels
++     */
++    const bool gradients_kernels;
++    //! \brief if true, the inner forces are computed by kernels
++    const bool inner_forces_kernels;
+   };  // end of struct NonLinearEvolutionProblemImplementationBase
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+index 220219b160..f49062d53f 100644
+--- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
++++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+@@ -192,6 +192,13 @@ namespace mfem_mgis {
+      * number of integration points. Readable on the device (`Read`).
+      */
+     [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
++    /*!
++     * \return the integration rule used by all the elements of the space, or
++     * a null pointer if the elements use different integration rules or if
++     * the space has no element
++     */
++    [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
++        const noexcept;
+     //! \return the material or boundary identifier
+     [[nodiscard]] size_type getId() const noexcept;
+     //! \brief destructor
+@@ -261,6 +268,8 @@ namespace mfem_mgis {
+     mfem::Array<int> elements;
+     //! \brief offsets of the points of the elements (size: elements + 1)
+     mfem::Array<int> element_offsets;
++    //! \brief integration rule used by all the elements, if any
++    const mfem::IntegrationRule* uniform_integration_rule = nullptr;
+     //! \brief material or boundary identifier
+     size_type id;
+     //! \brief number of integration points
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index e5b82c59b8..6ef4b64fda 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -42,6 +42,13 @@ namespace mfem_mgis {
+     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
+                                         mfem::ElementTransformation&,
+                                         const mfem::Vector&) override;
++    [[nodiscard]] bool supportsKernels() const noexcept override;
++    [[nodiscard]] bool computeGradientsByKernels(
++        Context&, const batch::UnknownsDerivativesSet&) noexcept override;
++    [[nodiscard]] bool addInnerForcesByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
+ 
+    protected:
+     /*!
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 90684424fb..47de80b032 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -11,6 +11,7 @@
+ 
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
++#include "mfem/general/device.hpp"
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+@@ -220,6 +221,110 @@ namespace mfem_mgis {
+     return this->implementComputeGradients(e, tr, u);
+   }  // end of computeGradients
+ 
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::supportsKernels()
++      const noexcept {
++    using Traits = BehaviourIntegratorTraits<Child>;
++    // the kernels compute the gradients of the standard mechanical
++    // behaviours from the derivatives of the unknowns only
++    if constexpr ((Traits::updateExternalStateVariablesFromUnknownsValues) ||
++                  (Traits::gradientsComputationRequiresShapeFunctions)) {
++      return false;
++    } else {
++      if ((!batch::areGradientsKernelsAvailable()) ||
++          (!batch::getGradientsKind(this->b).has_value())) {
++        return false;
++      }
++      // all the elements must use the same integration rule
++      return (this->quadrature_space->getNumberOfElements() == 0) ||
++             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++    }
++  }  // end of supportsKernels
++
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
++      Context& ctx, const batch::UnknownsDerivativesSet& d) noexcept {
++    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
++    if (r == nullptr) {
++      if (this->quadrature_space->getNumberOfElements() == 0) {
++        return true;
++      }
++      return ctx.registerErrorMessage(
++          "computeGradientsByKernels: the elements of the material do not "
++          "use the same integration rule");
++    }
++    const auto k = batch::getGradientsKind(this->b);
++    if (!k.has_value()) {
++      return ctx.registerErrorMessage(
++          "computeGradientsByKernels: unsupported behaviour");
++    }
++    const auto p = d.find(r);
++    if (p == d.end()) {
++      return ctx.registerErrorMessage(
++          "computeGradientsByKernels: the derivatives of the unknowns are not "
++          "computed for the integration rule of the material");
++    }
++    return batch::computeGradients(ctx, *this, p->second, *k);
++  }  // end of computeGradientsByKernels
++
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::addInnerForcesByKernels(
++      Context& ctx,
++      mfem::Vector& f,
++      const batch::ElementsGeometrySet& g) noexcept {
++    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
++    if (r == nullptr) {
++      if (this->quadrature_space->getNumberOfElements() == 0) {
++        return true;
++      }
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: the elements of the material do not use "
++          "the same integration rule");
++    }
++    const auto k = batch::getGradientsKind(this->b);
++    if (!k.has_value()) {
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: unsupported behaviour");
++    }
++    const auto p = g.find(r);
++    if (p == g.end()) {
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: the geometric data are not computed for "
++          "the integration rule of the material");
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto np = static_cast<size_type>(this->n);
++      const auto nc = this->s1.thermodynamic_forces_stride;
++      if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++        // thermodynamic forces in the global frame at all the points
++        auto& v = this->wks.rotated_thermodynamic_forces;
++        if (this->getRotatedThermodynamicForces().empty()) {
++          this->computeThermodynamicForcesInGlobalFrame(v);
++        }
++        const auto s = std::span<const real>(
++            v.Read(use_device), static_cast<std::size_t>(v.Size()));
++        return batch::addInnerForces(
++            ctx, f, *(this->quadrature_space),
++            mgis::makePointByPointFieldView(s, np, nc, nc), p->second, *k);
++      }
++      const auto& v = this->getArrays().getArray(
++          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
++      const auto s = std::span<const real>(v.Read(use_device),
++                                           static_cast<std::size_t>(v.Size()));
++      return batch::addInnerForces(
++          ctx, f, *(this->quadrature_space),
++          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
++          p->second, *k);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addInnerForcesByKernels: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: unknown exception");
++    }
++  }  // end of addInnerForcesByKernels
++
+   template <typename Child>
+   void StandardBehaviourIntegratorCRTPBase<Child>::implementUpdateResidual(
+       mfem::Vector &Fe,
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 2dc62fa0a9..e74937b537 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -38,6 +38,25 @@ namespace mfem_mgis {
+     return false;
+   }  // end of integrateBatch
+ 
++  bool AbstractBehaviourIntegrator::supportsKernels() const noexcept {
++    return false;
++  }  // end of supportsKernels
++
++  bool AbstractBehaviourIntegrator::computeGradientsByKernels(
++      Context& ctx, const batch::UnknownsDerivativesSet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::computeGradientsByKernels: the "
++        "gradients of this behaviour integrator can't be computed by "
++        "kernels");
++  }  // end of computeGradientsByKernels
++
++  bool AbstractBehaviourIntegrator::addInnerForcesByKernels(
++      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::addInnerForcesByKernels: the inner "
++        "forces of this behaviour integrator can't be computed by kernels");
++  }  // end of addInnerForcesByKernels
++
+   template <bool parallel, typename Functor>
+   static void performLoopOverIntegrationPoints(
+       Functor& f, const AbstractBehaviourIntegrator& bi) {
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+new file mode 100644
+index 0000000000..d59cb08431
+--- /dev/null
++++ b/src/Batch/Gradients.cxx
+@@ -0,0 +1,220 @@
++/*!
++ * \file   src/Batch/Gradients.cxx
++ * \brief  This file implements the computation of the gradients of the
++ * behaviours by kernels (host part: checks and arguments of the kernels)
++ * \date   09/10/2026
++ */
++
++#include <limits>
++#include <string>
++#include <cstdint>
++#include <exception>
++#include "mfem/general/device.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "mfem/fem/restriction.hpp"
++#include "mfem/fem/quadinterpolator.hpp"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "GradientsKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++namespace mfem_mgis::batch {
++
++  std::optional<GradientsKind> getGradientsKind(const Behaviour& b) noexcept {
++    const auto h = b.hypothesis;
++    const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
++    const auto bidimensional =
++        (h == Hypothesis::PLANESTRAIN) || (h == Hypothesis::PLANESTRESS);
++    if ((b.btype == Behaviour::STANDARDSTRAINBASEDBEHAVIOUR) &&
++        (b.kinematic == Behaviour::SMALLSTRAINKINEMATIC)) {
++      if (tridimensional) {
++        return GradientsKind::SMALL_STRAIN_3D;
++      }
++      if (bidimensional) {
++        return GradientsKind::SMALL_STRAIN_2D;
++      }
++    }
++    if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
++        (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY)) {
++      if (tridimensional) {
++        return GradientsKind::DEFORMATION_GRADIENT_3D;
++      }
++      if (bidimensional) {
++        return GradientsKind::DEFORMATION_GRADIENT_2D;
++      }
++    }
++    return {};
++  }  // end of getGradientsKind
++
++  bool areGradientsKernelsAvailable() noexcept {
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    return true;
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    return false;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of areGradientsKernelsAvailable
++
++  /*!
++   * \brief resizes an array of the memory of MFEM, used on the device if a
++   * device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] v: array
++   * \param[in] s: size
++   */
++  static bool resizeArray(Context& ctx, mfem::Vector& v, const std::int64_t s) {
++    if (s > std::numeric_limits<int>::max()) {
++      return ctx.registerErrorMessage("array too large for MFEM");
++    }
++    v.UseDevice(true);
++    v.SetSize(static_cast<int>(s));
++    return true;
++  }  // end of resizeArray
++
++  bool computeUnknownsDerivatives(Context& ctx,
++                                  UnknownsDerivatives& d,
++                                  const mfem::FiniteElementSpace& fes,
++                                  const mfem::Vector& u,
++                                  const mfem::IntegrationRule& ir) noexcept {
++    try {
++      const auto& mesh = *(fes.GetMesh());
++      if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
++        return ctx.registerErrorMessage(
++            "computeUnknownsDerivatives: meshes mixing several geometries "
++            "are not supported");
++      }
++      const auto* const qi = fes.GetQuadratureInterpolator(ir);
++      if (qi == nullptr) {
++        return ctx.registerErrorMessage(
++            "computeUnknownsDerivatives: the finite element space is not "
++            "supported by the quadrature interpolator of MFEM");
++      }
++      const auto* const r =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      if (!resizeArray(ctx, d.element_values, r->Height())) {
++        return false;
++      }
++      r->Mult(u, d.element_values);
++      d.rule = &ir;
++      d.vdim = fes.GetVDim();
++      d.dim = mesh.Dimension();
++      d.nq = ir.GetNPoints();
++      d.ne = fes.GetNE();
++      const auto size = std::int64_t{d.vdim} * std::int64_t{d.dim} *
++                        std::int64_t{d.nq} * std::int64_t{d.ne};
++      if (!resizeArray(ctx, d.values, size)) {
++        return false;
++      }
++      // the interpolator is shared: its options are set before each use
++      qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
++      qi->DisableTensorProducts();
++      qi->PhysDerivatives(d.element_values, d.values);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"computeUnknownsDerivatives: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeUnknownsDerivatives: unknown exception");
++    }
++    return true;
++  }  // end of computeUnknownsDerivatives
++
++  size_type getGradientsSize(const GradientsKind k) noexcept {
++    switch (k) {
++      case GradientsKind::SMALL_STRAIN_3D:
++        return 6;
++      case GradientsKind::SMALL_STRAIN_2D:
++        return 4;
++      case GradientsKind::DEFORMATION_GRADIENT_3D:
++        return 9;
++      case GradientsKind::DEFORMATION_GRADIENT_2D:
++        break;
++    }
++    return 5;
++  }  // end of getGradientsSize
++
++  int getSpaceDimension(const GradientsKind k) noexcept {
++    return ((k == GradientsKind::SMALL_STRAIN_3D) ||
++            (k == GradientsKind::DEFORMATION_GRADIENT_3D))
++               ? 3
++               : 2;
++  }  // end of getSpaceDimension
++
++  bool computeGradients(Context& ctx,
++                        Material& m,
++                        const UnknownsDerivatives& d,
++                        const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(d);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "computeGradients: the kernels computing the gradients are not "
++        "compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto& qs = m.getPartialQuadratureSpace();
++    const auto& elements = qs.getElements();
++    const auto& offsets = qs.getElementOffsets();
++    if (elements.Size() == 0) {
++      return true;
++    }
++    if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule)) {
++      return ctx.registerErrorMessage(
++          "computeGradients: the elements of the material do not use the "
++          "integration rule of the derivatives of the unknowns");
++    }
++    const auto gsize = getGradientsSize(k);
++    const auto dim = getSpaceDimension(k);
++    if ((d.vdim != dim) || (d.dim != dim)) {
++      return ctx.registerErrorMessage(
++          "computeGradients: unexpected number of components of the "
++          "unknowns or dimension of the space (" +
++          std::to_string(d.vdim) + ", " + std::to_string(d.dim) +
++          "), the expected value being " + std::to_string(dim));
++    }
++    if (m.s1.gradients_stride != gsize) {
++      return ctx.registerErrorMessage(
++          "computeGradients: unexpected number of components of the "
++          "gradients (" +
++          std::to_string(m.s1.gradients_stride) + " instead of " +
++          std::to_string(gsize) + ")");
++    }
++    if (static_cast<std::int64_t>(elements.Size()) * d.nq !=
++        static_cast<std::int64_t>(m.n)) {
++      return ctx.registerErrorMessage(
++          "computeGradients: unexpected number of integration points");
++    }
++    const auto macroscopic_gradients = m.getMacroscopicGradients();
++    auto a = internals::GradientsKernelArguments{};
++    a.number_of_elements = elements.Size();
++    a.nq = d.nq;
++    a.vdim = d.vdim;
++    a.dim = d.dim;
++    a.number_of_points = static_cast<int>(m.n);
++    a.gradients_size = static_cast<int>(gsize);
++    a.point_by_point =
++        m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
++    for (size_type c = 0; c != gsize; ++c) {
++      a.macroscopic_gradients[c] = macroscopic_gradients[c];
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      a.elements = elements.Read(use_device);
++      a.offsets = offsets.Read(use_device);
++      a.derivatives = d.values.Read(use_device);
++      a.gradients = m.getArrays().write(MaterialArrays::StateArray::GRADIENTS,
++                                        ets, use_device);
++      internals::launchGradientsKernel(k, a, use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"computeGradients: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("computeGradients: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeGradients
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/GradientsKernels.cxx b/src/Batch/GradientsKernels.cxx
+new file mode 100644
+index 0000000000..43e037ddc2
+--- /dev/null
++++ b/src/Batch/GradientsKernels.cxx
+@@ -0,0 +1,135 @@
++/*!
++ * \file   src/Batch/GradientsKernels.cxx
++ * \brief  This file implements the kernels computing the gradients of the
++ * behaviours. It contains kernels of MFEM: it is compiled as CUDA code when
++ * MFEM is compiled with CUDA.
++ * \date   09/10/2026
++ */
++
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "GradientsKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \return the derivative of the `i`-th component of the unknowns with
++   * respect to the `j`-th coordinate
++   * \param[in] du: derivatives at a point (layout `byVDIM` of MFEM)
++   * \param[in] vdim: number of components of the unknowns
++   * \param[in] i: component
++   * \param[in] j: coordinate
++   */
++  MFEM_HOST_DEVICE inline real getDerivative(const real* const du,
++                                             const int vdim,
++                                             const int i,
++                                             const int j) {
++    return du[i + vdim * j];
++  }  // end of getDerivative
++
++  /*!
++   * \brief computes the contributions of the unknowns to the gradients at a
++   * point, in the order of the gradients of the behaviours, as the
++   * behaviour integrators generated by mfem-mgis
++   * \tparam K: kind of the gradients
++   * \param[out] g: contributions
++   * \param[in] du: derivatives at the point (layout `byVDIM` of MFEM)
++   * \param[in] vdim: number of components of the unknowns
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline void computeGradientsAtPoint(real* const g,
++                                                       const real* const du,
++                                                       const int vdim) {
++    // 1/√2, as in the behaviour integrators generated by mfem-mgis
++    constexpr auto icste = real{0.70710678118654752440};
++    auto d = [du, vdim](const int i, const int j) {
++      return getDerivative(du, vdim, i, j);
++    };
++    if constexpr (K == GradientsKind::SMALL_STRAIN_3D) {
++      g[0] = d(0, 0);
++      g[1] = d(1, 1);
++      g[2] = d(2, 2);
++      g[3] = (d(0, 1) + d(1, 0)) * icste;
++      g[4] = (d(0, 2) + d(2, 0)) * icste;
++      g[5] = (d(1, 2) + d(2, 1)) * icste;
++    } else if constexpr (K == GradientsKind::SMALL_STRAIN_2D) {
++      g[0] = d(0, 0);
++      g[1] = d(1, 1);
++      g[2] = 0;
++      g[3] = (d(0, 1) + d(1, 0)) * icste;
++    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      g[0] = d(0, 0);
++      g[1] = d(1, 1);
++      g[2] = d(2, 2);
++      g[3] = d(0, 1);
++      g[4] = d(1, 0);
++      g[5] = d(0, 2);
++      g[6] = d(2, 0);
++      g[7] = d(1, 2);
++      g[8] = d(2, 1);
++    } else {
++      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
++      g[0] = d(0, 0);
++      g[1] = d(1, 1);
++      g[2] = 0;
++      g[3] = d(0, 1);
++      g[4] = d(1, 0);
++    }
++  }  // end of computeGradientsAtPoint
++
++  /*!
++   * \brief launches the kernel computing the gradients of all the points of
++   * a material (see `launchGradientsKernel`)
++   * \tparam K: kind of the gradients
++   */
++  template <GradientsKind K>
++  static void launchGradientsKernel(const GradientsKernelArguments& a,
++                                    const bool use_device) {
++    const auto n = a.number_of_elements * a.nq;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      const auto k = i / a.nq;
++      const auto q = i - k * a.nq;
++      const auto e = static_cast<std::size_t>(a.elements[k]);
++      const auto o = static_cast<std::size_t>(a.offsets[k] + q);
++      const auto* const du =
++          a.derivatives + static_cast<std::size_t>(a.vdim) *
++                              static_cast<std::size_t>(a.dim) *
++                              (static_cast<std::size_t>(q) +
++                               static_cast<std::size_t>(a.nq) * e);
++      real g[9];
++      computeGradientsAtPoint<K>(g, du, a.vdim);
++      const auto np = static_cast<std::size_t>(a.number_of_points);
++      const auto gs = static_cast<std::size_t>(a.gradients_size);
++      for (std::size_t c = 0; c != gs; ++c) {
++        const auto v = a.macroscopic_gradients[c] + g[c];
++        if (a.point_by_point) {
++          a.gradients[o * gs + c] = v;
++        } else {
++          a.gradients[c * np + o] = v;
++        }
++      }
++    });
++  }  // end of launchGradientsKernel
++
++  void launchGradientsKernel(const GradientsKind k,
++                             const GradientsKernelArguments& a,
++                             const bool use_device) {
++    switch (k) {
++      case GradientsKind::SMALL_STRAIN_3D:
++        launchGradientsKernel<GradientsKind::SMALL_STRAIN_3D>(a, use_device);
++        break;
++      case GradientsKind::SMALL_STRAIN_2D:
++        launchGradientsKernel<GradientsKind::SMALL_STRAIN_2D>(a, use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_3D:
++        launchGradientsKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++            a, use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_2D:
++        launchGradientsKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++            a, use_device);
++        break;
++    }
++  }  // end of launchGradientsKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/GradientsKernels.hxx b/src/Batch/GradientsKernels.hxx
+new file mode 100644
+index 0000000000..e969720073
+--- /dev/null
++++ b/src/Batch/GradientsKernels.hxx
+@@ -0,0 +1,58 @@
++/*!
++ * \file   src/Batch/GradientsKernels.hxx
++ * \brief  This file declares the kernels computing the gradients of the
++ * behaviours (internal header)
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_GRADIENTSKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_GRADIENTSKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  //! \brief arguments of the kernels computing the gradients
++  struct GradientsKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief offsets of the integration points of the elements
++    const int* offsets = nullptr;
++    //! \brief derivatives of the unknowns (see `UnknownsDerivatives`)
++    const real* derivatives = nullptr;
++    //! \brief gradients of the material
++    real* gradients = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief number of components of the unknowns
++    int vdim = 0;
++    //! \brief dimension of the space
++    int dim = 0;
++    //! \brief number of integration points of the material
++    int number_of_points = 0;
++    //! \brief number of components of the gradients
++    int gradients_size = 0;
++    //! \brief layout of the gradients: true if stored point by point
++    bool point_by_point = true;
++    //! \brief macroscopic gradients
++    real macroscopic_gradients[9] = {};
++  };
++
++  /*!
++   * \brief launches the kernel computing the gradients of all the points of
++   * a material
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device (if a device is
++   * enabled), and the pointers of the arguments are located on the device
++   */
++  void launchGradientsKernel(const GradientsKind,
++                             const GradientsKernelArguments&,
++                             const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_GRADIENTSKERNELS_HXX */
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+new file mode 100644
+index 0000000000..0a082e633b
+--- /dev/null
++++ b/src/Batch/InnerForces.cxx
+@@ -0,0 +1,140 @@
++/*!
++ * \file   src/Batch/InnerForces.cxx
++ * \brief  This file implements the computation of the inner forces of the
++ * standard mechanical behaviour integrators by kernels (host part: checks
++ * and arguments of the kernels)
++ * \date   09/10/2026
++ */
++
++#include <limits>
++#include <string>
++#include <cstdint>
++#include <exception>
++#include "mfem/general/device.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "mfem/mesh/mesh.hpp"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Batch/InnerForces.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "InnerForcesKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++namespace mfem_mgis::batch {
++
++  bool computeElementsGeometry(Context& ctx,
++                               ElementsGeometry& g,
++                               const mfem::FiniteElementSpace& fes,
++                               const mfem::IntegrationRule& ir) noexcept {
++    try {
++      auto& mesh = *(fes.GetMesh());
++      if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
++        return ctx.registerErrorMessage(
++            "computeElementsGeometry: meshes mixing several geometries are "
++            "not supported");
++      }
++      if (mesh.SpaceDimension() != mesh.Dimension()) {
++        return ctx.registerErrorMessage(
++            "computeElementsGeometry: the dimension of the space must be the "
++            "dimension of the mesh");
++      }
++      g.rule = &ir;
++      g.dim = mesh.Dimension();
++      g.nq = ir.GetNPoints();
++      g.ne = fes.GetNE();
++      if (g.ne == 0) {
++        return true;
++      }
++      const auto* const fe = fes.GetTypicalFE();
++      g.maps = &(fe->GetDofToQuad(ir, mfem::DofToQuad::FULL));
++      g.nd = fe->GetDof();
++      g.factors = mesh.GetGeometricFactors(
++          ir, mfem::GeometricFactors::JACOBIANS |
++                  mfem::GeometricFactors::DETERMINANTS);
++      g.weights.UseDevice(true);
++      g.weights.SetSize(g.nq);
++      auto* const w = g.weights.HostWrite();
++      for (int q = 0; q != g.nq; ++q) {
++        w[q] = ir.IntPoint(q).weight;
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"computeElementsGeometry: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeElementsGeometry: unknown exception");
++    }
++    return true;
++  }  // end of computeElementsGeometry
++
++  bool addInnerForces(Context& ctx,
++                      mfem::Vector& f,
++                      const PartialQuadratureSpace& qs,
++                      const mgis::FieldView<const real>& s,
++                      const ElementsGeometry& g,
++                      const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(f);
++    static_cast<void>(qs);
++    static_cast<void>(s);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "addInnerForces: the kernels computing the inner forces are not "
++        "compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto& elements = qs.getElements();
++    const auto& offsets = qs.getElementOffsets();
++    if (elements.Size() == 0) {
++      return true;
++    }
++    if ((g.rule == nullptr) || (qs.getUniformIntegrationRule() != g.rule)) {
++      return ctx.registerErrorMessage(
++          "addInnerForces: the elements of the material do not use the "
++          "integration rule of the geometric data");
++    }
++    const auto dim = getSpaceDimension(k);
++    if (g.dim != dim) {
++      return ctx.registerErrorMessage(
++          "addInnerForces: unexpected dimension of the space (" +
++          std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
++    }
++    const auto size = std::int64_t{g.nd} * dim * g.ne;
++    if (static_cast<std::int64_t>(f.Size()) != size) {
++      return ctx.registerErrorMessage(
++          "addInnerForces: unexpected size of the values element by element");
++    }
++    if ((s.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
++        (s.getNumberOfComponents() != getGradientsSize(k))) {
++      return ctx.registerErrorMessage(
++          "addInnerForces: unexpected number of points or of components of "
++          "the thermodynamic forces");
++    }
++    auto a = internals::InnerForcesKernelArguments{};
++    a.number_of_elements = elements.Size();
++    a.nd = g.nd;
++    a.nq = g.nq;
++    a.dim = g.dim;
++    a.thermodynamic_forces = s.data();
++    a.point_stride = static_cast<long long>(s.getPointStride());
++    a.component_stride = static_cast<long long>(s.getComponentStride());
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      a.elements = elements.Read(use_device);
++      a.offsets = offsets.Read(use_device);
++      a.shape_functions_gradients = g.maps->G.Read(use_device);
++      a.jacobians = g.factors->J.Read(use_device);
++      a.determinants = g.factors->detJ.Read(use_device);
++      a.weights = g.weights.Read(use_device);
++      a.values = f.ReadWrite(use_device);
++      internals::launchInnerForcesKernel(k, a, use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"addInnerForces: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("addInnerForces: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addInnerForces
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
+new file mode 100644
+index 0000000000..0a4d32cd6a
+--- /dev/null
++++ b/src/Batch/InnerForcesKernels.cxx
+@@ -0,0 +1,155 @@
++/*!
++ * \file   src/Batch/InnerForcesKernels.cxx
++ * \brief  This file implements the kernels computing the inner forces of
++ * the standard mechanical behaviour integrators. It contains kernels of
++ * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
++ * \date   09/10/2026
++ */
++
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "InnerForcesKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief computes the inverse of a jacobian
++   * \tparam N: dimension
++   * \param[out] iJ: inverse, `iJ[i + N * j]` being the component `(i, j)`
++   * \param[in] J: jacobian at the point of the element (`nq` points per
++   * element): `J[nq * (i + N * j)]` is the component `(i, j)`
++   * \param[in] nq: number of points per element
++   * \param[in] detJ: determinant of the jacobian
++   */
++  template <int N>
++  MFEM_HOST_DEVICE inline void invertJacobian(real* const iJ,
++                                              const real* const J,
++                                              const int nq,
++                                              const real detJ) {
++    auto j = [J, nq](const int r, const int c) { return J[nq * (r + N * c)]; };
++    if constexpr (N == 2) {
++      iJ[0] = j(1, 1) / detJ;
++      iJ[1] = -j(1, 0) / detJ;
++      iJ[2] = -j(0, 1) / detJ;
++      iJ[3] = j(0, 0) / detJ;
++    } else {
++      static_assert(N == 3);
++      iJ[0] = (j(1, 1) * j(2, 2) - j(1, 2) * j(2, 1)) / detJ;
++      iJ[1] = (j(1, 2) * j(2, 0) - j(1, 0) * j(2, 2)) / detJ;
++      iJ[2] = (j(1, 0) * j(2, 1) - j(1, 1) * j(2, 0)) / detJ;
++      iJ[3] = (j(0, 2) * j(2, 1) - j(0, 1) * j(2, 2)) / detJ;
++      iJ[4] = (j(0, 0) * j(2, 2) - j(0, 2) * j(2, 0)) / detJ;
++      iJ[5] = (j(0, 1) * j(2, 0) - j(0, 0) * j(2, 1)) / detJ;
++      iJ[6] = (j(0, 1) * j(1, 2) - j(0, 2) * j(1, 1)) / detJ;
++      iJ[7] = (j(0, 2) * j(1, 0) - j(0, 0) * j(1, 2)) / detJ;
++      iJ[8] = (j(0, 0) * j(1, 1) - j(0, 1) * j(1, 0)) / detJ;
++    }
++  }  // end of invertJacobian
++
++  /*!
++   * \brief adds the contribution of a point to the inner forces of a node,
++   * `w Bᵀ σ`, `B` being the operator of the gradients (see
++   * `computeGradientsAtPoint` in `GradientsKernels.cxx`)
++   * \tparam K: kind of the gradients
++   * \param[in, out] f: inner forces of the node
++   * \param[in] dN: derivatives of the shape function of the node
++   * \param[in] s: thermodynamic force (accessor)
++   * \param[in] w: weight of the point
++   */
++  template <GradientsKind K, typename Accessor>
++  MFEM_HOST_DEVICE inline void addInnerForces(real* const f,
++                                              const real* const dN,
++                                              const Accessor& s,
++                                              const real w) {
++    // 1/√2, as in the behaviour integrators generated by mfem-mgis
++    constexpr auto icste = real{0.70710678118654752440};
++    if constexpr (K == GradientsKind::SMALL_STRAIN_3D) {
++      f[0] += w * (dN[0] * s(0) + (dN[1] * s(3) + dN[2] * s(4)) * icste);
++      f[1] += w * (dN[1] * s(1) + (dN[0] * s(3) + dN[2] * s(5)) * icste);
++      f[2] += w * (dN[2] * s(2) + (dN[0] * s(4) + dN[1] * s(5)) * icste);
++    } else if constexpr (K == GradientsKind::SMALL_STRAIN_2D) {
++      f[0] += w * (dN[0] * s(0) + dN[1] * s(3) * icste);
++      f[1] += w * (dN[1] * s(1) + dN[0] * s(3) * icste);
++    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      f[0] += w * (dN[0] * s(0) + dN[1] * s(3) + dN[2] * s(5));
++      f[1] += w * (dN[0] * s(4) + dN[1] * s(1) + dN[2] * s(7));
++      f[2] += w * (dN[0] * s(6) + dN[1] * s(8) + dN[2] * s(2));
++    } else {
++      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
++      f[0] += w * (dN[0] * s(0) + dN[1] * s(3));
++      f[1] += w * (dN[0] * s(4) + dN[1] * s(1));
++    }
++  }  // end of addInnerForces
++
++  /*!
++   * \brief launches the kernel adding the inner forces of the elements of a
++   * material: one thread per node of an element
++   * \tparam K: kind of the gradients
++   * \tparam N: dimension
++   */
++  template <GradientsKind K, int N>
++  static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
++                                      const bool use_device) {
++    const auto n = a.number_of_elements * a.nd;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      const auto k = i / a.nd;
++      const auto node = i - k * a.nd;
++      const auto e = static_cast<std::size_t>(a.elements[k]);
++      const auto nq = static_cast<std::size_t>(a.nq);
++      const auto nd = static_cast<std::size_t>(a.nd);
++      real f[N] = {};
++      for (std::size_t q = 0; q != nq; ++q) {
++        const auto detJ = a.determinants[q + nq * e];
++        real iJ[N * N];
++        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e,
++                          static_cast<int>(nq), detJ);
++        // derivatives of the shape function in the physical frame:
++        // dN/dx_j = sum_r dN/dxi_r (J^-1)_{rj}
++        real dN[N];
++        for (int c = 0; c != N; ++c) {
++          dN[c] = 0;
++          for (int r = 0; r != N; ++r) {
++            const auto g = a.shape_functions_gradients
++                               [q + nq * (static_cast<std::size_t>(r) +
++                                          N * static_cast<std::size_t>(node))];
++            dN[c] += g * iJ[r + N * c];
++          }
++        }
++        const auto o =
++            static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
++        const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
++        const auto cs = a.component_stride;
++        auto s = [s0, cs](const int c) { return s0[c * cs]; };
++        addInnerForces<K>(f, dN, s, a.weights[q] * detJ);
++      }
++      for (int c = 0; c != N; ++c) {
++        a.values[static_cast<std::size_t>(node) +
++                 nd * (static_cast<std::size_t>(c) + N * e)] += f[c];
++      }
++    });
++  }  // end of launchInnerForcesKernel
++
++  void launchInnerForcesKernel(const GradientsKind k,
++                               const InnerForcesKernelArguments& a,
++                               const bool use_device) {
++    switch (k) {
++      case GradientsKind::SMALL_STRAIN_3D:
++        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_3D, 3>(a,
++                                                                   use_device);
++        break;
++      case GradientsKind::SMALL_STRAIN_2D:
++        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_2D, 2>(a,
++                                                                   use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_3D:
++        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_3D, 3>(
++            a, use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_2D:
++        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_2D, 2>(
++            a, use_device);
++        break;
++    }
++  }  // end of launchInnerForcesKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/InnerForcesKernels.hxx b/src/Batch/InnerForcesKernels.hxx
+new file mode 100644
+index 0000000000..95cf185d90
+--- /dev/null
++++ b/src/Batch/InnerForcesKernels.hxx
+@@ -0,0 +1,65 @@
++/*!
++ * \file   src/Batch/InnerForcesKernels.hxx
++ * \brief  This file declares the kernels computing the inner forces of the
++ * standard mechanical behaviour integrators (internal header)
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_INNERFORCESKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_INNERFORCESKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  //! \brief arguments of the kernels computing the inner forces
++  struct InnerForcesKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief offsets of the integration points of the elements
++    const int* offsets = nullptr;
++    /*!
++     * \brief gradients of the shape functions on the reference element
++     * (`nq x dim x nd`)
++     */
++    const real* shape_functions_gradients = nullptr;
++    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
++    const real* jacobians = nullptr;
++    //! \brief determinants of the jacobians (`nq x ne`)
++    const real* determinants = nullptr;
++    //! \brief weights of the integration points on the reference element
++    const real* weights = nullptr;
++    //! \brief thermodynamic forces
++    const real* thermodynamic_forces = nullptr;
++    //! \brief stride between two points of the thermodynamic forces
++    long long point_stride = 0;
++    //! \brief stride between two components of the thermodynamic forces
++    long long component_stride = 0;
++    //! \brief values element by element (`nd x vdim x ne`)
++    real* values = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief dimension of the space (and number of components)
++    int dim = 0;
++  };
++
++  /*!
++   * \brief launches the kernel adding the inner forces of the elements of
++   * a material
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device (if a device is
++   * enabled), and the pointers of the arguments are located on the device
++   */
++  void launchInnerForcesKernel(const GradientsKind,
++                               const InnerForcesKernelArguments&,
++                               const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_INNERFORCESKERNELS_HXX */
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index fa37539161..13d1ab2015 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -148,17 +148,23 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+ # code when MFEM is compiled with CUDA). The compilation of kernels of MFEM
+ # compiled with HIP is not supported yet: those sources are then left out.
+ set(MFEMMGIS_DEVICE_SOURCES
+-  Batch/MFEMFieldOperations.cxx)
++  Batch/MFEMFieldOperations.cxx
++  Batch/GradientsKernels.cxx
++  Batch/InnerForcesKernels.cxx)
+ if(MFEM_USE_HIP STREQUAL "YES")
+   message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
+           "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
+   set(MFEMMGIS_DEVICE_SOURCES)
+ endif()
+ list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
++# host part of the computations by kernels (gradients, inner forces), which
++# reports an error if the kernels are not compiled
++list(APPEND MFEMMGIS_SOURCES Batch/Gradients.cxx Batch/InnerForces.cxx)
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+ if(MFEMMGIS_DEVICE_SOURCES)
+   mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
++  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_DEVICE_SOURCES)
+ endif()
+ # the kernels of the library use the runtime of CUDA: the dependency is
+ # carried by the library itself, not only by the target of MFEM, which a
+diff --git a/src/Material.cxx b/src/Material.cxx
+index 289bc067e8..2fc478d605 100644
+--- a/src/Material.cxx
++++ b/src/Material.cxx
+@@ -111,6 +111,10 @@ namespace mfem_mgis {
+     std::copy(g.begin(), g.end(), this->macroscopic_gradients.begin());
+   }  // end of setMacroscopicGradients
+ 
++  std::span<const real> Material::getMacroscopicGradients() const noexcept {
++    return this->macroscopic_gradients;
++  }  // end of getMacroscopicGradients
++
+   static void checkBehaviourSymmetry(const Behaviour &b) {
+     if (b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+       raise(
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 46439ebaee..f460b130e1 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -5,9 +5,13 @@
+  * \date   8/06/2020
+  */
+ 
++#include <string>
+ #include <utility>
++#include <algorithm>
++#include <exception>
+ #include "MGIS/Raise.hxx"
+ #include "mfem/fem/linearform.hpp"
++#include "mfem/fem/restriction.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/mesh/pmesh.hpp"
+@@ -347,11 +351,120 @@ namespace mfem_mgis {
+     return success;
+   }  // end of integrateBatch
+ 
++  bool MultiMaterialNonLinearIntegrator::checkKernelsSupport(
++      Context& ctx) const noexcept {
++    for (size_type m = 0;
++         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
++      for (const auto& bi : this->behaviour_integrators[m]) {
++        if (!bi->supportsKernels()) {
++          return ctx.registerErrorMessage(
++              "the gradients and the inner forces of the behaviour "
++              "integrator of material '" +
++              std::to_string(m) +
++              "' can't be computed by kernels (supported: standard "
++              "mechanical behaviours in 3D, plane strain and plane stress, "
++              "small or finite strain, without FBar, all the elements of the "
++              "material using the same integration rule)");
++        }
++      }
++    }
++    return true;
++  }  // end of checkKernelsSupport
++
++  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Vector& u) noexcept {
++    // derivatives of the unknowns, computed once for each integration rule
++    auto rules = std::vector<const mfem::IntegrationRule*>{};
++    for (const auto& bis : this->behaviour_integrators) {
++      for (const auto& bi : bis) {
++        const auto* const r =
++            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
++        if ((r != nullptr) &&
++            (std::find(rules.begin(), rules.end(), r) == rules.end())) {
++          rules.push_back(r);
++        }
++      }
++    }
++    // the derivatives of the rules which are no longer used are released
++    std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
++      return std::find(rules.begin(), rules.end(), d.first) == rules.end();
++    });
++    for (const auto* const r : rules) {
++      if (!batch::computeUnknownsDerivatives(ctx, this->unknowns_derivatives[r],
++                                             fes, u, *r)) {
++        return false;
++      }
++    }
++    for (auto& bis : this->behaviour_integrators) {
++      for (auto& bi : bis) {
++        if (!bi->computeGradientsByKernels(ctx, this->unknowns_derivatives)) {
++          return false;
++        }
++      }
++    }
++    return true;
++  }  // end of computeGradientsByKernels
++
++  bool MultiMaterialNonLinearIntegrator::addInnerForcesByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      mfem::Vector& f) noexcept {
++    try {
++      // geometric data, computed again at each call (they are kept by MFEM)
++      this->elements_geometry.clear();
++      for (const auto& bis : this->behaviour_integrators) {
++        for (const auto& bi : bis) {
++          const auto* const r =
++              bi->getPartialQuadratureSpace().getUniformIntegrationRule();
++          if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
++            if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
++                                                fes, *r)) {
++              return false;
++            }
++          }
++        }
++      }
++      const auto* const restriction =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      auto& fe = this->inner_forces_element_values;
++      fe.UseDevice(true);
++      fe.SetSize(restriction->Height());
++      fe = real{0};
++      for (auto& bis : this->behaviour_integrators) {
++        for (auto& bi : bis) {
++          if (!bi->addInnerForcesByKernels(ctx, fe, this->elements_geometry)) {
++            return false;
++          }
++        }
++      }
++      restriction->AddMultTranspose(fe, f);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: unknown exception");
++    }
++    return true;
++  }  // end of addInnerForcesByKernels
++
++  void MultiMaterialNonLinearIntegrator::setInnerForcesComputedByKernels(
++      const bool b) noexcept {
++    this->inner_forces_computed_by_kernels = b;
++  }  // end of setInnerForcesComputedByKernels
++
+   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
+       const mfem::FiniteElement& e,
+       mfem::ElementTransformation& tr,
+       const mfem::Vector& U,
+       mfem::Vector& F) {
++    if (this->inner_forces_computed_by_kernels) {
++      F.SetSize(e.GetDof() * getNumberOfComponents(*(this->fe_discretization)));
++      F = 0.;
++      return;
++    }
+     const auto m = tr.Attribute;
+     checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
+                                           "AssembleElementVector", m);
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 32754d31cc..bfaa5df5f4 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -41,24 +41,39 @@ namespace mfem_mgis {
+ 
+   /*!
+    * \brief integrate the behaviours by batches: gradients computed element
+-   * by element (not for a prediction), then one call per behaviour
+-   * integrator
++   * by element, or by kernels (not for a prediction), then one call per
++   * behaviour integrator
+    * \return true on success
+    * \param[in] mi: multi-material integrator
+    * \param[in] fespace: finite element space
+    * \param[in] u: unknowns (local degrees of freedom)
+    * \param[in] it: integration type
++   * \param[in] kernels: if true, the gradients are computed by kernels
+    */
+   template <typename FiniteElementSpaceType>
+   static bool integrateByBatches(MultiMaterialNonLinearIntegrator& mi,
+                                  const FiniteElementSpaceType& fespace,
+                                  const mfem::Vector& u,
+-                                 const IntegrationType it) {
++                                 const IntegrationType it,
++                                 const bool kernels) {
+     const auto prediction =
+         (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+         (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+         (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+-    if (!prediction) {
++    if ((!prediction) && (kernels)) {
++      auto ctx = Context{};
++      if (!mi.computeGradientsByKernels(ctx, fespace, u)) {
++        getErrorStream() << ctx.getErrorMessage() << '\n';
++        return false;
++      }
++      // the behaviours are integrated on the host
++      try {
++        mi.synchronizeOnHost();
++      } catch (std::exception& e) {
++        getErrorStream() << "integrate: " << e.what() << '\n';
++        return false;
++      }
++    } else if (!prediction) {
+       mfem::Array<int> vdofs;
+       mfem::Vector ue;
+       for (size_type i = 0; i != fespace.GetNE(); ++i) {
+@@ -310,6 +325,38 @@ namespace mfem_mgis {
+     std::function<void(const real, const real)> f;
+   };  // end of struct StdFunctionPostProcessing
+ 
++  /*!
++   * \brief adds the inner forces computed by kernels to the residual (true
++   * degrees of freedom), and cancels the residual at the essential degrees
++   * of freedom
++   * \param[in, out] mi: multi-material integrator
++   * \param[in] fes: finite element space
++   * \param[in] essential_dofs: essential true degrees of freedom
++   * \param[in, out] r: residual
++   */
++  static void addInnerForcesComputedByKernels(
++      MultiMaterialNonLinearIntegrator& mi,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Array<int>& essential_dofs,
++      mfem::Vector& r) {
++    auto ctx = Context{};
++    auto f = mfem::Vector{};
++    f.UseDevice(true);
++    f.SetSize(fes.GetVSize());
++    f = real{0};
++    if (!mi.addInnerForcesByKernels(ctx, fes, f)) {
++      raise("computation of the residual: " + ctx.getErrorMessage());
++    }
++    // from the local vector of the finite element space to the true degrees
++    // of freedom
++    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
++      P->AddMultTranspose(f, r);
++    } else {
++      r += f;
++    }
++    r.SetSubVector(essential_dofs, real{0});
++  }  // end of addInnerForcesComputedByKernels
++
+ #ifdef MFEM_USE_MPI
+ 
+   NonLinearEvolutionProblemImplementation<true>::
+@@ -398,7 +445,14 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<true>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+-    return mfem_mgis::NonlinearForm<true>::Mult(u, r);
++    // with the inner forces computed by kernels, the integrator of mfem-mgis
++    // gives null contributions to the residual assembled by MFEM
++    mfem_mgis::NonlinearForm<true>::Mult(u, r);
++    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
++      addInnerForcesComputedByKernels(*(this->mgis_integrator),
++                                      this->getFiniteElementSpace(),
++                                      this->ess_tdof_list, r);
++    }
+   }  // end of Mult
+ 
+   bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
+@@ -560,7 +614,8 @@ namespace mfem_mgis {
+     mfem::Vector ue;
+     bool success = true;
+     if (this->batch_integration) {
+-      success = integrateByBatches(*(this->mgis_integrator), fespace, pu, it);
++      success = integrateByBatches(*(this->mgis_integrator), fespace, pu, it,
++                                   this->gradients_kernels);
+     } else {
+       for (size_type i = 0; success && (i != fespace.GetNE()); ++i) {
+         const auto& e = *(fespace.GetFE(i));
+@@ -660,6 +715,17 @@ namespace mfem_mgis {
+     return oresult->initial_residual_norm;
+   }  // end of computePrediction
+ 
++  void NonLinearEvolutionProblemImplementation<false>::Mult(
++      const mfem::Vector& u, mfem::Vector& r) const {
++    // see the parallel version
++    mfem_mgis::NonlinearForm<false>::Mult(u, r);
++    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
++      addInnerForcesComputedByKernels(*(this->mgis_integrator),
++                                      this->getFiniteElementSpace(),
++                                      this->ess_tdof_list, r);
++    }
++  }  // end of Mult
++
+   bool NonLinearEvolutionProblemImplementation<false>::addBoundaryCondition(
+       Context& ctx,
+       std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
+@@ -819,7 +885,8 @@ namespace mfem_mgis {
+     mfem::Array<int> vdofs;
+     mfem::Vector ue;
+     if (this->batch_integration) {
+-      if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it)) {
++      if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it,
++                              this->gradients_kernels)) {
+         this->mgis_integrator->setTimeIncrement(dt);
+         return false;
+       }
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 5c7b3fd7ab..cb628c799f 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -34,13 +34,22 @@ namespace mfem_mgis {
+   const char* const
+       NonLinearEvolutionProblemImplementationBase::BehaviourIntegration =
+           "BehaviourIntegration";
++  const char* const
++      NonLinearEvolutionProblemImplementationBase::GradientsComputation =
++          "GradientsComputation";
++  const char* const
++      NonLinearEvolutionProblemImplementationBase::InnerForcesComputation =
++          "InnerForcesComputation";
+ 
+   std::vector<std::string>
+   NonLinearEvolutionProblemImplementationBase::getParametersList() {
+-    return {NonLinearEvolutionProblemImplementationBase::
+-                UseMultiMaterialNonLinearIntegrator,
+-            NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
+-            NonLinearEvolutionProblemImplementationBase::BehaviourIntegration};
++    return {
++        NonLinearEvolutionProblemImplementationBase::
++            UseMultiMaterialNonLinearIntegrator,
++        NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
++        NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
++        NonLinearEvolutionProblemImplementationBase::GradientsComputation,
++        NonLinearEvolutionProblemImplementationBase::InnerForcesComputation};
+   }  // end of getParametersList
+ 
+   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
+@@ -82,6 +91,34 @@ namespace mfem_mgis {
+     return false;
+   }  // end of useBatchIntegration
+ 
++  /*!
++   * \return true if the value of a parameter selecting a computation is
++   * `Kernels`, false if it is `ElementByElement`
++   * \param[in] p: parameters
++   * \param[in] n: name of the parameter
++   * \param[in] v: name of the environment variable giving the default
++   * value
++   */
++  [[nodiscard]] static bool useKernels(attributes::Throwing,
++                                       const Parameters& p,
++                                       const char* const n,
++                                       const char* const v) {
++    const auto* const e = std::getenv(v);
++    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
++    const auto value = get_if<std::string>(throwing, p, n, d);
++    if (value == "Kernels") {
++      return true;
++    }
++    if (value != "ElementByElement") {
++      const auto origin = contains(p, n)
++                              ? "parameter '" + std::string{n} + "'"
++                              : "environment variable '" + std::string{v} + "'";
++      raise("invalid value '" + value + "' for " + origin +
++            " (expected 'ElementByElement' or 'Kernels')");
++    }
++    return false;
++  }  // end of useKernels
++
+   NonLinearEvolutionProblemImplementationBase::
+       NonLinearEvolutionProblemImplementationBase(
+           Context&,
+@@ -94,7 +131,20 @@ namespace mfem_mgis {
+         mgis_integrator(
+             buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
+         hypothesis(h),
+-        batch_integration(useBatchIntegration(throwing, p)) {
++        batch_integration(useBatchIntegration(throwing, p)),
++        gradients_kernels(useKernels(
++            throwing,
++            p,
++            NonLinearEvolutionProblemImplementationBase::GradientsComputation,
++            "MFEM_MGIS_GRADIENTS_COMPUTATION")),
++        inner_forces_kernels(useKernels(
++            throwing,
++            p,
++            NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
++            "MFEM_MGIS_INNER_FORCES_COMPUTATION")) {
++    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
++      this->mgis_integrator->setInnerForcesComputedByKernels(true);
++    }
+     this->u0 = real{0};
+     this->u1 = real{0};
+   }  // end of NonLinearEvolutionProblemImplementationBase
+@@ -414,10 +464,27 @@ namespace mfem_mgis {
+                 ctx))) {
+           return false;
+         }
++        if ((this->gradients_kernels) && (!this->batch_integration)) {
++          std::ignore = ctx.registerErrorMessage(
++              "the computation of the gradients by kernels requires the "
++              "integration of the behaviours by batches (parameter "
++              "BehaviourIntegration set to Batch)");
++          return false;
++        }
++        if (((this->gradients_kernels) || (this->inner_forces_kernels)) &&
++            (!this->mgis_integrator->checkKernelsSupport(ctx))) {
++          return false;
++        }
+         if (!this->mgis_integrator->setup(ctx, t, dt)) {
+           return false;
+         }
+       }
++      if ((this->inner_forces_kernels) && (usePETSc())) {
++        std::ignore = ctx.registerErrorMessage(
++            "the computation of the inner forces by kernels is not supported "
++            "with PETSc");
++        return false;
++      }
+       if ((this->batch_integration) && (usePETSc())) {
+         std::ignore = ctx.registerErrorMessage(
+             "the integration of the behaviours by batches is not supported "
+diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
+index c0734fac8d..23dd354847 100644
+--- a/src/PartialQuadratureSpace.cxx
++++ b/src/PartialQuadratureSpace.cxx
+@@ -28,6 +28,7 @@ namespace mfem_mgis {
+       std::unordered_map<size_type, size_type>& number_of_quadrature_points,
+       mfem::Array<int>& elements,
+       mfem::Array<int>& element_offsets,
++      const mfem::IntegrationRule*& uniform_integration_rule,
+       const FiniteElementSpace<parallel>& fespace,
+       const size_type m,
+       const std::function<const mfem::IntegrationRule&(
+@@ -38,6 +39,10 @@ namespace mfem_mgis {
+     auto ng = std::int64_t{};
+     auto e = std::vector<int>{};
+     auto o = std::vector<int>{};
++    // the rules are compared by address: the selectors return the rules
++    // stored by MFEM (`mfem::IntRules`)
++    auto uniform = true;
++    uniform_integration_rule = nullptr;
+     for (size_type i = 0; i != fespace.GetNE(); ++i) {
+       if (fespace.GetAttribute(i) != m) {
+         continue;
+@@ -48,6 +53,11 @@ namespace mfem_mgis {
+       e.push_back(static_cast<int>(i));
+       o.push_back(static_cast<int>(ng));
+       const auto& ir = integration_rule_selector(fe, tr);
++      if (e.size() == 1) {
++        uniform_integration_rule = &ir;
++      } else if (uniform_integration_rule != &ir) {
++        uniform = false;
++      }
+       const auto lng = ir.GetNPoints();
+       ng += lng;
+       if (ng > std::numeric_limits<int>::max()) {
+@@ -56,6 +66,9 @@ namespace mfem_mgis {
+       number_of_quadrature_points[i] = lng;
+     }
+     o.push_back(static_cast<int>(ng));
++    if (!uniform) {
++      uniform_integration_rule = nullptr;
++    }
+     // arrays in the memory of MFEM, filled on the host
+     auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
+       a.SetSize(static_cast<int>(v.size()));
+@@ -231,8 +244,8 @@ namespace mfem_mgis {
+       }
+       this->ng = buildPartialQuadratureSpaceOffsets<true>(
+           this->offsets, this->number_of_quadrature_points, this->elements,
+-          this->element_offsets, *(this->parallel_fespace), this->id,
+-          this->integration_rule_selector);
++          this->element_offsets, this->uniform_integration_rule,
++          *(this->parallel_fespace), this->id, this->integration_rule_selector);
+       return;
+     }
+ #endif /* MFEM_USE_MPI */
+@@ -247,8 +260,8 @@ namespace mfem_mgis {
+     }
+     this->ng = buildPartialQuadratureSpaceOffsets<false>(
+         this->offsets, this->number_of_quadrature_points, this->elements,
+-        this->element_offsets, *(this->sequential_fespace), this->id,
+-        this->integration_rule_selector);
++        this->element_offsets, this->uniform_integration_rule,
++        *(this->sequential_fespace), this->id, this->integration_rule_selector);
+   }  // end of initialize
+ 
+   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
+@@ -405,6 +418,11 @@ namespace mfem_mgis {
+     return this->element_offsets;
+   }  // end of getElementOffsets
+ 
++  const mfem::IntegrationRule*
++  PartialQuadratureSpace::getUniformIntegrationRule() const noexcept {
++    return this->uniform_integration_rule;
++  }  // end of getUniformIntegrationRule
++
+   PartialQuadratureSpace::~PartialQuadratureSpace() = default;
+ 
+   template <bool parallel>
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index f4c8f85315..ca03448c35 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -69,6 +69,16 @@ struct ComputationOptions {
+   bool plane_strain = false;
+   //! \brief if true, a prediction is made at the beginning of each time step
+   bool prediction = false;
++  /*!
++   * \brief if true, the gradients of the integration by batches are computed
++   * by kernels (parameter `GradientsComputation`)
++   */
++  bool gradients_kernels = false;
++  /*!
++   * \brief if true, the inner forces are computed by kernels (parameter
++   * `InnerForcesComputation`)
++   */
++  bool inner_forces_kernels = false;
+ };
+ 
+ /*!
+@@ -112,6 +122,10 @@ static Results compute(mfem_mgis::Context& ctx,
+                        const ComputationOptions& opts = {}) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
++  const auto* const gradients =
++      opts.gradients_kernels ? "Kernels" : "ElementByElement";
++  const auto* const inner_forces =
++      opts.inner_forces_kernels ? "Kernels" : "ElementByElement";
+   // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
+   // (5) and x = 1 (4)
+   auto problem =
+@@ -128,6 +142,8 @@ static Results compute(mfem_mgis::Context& ctx,
+                             Parameters{{"Ymin", 5}, {"Xmax", 4}, {"Xmin", 2}}},
+                            {"Hypothesis", "PlaneStrain"},
+                            {"BehaviourIntegration", mode},
++                           {"GradientsComputation", gradients},
++                           {"InnerForcesComputation", inner_forces},
+                            {"Parallel", false}}
+               : Parameters{{"MeshFileName", mesh},
+                            {"FiniteElementFamily", "H1"},
+@@ -141,6 +157,8 @@ static Results compute(mfem_mgis::Context& ctx,
+                                                      {"Xmin", 5}}},
+                            {"Hypothesis", "Tridimensional"},
+                            {"BehaviourIntegration", mode},
++                           {"GradientsComputation", gradients},
++                           {"InnerForcesComputation", inner_forces},
+                            {"Parallel", false}}) |
+       or_die;
+   if (opts.fbar) {
+@@ -270,7 +288,9 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+  * \param[in] r1: reference results
+  * \param[in] r2: results
+  * \param[in] name: name of the comparison
+- * \param[in] eps: tolerance on the relative differences
++ * \param[in] eps: tolerance on the relative differences. If null, the
++ * numbers of iterations must be the same; otherwise, they may differ by one
++ * at each time step.
+  */
+ static void compare(const Results& r1,
+                     const Results& r2,
+@@ -286,7 +306,18 @@ static void compare(const Results& r1,
+   check(du <= eps, name + ": unknowns");
+   check(ds <= eps, name + ": thermodynamic forces");
+   check(dgs <= eps, name + ": thermodynamic forces in the global frame");
+-  check(r1.iterations == r2.iterations, name + ": numbers of iterations");
++  if (eps == 0) {
++    check(r1.iterations == r2.iterations, name + ": numbers of iterations");
++  } else {
++    // rounding errors may move the convergence by one iteration, the
++    // relative tolerance of the Newton algorithm being close to the
++    // precision of the computations
++    auto close = r1.iterations.size() == r2.iterations.size();
++    for (std::size_t i = 0; close && (i != r1.iterations.size()); ++i) {
++      close = std::abs(r1.iterations[i] - r2.iterations[i]) <= 1;
++    }
++    check(close, name + ": numbers of iterations");
++  }
+ }  // end of compare
+ 
+ /*!
+@@ -601,6 +632,46 @@ int main(int argc, char** argv) {
+             std::string{b} + " (prediction)", 0);
+     testElementByElementSequence(ctx, mesh, library, b);
+   }
++  // gradients and inner forces computed by kernels: same results as the
++  // integration point by point, to the rounding errors
++  {
++    auto cases =
++        std::vector<std::tuple<std::string, ComputationOptions, std::string>>{};
++    for (const auto* const b :
++         {"IsotropicLinearHardeningPlasticity",
++          "SaintVenantKirchhoffElasticity", "OrthotropicElasticity",
++          "OrthotropicSaintVenantKirchhoffElasticity",
++          "IsotropicLinearElasticity"}) {
++      cases.push_back({b, {.gradients_kernels = true}, ", gradients"});
++      cases.push_back({b, {.inner_forces_kernels = true}, ", inner forces"});
++      cases.push_back(
++          {b,
++           {.gradients_kernels = true, .inner_forces_kernels = true},
++           ", gradients and inner forces"});
++    }
++    for (const auto* const b : {"OrthotropicElasticity",
++                                "OrthotropicSaintVenantKirchhoffElasticity"}) {
++      cases.push_back({b,
++                       {.plane_strain = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true},
++                       ", plane strain"});
++      cases.push_back({b,
++                       {.prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true},
++                       ", prediction"});
++    }
++    for (const auto& [b, opts, name] : cases) {
++      const auto* const m = opts.plane_strain ? square_mesh : mesh;
++      auto reference = opts;
++      reference.gradients_kernels = false;
++      reference.inner_forces_kernels = false;
++      compare(compute(ctx, m, library, b, "PointByPoint", reference),
++              compute(ctx, m, library, b, "Batch", opts),
++              b + " (kernels" + name + ")", 1e-10);
++    }
++  }
+   // behaviours generated by the generic-parallel interface: same results as
+   // the integration point by point of the behaviour generated by the generic
+   // interface, whose inner forces are computed with the rotations of one
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 437727a40c..59c0468df9 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -832,6 +832,28 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endif()
+ 
++  # GradientsKernelsTest executable: gradients of the behaviours computed
++  # by kernels, on the host, on the debug device of MFEM and on the GPU
++  if(NOT MFEM_USE_HIP STREQUAL "YES")
++    add_test_executable(GradientsKernelsTest)
++    set(gradients_kernels_test_arguments
++        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++        --tetrahedral-mesh ${CMAKE_CURRENT_SOURCE_DIR}/beam-tet.mesh
++        --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
++        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
++        --library $<TARGET_FILE:BehaviourTest>)
++    add_test(NAME GradientsKernelsTest
++             COMMAND GradientsKernelsTest ${gradients_kernels_test_arguments})
++    add_test(NAME GradientsKernelsTest-debug
++             COMMAND GradientsKernelsTest --device debug
++                     ${gradients_kernels_test_arguments})
++    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++      add_test(NAME GradientsKernelsTest-cuda
++               COMMAND GradientsKernelsTest --device cuda
++                       ${gradients_kernels_test_arguments})
++    endif()
++  endif()
++
+   # HypreBoomerAMGTest executable
+   if(MFEM_USE_MPI)
+     add_test_executable(HypreBoomerAMGTest)
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+new file mode 100644
+index 0000000000..a90d82d265
+--- /dev/null
++++ b/tests/GradientsKernelsTest.cxx
+@@ -0,0 +1,329 @@
++/*!
++ * \file   GradientsKernelsTest.cxx
++ * \brief  Test of the computations of the gradients of the behaviours and
++ * of the inner forces by kernels
++ * (`AbstractBehaviourIntegrator::computeGradientsByKernels` and
++ * `addInnerForcesByKernels`): same values as the computations element by
++ * element, for small and finite strain behaviours, isotropic and
++ * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
++ * materials with macroscopic gradients) and under the plane strain
++ * hypothesis (the plane stress hypothesis uses the same operator, but no
++ * behaviour of the tests supports it), on the device selected by the
++ * `--device` option; refusal of the FBar formulation.
++ * \date   09/10/2026
++ */
++
++#include <cmath>
++#include <cstdlib>
++#include <iostream>
++#include <array>
++#include <string>
++#include <vector>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "MFEMMGIS/Batch/InnerForces.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief description of a case
++struct Case {
++  //! \brief name of the case
++  std::string name;
++  //! \brief mesh
++  const char* mesh;
++  //! \brief modelling hypothesis
++  const char* hypothesis;
++  //! \brief materials and their behaviours
++  std::vector<std::pair<mfem_mgis::size_type, std::string>> materials;
++  //! \brief order of the finite elements
++  int order = 1;
++  //! \brief number of uniform refinements
++  int refinement = 1;
++  //! \brief if true, non zero macroscopic gradients are given
++  bool macroscopic_gradients = false;
++};
++
++/*!
++ * \brief compare the gradients computed by kernels and element by element
++ * \param[in, out] ctx: execution context
++ * \param[in] library: behaviour library
++ * \param[in] c: case
++ */
++static void testCase(mfem_mgis::Context& ctx,
++                     const char* const library,
++                     const Case& c) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  const auto tridimensional = std::string{c.hypothesis} == "Tridimensional";
++  const auto dim = tridimensional ? 3 : 2;
++  auto problem =
++      construct<NonLinearEvolutionProblem>(
++          ctx, Parameters{{"MeshFileName", c.mesh},
++                          {"FiniteElementFamily", "H1"},
++                          {"FiniteElementOrder", c.order},
++                          {"UnknownsSize", dim},
++                          {"NumberOfUniformRefinements", c.refinement},
++                          {"Hypothesis", c.hypothesis},
++                          {"Parallel", false}}) |
++      or_die;
++  for (const auto& [m, b] : c.materials) {
++    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, b) | or_die;
++    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
++    if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++      // a rotation which is not a symmetry of the material, nor its own
++      // inverse
++      const auto cs = std::cos(0.3);
++      const auto sn = std::sin(0.3);
++      const auto r = std::array<real, 9u>{cs, sn, 0, -sn, cs, 0, 0, 0, 1};
++      if (tridimensional) {
++        mat.setRotationMatrix(RotationMatrix3D{r});
++      } else {
++        mat.setRotationMatrix(RotationMatrix2D{r});
++      }
++    }
++  }
++  auto& fes =
++      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
++  // displacement with a non uniform gradient
++  auto gf = mfem::GridFunction(&fes);
++  auto f = mfem::VectorFunctionCoefficient(
++      dim, [dim](const mfem::Vector& x, mfem::Vector& v) {
++        v[0] = 1e-3 * (x[0] * x[0] + 0.3 * x[1]);
++        v[1] = 1e-3 * (0.5 * x[0] * x[1] - 0.2 * x[1] * x[1]);
++        if (dim == 3) {
++          v[0] += 2e-4 * x[2];
++          v[1] += 1e-4 * x[0] * x[2];
++          v[2] = -1e-3 * (0.2 * x[1] * x[1] + 0.4 * x[2] * x[0]);
++        }
++      });
++  gf.ProjectCoefficient(f);
++  const auto& u = static_cast<const mfem::Vector&>(gf);
++  auto derivatives = batch::UnknownsDerivativesSet{};
++  auto geometry = batch::ElementsGeometrySet{};
++  for (const auto& [m, b] : c.materials) {
++    auto& bi = problem.getBehaviourIntegrator(ctx, m, 0) | or_die;
++    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
++    const auto name = c.name + ", material " + std::to_string(m) + ", " + b;
++    check(bi.supportsKernels(), name + ": kernels not supported");
++    if (c.macroscopic_gradients) {
++      auto g = std::vector<real>(mat.s1.gradients_stride);
++      for (std::size_t i = 0; i != g.size(); ++i) {
++        g[i] = 1e-3 * (1 + real(i));
++      }
++      if (mat.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
++        for (std::size_t i = 0; i != 3; ++i) {
++          g[i] += 1;
++        }
++      }
++      mat.setMacroscopicGradients(g);
++    }
++    // gradients computed element by element, on the host
++    mat.synchronizeOnHost();
++    auto vdofs = mfem::Array<int>{};
++    auto ue = mfem::Vector{};
++    for (int i = 0; i != fes.GetNE(); ++i) {
++      if (fes.GetAttribute(i) != static_cast<int>(m)) {
++        continue;
++      }
++      fes.GetElementVDofs(i, vdofs);
++      u.GetSubVector(vdofs, ue);
++      check(bi.computeGradients(*(fes.GetFE(i)),
++                                *(fes.GetElementTransformation(i)), ue),
++            name + ": computation of the gradients element by element");
++    }
++    const auto reference =
++        std::vector<real>(mat.s1.gradients.begin(), mat.s1.gradients.end());
++    // gradients computed by kernels
++    const auto* const r =
++        mat.getPartialQuadratureSpace().getUniformIntegrationRule();
++    check(r != nullptr, name + ": no uniform integration rule");
++    if (r == nullptr) {
++      continue;
++    }
++    if (!derivatives.contains(r)) {
++      check(batch::computeUnknownsDerivatives(ctx, derivatives[r], fes, u, *r),
++            name + ": computation of the derivatives of the unknowns (" +
++                ctx.getErrorMessage() + ")");
++    }
++    check(bi.computeGradientsByKernels(ctx, derivatives),
++          name + ": computation of the gradients by kernels");
++    mat.synchronizeOnHostForReading();
++    auto d = real{};
++    auto vmax = real{};
++    for (std::size_t i = 0; i != reference.size(); ++i) {
++      d = std::max(d, std::abs(mat.s1.gradients[i] - reference[i]));
++      vmax = std::max(vmax, std::abs(reference[i]));
++    }
++    std::cout << name << ": " << reference.size()
++              << " values, maximum difference " << d << " (maximum value "
++              << vmax << ")\n";
++    check((!reference.empty()) && (vmax != 0) && (d <= 1e-13 * vmax),
++          name + ": gradients");
++    // inner forces computed from arbitrary thermodynamic forces
++    mat.synchronizeOnHost();
++    for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
++      mat.s1.thermodynamic_forces[i] = std::sin(real(i));
++    }
++    if (!geometry.contains(r)) {
++      check(batch::computeElementsGeometry(ctx, geometry[r], fes, *r),
++            name + ": computation of the geometric data (" +
++                ctx.getErrorMessage() + ")");
++    }
++    const auto& g = geometry[r];
++    auto f = mfem::Vector{};
++    f.UseDevice(true);
++    f.SetSize(g.nd * dim * g.ne);
++    f = real{0};
++    check(bi.addInnerForcesByKernels(ctx, f, geometry),
++          name + ": computation of the inner forces by kernels (" +
++              ctx.getErrorMessage() + ")");
++    const auto* const fv = f.HostRead();
++    // the kernels read the thermodynamic forces on the device: phase of
++    // read-only accesses on the host (see `MaterialArrays`)
++    mat.synchronizeOnHostForReading();
++    auto df = real{};
++    auto fmax = real{};
++    auto Fe = mfem::Vector{};
++    for (int i = 0; i != fes.GetNE(); ++i) {
++      if (fes.GetAttribute(i) != static_cast<int>(m)) {
++        continue;
++      }
++      bi.computeInnerForces(Fe, *(fes.GetFE(i)),
++                            *(fes.GetElementTransformation(i)));
++      check(Fe.Size() == g.nd * dim, name + ": size of the inner forces");
++      for (int j = 0; j != Fe.Size(); ++j) {
++        const auto v = fv[j + static_cast<std::size_t>(g.nd) * dim * i];
++        df = std::max(df, std::abs(v - Fe[j]));
++        fmax = std::max(fmax, std::abs(Fe[j]));
++      }
++    }
++    std::cout << name << ": inner forces, maximum difference " << df
++              << " (maximum value " << fmax << ")\n";
++    check((fmax != 0) && (df <= 1e-13 * fmax), name + ": inner forces");
++  }
++}  // end of testCase
++
++/*!
++ * \brief the FBar formulation is refused
++ */
++static void testRefusal(mfem_mgis::Context& ctx,
++                        const char* const mesh,
++                        const char* const library) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem = construct<NonLinearEvolutionProblem>(
++                     ctx, Parameters{{"MeshFileName", mesh},
++                                     {"FiniteElementFamily", "H1"},
++                                     {"FiniteElementOrder", 1},
++                                     {"UnknownsSize", 3},
++                                     {"NumberOfUniformRefinements", 0},
++                                     {"Hypothesis", "Tridimensional"},
++                                     {"BehaviourIntegration", "Batch"},
++                                     {"GradientsComputation", "Kernels"},
++                                     {"Parallel", false}}) |
++                 or_die;
++  problem.addBehaviourIntegrator(
++      ctx, "Mechanics", 1, library, "SaintVenantKirchhoffElasticity",
++      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
++      or_die;
++  auto c = Context{};
++  const auto r = problem.solve(c, 0, 1);
++  const auto msg = std::string{c.getErrorMessage()};
++  check((!r.status) &&
++            (msg.find("can't be computed by kernels") != std::string::npos),
++        "FBar not refused (" + msg + ")");
++}  // end of testRefusal
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* cube = "cube.mesh";
++  const char* tetrahedra = "beam-tet.mesh";
++  const char* two_materials = "cube_2mat_per.mesh";
++  const char* square = "cube2d.msh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&cube, "-m", "--mesh", "mesh of a cube (hexahedra)");
++  args.AddOption(&tetrahedra, "-mt", "--tetrahedral-mesh",
++                 "tetrahedral mesh (material 1)");
++  args.AddOption(&two_materials, "-m2", "--two-materials-mesh",
++                 "mesh of a cube made of two materials (1 and 2)");
++  args.AddOption(&square, "-ms", "--square-mesh",
++                 "two-dimensional mesh of a square (material 1)");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  auto ctx = Context{};
++  const auto plasticity = std::string{"IsotropicLinearHardeningPlasticity"};
++  const auto elasticity = std::string{"IsotropicLinearElasticity"};
++  const auto svk = std::string{"SaintVenantKirchhoffElasticity"};
++  const auto orthotropic = std::string{"OrthotropicElasticity"};
++  auto cases = std::vector<Case>{};
++  for (const auto order : {1, 2}) {
++    const auto o = ", order " + std::to_string(order);
++    cases.push_back({.name = "hexahedra" + o,
++                     .mesh = cube,
++                     .hypothesis = "Tridimensional",
++                     .materials = {{1, plasticity}},
++                     .order = order});
++    cases.push_back({.name = "hexahedra, finite strain" + o,
++                     .mesh = cube,
++                     .hypothesis = "Tridimensional",
++                     .materials = {{1, svk}},
++                     .order = order});
++    cases.push_back({.name = "tetrahedra" + o,
++                     .mesh = tetrahedra,
++                     .hypothesis = "Tridimensional",
++                     .materials = {{1, orthotropic}},
++                     .order = order,
++                     .refinement = 0});
++    cases.push_back({.name = "plane strain" + o,
++                     .mesh = square,
++                     .hypothesis = "PlaneStrain",
++                     .materials = {{1, plasticity}},
++                     .order = order,
++                     .refinement = 0});
++  }
++  cases.push_back({.name = "two materials, macroscopic gradients",
++                   .mesh = two_materials,
++                   .hypothesis = "Tridimensional",
++                   .materials = {{1, plasticity}, {2, elasticity}},
++                   .refinement = 0,
++                   .macroscopic_gradients = true});
++  cases.push_back({.name = "finite strain, macroscopic gradients",
++                   .mesh = cube,
++                   .hypothesis = "Tridimensional",
++                   .materials = {{1, svk}},
++                   .macroscopic_gradients = true});
++  cases.push_back({.name = "plane strain, finite strain",
++                   .mesh = square,
++                   .hypothesis = "PlaneStrain",
++                   .materials = {{1, svk}},
++                   .refinement = 0});
++  for (const auto& c : cases) {
++    testCase(ctx, library, c);
++  }
++  testRefusal(ctx, cube, library);
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

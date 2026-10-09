@@ -34,13 +34,22 @@ namespace mfem_mgis {
   const char* const
       NonLinearEvolutionProblemImplementationBase::BehaviourIntegration =
           "BehaviourIntegration";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::GradientsComputation =
+          "GradientsComputation";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::InnerForcesComputation =
+          "InnerForcesComputation";
 
   std::vector<std::string>
   NonLinearEvolutionProblemImplementationBase::getParametersList() {
-    return {NonLinearEvolutionProblemImplementationBase::
-                UseMultiMaterialNonLinearIntegrator,
-            NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
-            NonLinearEvolutionProblemImplementationBase::BehaviourIntegration};
+    return {
+        NonLinearEvolutionProblemImplementationBase::
+            UseMultiMaterialNonLinearIntegrator,
+        NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
+        NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
+        NonLinearEvolutionProblemImplementationBase::GradientsComputation,
+        NonLinearEvolutionProblemImplementationBase::InnerForcesComputation};
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
@@ -82,6 +91,34 @@ namespace mfem_mgis {
     return false;
   }  // end of useBatchIntegration
 
+  /*!
+   * \return true if the value of a parameter selecting a computation is
+   * `Kernels`, false if it is `ElementByElement`
+   * \param[in] p: parameters
+   * \param[in] n: name of the parameter
+   * \param[in] v: name of the environment variable giving the default
+   * value
+   */
+  [[nodiscard]] static bool useKernels(attributes::Throwing,
+                                       const Parameters& p,
+                                       const char* const n,
+                                       const char* const v) {
+    const auto* const e = std::getenv(v);
+    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
+    const auto value = get_if<std::string>(throwing, p, n, d);
+    if (value == "Kernels") {
+      return true;
+    }
+    if (value != "ElementByElement") {
+      const auto origin = contains(p, n)
+                              ? "parameter '" + std::string{n} + "'"
+                              : "environment variable '" + std::string{v} + "'";
+      raise("invalid value '" + value + "' for " + origin +
+            " (expected 'ElementByElement' or 'Kernels')");
+    }
+    return false;
+  }  // end of useKernels
+
   NonLinearEvolutionProblemImplementationBase::
       NonLinearEvolutionProblemImplementationBase(
           Context&,
@@ -94,7 +131,20 @@ namespace mfem_mgis {
         mgis_integrator(
             buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
         hypothesis(h),
-        batch_integration(useBatchIntegration(throwing, p)) {
+        batch_integration(useBatchIntegration(throwing, p)),
+        gradients_kernels(useKernels(
+            throwing,
+            p,
+            NonLinearEvolutionProblemImplementationBase::GradientsComputation,
+            "MFEM_MGIS_GRADIENTS_COMPUTATION")),
+        inner_forces_kernels(useKernels(
+            throwing,
+            p,
+            NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
+            "MFEM_MGIS_INNER_FORCES_COMPUTATION")) {
+    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
+      this->mgis_integrator->setInnerForcesComputedByKernels(true);
+    }
     this->u0 = real{0};
     this->u1 = real{0};
   }  // end of NonLinearEvolutionProblemImplementationBase
@@ -414,9 +464,26 @@ namespace mfem_mgis {
                 ctx))) {
           return false;
         }
+        if ((this->gradients_kernels) && (!this->batch_integration)) {
+          std::ignore = ctx.registerErrorMessage(
+              "the computation of the gradients by kernels requires the "
+              "integration of the behaviours by batches (parameter "
+              "BehaviourIntegration set to Batch)");
+          return false;
+        }
+        if (((this->gradients_kernels) || (this->inner_forces_kernels)) &&
+            (!this->mgis_integrator->checkKernelsSupport(ctx))) {
+          return false;
+        }
         if (!this->mgis_integrator->setup(ctx, t, dt)) {
           return false;
         }
+      }
+      if ((this->inner_forces_kernels) && (usePETSc())) {
+        std::ignore = ctx.registerErrorMessage(
+            "the computation of the inner forces by kernels is not supported "
+            "with PETSc");
+        return false;
       }
       if ((this->batch_integration) && (usePETSc())) {
         std::ignore = ctx.registerErrorMessage(

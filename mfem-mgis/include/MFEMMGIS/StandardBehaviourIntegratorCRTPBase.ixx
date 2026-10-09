@@ -11,6 +11,7 @@
 
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
+#include "mfem/general/device.hpp"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
@@ -219,6 +220,110 @@ namespace mfem_mgis {
       const mfem::Vector &u) {
     return this->implementComputeGradients(e, tr, u);
   }  // end of computeGradients
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::supportsKernels()
+      const noexcept {
+    using Traits = BehaviourIntegratorTraits<Child>;
+    // the kernels compute the gradients of the standard mechanical
+    // behaviours from the derivatives of the unknowns only
+    if constexpr ((Traits::updateExternalStateVariablesFromUnknownsValues) ||
+                  (Traits::gradientsComputationRequiresShapeFunctions)) {
+      return false;
+    } else {
+      if ((!batch::areGradientsKernelsAvailable()) ||
+          (!batch::getGradientsKind(this->b).has_value())) {
+        return false;
+      }
+      // all the elements must use the same integration rule
+      return (this->quadrature_space->getNumberOfElements() == 0) ||
+             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+    }
+  }  // end of supportsKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
+      Context& ctx, const batch::UnknownsDerivativesSet& d) noexcept {
+    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+    if (r == nullptr) {
+      if (this->quadrature_space->getNumberOfElements() == 0) {
+        return true;
+      }
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: the elements of the material do not "
+          "use the same integration rule");
+    }
+    const auto k = batch::getGradientsKind(this->b);
+    if (!k.has_value()) {
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: unsupported behaviour");
+    }
+    const auto p = d.find(r);
+    if (p == d.end()) {
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: the derivatives of the unknowns are not "
+          "computed for the integration rule of the material");
+    }
+    return batch::computeGradients(ctx, *this, p->second, *k);
+  }  // end of computeGradientsByKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::addInnerForcesByKernels(
+      Context& ctx,
+      mfem::Vector& f,
+      const batch::ElementsGeometrySet& g) noexcept {
+    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+    if (r == nullptr) {
+      if (this->quadrature_space->getNumberOfElements() == 0) {
+        return true;
+      }
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: the elements of the material do not use "
+          "the same integration rule");
+    }
+    const auto k = batch::getGradientsKind(this->b);
+    if (!k.has_value()) {
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: unsupported behaviour");
+    }
+    const auto p = g.find(r);
+    if (p == g.end()) {
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: the geometric data are not computed for "
+          "the integration rule of the material");
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto np = static_cast<size_type>(this->n);
+      const auto nc = this->s1.thermodynamic_forces_stride;
+      if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+        // thermodynamic forces in the global frame at all the points
+        auto& v = this->wks.rotated_thermodynamic_forces;
+        if (this->getRotatedThermodynamicForces().empty()) {
+          this->computeThermodynamicForcesInGlobalFrame(v);
+        }
+        const auto s = std::span<const real>(
+            v.Read(use_device), static_cast<std::size_t>(v.Size()));
+        return batch::addInnerForces(
+            ctx, f, *(this->quadrature_space),
+            mgis::makePointByPointFieldView(s, np, nc, nc), p->second, *k);
+      }
+      const auto& v = this->getArrays().getArray(
+          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
+      const auto s = std::span<const real>(v.Read(use_device),
+                                           static_cast<std::size_t>(v.Size()));
+      return batch::addInnerForces(
+          ctx, f, *(this->quadrature_space),
+          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
+          p->second, *k);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addInnerForcesByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: unknown exception");
+    }
+  }  // end of addInnerForcesByKernels
 
   template <typename Child>
   void StandardBehaviourIntegratorCRTPBase<Child>::implementUpdateResidual(

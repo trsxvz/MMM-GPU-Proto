@@ -832,6 +832,28 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # GradientsKernelsTest executable: gradients of the behaviours computed
+  # by kernels, on the host, on the debug device of MFEM and on the GPU
+  if(NOT MFEM_USE_HIP STREQUAL "YES")
+    add_test_executable(GradientsKernelsTest)
+    set(gradients_kernels_test_arguments
+        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+        --tetrahedral-mesh ${CMAKE_CURRENT_SOURCE_DIR}/beam-tet.mesh
+        --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
+        --library $<TARGET_FILE:BehaviourTest>)
+    add_test(NAME GradientsKernelsTest
+             COMMAND GradientsKernelsTest ${gradients_kernels_test_arguments})
+    add_test(NAME GradientsKernelsTest-debug
+             COMMAND GradientsKernelsTest --device debug
+                     ${gradients_kernels_test_arguments})
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME GradientsKernelsTest-cuda
+               COMMAND GradientsKernelsTest --device cuda
+                       ${gradients_kernels_test_arguments})
+    endif()
+  endif()
+
   # HypreBoomerAMGTest executable
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)

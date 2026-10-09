@@ -14,6 +14,8 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Batch/Gradients.hxx"
+#include "MFEMMGIS/Batch/InnerForces.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 
 namespace mfem_mgis {
@@ -118,6 +120,52 @@ namespace mfem_mgis {
      * \return true on success
      */
     [[nodiscard]] bool integrateBatch(const IntegrationType it);
+    /*!
+     * \return true if the gradients of all the behaviour integrators can be
+     * computed by kernels (see
+     * `AbstractBehaviourIntegrator::supportsKernels`); otherwise,
+     * an error message naming the first behaviour integrator which does not
+     * support them is registered
+     * \param[in, out] ctx: execution context
+     */
+    [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
+    /*!
+     * \brief compute the gradients of all the behaviour integrators by
+     * kernels (first step of the integration by batches, replacing the calls
+     * to `computeGradients` element by element): the derivatives of the
+     * unknowns are computed once for each integration rule of the
+     * materials, then each behaviour integrator computes its gradients
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in] u: unknowns (local vector of the finite element space)
+     */
+    [[nodiscard]] bool computeGradientsByKernels(
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        const mfem::Vector& u) noexcept;
+    /*!
+     * \brief add the inner forces of all the behaviour integrators, computed
+     * by kernels from the thermodynamic forces at the end of the time step
+     * (see `AbstractBehaviourIntegrator::addInnerForcesByKernels`), to a
+     * local vector of the finite element space (transposed element
+     * restriction)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in, out] f: local vector of the finite element space
+     */
+    [[nodiscard]] bool addInnerForcesByKernels(
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        mfem::Vector& f) noexcept;
+    /*!
+     * \brief if true, `AssembleElementVector` gives null vectors: the inner
+     * forces are computed by kernels by the non linear evolution problem
+     * (see `addInnerForcesByKernels`)
+     * \param[in] b: boolean
+     */
+    void setInnerForcesComputedByKernels(const bool) noexcept;
     //! \return the current time increment
     [[nodiscard]] real getTimeIncrement() const noexcept;
     /*!
@@ -266,6 +314,17 @@ namespace mfem_mgis {
      */
     std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>
         behaviour_integrators;
+    /*!
+     * \brief derivatives of the unknowns, by integration rule (workspace of
+     * `computeGradientsByKernels`, kept to avoid reallocations)
+     */
+    batch::UnknownsDerivativesSet unknowns_derivatives;
+    //! \brief geometric data (workspace of `addInnerForcesByKernels`)
+    batch::ElementsGeometrySet elements_geometry;
+    //! \brief inner forces element by element (workspace)
+    mfem::Vector inner_forces_element_values;
+    //! \brief see `setInnerForcesComputedByKernels`
+    bool inner_forces_computed_by_kernels = false;
   };  // end of MultiMaterialNonLinearIntegrator
 
 }  // end of namespace mfem_mgis

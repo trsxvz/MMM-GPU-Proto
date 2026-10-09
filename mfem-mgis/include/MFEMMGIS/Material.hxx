@@ -72,6 +72,9 @@ namespace mfem_mgis {
      * \param[in] g: macroscopic gradients
      */
     void setMacroscopicGradients(std::span<const real> g);
+    //! \return the macroscopic gradients
+    [[nodiscard]] std::span<const real> getMacroscopicGradients()
+        const noexcept;
     /*!
      * \brief set the rotation matrix
      * \param[in] r: rotation matrix

@@ -150,6 +150,12 @@ namespace mfem_mgis {
     //! \return the finite element space
     [[nodiscard]] const FiniteElementSpace<false>& getFiniteElementSpace()
         const noexcept;
+    /*!
+     * \brief compute the residual
+     * \param[in] u: current estimate of the unknowns
+     * \param[out] r: residual
+     */
+    void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
     //
     [[nodiscard]] bool addBoundaryCondition(
         Context& ctx,

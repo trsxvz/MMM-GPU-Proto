@@ -69,6 +69,16 @@ struct ComputationOptions {
   bool plane_strain = false;
   //! \brief if true, a prediction is made at the beginning of each time step
   bool prediction = false;
+  /*!
+   * \brief if true, the gradients of the integration by batches are computed
+   * by kernels (parameter `GradientsComputation`)
+   */
+  bool gradients_kernels = false;
+  /*!
+   * \brief if true, the inner forces are computed by kernels (parameter
+   * `InnerForcesComputation`)
+   */
+  bool inner_forces_kernels = false;
 };
 
 /*!
@@ -112,6 +122,10 @@ static Results compute(mfem_mgis::Context& ctx,
                        const ComputationOptions& opts = {}) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  const auto* const gradients =
+      opts.gradients_kernels ? "Kernels" : "ElementByElement";
+  const auto* const inner_forces =
+      opts.inner_forces_kernels ? "Kernels" : "ElementByElement";
   // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
   // (5) and x = 1 (4)
   auto problem =
@@ -128,6 +142,8 @@ static Results compute(mfem_mgis::Context& ctx,
                             Parameters{{"Ymin", 5}, {"Xmax", 4}, {"Xmin", 2}}},
                            {"Hypothesis", "PlaneStrain"},
                            {"BehaviourIntegration", mode},
+                           {"GradientsComputation", gradients},
+                           {"InnerForcesComputation", inner_forces},
                            {"Parallel", false}}
               : Parameters{{"MeshFileName", mesh},
                            {"FiniteElementFamily", "H1"},
@@ -141,6 +157,8 @@ static Results compute(mfem_mgis::Context& ctx,
                                                      {"Xmin", 5}}},
                            {"Hypothesis", "Tridimensional"},
                            {"BehaviourIntegration", mode},
+                           {"GradientsComputation", gradients},
+                           {"InnerForcesComputation", inner_forces},
                            {"Parallel", false}}) |
       or_die;
   if (opts.fbar) {
@@ -270,7 +288,9 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
  * \param[in] r1: reference results
  * \param[in] r2: results
  * \param[in] name: name of the comparison
- * \param[in] eps: tolerance on the relative differences
+ * \param[in] eps: tolerance on the relative differences. If null, the
+ * numbers of iterations must be the same; otherwise, they may differ by one
+ * at each time step.
  */
 static void compare(const Results& r1,
                     const Results& r2,
@@ -286,7 +306,18 @@ static void compare(const Results& r1,
   check(du <= eps, name + ": unknowns");
   check(ds <= eps, name + ": thermodynamic forces");
   check(dgs <= eps, name + ": thermodynamic forces in the global frame");
-  check(r1.iterations == r2.iterations, name + ": numbers of iterations");
+  if (eps == 0) {
+    check(r1.iterations == r2.iterations, name + ": numbers of iterations");
+  } else {
+    // rounding errors may move the convergence by one iteration, the
+    // relative tolerance of the Newton algorithm being close to the
+    // precision of the computations
+    auto close = r1.iterations.size() == r2.iterations.size();
+    for (std::size_t i = 0; close && (i != r1.iterations.size()); ++i) {
+      close = std::abs(r1.iterations[i] - r2.iterations[i]) <= 1;
+    }
+    check(close, name + ": numbers of iterations");
+  }
 }  // end of compare
 
 /*!
@@ -600,6 +631,46 @@ int main(int argc, char** argv) {
             compute(ctx, mesh, library, b, "Batch", opts2),
             std::string{b} + " (prediction)", 0);
     testElementByElementSequence(ctx, mesh, library, b);
+  }
+  // gradients and inner forces computed by kernels: same results as the
+  // integration point by point, to the rounding errors
+  {
+    auto cases =
+        std::vector<std::tuple<std::string, ComputationOptions, std::string>>{};
+    for (const auto* const b :
+         {"IsotropicLinearHardeningPlasticity",
+          "SaintVenantKirchhoffElasticity", "OrthotropicElasticity",
+          "OrthotropicSaintVenantKirchhoffElasticity",
+          "IsotropicLinearElasticity"}) {
+      cases.push_back({b, {.gradients_kernels = true}, ", gradients"});
+      cases.push_back({b, {.inner_forces_kernels = true}, ", inner forces"});
+      cases.push_back(
+          {b,
+           {.gradients_kernels = true, .inner_forces_kernels = true},
+           ", gradients and inner forces"});
+    }
+    for (const auto* const b : {"OrthotropicElasticity",
+                                "OrthotropicSaintVenantKirchhoffElasticity"}) {
+      cases.push_back({b,
+                       {.plane_strain = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true},
+                       ", plane strain"});
+      cases.push_back({b,
+                       {.prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true},
+                       ", prediction"});
+    }
+    for (const auto& [b, opts, name] : cases) {
+      const auto* const m = opts.plane_strain ? square_mesh : mesh;
+      auto reference = opts;
+      reference.gradients_kernels = false;
+      reference.inner_forces_kernels = false;
+      compare(compute(ctx, m, library, b, "PointByPoint", reference),
+              compute(ctx, m, library, b, "Batch", opts),
+              b + " (kernels" + name + ")", 1e-10);
+    }
   }
   // behaviours generated by the generic-parallel interface: same results as
   // the integration point by point of the behaviour generated by the generic

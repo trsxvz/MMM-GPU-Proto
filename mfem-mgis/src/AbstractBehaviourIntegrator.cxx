@@ -38,6 +38,25 @@ namespace mfem_mgis {
     return false;
   }  // end of integrateBatch
 
+  bool AbstractBehaviourIntegrator::supportsKernels() const noexcept {
+    return false;
+  }  // end of supportsKernels
+
+  bool AbstractBehaviourIntegrator::computeGradientsByKernels(
+      Context& ctx, const batch::UnknownsDerivativesSet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::computeGradientsByKernels: the "
+        "gradients of this behaviour integrator can't be computed by "
+        "kernels");
+  }  // end of computeGradientsByKernels
+
+  bool AbstractBehaviourIntegrator::addInnerForcesByKernels(
+      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addInnerForcesByKernels: the inner "
+        "forces of this behaviour integrator can't be computed by kernels");
+  }  // end of addInnerForcesByKernels
+
   template <bool parallel, typename Functor>
   static void performLoopOverIntegrationPoints(
       Functor& f, const AbstractBehaviourIntegrator& bi) {

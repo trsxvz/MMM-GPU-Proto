@@ -1,0 +1,329 @@
+/*!
+ * \file   GradientsKernelsTest.cxx
+ * \brief  Test of the computations of the gradients of the behaviours and
+ * of the inner forces by kernels
+ * (`AbstractBehaviourIntegrator::computeGradientsByKernels` and
+ * `addInnerForcesByKernels`): same values as the computations element by
+ * element, for small and finite strain behaviours, isotropic and
+ * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
+ * materials with macroscopic gradients) and under the plane strain
+ * hypothesis (the plane stress hypothesis uses the same operator, but no
+ * behaviour of the tests supports it), on the device selected by the
+ * `--device` option; refusal of the FBar formulation.
+ * \date   09/10/2026
+ */
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <array>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include "mfem/general/optparser.hpp"
+#include "MGIS/Behaviour/Behaviour.hxx"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/Batch/Gradients.hxx"
+#include "MFEMMGIS/Batch/InnerForces.hxx"
+
+//! \brief number of failed checks
+static int failures = 0;
+
+static void check(const bool b, const std::string& msg) {
+  if (!b) {
+    std::cerr << "check failed: " << msg << '\n';
+    ++failures;
+  }
+}  // end of check
+
+//! \brief description of a case
+struct Case {
+  //! \brief name of the case
+  std::string name;
+  //! \brief mesh
+  const char* mesh;
+  //! \brief modelling hypothesis
+  const char* hypothesis;
+  //! \brief materials and their behaviours
+  std::vector<std::pair<mfem_mgis::size_type, std::string>> materials;
+  //! \brief order of the finite elements
+  int order = 1;
+  //! \brief number of uniform refinements
+  int refinement = 1;
+  //! \brief if true, non zero macroscopic gradients are given
+  bool macroscopic_gradients = false;
+};
+
+/*!
+ * \brief compare the gradients computed by kernels and element by element
+ * \param[in, out] ctx: execution context
+ * \param[in] library: behaviour library
+ * \param[in] c: case
+ */
+static void testCase(mfem_mgis::Context& ctx,
+                     const char* const library,
+                     const Case& c) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  const auto tridimensional = std::string{c.hypothesis} == "Tridimensional";
+  const auto dim = tridimensional ? 3 : 2;
+  auto problem =
+      construct<NonLinearEvolutionProblem>(
+          ctx, Parameters{{"MeshFileName", c.mesh},
+                          {"FiniteElementFamily", "H1"},
+                          {"FiniteElementOrder", c.order},
+                          {"UnknownsSize", dim},
+                          {"NumberOfUniformRefinements", c.refinement},
+                          {"Hypothesis", c.hypothesis},
+                          {"Parallel", false}}) |
+      or_die;
+  for (const auto& [m, b] : c.materials) {
+    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, b) | or_die;
+    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
+    if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      // a rotation which is not a symmetry of the material, nor its own
+      // inverse
+      const auto cs = std::cos(0.3);
+      const auto sn = std::sin(0.3);
+      const auto r = std::array<real, 9u>{cs, sn, 0, -sn, cs, 0, 0, 0, 1};
+      if (tridimensional) {
+        mat.setRotationMatrix(RotationMatrix3D{r});
+      } else {
+        mat.setRotationMatrix(RotationMatrix2D{r});
+      }
+    }
+  }
+  auto& fes =
+      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
+  // displacement with a non uniform gradient
+  auto gf = mfem::GridFunction(&fes);
+  auto f = mfem::VectorFunctionCoefficient(
+      dim, [dim](const mfem::Vector& x, mfem::Vector& v) {
+        v[0] = 1e-3 * (x[0] * x[0] + 0.3 * x[1]);
+        v[1] = 1e-3 * (0.5 * x[0] * x[1] - 0.2 * x[1] * x[1]);
+        if (dim == 3) {
+          v[0] += 2e-4 * x[2];
+          v[1] += 1e-4 * x[0] * x[2];
+          v[2] = -1e-3 * (0.2 * x[1] * x[1] + 0.4 * x[2] * x[0]);
+        }
+      });
+  gf.ProjectCoefficient(f);
+  const auto& u = static_cast<const mfem::Vector&>(gf);
+  auto derivatives = batch::UnknownsDerivativesSet{};
+  auto geometry = batch::ElementsGeometrySet{};
+  for (const auto& [m, b] : c.materials) {
+    auto& bi = problem.getBehaviourIntegrator(ctx, m, 0) | or_die;
+    auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
+    const auto name = c.name + ", material " + std::to_string(m) + ", " + b;
+    check(bi.supportsKernels(), name + ": kernels not supported");
+    if (c.macroscopic_gradients) {
+      auto g = std::vector<real>(mat.s1.gradients_stride);
+      for (std::size_t i = 0; i != g.size(); ++i) {
+        g[i] = 1e-3 * (1 + real(i));
+      }
+      if (mat.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+        for (std::size_t i = 0; i != 3; ++i) {
+          g[i] += 1;
+        }
+      }
+      mat.setMacroscopicGradients(g);
+    }
+    // gradients computed element by element, on the host
+    mat.synchronizeOnHost();
+    auto vdofs = mfem::Array<int>{};
+    auto ue = mfem::Vector{};
+    for (int i = 0; i != fes.GetNE(); ++i) {
+      if (fes.GetAttribute(i) != static_cast<int>(m)) {
+        continue;
+      }
+      fes.GetElementVDofs(i, vdofs);
+      u.GetSubVector(vdofs, ue);
+      check(bi.computeGradients(*(fes.GetFE(i)),
+                                *(fes.GetElementTransformation(i)), ue),
+            name + ": computation of the gradients element by element");
+    }
+    const auto reference =
+        std::vector<real>(mat.s1.gradients.begin(), mat.s1.gradients.end());
+    // gradients computed by kernels
+    const auto* const r =
+        mat.getPartialQuadratureSpace().getUniformIntegrationRule();
+    check(r != nullptr, name + ": no uniform integration rule");
+    if (r == nullptr) {
+      continue;
+    }
+    if (!derivatives.contains(r)) {
+      check(batch::computeUnknownsDerivatives(ctx, derivatives[r], fes, u, *r),
+            name + ": computation of the derivatives of the unknowns (" +
+                ctx.getErrorMessage() + ")");
+    }
+    check(bi.computeGradientsByKernels(ctx, derivatives),
+          name + ": computation of the gradients by kernels");
+    mat.synchronizeOnHostForReading();
+    auto d = real{};
+    auto vmax = real{};
+    for (std::size_t i = 0; i != reference.size(); ++i) {
+      d = std::max(d, std::abs(mat.s1.gradients[i] - reference[i]));
+      vmax = std::max(vmax, std::abs(reference[i]));
+    }
+    std::cout << name << ": " << reference.size()
+              << " values, maximum difference " << d << " (maximum value "
+              << vmax << ")\n";
+    check((!reference.empty()) && (vmax != 0) && (d <= 1e-13 * vmax),
+          name + ": gradients");
+    // inner forces computed from arbitrary thermodynamic forces
+    mat.synchronizeOnHost();
+    for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
+      mat.s1.thermodynamic_forces[i] = std::sin(real(i));
+    }
+    if (!geometry.contains(r)) {
+      check(batch::computeElementsGeometry(ctx, geometry[r], fes, *r),
+            name + ": computation of the geometric data (" +
+                ctx.getErrorMessage() + ")");
+    }
+    const auto& g = geometry[r];
+    auto f = mfem::Vector{};
+    f.UseDevice(true);
+    f.SetSize(g.nd * dim * g.ne);
+    f = real{0};
+    check(bi.addInnerForcesByKernels(ctx, f, geometry),
+          name + ": computation of the inner forces by kernels (" +
+              ctx.getErrorMessage() + ")");
+    const auto* const fv = f.HostRead();
+    // the kernels read the thermodynamic forces on the device: phase of
+    // read-only accesses on the host (see `MaterialArrays`)
+    mat.synchronizeOnHostForReading();
+    auto df = real{};
+    auto fmax = real{};
+    auto Fe = mfem::Vector{};
+    for (int i = 0; i != fes.GetNE(); ++i) {
+      if (fes.GetAttribute(i) != static_cast<int>(m)) {
+        continue;
+      }
+      bi.computeInnerForces(Fe, *(fes.GetFE(i)),
+                            *(fes.GetElementTransformation(i)));
+      check(Fe.Size() == g.nd * dim, name + ": size of the inner forces");
+      for (int j = 0; j != Fe.Size(); ++j) {
+        const auto v = fv[j + static_cast<std::size_t>(g.nd) * dim * i];
+        df = std::max(df, std::abs(v - Fe[j]));
+        fmax = std::max(fmax, std::abs(Fe[j]));
+      }
+    }
+    std::cout << name << ": inner forces, maximum difference " << df
+              << " (maximum value " << fmax << ")\n";
+    check((fmax != 0) && (df <= 1e-13 * fmax), name + ": inner forces");
+  }
+}  // end of testCase
+
+/*!
+ * \brief the FBar formulation is refused
+ */
+static void testRefusal(mfem_mgis::Context& ctx,
+                        const char* const mesh,
+                        const char* const library) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 3},
+                                     {"NumberOfUniformRefinements", 0},
+                                     {"Hypothesis", "Tridimensional"},
+                                     {"BehaviourIntegration", "Batch"},
+                                     {"GradientsComputation", "Kernels"},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(
+      ctx, "Mechanics", 1, library, "SaintVenantKirchhoffElasticity",
+      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
+      or_die;
+  auto c = Context{};
+  const auto r = problem.solve(c, 0, 1);
+  const auto msg = std::string{c.getErrorMessage()};
+  check((!r.status) &&
+            (msg.find("can't be computed by kernels") != std::string::npos),
+        "FBar not refused (" + msg + ")");
+}  // end of testRefusal
+
+int main(int argc, char** argv) {
+  using namespace mfem_mgis;
+  initialize(argc, argv);
+  const char* cube = "cube.mesh";
+  const char* tetrahedra = "beam-tet.mesh";
+  const char* two_materials = "cube_2mat_per.mesh";
+  const char* square = "cube2d.msh";
+  const char* library = "src/libBehaviourTest.so";
+  auto args = mfem::OptionsParser(argc, argv);
+  declareDefaultOptions(args);
+  args.AddOption(&cube, "-m", "--mesh", "mesh of a cube (hexahedra)");
+  args.AddOption(&tetrahedra, "-mt", "--tetrahedral-mesh",
+                 "tetrahedral mesh (material 1)");
+  args.AddOption(&two_materials, "-m2", "--two-materials-mesh",
+                 "mesh of a cube made of two materials (1 and 2)");
+  args.AddOption(&square, "-ms", "--square-mesh",
+                 "two-dimensional mesh of a square (material 1)");
+  args.AddOption(&library, "-l", "--library", "behaviour library");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    return EXIT_FAILURE;
+  }
+  auto ctx = Context{};
+  const auto plasticity = std::string{"IsotropicLinearHardeningPlasticity"};
+  const auto elasticity = std::string{"IsotropicLinearElasticity"};
+  const auto svk = std::string{"SaintVenantKirchhoffElasticity"};
+  const auto orthotropic = std::string{"OrthotropicElasticity"};
+  auto cases = std::vector<Case>{};
+  for (const auto order : {1, 2}) {
+    const auto o = ", order " + std::to_string(order);
+    cases.push_back({.name = "hexahedra" + o,
+                     .mesh = cube,
+                     .hypothesis = "Tridimensional",
+                     .materials = {{1, plasticity}},
+                     .order = order});
+    cases.push_back({.name = "hexahedra, finite strain" + o,
+                     .mesh = cube,
+                     .hypothesis = "Tridimensional",
+                     .materials = {{1, svk}},
+                     .order = order});
+    cases.push_back({.name = "tetrahedra" + o,
+                     .mesh = tetrahedra,
+                     .hypothesis = "Tridimensional",
+                     .materials = {{1, orthotropic}},
+                     .order = order,
+                     .refinement = 0});
+    cases.push_back({.name = "plane strain" + o,
+                     .mesh = square,
+                     .hypothesis = "PlaneStrain",
+                     .materials = {{1, plasticity}},
+                     .order = order,
+                     .refinement = 0});
+  }
+  cases.push_back({.name = "two materials, macroscopic gradients",
+                   .mesh = two_materials,
+                   .hypothesis = "Tridimensional",
+                   .materials = {{1, plasticity}, {2, elasticity}},
+                   .refinement = 0,
+                   .macroscopic_gradients = true});
+  cases.push_back({.name = "finite strain, macroscopic gradients",
+                   .mesh = cube,
+                   .hypothesis = "Tridimensional",
+                   .materials = {{1, svk}},
+                   .macroscopic_gradients = true});
+  cases.push_back({.name = "plane strain, finite strain",
+                   .mesh = square,
+                   .hypothesis = "PlaneStrain",
+                   .materials = {{1, svk}},
+                   .refinement = 0});
+  for (const auto& c : cases) {
+    testCase(ctx, library, c);
+  }
+  testRefusal(ctx, cube, library);
+  std::cout << (failures == 0 ? "success" : "failure") << '\n';
+  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+}  // end of main

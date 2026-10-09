@@ -13,6 +13,8 @@
 #include <memory>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/TimeStepStage.hxx"
+#include "MFEMMGIS/Batch/Gradients.hxx"
+#include "MFEMMGIS/Batch/InnerForces.hxx"
 
 namespace mfem_mgis {
 
@@ -131,6 +133,43 @@ namespace mfem_mgis {
      * \note the default implementation returns false
      */
     [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
+    /*!
+     * \return true if the gradients and the inner forces of the behaviour
+     * integrator can be computed by kernels (see `computeGradientsByKernels`
+     * and `addInnerForcesByKernels`). The default implementation returns
+     * false.
+     */
+    [[nodiscard]] virtual bool supportsKernels() const noexcept;
+    /*!
+     * \brief compute the gradients at all the integration points by
+     * kernels, from the derivatives of the unknowns at the points of the
+     * integration rule of the elements (see
+     * `PartialQuadratureSpace::getUniformIntegrationRule`): first step of
+     * the integration by batches, replacing the calls to `computeGradients`
+     * element by element. As with `computeGradients`, the gradients are left
+     * in the global frame.
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] d: derivatives of the unknowns, which must contain the ones
+     * of the integration rule of the elements
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool computeGradientsByKernels(
+        Context&, const batch::UnknownsDerivativesSet&) noexcept;
+    /*!
+     * \brief add the inner forces of all the elements, computed by kernels
+     * from the thermodynamic forces at the end of the time step, to values
+     * element by element in the layout of the element restriction of MFEM
+     * (see `batch::addInnerForces`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] f: values element by element
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addInnerForcesByKernels(
+        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces

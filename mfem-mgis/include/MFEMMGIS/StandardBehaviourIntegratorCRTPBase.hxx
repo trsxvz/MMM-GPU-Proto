@@ -42,6 +42,13 @@ namespace mfem_mgis {
     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
                                         mfem::ElementTransformation&,
                                         const mfem::Vector&) override;
+    [[nodiscard]] bool supportsKernels() const noexcept override;
+    [[nodiscard]] bool computeGradientsByKernels(
+        Context&, const batch::UnknownsDerivativesSet&) noexcept override;
+    [[nodiscard]] bool addInnerForcesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
 
    protected:
     /*!

@@ -111,6 +111,10 @@ namespace mfem_mgis {
     std::copy(g.begin(), g.end(), this->macroscopic_gradients.begin());
   }  // end of setMacroscopicGradients
 
+  std::span<const real> Material::getMacroscopicGradients() const noexcept {
+    return this->macroscopic_gradients;
+  }  // end of getMacroscopicGradients
+
   static void checkBehaviourSymmetry(const Behaviour &b) {
     if (b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
       raise(

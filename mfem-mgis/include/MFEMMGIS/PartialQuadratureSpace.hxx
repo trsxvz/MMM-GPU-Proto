@@ -192,6 +192,13 @@ namespace mfem_mgis {
      * number of integration points. Readable on the device (`Read`).
      */
     [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
+    /*!
+     * \return the integration rule used by all the elements of the space, or
+     * a null pointer if the elements use different integration rules or if
+     * the space has no element
+     */
+    [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
+        const noexcept;
     //! \return the material or boundary identifier
     [[nodiscard]] size_type getId() const noexcept;
     //! \brief destructor
@@ -261,6 +268,8 @@ namespace mfem_mgis {
     mfem::Array<int> elements;
     //! \brief offsets of the points of the elements (size: elements + 1)
     mfem::Array<int> element_offsets;
+    //! \brief integration rule used by all the elements, if any
+    const mfem::IntegrationRule* uniform_integration_rule = nullptr;
     //! \brief material or boundary identifier
     size_type id;
     //! \brief number of integration points

@@ -2849,3 +2849,144 @@ Limite connue, comme le reste de mfem-mgis : une erreur locale à un
 processus (ici une exception de synchronisation, possible seulement avec
 MFEM compilé avec les exceptions) est rapportée par ce processus seul ;
 les autres peuvent attendre dans une opération collective.
+
+### 2026-10-09 (soir), lot L2 : lois intégrées par lots sur CPU
+
+Paramètre `BehaviourIntegration` des problèmes non linéaires :
+`PointByPoint` (défaut, chemin actuel) ou `Batch`. Valeur par défaut
+modifiable par la variable d'environnement
+`MFEM_MGIS_BEHAVIOUR_INTEGRATION`, pour passer une suite de tests ou une
+application dans ce mode sans toucher au code.
+
+Par lots :
+
+1. les gradients sont calculés élément par élément (code de
+   `implementIntegrate` sans l'appel de la loi), sauf pour une
+   prédiction ;
+2. chaque intégrateur intègre sa loi en un seul appel de MGIS
+   (`mgis::behaviour::integrate` sur le gestionnaire de données du
+   matériau) : point par point dans MGIS pour une bibliothèque `generic`,
+   en un lot pour une bibliothèque `generic-parallel` (backends `openmp`,
+   `stlpar`...) ;
+3. pour une loi orthotrope, les gradients sont tournés dans le repère du
+   matériau avant l'appel, les blocs de la tangente dans le repère global
+   après, en une fois pour tous les points (fonctions de rotation de MGIS
+   sur des vues ; fonction de rotation des lots pour une loi
+   `generic-parallel`, qui n'a pas de fonction de rotation d'un point).
+
+Contraintes dans le repère global pour le résidu : tournées point par
+point, comme avant, quand la loi fournit la rotation d'un point ; pour une
+loi orthotrope `generic-parallel`, tournées pour tous les points par
+`integrateBatch`, juste après l'intégration. Les post-traitements (forces
+moyennes, évaluateurs tournés) les calculent pour tous les points à chaque
+appel.
+
+Propriétés matériau de début de pas : pour l'appel, celles de fin de pas
+leur sont substituées sous forme de vues (comme le chemin point par
+point), puis les leurs sont remises en place, sans copie.
+
+Refus explicites, avec message : `Batch` avec PETSc, intégrateurs sans
+support des lots (endommagement micromorphe), loi `generic-parallel` point
+par point.
+
+**Relecture indépendante** : un défaut grave trouvé et reproduit. La
+première version gardait les contraintes tournées dans un cache du
+matériau, invalidé par des versions des tableaux ; MGIS écrit par ses vues
+sans changer les versions, et l'assemblage du résidu avec PETSc (intégration
+puis résidu, élément par élément) relisait des contraintes périmées pour
+toute loi orthotrope. Cache et versions retirés (conception ci-dessus) ; la
+séquence de la relecture est devenue un test. Corrigés aussi : copie des
+propriétés matériau à chaque appel (vues), documentation, message de la
+variable d'environnement, tests en 2D, FBar orthotrope, prédiction.
+Documenté sans changement : MGIS donne à la loi un facteur de pas initial
+de 10 (1 point par point), sans effet pour mfem-mgis.
+
+Tests :
+
+- mêmes résultats, au bit près, point par point et par lots : plasticité,
+  grandes transformations, FBar, propriétés matériau de fin de pas
+  variables en espace, lois orthotropes en petites et grandes
+  transformations (nouvelle loi de test
+  `OrthotropicSaintVenantKirchhoffElasticity`), rotation uniforme ou axes
+  variables d'un point à l'autre, déformations planes, prédiction ;
+- bibliothèques `generic-parallel` (`openmp`, `stlpar`) comparées au calcul
+  point par point avec les rotations d'un point : au bit près (1e-13 avec
+  prédiction en grandes transformations), ce qui vérifie les rotations de
+  tous les points indépendamment ;
+- échec de la loi en certains points ;
+- résidu élément par élément juste après l'intégration de chaque élément ;
+- suite de mfem-mgis : 139/139 ; dans le mode `Batch` (variable
+  d'environnement) : 133/139, les 6 échecs sont les refus attendus
+  (intégrateurs micromorphes) ; exemples : 18/20 en `Batch` (refus de
+  PETSc) ; mm-opera-hpc : 6/6 en `Batch` ;
+- cas du prototype : poutre et polycristal de mm-opera-hpc par lots avec
+  leurs lois `generic-parallel`, comparés au calcul point par point.
+
+**Deux défauts trouvés par les mesures, hors de mfem-mgis :**
+
+- `scripts/env.sh` exporte `OMP_PROC_BIND=spread OMP_PLACES=threads`
+  (pour Kokkos et AdaptiveCpp). libgomp, chargée par les bibliothèques des
+  cas, attache alors le fil principal au premier processeur : le backend
+  `stlpar` (TBB) ne voyait qu'un processeur et restait séquentiel, et
+  `openmp` à 8 fils, répartis sur les fils matériels, n'occupait que 4
+  cœurs. Le script de mesures retire ces variables.
+- Les fichiers de configuration de `g++` du fork de TFEL compilaient les
+  lois `generic-parallel` en `-O2` seul : à `-O2`, g++ 14 ne vectorise
+  qu'avec un modèle de coût très restrictif. La loi du polycristal était
+  17 % plus lente qu'avec l'interface `generic` (78,4 s contre 67,1 s
+  d'intégration sur 2 pas). Corrigé (patch 0093 de TFEL : les options de
+  `tfel-config --oflags`, dont `-ftree-vectorize`). Les autres fichiers de
+  configuration (GPU) n'ont pas non plus `-DNDEBUG` : à vérifier en L6.
+
+Mesures sur machine calme (`results/L2-polycristal-2026-10-09/`,
+`results/L2-poutre-2026-10-09/`) : sur le polycristal, la loi pèse 70 % du
+calcul sur un processus ; par lots, elle passe de 104,9 s à 17,8 s avec
+`openmp` à 8 fils et à 13,9 s avec `stlpar` (calcul complet : 150 s puis
+59 s). À 8 processus d'un fil, 14,5 s dans tous les modes. Sur la poutre,
+la loi pèse moins de 5 % : gain invisible.
+
+### 2026-10-09 (nuit), lot L3 commencé : gradients et forces intérieures par noyaux
+
+Premières briques du chemin par lots sans passe élément par élément sur
+l'hôte (`src/Batch/`, sources compilées comme du CUDA quand MFEM l'est) :
+
+- **gradients** (`batch::computeUnknownsDerivatives`,
+  `batch::computeGradients`) : restriction aux éléments (ordre natif),
+  dérivées physiques aux points par l'interpolateur de MFEM
+  (`QuadratureInterpolator::PhysDerivatives`, rangement `byVDIM`), une
+  fois par règle d'intégration pour tous les matériaux, puis un noyau par
+  matériau qui écrit les gradients de la loi (déformation avec √2, ou
+  gradient de la transformation) dans le tableau du matériau, dans son
+  rangement, gradients macroscopiques compris ;
+- **forces intérieures** (`batch::computeElementsGeometry`,
+  `batch::addInnerForces`) : gradients des fonctions de forme sur
+  l'élément de référence (`DofToQuad`), jacobiens et déterminants
+  (`GeometricFactors`), un fil par nœud d'élément, `Bᵀ σ w det J` avec le
+  même opérateur `B` que les intégrateurs générés, écrit dans un vecteur
+  par éléments au rangement de la restriction de MFEM ;
+- interface des intégrateurs : `supportsKernels`,
+  `computeGradientsByKernels`, `addInnerForcesByKernels` (base CRTP
+  standard : mécanique 3D, déformations planes, contraintes planes,
+  petites et grandes transformations, sans FBar, règle d'intégration
+  commune à tous les éléments du matériau, maillage d'une seule
+  géométrie) ;
+- paramètre provisoire `GradientsComputation` (`ElementByElement` par
+  défaut, `Kernels`), avec `BehaviourIntegration=Batch`, variable
+  d'environnement `MFEM_MGIS_GRADIENTS_COMPUTATION`.
+
+`QuadratureInterpolator::MultTranspose` n'est pas implémenté dans MFEM
+4.10 : le noyau des forces intérieures est écrit ici.
+
+Tests : gradients et forces intérieures des noyaux égaux à ceux du calcul
+élément par élément à 1e-16 près (hexaèdres et tétraèdres, ordres 1 et 2,
+petites et grandes transformations, orthotrope, déformations planes, deux
+matériaux avec gradients macroscopiques), sur l'hôte, sur le périphérique
+`debug` de MFEM (qui a trouvé une lecture hôte sans synchronisation dans
+le test lui-même) et sur le GPU ; calculs complets avec noyaux égaux au
+calcul point par point à 1e-12 près. Suite de mfem-mgis 142/142 ; avec
+tous les noyaux activés par les variables d'environnement, seuls les refus
+attendus échouent (thermique, endommagement micromorphe).
+
+Étape suivante : l'opérateur propre (résidu sans la boucle de MFEM sur les
+éléments, tangente sans matrice ou par matrices élémentaires calculées par
+noyaux), puis la thermique et FBar.

@@ -5,9 +5,13 @@
  * \date   8/06/2020
  */
 
+#include <string>
 #include <utility>
+#include <algorithm>
+#include <exception>
 #include "MGIS/Raise.hxx"
 #include "mfem/fem/linearform.hpp"
+#include "mfem/fem/restriction.hpp"
 #include "mfem/fem/bilinearform.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/mesh/pmesh.hpp"
@@ -347,11 +351,120 @@ namespace mfem_mgis {
     return success;
   }  // end of integrateBatch
 
+  bool MultiMaterialNonLinearIntegrator::checkKernelsSupport(
+      Context& ctx) const noexcept {
+    for (size_type m = 0;
+         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
+      for (const auto& bi : this->behaviour_integrators[m]) {
+        if (!bi->supportsKernels()) {
+          return ctx.registerErrorMessage(
+              "the gradients and the inner forces of the behaviour "
+              "integrator of material '" +
+              std::to_string(m) +
+              "' can't be computed by kernels (supported: standard "
+              "mechanical behaviours in 3D, plane strain and plane stress, "
+              "small or finite strain, without FBar, all the elements of the "
+              "material using the same integration rule)");
+        }
+      }
+    }
+    return true;
+  }  // end of checkKernelsSupport
+
+  bool MultiMaterialNonLinearIntegrator::computeGradientsByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Vector& u) noexcept {
+    // derivatives of the unknowns, computed once for each integration rule
+    auto rules = std::vector<const mfem::IntegrationRule*>{};
+    for (const auto& bis : this->behaviour_integrators) {
+      for (const auto& bi : bis) {
+        const auto* const r =
+            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
+        if ((r != nullptr) &&
+            (std::find(rules.begin(), rules.end(), r) == rules.end())) {
+          rules.push_back(r);
+        }
+      }
+    }
+    // the derivatives of the rules which are no longer used are released
+    std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
+      return std::find(rules.begin(), rules.end(), d.first) == rules.end();
+    });
+    for (const auto* const r : rules) {
+      if (!batch::computeUnknownsDerivatives(ctx, this->unknowns_derivatives[r],
+                                             fes, u, *r)) {
+        return false;
+      }
+    }
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (!bi->computeGradientsByKernels(ctx, this->unknowns_derivatives)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }  // end of computeGradientsByKernels
+
+  bool MultiMaterialNonLinearIntegrator::addInnerForcesByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      mfem::Vector& f) noexcept {
+    try {
+      // geometric data, computed again at each call (they are kept by MFEM)
+      this->elements_geometry.clear();
+      for (const auto& bis : this->behaviour_integrators) {
+        for (const auto& bi : bis) {
+          const auto* const r =
+              bi->getPartialQuadratureSpace().getUniformIntegrationRule();
+          if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
+            if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
+                                                fes, *r)) {
+              return false;
+            }
+          }
+        }
+      }
+      const auto* const restriction =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      auto& fe = this->inner_forces_element_values;
+      fe.UseDevice(true);
+      fe.SetSize(restriction->Height());
+      fe = real{0};
+      for (auto& bis : this->behaviour_integrators) {
+        for (auto& bi : bis) {
+          if (!bi->addInnerForcesByKernels(ctx, fe, this->elements_geometry)) {
+            return false;
+          }
+        }
+      }
+      restriction->AddMultTranspose(fe, f);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
+                                      e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: unknown exception");
+    }
+    return true;
+  }  // end of addInnerForcesByKernels
+
+  void MultiMaterialNonLinearIntegrator::setInnerForcesComputedByKernels(
+      const bool b) noexcept {
+    this->inner_forces_computed_by_kernels = b;
+  }  // end of setInnerForcesComputedByKernels
+
   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
       const mfem::FiniteElement& e,
       mfem::ElementTransformation& tr,
       const mfem::Vector& U,
       mfem::Vector& F) {
+    if (this->inner_forces_computed_by_kernels) {
+      F.SetSize(e.GetDof() * getNumberOfComponents(*(this->fe_discretization)));
+      F = 0.;
+      return;
+    }
     const auto m = tr.Attribute;
     checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
                                           "AssembleElementVector", m);
