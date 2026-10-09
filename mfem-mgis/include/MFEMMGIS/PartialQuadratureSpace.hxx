@@ -14,6 +14,7 @@
 #include <variant>
 #include <functional>
 #include <unordered_map>
+#include "mfem/general/array.hpp"
 
 #ifdef MGIS_FUNCTION_SUPPORT
 #include "MGIS/Function/SpaceConcept.hxx"
@@ -175,6 +176,20 @@ namespace mfem_mgis {
      * \return the offset
      */
     [[nodiscard]] size_type getOffset(const size_type i) const;
+    /*!
+     * \return the numbers of the elements of the space (local numbering of
+     * the finite element space), in increasing order, which is the order of
+     * their integration points. Readable on the device (`Read`), unlike the
+     * hash tables of `getOffsets`.
+     */
+    [[nodiscard]] const mfem::Array<int> &getElements() const noexcept;
+    /*!
+     * \return the offsets of the integration points of the elements: the
+     * points of the `i`-th element of `getElements` are the points
+     * `[o[i], o[i + 1])`, where `o` are the offsets. The last offset is the
+     * number of integration points. Readable on the device (`Read`).
+     */
+    [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
     //! \return the material or boundary identifier
     [[nodiscard]] size_type getId() const noexcept;
     //! \brief destructor
@@ -234,6 +249,10 @@ namespace mfem_mgis {
     std::unordered_map<size_type,  // element number (global numbering)
                        size_type>  // number of quadrature points
         number_of_quadrature_points;
+    //! \brief elements of the space, in the order of their points
+    mfem::Array<int> elements;
+    //! \brief offsets of the points of the elements (size: elements + 1)
+    mfem::Array<int> element_offsets;
     //! \brief material or boundary identifier
     size_type id;
     //! \brief number of integration points

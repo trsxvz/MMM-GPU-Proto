@@ -217,15 +217,63 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
                      "update: values of the device not seen");
 }  // end of testHostAccesses
 
+/*!
+ * \brief the arrays of the elements and of the offsets of a partial
+ * quadrature space agree with its hash tables, and are readable on the
+ * device
+ * \param[in] s: partial quadrature space
+ */
+static void testQuadratureSpaceArrays(
+    const mfem_mgis::PartialQuadratureSpace& s) {
+  using namespace mfem_mgis;
+  const auto& elements = s.getElements();
+  const auto& offsets = s.getElementOffsets();
+  check(static_cast<size_type>(elements.Size()) == s.getNumberOfElements(),
+        "quadrature space: number of elements");
+  check(offsets.Size() == elements.Size() + 1,
+        "quadrature space: number of offsets");
+  check(static_cast<size_type>(offsets.HostRead()[elements.Size()]) ==
+            s.getNumberOfIntegrationPoints(),
+        "quadrature space: last offset");
+  const auto* const he = elements.HostRead();
+  const auto* const ho = offsets.HostRead();
+  for (int i = 0; i != elements.Size(); ++i) {
+    const auto e = static_cast<size_type>(he[i]);
+    check((i == 0) || (he[i - 1] < he[i]),
+          "quadrature space: elements not in increasing order");
+    check(s.getOffset(e) == static_cast<size_type>(ho[i]),
+          "quadrature space: offset of element " + std::to_string(e));
+    check(s.getNumberOfQuadraturePoints(e) ==
+              static_cast<size_type>(ho[i + 1] - ho[i]),
+          "quadrature space: number of points of element " + std::to_string(e));
+  }
+  // number of points of each element, computed on the device
+  auto npoints = mfem::Array<int>(elements.Size());
+  auto* const np = npoints.Write();
+  const auto* const o = offsets.Read();
+  mfem::forall(elements.Size(),
+               [=] MFEM_HOST_DEVICE(int i) { np[i] = o[i + 1] - o[i]; });
+  const auto* const hnp = npoints.HostRead();
+  auto total = size_type{};
+  for (int i = 0; i != npoints.Size(); ++i) {
+    total += static_cast<size_type>(hnp[i]);
+  }
+  check(total == s.getNumberOfIntegrationPoints(),
+        "quadrature space: offsets read on the device");
+}  // end of testQuadratureSpaceArrays
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
   const char* mesh = "cube.mesh";
   const char* library = "src/libBehaviourTest.so";
+  const char* multi_material_mesh = "cube_2mat_per.mesh";
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh", "mesh file");
   args.AddOption(&library, "-l", "--library", "behaviour library");
+  args.AddOption(&multi_material_mesh, "-mm", "--multi-material-mesh",
+                 "mesh with two materials");
   args.Parse();
   if (!args.Good()) {
     args.PrintUsage(std::cerr);
@@ -252,6 +300,31 @@ int main(int argc, char** argv) {
     testMaterial(ctx, qspace, library, b);
   }
   testHostAccesses(ctx, mesh, library);
+  testQuadratureSpaceArrays(*qspace);
+  {
+    // a material covering a part of the mesh
+    auto fed2 = FiniteElementDiscretization(
+        ctx, Parameters{{"MeshFileName", multi_material_mesh},
+                        {"FiniteElementFamily", "H1"},
+                        {"FiniteElementOrder", 1},
+                        {"UnknownsSize", 3},
+                        {"NumberOfUniformRefinements", 0},
+                        {"Parallel", false}});
+    for (const size_type m : {1, 2}) {
+      const auto s = PartialQuadratureSpace(
+          fed2, m,
+          [](const mfem::FiniteElement& e,
+             const mfem::ElementTransformation& tr) noexcept
+              -> const mfem::IntegrationRule& {
+            return mfem::IntRules.Get(e.GetGeomType(), 2 * tr.OrderGrad(&e));
+          });
+      check((s.getNumberOfElements() != 0) &&
+                (s.getNumberOfElements() <
+                 static_cast<size_type>(fed2.getMesh<false>().GetNE())),
+            "the material does not cover a part of the mesh");
+      testQuadratureSpaceArrays(s);
+    }
+  }
   std::cout << (failures == 0 ? "success" : "failure") << " (device "
             << (mfem::Device::IsEnabled() ? "enabled" : "disabled") << ")\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

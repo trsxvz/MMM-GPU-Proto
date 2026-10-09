@@ -777,11 +777,11 @@ namespace mfem_mgis {
   }  // end of cleanup
 
   void BehaviourIntegratorBase::revert() {
-    mgis::behaviour::revert(*this);
+    this->revertMaterialStates();
   }  // end of revert
 
   void BehaviourIntegratorBase::update() {
-    mgis::behaviour::update(*this);
+    this->updateMaterialStates();
   }  // end of update
 
   void BehaviourIntegratorBase::setMacroscopicGradients(

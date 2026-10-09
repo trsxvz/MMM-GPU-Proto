@@ -105,7 +105,7 @@ namespace mfem_mgis {
     if (!ModelBase::update(ctx)) {
       return false;
     }
-    mgis::behaviour::update(*this);
+    this->updateMaterialStates();
     return true;
   }  // end of update
 
@@ -113,7 +113,7 @@ namespace mfem_mgis {
     if (!ModelBase::revert(ctx)) {
       return false;
     }
-    mgis::behaviour::revert(*this);
+    this->revertMaterialStates();
     return true;
   }  // end of revert
 

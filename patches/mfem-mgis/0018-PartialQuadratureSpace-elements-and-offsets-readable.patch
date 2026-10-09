@@ -1,0 +1,290 @@
+From dd0510f2f21a6a839b285c9b4c2fccb451eb84e6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 15:19:08 +0200
+Subject: [PATCH] PartialQuadratureSpace: elements and offsets readable on the
+ device
+
+Besides the hash tables, the partial quadrature space holds two arrays
+of the memory of MFEM (`mfem::Array<int>`): the numbers of its elements,
+in increasing order (the order of their integration points), and the
+offsets of their integration points (the points of the `i`-th element
+are `[o[i], o[i + 1])`, the last offset being the number of points).
+Unlike the hash tables, they are readable by the kernels of MFEM on the
+device.
+
+MaterialArraysTest: the arrays agree with the hash tables on a mesh with
+two materials, and the offsets are read on the device.
+---
+ include/MFEMMGIS/PartialQuadratureSpace.hxx | 19 ++++++
+ src/PartialQuadratureSpace.cxx              | 37 +++++++++--
+ tests/CMakeLists.txt                        |  6 ++
+ tests/MaterialArraysTest.cxx                | 73 +++++++++++++++++++++
+ 4 files changed, 131 insertions(+), 4 deletions(-)
+
+diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+index dccd058649..2d06ece865 100644
+--- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
++++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+@@ -14,6 +14,7 @@
+ #include <variant>
+ #include <functional>
+ #include <unordered_map>
++#include "mfem/general/array.hpp"
+ 
+ #ifdef MGIS_FUNCTION_SUPPORT
+ #include "MGIS/Function/SpaceConcept.hxx"
+@@ -175,6 +176,20 @@ namespace mfem_mgis {
+      * \return the offset
+      */
+     [[nodiscard]] size_type getOffset(const size_type i) const;
++    /*!
++     * \return the numbers of the elements of the space (local numbering of
++     * the finite element space), in increasing order, which is the order of
++     * their integration points. Readable on the device (`Read`), unlike the
++     * hash tables of `getOffsets`.
++     */
++    [[nodiscard]] const mfem::Array<int> &getElements() const noexcept;
++    /*!
++     * \return the offsets of the integration points of the elements: the
++     * points of the `i`-th element of `getElements` are the points
++     * `[o[i], o[i + 1])`, where `o` are the offsets. The last offset is the
++     * number of integration points. Readable on the device (`Read`).
++     */
++    [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
+     //! \return the material or boundary identifier
+     [[nodiscard]] size_type getId() const noexcept;
+     //! \brief destructor
+@@ -234,6 +249,10 @@ namespace mfem_mgis {
+     std::unordered_map<size_type,  // element number (global numbering)
+                        size_type>  // number of quadrature points
+         number_of_quadrature_points;
++    //! \brief elements of the space, in the order of their points
++    mfem::Array<int> elements;
++    //! \brief offsets of the points of the elements (size: elements + 1)
++    mfem::Array<int> element_offsets;
+     //! \brief material or boundary identifier
+     size_type id;
+     //! \brief number of integration points
+diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
+index 5fc1cec367..3f2a94e8b6 100644
+--- a/src/PartialQuadratureSpace.cxx
++++ b/src/PartialQuadratureSpace.cxx
+@@ -6,6 +6,8 @@
+  */
+ 
+ #include <cmath>
++#include <limits>
++#include <vector>
+ #include <iterator>
+ #include <algorithm>
+ #include "mfem/fem/fespace.hpp"
+@@ -23,12 +25,16 @@ namespace mfem_mgis {
+   static size_type buildPartialQuadratureSpaceOffsets(
+       std::unordered_map<size_type, size_type>& offsets,
+       std::unordered_map<size_type, size_type>& number_of_quadrature_points,
++      mfem::Array<int>& elements,
++      mfem::Array<int>& element_offsets,
+       const FiniteElementSpace<parallel>& fespace,
+       const size_type m,
+       const std::function<const mfem::IntegrationRule&(
+           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+           integration_rule_selector) {
+     auto ng = size_type{};
++    auto e = std::vector<int>{};
++    auto o = std::vector<int>{};
+     for (size_type i = 0; i != fespace.GetNE(); ++i) {
+       if (fespace.GetAttribute(i) != m) {
+         continue;
+@@ -36,11 +42,24 @@ namespace mfem_mgis {
+       const auto& fe = *(fespace.GetFE(i));
+       const auto& tr = *(fespace.GetElementTransformation(i));
+       offsets[i] = ng;
++      e.push_back(static_cast<int>(i));
++      o.push_back(static_cast<int>(ng));
+       const auto& ir = integration_rule_selector(fe, tr);
+       const auto lng = ir.GetNPoints();
+       ng += lng;
+       number_of_quadrature_points[i] = lng;
+     }
++    if (ng > static_cast<size_type>(std::numeric_limits<int>::max())) {
++      raise("PartialQuadratureSpace: too many integration points for MFEM");
++    }
++    o.push_back(static_cast<int>(ng));
++    // arrays in the memory of MFEM, filled on the host
++    auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
++      a.SetSize(static_cast<int>(v.size()));
++      std::copy(v.begin(), v.end(), a.HostWrite());
++    };
++    copy(elements, e);
++    copy(element_offsets, o);
+     return ng;
+   }  // end of buildPartialQuadratureSpaceOffsets
+ 
+@@ -208,8 +227,8 @@ namespace mfem_mgis {
+         raise("invalid location identifier (" + std::to_string(this->id) + ")");
+       }
+       this->ng = buildPartialQuadratureSpaceOffsets<true>(
+-          this->offsets, this->number_of_quadrature_points,
+-          *(this->parallel_fespace), this->id, this->integration_rule_selector);
++          this->offsets, this->number_of_quadrature_points, this->elements,
++          this->element_offsets, *(this->parallel_fespace), this->id, this->integration_rule_selector);
+       return;
+     }
+ #endif /* MFEM_USE_MPI */
+@@ -223,8 +242,8 @@ namespace mfem_mgis {
+       raise("invalid location identifier (" + std::to_string(this->id) + ")");
+     }
+     this->ng = buildPartialQuadratureSpaceOffsets<false>(
+-        this->offsets, this->number_of_quadrature_points,
+-        *(this->sequential_fespace), this->id, this->integration_rule_selector);
++        this->offsets, this->number_of_quadrature_points, this->elements,
++        this->element_offsets, *(this->sequential_fespace), this->id, this->integration_rule_selector);
+   }  // end of initialize
+ 
+   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
+@@ -371,6 +390,16 @@ namespace mfem_mgis {
+     return p->second;
+   }  // end of getNumberOfQuadraturePoints
+ 
++  const mfem::Array<int>& PartialQuadratureSpace::getElements()
++      const noexcept {
++    return this->elements;
++  }  // end of getElements
++
++  const mfem::Array<int>& PartialQuadratureSpace::getElementOffsets()
++      const noexcept {
++    return this->element_offsets;
++  }  // end of getElementOffsets
++
+   PartialQuadratureSpace::~PartialQuadratureSpace() = default;
+ 
+   template <bool parallel>
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c5a4b7bf4f..be1e7e8341 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -757,15 +757,21 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_test(NAME MaterialArraysTest
+              COMMAND MaterialArraysTest
+                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --multi-material-mesh
++                     ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                      --library $<TARGET_FILE:BehaviourTest>)
+     add_test(NAME MaterialArraysTest-debug
+              COMMAND MaterialArraysTest --device debug
+                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --multi-material-mesh
++                     ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                      --library $<TARGET_FILE:BehaviourTest>)
+     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+       add_test(NAME MaterialArraysTest-cuda
+                COMMAND MaterialArraysTest --device cuda
+                        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --multi-material-mesh
++                       ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                        --library $<TARGET_FILE:BehaviourTest>)
+     endif()
+   endif()
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+index a954ee2efc..4d9b1ed525 100644
+--- a/tests/MaterialArraysTest.cxx
++++ b/tests/MaterialArraysTest.cxx
+@@ -217,15 +217,63 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
+                      "update: values of the device not seen");
+ }  // end of testHostAccesses
+ 
++/*!
++ * \brief the arrays of the elements and of the offsets of a partial
++ * quadrature space agree with its hash tables, and are readable on the
++ * device
++ * \param[in] s: partial quadrature space
++ */
++static void testQuadratureSpaceArrays(
++    const mfem_mgis::PartialQuadratureSpace& s) {
++  using namespace mfem_mgis;
++  const auto& elements = s.getElements();
++  const auto& offsets = s.getElementOffsets();
++  check(static_cast<size_type>(elements.Size()) == s.getNumberOfElements(),
++        "quadrature space: number of elements");
++  check(offsets.Size() == elements.Size() + 1,
++        "quadrature space: number of offsets");
++  check(static_cast<size_type>(offsets.HostRead()[elements.Size()]) ==
++            s.getNumberOfIntegrationPoints(),
++        "quadrature space: last offset");
++  const auto* const he = elements.HostRead();
++  const auto* const ho = offsets.HostRead();
++  for (int i = 0; i != elements.Size(); ++i) {
++    const auto e = static_cast<size_type>(he[i]);
++    check((i == 0) || (he[i - 1] < he[i]),
++          "quadrature space: elements not in increasing order");
++    check(s.getOffset(e) == static_cast<size_type>(ho[i]),
++          "quadrature space: offset of element " + std::to_string(e));
++    check(s.getNumberOfQuadraturePoints(e) ==
++              static_cast<size_type>(ho[i + 1] - ho[i]),
++          "quadrature space: number of points of element " + std::to_string(e));
++  }
++  // number of points of each element, computed on the device
++  auto npoints = mfem::Array<int>(elements.Size());
++  auto* const np = npoints.Write();
++  const auto* const o = offsets.Read();
++  mfem::forall(elements.Size(),
++               [=] MFEM_HOST_DEVICE(int i) { np[i] = o[i + 1] - o[i]; });
++  const auto* const hnp = npoints.HostRead();
++  auto total = size_type{};
++  for (int i = 0; i != npoints.Size(); ++i) {
++    total += static_cast<size_type>(hnp[i]);
++  }
++  check(total == s.getNumberOfIntegrationPoints(),
++        "quadrature space: offsets read on the device");
++}  // end of testQuadratureSpaceArrays
++
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+   initialize(argc, argv);
+   const char* mesh = "cube.mesh";
+   const char* library = "src/libBehaviourTest.so";
++  const char* multi_material_mesh = "cube_2mat_per.mesh";
+   auto args = mfem::OptionsParser(argc, argv);
+   declareDefaultOptions(args);
+   args.AddOption(&mesh, "-m", "--mesh", "mesh file");
+   args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&multi_material_mesh, "-mm", "--multi-material-mesh",
++                 "mesh with two materials");
+   args.Parse();
+   if (!args.Good()) {
+     args.PrintUsage(std::cerr);
+@@ -252,6 +300,31 @@ int main(int argc, char** argv) {
+     testMaterial(ctx, qspace, library, b);
+   }
+   testHostAccesses(ctx, mesh, library);
++  testQuadratureSpaceArrays(*qspace);
++  {
++    // a material covering a part of the mesh
++    auto fed2 = FiniteElementDiscretization(
++        ctx, Parameters{{"MeshFileName", multi_material_mesh},
++                        {"FiniteElementFamily", "H1"},
++                        {"FiniteElementOrder", 1},
++                        {"UnknownsSize", 3},
++                        {"NumberOfUniformRefinements", 0},
++                        {"Parallel", false}});
++    for (const size_type m : {1, 2}) {
++      const auto s = PartialQuadratureSpace(
++          fed2, m,
++          [](const mfem::FiniteElement& e,
++             const mfem::ElementTransformation& tr) noexcept
++              -> const mfem::IntegrationRule& {
++            return mfem::IntRules.Get(e.GetGeomType(), 2 * tr.OrderGrad(&e));
++          });
++      check((s.getNumberOfElements() != 0) &&
++                (s.getNumberOfElements() <
++                 static_cast<size_type>(fed2.getMesh<false>().GetNE())),
++            "the material does not cover a part of the mesh");
++      testQuadratureSpaceArrays(s);
++    }
++  }
+   std::cout << (failures == 0 ? "success" : "failure") << " (device "
+             << (mfem::Device::IsEnabled() ? "enabled" : "disabled") << ")\n";
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+-- 
+2.43.0
+

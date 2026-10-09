@@ -1,0 +1,486 @@
+From d956ce236d413297d932cfa2a6734991109e7de5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 15:28:12 +0200
+Subject: [PATCH] Batch: copies of the states of the materials by kernels of
+ MFEM
+
+`batch::MFEMFieldOperations` implements the field operations of MGIS
+(copies and fills of views with any strides, as used by the update and
+the revert of a material data manager) with kernels of MFEM
+(`mfem::forall_switch`), on the device of MFEM or on the host. It is the
+first source of the library compiled as CUDA code when MFEM is compiled
+with CUDA (`src/Batch`, `include/MFEMMGIS/Batch`).
+
+`Material::updateMaterialStates` and `Material::revertMaterialStates`
+synchronize the arrays on the host and update or revert the states with
+these operations, on the host where MGIS uses the arrays. They are used
+by the behaviour integrators and by the point-wise models, whose update
+and revert did not synchronize the arrays before.
+
+MFEMFieldOperationsTest: copies between the point by point and the
+component by component layouts, copy of a uniform value, fill of one
+component, on the host and on the device, with the cpu, debug and cuda
+devices.
+---
+ include/CMakeLists.txt                        |   1 +
+ .../MFEMMGIS/Batch/MFEMFieldOperations.hxx    |  49 ++++++++
+ include/MFEMMGIS/Material.hxx                 |  13 ++
+ src/Batch/MFEMFieldOperations.cxx             | 110 +++++++++++++++++
+ src/BehaviourIntegratorBase.cxx               |   4 +-
+ src/CMakeLists.txt                            |   6 +
+ src/Material.cxx                              |  14 +++
+ src/PointWiseModel.cxx                        |   4 +-
+ tests/CMakeLists.txt                          |  15 +++
+ tests/MFEMFieldOperationsTest.cxx             | 115 ++++++++++++++++++
+ 10 files changed, 327 insertions(+), 4 deletions(-)
+ create mode 100644 include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
+ create mode 100644 src/Batch/MFEMFieldOperations.cxx
+ create mode 100644 tests/MFEMFieldOperationsTest.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index ad3bce91ea..40f0dfec08 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -33,6 +33,7 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+ mfem_mgis_header(MFEMMGIS Material.hxx)
+ mfem_mgis_header(MFEMMGIS Material.ixx)
+ mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
++mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+ mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
+diff --git a/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx b/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
+new file mode 100644
+index 0000000000..be0e16185c
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
+@@ -0,0 +1,49 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/MFEMFieldOperations.hxx
++ * \brief  This file declares the `MFEMFieldOperations` class
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_MFEMFIELDOPERATIONS_HXX
++#define LIB_MFEM_MGIS_BATCH_MFEMFIELDOPERATIONS_HXX
++
++#include "MGIS/FieldOperations.hxx"
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief copies and fills of views of MGIS (`mgis::FieldView`) by kernels
++   * of MFEM (`mfem::forall`), used by the update and the revert of the
++   * states of a material (`mgis::behaviour::update`,
++   * `mgis::behaviour::revert`).
++   *
++   * The operations run on the device of MFEM if the views are located in
++   * its memory (pointers given by `Read`, `Write`, `ReadWrite` of a
++   * `mfem::Memory`), and on the host otherwise. On a GPU, they are
++   * asynchronous, on the stream of MFEM: an access on the host must go
++   * through the copies of MFEM (`HostRead`, ...), which wait for them.
++   */
++  struct MFEM_MGIS_EXPORT MFEMFieldOperations final : mgis::FieldOperations {
++    /*!
++     * \brief constructor
++     * \param[in] d: if true, the views are located in the memory of the
++     * device of MFEM (if a device is enabled), and the operations run on the
++     * device. Otherwise, the views are located in the memory of the host,
++     * and the operations run on the host.
++     */
++    explicit MFEMFieldOperations(const bool) noexcept;
++    //! \brief destructor
++    ~MFEMFieldOperations() override;
++
++   private:
++    void do_copy(const mgis::FieldView<real>&,
++                 const mgis::FieldView<const real>&) override;
++    void do_fill(const mgis::FieldView<real>&, const real) override;
++    //! \brief if true, the operations run on the device
++    const bool use_device;
++  };  // end of struct MFEMFieldOperations
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_MFEMFIELDOPERATIONS_HXX */
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index b760e22ffa..b6d2444fee 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -93,6 +93,19 @@ namespace mfem_mgis {
+      * read-only access on the host, keeping their copies on the device valid
+      */
+     using MaterialArrays::synchronizeOnHostForReading;
++    /*!
++     * \brief copies the state at the end of the time step on the state at
++     * the beginning of the time step (see `mgis::behaviour::update`). The
++     * arrays are copied by kernels of MFEM (`batch::MFEMFieldOperations`),
++     * in the memory where MGIS uses them (the host).
++     */
++    void updateMaterialStates();
++    /*!
++     * \brief copies the state at the beginning of the time step on the state
++     * at the end of the time step (see `mgis::behaviour::revert` and
++     * `updateMaterialStates`)
++     */
++    void revertMaterialStates();
+     //! \return the arrays of the data at the integration points
+     MaterialArrays &getArrays();
+     //! \return the arrays of the data at the integration points
+diff --git a/src/Batch/MFEMFieldOperations.cxx b/src/Batch/MFEMFieldOperations.cxx
+new file mode 100644
+index 0000000000..1add5a43da
+--- /dev/null
++++ b/src/Batch/MFEMFieldOperations.cxx
+@@ -0,0 +1,110 @@
++/*!
++ * \file   src/Batch/MFEMFieldOperations.cxx
++ * \brief  This file implements the `MFEMFieldOperations` class
++ * \date   09/10/2026
++ * \note   compiled as CUDA code when MFEM is compiled with CUDA
++ */
++
++#include <limits>
++#include "mfem/general/forall.hpp"
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \return the number of values of a view, checked against the range of
++   * the indices of the kernels of MFEM
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   */
++  static int getNumberOfValues(const size_type n, const size_type nc) {
++    if ((nc != 0) &&
++        (n > static_cast<size_type>(std::numeric_limits<int>::max()) / nc)) {
++      mgis::raise("MFEMFieldOperations: too many values");
++    }
++    return static_cast<int>(n * nc);
++  }  // end of getNumberOfValues
++
++  /*!
++   * \brief copy the values of a view in another one with a kernel of MFEM
++   * \param[in] use_device: if true, the kernel runs on the device
++   * \param[in] d: destination
++   * \param[in] s: source
++   * \note nvcc does not allow the extended lambdas of the kernels in the
++   * private member functions of `MFEMFieldOperations`
++   */
++  static void copyFieldView(const bool use_device,
++                            const mgis::FieldView<real>& d,
++                            const mgis::FieldView<const real>& s) {
++    const auto n = d.getNumberOfPoints();
++    const auto nc = d.getNumberOfComponents();
++    auto* const dv = d.data();
++    const auto dps = d.getPointStride();
++    const auto dcs = d.getComponentStride();
++    const auto* const sv = s.data();
++    const auto sps = s.getPointStride();
++    const auto scs = s.getComponentStride();
++    const auto nv = getNumberOfValues(n, nc);
++    // consecutive threads process consecutive values of the destination
++    if (dcs <= dps) {
++      mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
++        const auto i = static_cast<size_type>(k) / nc;
++        const auto j = static_cast<size_type>(k) % nc;
++        dv[i * dps + j * dcs] = sv[i * sps + j * scs];
++      });
++    } else {
++      mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
++        const auto i = static_cast<size_type>(k) % n;
++        const auto j = static_cast<size_type>(k) / n;
++        dv[i * dps + j * dcs] = sv[i * sps + j * scs];
++      });
++    }
++  }  // end of copyFieldView
++
++  /*!
++   * \brief fill a view with a kernel of MFEM (see `copyFieldView`)
++   * \param[in] use_device: if true, the kernel runs on the device
++   * \param[in] d: view
++   * \param[in] v: value
++   */
++  static void fillFieldView(const bool use_device,
++                            const mgis::FieldView<real>& d,
++                            const real v) {
++    const auto n = d.getNumberOfPoints();
++    const auto nc = d.getNumberOfComponents();
++    auto* const dv = d.data();
++    const auto ps = d.getPointStride();
++    const auto cs = d.getComponentStride();
++    const auto nv = getNumberOfValues(n, nc);
++    if (cs <= ps) {
++      mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
++        const auto i = static_cast<size_type>(k) / nc;
++        const auto j = static_cast<size_type>(k) % nc;
++        dv[i * ps + j * cs] = v;
++      });
++    } else {
++      mfem::forall_switch(use_device, nv, [=] MFEM_HOST_DEVICE(int k) {
++        const auto i = static_cast<size_type>(k) % n;
++        const auto j = static_cast<size_type>(k) / n;
++        dv[i * ps + j * cs] = v;
++      });
++    }
++  }  // end of fillFieldView
++
++  MFEMFieldOperations::MFEMFieldOperations(const bool d) noexcept
++      : use_device(d) {}  // end of MFEMFieldOperations
++
++  void MFEMFieldOperations::do_copy(const mgis::FieldView<real>& d,
++                                    const mgis::FieldView<const real>& s) {
++    copyFieldView(this->use_device, d, s);
++  }  // end of do_copy
++
++  void MFEMFieldOperations::do_fill(const mgis::FieldView<real>& d,
++                                    const real v) {
++    fillFieldView(this->use_device, d, v);
++  }  // end of do_fill
++
++  MFEMFieldOperations::~MFEMFieldOperations() = default;
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 73fced02d9..afb5321ab7 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -777,11 +777,11 @@ namespace mfem_mgis {
+   }  // end of cleanup
+ 
+   void BehaviourIntegratorBase::revert() {
+-    mgis::behaviour::revert(*this);
++    this->revertMaterialStates();
+   }  // end of revert
+ 
+   void BehaviourIntegratorBase::update() {
+-    mgis::behaviour::update(*this);
++    this->updateMaterialStates();
+   }  // end of update
+ 
+   void BehaviourIntegratorBase::setMacroscopicGradients(
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 174686cffe..9f2f857ef6 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -144,7 +144,13 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+        PartialQuadratureFunctionsSet.cxx)
+ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+ 
++# batch processing (sources containing kernels of MFEM)
++set(MFEMMGIS_DEVICE_SOURCES
++  Batch/MFEMFieldOperations.cxx)
++list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
++
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
++mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
+ if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
+  target_compile_definitions(MFEMMGIS PUBLIC 
+    MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR)
+diff --git a/src/Material.cxx b/src/Material.cxx
+index 5484ff5fbc..d38a35f0df 100644
+--- a/src/Material.cxx
++++ b/src/Material.cxx
+@@ -10,6 +10,7 @@
+ #include "MGIS/Behaviour/RotationMatrix.hxx"
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ 
+ namespace mfem_mgis {
+@@ -64,6 +65,19 @@ namespace mfem_mgis {
+     this->allocateArrayOfTangentOperatorBlocks();
+   }  // end of Material::Material
+ 
++  void Material::updateMaterialStates() {
++    // MGIS uses the copies of the arrays on the host
++    this->synchronizeOnHost();
++    auto ops = batch::MFEMFieldOperations(false);
++    mgis::behaviour::update(*this, ops);
++  }  // end of updateMaterialStates
++
++  void Material::revertMaterialStates() {
++    this->synchronizeOnHost();
++    auto ops = batch::MFEMFieldOperations(false);
++    mgis::behaviour::revert(*this, ops);
++  }  // end of revertMaterialStates
++
+   MaterialArrays &Material::getArrays() {
+     return *this;
+   }  // end of getArrays
+diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
+index 736c6de321..60bc52cdad 100644
+--- a/src/PointWiseModel.cxx
++++ b/src/PointWiseModel.cxx
+@@ -105,7 +105,7 @@ namespace mfem_mgis {
+     if (!ModelBase::update(ctx)) {
+       return false;
+     }
+-    mgis::behaviour::update(*this);
++    this->updateMaterialStates();
+     return true;
+   }  // end of update
+ 
+@@ -113,7 +113,7 @@ namespace mfem_mgis {
+     if (!ModelBase::revert(ctx)) {
+       return false;
+     }
+-    mgis::behaviour::revert(*this);
++    this->revertMaterialStates();
+     return true;
+   }  // end of revert
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index be1e7e8341..3000e86d70 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -811,6 +811,21 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
+   endif()
+ endif()
+ 
++# MFEMFieldOperationsTest executable: copies and fills of views by kernels
++# of MFEM, on the host, on the debug device and on the GPU
++if(NOT MFEM_USE_HIP STREQUAL "YES")
++  add_test_executable(MFEMFieldOperationsTest)
++  mfem_mgis_compile_as_device_code(MFEMFieldOperationsTest
++                                   MFEMFieldOperationsTest.cxx)
++  add_test(NAME MFEMFieldOperationsTest COMMAND MFEMFieldOperationsTest)
++  add_test(NAME MFEMFieldOperationsTest-debug
++           COMMAND MFEMFieldOperationsTest --device debug)
++  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++    add_test(NAME MFEMFieldOperationsTest-cuda
++             COMMAND MFEMFieldOperationsTest --device cuda)
++  endif()
++endif()
++
+ # DeviceOptionTest executable
+ add_test_executable(DeviceOptionTest)
+ add_test(NAME DeviceOptionTest-none
+diff --git a/tests/MFEMFieldOperationsTest.cxx b/tests/MFEMFieldOperationsTest.cxx
+new file mode 100644
+index 0000000000..db1117cf5d
+--- /dev/null
++++ b/tests/MFEMFieldOperationsTest.cxx
+@@ -0,0 +1,115 @@
++/*!
++ * \file   MFEMFieldOperationsTest.cxx
++ * \brief  Test of the copies and fills of views of MGIS by kernels of MFEM
++ * (`MFEMFieldOperations`), on the host and on the device selected by the
++ * `--device` option, in both layouts
++ * \date   09/10/2026
++ */
++
++#include <cstdlib>
++#include <iostream>
++#include <string>
++#include "mfem/general/optparser.hpp"
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \return a view of an array, on the device or on the host
++ * \param[in] v: array
++ * \param[in] d: if true, view of the copy on the device
++ * \param[in] n: number of points
++ * \param[in] nc: number of components
++ * \param[in] ps: stride between two points
++ * \param[in] cs: stride between two components
++ */
++static mgis::FieldView<mfem_mgis::real> getView(mfem::Vector& v,
++                                                const bool d,
++                                                const mfem_mgis::size_type n,
++                                                const mfem_mgis::size_type nc,
++                                                const mfem_mgis::size_type ps,
++                                                const mfem_mgis::size_type cs) {
++  auto* const p = d ? v.ReadWrite() : v.HostReadWrite();
++  return {std::span<mfem_mgis::real>(p, static_cast<std::size_t>(v.Size())), n,
++          nc, ps, cs};
++}  // end of getView
++
++static void test(const bool d) {
++  using namespace mfem_mgis;
++  const auto where = std::string{d ? "device" : "host"};
++  constexpr size_type n = 1000;
++  constexpr size_type nc = 6;
++  auto ops = batch::MFEMFieldOperations(d);
++  auto a = mfem::Vector(n * nc);
++  auto b = mfem::Vector(n * nc);
++  a.UseDevice(true);
++  b.UseDevice(true);
++  auto* const ha = a.HostWrite();
++  for (size_type i = 0; i != n * nc; ++i) {
++    ha[i] = static_cast<real>(i);
++  }
++  // copy from the point by point layout to the component by component one
++  ops.copy(getView(b, d, n, nc, 1, n), getView(a, d, n, nc, nc, 1));
++  check(!d || !mfem::Device::IsEnabled() || b.GetMemory().DeviceIsValid(),
++        where + ": the copy did not run on the device");
++  const auto* hb = b.HostRead();
++  auto ok = true;
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type j = 0; j != nc; ++j) {
++      ok = ok && (hb[j * n + i] == static_cast<real>(i * nc + j));
++    }
++  }
++  check(ok, where + ": copy between layouts");
++  // copy of a uniform value (stride between points equal to zero) to the
++  // component by component layout
++  ops.copy(getView(b, d, n, nc, 1, n), getView(a, d, n, nc, 0, 1));
++  hb = b.HostRead();
++  ok = true;
++  for (size_type i = 0; i != n; ++i) {
++    for (size_type j = 0; j != nc; ++j) {
++      ok = ok && (hb[j * n + i] == static_cast<real>(j));
++    }
++  }
++  check(ok, where + ": copy of a uniform value");
++  // fill of the second component in the point by point layout
++  {
++    auto* const p = d ? b.ReadWrite() : b.HostReadWrite();
++    ops.fill(
++        mgis::FieldView<real>{
++            std::span<real>(p + 1, static_cast<std::size_t>(n * nc - 1)), n, 1,
++            nc, 1},
++        real{-2});
++  }
++  hb = b.HostRead();
++  ok = true;
++  for (size_type k = 0; k != n * nc; ++k) {
++    ok = ok && ((k % nc == 1) ? (hb[k] == -2) : (hb[k] != -2));
++  }
++  check(ok, where + ": fill of one component");
++}  // end of test
++
++int main(int argc, char** argv) {
++  mfem_mgis::initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  mfem_mgis::declareDefaultOptions(args);
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  test(false);
++  test(true);
++  std::cout << (failures == 0 ? "success" : "failure") << " (device "
++            << (mfem::Device::IsEnabled() ? "enabled" : "disabled") << ")\n";
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

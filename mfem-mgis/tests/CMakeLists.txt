@@ -757,15 +757,21 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_test(NAME MaterialArraysTest
              COMMAND MaterialArraysTest
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --multi-material-mesh
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
     add_test(NAME MaterialArraysTest-debug
              COMMAND MaterialArraysTest --device debug
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --multi-material-mesh
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
       add_test(NAME MaterialArraysTest-cuda
                COMMAND MaterialArraysTest --device cuda
                        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --multi-material-mesh
+                       ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
                        --library $<TARGET_FILE:BehaviourTest>)
     endif()
   endif()
@@ -802,6 +808,21 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
                COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
                        --expected cuda)
     endif(MFEM_USE_MPI)
+  endif()
+endif()
+
+# MFEMFieldOperationsTest executable: copies and fills of views by kernels
+# of MFEM, on the host, on the debug device and on the GPU
+if(NOT MFEM_USE_HIP STREQUAL "YES")
+  add_test_executable(MFEMFieldOperationsTest)
+  mfem_mgis_compile_as_device_code(MFEMFieldOperationsTest
+                                   MFEMFieldOperationsTest.cxx)
+  add_test(NAME MFEMFieldOperationsTest COMMAND MFEMFieldOperationsTest)
+  add_test(NAME MFEMFieldOperationsTest-debug
+           COMMAND MFEMFieldOperationsTest --device debug)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME MFEMFieldOperationsTest-cuda
+             COMMAND MFEMFieldOperationsTest --device cuda)
   endif()
 endif()
 

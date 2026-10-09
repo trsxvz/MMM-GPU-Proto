@@ -93,6 +93,19 @@ namespace mfem_mgis {
      * read-only access on the host, keeping their copies on the device valid
      */
     using MaterialArrays::synchronizeOnHostForReading;
+    /*!
+     * \brief copies the state at the end of the time step on the state at
+     * the beginning of the time step (see `mgis::behaviour::update`). The
+     * arrays are copied by kernels of MFEM (`batch::MFEMFieldOperations`),
+     * in the memory where MGIS uses them (the host).
+     */
+    void updateMaterialStates();
+    /*!
+     * \brief copies the state at the beginning of the time step on the state
+     * at the end of the time step (see `mgis::behaviour::revert` and
+     * `updateMaterialStates`)
+     */
+    void revertMaterialStates();
     //! \return the arrays of the data at the integration points
     MaterialArrays &getArrays();
     //! \return the arrays of the data at the integration points

@@ -10,6 +10,7 @@
 #include "MGIS/Behaviour/RotationMatrix.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
 #include "MFEMMGIS/Material.hxx"
 
 namespace mfem_mgis {
@@ -63,6 +64,19 @@ namespace mfem_mgis {
         behaviour_ptr(std::move(b_ptr)) {
     this->allocateArrayOfTangentOperatorBlocks();
   }  // end of Material::Material
+
+  void Material::updateMaterialStates() {
+    // MGIS uses the copies of the arrays on the host
+    this->synchronizeOnHost();
+    auto ops = batch::MFEMFieldOperations(false);
+    mgis::behaviour::update(*this, ops);
+  }  // end of updateMaterialStates
+
+  void Material::revertMaterialStates() {
+    this->synchronizeOnHost();
+    auto ops = batch::MFEMFieldOperations(false);
+    mgis::behaviour::revert(*this, ops);
+  }  // end of revertMaterialStates
 
   MaterialArrays &Material::getArrays() {
     return *this;

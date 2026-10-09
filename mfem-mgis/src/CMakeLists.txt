@@ -144,7 +144,13 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
        PartialQuadratureFunctionsSet.cxx)
 endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
 
+# batch processing (sources containing kernels of MFEM)
+set(MFEMMGIS_DEVICE_SOURCES
+  Batch/MFEMFieldOperations.cxx)
+list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
+
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
 if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
  target_compile_definitions(MFEMMGIS PUBLIC 
    MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR)
