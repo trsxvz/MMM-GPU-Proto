@@ -49,6 +49,45 @@ namespace mfem_mgis::batch::internals {
     int gradients_size = 0;
   };
 
+  //! \brief destination of the kernel: assembled sparse matrix
+  struct SparseMatrixOutput {
+    //! \brief number of rows
+    int number_of_rows = 0;
+    //! \brief offsets of the rows
+    const int* I = nullptr;
+    //! \brief columns
+    const int* J = nullptr;
+    //! \brief values
+    real* values = nullptr;
+    //! \brief degrees of freedom of the elements
+    const int* element_dofs = nullptr;
+    /*!
+     * \brief number of entries which are not in the pattern of the matrix,
+     * or whose row is not in the matrix
+     */
+    int* missing = nullptr;
+  };
+
+  /*!
+   * \brief launches the kernel adding the stiffness matrices of the
+   * elements of a material to an assembled sparse matrix
+   * \param[in] k: kind of the gradients
+   * \param[in] a: arguments (`matrices` is not used)
+   * \param[in] o: assembled matrix
+   * \param[in] d: if true, the kernel runs on the device
+   */
+  void launchStiffnessMatricesKernel(const GradientsKind,
+                                     const StiffnessMatricesKernelArguments&,
+                                     const SparseMatrixOutput&,
+                                     const bool);
+  /*!
+   * \brief sets values to zero
+   * \param[out] v: values
+   * \param[in] n: number of values
+   * \param[in] d: if true, the kernel runs on the device
+   */
+  void zeroValues(real* const, const int, const bool);
+
   /*!
    * \brief launches the kernel adding the stiffness matrices of the
    * elements of a material

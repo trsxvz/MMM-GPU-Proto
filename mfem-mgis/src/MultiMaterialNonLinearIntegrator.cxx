@@ -361,8 +361,8 @@ namespace mfem_mgis {
       for (const auto& bi : this->behaviour_integrators[m]) {
         if (!bi->supportsKernels()) {
           return ctx.registerErrorMessage(
-              "the gradients and the inner forces of the behaviour "
-              "integrator of material '" +
+              "the gradients, the inner forces and the stiffness matrices of "
+              "the behaviour integrator of material '" +
               std::to_string(m) +
               "' can't be computed by kernels (supported: standard "
               "mechanical behaviours in 3D, plane strain and plane stress, "
@@ -556,6 +556,35 @@ namespace mfem_mgis {
       const bool b) noexcept {
     this->stiffness_matrices_computed_by_kernels = b;
   }  // end of setStiffnessMatricesComputedByKernels
+
+  bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      mfem::SparseMatrix& m) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
+    if ((this->element_dofs.Size() == 0) && (fes.GetNE() != 0)) {
+      if (!batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs,
+                                                  fes)) {
+        return false;
+      }
+    }
+    if (!batch::zeroSparseMatrixValues(ctx, m)) {
+      return false;
+    }
+    const auto a = batch::AssembledStiffnessMatrix{
+        .matrix = &m, .element_dofs = &(this->element_dofs)};
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (!bi->addStiffnessMatricesByKernels(ctx, a,
+                                               this->elements_geometry)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }  // end of assembleStiffnessMatrixByKernels
 
   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
       const mfem::FiniteElement& e,

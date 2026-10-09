@@ -73,6 +73,38 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of resizeArray
 
+  namespace {
+
+    //! \brief restores the options of a quadrature interpolator at its
+    //! destruction
+    struct QuadratureInterpolatorOptionsGuard {
+      //! \param[in] q: quadrature interpolator
+      explicit QuadratureInterpolatorOptionsGuard(
+          const mfem::QuadratureInterpolator& q)
+          : qi(q),
+            layout(q.GetOutputLayout()),
+            tensor_products(q.UsesTensorProducts()) {}
+      QuadratureInterpolatorOptionsGuard(
+          const QuadratureInterpolatorOptionsGuard&) = delete;
+      QuadratureInterpolatorOptionsGuard& operator=(
+          const QuadratureInterpolatorOptionsGuard&) = delete;
+      //! \brief destructor
+      ~QuadratureInterpolatorOptionsGuard() {
+        this->qi.SetOutputLayout(this->layout);
+        this->qi.DisableTensorProducts(!this->tensor_products);
+      }
+
+     private:
+      //! \brief quadrature interpolator
+      const mfem::QuadratureInterpolator& qi;
+      //! \brief output layout
+      const mfem::QVectorLayout layout;
+      //! \brief if true, the interpolator uses tensor products
+      const bool tensor_products;
+    };
+
+  }  // end of namespace
+
   bool computeUnknownsDerivatives(Context& ctx,
                                   UnknownsDerivatives& d,
                                   const mfem::FiniteElementSpace& fes,
@@ -108,14 +140,11 @@ namespace mfem_mgis::batch {
         return false;
       }
       // the interpolator is shared: its options are set before its use and
-      // restored after
-      const auto layout = qi->GetOutputLayout();
-      const auto tensor_products = qi->UsesTensorProducts();
+      // restored after, even if an exception is thrown
+      const auto options = QuadratureInterpolatorOptionsGuard{*qi};
       qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
       qi->DisableTensorProducts();
       qi->Derivatives(d.element_values, d.values);
-      qi->SetOutputLayout(layout);
-      qi->DisableTensorProducts(!tensor_products);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
           std::string{"computeUnknownsDerivatives: "} + e.what());

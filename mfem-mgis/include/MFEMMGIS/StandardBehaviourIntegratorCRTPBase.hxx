@@ -55,8 +55,20 @@ namespace mfem_mgis {
         Context&,
         mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
+        Context&,
+        const batch::AssembledStiffnessMatrix&,
+        const batch::ElementsGeometrySet&) noexcept override;
 
    protected:
+    /*!
+     * \brief implementation of `addStiffnessMatricesByKernels`
+     * \tparam Destination: matrices element by element (`mfem::Vector`) or
+     * assembled matrix (`batch::AssembledStiffnessMatrix`)
+     */
+    template <typename Destination>
+    [[nodiscard]] bool implementAddStiffnessMatricesByKernels(
+        Context&, Destination&, const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief constructor
      * \param[in] s: quadrature space

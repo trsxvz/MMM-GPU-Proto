@@ -338,10 +338,12 @@ namespace mfem_mgis {
   }  // end of addInnerForcesByKernels
 
   template <typename Child>
-  bool StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
-      Context& ctx,
-      mfem::Vector& m,
-      const batch::ElementsGeometrySet& g) noexcept {
+  template <typename Destination>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::
+      implementAddStiffnessMatricesByKernels(
+          Context& ctx,
+          Destination& m,
+          const batch::ElementsGeometrySet& g) noexcept {
     const auto* const r = this->quadrature_space->getUniformIntegrationRule();
     if (r == nullptr) {
       if (this->quadrature_space->getNumberOfElements() == 0) {
@@ -381,6 +383,24 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "addStiffnessMatricesByKernels: unknown exception");
     }
+  }  // end of implementAddStiffnessMatricesByKernels
+
+  template <typename Child>
+  bool
+  StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+      Context& ctx,
+      mfem::Vector& m,
+      const batch::ElementsGeometrySet& g) noexcept {
+    return this->implementAddStiffnessMatricesByKernels(ctx, m, g);
+  }  // end of addStiffnessMatricesByKernels
+
+  template <typename Child>
+  bool
+  StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+      Context& ctx,
+      const batch::AssembledStiffnessMatrix& m,
+      const batch::ElementsGeometrySet& g) noexcept {
+    return this->implementAddStiffnessMatricesByKernels(ctx, m, g);
   }  // end of addStiffnessMatricesByKernels
 
   template <typename Child>

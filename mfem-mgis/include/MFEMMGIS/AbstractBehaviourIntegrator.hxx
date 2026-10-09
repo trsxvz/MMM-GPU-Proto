@@ -190,6 +190,20 @@ namespace mfem_mgis {
     [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
         Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
     /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels from the tangent operator blocks, to an assembled sparse
+     * matrix, without storing them (see `batch::addStiffnessMatrices`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] m: assembled matrix
+     * \param[in] g: geometric data
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
+        Context&,
+        const batch::AssembledStiffnessMatrix&,
+        const batch::ElementsGeometrySet&) noexcept;
+    /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces
      * \param[in] e: finite element

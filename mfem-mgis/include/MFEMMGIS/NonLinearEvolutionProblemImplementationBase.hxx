@@ -333,6 +333,11 @@ namespace mfem_mgis {
      * kernels
      */
     const bool tangent_operator_kernels;
+    /*!
+     * \brief inner forces computed by kernels (local vector of the finite
+     * element space), kept between the evaluations of the residual
+     */
+    mutable mfem::Vector inner_forces_by_kernels;
   };  // end of struct NonLinearEvolutionProblemImplementationBase
 
 }  // end of namespace mfem_mgis

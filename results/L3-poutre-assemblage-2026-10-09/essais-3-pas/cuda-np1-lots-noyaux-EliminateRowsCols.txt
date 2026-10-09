@@ -1,0 +1,61 @@
+Newton iteration  0 : ||r|| = 1.04399e+06, ||r||/||r_0|| = 0.000239897
+Newton iteration  1 : ||r|| = 176.063, ||r||/||r_0|| = 4.04574e-08
+TMP assemble 0.0153976
+Newton iteration  2 : ||r|| = 0.0203955, ||r||/||r_0|| = 4.68666e-12
+Convergence order 1.04323
+
+Newton iteration  0 : ||r|| = 7.25513e+06, ||r||/||r_0|| = 0.00166715
+TMP assemble 0.00695993
+Newton iteration  1 : ||r|| = 1.00266e+06, ||r||/||r_0|| = 0.000230399
+TMP assemble 0.00706268
+Newton iteration  2 : ||r|| = 48529.6, ||r||/||r_0|| = 1.11516e-05
+TMP assemble 0.00705845
+Newton iteration  3 : ||r|| = 1176.67, ||r||/||r_0|| = 2.70386e-07
+TMP assemble 0.00719108
+Newton iteration  4 : ||r|| = 0.133436, ||r||/||r_0|| = 3.06621e-11
+Convergence order 2.44243
+
+Newton iteration  0 : ||r|| = 1.24984e+07, ||r||/||r_0|| = 0.002872
+TMP assemble 0.00751602
+Newton iteration  1 : ||r|| = 3.67896e+06, ||r||/||r_0|| = 0.000845385
+TMP assemble 0.00684073
+Newton iteration  2 : ||r|| = 204660, ||r||/||r_0|| = 4.70286e-05
+TMP assemble 0.00703545
+Newton iteration  3 : ||r|| = 5001.56, ||r||/||r_0|| = 1.1493e-06
+TMP assemble 0.00724804
+Newton iteration  4 : ||r|| = 12.144, ||r||/||r_0|| = 2.79056e-09
+Convergence order 1.62212
+
+dofs 111843 | ls pcg-amg | ||u|| 48.83801886 | iterations per step: 2 4 4 | total 10
+time 8.782 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable ----------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |            time(s) |            part(%) |
+ |-----------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |           9.047453 |        100.000000% |
+ | |--> Mesh::Constructor                          |                  1 |           0.132357 |          1.462917% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000294 |          0.003247% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  4 |           0.131918 |          1.458073% |
+ | |--> FED::Constructor                           |                  1 |           0.133364 |          1.474050% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000002 |          0.000020% |
+ | |--> NLEP::solve                                |                  3 |           8.772997 |         96.966487% |
+ |    |--> NLEPIB::setup                           |                  3 |           0.000067 |          0.000740% |
+ |    |--> NLEPIB::solve                           |                  3 |           8.772922 |         96.965661% |
+ |       |--> NLEPIB::computePrediction            |                  3 |           5.077338 |         56.118982% |
+ |       |--> NS::Mult                             |                  3 |           3.695560 |         40.846416% |
+ |          |--> NS::processNewUnknownsEstimate    |                  3 |           0.278020 |          3.072906% |
+ |          |--> NS::computeResidual               |                  3 |           0.005599 |          0.061879% |
+ |          |--> NS::Mult::WhileLoop               |                 13 |           3.411680 |         37.708730% |
+ |             |--> NS::computeNewtonCorrection    |                 10 |           3.207152 |         35.448123% |
+ |                |--> NS::getJacobian             |                 10 |           2.375585 |         26.256952% |
+ |                |--> NS::setLinearSolverOperator |                 10 |           0.002816 |          0.031128% |
+ |                |--> MFEM::Mult(r,c)             |                 10 |           0.828668 |          9.159130% |
+ |             |--> NS::processNewUnknownsEstimate |                 10 |           0.188357 |          2.081877% |
+ |             |--> NS::computeResidual            |                 10 |           0.013000 |          0.143688% |
+ | |--> NLEPIB::update                             |                  3 |           0.008733 |          0.096526% |
+ |-- end timetable ------------------------------------------------------------------------------------------------|

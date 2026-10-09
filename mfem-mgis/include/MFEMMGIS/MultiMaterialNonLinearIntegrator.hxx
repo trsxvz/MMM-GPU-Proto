@@ -184,6 +184,22 @@ namespace mfem_mgis {
      * \param[in] b: boolean
      */
     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
+    /*!
+     * \brief assemble the stiffness matrices of all the elements, computed
+     * by kernels, in a sparse matrix on the local vector of the finite
+     * element space, without storing them (see
+     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
+     * values of the matrix are set to zero first.
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in, out] m: matrix, finalized, whose pattern contains all the
+     * entries of the stiffness matrices of the elements
+     */
+    [[nodiscard]] bool assembleStiffnessMatrixByKernels(
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        mfem::SparseMatrix& m) noexcept;
     //! \return the current time increment
     [[nodiscard]] real getTimeIncrement() const noexcept;
     /*!
@@ -350,6 +366,12 @@ namespace mfem_mgis {
     mfem::Vector stiffness_matrices;
     //! \brief see `setStiffnessMatricesComputedByKernels`
     bool stiffness_matrices_computed_by_kernels = false;
+    /*!
+     * \brief degrees of freedom of all the elements (see
+     * `batch::computeElementsDegreesOfFreedom`), computed once by
+     * `assembleStiffnessMatrixByKernels`
+     */
+    mfem::Array<int> element_dofs;
     /*!
      * \brief computes the geometric data of the integration rules of the
      * behaviour integrators which are not computed yet (see

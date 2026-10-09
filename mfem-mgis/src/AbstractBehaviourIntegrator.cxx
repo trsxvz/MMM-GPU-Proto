@@ -67,6 +67,16 @@ namespace mfem_mgis {
         "kernels");
   }  // end of addStiffnessMatricesByKernels
 
+  bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
+      Context& ctx,
+      const batch::AssembledStiffnessMatrix&,
+      const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addStiffnessMatricesByKernels: the "
+        "stiffness matrices of this behaviour integrator can't be computed by "
+        "kernels");
+  }  // end of addStiffnessMatricesByKernels
+
   template <bool parallel, typename Functor>
   static void performLoopOverIntegrationPoints(
       Functor& f, const AbstractBehaviourIntegrator& bi) {

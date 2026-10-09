@@ -1,0 +1,1400 @@
+From b47f65c3cf67fb12d29b911a21d6502450edd111 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 21:31:47 +0200
+Subject: [PATCH] Kernels: tangent operator assembled directly in the sparse
+ matrix
+
+The stiffness matrices computed by kernels are added directly to the
+local sparse matrix of the tangent operator, without being stored
+element by element: one thread per pair of nodes of an element computes
+an N x N block, searches the position of each entry in its row and adds
+it atomically (batch::addStiffnessMatrices overload taking a
+batch::AssembledStiffnessMatrix, missing entries reported). The pattern
+of the matrix is the one built by the first assembly of MFEM.
+GetGradient then ends as in MFEM (block diagonal and PtAP in parallel,
+RAP in serial), the essential degrees of freedom being eliminated in
+place by EliminateBC, on the device if hypre uses it, instead of
+EliminateRowsCols, which copies the matrix on the host and computes the
+eliminated part (122 ms per call on the GPU for 111843 unknowns).
+
+Review fixes:
+- the failures of the computations by kernels in Mult and GetGradient
+  are made collective before the following collective operations, so
+  that all the processes leave the resolution together;
+- the options of the quadrature interpolator are restored even if an
+  exception is thrown;
+- the vector of the inner forces computed by kernels is kept between
+  the evaluations of the residual;
+- uniform Dirichlet boundary conditions without degrees of freedom on a
+  process no longer invalidate the copy of the unknowns on the device;
+- the unneeded reads of the unknowns on the host are removed; the read
+  of the essential degrees of freedom is kept, with the debug device of
+  MFEM any access on the device protecting the copy on the host.
+
+GradientsKernelsTest compares the assembled matrix with the assembly by
+MFEM and checks the detection of entries outside of the pattern.
+---
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  14 ++
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  70 ++++++
+ .../MultiMaterialNonLinearIntegrator.hxx      |  22 ++
+ ...nearEvolutionProblemImplementationBase.hxx |   5 +
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |  12 +
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  28 ++-
+ src/AbstractBehaviourIntegrator.cxx           |  10 +
+ src/Batch/Gradients.cxx                       |  39 ++-
+ src/Batch/StiffnessMatrices.cxx               | 235 +++++++++++++++---
+ src/Batch/StiffnessMatricesKernels.cxx        | 128 ++++++++--
+ src/Batch/StiffnessMatricesKernels.hxx        |  39 +++
+ src/MultiMaterialNonLinearIntegrator.cxx      |  33 ++-
+ ...onLinearEvolutionProblemImplementation.cxx | 214 +++++++++++++---
+ src/UniformDirichletBoundaryCondition.cxx     |   6 +
+ tests/GradientsKernelsTest.cxx                |  68 ++++-
+ 15 files changed, 818 insertions(+), 105 deletions(-)
+
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index 50d45bcf07..f17f4f3c0b 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -189,6 +189,20 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
+         Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
++    /*!
++     * \brief add the stiffness matrices of all the elements, computed by
++     * kernels from the tangent operator blocks, to an assembled sparse
++     * matrix, without storing them (see `batch::addStiffnessMatrices`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] m: assembled matrix
++     * \param[in] g: geometric data
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
++        Context&,
++        const batch::AssembledStiffnessMatrix&,
++        const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief compute the contribution of the given element to the inner forces
+      * \param[out] Fe: inner forces
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index 63357fdb01..db10a468be 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -9,12 +9,19 @@
+ #ifndef LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+ #define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+ 
++#include "mfem/general/array.hpp"
+ #include "mfem/linalg/vector.hpp"
+ #include "MGIS/FieldView.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+ 
++namespace mfem {
++  // forward declarations
++  class SparseMatrix;
++  class FiniteElementSpace;
++}  // end of namespace mfem
++
+ namespace mfem_mgis {
+   // forward declaration
+   struct PartialQuadratureSpace;
+@@ -49,6 +56,69 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+ 
++  /*!
++   * \brief sparse matrix in which the stiffness matrices of the elements are
++   * assembled by kernels (see `addStiffnessMatrices`)
++   */
++  struct MFEM_MGIS_EXPORT AssembledStiffnessMatrix {
++    /*!
++     * \brief matrix, finalized, on the local vector of the finite element
++     * space, whose pattern contains all the entries of the stiffness
++     * matrices of the elements (for instance assembled once by the element
++     * loop of MFEM)
++     */
++    mfem::SparseMatrix* matrix = nullptr;
++    /*!
++     * \brief degrees of freedom of all the elements of the mesh (see
++     * `computeElementsDegreesOfFreedom`)
++     */
++    const mfem::Array<int>* element_dofs = nullptr;
++  };
++
++  /*!
++   * \brief computes the degrees of freedom of all the elements of the mesh,
++   * in the ordering of `mfem::FiniteElementSpace::GetElementVDofs` (`nd *
++   * vdim` values per element), which is the ordering of the stiffness
++   * matrices of the elements (see `addStiffnessMatrices`)
++   * \return true on success. The degrees of freedom with an orientation
++   * (negative indices) are refused.
++   * \param[in, out] ctx: execution context
++   * \param[out] dofs: degrees of freedom, readable on the device
++   * \param[in] fes: finite element space
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsDegreesOfFreedom(
++      Context&, mfem::Array<int>&, const mfem::FiniteElementSpace&) noexcept;
++  /*!
++   * \brief sets the values of a sparse matrix to zero, on the device if a
++   * device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: matrix (finalized)
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool zeroSparseMatrixValues(
++      Context&, mfem::SparseMatrix&) noexcept;
++  /*!
++   * \brief adds the stiffness matrices of the elements of a material to an
++   * assembled sparse matrix, on the device if a device is enabled, without
++   * storing them: the position of each entry is searched in its row, and
++   * the additions are atomic (several materials may share degrees of
++   * freedom)
++   * \return true on success, false if an entry is not in the pattern of the
++   * matrix
++   * \param[in, out] m: assembled matrix
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks in the global frame
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients, which defines the operator `B`
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
++      Context&,
++      const AssembledStiffnessMatrix&,
++      const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++
+ }  // end of namespace mfem_mgis::batch
+ 
+ #endif /* LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX */
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 5c7e88ec6a..93bef81425 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -184,6 +184,22 @@ namespace mfem_mgis {
+      * \param[in] b: boolean
+      */
+     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
++    /*!
++     * \brief assemble the stiffness matrices of all the elements, computed
++     * by kernels, in a sparse matrix on the local vector of the finite
++     * element space, without storing them (see
++     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
++     * values of the matrix are set to zero first.
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in, out] m: matrix, finalized, whose pattern contains all the
++     * entries of the stiffness matrices of the elements
++     */
++    [[nodiscard]] bool assembleStiffnessMatrixByKernels(
++        Context& ctx,
++        const mfem::FiniteElementSpace& fes,
++        mfem::SparseMatrix& m) noexcept;
+     //! \return the current time increment
+     [[nodiscard]] real getTimeIncrement() const noexcept;
+     /*!
+@@ -350,6 +366,12 @@ namespace mfem_mgis {
+     mfem::Vector stiffness_matrices;
+     //! \brief see `setStiffnessMatricesComputedByKernels`
+     bool stiffness_matrices_computed_by_kernels = false;
++    /*!
++     * \brief degrees of freedom of all the elements (see
++     * `batch::computeElementsDegreesOfFreedom`), computed once by
++     * `assembleStiffnessMatrixByKernels`
++     */
++    mfem::Array<int> element_dofs;
+     /*!
+      * \brief computes the geometric data of the integration rules of the
+      * behaviour integrators which are not computed yet (see
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index aa9617715a..bb56b343c7 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -333,6 +333,11 @@ namespace mfem_mgis {
+      * kernels
+      */
+     const bool tangent_operator_kernels;
++    /*!
++     * \brief inner forces computed by kernels (local vector of the finite
++     * element space), kept between the evaluations of the residual
++     */
++    mutable mfem::Vector inner_forces_by_kernels;
+   };  // end of struct NonLinearEvolutionProblemImplementationBase
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index f643a58bb9..bf35017cb4 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -55,8 +55,20 @@ namespace mfem_mgis {
+         Context&,
+         mfem::Vector&,
+         const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addStiffnessMatricesByKernels(
++        Context&,
++        const batch::AssembledStiffnessMatrix&,
++        const batch::ElementsGeometrySet&) noexcept override;
+ 
+    protected:
++    /*!
++     * \brief implementation of `addStiffnessMatricesByKernels`
++     * \tparam Destination: matrices element by element (`mfem::Vector`) or
++     * assembled matrix (`batch::AssembledStiffnessMatrix`)
++     */
++    template <typename Destination>
++    [[nodiscard]] bool implementAddStiffnessMatricesByKernels(
++        Context&, Destination&, const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief constructor
+      * \param[in] s: quadrature space
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 2a1da5c545..d0b3eaa0cd 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -338,10 +338,12 @@ namespace mfem_mgis {
+   }  // end of addInnerForcesByKernels
+ 
+   template <typename Child>
+-  bool StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+-      Context& ctx,
+-      mfem::Vector& m,
+-      const batch::ElementsGeometrySet& g) noexcept {
++  template <typename Destination>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::
++      implementAddStiffnessMatricesByKernels(
++          Context& ctx,
++          Destination& m,
++          const batch::ElementsGeometrySet& g) noexcept {
+     const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+     if (r == nullptr) {
+       if (this->quadrature_space->getNumberOfElements() == 0) {
+@@ -381,6 +383,24 @@ namespace mfem_mgis {
+       return ctx.registerErrorMessage(
+           "addStiffnessMatricesByKernels: unknown exception");
+     }
++  }  // end of implementAddStiffnessMatricesByKernels
++
++  template <typename Child>
++  bool
++  StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
++      Context& ctx,
++      mfem::Vector& m,
++      const batch::ElementsGeometrySet& g) noexcept {
++    return this->implementAddStiffnessMatricesByKernels(ctx, m, g);
++  }  // end of addStiffnessMatricesByKernels
++
++  template <typename Child>
++  bool
++  StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
++      Context& ctx,
++      const batch::AssembledStiffnessMatrix& m,
++      const batch::ElementsGeometrySet& g) noexcept {
++    return this->implementAddStiffnessMatricesByKernels(ctx, m, g);
+   }  // end of addStiffnessMatricesByKernels
+ 
+   template <typename Child>
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 5826fdb12d..553932d527 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -67,6 +67,16 @@ namespace mfem_mgis {
+         "kernels");
+   }  // end of addStiffnessMatricesByKernels
+ 
++  bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
++      Context& ctx,
++      const batch::AssembledStiffnessMatrix&,
++      const batch::ElementsGeometrySet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::addStiffnessMatricesByKernels: the "
++        "stiffness matrices of this behaviour integrator can't be computed by "
++        "kernels");
++  }  // end of addStiffnessMatricesByKernels
++
+   template <bool parallel, typename Functor>
+   static void performLoopOverIntegrationPoints(
+       Functor& f, const AbstractBehaviourIntegrator& bi) {
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index b1a45481ae..391db6811f 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -73,6 +73,38 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of resizeArray
+ 
++  namespace {
++
++    //! \brief restores the options of a quadrature interpolator at its
++    //! destruction
++    struct QuadratureInterpolatorOptionsGuard {
++      //! \param[in] q: quadrature interpolator
++      explicit QuadratureInterpolatorOptionsGuard(
++          const mfem::QuadratureInterpolator& q)
++          : qi(q),
++            layout(q.GetOutputLayout()),
++            tensor_products(q.UsesTensorProducts()) {}
++      QuadratureInterpolatorOptionsGuard(
++          const QuadratureInterpolatorOptionsGuard&) = delete;
++      QuadratureInterpolatorOptionsGuard& operator=(
++          const QuadratureInterpolatorOptionsGuard&) = delete;
++      //! \brief destructor
++      ~QuadratureInterpolatorOptionsGuard() {
++        this->qi.SetOutputLayout(this->layout);
++        this->qi.DisableTensorProducts(!this->tensor_products);
++      }
++
++     private:
++      //! \brief quadrature interpolator
++      const mfem::QuadratureInterpolator& qi;
++      //! \brief output layout
++      const mfem::QVectorLayout layout;
++      //! \brief if true, the interpolator uses tensor products
++      const bool tensor_products;
++    };
++
++  }  // end of namespace
++
+   bool computeUnknownsDerivatives(Context& ctx,
+                                   UnknownsDerivatives& d,
+                                   const mfem::FiniteElementSpace& fes,
+@@ -108,14 +140,11 @@ namespace mfem_mgis::batch {
+         return false;
+       }
+       // the interpolator is shared: its options are set before its use and
+-      // restored after
+-      const auto layout = qi->GetOutputLayout();
+-      const auto tensor_products = qi->UsesTensorProducts();
++      // restored after, even if an exception is thrown
++      const auto options = QuadratureInterpolatorOptionsGuard{*qi};
+       qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
+       qi->DisableTensorProducts();
+       qi->Derivatives(d.element_values, d.values);
+-      qi->SetOutputLayout(layout);
+-      qi->DisableTensorProducts(!tensor_products);
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+           std::string{"computeUnknownsDerivatives: "} + e.what());
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index a49772e8d5..a454c9c382 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -6,12 +6,15 @@
+  * \date   09/10/2026
+  */
+ 
++#include <limits>
+ #include <string>
+ #include <cstdint>
+ #include <exception>
+ #include "mfem/general/device.hpp"
+ #include "mfem/fem/fe/fe_base.hpp"
+ #include "mfem/mesh/mesh.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+ #ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+@@ -20,27 +23,38 @@
+ 
+ namespace mfem_mgis::batch {
+ 
+-  bool addStiffnessMatrices(Context& ctx,
+-                            mfem::Vector& m,
+-                            const PartialQuadratureSpace& qs,
+-                            const mgis::FieldView<const real>& K,
+-                            const ElementsGeometry& g,
+-                            const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return ctx.registerErrorMessage(
+-        "addStiffnessMatrices: the kernels computing the stiffness matrices "
+-        "are not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++
++  /*!
++   * \brief checks the arguments of `addStiffnessMatrices` and fills the
++   * arguments of the kernels which do not depend on the destination
++   * \return true on success, false if there is nothing to do or on error
++   * (see `error`)
++   * \param[in, out] ctx: execution context
++   * \param[out] a: arguments of the kernels
++   * \param[out] error: true on error
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients
++   * \param[in] use_device: if true, the pointers are located on the device
++   */
++  static bool getStiffnessMatricesKernelArguments(
++      Context& ctx,
++      internals::StiffnessMatricesKernelArguments& a,
++      bool& error,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const bool use_device) {
++    error = false;
+     const auto& elements = qs.getElements();
+     const auto& offsets = qs.getElementOffsets();
+     if (elements.Size() == 0) {
+-      return true;
++      return false;
+     }
++    error = true;
+     if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
+         (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+@@ -53,12 +67,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatrices: unexpected dimension of the space (" +
+           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
+     }
+-    const auto ndofs = std::int64_t{g.nd} * dim;
+-    if (static_cast<std::int64_t>(m.Size()) != ndofs * ndofs * g.ne) {
+-      return ctx.registerErrorMessage(
+-          "addStiffnessMatrices: unexpected size of the matrices element by "
+-          "element");
+-    }
+     const auto gsize = getGradientsSize(k);
+     if ((K.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
+         (K.getNumberOfComponents() != gsize * gsize)) {
+@@ -66,7 +74,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatrices: unexpected number of points or of components "
+           "of the tangent operator blocks");
+     }
+-    auto a = internals::StiffnessMatricesKernelArguments{};
+     a.number_of_elements = elements.Size();
+     a.nd = g.nd;
+     a.nq = g.nq;
+@@ -74,14 +81,48 @@ namespace mfem_mgis::batch {
+     a.tangent_operator = K.data();
+     a.point_stride = static_cast<long long>(K.getPointStride());
+     a.component_stride = static_cast<long long>(K.getComponentStride());
++    a.elements = elements.Read(use_device);
++    a.offsets = offsets.Read(use_device);
++    a.shape_functions_gradients = g.maps->G.Read(use_device);
++    a.jacobians = g.factors->J.Read(use_device);
++    a.determinants = g.factors->detJ.Read(use_device);
++    a.weights = g.weights.Read(use_device);
++    error = false;
++    return true;
++  }  // end of getStiffnessMatricesKernelArguments
++
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  bool addStiffnessMatrices(Context& ctx,
++                            mfem::Vector& m,
++                            const PartialQuadratureSpace& qs,
++                            const mgis::FieldView<const real>& K,
++                            const ElementsGeometry& g,
++                            const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(qs);
++    static_cast<void>(K);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "addStiffnessMatrices: the kernels computing the stiffness matrices "
++        "are not compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+-      a.elements = elements.Read(use_device);
+-      a.offsets = offsets.Read(use_device);
+-      a.shape_functions_gradients = g.maps->G.Read(use_device);
+-      a.jacobians = g.factors->J.Read(use_device);
+-      a.determinants = g.factors->detJ.Read(use_device);
+-      a.weights = g.weights.Read(use_device);
++      auto a = internals::StiffnessMatricesKernelArguments{};
++      auto error = false;
++      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
++                                               use_device)) {
++        return !error;
++      }
++      const auto ndofs = std::int64_t{g.nd} * getSpaceDimension(k);
++      if (static_cast<std::int64_t>(m.Size()) != ndofs * ndofs * g.ne) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatrices: unexpected size of the matrices element by "
++            "element");
++      }
+       a.matrices = m.ReadWrite(use_device);
+       internals::launchStiffnessMatricesKernel(k, a, use_device);
+     } catch (std::exception& e) {
+@@ -95,4 +136,138 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatrices
+ 
++  bool computeElementsDegreesOfFreedom(
++      Context& ctx,
++      mfem::Array<int>& dofs,
++      const mfem::FiniteElementSpace& fes) noexcept {
++    try {
++      const auto ne = fes.GetNE();
++      if (ne == 0) {
++        dofs.SetSize(0);
++        return true;
++      }
++      const auto* const fe = fes.GetTypicalFE();
++      const auto ndofs =
++          static_cast<std::int64_t>(fe->GetDof()) * fes.GetVDim();
++      if (ndofs * ne > std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "computeElementsDegreesOfFreedom: too many values for MFEM");
++      }
++      dofs.SetSize(static_cast<int>(ndofs * ne));
++      auto* const d = dofs.HostWrite();
++      auto vdofs = mfem::Array<int>{};
++      for (int e = 0; e != ne; ++e) {
++        fes.GetElementVDofs(e, vdofs);
++        if (vdofs.Size() != ndofs) {
++          return ctx.registerErrorMessage(
++              "computeElementsDegreesOfFreedom: elements with different "
++              "numbers of degrees of freedom are not supported");
++        }
++        for (int i = 0; i != vdofs.Size(); ++i) {
++          if (vdofs[i] < 0) {
++            return ctx.registerErrorMessage(
++                "computeElementsDegreesOfFreedom: degrees of freedom with an "
++                "orientation are not supported");
++          }
++          d[ndofs * e + i] = vdofs[i];
++        }
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"computeElementsDegreesOfFreedom: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeElementsDegreesOfFreedom: unknown exception");
++    }
++    return true;
++  }  // end of computeElementsDegreesOfFreedom
++
++  bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    return ctx.registerErrorMessage(
++        "zeroSparseMatrixValues: the kernels are not compiled (MFEM compiled "
++        "with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      if (!m.Finalized()) {
++        return ctx.registerErrorMessage(
++            "zeroSparseMatrixValues: the matrix is not finalized");
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      internals::zeroValues(m.WriteData(use_device), m.NumNonZeroElems(),
++                            use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"zeroSparseMatrixValues: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "zeroSparseMatrixValues: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of zeroSparseMatrixValues
++
++  bool addStiffnessMatrices(Context& ctx,
++                            const AssembledStiffnessMatrix& m,
++                            const PartialQuadratureSpace& qs,
++                            const mgis::FieldView<const real>& K,
++                            const ElementsGeometry& g,
++                            const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(qs);
++    static_cast<void>(K);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return ctx.registerErrorMessage(
++        "addStiffnessMatrices: the kernels computing the stiffness matrices "
++        "are not compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
++          (!m.matrix->Finalized())) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatrices: invalid assembled matrix");
++      }
++      const auto ndofs = std::int64_t{g.nd} * getSpaceDimension(k);
++      if (static_cast<std::int64_t>(m.element_dofs->Size()) != ndofs * g.ne) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatrices: unexpected number of degrees of freedom "
++            "of the elements");
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::StiffnessMatricesKernelArguments{};
++      auto error = false;
++      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
++                                               use_device)) {
++        return !error;
++      }
++      auto missing = mfem::Array<int>(1);
++      missing.HostWrite()[0] = 0;
++      auto o = internals::SparseMatrixOutput{};
++      o.number_of_rows = m.matrix->Height();
++      o.I = m.matrix->ReadI(use_device);
++      o.J = m.matrix->ReadJ(use_device);
++      o.values = m.matrix->ReadWriteData(use_device);
++      o.element_dofs = m.element_dofs->Read(use_device);
++      o.missing = missing.ReadWrite(use_device);
++      internals::launchStiffnessMatricesKernel(k, a, o, use_device);
++      if (missing.HostRead()[0] != 0) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatrices: " + std::to_string(missing.HostRead()[0]) +
++            " entries of the stiffness matrices are not in the pattern of the "
++            "assembled matrix");
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"addStiffnessMatrices: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addStiffnessMatrices: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addStiffnessMatrices
++
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 23fe82b000..a028c36774 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -8,24 +8,95 @@
+  */
+ 
+ #include <cstddef>
++#include "mfem/general/backends.hpp"
+ #include "mfem/general/forall.hpp"
+ #include "KernelsUtilities.hxx"
+ #include "StiffnessMatricesKernels.hxx"
+ 
+ namespace mfem_mgis::batch::internals {
+ 
++  //! \brief stores the blocks in the matrices of the elements
++  struct ElementMatricesStorage {
++    //! \brief matrices of the elements
++    real* matrices;
++    /*!
++     * \brief adds a block of the matrix of an element
++     * \tparam N: dimension
++     * \param[in] e: element
++     * \param[in] nd: number of nodes per element
++     * \param[in] na: first node
++     * \param[in] nb: second node
++     * \param[in] m: block
++     */
++    template <int N>
++    MFEM_HOST_DEVICE void add(const std::size_t e,
++                              const std::size_t nd,
++                              const std::size_t na,
++                              const std::size_t nb,
++                              const real (&m)[N][N]) const {
++      // column-major element matrix, degrees of freedom `node + nd * c`
++      const auto ndofs = nd * N;
++      auto* const me = this->matrices + ndofs * ndofs * e;
++      for (std::size_t c = 0; c != N; ++c) {
++        for (std::size_t d = 0; d != N; ++d) {
++          me[(na + nd * c) + ndofs * (nb + nd * d)] += m[c][d];
++        }
++      }
++    }
++  };
++
++  //! \brief adds the blocks to an assembled sparse matrix
++  struct SparseMatrixAssembly {
++    //! \brief assembled matrix
++    SparseMatrixOutput o;
++    //! \brief see `ElementMatricesStorage::add`
++    template <int N>
++    MFEM_HOST_DEVICE void add(const std::size_t e,
++                              const std::size_t nd,
++                              const std::size_t na,
++                              const std::size_t nb,
++                              const real (&m)[N][N]) const {
++      const auto ndofs = nd * N;
++      const auto* const dofs = this->o.element_dofs + ndofs * e;
++      for (std::size_t c = 0; c != N; ++c) {
++        const auto row = dofs[na + nd * c];
++        if ((row < 0) || (row >= this->o.number_of_rows)) {
++          ::AtomicAdd(this->o.missing[0], N);
++          continue;
++        }
++        for (std::size_t d = 0; d != N; ++d) {
++          const auto col = dofs[nb + nd * d];
++          auto found = false;
++          for (auto p = this->o.I[row]; p != this->o.I[row + 1]; ++p) {
++            if (this->o.J[p] == col) {
++              ::AtomicAdd(this->o.values[p], m[c][d]);
++              found = true;
++              break;
++            }
++          }
++          if (!found) {
++            ::AtomicAdd(this->o.missing[0], 1);
++          }
++        }
++      }
++    }
++  };
++
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+    * elements of a material: one thread per pair of nodes of an element,
+    * computing the `N x N` block `Σ B_aᵀ K B_b w det J`
+    * \tparam K: kind of the gradients
+    * \tparam N: dimension
++   * \tparam Output: destination of the blocks
+    */
+-  template <GradientsKind K, int N>
++  template <GradientsKind K, int N, typename Output>
+   static void launchStiffnessMatricesKernel(
+-      const StiffnessMatricesKernelArguments& a, const bool use_device) {
++      const StiffnessMatricesKernelArguments& a,
++      const Output o,
++      const bool use_device) {
+     const auto n = a.number_of_elements * a.nd * a.nd;
+-    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++    mfem::forall_switch(use_device, n, [a, o] MFEM_HOST_DEVICE(int i) {
+       const auto nd = static_cast<std::size_t>(a.nd);
+       const auto nq = static_cast<std::size_t>(a.nq);
+       const auto gs = static_cast<std::size_t>(a.gradients_size);
+@@ -49,9 +120,9 @@ namespace mfem_mgis::batch::internals {
+         real Bb[9][3];
+         computeB<K>(Ba, dNa);
+         computeB<K>(Bb, dNb);
+-        const auto o =
++        const auto o2 =
+             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
+-        const auto* const t = a.tangent_operator + o * a.point_stride;
++        const auto* const t = a.tangent_operator + o2 * a.point_stride;
+         const auto cs = a.component_stride;
+         const auto w = a.weights[q] * detJ;
+         // K B_b, then B_aᵀ (K B_b)
+@@ -73,38 +144,55 @@ namespace mfem_mgis::batch::internals {
+           }
+         }
+       }
+-      // column-major element matrix, degrees of freedom `node + nd * c`
+-      const auto ndofs = nd * N;
+-      auto* const me = a.matrices + ndofs * ndofs * e;
+-      for (std::size_t c = 0; c != N; ++c) {
+-        for (std::size_t d = 0; d != N; ++d) {
+-          me[(na + nd * c) + ndofs * (nb + nd * d)] += m[c][d];
+-        }
+-      }
++      o.template add<N>(e, nd, na, nb, m);
+     });
+   }  // end of launchStiffnessMatricesKernel
+ 
+-  void launchStiffnessMatricesKernel(const GradientsKind k,
+-                                     const StiffnessMatricesKernelArguments& a,
+-                                     const bool use_device) {
++  /*!
++   * \brief launches the kernel for the given kind of gradients
++   * \tparam Output: destination of the blocks
++   */
++  template <typename Output>
++  static void dispatch(const GradientsKind k,
++                       const StiffnessMatricesKernelArguments& a,
++                       const Output& o,
++                       const bool use_device) {
+     switch (k) {
+       case GradientsKind::SMALL_STRAIN_3D:
+         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, 3>(
+-            a, use_device);
++            a, o, use_device);
+         break;
+       case GradientsKind::SMALL_STRAIN_2D:
+         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, 2>(
+-            a, use_device);
++            a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_3D:
+         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D,
+-                                      3>(a, use_device);
++                                      3>(a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_2D:
+         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D,
+-                                      2>(a, use_device);
++                                      2>(a, o, use_device);
+         break;
+     }
++  }  // end of dispatch
++
++  void launchStiffnessMatricesKernel(const GradientsKind k,
++                                     const StiffnessMatricesKernelArguments& a,
++                                     const bool use_device) {
++    dispatch(k, a, ElementMatricesStorage{a.matrices}, use_device);
++  }  // end of launchStiffnessMatricesKernel
++
++  void launchStiffnessMatricesKernel(const GradientsKind k,
++                                     const StiffnessMatricesKernelArguments& a,
++                                     const SparseMatrixOutput& o,
++                                     const bool use_device) {
++    dispatch(k, a, SparseMatrixAssembly{o}, use_device);
+   }  // end of launchStiffnessMatricesKernel
+ 
++  void zeroValues(real* const v, const int n, const bool use_device) {
++    mfem::forall_switch(use_device, n,
++                        [v] MFEM_HOST_DEVICE(int i) { v[i] = real{0}; });
++  }  // end of zeroValues
++
+ }  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index ecbc31fc81..934e77ead3 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -49,6 +49,45 @@ namespace mfem_mgis::batch::internals {
+     int gradients_size = 0;
+   };
+ 
++  //! \brief destination of the kernel: assembled sparse matrix
++  struct SparseMatrixOutput {
++    //! \brief number of rows
++    int number_of_rows = 0;
++    //! \brief offsets of the rows
++    const int* I = nullptr;
++    //! \brief columns
++    const int* J = nullptr;
++    //! \brief values
++    real* values = nullptr;
++    //! \brief degrees of freedom of the elements
++    const int* element_dofs = nullptr;
++    /*!
++     * \brief number of entries which are not in the pattern of the matrix,
++     * or whose row is not in the matrix
++     */
++    int* missing = nullptr;
++  };
++
++  /*!
++   * \brief launches the kernel adding the stiffness matrices of the
++   * elements of a material to an assembled sparse matrix
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments (`matrices` is not used)
++   * \param[in] o: assembled matrix
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchStiffnessMatricesKernel(const GradientsKind,
++                                     const StiffnessMatricesKernelArguments&,
++                                     const SparseMatrixOutput&,
++                                     const bool);
++  /*!
++   * \brief sets values to zero
++   * \param[out] v: values
++   * \param[in] n: number of values
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void zeroValues(real* const, const int, const bool);
++
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+    * elements of a material
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 26cc204d32..d0bb7ae0a7 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -361,8 +361,8 @@ namespace mfem_mgis {
+       for (const auto& bi : this->behaviour_integrators[m]) {
+         if (!bi->supportsKernels()) {
+           return ctx.registerErrorMessage(
+-              "the gradients and the inner forces of the behaviour "
+-              "integrator of material '" +
++              "the gradients, the inner forces and the stiffness matrices of "
++              "the behaviour integrator of material '" +
+               std::to_string(m) +
+               "' can't be computed by kernels (supported: standard "
+               "mechanical behaviours in 3D, plane strain and plane stress, "
+@@ -557,6 +557,35 @@ namespace mfem_mgis {
+     this->stiffness_matrices_computed_by_kernels = b;
+   }  // end of setStiffnessMatricesComputedByKernels
+ 
++  bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      mfem::SparseMatrix& m) noexcept {
++    if (!this->computeElementsGeometry(ctx, fes)) {
++      return false;
++    }
++    if ((this->element_dofs.Size() == 0) && (fes.GetNE() != 0)) {
++      if (!batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs,
++                                                  fes)) {
++        return false;
++      }
++    }
++    if (!batch::zeroSparseMatrixValues(ctx, m)) {
++      return false;
++    }
++    const auto a = batch::AssembledStiffnessMatrix{
++        .matrix = &m, .element_dofs = &(this->element_dofs)};
++    for (auto& bis : this->behaviour_integrators) {
++      for (auto& bi : bis) {
++        if (!bi->addStiffnessMatricesByKernels(ctx, a,
++                                               this->elements_geometry)) {
++          return false;
++        }
++      }
++    }
++    return true;
++  }  // end of assembleStiffnessMatrixByKernels
++
+   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
+       const mfem::FiniteElement& e,
+       mfem::ElementTransformation& tr,
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index e89096a965..dd951cca10 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -6,6 +6,8 @@
+  * \date   11/12/2020
+  */
+ 
++#include <tuple>
++#include <string>
+ #include "mfem/fem/datacollection.hpp"
+ 
+ #ifdef MFEM_USE_PETSC
+@@ -330,28 +332,75 @@ namespace mfem_mgis {
+     std::function<void(const real, const real)> f;
+   };  // end of struct StdFunctionPostProcessing
+ 
++  /*!
++   * \return if the given multi-material integrator is the only integrator of
++   * a non linear form
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator
++   */
++  static bool isTheOnlyIntegrator(
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi) noexcept {
++    const auto& dnfi = *(f.GetDNFI());
++    return (mi != nullptr) && (dnfi.Size() == 1) && (dnfi[0] == mi) &&
++           (f.GetBNFI()->Size() == 0) &&
++           (f.GetInteriorFaceIntegrators().Size() == 0) &&
++           (f.GetBdrFaceIntegrators().Size() == 0);
++  }  // end of isTheOnlyIntegrator
++
++  /*!
++   * \brief raises an exception on all the processes if a computation by
++   * kernels failed on one of them. This check is made before the collective
++   * operations following the computation, so that all the processes leave
++   * the resolution together.
++   * \param[in] fed: finite element discretization
++   * \param[in, out] ctx: execution context of the computation
++   * \param[in] success: result of the computation on this process
++   * \param[in] what: description of the computation
++   */
++  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
++                                         Context& ctx,
++                                         const bool success,
++                                         const std::string& what) {
++    if (isTrueOnAllProcesses(fed, success)) {
++      return;
++    }
++    if (!success) {
++      raise(what + ": " + ctx.getErrorMessage());
++    }
++    raise(what + ": failure on another process");
++  }  // end of raiseOnFailureOnAnyProcess
++
+   /*!
+    * \brief adds the inner forces computed by kernels to the residual (true
+    * degrees of freedom), and cancels the residual at the essential degrees
+    * of freedom
++   * \param[in] fed: finite element discretization
+    * \param[in, out] mi: multi-material integrator
+    * \param[in] fes: finite element space
+    * \param[in] essential_dofs: essential true degrees of freedom
++   * \param[out] f: inner forces (local vector of the finite element space)
+    * \param[in, out] r: residual
+    */
+   static void addInnerForcesComputedByKernels(
++      const FiniteElementDiscretization& fed,
+       MultiMaterialNonLinearIntegrator& mi,
+       const mfem::FiniteElementSpace& fes,
+       const mfem::Array<int>& essential_dofs,
++      mfem::Vector& f,
+       mfem::Vector& r) {
+     auto ctx = Context{};
+-    auto f = mfem::Vector{};
+-    f.UseDevice(true);
+-    f.SetSize(fes.GetVSize());
+-    f = real{0};
+-    if (!mi.addInnerForcesByKernels(ctx, fes, f)) {
+-      raise("computation of the residual: " + ctx.getErrorMessage());
++    auto success = false;
++    try {
++      f.UseDevice(true);
++      f.SetSize(fes.GetVSize());
++      f = real{0};
++      success = mi.addInnerForcesByKernels(ctx, fes, f);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
+     }
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the residual");
+     // from the local vector of the finite element space to the true degrees
+     // of freedom
+     if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
+@@ -360,26 +409,50 @@ namespace mfem_mgis {
+       r += f;
+     }
+     r.SetSubVector(essential_dofs, real{0});
+-    // `SetSubVector` may read the essential degrees of freedom on the device,
+-    // and `GetGradient` of MFEM reads them on the host without declaring it
++    // with the debug device of MFEM, any access on the device, even a
++    // reading, protects the copy on the host (`MemoryManager::GetDevicePtr`):
++    // the essential degrees of freedom, read on the device by
++    // `SetSubVector`, are made readable on the host, where `GetGradient`
++    // reads them without declaring it
+     static_cast<void>(essential_dofs.HostRead());
+   }  // end of addInnerForcesComputedByKernels
+ 
+   /*!
+    * \brief computes the stiffness matrices of the elements by kernels, given
+    * to the assembly of the tangent operator by MFEM
++   * \param[in] fed: finite element discretization
+    * \param[in, out] mi: multi-material integrator
+    * \param[in] fes: finite element space
+    */
+   static void computeStiffnessMatricesByKernels(
++      const FiniteElementDiscretization& fed,
+       MultiMaterialNonLinearIntegrator& mi,
+       const mfem::FiniteElementSpace& fes) {
+     auto ctx = Context{};
+-    if (!mi.computeStiffnessMatricesByKernels(ctx, fes)) {
+-      raise("computation of the tangent operator: " + ctx.getErrorMessage());
+-    }
++    const auto success = mi.computeStiffnessMatricesByKernels(ctx, fes);
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the tangent operator");
+   }  // end of computeStiffnessMatricesByKernels
+ 
++  /*!
++   * \brief assembles the stiffness matrices of the elements computed by
++   * kernels in a local matrix
++   * \param[in] fed: finite element discretization
++   * \param[in, out] mi: multi-material integrator
++   * \param[in] fes: finite element space
++   * \param[in, out] m: local matrix
++   */
++  static void assembleStiffnessMatrixByKernels(
++      const FiniteElementDiscretization& fed,
++      MultiMaterialNonLinearIntegrator& mi,
++      const mfem::FiniteElementSpace& fes,
++      mfem::SparseMatrix& m) {
++    auto ctx = Context{};
++    const auto success = mi.assembleStiffnessMatrixByKernels(ctx, fes, m);
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the tangent operator");
++  }  // end of assembleStiffnessMatrixByKernels
++
+ #ifdef MFEM_USE_MPI
+ 
+   NonLinearEvolutionProblemImplementation<true>::
+@@ -468,9 +541,6 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<true>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+-    // the element loops of MFEM read the unknowns on the host without
+-    // declaring it, while the kernels of mfem-mgis read them on the device
+-    static_cast<void>(u.HostRead());
+     if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+       return;
+@@ -479,28 +549,65 @@ namespace mfem_mgis {
+     // gives null contributions to the residual assembled by MFEM: the
+     // assembly of MFEM is skipped if the form has no other integrator
+     const auto only_mfem_mgis =
+-        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
+-        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
+-        (this->bfnfi.Size() == 0);
++        isTheOnlyIntegrator(*this, this->mgis_integrator);
+     if (only_mfem_mgis) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+     }
+-    addInnerForcesComputedByKernels(*(this->mgis_integrator),
+-                                    this->getFiniteElementSpace(),
+-                                    this->ess_tdof_list, r);
++    addInnerForcesComputedByKernels(
++        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
++        this->getFiniteElementSpace(), this->ess_tdof_list,
++        this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
+       const mfem::Vector& u) const {
+-    if ((this->tangent_operator_kernels) &&
+-        (this->mgis_integrator != nullptr)) {
+-      computeStiffnessMatricesByKernels(*(this->mgis_integrator),
++    if ((!this->tangent_operator_kernels) ||
++        (this->mgis_integrator == nullptr)) {
++      return mfem_mgis::NonlinearForm<true>::GetGradient(u);
++    }
++    const auto only_mfem_mgis =
++        isTheOnlyIntegrator(*this, this->mgis_integrator);
++    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
++        (this->Grad->Finalized())) {
++      // the stiffness matrices are assembled by kernels in the local matrix
++      // assembled by MFEM at the first call (same pattern), then the global
++      // matrix is built as by `mfem::ParNonlinearForm::GetGradient`
++      assembleStiffnessMatrixByKernels(
++          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
++          this->getFiniteElementSpace(), *(this->Grad));
++      auto* const pfes = this->ParFESpace();
++      this->pGrad.Clear();
++      mfem::OperatorHandle dA(this->pGrad.Type());
++      mfem::OperatorHandle Ph(this->pGrad.Type());
++      dA.MakeSquareBlockDiag(pfes->GetComm(), pfes->GlobalVSize(),
++                             pfes->GetDofOffsets(), this->Grad);
++      Ph.ConvertFrom(pfes->Dof_TrueDof_Matrix());
++      this->pGrad.MakePtAP(dA, Ph);
++      if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
++        // same result as `EliminateRowsCols`, the pattern of the matrix
++        // being symmetric, but in place (on the device if hypre uses it),
++        // without computing the eliminated part
++        this->pGrad.As<mfem::HypreParMatrix>()->EliminateBC(
++            this->ess_tdof_list, mfem::Operator::DIAG_ONE);
++      } else {
++        mfem::OperatorHandle pGrad_e;
++        pGrad_e.EliminateRowsCols(this->pGrad, this->ess_tdof_list);
++      }
++      return *(this->pGrad.Ptr());
++    }
++    // first call (the pattern of the matrix is built by MFEM, from the
++    // stiffness matrices computed element by element), or other integrators
++    // in the form (the stiffness matrices computed by kernels are copied by
++    // the element loop of MFEM)
++    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
++        !only_mfem_mgis);
++    if (!only_mfem_mgis) {
++      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
++                                        *(this->mgis_integrator),
+                                         this->getFiniteElementSpace());
+     }
+-    // see `Mult`
+-    static_cast<void>(u.HostRead());
+     return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+   }  // end of GetGradient
+ 
+@@ -766,37 +873,64 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<false>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+-    // see the parallel version
+-    // the element loops of MFEM read the unknowns on the host without
+-    // declaring it, while the kernels of mfem-mgis read them on the device
+-    static_cast<void>(u.HostRead());
+     if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+       return;
+     }
+     const auto only_mfem_mgis =
+-        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
+-        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
+-        (this->bfnfi.Size() == 0);
++        isTheOnlyIntegrator(*this, this->mgis_integrator);
+     if (only_mfem_mgis) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+     }
+-    addInnerForcesComputedByKernels(*(this->mgis_integrator),
+-                                    this->getFiniteElementSpace(),
+-                                    this->ess_tdof_list, r);
++    addInnerForcesComputedByKernels(
++        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
++        this->getFiniteElementSpace(), this->ess_tdof_list,
++        this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
+       const mfem::Vector& u) const {
+-    if ((this->tangent_operator_kernels) &&
+-        (this->mgis_integrator != nullptr)) {
+-      computeStiffnessMatricesByKernels(*(this->mgis_integrator),
++    if ((!this->tangent_operator_kernels) ||
++        (this->mgis_integrator == nullptr)) {
++      return mfem_mgis::NonlinearForm<false>::GetGradient(u);
++    }
++    const auto only_mfem_mgis =
++        isTheOnlyIntegrator(*this, this->mgis_integrator);
++    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
++        (this->Grad->Finalized())) {
++      assembleStiffnessMatrixByKernels(
++          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
++          this->getFiniteElementSpace(), *(this->Grad));
++      // as `mfem::NonlinearForm::GetGradient`, the elimination of the
++      // essential degrees of freedom giving the same result as
++      // `EliminateRowCol`, the pattern of the matrix being symmetric
++      auto* mGrad = this->Grad;
++      if (this->cP != nullptr) {
++        // `RAP` reads the matrix on the host without declaring it
++        static_cast<void>(this->Grad->HostReadI());
++        static_cast<void>(this->Grad->HostReadJ());
++        static_cast<void>(this->Grad->HostReadData());
++        delete this->cGrad;
++        this->cGrad = mfem::RAP(*(this->cP), *(this->Grad), *(this->cP));
++        mGrad = this->cGrad;
++      }
++      mGrad->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
++      // the linear solvers may read the matrix on the host without declaring
++      // it
++      static_cast<void>(mGrad->HostReadI());
++      static_cast<void>(mGrad->HostReadJ());
++      static_cast<void>(mGrad->HostReadData());
++      return *mGrad;
++    }
++    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
++        !only_mfem_mgis);
++    if (!only_mfem_mgis) {
++      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
++                                        *(this->mgis_integrator),
+                                         this->getFiniteElementSpace());
+     }
+-    // see `Mult`
+-    static_cast<void>(u.HostRead());
+     return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+   }  // end of GetGradient
+ 
+diff --git a/src/UniformDirichletBoundaryCondition.cxx b/src/UniformDirichletBoundaryCondition.cxx
+index f2d4146f3d..284f29584a 100644
+--- a/src/UniformDirichletBoundaryCondition.cxx
++++ b/src/UniformDirichletBoundaryCondition.cxx
+@@ -63,6 +63,9 @@ namespace mfem_mgis {
+ 
+   void UniformDirichletBoundaryCondition::updateImposedValues(
+       mfem::Vector& u, const real t) const {
++    if (this->dofs.empty()) {
++      return;
++    }
+     const auto uv = this->ufct(t);
+     // write on the host, the copy on the device being invalidated (the
+     // unknowns may be read on the device by the kernels of mfem-mgis)
+@@ -74,6 +77,9 @@ namespace mfem_mgis {
+ 
+   void UniformDirichletBoundaryCondition::setImposedValuesIncrements(
+       mfem::Vector& du, const real ti, const real te, const real f) const {
++    if (this->dofs.empty()) {
++      return;
++    }
+     const auto duv = f * (this->ufct(te) - this->ufct(ti));
+     // see `updateImposedValues`
+     auto* const values = du.HostReadWrite();
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 2b15c6d1d6..c7e9862e75 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -3,14 +3,17 @@
+  * \brief  Test of the computations of the gradients of the behaviours, of
+  * the inner forces and of the stiffness matrices by kernels
+  * (`AbstractBehaviourIntegrator::computeGradientsByKernels`,
+- * `addInnerForcesByKernels` and `addStiffnessMatricesByKernels`): same
+- * values as the computations element by
+- * element, for small and finite strain behaviours, isotropic and
++ * `addInnerForcesByKernels` and `addStiffnessMatricesByKernels`, the
++ * stiffness matrices being stored element by element or assembled in a
++ * sparse matrix): same values as the computations element by element and
++ * the assembly by MFEM, entries outside of the pattern of the sparse
++ * matrix detected, for small and finite strain behaviours, isotropic and
+  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
+  * materials with macroscopic gradients) and under the plane strain
+  * hypothesis (the plane stress hypothesis uses the same operator, but no
+  * behaviour of the tests supports it), on the device selected by the
+- * `--device` option; refusal of the FBar formulation.
++ * `--device` option; refusal of the FBar formulation and of the
++ * regularisation of Faltus et al.
+  * \date   09/10/2026
+  */
+ 
+@@ -22,6 +25,7 @@
+ #include <vector>
+ #include <algorithm>
+ #include "mfem/general/optparser.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -256,6 +260,62 @@ static void testCase(mfem_mgis::Context& ctx,
+     std::cout << name << ": stiffness matrices, maximum difference " << dk
+               << " (maximum value " << kmax << ")\n";
+     check((kmax != 0) && (dk <= 1e-13 * kmax), name + ": stiffness matrices");
++    // stiffness matrices assembled by kernels in a sparse matrix, compared to
++    // the assembly by MFEM of the matrices computed element by element (the
++    // pattern of the matrix being the one built by MFEM)
++    auto reference_matrix = mfem::SparseMatrix(fes.GetVSize());
++    for (int i = 0; i != fes.GetNE(); ++i) {
++      if (fes.GetAttribute(i) != static_cast<int>(m)) {
++        continue;
++      }
++      fes.GetElementVDofs(i, vdofs);
++      u.GetSubVector(vdofs, ue);
++      bi.updateJacobian(Ke, *(fes.GetFE(i)), *(fes.GetElementTransformation(i)),
++                        ue);
++      reference_matrix.AddSubMatrix(vdofs, vdofs, Ke, 0);
++    }
++    reference_matrix.Finalize(0);
++    auto assembled_matrix = mfem::SparseMatrix(reference_matrix);
++    auto element_dofs = mfem::Array<int>{};
++    check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
++          name + ": degrees of freedom of the elements (" +
++              ctx.getErrorMessage() + ")");
++    check(batch::zeroSparseMatrixValues(ctx, assembled_matrix),
++          name + ": initialisation of the assembled matrix (" +
++              ctx.getErrorMessage() + ")");
++    check(bi.addStiffnessMatricesByKernels(
++              ctx,
++              batch::AssembledStiffnessMatrix{.matrix = &assembled_matrix,
++                                              .element_dofs = &element_dofs},
++              geometry),
++          name + ": assembly of the stiffness matrices by kernels (" +
++              ctx.getErrorMessage() + ")");
++    const auto* const av = assembled_matrix.HostReadData();
++    const auto* const rv = reference_matrix.HostReadData();
++    auto da = real{};
++    auto amax = real{};
++    for (int i = 0; i != reference_matrix.NumNonZeroElems(); ++i) {
++      da = std::max(da, std::abs(av[i] - rv[i]));
++      amax = std::max(amax, std::abs(rv[i]));
++    }
++    std::cout << name << ": assembled matrix, "
++              << reference_matrix.NumNonZeroElems()
++              << " values, maximum difference " << da << " (maximum value "
++              << amax << ")\n";
++    check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
++    // entries outside of the pattern of the matrix are detected
++    auto diagonal_matrix = mfem::SparseMatrix(fes.GetVSize());
++    for (int i = 0; i != fes.GetVSize(); ++i) {
++      diagonal_matrix.Set(i, i, real{0});
++    }
++    diagonal_matrix.Finalize(0);
++    auto c2 = Context{};
++    check(!bi.addStiffnessMatricesByKernels(
++              c2,
++              batch::AssembledStiffnessMatrix{.matrix = &diagonal_matrix,
++                                              .element_dofs = &element_dofs},
++              geometry),
++          name + ": entries outside of the pattern of the matrix not detected");
+   }
+ }  // end of testCase
+ 
+-- 
+2.43.0
+

@@ -3,14 +3,17 @@
  * \brief  Test of the computations of the gradients of the behaviours, of
  * the inner forces and of the stiffness matrices by kernels
  * (`AbstractBehaviourIntegrator::computeGradientsByKernels`,
- * `addInnerForcesByKernels` and `addStiffnessMatricesByKernels`): same
- * values as the computations element by
- * element, for small and finite strain behaviours, isotropic and
+ * `addInnerForcesByKernels` and `addStiffnessMatricesByKernels`, the
+ * stiffness matrices being stored element by element or assembled in a
+ * sparse matrix): same values as the computations element by element and
+ * the assembly by MFEM, entries outside of the pattern of the sparse
+ * matrix detected, for small and finite strain behaviours, isotropic and
  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
  * materials with macroscopic gradients) and under the plane strain
  * hypothesis (the plane stress hypothesis uses the same operator, but no
  * behaviour of the tests supports it), on the device selected by the
- * `--device` option; refusal of the FBar formulation.
+ * `--device` option; refusal of the FBar formulation and of the
+ * regularisation of Faltus et al.
  * \date   09/10/2026
  */
 
@@ -22,6 +25,7 @@
 #include <vector>
 #include <algorithm>
 #include "mfem/general/optparser.hpp"
+#include "mfem/linalg/sparsemat.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -256,6 +260,62 @@ static void testCase(mfem_mgis::Context& ctx,
     std::cout << name << ": stiffness matrices, maximum difference " << dk
               << " (maximum value " << kmax << ")\n";
     check((kmax != 0) && (dk <= 1e-13 * kmax), name + ": stiffness matrices");
+    // stiffness matrices assembled by kernels in a sparse matrix, compared to
+    // the assembly by MFEM of the matrices computed element by element (the
+    // pattern of the matrix being the one built by MFEM)
+    auto reference_matrix = mfem::SparseMatrix(fes.GetVSize());
+    for (int i = 0; i != fes.GetNE(); ++i) {
+      if (fes.GetAttribute(i) != static_cast<int>(m)) {
+        continue;
+      }
+      fes.GetElementVDofs(i, vdofs);
+      u.GetSubVector(vdofs, ue);
+      bi.updateJacobian(Ke, *(fes.GetFE(i)), *(fes.GetElementTransformation(i)),
+                        ue);
+      reference_matrix.AddSubMatrix(vdofs, vdofs, Ke, 0);
+    }
+    reference_matrix.Finalize(0);
+    auto assembled_matrix = mfem::SparseMatrix(reference_matrix);
+    auto element_dofs = mfem::Array<int>{};
+    check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
+          name + ": degrees of freedom of the elements (" +
+              ctx.getErrorMessage() + ")");
+    check(batch::zeroSparseMatrixValues(ctx, assembled_matrix),
+          name + ": initialisation of the assembled matrix (" +
+              ctx.getErrorMessage() + ")");
+    check(bi.addStiffnessMatricesByKernels(
+              ctx,
+              batch::AssembledStiffnessMatrix{.matrix = &assembled_matrix,
+                                              .element_dofs = &element_dofs},
+              geometry),
+          name + ": assembly of the stiffness matrices by kernels (" +
+              ctx.getErrorMessage() + ")");
+    const auto* const av = assembled_matrix.HostReadData();
+    const auto* const rv = reference_matrix.HostReadData();
+    auto da = real{};
+    auto amax = real{};
+    for (int i = 0; i != reference_matrix.NumNonZeroElems(); ++i) {
+      da = std::max(da, std::abs(av[i] - rv[i]));
+      amax = std::max(amax, std::abs(rv[i]));
+    }
+    std::cout << name << ": assembled matrix, "
+              << reference_matrix.NumNonZeroElems()
+              << " values, maximum difference " << da << " (maximum value "
+              << amax << ")\n";
+    check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
+    // entries outside of the pattern of the matrix are detected
+    auto diagonal_matrix = mfem::SparseMatrix(fes.GetVSize());
+    for (int i = 0; i != fes.GetVSize(); ++i) {
+      diagonal_matrix.Set(i, i, real{0});
+    }
+    diagonal_matrix.Finalize(0);
+    auto c2 = Context{};
+    check(!bi.addStiffnessMatricesByKernels(
+              c2,
+              batch::AssembledStiffnessMatrix{.matrix = &diagonal_matrix,
+                                              .element_dofs = &element_dofs},
+              geometry),
+          name + ": entries outside of the pattern of the matrix not detected");
   }
 }  // end of testCase
 

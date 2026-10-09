@@ -3032,3 +3032,51 @@ gradients par noyaux, phase d'intégration de la poutre divisée par 2,5 à
 la suppression de la boucle de MFEM ; matrices élémentaires par noyaux plus
 lentes sur CPU (+24 à +38 %). Calculs complets avec tous les noyaux sur le
 GPU égaux au calcul point par point (`BatchIntegrationTest-cuda`).
+
+### 2026-10-09 (nuit), lot L3 : assemblage direct de la tangente, premiers calculs sur GPU
+
+- **Assemblage direct** (mfem-mgis b47f65c3cf) : les blocs `N x N` des
+  matrices élémentaires calculés par noyaux sont ajoutés directement dans
+  la matrice creuse locale (position cherchée dans la ligne, addition
+  atomique, entrées hors du motif signalées), sans matrices élémentaires
+  stockées. Le motif vient du premier assemblage de MFEM ; la fin de
+  `GetGradient` est celle de MFEM (bloc diagonal et `PtAP` en parallèle,
+  `RAP` en séquentiel).
+- **Élimination des ddl imposés** : `HypreParMatrix::EliminateRowsCols`
+  recopie la matrice sur l'hôte et calcule la partie éliminée, inutile
+  ici (122 ms par appel sur GPU pour 111 843 inconnues). Remplacée par
+  `EliminateBC` (`DIAG_ONE`), en place et sur le GPU, même matrice
+  puisque le motif est symétrique.
+- **Premiers calculs complets sur GPU** (poutre r4, 3 pas, 1 processus,
+  `--device cuda`) : 7,8 s avec tous les noyaux, contre 24,5 s sur un
+  cœur de CPU et 29,1 s sur GPU sans noyaux. Le noyau d'assemblage prend
+  7 ms par appel (0,48 s sur un cœur). hypre est compilé pour le GPU
+  (résolution 0,9 s au lieu de 13,4 s). Restent sur l'hôte : la
+  prédiction (opérateurs linéarisés assemblés par MFEM, 4,9 s), la loi
+  (`generic`) et le premier appel de la tangente (boucle de MFEM pour le
+  motif, 0,9 s).
+- **Sur CPU**, l'assemblage direct ne gagne rien : un fil par paire de
+  nœuds recalcule l'inverse du jacobien et relit la tangente pour chaque
+  paire (0,48 s par appel, contre 0,34 s pour la boucle de MFEM).
+- **Seconde relecture** des noyaux : défauts de sévérité 5 vérifiés
+  corrigés. Traités : échec d'un noyau sur un seul processus rendu
+  collectif avant les opérations collectives suivantes (sinon blocage),
+  options de l'interpolateur restaurées même sur exception, vecteur des
+  forces gardé entre deux résidus, conditions de Dirichlet sans ddl sur un
+  processus sans transfert inutile. Un constat de la relecture était
+  faux : avec le périphérique `debug` de MFEM, tout accès sur le
+  périphérique, même en lecture, protège la copie hôte
+  (`MemoryManager::GetDevicePtr`) ; la relecture hôte des ddl imposés
+  reste nécessaire (plantage reproduit sans elle). Les relectures hôte
+  des inconnues, elles, étaient inutiles (vérifié sur `debug` et `cuda`,
+  séquentiel et 2 processus) et sont retirées.
+- **Piège des tests** : les exécutables de test de mfem-mgis sont hors de
+  `all` (cible `build-tests`), et la bibliothèque est statique ; sans
+  reconstruire `build-tests`, ctest relance les anciens binaires. Il faut
+  aussi sourcer `scripts/env.sh` (le `LD_LIBRARY_PATH` du profil charge un
+  autre TFEL).
+
+Mesures : `results/L3-poutre-assemblage-2026-10-09/`. Suite : motif
+construit à partir des ddl des éléments (premier appel sans boucle de
+MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
+élément), test MPI des noyaux dans mfem-mgis.
