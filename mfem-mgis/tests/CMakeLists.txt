@@ -760,6 +760,7 @@ if(MFEM_MGIS_HAVE_TFEL)
   set(batch_integration_test_libraries)
   set(batch_integration_test_behaviours)
   foreach(_behaviour IsotropicLinearHardeningPlasticity
+                     IsotropicLinearElasticity
                      FailingIsotropicLinearElasticity
                      OrthotropicElasticity
                      OrthotropicSaintVenantKirchhoffElasticity)
@@ -809,6 +810,7 @@ if(MFEM_MGIS_HAVE_TFEL)
       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
       --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
       --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
+      --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
       --library $<TARGET_FILE:BehaviourTest>)
   add_test(NAME BatchIntegrationTest
            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
@@ -978,3 +980,12 @@ install(
   FILES ex3CMakeLists.txt
   DESTINATION ${EX3_DIR}
   RENAME CMakeLists.txt)
+
+# each process on the GPU may reserve a large memory pool (4 GiB for hypre
+# with Umpire): the tests on the GPU are not run at the same time
+get_property(_tests DIRECTORY PROPERTY TESTS)
+foreach(_test ${_tests})
+  if(_test MATCHES "-cuda$")
+    set_tests_properties(${_test} PROPERTIES RESOURCE_LOCK gpu)
+  endif()
+endforeach()

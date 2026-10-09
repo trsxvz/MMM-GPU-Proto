@@ -73,6 +73,12 @@ namespace mfem_mgis::batch {
           "addStiffnessMatrices: unexpected dimension of the space (" +
           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
     }
+    // one thread per pair of nodes of an element
+    if (std::int64_t{elements.Size()} * g.nd * g.nd >
+        std::numeric_limits<int>::max()) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatrices: too many elements for the kernels");
+    }
     const auto gsize = getGradientsSize(k);
     if ((K.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
         (K.getNumberOfComponents() != gsize * gsize)) {
