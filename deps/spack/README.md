@@ -4,7 +4,8 @@ Contenu :
 
 - `mmm-gpu/spack.yaml` : environnement. NVIDIA HPC SDK 25.11 et son CUDA
   13.0.2 en externes ; Kokkos 5.2.2, HIP 7.2.3, LLVM 20.1.8, AdaptiveCpp
-  25.10.0, TBB 2023.1.0 (chaînes de TFEL) ; MFEM 4.10.0 avec CUDA et les
+  25.10.0, TBB 2023.1.0 (chaînes de TFEL) ; MFEM 4.10.0 avec CUDA,
+  OpenMP et libCEED, et les
   bibliothèques de solveurs de l'étude (hypre 3.2.0, Ginkgo 1.11.0 avec
   MPI, PETSc 3.26.0 avec Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
   MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. Le choix des

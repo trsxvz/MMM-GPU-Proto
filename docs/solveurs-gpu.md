@@ -462,8 +462,9 @@ Indispensables aux études de performance, sans être des solveurs.
 - `HypreEuclid`, `HypreParaSails` ; options élasticité de BoomerAMG
   (`SetElasticityOptions`, voir plus haut) ;
 - BDDC et FETI (PETSc), HPDDM : support GPU partiel ou absent ;
-- libCEED par MFEM : l'assemblage partiel de MFEM couvre le besoin ;
-  libCEED reste utile à travers Ratel.
+- (n'est plus écarté) libCEED par MFEM : backend `ceed-cpu` et
+  `ceed-cuda` de MFEM, installé pour comparaison avec l'assemblage partiel
+  natif ; aussi utile à travers Ratel.
 
 ## MFEM 4.10
 
@@ -487,6 +488,7 @@ partiel des formes non linéaires) ont été revérifiés sur celles de 4.10.
 | Technique | Paquet et variante de `mmm-gpu` |
 |---|---|
 | Krylov de MFEM, lisseurs sans matrice, p-MG, LOR, `BatchedLinAlg` | `mfem@4.10.0 +cuda cxxstd=20` |
+| Mêmes noyaux sur CPU multicœur, backend libCEED | `mfem +openmp +threadsafe +libceed`, `libceed +cuda +openmp` |
 | Newton inexact, recherche linéaire, point fixe et Anderson, L-BFGS préconditionné | à écrire dans mfem-mgis |
 | BoomerAMG, MGR, FSAI, ILU, Krylov de hypre | `hypre@3.2.0 +cuda +umpire` |
 | Ginkgo, distribué compris | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
