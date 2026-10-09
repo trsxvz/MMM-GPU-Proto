@@ -51,8 +51,9 @@ spack:
   - strumpack +mpi +cuda ~butterflypack ~zfp cuda_arch=120
   - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
   - cudss@0.7.1-13 +mpi
-  - mfem@4.9.0 +mpi +shared ~static +cuda cuda_arch=120 +ginkgo +petsc +sundials
-    +superlu-dist +strumpack +amgx +umpire +suite-sparse +mumps +gslib
+  # C++20: Umpire 2026 (camp) requires it, and mfem-mgis uses it
+  - mfem@4.9.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +ginkgo +petsc
+    +sundials +superlu-dist +strumpack +amgx +umpire +suite-sparse +mumps +gslib
   - hip@7.2.3 +cuda ~rocm
   # one LLVM: AdaptiveCpp 25.10 supports LLVM 15 to 20
   - llvm@20.1.8 +clang +lld ~lldb ~flang ~mlir ~python ~lua +offload +libomptarget
