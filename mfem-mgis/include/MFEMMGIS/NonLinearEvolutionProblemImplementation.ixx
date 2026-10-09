@@ -37,9 +37,9 @@ namespace mfem_mgis::internals {
   }  // end of haveSameThermodynamicForces
 
   /*!
-   * \brief synchronize on the host, for reading, the arrays of the
-   * materials of the selected behaviour integrators (see
-   * `Material::synchronizeOnHostForReading`)
+   * \brief synchronize on the host, for reading, the thermodynamic forces at
+   * the end of the time step of the materials of the selected behaviour
+   * integrators (see `Material::synchronizeOnHostForReading`)
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in] p: non linear evolution problem
@@ -68,7 +68,9 @@ namespace mfem_mgis::internals {
           return false;
         }
         try {
-          om->synchronizeOnHostForReading();
+          om->synchronizeOnHostForReading(
+              MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
+              TimeStepStage::END_OF_TIME_STEP);
         } catch (...) {
           return registerExceptionInErrorBacktrace(ctx);
         }

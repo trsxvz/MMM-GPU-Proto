@@ -44,6 +44,11 @@ find_package(MFEM REQUIRED)
 # MFEM compiled with CUDA: the sources containing kernels of MFEM are
 # compiled as CUDA code (see `MFEMMGISDeviceCode.cmake`)
 mfem_mgis_enable_device_language()
+# CUDA toolkit used to build mfem-mgis, written in its configuration file
+if(MFEM_USE_CUDA STREQUAL "YES")
+  get_filename_component(MFEM_MGIS_CUDA_TOOLKIT_ROOT "${CUDAToolkit_BIN_DIR}"
+                         DIRECTORY)
+endif()
 # description of MFEM written in the configuration file of mfem-mgis, for
 # the projects which find MFEM before mfem-mgis
 foreach(_property USE_CUDA USE_HIP CUDA_COMPILER CUDA_HOST_COMPILER
@@ -68,17 +73,30 @@ endif(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP)
 # MFontGenericInterface
 find_package (MFrontGenericInterface REQUIRED PATH_SUFFIXES share/mgis/cmake)
 # the arrays of the materials are given to MGIS with their location and
-# layout, and updated with field operations (`MGIS/FieldOperations.hxx`)
-get_target_property(_mgis_include_directories
-  mgis::MFrontGenericInterface INTERFACE_INCLUDE_DIRECTORIES)
-find_file(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER MGIS/FieldOperations.hxx
-  PATHS ${_mgis_include_directories} NO_DEFAULT_PATH)
-if(NOT MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
+# layout, and updated with field operations: the API of MGIS is checked by
+# compiling a test (checked again at each configuration, MGIS may change)
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_LIBRARIES mgis::MFrontGenericInterface)
+set(CMAKE_REQUIRED_QUIET ON)
+unset(MFEM_MGIS_MGIS_HAS_FIELD_OPERATIONS CACHE)
+check_cxx_source_compiles([[
+#include "MGIS/FieldOperations.hxx"
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
+int main() {
+  auto i = mgis::behaviour::MaterialDataManagerInitializer{};
+  i.location = mgis::MemoryLocation::HOST;
+  i.layout = mgis::FieldLayout::COMPONENT_BY_COMPONENT;
+  auto ops = mgis::HostFieldOperations{};
+  static_cast<void>(ops);
+  return 0;
+}]] MFEM_MGIS_MGIS_HAS_FIELD_OPERATIONS)
+unset(CMAKE_REQUIRED_LIBRARIES)
+unset(CMAKE_REQUIRED_QUIET)
+if(NOT MFEM_MGIS_MGIS_HAS_FIELD_OPERATIONS)
   message(FATAL_ERROR "mfem-mgis requires a version of MGIS providing "
           "field operations (MGIS/FieldOperations.hxx), the location and "
           "the layout of the arrays of the material data managers")
 endif()
-mark_as_advanced(MFEM_MGIS_MGIS_FIELD_OPERATIONS_HEADER)
 set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
 if(MGIS_HAVE_TFEL)
   if(TARGET tfel::TFELTests)

@@ -506,7 +506,15 @@ namespace mfem_mgis {
       return true;
     }
     // the behaviours are integrated on the host
-    this->mgis_integrator->synchronizeOnHost();
+    try {
+      this->mgis_integrator->synchronizeOnHost();
+    } catch (std::exception& e) {
+      getErrorStream() << "integrate: " << e.what() << '\n';
+      return false;
+    } catch (...) {
+      getErrorStream() << "integrate: unknown exception\n";
+      return false;
+    }
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {
       this->mgis_integrator->setTimeIncrement(*odt);
@@ -754,7 +762,15 @@ namespace mfem_mgis {
       return true;
     }
     // the behaviours are integrated on the host
-    this->mgis_integrator->synchronizeOnHost();
+    try {
+      this->mgis_integrator->synchronizeOnHost();
+    } catch (std::exception& e) {
+      getErrorStream() << "integrate: " << e.what() << '\n';
+      return false;
+    } catch (...) {
+      getErrorStream() << "integrate: unknown exception\n";
+      return false;
+    }
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {
       this->mgis_integrator->setTimeIncrement(*odt);

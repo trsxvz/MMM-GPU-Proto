@@ -92,8 +92,31 @@ namespace mfem_mgis {
      */
     void synchronizeOnHostForReading() const;
     /*!
-     * \return an array of a state, for read-only accesses (`Read`,
-     * `HostRead`). The array is empty if the behaviour does not use it.
+     * \brief makes the copy of one array of a state on the host valid, and
+     * invalidates its copy on the device (see `synchronizeOnHost`)
+     * \param[in] a: array
+     * \param[in] s: state
+     */
+    void synchronizeOnHost(const StateArray, const TimeStepStage);
+    /*!
+     * \brief makes the copy of one array of a state on the host valid,
+     * keeping its copy on the device valid (see
+     * `synchronizeOnHostForReading`)
+     * \param[in] a: array
+     * \param[in] s: state
+     */
+    void synchronizeOnHostForReading(const StateArray,
+                                     const TimeStepStage) const;
+    /*!
+     * \brief makes the copy of the blocks of the tangent operator on the
+     * host valid, keeping their copy on the device valid
+     */
+    void synchronizeTangentOperatorBlocksOnHostForReading() const;
+    /*!
+     * \return an array of a state, for read-only accesses through `Read`
+     * or `HostRead`, which keep track of the valid copies. The pointer
+     * returned by `GetData` must not be used: it is not tracked. The array
+     * is empty if the behaviour does not use it.
      * \param[in] a: array
      * \param[in] s: state
      */
@@ -109,7 +132,7 @@ namespace mfem_mgis {
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* ReadWrite(const StateArray, const TimeStepStage, const bool = true);
+    real* readWrite(const StateArray, const TimeStepStage, const bool = true);
     /*!
      * \return a pointer to the values of an array of a state, for writing
      * them on the device (or on the host): see `mfem::Vector::Write`
@@ -118,21 +141,21 @@ namespace mfem_mgis {
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* Write(const StateArray, const TimeStepStage, const bool = true);
+    real* write(const StateArray, const TimeStepStage, const bool = true);
     /*!
      * \return a pointer to the blocks of the tangent operator, for reading
      * and writing them on the device (or on the host)
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* ReadWriteTangentOperatorBlocks(const bool = true);
+    real* readWriteTangentOperatorBlocks(const bool = true);
     /*!
      * \return a pointer to the blocks of the tangent operator, for writing
      * them on the device (or on the host)
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* WriteTangentOperatorBlocks(const bool = true);
+    real* writeTangentOperatorBlocks(const bool = true);
     //! \brief destructor
     ~MaterialArrays();
     //! \brief layout of the arrays

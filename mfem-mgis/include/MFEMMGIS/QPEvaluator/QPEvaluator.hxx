@@ -89,9 +89,9 @@ namespace mfem_mgis {
     /*!
      * \brief perform consistency checks (orthotropic behaviour, point by
      * point layout of the arrays of the material), and synchronize the
-     * arrays of the material on the host for reading (see
-     * `Material::synchronizeOnHostForReading`): the evaluations which follow
-     * read them on the host
+     * evaluated array of the material (thermodynamic forces or gradients)
+     * on the host for reading (see `Material::synchronizeOnHostForReading`):
+     * the evaluations which follow read it on the host
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -162,9 +162,9 @@ namespace mfem_mgis {
     /*!
      * \brief perform consistency checks (orthotropic behaviour, point by
      * point layout of the arrays of the material), and synchronize the
-     * arrays of the material on the host for reading (see
-     * `Material::synchronizeOnHostForReading`): the evaluations which follow
-     * read them on the host
+     * evaluated array of the material (thermodynamic forces or gradients)
+     * on the host for reading (see `Material::synchronizeOnHostForReading`):
+     * the evaluations which follow read it on the host
      * \param[in, out] ctx: error handler
      * \return true on success
      */

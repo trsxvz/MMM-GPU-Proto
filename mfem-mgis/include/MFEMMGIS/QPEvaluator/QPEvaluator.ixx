@@ -99,12 +99,17 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage("material is not orthotropic");
     }
     // the values are read with a stride between points, on the host
-    if (this->material.layout != mgis::FieldLayout::POINT_BY_POINT) {
-      return ctx.registerErrorMessage(
-          "the evaluator requires the point by point layout of the arrays of "
-          "the material");
+    if (!checkPointByPointLayout(ctx, this->material)) {
+      return false;
     }
-    this->material.synchronizeOnHostForReading();
+    try {
+      this->material.synchronizeOnHostForReading(
+          MaterialArrays::StateArray::THERMODYNAMIC_FORCES, this->stage);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("unknown exception");
+    }
     if constexpr (ThermodynamicForcesSize != dynamic_extent) {
       const auto& sm = getStateManager(this->material, this->stage);
       const auto thsize = sm.thermodynamic_forces_stride;
@@ -189,12 +194,17 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage("material is not orthotropic");
     }
     // the values are read with a stride between points, on the host
-    if (this->material.layout != mgis::FieldLayout::POINT_BY_POINT) {
-      return ctx.registerErrorMessage(
-          "the evaluator requires the point by point layout of the arrays of "
-          "the material");
+    if (!checkPointByPointLayout(ctx, this->material)) {
+      return false;
     }
-    this->material.synchronizeOnHostForReading();
+    try {
+      this->material.synchronizeOnHostForReading(
+          MaterialArrays::StateArray::GRADIENTS, this->stage);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("unknown exception");
+    }
     if constexpr (GradientsSize != dynamic_extent) {
       const auto& sm = getStateManager(this->material, this->stage);
       const auto gsize = sm.gradients_stride;

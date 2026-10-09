@@ -327,6 +327,9 @@ namespace mfem_mgis {
      * \return the linearised operators
      * \note the integrate method shall be called appropriately before calling
      * those operators
+     * \note the arrays of the materials are synchronized on the host for
+     * reading when the operators are created: no computation may modify them
+     * on the device before the operators are used (see `MaterialArrays`)
      */
     [[nodiscard]] virtual std::optional<LinearizedOperators>
     getLinearizedOperators(Context &ctx, const mfem::Vector &U) noexcept = 0;

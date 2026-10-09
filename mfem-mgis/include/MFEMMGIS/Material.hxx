@@ -185,12 +185,12 @@ namespace mfem_mgis {
   /*!
    * \return true if the arrays of the material are in the point by point
    * layout, required by the accessors and the evaluators based on a stride
-   * between points; otherwise, an error message is registered in the context
-   * \param[in, out] ctx: execution context
+   * between points; otherwise, an error message is registered
+   * \param[in, out] eh: error handler
    * \param[in] m: material
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool checkPointByPointLayout(
-      Context &, const Material &) noexcept;
+      AbstractErrorHandler &, const Material &) noexcept;
 
   /*!
    * \brief get a gradient of the material

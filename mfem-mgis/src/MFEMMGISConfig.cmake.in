@@ -29,10 +29,22 @@ if (NOT TARGET MFEM::mfem)
 
 endif(NOT TARGET MFEM::mfem)
 
-# the library uses the runtime of CUDA when MFEM is compiled with CUDA
+# the library uses the runtime of CUDA when MFEM is compiled with CUDA: the
+# toolkit used to build mfem-mgis is searched first
 if(("@MFEM_USE_CUDA@" STREQUAL "YES") AND (NOT TARGET CUDA::cudart))
-  include(CMakeFindDependencyMacro)
-  find_dependency(CUDAToolkit)
+  if(NOT DEFINED CUDAToolkit_ROOT)
+    set(CUDAToolkit_ROOT "@MFEM_MGIS_CUDA_TOOLKIT_ROOT@")
+  endif()
+  cmake_policy(PUSH)
+  cmake_policy(SET CMP0074 NEW)
+  find_package(CUDAToolkit)
+  cmake_policy(POP)
+  if(NOT TARGET CUDA::cudart)
+    set(MFEMMGIS_FOUND FALSE)
+    set(MFEMMGIS_NOT_FOUND_MESSAGE
+        "the CUDA toolkit used to build mfem-mgis is not found")
+    return()
+  endif()
 endif()
 
 # Compilation of the sources containing kernels of MFEM: if MFEM was found

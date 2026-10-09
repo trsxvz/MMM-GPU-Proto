@@ -76,19 +76,20 @@ namespace mfem_mgis {
         .integration_type =
             mgis::behaviour::IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
         .compute_speed_of_sound = false};  // end of BehaviourIntegrationOptions
-    // the behaviour is integrated by MGIS on the host
+    // the behaviour is integrated by MGIS on the host. If an exception is
+    // thrown, the status is still synchronized between the processes below
+    auto r = mgis::behaviour::BehaviourIntegrationResult{};
     try {
       this->synchronizeOnHost();
+      r = mgis::behaviour::integrate(*this, opts, ts.dt);
+      if (r.exit_status == 0) {
+        s.update(ExitStatus::unreliableResults);
+      } else if (r.exit_status != 1) {
+        s.update(ExitStatus::recoverableError);
+      }
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
       s.update(ExitStatus::unrecoverableError);
-      return {s, ooutput};
-    }
-    const auto r = mgis::behaviour::integrate(*this, opts, ts.dt);
-    if (r.exit_status == 0) {
-      s.update(ExitStatus::unreliableResults);
-    } else if (r.exit_status != 1) {
-      s.update(ExitStatus::recoverableError);
     }
 #ifdef MFEM_USE_MPI
     const auto& fed =

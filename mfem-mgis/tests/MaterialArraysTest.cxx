@@ -27,6 +27,11 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "MFEMMGIS/PartialQuadratureFunctionUtilities.hxx"
+#include "MFEMMGIS/PointWiseModel.hxx"
+#include "MFEMMGIS/PhysicalSystem.hxx"
+#include "MFEMMGIS/TimeStep.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -39,6 +44,17 @@ static void check(const bool b, const std::string& msg) {
 }  // end of check
 
 using StateArray = mfem_mgis::MaterialArrays::StateArray;
+
+//! \return the name of the device, used in the names of the output files
+static std::string getDeviceName() {
+  if (mfem::Device::Allows(mfem::Backend::DEBUG_DEVICE)) {
+    return "debug";
+  }
+  if (mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+    return "cuda";
+  }
+  return "cpu";
+}  // end of getDeviceName
 
 //! \brief arrays of a state
 static constexpr StateArray state_arrays[] = {
@@ -88,13 +104,13 @@ static void writeAllOnTheDevice(mfem_mgis::MaterialArrays& a, const int k) {
     for (const auto sa : state_arrays) {
       const auto n = a.getArray(sa, s).Size();
       if (n != 0) {
-        writeOnTheDevice(a.ReadWrite(sa, s), n, getFirstValue(k, sa, s));
+        writeOnTheDevice(a.readWrite(sa, s), n, getFirstValue(k, sa, s));
       }
     }
   }
   const auto n = a.getTangentOperatorBlocks().Size();
   if (n != 0) {
-    writeOnTheDevice(a.ReadWriteTangentOperatorBlocks(), n, k + 6000);
+    writeOnTheDevice(a.readWriteTangentOperatorBlocks(), n, k + 6000);
   }
 }  // end of writeAllOnTheDevice
 
@@ -251,7 +267,7 @@ static void testMaterial(
   // seen by MGIS on the host after `synchronizeOnHost`
   const auto& v = a.getArray(StateArray::THERMODYNAMIC_FORCES, ets);
   const auto size = v.Size();
-  writeOnTheDevice(a.ReadWrite(StateArray::THERMODYNAMIC_FORCES, ets), size, 1);
+  writeOnTheDevice(a.readWrite(StateArray::THERMODYNAMIC_FORCES, ets), size, 1);
   a.synchronizeOnHost();
   check(checkWrittenValues(m.s1.thermodynamic_forces.data(), 1, size, 1),
         name + ": values of the device not seen by MGIS");
@@ -267,6 +283,18 @@ static void testMaterial(
   mfem::forall(1, [=] MFEM_HOST_DEVICE(int) { f[0] = r[0]; });
   check(first.HostRead()[0] == -1,
         name + ": values of MGIS not seen on the device");
+  // read-only accessor of the stored energies (one component: both
+  // layouts)
+  if (m.b.computesStoredEnergy) {
+    writeAllOnTheDevice(a, 9);
+    auto c = Context{};
+    const auto oe = getStoredEnergy(c, static_cast<const Material&>(m), ets);
+    check(!isInvalid(oe) &&
+              checkWrittenValues(
+                  oe->getValues().data(), 1, n,
+                  getFirstValue(9, StateArray::STORED_ENERGIES, ets)),
+          name + ": stored energies written on the device not seen");
+  }
   // update and revert, in the layout of the material: the arrays written on
   // the device are copied from a state to the other one
   const auto copied = {StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
@@ -280,6 +308,16 @@ static void testMaterial(
               checkWrittenValues(v0.HostRead(), 1, v0.Size(),
                                  getFirstValue(7, sa, ets)),
           name + ": update of array " + std::to_string(static_cast<int>(sa)));
+  }
+  // the tangent operator blocks are set to zero by MGIS on the host: their
+  // copy on the device, written before, must not be seen
+  {
+    const auto& K = a.getTangentOperatorBlocks();
+    auto zero = true;
+    for (int i = 0; i != K.Size(); ++i) {
+      zero = zero && (K.HostRead()[i] == 0);
+    }
+    check(zero, name + ": tangent operator blocks after the update");
   }
   writeAllOnTheDevice(a, 8);
   m.revertMaterialStates();
@@ -316,8 +354,13 @@ static void testEmptyMaterial(mfem_mgis::Context& ctx,
       auto ops = mgis::HostFieldOperations{};
       mgis::behaviour::update(m, ops);
       mgis::behaviour::revert(m, ops);
-      check(a.getTangentOperatorBlocks().Size() == 0,
-            "material without point: tangent operator blocks");
+      auto empty = a.getTangentOperatorBlocks().Size() == 0;
+      for (const auto st : states) {
+        for (const auto sa : state_arrays) {
+          empty = empty && (a.getArray(sa, st).Size() == 0);
+        }
+      }
+      check(empty, "material without point: empty arrays");
     } catch (std::exception& e) {
       check(false, std::string{"material without point: "} + e.what());
     }
@@ -350,8 +393,9 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
       or_die;
   for (const auto* const pp :
        {"MeanThermodynamicForces", "ComputeResultantForceOnBoundary"}) {
-    auto params = Parameters{
-        {"OutputFileName", std::string{pp} + "-MaterialArraysTest.txt"}};
+    auto params =
+        Parameters{{"OutputFileName", std::string{pp} + "-MaterialArraysTest-" +
+                                          getDeviceName() + ".txt"}};
     if (std::string_view{pp} == "ComputeResultantForceOnBoundary") {
       params.insert(throwing, {{"Boundary", 1}});
     }
@@ -406,6 +450,43 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
   // post-processings, which read the arrays on the host
   writeAllOnTheDevice(a, 4);
   check(problem.executePostProcessings(ctx, 0, 1), "post-processings");
+  // mean values of the thermodynamic forces, called directly
+  writeAllOnTheDevice(a, 12);
+  check(!isInvalid(computeMeanThermodynamicForcesValues<false>(
+            ctx, problem.getImplementation<false>())),
+        "mean values of the thermodynamic forces");
+  // the other accessors, mutable and read-only
+  const auto gs = m.s1.gradients_stride;
+  const auto ts = m.s1.thermodynamic_forces_stride;
+  const auto first_value = [](const int k, const StateArray sa) {
+    return getFirstValue(k, sa, ets);
+  };
+  writeAllOnTheDevice(a, 13);
+  const auto og = getGradient(ctx, m, "Strain", ets);
+  check(!isInvalid(og) &&
+            checkWrittenValues(og->getValues().data(), gs, n,
+                               first_value(13, StateArray::GRADIENTS)),
+        "mutable accessor of the gradients");
+  writeAllOnTheDevice(a, 14);
+  const auto ocg = getGradient(ctx, cm, "Strain", ets);
+  check(!isInvalid(ocg) &&
+            checkWrittenValues(ocg->getValues().data(), gs, n,
+                               first_value(14, StateArray::GRADIENTS)),
+        "read-only accessor of the gradients");
+  writeAllOnTheDevice(a, 15);
+  const auto ot = getThermodynamicForce(ctx, m, "Stress", ets);
+  check(
+      !isInvalid(ot) &&
+          checkWrittenValues(ot->getValues().data(), ts, n,
+                             first_value(15, StateArray::THERMODYNAMIC_FORCES)),
+      "mutable accessor of the thermodynamic forces");
+  writeAllOnTheDevice(a, 16);
+  const auto oct = getThermodynamicForce(ctx, cm, "Stress", ets);
+  check(
+      !isInvalid(oct) &&
+          checkWrittenValues(oct->getValues().data(), ts, n,
+                             first_value(16, StateArray::THERMODYNAMIC_FORCES)),
+      "read-only accessor of the thermodynamic forces");
   // revert: the values of the beginning of the time step written on the
   // device are copied at the end of the time step
   writeAllOnTheDevice(a, 5);
@@ -421,6 +502,115 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
                            first(6, ets)),
         "update: values of the device not seen");
 }  // end of testHostAccesses
+
+/*!
+ * \brief the thermodynamic forces written on the device are rotated to the
+ * global frame (identity rotation) on the host, and the rotation is refused
+ * in the component by component layout
+ */
+static void testRotation(
+    mfem_mgis::Context& ctx,
+    std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+    const char* const library) {
+  using namespace mfem_mgis;
+  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
+                       mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+    auto b = mfem_mgis::load(ctx, library, "OrthotropicElasticity",
+                             Hypothesis::TRIDIMENSIONAL);
+    if (isInvalid(b)) {
+      std::cerr << ctx.getErrorMessage() << '\n';
+      ++failures;
+      return;
+    }
+    auto m = Material(qspace, std::move(b), l);
+    m.setRotationMatrix(
+        RotationMatrix3D{std::array<real, 9u>{1, 0, 0, 0, 1, 0, 0, 0, 1}});
+    auto& a = m.getArrays();
+    writeAllOnTheDevice(a, 11);
+    auto f = PartialQuadratureFunction(qspace, 6);
+    auto c = Context{};
+    const auto ok = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
+    if (l == mgis::FieldLayout::POINT_BY_POINT) {
+      check(ok && checkWrittenValues(
+                      f.getValues().data(), 6, m.n,
+                      getFirstValue(11, StateArray::THERMODYNAMIC_FORCES, ets)),
+            "rotation of the thermodynamic forces written on the device");
+    } else {
+      check(!ok, "rotation in the component by component layout");
+    }
+  }
+}  // end of testRotation
+
+/*!
+ * \brief the integration of a point-wise model sees the values written on
+ * the device
+ */
+static void testPointWiseModel(mfem_mgis::Context& ctx,
+                               const char* const mesh,
+                               const char* const library) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto fed = make_shared<FiniteElementDiscretization>(
+                 ctx, Parameters{{"MeshFileName", mesh},
+                                 {"FiniteElementFamily", "H1"},
+                                 {"FiniteElementOrder", 1},
+                                 {"UnknownsSize", 1},
+                                 {"NumberOfUniformRefinements", 0},
+                                 {"Parallel", false}}) |
+             or_die;
+  auto qspace = make_shared<const PartialQuadratureSpace>(
+                    ctx, *fed, 5,
+                    [](const mfem::FiniteElement& e,
+                       const mfem::ElementTransformation&) noexcept
+                        -> const mfem::IntegrationRule& {
+                      return mfem::IntRules.Get(e.GetGeomType(), 0);
+                    }) |
+                or_die;
+  auto model = make_shared<PointWiseModel>(
+                   ctx, qspace,
+                   Parameters{{"Library", library},
+                              {"Model", "UO2Shrinkage_RAPHAEL2008"},
+                              {"Hypothesis", "PlaneStrain"}}) |
+               or_die;
+  auto& m = model->getMaterial();
+  for (auto* s : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 893.15) |
+        or_die;
+  }
+  mgis::behaviour::setExternalStateVariable(ctx, m.s0, "BurnUp_AtPercent", 0) |
+      or_die;
+  mgis::behaviour::setExternalStateVariable(ctx, m.s1, "BurnUp_AtPercent", 5) |
+      or_die;
+  // the shrinkage is computed incrementally from its value at the beginning
+  // of the time step: this value is set to one on the host, then to zero on
+  // the device, so that the integration gives the expected value only if it
+  // sees the values of the device
+  auto& a = m.getArrays();
+  a.synchronizeOnHost();
+  std::fill(m.s0.internal_state_variables.begin(),
+            m.s0.internal_state_variables.end(), real{1});
+  writeAllOnTheDevice(a, 17);
+  {
+    const auto n0 =
+        a.getArray(StateArray::INTERNAL_STATE_VARIABLES, bts).Size();
+    auto* const d0 = a.readWrite(StateArray::INTERNAL_STATE_VARIABLES, bts);
+    mfem::forall(n0, [=] MFEM_HOST_DEVICE(int i) { d0[i] = 0; });
+  }
+  auto ps = construct<PhysicalSystem>(ctx, *fed) | or_die;
+  ps.setModel(ctx, model) | or_die;
+  const auto r = ps.computeNextState(ctx, {.begin = 0, .end = 1, .dt = 1});
+  check(r.first.shallContinue(), "integration of the point-wise model");
+  const auto s = getInternalStateVariable(ctx, m, "Shrinkage", ets) | or_die;
+  const auto Ta = real{750};
+  const auto Tm = real{893.15};
+  const auto A = std::max(real{5.e-3}, real{-1.26e-2 + 1.8e-5 * Tm});
+  const auto s_ref = A * (std::exp(-3.e-2 * 5 * (1 + std::exp(-Ta / Tm))) - 1);
+  auto ok = true;
+  for (size_type i = 0; i != getSpaceSize(*qspace); ++i) {
+    ok = ok && (std::abs(s.getIntegrationPointValue(i) - s_ref) < 1e-8);
+  }
+  check(ok, "point-wise model: shrinkage");
+}  // end of testPointWiseModel
 
 /*!
  * \brief the arrays of the elements and of the offsets of a partial
@@ -473,12 +663,15 @@ int main(int argc, char** argv) {
   const char* mesh = "cube.mesh";
   const char* library = "src/libBehaviourTest.so";
   const char* multi_material_mesh = "cube_2mat_per.mesh";
+  const char* mesh_2d = "bar.msh";
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh", "mesh file");
   args.AddOption(&library, "-l", "--library", "behaviour library");
   args.AddOption(&multi_material_mesh, "-mm", "--multi-material-mesh",
                  "mesh with two materials");
+  args.AddOption(&mesh_2d, "-m2", "--mesh-2d",
+                 "two-dimensional mesh (point-wise model on material 5)");
   args.Parse();
   if (!args.Good()) {
     args.PrintUsage(std::cerr);
@@ -509,6 +702,8 @@ int main(int argc, char** argv) {
     }
   }
   testEmptyMaterial(ctx, library);
+  testRotation(ctx, qspace, library);
+  testPointWiseModel(ctx, mesh_2d, library);
   testHostAccesses(ctx, mesh, library);
   testQuadratureSpaceArrays(*qspace);
   {

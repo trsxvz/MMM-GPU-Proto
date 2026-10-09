@@ -156,6 +156,26 @@ namespace mfem_mgis {
     read(this->tangent_operator_blocks);
   }  // end of synchronizeOnHostForReading
 
+  void MaterialArrays::synchronizeOnHost(const StateArray a,
+                                         const TimeStepStage s) {
+    static_cast<void>(getHostView(this->getMutableArray(a, s)));
+  }  // end of synchronizeOnHost
+
+  void MaterialArrays::synchronizeOnHostForReading(
+      const StateArray a, const TimeStepStage s) const {
+    const auto& v = this->getArray(a, s);
+    if (v.Size() != 0) {
+      static_cast<void>(v.HostRead());
+    }
+  }  // end of synchronizeOnHostForReading
+
+  void MaterialArrays::synchronizeTangentOperatorBlocksOnHostForReading()
+      const {
+    if (this->tangent_operator_blocks.Size() != 0) {
+      static_cast<void>(this->tangent_operator_blocks.HostRead());
+    }
+  }  // end of synchronizeTangentOperatorBlocksOnHostForReading
+
   const mfem::Vector& MaterialArrays::getArray(const StateArray a,
                                                const TimeStepStage s) const {
     return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
@@ -170,25 +190,25 @@ namespace mfem_mgis {
     return this->tangent_operator_blocks;
   }  // end of getTangentOperatorBlocks
 
-  real* MaterialArrays::ReadWrite(const StateArray a,
+  real* MaterialArrays::readWrite(const StateArray a,
                                   const TimeStepStage s,
                                   const bool d) {
     return this->getMutableArray(a, s).ReadWrite(d);
-  }  // end of ReadWrite
+  }  // end of readWrite
 
-  real* MaterialArrays::Write(const StateArray a,
+  real* MaterialArrays::write(const StateArray a,
                               const TimeStepStage s,
                               const bool d) {
     return this->getMutableArray(a, s).Write(d);
-  }  // end of Write
+  }  // end of write
 
-  real* MaterialArrays::ReadWriteTangentOperatorBlocks(const bool d) {
+  real* MaterialArrays::readWriteTangentOperatorBlocks(const bool d) {
     return this->tangent_operator_blocks.ReadWrite(d);
-  }  // end of ReadWriteTangentOperatorBlocks
+  }  // end of readWriteTangentOperatorBlocks
 
-  real* MaterialArrays::WriteTangentOperatorBlocks(const bool d) {
+  real* MaterialArrays::writeTangentOperatorBlocks(const bool d) {
     return this->tangent_operator_blocks.Write(d);
-  }  // end of WriteTangentOperatorBlocks
+  }  // end of writeTangentOperatorBlocks
 
   MaterialArrays::~MaterialArrays() = default;
 

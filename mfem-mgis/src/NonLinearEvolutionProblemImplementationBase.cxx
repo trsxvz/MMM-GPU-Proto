@@ -436,6 +436,13 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "no multiple material integrator defined");
     }
+    // the operators read the arrays of the materials on the host when they
+    // are assembled
+    try {
+      this->mgis_integrator->synchronizeOnHostForReading();
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
     return this->mgis_integrator->getLinearizedOperators(U);
   }  // end of getLinearizedOperators
 

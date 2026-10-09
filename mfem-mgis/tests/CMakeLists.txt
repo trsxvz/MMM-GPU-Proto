@@ -759,12 +759,14 @@ if(MFEM_MGIS_HAVE_TFEL)
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                      --multi-material-mesh
                      ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                     --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
                      --library $<TARGET_FILE:BehaviourTest>)
     add_test(NAME MaterialArraysTest-debug
              COMMAND MaterialArraysTest --device debug
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                      --multi-material-mesh
                      ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                     --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
                      --library $<TARGET_FILE:BehaviourTest>)
     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
       add_test(NAME MaterialArraysTest-cuda
@@ -772,6 +774,7 @@ if(MFEM_MGIS_HAVE_TFEL)
                        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                        --multi-material-mesh
                        ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                       --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
                        --library $<TARGET_FILE:BehaviourTest>)
     endif()
   endif()
