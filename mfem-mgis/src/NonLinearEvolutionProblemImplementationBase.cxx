@@ -6,6 +6,7 @@
  * \date   11/12/2020
  */
 
+#include <cstdlib>
 #include <iostream>
 #include <utility>
 #include "MGIS/Raise.hxx"
@@ -30,12 +31,16 @@ namespace mfem_mgis {
   const char* const
       NonLinearEvolutionProblemImplementationBase::NonLinearSolver =
           "NonLinearSolver";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::BehaviourIntegration =
+          "BehaviourIntegration";
 
   std::vector<std::string>
   NonLinearEvolutionProblemImplementationBase::getParametersList() {
     return {NonLinearEvolutionProblemImplementationBase::
                 UseMultiMaterialNonLinearIntegrator,
-            NonLinearEvolutionProblemImplementationBase::NonLinearSolver};
+            NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
+            NonLinearEvolutionProblemImplementationBase::BehaviourIntegration};
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
@@ -52,6 +57,26 @@ namespace mfem_mgis {
     return new MultiMaterialNonLinearIntegrator(fed, h);
   }  // end of buildMultiMaterialNonLinearIntegrator
 
+  //! \return true if the behaviours shall be integrated by batches
+  [[nodiscard]] static bool useBatchIntegration(attributes::Throwing,
+                                                const Parameters& p) {
+    const auto* const n =
+        NonLinearEvolutionProblemImplementationBase::BehaviourIntegration;
+    // default value given by the environment, for instance to run a whole
+    // test suite or an application with the integration by batches
+    const auto* const e = std::getenv("MFEM_MGIS_BEHAVIOUR_INTEGRATION");
+    const auto d = std::string{e != nullptr ? e : "PointByPoint"};
+    const auto v = get_if<std::string>(throwing, p, n, d);
+    if (v == "Batch") {
+      return true;
+    }
+    if (v != "PointByPoint") {
+      raise("invalid value '" + v + "' for parameter '" + std::string{n} +
+            "' (expected 'PointByPoint' or 'Batch')");
+    }
+    return false;
+  }  // end of useBatchIntegration
+
   NonLinearEvolutionProblemImplementationBase::
       NonLinearEvolutionProblemImplementationBase(
           Context&,
@@ -63,7 +88,8 @@ namespace mfem_mgis {
         u1(getTrueVSize(*fed)),
         mgis_integrator(
             buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
-        hypothesis(h) {
+        hypothesis(h),
+        batch_integration(useBatchIntegration(throwing, p)) {
     this->u0 = real{0};
     this->u1 = real{0};
   }  // end of NonLinearEvolutionProblemImplementationBase
@@ -374,9 +400,24 @@ namespace mfem_mgis {
         }
       }
       if (this->mgis_integrator != nullptr) {
+        if ((this->batch_integration) &&
+            (!this->mgis_integrator->checkBatchIntegrationSupport(ctx))) {
+          return false;
+        }
+        if ((!this->batch_integration) &&
+            (!this->mgis_integrator->checkPointByPointIntegrationSupport(
+                ctx))) {
+          return false;
+        }
         if (!this->mgis_integrator->setup(ctx, t, dt)) {
           return false;
         }
+      }
+      if ((this->batch_integration) && (usePETSc())) {
+        std::ignore = ctx.registerErrorMessage(
+            "the integration of the behaviours by batches is not supported "
+            "with PETSc");
+        return false;
       }
       return true;
     }();

@@ -39,6 +39,41 @@
 
 namespace mfem_mgis {
 
+  /*!
+   * \brief integrate the behaviours by batches: gradients computed element
+   * by element (not for a prediction), then one call per behaviour
+   * integrator
+   * \return true on success
+   * \param[in] mi: multi-material integrator
+   * \param[in] fespace: finite element space
+   * \param[in] u: unknowns (local degrees of freedom)
+   * \param[in] it: integration type
+   */
+  template <typename FiniteElementSpaceType>
+  static bool integrateByBatches(MultiMaterialNonLinearIntegrator& mi,
+                                 const FiniteElementSpaceType& fespace,
+                                 const mfem::Vector& u,
+                                 const IntegrationType it) {
+    const auto prediction =
+        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+    if (!prediction) {
+      mfem::Array<int> vdofs;
+      mfem::Vector ue;
+      for (size_type i = 0; i != fespace.GetNE(); ++i) {
+        const auto& e = *(fespace.GetFE(i));
+        auto& tr = *(fespace.GetElementTransformation(i));
+        fespace.GetElementVDofs(i, vdofs);
+        u.GetSubVector(vdofs, ue);
+        if (!mi.computeGradients(e, tr, ue)) {
+          return false;
+        }
+      }
+    }
+    return mi.integrateBatch(it);
+  }  // end of integrateByBatches
+
   // template <bool parallel>
   // static void export_prediction(
   //     mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
@@ -524,12 +559,16 @@ namespace mfem_mgis {
     mfem::Array<int> vdofs;
     mfem::Vector ue;
     bool success = true;
-    for (size_type i = 0; success && (i != fespace.GetNE()); ++i) {
-      const auto& e = *(fespace.GetFE(i));
-      auto& tr = *(fespace.GetElementTransformation(i));
-      fespace.GetElementVDofs(i, vdofs);
-      pu.GetSubVector(vdofs, ue);
-      success = this->mgis_integrator->integrate(e, tr, ue, it);
+    if (this->batch_integration) {
+      success = integrateByBatches(*(this->mgis_integrator), fespace, pu, it);
+    } else {
+      for (size_type i = 0; success && (i != fespace.GetNE()); ++i) {
+        const auto& e = *(fespace.GetFE(i));
+        auto& tr = *(fespace.GetElementTransformation(i));
+        fespace.GetElementVDofs(i, vdofs);
+        pu.GetSubVector(vdofs, ue);
+        success = this->mgis_integrator->integrate(e, tr, ue, it);
+      }
     }
     success = isTrueOnAllProcesses(*(this->fe_discretization), success);
     if ((success) && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR)) {
@@ -779,14 +818,21 @@ namespace mfem_mgis {
     const auto& fespace = this->getFiniteElementSpace();
     mfem::Array<int> vdofs;
     mfem::Vector ue;
-    for (size_type i = 0; i != fespace.GetNE(); ++i) {
-      const auto& e = *(fespace.GetFE(i));
-      auto& tr = *(fespace.GetElementTransformation(i));
-      fespace.GetElementVDofs(i, vdofs);
-      pu.GetSubVector(vdofs, ue);
-      if (!this->mgis_integrator->integrate(e, tr, ue, it)) {
+    if (this->batch_integration) {
+      if (!integrateByBatches(*(this->mgis_integrator), fespace, pu, it)) {
         this->mgis_integrator->setTimeIncrement(dt);
         return false;
+      }
+    } else {
+      for (size_type i = 0; i != fespace.GetNE(); ++i) {
+        const auto& e = *(fespace.GetFE(i));
+        auto& tr = *(fespace.GetElementTransformation(i));
+        fespace.GetElementVDofs(i, vdofs);
+        pu.GetSubVector(vdofs, ue);
+        if (!this->mgis_integrator->integrate(e, tr, ue, it)) {
+          this->mgis_integrator->setTimeIncrement(dt);
+          return false;
+        }
       }
     }
     if (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {

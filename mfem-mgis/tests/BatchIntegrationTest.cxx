@@ -1,0 +1,433 @@
+/*!
+ * \file   BatchIntegrationTest.cxx
+ * \brief  Test of the integration of the behaviours by batches (parameter
+ * `BehaviourIntegration`): same results as the integration point by point
+ * for a plastic behaviour, a finite strain behaviour, an orthotropic
+ * behaviour (rotations) and a behaviour with material properties given at
+ * the end of the time step only, with a spatial variation; refusal of an
+ * invalid value and of a behaviour integrator which does not support it
+ * \date   09/10/2026
+ */
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <span>
+#include <string>
+#include <vector>
+#include "mfem/general/optparser.hpp"
+#include "MGIS/Behaviour/Behaviour.hxx"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/IntegrationType.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+
+//! \brief number of failed checks
+static int failures = 0;
+
+static void check(const bool b, const std::string& msg) {
+  if (!b) {
+    std::cerr << "check failed: " << msg << '\n';
+    ++failures;
+  }
+}  // end of check
+
+//! \brief results of a computation
+struct Results {
+  //! \brief unknowns at the end of the computation
+  std::vector<mfem_mgis::real> u;
+  //! \brief thermodynamic forces at the end of the computation
+  std::vector<mfem_mgis::real> sig;
+  //! \brief number of Newton iterations of each time step
+  std::vector<int> iterations;
+};
+
+/*!
+ * \return the results of a uniaxial loading of a cube
+ * \param[in, out] ctx: execution context
+ * \param[in] mesh: mesh
+ * \param[in] library: behaviour library
+ * \param[in] behaviour: behaviour
+ * \param[in] mode: value of the `BehaviourIntegration` parameter
+ * \param[in] fbar: if true, the FBar formulation is used
+ */
+static Results compute(mfem_mgis::Context& ctx,
+                       const char* const mesh,
+                       const char* const library,
+                       const std::string& behaviour,
+                       const char* const mode,
+                       const bool fbar = false) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem =
+      construct<NonLinearEvolutionProblem>(
+          ctx,
+          Parameters{
+              {"MeshFileName", mesh},
+              {"FiniteElementFamily", "H1"},
+              {"FiniteElementOrder", 1},
+              {"UnknownsSize", 3},
+              {"NumberOfUniformRefinements", 1},
+              {"Materials", Parameters{{"Cube", 1}}},
+              {"Boundaries",
+               Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
+              {"Hypothesis", "Tridimensional"},
+              {"BehaviourIntegration", mode},
+              {"Parallel", false}}) |
+      or_die;
+  if (fbar) {
+    problem.addBehaviourIntegrator(
+        ctx, "Mechanics", "Cube", library, behaviour,
+        {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
+        or_die;
+  } else {
+    problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
+                                   behaviour) |
+        or_die;
+  }
+  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
+  for (auto* s : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
+        or_die;
+  }
+  if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+    // a rotation which is not a symmetry of the material
+    const auto c = std::cos(0.3);
+    const auto s = std::sin(0.3);
+    m.setRotationMatrix(
+        RotationMatrix3D{std::array<real, 9u>{c, s, 0, -s, c, 0, 0, 0, 1}});
+  }
+  if (behaviour == "IsotropicLinearElasticity") {
+    // material properties given at the end of the time step only, varying
+    // from one point to another
+    auto lambda = std::vector<real>(m.n);
+    for (size_type i = 0; i != static_cast<size_type>(m.n); ++i) {
+      lambda[i] = 1e11 * (1 + 0.1 * std::sin(real(i)));
+    }
+    mgis::behaviour::setMaterialProperty(
+        ctx, m.s1, "FirstLameCoefficient", std::span<const real>(lambda),
+        mgis::behaviour::MaterialStateManager::LOCAL_STORAGE) |
+        or_die;
+    mgis::behaviour::setMaterialProperty(ctx, m.s1, "ShearModulus", 7.5e10) |
+        or_die;
+  }
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Xmin"}, {"Component", 0}}) |
+      or_die;
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Ymin"}, {"Component", 1}}) |
+      or_die;
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Zmin"}, {"Component", 2}}) |
+      or_die;
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Xmax"},
+            {"Component", 0},
+            {"LoadingEvolution",
+             [](const real t) {
+               // tension then compression
+               return t < 0.5 ? 2e-2 * t : 1e-2 - 3e-2 * (t - 0.5);
+             }}}) |
+      or_die;
+  problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                    {"RelativeTolerance", 1e-12},
+                                    {"AbsoluteTolerance", 0.},
+                                    {"MaximumNumberOfIterations", 20}}) |
+      or_die;
+  auto r = Results{};
+  constexpr int nsteps = 4;
+  const auto dt = real{1} / nsteps;
+  auto t = real{0};
+  for (int i = 0; i != nsteps; ++i) {
+    const auto o = problem.solve(ctx, t, dt);
+    if (!o.status) {
+      std::cerr << ctx.getErrorMessage() << '\n';
+      check(false, behaviour + " (" + mode + "): resolution failed");
+      return r;
+    }
+    r.iterations.push_back(o.iterations);
+    problem.update(ctx) | or_die;
+    t += dt;
+  }
+  const auto& u = problem.getUnknowns(ets);
+  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
+  m.synchronizeOnHostForReading();
+  r.sig.assign(m.s1.thermodynamic_forces.begin(),
+               m.s1.thermodynamic_forces.end());
+  return r;
+}  // end of compute
+
+/*!
+ * \return the maximum difference between two arrays, relative to the
+ * maximum absolute value of the first one
+ * \param[in] a: first array
+ * \param[in] b: second array
+ */
+static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+                                    const std::vector<mfem_mgis::real>& b) {
+  if (a.size() != b.size()) {
+    return 1;
+  }
+  auto d = 0.;
+  auto m = 0.;
+  for (std::size_t i = 0; i != a.size(); ++i) {
+    d = std::max(d, std::abs(a[i] - b[i]));
+    m = std::max(m, std::abs(a[i]));
+  }
+  return m == 0 ? d : d / m;
+}  // end of getRelativeDifference
+
+/*!
+ * \brief a behaviour integrator which does not support the integration by
+ * batches is refused
+ */
+static void testRefusal(mfem_mgis::Context& ctx,
+                        const char* const mesh_2d,
+                        const char* const library) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh_2d},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 1},
+                                     {"NumberOfUniformRefinements", 0},
+                                     {"Hypothesis", "PlaneStrain"},
+                                     {"BehaviourIntegration", "Batch"},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", 5, library,
+                                 "MiehePhaseFieldDamage") |
+      or_die;
+  auto c = Context{};
+  const auto r = problem.solve(c, 0, 1);
+  const auto msg = std::string{c.getErrorMessage()};
+  check((!r.status) &&
+            (msg.find("does not support the integration of the behaviours by "
+                      "batches") != std::string::npos),
+        "a behaviour integrator without batch integration is not refused (" +
+            msg + ")");
+}  // end of testRefusal
+
+/*!
+ * \brief a behaviour generated by the generic-parallel interface is refused
+ * by the integration point by point
+ */
+static void testPointByPointRefusal(mfem_mgis::Context& ctx,
+                                    const char* const mesh,
+                                    const char* const library) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 3},
+                                     {"NumberOfUniformRefinements", 0},
+                                     {"Hypothesis", "Tridimensional"},
+                                     {"BehaviourIntegration", "PointByPoint"},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                 "IsotropicLinearHardeningPlasticity") |
+      or_die;
+  auto c = Context{};
+  const auto r = problem.solve(c, 0, 1);
+  const auto msg = std::string{c.getErrorMessage()};
+  check((!r.status) && (msg.find("generic-parallel") != std::string::npos),
+        "a generic-parallel behaviour is not refused point by point (" + msg +
+            ")");
+}  // end of testPointByPointRefusal
+
+/*!
+ * \brief failure of the integration at some points: the strain varies
+ * along the x axis (displacement a x^2), the behaviour fails where the
+ * trace of the strain exceeds a threshold. The integration fails in both
+ * modes. By batches, MGIS integrates the points of a behaviour generated by
+ * the generic interface one by one up to the first failure, and all the
+ * points of a behaviour generated by the generic-parallel interface: the
+ * thermodynamic forces are checked where they are computed.
+ * \param[in] mode: value of the `BehaviourIntegration` parameter
+ * \param[in] all_points: if true, all the points are integrated
+ */
+static void testFailure(mfem_mgis::Context& ctx,
+                        const char* const mesh,
+                        const char* const library,
+                        const char* const mode,
+                        const bool all_points) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 3},
+                                     {"NumberOfUniformRefinements", 2},
+                                     {"Hypothesis", "Tridimensional"},
+                                     {"BehaviourIntegration", mode},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                 "FailingIsotropicLinearElasticity") |
+      or_die;
+  auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+  for (auto* s : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
+        or_die;
+  }
+  // the threshold of the trace of the strain is 1e-3: the integration
+  // fails for x > 1/2
+  auto& fespace =
+      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
+  auto gf = mfem::GridFunction(&fespace);
+  auto c = mfem::VectorFunctionCoefficient(
+      3, [](const mfem::Vector& x, mfem::Vector& v) {
+        v = 0.;
+        v[0] = 1e-3 * x[0] * x[0];
+      });
+  gf.ProjectCoefficient(c);
+  auto u = mfem::Vector{};
+  gf.GetTrueDofs(u);
+  const auto name = std::string{"failure ("} + mode +
+                    (all_points ? ", generic-parallel" : "") + ")";
+  check(!problem.integrate(
+            u, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR, 1),
+        name + ": the failure of the integration is not reported");
+  if (std::string_view{mode} != "Batch") {
+    return;
+  }
+  // by batches, all the points are integrated: the stresses are the ones of
+  // the elasticity where the integration succeeds
+  m.synchronizeOnHostForReading();
+  const auto gs = m.s1.gradients_stride;
+  const auto ts = m.s1.thermodynamic_forces_stride;
+  auto nsuccess = size_type{};
+  auto nfailure = size_type{};
+  auto ok = true;
+  for (size_type i = 0; i != static_cast<size_type>(m.n); ++i) {
+    const auto* const e = m.s1.gradients.data() + i * gs;
+    const auto* const sig = m.s1.thermodynamic_forces.data() + i * ts;
+    const auto tr = e[0] + e[1] + e[2];
+    if (std::abs(tr) > 1e-3) {
+      ++nfailure;
+      continue;
+    }
+    if ((!all_points) && (nfailure != 0)) {
+      // not integrated after the first failure
+      continue;
+    }
+    ++nsuccess;
+    const auto sxx = 1.2e11 * tr + 2 * 8e10 * e[0];
+    ok = ok && (std::abs(sig[0] - sxx) <= 1e-8 * std::abs(sxx));
+  }
+  check((nsuccess != 0) && (nfailure != 0),
+        name + ": the integration shall fail at some points only");
+  check(ok, name + ": stresses where the integration succeeds");
+}  // end of testFailure
+
+int main(int argc, char** argv) {
+  using namespace mfem_mgis;
+  initialize(argc, argv);
+  const char* mesh = "cube.mesh";
+  const char* mesh_2d = "bar.msh";
+  const char* library = "src/libBehaviourTest.so";
+  const char* openmp_library = "";
+  const char* stlpar_library = "";
+  auto args = mfem::OptionsParser(argc, argv);
+  declareDefaultOptions(args);
+  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
+  args.AddOption(&mesh_2d, "-m2", "--mesh-2d",
+                 "two-dimensional mesh (material 5)");
+  args.AddOption(&library, "-l", "--library", "behaviour library");
+  args.AddOption(&openmp_library, "-lo", "--openmp-library",
+                 "library generated by the generic-parallel interface "
+                 "(openmp backend), not tested if empty");
+  args.AddOption(&stlpar_library, "-ls", "--stlpar-library",
+                 "library generated by the generic-parallel interface "
+                 "(stlpar backend), not tested if empty");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    return EXIT_FAILURE;
+  }
+  auto ctx = Context{};
+  for (const auto* const b :
+       {"IsotropicLinearHardeningPlasticity", "SaintVenantKirchhoffElasticity",
+        "OrthotropicElasticity", "IsotropicLinearElasticity"}) {
+    const auto r1 = compute(ctx, mesh, library, b, "PointByPoint");
+    const auto r2 = compute(ctx, mesh, library, b, "Batch");
+    const auto du = getRelativeDifference(r1.u, r2.u);
+    const auto ds = getRelativeDifference(r1.sig, r2.sig);
+    std::cout << b << ": relative differences " << du << " (unknowns), " << ds
+              << " (thermodynamic forces)\n";
+    check(!r1.u.empty(), std::string{b} + ": no result");
+    check(du < 1e-12, std::string{b} + ": unknowns");
+    check(ds < 1e-12, std::string{b} + ": thermodynamic forces");
+    check(r1.iterations == r2.iterations,
+          std::string{b} + ": numbers of iterations");
+  }
+  // FBar formulation
+  {
+    const auto b = std::string{"SaintVenantKirchhoffElasticity"};
+    const auto r1 = compute(ctx, mesh, library, b, "PointByPoint", true);
+    const auto r2 = compute(ctx, mesh, library, b, "Batch", true);
+    const auto du = getRelativeDifference(r1.u, r2.u);
+    const auto ds = getRelativeDifference(r1.sig, r2.sig);
+    std::cout << b << " (FBar): relative differences " << du << " (unknowns), "
+              << ds << " (thermodynamic forces)\n";
+    check(!r1.u.empty(), b + " (FBar): no result");
+    check(du < 1e-12, b + " (FBar): unknowns");
+    check(ds < 1e-12, b + " (FBar): thermodynamic forces");
+    check(r1.iterations == r2.iterations, b + " (FBar): numbers of iterations");
+  }
+  // behaviours generated by the generic-parallel interface: same results as
+  // the integration point by point of the generic behaviour, to the
+  // rounding errors
+  {
+    const auto b = std::string{"IsotropicLinearHardeningPlasticity"};
+    const auto r1 = compute(ctx, mesh, library, b, "PointByPoint");
+    for (const auto& [backend, l] : {std::pair{"openmp", openmp_library},
+                                     std::pair{"stlpar", stlpar_library}}) {
+      if (std::string_view{l}.empty()) {
+        continue;
+      }
+      const auto r2 = compute(ctx, mesh, l, b, "Batch");
+      const auto du = getRelativeDifference(r1.u, r2.u);
+      const auto ds = getRelativeDifference(r1.sig, r2.sig);
+      std::cout << b << " (generic-parallel, " << backend
+                << "): relative differences " << du << " (unknowns), " << ds
+                << " (thermodynamic forces)\n";
+      check(du < 1e-10, b + " (" + backend + "): unknowns");
+      check(ds < 1e-10, b + " (" + backend + "): thermodynamic forces");
+      check(r1.iterations == r2.iterations,
+            b + " (" + backend + "): numbers of iterations");
+      testPointByPointRefusal(ctx, mesh, l);
+    }
+  }
+  // invalid value
+  {
+    auto c = Context{};
+    const auto o = construct<NonLinearEvolutionProblem>(
+        c, Parameters{{"MeshFileName", mesh},
+                      {"FiniteElementFamily", "H1"},
+                      {"FiniteElementOrder", 1},
+                      {"UnknownsSize", 3},
+                      {"Hypothesis", "Tridimensional"},
+                      {"BehaviourIntegration", "ByBatches"},
+                      {"Parallel", false}});
+    check(isInvalid(o), "invalid value of BehaviourIntegration accepted");
+  }
+  testRefusal(ctx, mesh_2d, library);
+  for (const auto* const mode : {"PointByPoint", "Batch"}) {
+    testFailure(ctx, mesh, library, mode, false);
+  }
+  for (const auto* const l : {openmp_library, stlpar_library}) {
+    if (!std::string_view{l}.empty()) {
+      testFailure(ctx, mesh, l, "Batch", true);
+    }
+  }
+  std::cout << (failures == 0 ? "success" : "failure") << '\n';
+  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+}  // end of main

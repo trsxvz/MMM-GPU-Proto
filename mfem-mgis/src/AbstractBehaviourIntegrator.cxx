@@ -23,6 +23,21 @@ namespace mfem_mgis {
 
   AbstractBehaviourIntegrator::~AbstractBehaviourIntegrator() = default;
 
+  bool AbstractBehaviourIntegrator::supportsBatchIntegration() const noexcept {
+    return false;
+  }  // end of supportsBatchIntegration
+
+  bool AbstractBehaviourIntegrator::computeGradients(
+      const mfem::FiniteElement &,
+      mfem::ElementTransformation &,
+      const mfem::Vector &) {
+    return false;
+  }  // end of computeGradients
+
+  bool AbstractBehaviourIntegrator::integrateBatch(const IntegrationType) {
+    return false;
+  }  // end of integrateBatch
+
   template <bool parallel, typename Functor>
   static void performLoopOverIntegrationPoints(
       Functor& f, const AbstractBehaviourIntegrator& bi) {

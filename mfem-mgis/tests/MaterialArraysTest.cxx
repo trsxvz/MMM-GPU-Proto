@@ -391,6 +391,14 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
   problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
                                  "IsotropicLinearHardeningPlasticity") |
       or_die;
+  {
+    auto& m0 = problem.getMaterial(ctx, 1, 0) | or_die;
+    for (auto* s : {&m0.s0, &m0.s1}) {
+      mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                293.15) |
+          or_die;
+    }
+  }
   for (const auto* const pp :
        {"MeanThermodynamicForces", "ComputeResultantForceOnBoundary"}) {
     auto params =

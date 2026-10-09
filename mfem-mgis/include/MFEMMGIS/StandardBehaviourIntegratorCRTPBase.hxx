@@ -33,6 +33,12 @@ namespace mfem_mgis {
    */
   template <typename Child>
   struct StandardBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
+    [[nodiscard]] bool supportsBatchIntegration() const noexcept override;
+    [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
+                                        mfem::ElementTransformation&,
+                                        const mfem::Vector&) override;
+    [[nodiscard]] bool integrateBatch(const IntegrationType) override;
+
    protected:
     /*!
      * \brief constructor
@@ -58,6 +64,40 @@ namespace mfem_mgis {
                             mfem::ElementTransformation& tr,
                             const mfem::Vector& u,
                             const IntegrationType it);
+    /*!
+     * \brief compute the gradients at the integration points of an element:
+     * the operations of `implementIntegrate` which precede the integration of
+     * the behaviour
+     * \param[in] e: finite element
+     * \param[in, out] tr: finite element transformation
+     * \param[in] u: current estimate of the unknowns
+     * \return true on success
+     */
+    bool implementComputeGradients(const mfem::FiniteElement& e,
+                                   mfem::ElementTransformation& tr,
+                                   const mfem::Vector& u);
+    /*!
+     * \brief compute the gradients at an integration point: macroscopic
+     * gradients, contributions of the nodes, external state variables
+     * computed from the unknowns, rotation in the material frame
+     * \return the rotation matrix at the integration point
+     * \param[in] e: finite element
+     * \param[in, out] tr: finite element transformation
+     * \param[in] u: current estimate of the unknowns
+     * \param[in] ip: integration point
+     * \param[in] o: offset of the integration point
+     * \param[in, out] shape_functions: values of the shape functions
+     * \param[in, out] shape_functions_derivatives: derivatives of the shape
+     * functions
+     */
+    auto computeGradientsAtIntegrationPoint(
+        const mfem::FiniteElement& e,
+        mfem::ElementTransformation& tr,
+        const mfem::Vector& u,
+        const mfem::IntegrationPoint& ip,
+        const size_type o,
+        mfem::Vector& shape_functions,
+        mfem::DenseMatrix& shape_functions_derivatives);
     /*!
      * \brief compute the contribution of the element to the residual
      * \param[out] Fe: element contribution to the residual

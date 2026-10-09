@@ -92,6 +92,43 @@ namespace mfem_mgis {
                                          const mfem::Vector &u,
                                          const IntegrationType it) = 0;
     /*!
+     * \return true if the behaviour integrator supports the integration of
+     * the behaviour by batches (see `computeGradients` and
+     * `integrateBatch`). The default implementation returns false.
+     */
+    [[nodiscard]] virtual bool supportsBatchIntegration() const noexcept;
+    /*!
+     * \brief compute the gradients at the integration points of an element,
+     * first step of the integration by batches: the operations of
+     * `integrate` which precede the integration of the behaviour at each
+     * point (including the update of the external state variables computed
+     * from the unknowns and the rotation of the gradients).
+     *
+     * \param[in] e: finite element
+     * \param[in, out] tr: finite element transformation
+     * \param[in] u: current estimate of the unknowns
+     * \return true on success
+     * \note the default implementation returns false
+     */
+    [[nodiscard]] virtual bool computeGradients(const mfem::FiniteElement &e,
+                                                mfem::ElementTransformation &tr,
+                                                const mfem::Vector &u);
+    /*!
+     * \brief integrate the behaviour at all the integration points, as a
+     * batch, after the computation of the gradients on all the elements
+     * (see `computeGradients`), or without it for a prediction. The
+     * operations of `integrate` which follow the integration of the
+     * behaviour (rotation of the tangent operator blocks) are included.
+     *
+     * Contrary to `integrate`, all the points are integrated, even if the
+     * integration fails at some of them.
+     *
+     * \param[in] it: integration type
+     * \return true on success
+     * \note the default implementation returns false
+     */
+    [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
+    /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces
      * \param[in] e: finite element

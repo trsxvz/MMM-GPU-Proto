@@ -1,0 +1,31 @@
+@Behaviour FailingIsotropicLinearElasticity;
+@Description{
+  Isotropic linear elasticity whose integration fails where the absolute
+  value of the trace of the strain exceeds a threshold: used to test the
+  report of the failures of the integration of the behaviours.
+}
+
+@Parameter stress λ = 1.2e11;
+λ.setGlossaryName("FirstLameCoefficient");
+@Parameter stress μ = 8e10;
+μ.setGlossaryName("ShearModulus");
+@Parameter strain maximum_trace = 1e-3;
+maximum_trace.setEntryName("MaximumStrainTrace");
+
+@PredictionOperator {
+  static_cast<void>(smt);
+  Dt = λ ⋅ (I₂ ⊗ I₂) + 2 ⋅ μ ⋅ I₄;
+}
+
+@Integrator{
+  const auto ε = εᵗᵒ + Δεᵗᵒ;
+  if (abs(trace(ε)) > maximum_trace) {
+    return FAILURE;
+  }
+  σ = λ ⋅ trace(ε) ⋅ I₂ + 2 ⋅ μ ⋅ ε;
+}
+
+@TangentOperator {
+  static_cast<void>(smt);
+  Dt = λ ⋅ (I₂ ⊗ I₂) + 2 ⋅ μ ⋅ I₄;
+}

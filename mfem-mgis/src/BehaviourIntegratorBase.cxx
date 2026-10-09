@@ -742,6 +742,37 @@ namespace mfem_mgis {
     return (r == 0) || (r == 1);
   }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
 
+  bool BehaviourIntegratorBase::integrateAllIntegrationPoints(
+      const IntegrationType it) {
+    // the material properties at the beginning of the time step are the
+    // ones at the end of the time step, as in
+    // `performsLocalBehaviourIntegration`: they are restored after the call
+    auto mps0 = this->s0.material_properties;
+    for (const auto& [name, h] : this->s1.material_properties) {
+      this->s0.material_properties[name] = h;
+    }
+    const auto opts = mgis::behaviour::BehaviourIntegrationOptions{
+        .integration_type =
+            static_cast<mgis::behaviour::IntegrationType>(static_cast<int>(it)),
+        .compute_speed_of_sound = false};
+    auto r = mgis::behaviour::BehaviourIntegrationResult{};
+    try {
+      r = mgis::behaviour::integrate(*this, opts, this->time_increment);
+    } catch (std::exception& e) {
+      this->s0.material_properties = std::move(mps0);
+      std::cerr << "behaviour integration failed: " << e.what() << std::endl;
+      return false;
+    }
+    this->s0.material_properties = std::move(mps0);
+    if (!((r.exit_status == 0) || (r.exit_status == 1))) {
+      std::cerr << "behaviour integration failed: " << r.error_message
+                << " (exit value: " << r.exit_status
+                << ", first point in failure: " << r.n << ")" << std::endl;
+      return false;
+    }
+    return true;
+  }  // end of integrateAllIntegrationPoints
+
   bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
     for (const auto& [name, e] : this->material_properties_evaluators_bts) {
       std::ignore = e;

@@ -93,41 +93,11 @@ namespace mfem_mgis {
       this->dshape.SetSize(e.GetDof(), e.GetDim());
     }
 #endif
-    const auto nnodes = e.GetDof();
-    const auto gsize = this->s1.gradients_stride;
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
-      const auto &ip = ir.IntPoint(i);
-      tr.SetIntPoint(&ip);
       // offset of the integration point
       const auto o = eoffset + i;
-      if constexpr (evaluateShapeFunctions) {
-        // get the gradients of the shape functions
-        e.CalcPhysShape(tr, shape);
-      }
-      if constexpr (Traits::updateExternalStateVariablesFromUnknownsValues) {
-        child.updateExternalStateVariablesFromUnknownsValues(u, shape, o);
-      }
-      if constexpr (evaluateShapeFunctionsDerivatives) {
-        // get the gradients of the shape functions
-        e.CalcPhysDShape(tr, dshape);
-      }
-      auto g = this->s1.gradients.subspan(o * gsize, gsize);
-      std::copy(this->macroscopic_gradients.begin(),
-                this->macroscopic_gradients.end(), g.begin());
-      for (size_type ni = 0; ni != nnodes; ++ni) {
-        if constexpr (
-            (Traits::gradientsComputationRequiresShapeFunctions) &&
-            (Traits::gradientsComputationRequiresShapeFunctionsDerivatives)) {
-          child.updateGradients(g, u, shape, dshape, ni);
-        } else if constexpr (
-            Traits::gradientsComputationRequiresShapeFunctionsDerivatives) {
-          child.updateGradients(g, u, dshape, ni);
-        } else {
-          child.updateGradients(g, u, shape, ni);
-        }
-      }
-      const auto r = child.getRotationMatrix(o);
-      child.rotateGradients(g, r);
+      const auto r = this->computeGradientsAtIntegrationPoint(
+          e, tr, u, ir.IntPoint(i), o, shape, dshape);
       if (!this->performsLocalBehaviourIntegration(o, it)) {
         return false;
       }
@@ -140,6 +110,135 @@ namespace mfem_mgis {
     }
     return true;
   }  // end of implementIntegrate
+
+  template <typename Child>
+  auto StandardBehaviourIntegratorCRTPBase<Child>::
+      computeGradientsAtIntegrationPoint(
+          const mfem::FiniteElement &e,
+          mfem::ElementTransformation &tr,
+          const mfem::Vector &u,
+          const mfem::IntegrationPoint &ip,
+          const size_type o,
+          mfem::Vector &shape_functions,
+          mfem::DenseMatrix &shape_functions_derivatives) {
+    using Traits = BehaviourIntegratorTraits<Child>;
+    constexpr const auto evaluateShapeFunctions =
+        Traits::updateExternalStateVariablesFromUnknownsValues ||
+        Traits::gradientsComputationRequiresShapeFunctions;
+    constexpr const auto evaluateShapeFunctionsDerivatives =
+        Traits::gradientsComputationRequiresShapeFunctionsDerivatives;
+    auto &child = static_cast<Child&>(*this);
+    const auto nnodes = e.GetDof();
+    const auto gsize = this->s1.gradients_stride;
+    tr.SetIntPoint(&ip);
+    if constexpr (evaluateShapeFunctions) {
+      // get the gradients of the shape functions
+      e.CalcPhysShape(tr, shape_functions);
+    }
+    if constexpr (Traits::updateExternalStateVariablesFromUnknownsValues) {
+      child.updateExternalStateVariablesFromUnknownsValues(u, shape_functions,
+                                                           o);
+    }
+    if constexpr (evaluateShapeFunctionsDerivatives) {
+      // get the gradients of the shape functions
+      e.CalcPhysDShape(tr, shape_functions_derivatives);
+    }
+    auto g = this->s1.gradients.subspan(o * gsize, gsize);
+    std::copy(this->macroscopic_gradients.begin(),
+              this->macroscopic_gradients.end(), g.begin());
+    for (size_type ni = 0; ni != nnodes; ++ni) {
+      if constexpr (
+          (Traits::gradientsComputationRequiresShapeFunctions) &&
+          (Traits::gradientsComputationRequiresShapeFunctionsDerivatives)) {
+        child.updateGradients(g, u, shape_functions,
+                              shape_functions_derivatives, ni);
+      } else if constexpr (
+          Traits::gradientsComputationRequiresShapeFunctionsDerivatives) {
+        child.updateGradients(g, u, shape_functions_derivatives, ni);
+      } else {
+        child.updateGradients(g, u, shape_functions, ni);
+      }
+    }
+    const auto r = child.getRotationMatrix(o);
+    child.rotateGradients(g, r);
+    return r;
+  }  // end of computeGradientsAtIntegrationPoint
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::implementComputeGradients(
+      const mfem::FiniteElement &e,
+      mfem::ElementTransformation &tr,
+      const mfem::Vector &u) {
+    using Traits = BehaviourIntegratorTraits<Child>;
+    constexpr const auto evaluateShapeFunctions =
+        Traits::updateExternalStateVariablesFromUnknownsValues ||
+        Traits::gradientsComputationRequiresShapeFunctions;
+    constexpr const auto evaluateShapeFunctionsDerivatives =
+        Traits::gradientsComputationRequiresShapeFunctionsDerivatives;
+    auto &child = static_cast<Child&>(*this);
+    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto &ir = child.getIntegrationRule(e, tr);
+#ifdef MFEM_THREAD_SAFE
+    mfem::Vector shape;
+    mfem::DenseMatrix dshape;
+    if constexpr (evaluateShapeFunctions) {
+      shape.SetSize(e.GetDof());
+    }
+    if constexpr (evaluateShapeFunctionsDerivatives) {
+      dshape.SetSize(e.GetDof(), e.GetDim());
+    }
+#else
+    if constexpr (evaluateShapeFunctions) {
+      this->shape.SetSize(e.GetDof());
+    }
+    if constexpr (evaluateShapeFunctionsDerivatives) {
+      this->dshape.SetSize(e.GetDof(), e.GetDim());
+    }
+#endif
+    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+      static_cast<void>(this->computeGradientsAtIntegrationPoint(
+          e, tr, u, ir.IntPoint(i), eoffset + i, shape, dshape));
+    }
+    return true;
+  }  // end of implementComputeGradients
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::supportsBatchIntegration()
+      const noexcept {
+    // the behaviours generated by the generic-parallel interface only
+    // provide the rotations of batches, not the rotations of a point used
+    // by `computeGradientsAtIntegrationPoint` and `integrateBatch`
+    return !((this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) &&
+             (this->b.batch_b != nullptr));
+  }  // end of supportsBatchIntegration
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradients(
+      const mfem::FiniteElement &e,
+      mfem::ElementTransformation &tr,
+      const mfem::Vector &u) {
+    return this->implementComputeGradients(e, tr, u);
+  }  // end of computeGradients
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::integrateBatch(
+      const IntegrationType it) {
+    if (!this->integrateAllIntegrationPoints(it)) {
+      return false;
+    }
+    if (it == IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {
+      return true;
+    }
+    // rotation of the tangent operator blocks, as in `implementIntegrate`
+    auto &child = static_cast<Child&>(*this);
+    const auto np = static_cast<size_type>(this->n);
+    for (size_type o = 0; o != np; ++o) {
+      const auto r = child.getRotationMatrix(o);
+      auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+      child.rotateTangentOperatorBlocks(Kip, r);
+    }
+    return true;
+  }  // end of integrateBatch
 
   template <typename Child>
   void StandardBehaviourIntegratorCRTPBase<Child>::implementUpdateResidual(
