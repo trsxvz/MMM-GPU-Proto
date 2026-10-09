@@ -3199,3 +3199,12 @@ au début de chaque résolution n'est plus faite quand toutes les lois sont
 intégrées sur le périphérique (sauf avec PETSc). Les tableaux restent sur
 le GPU d'un pas à l'autre. Poutre r4, 10 pas, GPU : 3,3 s au lieu de
 4,1 s (8 cœurs : 17,5 s).
+
+### 2026-10-09 (nuit), profil Nsight Systems de la poutre sur GPU
+
+Pas de copie cachée notable entre l'hôte et le GPU (146 Mo vers le GPU
+sur 3 pas, surtout des données de mise en place ; un ou deux vecteurs par
+itération). Le GPU calcule 0,71 s sur 1,8 s, en 95 000 lancements de
+noyaux, dont 65 % de produits matrice-vecteur de hypre : la résolution est
+limitée par la latence des lancements. Détails dans
+`results/L6-poutre-2026-10-09/README.md`.

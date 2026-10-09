@@ -47,3 +47,31 @@ sommes, additions atomiques sur GPU).
 - **Mémoire** : chaque processus sur le GPU réserve une réserve de 4 Gio
   (Umpire) ; quatre processus sur le GPU de 16 Go échouent (vu en lançant
   les tests en parallèle).
+
+## Profil Nsight Systems (3 pas, 1 processus, loi `cuda`, mfem-mgis f0239ab807)
+
+`nsys profile -t cuda,nvtx` (Nsight Systems 2025.5 du HPC SDK 25.11 ; le
+`nsys` de CUDA 13.0 ne relit pas ce rapport) sur la poutre r4, 3 pas (10
+itérations de Newton, 13 résidus), environ 1,8 s :
+
+| Copies | Nombre | Volume | Temps |
+|---|---|---|---|
+| hôte vers GPU | 835 | 146 Mo | 7,3 ms |
+| GPU vers hôte | 5 814 | 9 Mo | 2,2 ms |
+| dans le GPU | 14 704 | 3,0 Go | 13,7 ms |
+
+- **Pas de copie cachée notable** : les grosses copies vers le GPU ne
+  sont faites qu'une ou quelques fois (géométrie, motif, maillage) ; par
+  itération, il reste un ou deux vecteurs (0,9 Mo) dans chaque sens (norme
+  et ddl imposés de la prédiction, conditions de Dirichlet) et des
+  scalaires (normes, statuts de hypre : 3 215 copies de 8 octets).
+- **Temps de calcul du GPU : 0,71 s sur 1,8 s**, en 95 339 lancements de
+  noyaux. Les produits matrice-vecteur creux de hypre (`csrmv`, PCG et
+  BoomerAMG) en prennent 65 % (460 ms), le produit de matrices de la mise
+  en place de l'AMG 78 ms, les noyaux de MFEM et de mfem-mgis
+  (`CuKernel1D`, `CuKernel2D`) 69 ms, la loi (`apply`) 16 ms.
+- Le reste du temps (environ 1,1 s) est passé sur l'hôte à lancer et
+  attendre ces petits noyaux : la résolution est limitée par la latence
+  des lancements de hypre, pas par le calcul. Pistes : moins d'itérations
+  de PCG (préconditionneur réutilisé d'une itération à l'autre, options
+  de BoomerAMG pour le GPU), problèmes plus gros, opérateur sans matrice.
