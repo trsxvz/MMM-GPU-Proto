@@ -20,7 +20,12 @@ Contenu :
   - `openmpi` : hwloc interne sans OpenCL (voir [MPI](#mpi)) ;
   - `mfem` : une construction partielle reprend sans tout recompiler
     (`make config` réécrit `config/config.mk`, dont dépendent tous les
-    objets : sa date est gardée quand son contenu ne change pas) ;
+    objets : sa date est gardée quand son contenu ne change pas) ; patch
+    `mfem-4.10-convection-ea-cuda13.patch` : avec CUDA 13 (sm_120), cicc ne
+    finit pas `fem/integ/bilininteg_convection_ea.cpp` (plus de 2 h 30 et
+    17 Go, puis tué faute de mémoire) ; les noyaux 3D de l'assemblage par
+    élément de la convection ne sont plus spécialisés au-delà de l'ordre 3,
+    le noyau générique du même fichier prend les ordres plus élevés ;
   - `petsc` : copie de la recette de spack. La variante `cuda_lambda` de
     Kokkos n'existe plus en Kokkos 5 (les lambdas CUDA sont toujours
     actives) ;
