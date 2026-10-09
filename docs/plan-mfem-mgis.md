@@ -61,10 +61,15 @@ pas assez, tant que le code reste propre.
   `byVDIM`) choisit l'ordre des **degrés de liberté** de l'espace éléments
   finis. C'est une autre question que le rangement des **données aux points
   de Gauss** (voir [Choix retenus](#choix-retenus), point 2).
-- Solveur non linéaire : `Newton` seulement. Il appelle
-  `prec->SetOperator(J)` à chaque itération, donc reconstruit le
-  préconditionneur à chaque itération. Pas de Newton inexact, pas de
-  recherche linéaire, pas de quasi-Newton, pas de point fixe.
+- Solveur non linéaire : `Newton` seulement, propre à mfem-mgis (il ne
+  dérive pas de `mfem::NewtonSolver`). Il donne la tangente au solveur
+  linéaire à chaque itération (`prec->SetOperator(J)`, où `prec` est le
+  solveur linéaire), ce qui reconstruit le préconditionneur à chaque
+  itération. Pas de Newton inexact, pas de quasi-Newton, pas de point
+  fixe ; la correction n'est divisée par 2 que si la loi échoue (pas de
+  vraie recherche linéaire). La loi est intégrée par une action du
+  solveur, pas par le `Mult` du formulaire : un solveur non linéaire
+  extérieur ne l'intégrerait pas.
 - Solveurs linéaires : voir [Solveurs](#solveurs). Ginkgo n'est pas
   branché.
 - Aucun usage de l'assemblage partiel de MFEM (`AssemblyLevel`), de
@@ -122,7 +127,10 @@ prend 22,6 s, le point fixe 67 s. Aucune méthode ne gagne partout.
    - c. tangente assemblée : matrices élémentaires, puis matrice globale
      hypre.
 
-   Il faut aussi un solveur non linéaire de point fixe.
+   Il faut aussi un solveur non linéaire de point fixe. Le plan détaillé
+   ajoute une variante de l'option a, l'assemblage par élément (matrices
+   élémentaires gardées), et précise les combinaisons de paramètres de
+   chaque option.
 4. **Hypothèses, cinématiques, intégrateurs** : au final, tout mfem-mgis.
    On commence par les petites déformations 3D. Chaque étape reste testable
    sur CPU et sur GPU.
@@ -134,8 +142,9 @@ prend 22,6 s, le point fixe 67 s. Aucune méthode ne gagne partout.
    défaut (copie vers l'hôte).
 8. **Version de MFEM : 4.9**, celle utilisée jusqu'ici par mfem-mgis. Pour
    le GPU, MFEM 4.9 doit être compilé avec CUDA (et avec Ginkgo si on le
-   branche par MFEM). La spécification de `deps/spack/mmm-gpu/spack.yaml`
-   (4.10 aujourd'hui) sera changée avant la compilation.
+   branche par MFEM). `deps/spack/mmm-gpu/spack.yaml` est passé à
+   `mfem@4.9.0` le 09/10/2026. MFEM 4.10 apporte cuDSS et Ginkgo distribué
+   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-49-ou-410)).
 9. **Mesures fines plus tard.** Priorité à un cadre propre qui marche.
    Les premières mesures servent à comparer les variantes.
 10. **Solveurs** : choisir les combinaisons qui marchent sur GPU (Krylov de
@@ -253,7 +262,7 @@ Fabrique `src/LinearSolverFactory.cxx` :
 | `HypreEuclid`, `HypreParaSails` | non |
 | `MUMPSSolver`, `UMFPackSolver` | non : solveurs directs sur CPU, matrice copiée vers l'hôte |
 | PETSc | seulement avec PETSc compilé pour GPU ; chemin à réparer |
-| Ginkgo (enveloppes `mfem::Ginkgo`) | CPU (OpenMP) et GPU (CUDA, HIP, SYCL) avec le même code, choisi par l'exécuteur ; Krylov, Jacobi, ILU, IC, ISAI, AMG ; matrices séquentielles ou opérateurs sans matrice ; matrices séquentielles seulement dans les enveloppes de MFEM 4.9 (distribuées en MFEM 4.10) ; demande MFEM compilé avec Ginkgo |
+| Ginkgo (enveloppes `mfem::Ginkgo`) | CPU (OpenMP) et GPU (CUDA, HIP) avec le même code, choisi par l'exécuteur (Ginkgo lui-même a aussi SYCL, pas les enveloppes de MFEM) ; Krylov, Jacobi, ILU, IC, ISAI dans les enveloppes, pas l'AMG de Ginkgo ; matrices séquentielles ou opérateurs sans matrice ; matrices séquentielles seulement dans les enveloppes de MFEM 4.9 (distribuées en MFEM 4.10) ; demande MFEM compilé avec Ginkgo |
 
 Les options « élasticité » de BoomerAMG (grossissement nodal, vecteurs de
 modes rigides) ne marchent pas sur GPU : `SetElasticityOptions` arrête le
