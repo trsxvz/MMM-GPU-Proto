@@ -2,7 +2,9 @@
 
 Statut : plan établi le 09/10/2026, relu de façon indépendante le même
 jour, puis confronté à tout le code de mfem-mgis (82 fonctionnalités
-inventoriées ; oublis et couvertures partielles intégrés). Rien n'est commencé dans mfem-mgis. Les choix
+inventoriées ; oublis et couvertures partielles intégrés). Avancement
+au 09/10/2026 au soir : L0, L1 et L2 faits et relus (voir le
+[journal](../JOURNAL.md)), L3 commencé (gradients par noyaux). Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
@@ -501,6 +503,26 @@ attribut ; test d'un point en échec.
 
 Fin : mêmes résultats, gain mesuré sur la poutre et le polycristal.
 
+Réalisé (09/10/2026), écarts au plan :
+
+- paramètre provisoire `BehaviourIntegration` (`PointByPoint`, `Batch`),
+  valeur par défaut donnée par la variable d'environnement
+  `MFEM_MGIS_BEHAVIOUR_INTEGRATION` ; il rejoindra `AssemblyStrategy` ;
+- propriétés matériau de début de pas (question 6) : mfem-mgis donne à la
+  loi, pour l'appel, des vues sur celles de fin de pas, comme le chemin
+  point par point ; MGIS n'est pas modifié ;
+- forces thermodynamiques : toujours tournées point par point par le
+  résidu quand la loi fournit la rotation d'un point ; pour une loi
+  orthotrope `generic-parallel` (rotations de lots seulement), tournées
+  pour tous les points après l'intégration, dans un tableau à part (les
+  forces du matériau restent dans son repère). Un cache invalidé par des
+  versions des tableaux a été essayé puis retiré après la relecture : les
+  écritures de MGIS par ses vues lui échappent ;
+- échecs : MGIS s'arrête au premier point en échec pour une loi `generic`
+  et intègre tous les points d'une loi `generic-parallel` ;
+- le gain dépend du cas : négligeable sur la poutre (loi peu coûteuse),
+  important sur le polycristal (voir les mesures).
+
 ## L3. Noyaux par lots et opérateur propre
 
 Objectif : gradients, résidu, action de la tangente et matrices
@@ -956,8 +978,9 @@ Comparaisons :
    de mfem-mgis).
 5. **Propriétaire de la mémoire** : mfem-mgis (proposé) ou MGIS avec une
    ressource mémoire ; les deux sont prévus en L1, à comparer.
-6. **Propriétés matériau de début de pas** (voir L2) : mfem-mgis les pose,
-   ou MGIS accepte leur absence quand la loi ne les lit pas.
+6. **Propriétés matériau de début de pas** (voir L2) : tranché en L2,
+   mfem-mgis donne des vues sur celles de fin de pas, comme le chemin
+   point par point.
 7. **Base de travail** : `a011d97d6f`, ou la refonte de
    `PartialQuadratureSpace` en cours en amont une fois fusionnée.
 8. **Propositions amont** : à quel moment et dans quel ordre.

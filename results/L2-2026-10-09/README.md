@@ -1,5 +1,8 @@
 # Mesures du lot L2 sur la poutre (09/10/2026, provisoires)
 
+**Remplacées** par `results/L2-poutre-2026-10-09/` (machine calme, fils
+placés correctement, options de compilation de la loi corrigées).
+
 Intégration des lois par lots (option `BehaviourIntegration`, mfem-mgis
 ef52adb445), poutre r4 (111 843 inconnues), PCG + BoomerAMG, tolérance
 1e-4, 10 pas. Script : `cas/mesures-L2.sh` ; résumé par phase :

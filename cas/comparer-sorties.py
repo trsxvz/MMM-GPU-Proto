@@ -3,10 +3,13 @@
 
 usage : cas/comparer-sorties.py référence fichier [--rtol r] [--atol a]
 
-Compare un à un les nombres des deux fichiers (lus comme des suites de
-nombres séparés par des blancs) : la différence de chaque valeur doit être
-inférieure à atol + rtol * |référence|. Affiche la plus grande différence
-relative ; code de retour non nul si les fichiers diffèrent.
+Compare un à un les nombres des deux fichiers, rangés en lignes de
+colonnes (par exemple : temps, composantes du gradient et des contraintes
+macroscopiques). La différence de chaque valeur doit être inférieure à
+atol + rtol * m, m étant la plus grande valeur absolue de sa colonne dans
+la référence : une composante proche de zéro (une contrainte imposée
+nulle) n'est pas comparée à elle-même. Affiche la plus grande différence
+ainsi rapportée ; code de retour non nul si les fichiers diffèrent.
 """
 import argparse
 import sys
@@ -14,7 +17,7 @@ import sys
 
 def read(path):
     with open(path) as f:
-        return [float(v) for v in f.read().split()]
+        return [[float(v) for v in line.split()] for line in f if line.split()]
 
 
 def main():
@@ -26,18 +29,27 @@ def main():
     args = parser.parse_args()
     a = read(args.reference)
     b = read(args.file)
-    if len(a) != len(b) or not a:
-        print(f"nombres de valeurs différents ou nuls : {len(a)}, {len(b)}")
+    if len(a) != len(b) or not a or any(len(x) != len(y) for x, y in zip(a, b)):
+        print("formes différentes ou fichier vide")
         return 1
+    ncolumns = max(len(x) for x in a)
+    scale = [0.0] * ncolumns
+    for x in a:
+        for j, v in enumerate(x):
+            scale[j] = max(scale[j], abs(v))
     worst = 0.0
     ok = True
+    n = 0
     for x, y in zip(a, b):
-        d = abs(x - y)
-        if d > args.atol + args.rtol * abs(x):
-            ok = False
-        if x != 0:
-            worst = max(worst, d / abs(x))
-    print(f"{len(a)} valeurs, plus grande différence relative : {worst:.3e}")
+        for j, (u, v) in enumerate(zip(x, y)):
+            n += 1
+            d = abs(u - v)
+            if d > args.atol + args.rtol * scale[j]:
+                ok = False
+            if scale[j] != 0:
+                worst = max(worst, d / scale[j])
+    print(f"{n} valeurs, plus grande différence rapportée au maximum de sa "
+          f"colonne : {worst:.3e}")
     return 0 if ok else 1
 
 
