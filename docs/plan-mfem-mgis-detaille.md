@@ -1,7 +1,8 @@
 # Plan détaillé pour mfem-mgis
 
 Statut : plan établi le 09/10/2026, relu de façon indépendante le même
-jour (constats intégrés). Rien n'est commencé dans mfem-mgis. Les choix
+jour, puis confronté à tout le code de mfem-mgis (82 fonctionnalités
+inventoriées ; oublis et couvertures partielles intégrés). Rien n'est commencé dans mfem-mgis. Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
@@ -10,7 +11,9 @@ un lot est fini.
 Base : mfem-mgis master `a011d97d6f` (06/10/2026), dépôt `mfem-mgis/`.
 Les références `fichier:ligne` renvoient à cette base. TFEL et MGIS sont
 ceux du prototype (MGIS installé dans `install/mgis` par `build-mgis.sh`),
-MFEM 4.9 avec CUDA vient de l'environnement `mmm-gpu`.
+MFEM 4.10 avec CUDA (et les backends OpenMP et libCEED) vient de
+l'environnement `mmm-gpu`. Le plan s'applique à mfem-mgis, à
+mfem-mgis-examples et à mm-opera-hpc.
 
 ## Sommaire
 
@@ -154,7 +157,7 @@ code (fichiers de `src/` et `include/MFEMMGIS/`).
 - Deux défauts relevés au passage : `HypreGMRES` teste un paramètre
   `AbsoluteTolerance` qui n'est pas dans la liste autorisée (code mort),
   `HypreFGMRES` aussi, et appelle `SetTol` au lieu d'une tolérance
-  absolue (`mfem::HypreFGMRES` n'a pas de `SetAbsTol` en MFEM 4.9 : passer
+  absolue (`mfem::HypreFGMRES` n'a pas de `SetAbsTol` en MFEM 4.9 ni 4.10 : passer
   par `HYPRE_ParCSRFlexGMRESSetAbsoluteTol`).
 
 ### GPU
@@ -167,9 +170,67 @@ code (fichiers de `src/` et `include/MFEMMGIS/`).
   s'exécute sur l'hôte. Les fichiers de mfem-mgis qui contiennent des
   noyaux doivent donc être compilés comme du CUDA quand MFEM l'est.
 
-### Ce que l'assemblage partiel de MFEM 4.9 impose
+### Points d'extension et comportements à préserver
 
-Vérifié dans les sources de MFEM 4.9 (`fem/nonlinearform.cpp`,
+Relevés en confrontant le plan à tout le code :
+
+- **Intégrateurs du formulaire autres que celui de mfem-mgis.** Le
+  problème hérite publiquement de `(Par)NonlinearForm` : l'utilisateur
+  peut y ajouter ses intégrateurs. mfem-mgis y met lui-même la pression
+  imposée (intégrateur de bord) et la source de chaleur (intégrateur de
+  domaine à marqueurs, `UniformHeatSourceBoundaryCondition.cxx:208` et
+  `:223`) ; l'exemple ex8 de mfem-mgis-examples y met une condition de
+  Robin (intégrateur de faces de bord dont la tangente dépend de `u`,
+  `ex8/src/RobinBC.cxx`). Le mode
+  `UseMultiMaterialNonLinearIntegrator=false`
+  (`NonLinearEvolutionProblemImplementationBase.cxx:18-42`) se passe de
+  l'intégrateur de mfem-mgis.
+- **Degrés de liberté imposés** : ceux du formulaire
+  (`SetEssentialTrueDofs`), pas seulement ceux des conditions de
+  Dirichlet. Le problème périodique les pose directement
+  (`PeriodicNonLinearEvolutionProblem.cxx:100`, `:192`, `:235`, `:291`) :
+  `getEssentialDegreesOfFreedom()` y est vide. L'interface des conditions
+  de Dirichlet est publique et écrit `u` sur l'hôte.
+- **Données des matériaux lues ou écrites sur l'hôte par l'API publique** :
+  `getGradient`, `getThermodynamicForce`, `getInternalStateVariable`
+  (`Material.cxx:269-370`), `MechanicalPostProcessings`,
+  `makeGridFunction`, `computeL2Projection`, `StateManager`,
+  `makeGradientEvaluator`, post-traitements donnés par `std::function`,
+  initialisation des variables internes par l'utilisateur. Toutes ces vues
+  reposent sur un pas entre points (`data_stride`).
+- **Propriétés matériau et variables externes posées par l'utilisateur
+  dans sa propre mémoire hôte**, par l'API de MGIS (tests
+  `StationaryNonLinearHeatTransferTest`, `TwoLayerCube` ; mm-opera-hpc
+  `cermet/cermet.cxx:118-135`).
+- **Convergence des solveurs linéaires** : `hasConverged` et
+  `getNumberOfIterationsAtConvergence` (`SolverUtilities.cxx:103-163`)
+  déclarent convergé tout solveur qu'elles ne connaissent pas.
+- **Échecs** : un attribut sans intégrateur arrête aujourd'hui le calcul
+  (`MultiMaterialNonLinearIntegrator.cxx:30-53`) ; l'intégration s'arrête
+  au premier élément en échec ; le statut 0 (« résultats peu fiables »)
+  compte comme un succès.
+- **Prédiction** : elle ajoute la contribution des conditions aux limites
+  (`addLinearFormIntegrators`, `...Implementation.cxx:160`) et respecte
+  `DiscardLinearSolverFailure`. `getLinearizedOperators` est une API
+  publique (utilisée par `PredictionTest`).
+- **Séquentiel** : la tangente assemblée est une `SparseMatrix` (UMFPACK,
+  Krylov de MFEM) ; les préconditionneurs de hypre y sont refusés
+  (`LinearSolverFactory.cxx:245-300`).
+- **Dépendances entre problèmes** :
+  `resolveBehaviourIntegratorsDependencies`
+  (`NonLinearEvolutionProblem.cxx:795-854`) relie les intégrateurs de deux
+  problèmes, qui doivent garder la même règle d'intégration.
+- **Régularisation par gradient implicite** (`L2Projection.cxx:624-702`)
+  et intégrales (`computeMeasure`, `computeIntegral`, énergies,
+  résultante) : boucles hôte sur les points.
+- **Ce qui n'a rien à faire** : la fabrique d'évaluateurs (presque
+  entièrement en commentaire), les dépendances entre modèles (non
+  implémentées), la reprise de l'état des matériaux et les liaisons
+  Python (absentes), la lecture des maillages, la gestion du temps.
+
+### Ce que l'assemblage partiel de MFEM 4.10 impose
+
+Vérifié dans les sources de MFEM 4.9 et 4.10 (`fem/nonlinearform.cpp`,
 `fem/nonlinearform_ext.cpp`, `fem/pnonlinearform.cpp`) :
 
 - `NonlinearForm::Mult` rend la main juste après l'extension : les
@@ -193,8 +254,9 @@ de bord ou à marqueurs.
 
 - **Le chemin actuel ne change pas** et reste le chemin par défaut. Les
   tests existants ne changent pas.
-- **Travail dans `mfem-mgis/`, branche `gpu-proto`**, base `a011d97d6f`,
-  copié dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
+- **Travail dans `mfem-mgis/`, `mfem-mgis-examples/` et `mm-opera-hpc/`,
+  branche `gpu-proto` de chacun** (bases `a011d97d6f`, `a242567`,
+  `c31c4bc`), copiés dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
   en anglais. Un lot fini est un ensemble de commits relus.
 - **Code nouveau regroupé** : `include/MFEMMGIS/Batch/` et `src/Batch/`
   (nom à discuter). Les classes existantes gagnent des points
@@ -225,7 +287,8 @@ Noms à discuter, dans le style des paramètres existants.
 | problème | `IntegrationRuleOrder` | ordre de la règle d'intégration ; par défaut celui d'aujourd'hui (`2 * OrderGrad`) |
 | problème | `Prediction` | dictionnaire reprenant les quatre axes actuels (`Strategy`, `Operator`, `IntegrationOperator`, `NullTimeIncrement`), plus la stratégie nouvelle `Extrapolation` |
 | solveur non linéaire | `Newton` | options nouvelles : `AdaptiveLinearSolverTolerance` (Eisenstat-Walker), `LineSearch`, `PreconditionerUpdate` |
-| solveur non linéaire | `FixedPoint` | `AndersonDepth`, `AndersonDamping`, `PreconditionerUpdate` |
+| solveur non linéaire | `FixedPoint` | `Method` (`ElasticOperator`, `ModifiedNewton`), `ElasticOperatorUpdate`, `LinearSolver` (exact ou nombre de cycles d'AMG), `Acceleration` (`None`, `Anderson`, `Cast3M`, sécantes, `IronsTuck`, `Steffensen`, delta carrés), `AccelerationDepth`, `AccelerationDamping`, `AccelerationTrigger`, `AccelerationPeriod`, `OperatorPrecision` (voir [L5](#point-fixe-et-méthodes-voisines)) |
+| solveur non linéaire | `Newton` | `PreconditionerOperator` : `Tangent` (défaut) ou `Elastic` (AMG de `K0` gelé, méthode `NewtonK0`) |
 | solveur non linéaire | `LBFGS` (préconditionné, à écrire), `KINSOL` | options propres |
 | préconditionneur | `OperatorJacobi`, `OperatorChebyshev`, `NodalBlockJacobi`, `LOR` | sans matrice |
 | préconditionneur | `HypreBoomerAMG` | options nouvelles : grossissement, interpolation, lisseur, balayages, seuil, niveaux |
@@ -259,14 +322,14 @@ reconstruit rien.
 
 | Lot | Contenu | Dépend de | Taille | Fin |
 |---|---|---|---|---|
-| L0 | construction, référence, périphérique, petites corrections | environnement `mmm-gpu` | S | tests existants verts avec MFEM CUDA, temps de référence |
+| L0 | construction des trois dépôts, compatibilité MFEM 4.10, référence, périphérique, petites corrections | environnement `mmm-gpu` | S | tests existants verts avec MFEM 4.10 et CUDA, temps de référence |
 | L1 | données aux points dans la mémoire de MFEM, deux rangements | L0 | M | suite verte, rangement composante par composante sur les données |
 | L2 | lois intégrées par lots sur CPU | L1 | M | mêmes résultats, gain mesuré avec `stlpar` et `openmp` |
 | L3 | noyaux par lots, opérateur propre, assemblage partiel | L2 | L | résidu et tangente égaux au chemin actuel, suite verte |
 | L4 | opérateur tangent (a, b, c, éléments), prédiction, règle d'intégration | L3 | M | les options sur les cas de référence |
-| L5 | solveurs, en trois vagues | L3, L4 | L | vague 1 complète |
+| L5 | solveurs en trois vagues, point fixe et ses variantes | L3, L4 | L | vague 1 et point fixe complets |
 | L6 | GPU | L3 (tranche minimale), puis L4, L5 | L | mêmes résultats qu'en CPU, aucune copie cachée en un processus |
-| L7 | toutes les hypothèses, cinématiques et modèles | L3 à L6 | L | suite complète de mfem-mgis sur le chemin par lots |
+| L7 | toutes les hypothèses, cinématiques et modèles | L3 à L6 | L | suite complète de mfem-mgis, complétée des tests manquants, sur le chemin par lots |
 | L8 | sorties et post-traitements | L1, L6 | S | sorties identiques, coût mesuré |
 | L9 | exemples et mesures | L6 | M | campagne de mesures publiée |
 | L10 | documentation, propositions amont | tous | M | documents et branches prêts |
@@ -284,11 +347,16 @@ la référence de temps du chemin actuel.
 Travail :
 
 - Branche `gpu-proto` dans `mfem-mgis/`. Script `build-mfem-mgis.sh` à
-  la racine (comme `build-mgis.sh`) : MFEM 4.9 avec CUDA de `mmm-gpu`,
+  la racine (comme `build-mgis.sh`) : MFEM 4.10 avec CUDA de `mmm-gpu`,
   MGIS de `install/mgis`, TFEL de `install/tfel-mmm-gpu`, construction,
   `make check`.
 - CMake de mfem-mgis : langage CUDA activé quand MFEM est compilé avec
   CUDA, pour les fichiers qui contiendront des noyaux.
+- **Compatibilité avec MFEM 4.10** : mfem-mgis n'a été utilisé qu'avec
+  4.8 et 4.9 ; corriger ce que 4.10 casse (API retirées ou dépréciées),
+  en commits séparés, proposables en amont.
+- mfem-mgis-examples et mm-opera-hpc construits de la même façon
+  (`build-mfem-mgis.sh` construit les trois), leurs tests verts.
 - Vérifier que la suite actuelle passe avec MFEM compilé pour CUDA mais
   périphérique `cpu`. MFEM de l'environnement est compilé avec Umpire :
   ses types de mémoire par défaut sont alors ceux d'Umpire.
@@ -350,6 +418,18 @@ Travail :
   au chemin par lots. Dans ce lot, seules les données des matériaux et
   leur description changent ; les accès du chemin actuel restent point
   par point.
+- **Accès hôte par l'API publique** (accesseurs de `Material`,
+  post-traitements, projections, `StateManager`, évaluateurs de
+  gradients, initialisation des variables internes) : chaque accesseur
+  synchronise vers l'hôte (`HostRead`) ; chaque écriture hôte est
+  déclarée (`HostReadWrite`) pour que la copie du périphérique soit
+  invalidée. Avec le rangement composante par composante, ces vues
+  (fondées sur un pas entre points) sont refusées, ou servies par une
+  copie transposée.
+- **Propriétés matériau et variables externes dans la mémoire hôte de
+  l'utilisateur** (API de MGIS) : copiées vers la mémoire de la loi à
+  chaque `setup` quand la loi calcule sur GPU, ou refusées avec un message
+  qui dit comment faire.
 - Fin de pas : `update` et `revert` passent par les surcharges de MGIS qui
   prennent des `FieldOperations`. MGIS fournit `HostFieldOperations` et
   des opérations CUDA, HIP, SYCL, Kokkos et OpenMP en en-têtes, à compiler
@@ -359,7 +439,8 @@ Travail :
 
 Tests : suite complète inchangée (rangement point par point, données
 dans `mfem::Memory`) ; refus du rangement composante par composante avec
-`Legacy` ; tests unitaires des opérations de fin de pas dans les deux
+`Legacy` ; accesseurs hôte après un calcul sur le périphérique (valeurs
+à jour) ; tests unitaires des opérations de fin de pas dans les deux
 rangements ; test de la politique de validité sous le périphérique
 `debug` de MFEM.
 
@@ -393,7 +474,19 @@ Travail :
   `setup` sont données à la vue (uniformes ou tableaux).
 - Échecs : MGIS rend le premier point en échec et son statut ; le
   comportement actuel (division de la correction de Newton, sous-pas)
-  doit être conservé.
+  doit être conservé. Changement de comportement à documenter : par lots,
+  tous les points sont intégrés (aujourd'hui l'intégration s'arrête au
+  premier élément en échec), donc l'état change au-delà du point en
+  échec ; l'itération est de toute façon rejetée. Le statut 0 (« résultats
+  peu fiables ») et la réduction du statut entre processus MPI sont gardés
+  tels quels.
+- **Propriétés matériau de début de pas** : les lois `generic` ne lisent
+  que celles de fin de pas, mais le traitement par lots de MGIS contrôle
+  les deux états (`mgis/src/Integrate.cxx`, `checkMaterialStateView`). Un
+  problème qui ne pose que celles de fin de pas serait refusé : mfem-mgis
+  pose aussi celles de début de pas (mêmes valeurs à `setup`), ou MGIS
+  accepte leur absence quand la loi ne les lit pas (à décider, voir
+  [Questions](#questions-à-trancher)).
 
 Tests : suite complète avec une bibliothèque `generic` (identique au
 chemin actuel), puis avec `stlpar` et `openmp` (identique à l'arrondi
@@ -440,19 +533,32 @@ Points d'entrée :
   refait ce que fait aujourd'hui `(Par)NonlinearForm` :
   - prolongation `P` et `Pᵀ` (sur GPU,
     `DeviceConformingProlongationOperator`) ;
-  - degrés de liberté imposés : résidu nul, tangente éliminée ou
+  - degrés de liberté imposés du formulaire (`SetEssentialTrueDofs`,
+    périodique compris) : résidu nul, tangente éliminée ou
     `ConstrainedOperator`, diagonale à 1 pour les lisseurs ;
-  - intégrateurs de bord : gardés sur le chemin actuel pour le résidu et
-    la tangente assemblée ; une action sans matrice est à écrire pour
-    l'option a ;
+  - **toutes les autres listes d'intégrateurs du formulaire** (domaine
+    avec marqueurs, bord, faces intérieures, faces de bord : pression,
+    source de chaleur, Robin d'ex8, intégrateurs de l'utilisateur), sauf
+    l'intégrateur de mfem-mgis : appelées sur le chemin actuel pour le
+    résidu et la tangente assemblée ; pour l'option a, action sans
+    matrice de ces termes, ou assemblage à part ; refus avec un message
+    sinon, jamais d'omission silencieuse ;
   - l'intégrateur de domaine actuel n'est plus ajouté au formulaire
-    (sinon le domaine serait compté deux fois).
+    (sinon le domaine serait compté deux fois) ;
+  - si `Mult` intègre la loi, l'action « nouvelle estimation » du solveur
+    de mfem-mgis ne l'intègre plus (sinon deux intégrations par
+    itération).
 
   `Mult` intègre la loi puis assemble le résidu (option), ce qui rend
   possibles les solveurs non linéaires extérieurs ; un échec de la loi
   est signalé sans arrêter le programme. `mgis_integrator` (type `final`)
   devient une interface commune aux deux chemins, ou le chemin par lots a
-  son propre objet.
+  son propre objet. Refus explicites sur le chemin par lots : attribut
+  d'élément sans intégrateur (sinon contribution nulle et matrice
+  singulière), mode `UseMultiMaterialNonLinearIntegrator=false`,
+  maillages NURBS et collections autres que H1, intégrateurs autres que
+  les 18 intégrateurs standard du générateur tant qu'ils n'ont pas de
+  noyau.
 - **A, assemblage partiel de MFEM** (`AssemblyStrategy=PartialAssembly`) :
   un `NonlinearFormIntegrator` qui implémente `AssemblePA`, `AddMultPA`,
   `AssembleGradPA`, `AddMultGradPA`, `AssembleGradDiagonalPA`, avec les
@@ -468,8 +574,10 @@ Tests :
 - global : résidu, action de la tangente, diagonale contre le chemin
   actuel, en séquentiel et sur 2 processus ;
 - problème : `UniaxialTensileTest`, `TwoLayerCube`, `PredictionTest`,
-  `ImposedPressureTest` avec les deux points d'entrée (le second doit
-  refuser la pression) : mêmes itérations, mêmes résultats.
+  `ImposedPressureTest`, `ImposedDirichletBoundaryConditionAtClosestNode`,
+  un problème périodique, avec les deux points d'entrée (le second doit
+  refuser la pression) : mêmes itérations, mêmes résultats ; un test de
+  chaque refus explicite.
 
 Fin : suite des petites déformations 3D verte sur les deux points
 d'entrée et les deux rangements.
@@ -498,14 +606,29 @@ Travail :
   l'absence de modes parasites sur les cas de référence.
 - Prédiction (`...Implementation.cxx:98-233`) réécrite avec les noyaux :
   opérateur élastique, sécant ou tangent par l'intégration de prédiction
-  de MGIS, second membre par le noyau de résidu, et les quatre axes
-  actuels conservés. Nouvelle stratégie : extrapolation de l'incrément du
-  pas précédent. Paramètre `Prediction`.
+  de MGIS, second membre par le noyau de résidu plus la contribution des
+  conditions aux limites (`addLinearFormIntegrators`), respect de
+  `DiscardLinearSolverFailure`, et les quatre axes actuels conservés.
+  Nouvelle stratégie : extrapolation de l'incrément du pas précédent.
+  Paramètre `Prediction`. `getLinearizedOperators` (API publique) : rendu
+  par les noyaux, ou refusé sur le chemin par lots avec un message.
+- Séquentiel : l'option c donne une `SparseMatrix` (UMFPACK, Krylov de
+  MFEM), le parallèle une `HypreParMatrix`.
+- Solveur ou préconditionneur fourni par l'utilisateur qui demande une
+  matrice avec `MatrixFree` ou `ElasticOperator` : refus explicite.
+- `IntegrationRuleOrder` change la taille des espaces de quadrature, les
+  fonctions aux points de l'utilisateur, les liens entre problèmes
+  (`resolveBehaviourIntegratorsDependencies`) et les références des tests :
+  les intégrales (`computeMeasure`, `computeIntegral`, énergies,
+  résultante) suivent la règle choisie ; deux problèmes liés gardent la
+  même règle.
 
 Tests : chaque option sur les cas de référence (mêmes solutions à la
 tolérance de Newton près) ; un test par option qui échoue si elle est
 ignorée (nombre d'itérations, type de l'opérateur rendu, nombre de points
-d'intégration) ; prédictions contre `PredictionTest` et `PredictionTest2`.
+d'intégration) ; prédictions contre `PredictionTest`, `PredictionTest2` et
+`ImposedPressureTest2` (seul test qui combine prédiction et pression) ;
+option c en séquentiel avec UMFPACK.
 
 Fin : les options et les prédictions sur les cas de référence.
 
@@ -530,15 +653,22 @@ par vagues, dans les fabriques de mfem-mgis.
   `NodalBlockJacobi` ;
 - options de BoomerAMG exposées, sans être écrasées par
   `SystemHypreBoomerAMG::SetOperator` ; stratégie `Elasticity` refusée sur
-  GPU (MFEM arrête le programme en byVDIM), `System` proposée à la place.
+  GPU (MFEM arrête le programme en byVDIM), `System` proposée à la place ;
+- `hasConverged` et `getNumberOfIterationsAtConvergence` étendus à tous
+  les solveurs ajoutés (aujourd'hui tout solveur inconnu est déclaré
+  convergé : un échec passerait en silence), avec un test qui fait
+  échouer chaque solveur ; `DiscardLinearSolverFailure` et les
+  informations d'itérations gardés dans les solveurs nouveaux ;
+- point fixe et méthodes voisines : voir la section suivante.
 
 **Vague 2** (comparaisons sur GPU) :
 
 - L-BFGS préconditionné, à écrire (`LBFGSSolver` de MFEM ignore le
   préconditionneur ; `SNESQN` de PETSc comme référence) ;
-- Ginkgo dans la fabrique : préconditionneurs (Jacobi par blocs à
-  précision adaptative, ILU, ISAI) appliqués au bloc local de chaque
-  processus en MFEM 4.9 ; solveurs de Ginkgo en séquentiel seulement ;
+- Ginkgo dans la fabrique : solveurs et préconditionneurs distribués de
+  MFEM 4.10 (Schwarz), préconditionneurs locaux (Jacobi par blocs à
+  précision adaptative, ILU, ISAI) ; cuDSS par `CuDSSSolver` (réutilisation
+  de l'analyse symbolique) ;
 - AmgX par `AmgXSolver`, avec `UpdateOperator` pour la réutilisation
   complète ;
 - KINSOL (`KINSolver`), avec l'opérateur qui intègre la loi (L3) ;
@@ -547,9 +677,9 @@ par vagues, dans les fabriques de mfem-mgis.
 - précision mixte (Ginkgo, puis AmgX `dDFI` par une enveloppe propre).
 
 **Vague 3** (selon les mesures) : p-multigrille et LOR (ordre 2 et plus),
-cuDSS, SuperLU_DIST et STRUMPACK sur GPU, MGR de hypre pour les
-problèmes couplés, FSAI et ILU de hypre, Krylov pipeliné, Ginkgo
-distribué (MFEM 4.10), réutilisation partielle de la hiérarchie AMG
+SuperLU_DIST et STRUMPACK sur GPU, MGR de hypre pour les
+problèmes couplés, FSAI et ILU de hypre, Krylov pipeliné, multigrille
+de Ginkgo (par son API), réutilisation partielle de la hiérarchie AMG
 (GAMG, AmgX par une enveloppe propre).
 
 Tests : chaque solveur sur un cas où il converge, contre une solution de
@@ -558,7 +688,84 @@ référence ; chaque option avec un test qui échoue si elle est ignorée
 nombre d'itérations pour Anderson, réglages de BoomerAMG relus après
 plusieurs itérations...).
 
+Avec un schéma de couplage itératif (plusieurs résolutions dans un même
+pas), la politique de réutilisation du préconditionneur vaut aussi entre
+itérations de couplage.
+
 Fin : vague 1 complète et mesurée ; vagues suivantes au fil de L9.
+
+### Point fixe et méthodes voisines
+
+Étude préalable (04/10/2026, hors de ce dépôt, prototype branché dans la
+fabrique de solveurs de mfem-mgis) : sur une poutre en plasticité J2
+(112 000 inconnues), le point fixe sur l'opérateur élastique `K0`,
+accéléré par Anderson, avec un seul cycle d'AMG gelé par itération, est
+2,15 fois plus rapide que le meilleur Newton sur CPU, et environ 4 fois
+sur GPU (2 fois plus rapide qu'un Newton à AMG de `K0` gelé). Sur un
+polycristal (loi chère, écrouissage faible), il est 3,3 fois plus lent
+sur CPU : 8 fois plus d'itérations, donc d'intégrations de la loi. Le GPU
+déplace exactement ce rapport. D'où toutes les variantes ci-dessous,
+comparées sur les mêmes cas.
+
+**Méthodes** (solveur non linéaire `FixedPoint`, paramètre `Method`) :
+
+- `ElasticOperator` : point fixe sur `K0` (rigidité initiale, comme
+  Cast3M). `K0` est assemblé une fois, pour tout le calcul ou une fois par
+  pas (`ElasticOperatorUpdate`). Chaque itération : intégration de la loi,
+  résidu, une résolution approchée avec `K0`, accélération ;
+- `ModifiedNewton` : tangente assemblée et préconditionnée (ou factorisée)
+  à la première itération du pas seulement ;
+- `NewtonK0` (dans le Newton) : tangente cohérente, Krylov préconditionné
+  par l'AMG de `K0` construit une fois. Mêmes itérations que Newton, sans
+  construction d'AMG par itération ; c'est le vrai concurrent du point
+  fixe sur GPU.
+
+**Résolution avec `K0`** (paramètre `LinearSolver`) :
+
+- exacte : factorisation unique (MUMPS ou UMFPACK sur CPU, cuDSS sur GPU) ;
+- inexacte : `n` cycles d'AMG de `K0` gelé par itération (un seul suffit
+  avec Anderson), ou un Krylov court préconditionné par cet AMG.
+
+**Accélérations** (paramètre `Acceleration`), toutes portées des
+accélérateurs de MTest (TFEL, `mtest/src/*AccelerationAlgorithm.cxx`,
+cadre unifié publié dans Computers & Mathematics with Applications
+70(9), 2015) vers les vecteurs de MFEM : produits scalaires et combinaisons de
+vecteurs, donc sur GPU sans code propre :
+
+- `None` (référence : en J2 à écrouissage linéaire `H`, le taux est
+  `3μ/(3μ+H)` dans les zones plastiques, prévisible) ;
+- `Anderson` (sur les itérés `UAnderson` et sur les résidus `FAnderson` ;
+  profondeur, amortissement, déclenchement, période) ;
+- `Cast3M` ;
+- sécantes : `Secant`, `CrossedSecant`, `AlternateSecant` ;
+- `IronsTuck`, `Steffensen` ;
+- delta carrés : `CrossedDelta2`, `Crossed2Delta`, `Crossed2Deltabis`,
+  `AlternateDelta2`, `Alternate2Delta`.
+
+Le prototype n'avait porté que Cast3M et Anderson. La revue
+bibliographique de l'étude montre qu'Anderson n'est pas toujours le
+meilleur : d'où le portage de toute la famille.
+
+**Précision** (paramètre `OperatorPrecision`) : `K0` ou son AMG en simple
+précision, résidu et accélération en double. Sur la RTX 5080, l'étude
+mesure environ 30 % de gain à nombre d'itérations égal.
+
+**Prédiction** : la prédiction élastique (indispensable en plasticité)
+réutilise `K0` déjà factorisé ou son AMG : plus de factorisation par pas
+(elle coûtait 35 s sur 44 avec MUMPS dans l'étude).
+
+**Mesures propres à ces méthodes** : temps par phase (intégration, résidu,
+assemblage, construction du préconditionneur, résolutions,
+accélération), comme dans le prototype ; itérations ; et la comparaison
+« meilleur contre meilleur » (jamais contre un Newton à solveur direct
+seul, qui fausse les gains).
+
+**Tests** : taux de convergence du point fixe non accéléré égal à
+`3μ/(3μ+H)` sur un cas J2 à écrouissage linéaire (test exact) ; chaque
+accélérateur sur un problème linéaire (Anderson y équivaut à GMRES
+préconditionné par `K0`) ; mêmes solutions que Newton à la tolérance près
+sur les cas de référence ; un test par paramètre qui échoue s'il est
+ignoré (nombre de constructions de l'AMG, nombre de factorisations).
 
 ## L6. GPU
 
@@ -576,7 +783,14 @@ Travail :
   configuration mixte explicite (matériau en mémoire partagée) ;
 - conditions de Dirichlet appliquées sur le GPU
   (`Vector::SetSubVector` avec une valeur s'exécute sur le périphérique
-  depuis MFEM 4.9) ; plus d'écriture hôte dans `u` ;
+  depuis MFEM 4.9) ; plus d'écriture hôte dans `u` pour les conditions de
+  mfem-mgis. Conditions écrites par l'utilisateur (interface publique qui
+  écrit `u` sur l'hôte) : `u` est synchronisé vers l'hôte avant l'appel et
+  vers le périphérique après (correct, mais coûteux), et une interface
+  pour le périphérique est proposée ;
+- solveurs qui ne marchent que sur l'hôte (UMFPACK, MUMPS) refusés avec un
+  périphérique GPU, sauf configuration mixte explicite (copie de la
+  matrice) ;
 - fin de pas sur le GPU par les opérations CUDA de MGIS (ou la variante
   `MFEMFieldOperations`) ;
 - option c sur GPU : matrice globale assemblée sur le GPU à partir des
@@ -610,17 +824,24 @@ Ordre proposé :
 1. déformations planes et contraintes planes ;
 2. grandes déformations (gradient de la transformation, contrainte de
    Piola-Kirchhoff, conversions de MGIS sur vues) ;
-3. thermique non linéaire stationnaire et transitoire ;
+3. thermique non linéaire stationnaire et transitoire (la transitoire
+   demande un noyau sur les valeurs des fonctions de forme, pas seulement
+   sur leurs dérivées ; la température lue depuis les inconnues comme
+   variable externe doit vivre sur le GPU) ;
 4. lois orthotropes : matrices de rotation par point en tableau, rotations
    de MGIS sur vues (plus de pointeurs de fonction) ;
 5. propriétés matériau et variables externes sous toutes leurs formes,
    dont les propriétés `generic-parallel` évaluées par MGIS sur le GPU ;
+   évaluateurs non uniformes copiés vers le GPU à chaque `setup` après
+   synchronisation de leur source ;
 6. conditions aux limites de bord (pression, source de chaleur) par des
    noyaux de bord, pour le GPU ;
 7. modèles et schémas de couplage (`Simulation`, `IterativeCouplingScheme`,
    `LoopCouplingScheme`, `NonLinearModel`, `PointWiseModel`,
-   `QPEvaluators`) : l'exemple thermomécanique ex8 en dépend, et les
-   échanges de champs aux points entre modèles se font sur l'hôte.
+   `QPEvaluators`), dépendances entre intégrateurs de deux problèmes
+   (`resolveBehaviourIntegratorsDependencies`) : l'exemple
+   thermomécanique ex8 en dépend, et les échanges de champs aux points
+   entre modèles se font sur l'hôte.
    `PointWiseModel` (loi aux points sans éléments finis) est un premier
    cas simple de loi par lots sur GPU ;
 8. micromorphe ;
@@ -629,8 +850,14 @@ Ordre proposé :
 10. problèmes périodiques.
 
 Tests : la suite de mfem-mgis passée sur le chemin par lots, cas par cas.
+La suite actuelle ne teste ni FBar, ni Faltus, ni les contraintes planes,
+ni la thermique transitoire, ni la source de chaleur, ni le couplage
+itératif, ni PETSc : ces tests sont à écrire dans ce lot (sur le chemin
+actuel d'abord, comme référence), ou les exemples correspondants de
+mfem-mgis-examples entrent dans la validation.
 
-Fin : suite complète sur le chemin par lots, sur CPU et sur GPU.
+Fin : suite complète, complétée de ces tests, sur le chemin par lots, sur
+CPU et sur GPU.
 
 ## L8. Sorties et post-traitements
 
@@ -639,8 +866,11 @@ Fin : suite complète sur le chemin par lots, sur CPU et sur GPU.
   composante, les accès des post-traitements sont à adapter ou les
   données à transposer vers une copie point par point.
 - Ensuite, selon les mesures : forces thermodynamiques moyennes, résultante
-  sur un bord et énergies par des réductions sur le GPU ; projections L2
-  par l'assemblage partiel de MFEM.
+  sur un bord, énergies et intégrales (`computeMeasure`,
+  `computeIntegral`) par des réductions sur le GPU, avec la règle
+  d'intégration choisie ; projections L2 et régularisation par gradient
+  implicite (`L2Projection.cxx:624-702`) par l'assemblage partiel de
+  MFEM.
 
 Tests : sorties identiques sur CPU et sur GPU, dans les deux rangements.
 
@@ -649,6 +879,12 @@ Tests : sorties identiques sur CPU et sur GPU, dans les deux rangements.
 - mfem-mgis-examples et mm-opera-hpc : options `--device`,
   `AssemblyStrategy`, `TangentOperator`, `QuadratureDataLayout`,
   `IntegrationRuleOrder`, solveur, passées par la ligne de commande.
+- Cas particuliers de ces dépôts à traiter : la condition de Robin d'ex8
+  (intégrateur de faces de bord dont la tangente dépend de `u`) et son
+  couplage thermomécanique ; les propriétés matériau posées dans la
+  mémoire hôte de l'utilisateur (`cermet`) ; les polycristaux périodiques
+  (degrés de liberté imposés par le problème périodique) ; la bulle
+  (`bubble`).
 - Campagne de mesures (section suivante), résultats dans `results/`,
   scripts dans `scripts/`.
 
@@ -707,17 +943,18 @@ Comparaisons :
 1. **Noms des paramètres** proposés plus haut.
 2. **Ordre des points d'entrée** : opérateur propre d'abord (proposé), à
    cause des intégrateurs de bord ignorés ou refusés par l'assemblage
-   partiel de MFEM 4.9.
-3. **MFEM 4.10** : second environnement pour cuDSS et Ginkgo distribué
-   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-49-ou-410)), ou passage de
-   tout le prototype à 4.10.
+   partiel de MFEM.
+3. **MFEM 4.10** : tranché le 09/10/2026, tout le prototype passe en 4.10
+   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-410)).
 4. **Noyaux écrits à la main ou générés** (extension du générateur GiNaC
    de mfem-mgis).
 5. **Propriétaire de la mémoire** : mfem-mgis (proposé) ou MGIS avec une
    ressource mémoire ; les deux sont prévus en L1, à comparer.
-6. **Base de travail** : `a011d97d6f`, ou la refonte de
+6. **Propriétés matériau de début de pas** (voir L2) : mfem-mgis les pose,
+   ou MGIS accepte leur absence quand la loi ne les lit pas.
+7. **Base de travail** : `a011d97d6f`, ou la refonte de
    `PartialQuadratureSpace` en cours en amont une fois fusionnée.
-7. **Propositions amont** : à quel moment et dans quel ordre.
+8. **Propositions amont** : à quel moment et dans quel ordre.
 
 ## Risques
 
@@ -728,7 +965,7 @@ Comparaisons :
   89 fichiers) touche les classes que L1 modifie ; la branche
   `452-post-processings-only-consider-the-first-behaviour-integrator-of-a-material`
   touche les post-traitements de L1 et L8. Conflits à prévoir.
-- **Assemblage partiel de MFEM 4.9** : limites décrites plus haut ; le
+- **Assemblage partiel de MFEM** : limites décrites plus haut ; le
   point d'entrée B ne dépend pas de l'extension.
 - **Compilation CUDA dans mfem-mgis** : les noyaux demandent nvcc ;
   temps de compilation et mémoire à surveiller, comme pour MFEM.
@@ -737,9 +974,10 @@ Comparaisons :
 - **Double précision sur GPU grand public** : la RTX 5080 calcule la
   double précision 64 fois plus lentement que la simple ; les mesures
   doivent être confirmées sur un GPU de calcul (A100 ou H100).
-- **Compilation de MFEM avec CUDA 13** : environnement `mmm-gpu` en cours
-  de construction ; MFEM 4.9 (décembre 2025) est postérieur à CUDA 13.0
-  (août 2025), mais CUDA 13 a changé des en-têtes (CCCL 3).
+- **MFEM 4.10** : mfem-mgis n'a été utilisé qu'avec 4.8 et 4.9 ;
+  compatibilité vérifiée en L0. Compilation avec CUDA 13 : `ptxas` prend
+  22 Go pour un fichier de MFEM (constructions encadrées par
+  `scripts/memory-governor.sh`).
 - **Échecs locaux de l'intégration** : sur GPU, un point en échec doit
   remonter sans copie de tout l'état ; MGIS rend le premier point en échec
   et un statut global.
