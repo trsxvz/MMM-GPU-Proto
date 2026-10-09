@@ -46,7 +46,7 @@ function(mfront_behaviours_check_library name)
   foreach(dep ${_DEPENDENCIES})
     add_mfront_dependency(${name} ${dep})
   endforeach(dep ${_DEPENDENCIES})
-  include_directories("${TFEL_INCLUDE_PATH}")
+  include_directories(${TFEL_INCLUDE_PATH})
   foreach(source ${_SOURCES})
     add_mfront_behaviour_sources(${name} ${source})
   endforeach(source ${_SOURCES})
@@ -67,7 +67,7 @@ function(mfront_behaviours_check_library name)
     add_dependencies(check ${name})
     target_include_directories(${name}
       PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/${interface}/include"
-      PRIVATE "${TFEL_INCLUDE_PATH}")
+      PRIVATE ${TFEL_INCLUDE_PATH})
     if(WIN32)
       if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
 	set_target_properties(${name}

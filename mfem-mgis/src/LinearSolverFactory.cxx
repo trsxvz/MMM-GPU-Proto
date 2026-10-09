@@ -390,6 +390,7 @@ namespace mfem_mgis {
       const char* const Preconditioner = "Preconditioner";
       const auto allowed_parameters = std::vector<std::string>{
           Problem::SolverVerbosityLevel, SolverTolerance,
+          Problem::SolverAbsoluteTolerance,
           Problem::SolverMaximumNumberOfIterations, Preconditioner};
       auto s = std::make_unique<mfem::HyprePCG>(fespace.GetComm());
       s->iterative_mode = false;
@@ -402,6 +403,14 @@ namespace mfem_mgis {
           return {};
         }
         s->SetPrintLevel(*olvl);
+      }
+      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+        const auto otol =
+            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+        if (isInvalid(otol)) {
+          return {};
+        }
+        s->SetAbsTol(*otol);
       }
       if (contains(params, SolverTolerance)) {
         const auto otol = get<double>(ctx, params, SolverTolerance);
@@ -453,6 +462,7 @@ namespace mfem_mgis {
       const char* const Krylov_Dimension = "KDim";
       const auto allowed_parameters = std::vector<std::string>{
           Problem::SolverVerbosityLevel, SolverTolerance,
+          Problem::SolverAbsoluteTolerance,
           Problem::SolverMaximumNumberOfIterations, Preconditioner,
           Krylov_Dimension};
       auto s = std::make_unique<mfem::HypreGMRES>(fespace.GetComm());
@@ -536,6 +546,7 @@ namespace mfem_mgis {
       const char* const Krylov_Dimension = "KDim";
       const auto allowed_parameters = std::vector<std::string>{
           Problem::SolverVerbosityLevel, SolverTolerance,
+          Problem::SolverAbsoluteTolerance,
           Problem::SolverMaximumNumberOfIterations, Preconditioner,
           Krylov_Dimension};
       auto s = std::make_unique<mfem::HypreFGMRES>(fespace.GetComm());
@@ -556,7 +567,8 @@ namespace mfem_mgis {
         if (isInvalid(otol)) {
           return {};
         }
-        s->SetTol(*otol);
+        // mfem::HypreFGMRES has no `SetAbsTol` method
+        HYPRE_ParCSRFlexGMRESSetAbsoluteTol(*s, *otol);
       }
       if (contains(params, SolverTolerance)) {
         const auto otol = get<double>(ctx, params, SolverTolerance);

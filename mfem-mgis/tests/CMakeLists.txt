@@ -749,10 +749,20 @@ if(MFEM_MGIS_HAVE_TFEL)
         "$<TARGET_FILE:BehaviourTest>")
   endif()
 
+  # DeviceOptionTest executable
+  add_test_executable(DeviceOptionTest)
+  add_test(NAME DeviceOptionTest-none
+           COMMAND DeviceOptionTest --expected none)
+  add_test(NAME DeviceOptionTest-debug
+           COMMAND DeviceOptionTest --device debug --expected debug)
+
   # HypreBoomerAMGTest executable
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)
     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
+    add_test_executable(HypreKrylovAbsoluteToleranceTest)
+    add_test(NAME HypreKrylovAbsoluteToleranceTestP
+             COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)

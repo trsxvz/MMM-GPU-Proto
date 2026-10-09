@@ -1,0 +1,116 @@
+From 2a23e81e7713c3d4bd26e76e745fdc190fc79dfb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 12:46:46 +0200
+Subject: [PATCH] CMake: support of MFEM compiled with CUDA
+
+- FindMFEM.cmake: the values of config.mk may contain an equal sign (the
+  flags `-Xcompiler=-fopenmp` of a build with CUDA); they were truncated
+  at the first one, dropping the following flags.
+- When MFEM is compiled with CUDA, the flags of config.mk are given in the
+  syntax of nvcc: `-Xcompiler=...` and `-Xlinker=...` are translated for
+  the C++ compiler, `-isystem` and its directory are kept together, and
+  the CUDA toolkit (headers included by MFEM, directory of its libraries)
+  is added to the MFEM target.
+---
+ cmake/modules/FindMFEM.cmake | 69 +++++++++++++++++++++++++++---------
+ 1 file changed, 53 insertions(+), 16 deletions(-)
+
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index 4f4424ccdc..aea8ca2c11 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -46,18 +46,14 @@ if (MFEM_CONFIG_FILE)
+   file(STRINGS ${MFEM_CONFIG_FILE} MFEM_CONFIG_STRINGS REGEX " = ")
+   # Now I need to parse this file; it's not pretty. Mayber there's a better way?
+   foreach(MY_LINE IN LISTS MFEM_CONFIG_STRINGS)
+-    # Make the equals sign the list separator
+-    string(REPLACE "=" ";" MY_LINE_NO_EQ ${MY_LINE})
+-    
+-    # Set the CMAKE variable name to the first thing; set the value to
+-    # the second thing.
+-    list(GET MY_LINE_NO_EQ 0 MY_VAR_NAME)
+-    list(GET MY_LINE_NO_EQ 1 MY_VAR_VALUE)
+-    
+-    string(STRIP ${MY_VAR_NAME} MY_VAR_NAME)
+-    string(STRIP ${MY_VAR_VALUE} MY_VAR_VALUE)
+-    
+-    set(${MY_VAR_NAME} ${MY_VAR_VALUE})
++    # The name of the variable is before the first equal sign, its value
++    # after it. The value may contain equal signs (for instance the flags
++    # `-Xcompiler=-fopenmp` of a build with CUDA).
++    if(MY_LINE MATCHES "^([^=]*)=(.*)$")
++      string(STRIP "${CMAKE_MATCH_1}" MY_VAR_NAME)
++      string(STRIP "${CMAKE_MATCH_2}" MY_VAR_VALUE)
++      set(${MY_VAR_NAME} "${MY_VAR_VALUE}")
++    endif()
+   endforeach(MY_LINE)
+   set(MFEM_DIR ${MFEM_INSTALL_DIR})
+   
+@@ -73,10 +69,39 @@ find_path(MFEM_INCLUDE_DIRS mfem.hpp
+   DOC "MFEM header location.")
+ find_path(MFEM_INCLUDE_DIRS mfem.hpp)
+ 
+-set(DISCOVER_EXTRA_INC_DIRS ${MFEM_TPLFLAGS})
+-string(REPLACE " " ";" MFEM_EXTRA_INC_DIRS ${DISCOVER_EXTRA_INC_DIRS})
++# When MFEM is compiled with CUDA, `MFEM_CXX` is nvcc and the flags of
++# config.mk are given in the syntax of nvcc (`-Xcompiler=...`,
++# `-Xlinker=...`). The sources of mfem-mgis compiled by the C++ compiler get
++# their equivalent for this compiler. The other flags are unchanged.
++function(mfem_mgis_host_flags out)
++  set(_flags)
++  foreach(_flag IN LISTS ARGN)
++    if(_flag MATCHES "^-Xcompiler=(.*)$")
++      string(REPLACE "," ";" _options "${CMAKE_MATCH_1}")
++      list(APPEND _flags ${_options})
++    elseif(_flag MATCHES "^-Xlinker=(.*)$")
++      list(APPEND _flags "-Wl,${CMAKE_MATCH_1}")
++    else()
++      list(APPEND _flags "${_flag}")
++    endif()
++  endforeach(_flag)
++  set(${out} ${_flags} PARENT_SCOPE)
++endfunction(mfem_mgis_host_flags)
++
++separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
++mfem_mgis_host_flags(MFEM_EXTRA_INC_DIRS ${MFEM_EXTRA_INC_DIRS})
++# `-isystem` is followed by its directory: both are given together, since
++# `add_compile_options` removes duplicated options
++set(_isystem OFF)
+ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
+-  add_compile_options(${FLAG})
++  if(_isystem)
++    add_compile_options("SHELL:-isystem ${FLAG}")
++    set(_isystem OFF)
++  elseif(FLAG STREQUAL "-isystem")
++    set(_isystem ON)
++  else()
++    add_compile_options(${FLAG})
++  endif()
+ endforeach(FLAG)
+ 
+ 
+@@ -100,8 +125,20 @@ set_property(TARGET MFEM::mfem APPEND
+   PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${MFEM_INCLUDE_DIRS})
+ 
+ # Set external libraries (lapack, hypre, metis ...)
++separate_arguments(MFEM_EXT_LIBS_LIST UNIX_COMMAND "${MFEM_EXT_LIBS}")
++mfem_mgis_host_flags(MFEM_EXT_LIBS_LIST ${MFEM_EXT_LIBS_LIST})
++# MFEM compiled with CUDA: its headers include the headers of the CUDA
++# toolkit (`cusparse.h`, ...), and its external libraries name the libraries
++# of the toolkit (`-lcusparse`, ...) without their directory, which nvcc
++# knows but not the C++ compiler
++if(MFEM_USE_CUDA STREQUAL "YES")
++  find_package(CUDAToolkit REQUIRED)
++  list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
++  set_property(TARGET MFEM::mfem APPEND
++    PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)
++endif()
+ set_property(TARGET MFEM::mfem APPEND
+-    PROPERTY INTERFACE_LINK_LIBRARIES ${MFEM_EXT_LIBS})
++    PROPERTY INTERFACE_LINK_LIBRARIES ${MFEM_EXT_LIBS_LIST})
+ 
+ # Set MPI library
+ if(MFEM_USE_MPI)
+-- 
+2.43.0
+

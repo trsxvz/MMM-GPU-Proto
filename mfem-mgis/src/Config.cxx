@@ -6,12 +6,14 @@
  */
 
 #include <cstring>
+#include <memory>
 #include <iostream>
 #ifdef MFEM_USE_MPI
 #include "mpi.h"
 #include "mfem/linalg/hypre.hpp"
 #endif /* MFEM_USE_MPI */
 #include "mfem/general/error.hpp"
+#include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/general/communication.hpp"
 #ifdef MFEM_USE_PETSC
@@ -29,6 +31,8 @@ namespace mfem_mgis {
   struct MGIS_VISIBILITY_LOCAL Finalizer {
     //! \brief option used to select the PETSc configuration file
     static const char* const petsc_configuration_file_option;
+    //! \brief option used to select the configuration of the MFEM device
+    static const char* const device_option;
     //! \return the unique instance of this class
     static Finalizer& get();
     /*!
@@ -55,6 +59,12 @@ namespace mfem_mgis {
    private:
     //! \brief boolean stating if PETSc shall be used
     bool use_petsc = false;
+    /*!
+     * \brief MFEM device, created if the `--device` option is given. It is
+     * kept until the end of the program, since MFEM objects using it may
+     * be destroyed after `finalize`.
+     */
+    std::unique_ptr<mfem::Device> device;
     //! \brief boolean stating if MPI has been finalized or aborted
     bool pendingExit = false;
     /*!
@@ -67,6 +77,8 @@ namespace mfem_mgis {
 
   const char* const Finalizer::petsc_configuration_file_option =
       "--petsc-configuration-file";
+
+  const char* const Finalizer::device_option = "--device";
 
   Finalizer::Finalizer() = default;
 
@@ -85,7 +97,19 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_PETSC
     const char* petscrc_file = nullptr;
 #endif /* MFEM_USE_PETSC */
+    const char* device_configuration = nullptr;
     for (const auto* a = argv; a != argv + argc; ++a) {
+      if (std::strcmp(*a, device_option) == 0) {
+        if (device_configuration != nullptr) {
+          mgis::raise("initialize: MFEM device already specified");
+        }
+        ++a;
+        if (a == argv + argc) {
+          mgis::raise("initialize: no value given to --device");
+        }
+        device_configuration = *a;
+        continue;
+      }
 #ifdef MFEM_USE_PETSC
       if (std::strcmp(*a, "--use-petsc") == 0) {
         this->use_petsc = true;
@@ -111,6 +135,11 @@ namespace mfem_mgis {
       mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
     }
 #endif /* MFEM_USE_PETSC */
+    // the device is configured after the initialization of hypre, as in
+    // the parallel examples of MFEM
+    if (device_configuration != nullptr) {
+      this->device = std::make_unique<mfem::Device>(device_configuration);
+    }
   }    // end of initialize
 
   Finalizer& Finalizer::get() {
@@ -188,8 +217,12 @@ namespace mfem_mgis {
 
 #else /* MFEM_USE_MPI */
 
-  void initialize(int&, MainFunctionArguments&) {
-    Finalizer::get();
+  void initialize(int& argc, MainFunctionArguments& argv) {
+    static bool first = true;
+    if (first) {
+      Finalizer::get().initialize(argc, argv);
+      first = false;
+    }
   }  // end of initialize
 
 #endif /* MFEM_USE_MPI */
@@ -206,7 +239,13 @@ namespace mfem_mgis {
   }  // end of abort
 
   void declareDefaultOptions(mfem::OptionsParser& parser) {
-    static_cast<void>(parser);
+    // the device is created by `initialize`: the option is only declared
+    // here, so that the parser accepts it
+    static const char* device_configuration = "cpu";
+    parser.AddOption(&device_configuration, "-dev", Finalizer::device_option,
+                     "Configuration of the MFEM device (for instance cpu, "
+                     "cuda, hip, omp or debug), created by "
+                     "mfem_mgis::initialize.");
 #ifdef MFEM_USE_PETSC
     static bool use_petsc = false;
     static const char* petscrc_file = "";

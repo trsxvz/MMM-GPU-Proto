@@ -25,18 +25,28 @@ find_program(MFRONT_QUERY  mfront-query
 
 IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
 
+  # `tfel-config --includes` and `tfel-config --libs` may return several
+  # directories (for instance the headers of TDLS): each `-I` or `-L` flag
+  # gives one element of the list
   EXECUTE_PROCESS(COMMAND ${TFEL_CONFIG} "--includes"
-    OUTPUT_VARIABLE TFEL_INCLUDE_PATH
+    OUTPUT_VARIABLE _tfel_includes
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  STRING(LENGTH ${TFEL_INCLUDE_PATH}  TFEL_INCLUDE_PATH_LENGTH)
-  MATH(EXPR TFEL_INCLUDE_PATH_LENGTH "${TFEL_INCLUDE_PATH_LENGTH} - 2")
-  STRING(SUBSTRING ${TFEL_INCLUDE_PATH} 2 ${TFEL_INCLUDE_PATH_LENGTH} TFEL_INCLUDE_PATH)
+  separate_arguments(_tfel_includes UNIX_COMMAND "${_tfel_includes}")
+  set(TFEL_INCLUDE_PATH)
+  foreach(_flag IN LISTS _tfel_includes)
+    string(REGEX REPLACE "^-I" "" _flag "${_flag}")
+    list(APPEND TFEL_INCLUDE_PATH "${_flag}")
+  endforeach(_flag)
   EXECUTE_PROCESS(COMMAND ${TFEL_CONFIG} "--libs"
-    OUTPUT_VARIABLE TFEL_LIBRARY_PATH
+    OUTPUT_VARIABLE _tfel_libs
     OUTPUT_STRIP_TRAILING_WHITESPACE)
-  STRING(LENGTH ${TFEL_LIBRARY_PATH}  TFEL_LIBRARY_PATH_LENGTH)
-  MATH(EXPR TFEL_LIBRARY_PATH_LENGTH "${TFEL_LIBRARY_PATH_LENGTH} - 2")
-  STRING(SUBSTRING ${TFEL_LIBRARY_PATH} 2 ${TFEL_LIBRARY_PATH_LENGTH} TFEL_LIBRARY_PATH)
+  separate_arguments(_tfel_libs UNIX_COMMAND "${_tfel_libs}")
+  set(TFEL_LIBRARY_PATH)
+  foreach(_flag IN LISTS _tfel_libs)
+    if(_flag MATCHES "^-L(.*)$")
+      list(APPEND TFEL_LIBRARY_PATH "${CMAKE_MATCH_1}")
+    endif()
+  endforeach(_flag)
 
   EXECUTE_PROCESS(COMMAND ${TFEL_CONFIG} "--cxx-standard"
     RESULT_VARIABLE TFEL_CXX_STANDARD_AVAILABLE

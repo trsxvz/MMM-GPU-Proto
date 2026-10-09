@@ -1,0 +1,221 @@
+From 1d81a35c4db80aacd98933c685bdcf7421c63cb0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 12:46:57 +0200
+Subject: [PATCH] Option --device: MFEM device created by initialize
+
+`mfem_mgis::initialize` creates the MFEM device when the option
+`--device <configuration>` is given (for instance cpu, cuda, omp or
+debug), after the initialization of hypre, as in the parallel examples of
+MFEM. The device is kept until the end of the program.
+`declareDefaultOptions` declares the option (short name `-dev`, `-d`
+being used by examples) so that the parsers of the applications accept
+it. The sequential version of `initialize` now processes the options
+too.
+
+New test DeviceOptionTest: no device by default, the debug device with
+`--device debug`.
+---
+ include/MFEMMGIS/Config.hxx |  5 +++--
+ src/Config.cxx              | 45 ++++++++++++++++++++++++++++++++++---
+ tests/CMakeLists.txt        |  7 ++++++
+ tests/DeviceOptionTest.cxx  | 42 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 94 insertions(+), 5 deletions(-)
+ create mode 100644 tests/DeviceOptionTest.cxx
+
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 85b42c2997..41fae25035 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -197,8 +197,9 @@ namespace mfem_mgis {
+    */
+   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
+   /*!
+-   * \brief declare default options. Only the PETSc options are declared,
+-   * if PETSc is available.
++   * \brief declare default options: the configuration of the MFEM device
++   * (`--device`, the device being created by `initialize`), and the PETSc
++   * options, if PETSc is available.
+    * \param[in, out] parser: options parser
+    */
+   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e49a38b75d..5f72a481d6 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -6,12 +6,14 @@
+  */
+ 
+ #include <cstring>
++#include <memory>
+ #include <iostream>
+ #ifdef MFEM_USE_MPI
+ #include "mpi.h"
+ #include "mfem/linalg/hypre.hpp"
+ #endif /* MFEM_USE_MPI */
+ #include "mfem/general/error.hpp"
++#include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/general/communication.hpp"
+ #ifdef MFEM_USE_PETSC
+@@ -29,6 +31,8 @@ namespace mfem_mgis {
+   struct MGIS_VISIBILITY_LOCAL Finalizer {
+     //! \brief option used to select the PETSc configuration file
+     static const char* const petsc_configuration_file_option;
++    //! \brief option used to select the configuration of the MFEM device
++    static const char* const device_option;
+     //! \return the unique instance of this class
+     static Finalizer& get();
+     /*!
+@@ -55,6 +59,12 @@ namespace mfem_mgis {
+    private:
+     //! \brief boolean stating if PETSc shall be used
+     bool use_petsc = false;
++    /*!
++     * \brief MFEM device, created if the `--device` option is given. It is
++     * kept until the end of the program, since MFEM objects using it may
++     * be destroyed after `finalize`.
++     */
++    std::unique_ptr<mfem::Device> device;
+     //! \brief boolean stating if MPI has been finalized or aborted
+     bool pendingExit = false;
+     /*!
+@@ -68,6 +78,8 @@ namespace mfem_mgis {
+   const char* const Finalizer::petsc_configuration_file_option =
+       "--petsc-configuration-file";
+ 
++  const char* const Finalizer::device_option = "--device";
++
+   Finalizer::Finalizer() = default;
+ 
+ #ifdef MFEM_USE_PETSC
+@@ -85,7 +97,19 @@ namespace mfem_mgis {
+ #ifdef MFEM_USE_PETSC
+     const char* petscrc_file = nullptr;
+ #endif /* MFEM_USE_PETSC */
++    const char* device_configuration = nullptr;
+     for (const auto* a = argv; a != argv + argc; ++a) {
++      if (std::strcmp(*a, device_option) == 0) {
++        if (device_configuration != nullptr) {
++          mgis::raise("initialize: MFEM device already specified");
++        }
++        ++a;
++        if (a == argv + argc) {
++          mgis::raise("initialize: no value given to --device");
++        }
++        device_configuration = *a;
++        continue;
++      }
+ #ifdef MFEM_USE_PETSC
+       if (std::strcmp(*a, "--use-petsc") == 0) {
+         this->use_petsc = true;
+@@ -111,6 +135,11 @@ namespace mfem_mgis {
+       mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
+     }
+ #endif /* MFEM_USE_PETSC */
++    // the device is configured after the initialization of hypre, as in
++    // the parallel examples of MFEM
++    if (device_configuration != nullptr) {
++      this->device = std::make_unique<mfem::Device>(device_configuration);
++    }
+   }    // end of initialize
+ 
+   Finalizer& Finalizer::get() {
+@@ -188,8 +217,12 @@ namespace mfem_mgis {
+ 
+ #else /* MFEM_USE_MPI */
+ 
+-  void initialize(int&, MainFunctionArguments&) {
+-    Finalizer::get();
++  void initialize(int& argc, MainFunctionArguments& argv) {
++    static bool first = true;
++    if (first) {
++      Finalizer::get().initialize(argc, argv);
++      first = false;
++    }
+   }  // end of initialize
+ 
+ #endif /* MFEM_USE_MPI */
+@@ -206,7 +239,13 @@ namespace mfem_mgis {
+   }  // end of abort
+ 
+   void declareDefaultOptions(mfem::OptionsParser& parser) {
+-    static_cast<void>(parser);
++    // the device is created by `initialize`: the option is only declared
++    // here, so that the parser accepts it
++    static const char* device_configuration = "cpu";
++    parser.AddOption(&device_configuration, "-dev", Finalizer::device_option,
++                     "Configuration of the MFEM device (for instance cpu, "
++                     "cuda, hip, omp or debug), created by "
++                     "mfem_mgis::initialize.");
+ #ifdef MFEM_USE_PETSC
+     static bool use_petsc = false;
+     static const char* petscrc_file = "";
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 10b6c85fff..95f4398a01 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -749,6 +749,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+         "$<TARGET_FILE:BehaviourTest>")
+   endif()
+ 
++  # DeviceOptionTest executable
++  add_test_executable(DeviceOptionTest)
++  add_test(NAME DeviceOptionTest-none
++           COMMAND DeviceOptionTest --expected none)
++  add_test(NAME DeviceOptionTest-debug
++           COMMAND DeviceOptionTest --device debug --expected debug)
++
+   # HypreBoomerAMGTest executable
+   if(MFEM_USE_MPI)
+     add_test_executable(HypreBoomerAMGTest)
+diff --git a/tests/DeviceOptionTest.cxx b/tests/DeviceOptionTest.cxx
+new file mode 100644
+index 0000000000..f8caf11a9d
+--- /dev/null
++++ b/tests/DeviceOptionTest.cxx
+@@ -0,0 +1,42 @@
++/*!
++ * \file   DeviceOptionTest.cxx
++ * \brief  Test of the `--device` option, which creates the MFEM device in
++ * `mfem_mgis::initialize`
++ * \date   09/10/2026
++ */
++
++#include <cstdlib>
++#include <cstring>
++#include <iostream>
++#include "mfem/general/device.hpp"
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++int main(int argc, char** argv) {
++  mfem_mgis::initialize(argc, argv);
++  // `none` if no device is expected, `debug` if the debug device of MFEM is
++  // expected
++  const char* expected = "none";
++  auto args = mfem::OptionsParser(argc, argv);
++  mfem_mgis::declareDefaultOptions(args);
++  args.AddOption(&expected, "-e", "--expected",
++                 "expected device: none or debug");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  const auto configured = mfem::Device::IsConfigured();
++  const auto debug = mfem::Device::Allows(mfem::Backend::DEBUG_DEVICE);
++  auto success = false;
++  if (std::strcmp(expected, "none") == 0) {
++    success = !configured;
++  } else if (std::strcmp(expected, "debug") == 0) {
++    success = configured && debug;
++  } else {
++    std::cerr << "invalid expected device '" << expected << "'\n";
++  }
++  std::cout << "device configured: " << configured
++            << ", debug device: " << debug << '\n';
++  return success ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

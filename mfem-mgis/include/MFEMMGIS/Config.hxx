@@ -197,8 +197,9 @@ namespace mfem_mgis {
    */
   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
   /*!
-   * \brief declare default options. Only the PETSc options are declared,
-   * if PETSc is available.
+   * \brief declare default options: the configuration of the MFEM device
+   * (`--device`, the device being created by `initialize`), and the PETSc
+   * options, if PETSc is available.
    * \param[in, out] parser: options parser
    */
   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
