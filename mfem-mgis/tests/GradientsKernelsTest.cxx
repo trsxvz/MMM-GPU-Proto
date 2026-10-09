@@ -275,7 +275,11 @@ static void testCase(mfem_mgis::Context& ctx,
       reference_matrix.AddSubMatrix(vdofs, vdofs, Ke, 0);
     }
     reference_matrix.Finalize(0);
+    // the assembled matrix keeps the ordering of MFEM (search of the
+    // entries by bisection, then linearly), and is sorted to be compared to
+    // the reference
     auto assembled_matrix = mfem::SparseMatrix(reference_matrix);
+    reference_matrix.SortColumnIndices();
     auto element_dofs = mfem::Array<int>{};
     check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
           name + ": degrees of freedom of the elements (" +
@@ -290,6 +294,7 @@ static void testCase(mfem_mgis::Context& ctx,
               geometry),
           name + ": assembly of the stiffness matrices by kernels (" +
               ctx.getErrorMessage() + ")");
+    assembled_matrix.SortColumnIndices();
     const auto* const av = assembled_matrix.HostReadData();
     const auto* const rv = reference_matrix.HostReadData();
     auto da = real{};
@@ -317,6 +322,55 @@ static void testCase(mfem_mgis::Context& ctx,
               geometry),
           name + ": entries outside of the pattern of the matrix not detected");
   }
+  // pattern of the matrix in which the stiffness matrices are assembled: the
+  // one built by MFEM from the matrices of all the elements, the diagonal
+  // entry being the first of each row
+  auto element_dofs = mfem::Array<int>{};
+  check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
+        c.name + ": degrees of freedom of the elements (" +
+            ctx.getErrorMessage() + ")");
+  const auto m = batch::makeAssembledStiffnessMatrix(ctx, fes, element_dofs);
+  check(m != nullptr, c.name + ": creation of the assembled matrix (" +
+                          ctx.getErrorMessage() + ")");
+  if (m == nullptr) {
+    return;
+  }
+  auto reference = mfem::SparseMatrix(fes.GetVSize());
+  auto vdofs = mfem::Array<int>{};
+  auto Ke = mfem::DenseMatrix{};
+  for (int i = 0; i != fes.GetNE(); ++i) {
+    fes.GetElementVDofs(i, vdofs);
+    Ke.SetSize(vdofs.Size());
+    Ke = real{0};
+    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
+  }
+  reference.Finalize(0);
+  reference.SortColumnIndices();
+  const auto nnz = reference.NumNonZeroElems();
+  auto same_pattern = (m->Height() == reference.Height()) &&
+                      (m->Width() == reference.Width()) &&
+                      (m->NumNonZeroElems() == nnz);
+  if (same_pattern) {
+    const auto* const I = m->HostReadI();
+    const auto* const J = m->HostReadJ();
+    const auto* const v = m->HostReadData();
+    for (int r = 0; r != m->Height(); ++r) {
+      same_pattern = same_pattern && (I[r] != I[r + 1]) && (J[I[r]] == r);
+    }
+    same_pattern = same_pattern &&
+                   std::all_of(v, v + nnz, [](const real x) { return x == 0; });
+    auto sorted = mfem::SparseMatrix(*m);
+    sorted.SortColumnIndices();
+    const auto* const sI = sorted.HostReadI();
+    const auto* const sJ = sorted.HostReadJ();
+    const auto* const rI = reference.HostReadI();
+    const auto* const rJ = reference.HostReadJ();
+    same_pattern = same_pattern && std::equal(sI, sI + m->Height() + 1, rI) &&
+                   std::equal(sJ, sJ + nnz, rJ);
+  }
+  std::cout << c.name << ": pattern of the assembled matrix, " << nnz
+            << " values\n";
+  check(same_pattern, c.name + ": pattern of the assembled matrix");
 }  // end of testCase
 
 /*!

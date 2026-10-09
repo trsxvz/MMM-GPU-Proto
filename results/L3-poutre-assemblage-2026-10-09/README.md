@@ -68,11 +68,31 @@ sautée), les gradients par 3,4.
   additions atomiques et réductions du GPU, ordre des sommes non
   déterministe. Même norme de la solution à 1e-10 près.
 
+## Motif construit à partir des éléments (mfem-mgis 799941c8fd)
+
+Le motif de la matrice locale est construit à partir des ddl des éléments
+au premier appel : plus de boucle de MFEM. Dans chaque ligne, le terme
+diagonal vient d'abord, puis les autres colonnes triées : c'est l'ordre
+que `HypreParMatrix` impose en place aux lignes de la matrice locale qu'il
+partage (`hypre_CSRMatrixReorder`). Le noyau cherche les colonnes par
+dichotomie au lieu d'un parcours de la ligne.
+
+| Cas (3 pas, 1 processus) | Total | Intégration | Résidu | Tangente | Résolution | Prédiction |
+|---|---|---|---|---|---|---|
+| CPU, lots | 24,53 | 1,14 (13) | 1,05 (13) | 4,47 (10) | 13,36 | 4,32 |
+| CPU, tout par noyaux | 22,62 | 0,37 (13) | 0,22 (13) | 4,00 (10) | 13,32 | 4,53 |
+| GPU, tout par noyaux | 6,84 | 0,50 (13) | 0,02 (13) | 0,16 (10) | 0,89 | 4,99 |
+
+- Sur CPU, la tangente par noyaux devient plus rapide que la boucle de
+  MFEM (0,40 s par appel contre 0,45 s) : le coût venait surtout du
+  parcours linéaire des lignes, pas du recalcul par paire de nœuds.
+- Sur GPU, 16 ms par tangente (contre 126 ms avec le premier motif de
+  MFEM). Le calcul est dominé par la prédiction (73 %), qui assemble des
+  formes bilinéaires élément par élément sur l'hôte.
+
 ## Suite
 
-- construire le motif à partir des ddl des éléments (plus de passage par
-  la boucle de MFEM, colonnes triées, recherche par dichotomie) ;
-- variante du noyau adaptée au CPU (un fil par élément) ;
-- la prédiction (opérateurs linéarisés assemblés par MFEM sur l'hôte) et
-  l'intégration de la loi (interface `generic`, sur l'hôte) dominent
-  maintenant le calcul sur GPU.
+- prédiction par noyaux (lot L4) ;
+- loi sur le GPU (bibliothèque `generic-parallel` CUDA) ;
+- test MPI des noyaux dans mfem-mgis ;
+- variante du noyau à un fil par élément, pour comparer sur CPU.

@@ -6,9 +6,15 @@
  * \date   09/10/2026
  */
 
+#include <tuple>
 #include <limits>
+#include <memory>
 #include <string>
+#include <vector>
+#include <cstddef>
 #include <cstdint>
+#include <numeric>
+#include <algorithm>
 #include <exception>
 #include "mfem/general/device.hpp"
 #include "mfem/fem/fe/fe_base.hpp"
@@ -181,6 +187,88 @@ namespace mfem_mgis::batch {
     }
     return true;
   }  // end of computeElementsDegreesOfFreedom
+
+  std::unique_ptr<mfem::SparseMatrix> makeAssembledStiffnessMatrix(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Array<int>& dofs) noexcept {
+    try {
+      const auto n = fes.GetVSize();
+      const auto ne = fes.GetNE();
+      const auto nde = (ne == 0) ? 0 : dofs.Size() / ne;
+      if (nde * ne != dofs.Size()) {
+        std::ignore = ctx.registerErrorMessage(
+            "makeAssembledStiffnessMatrix: invalid number of degrees of "
+            "freedom of the elements");
+        return {};
+      }
+      const auto* const d = dofs.HostRead();
+      // elements of each degree of freedom
+      auto offsets = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
+      for (int i = 0; i != dofs.Size(); ++i) {
+        if ((d[i] < 0) || (d[i] >= n)) {
+          std::ignore = ctx.registerErrorMessage(
+              "makeAssembledStiffnessMatrix: invalid degree of freedom");
+          return {};
+        }
+        ++offsets[static_cast<std::size_t>(d[i]) + 1];
+      }
+      std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
+      auto elements = std::vector<int>(static_cast<std::size_t>(offsets[n]));
+      auto positions = std::vector<int>(offsets.begin(), offsets.end() - 1);
+      for (int e = 0; e != ne; ++e) {
+        for (int j = 0; j != nde; ++j) {
+          const auto r = static_cast<std::size_t>(d[nde * e + j]);
+          elements[static_cast<std::size_t>(positions[r]++)] = e;
+        }
+      }
+      // columns of each row: degrees of freedom of the elements of the row,
+      // without repetitions, the diagonal first and the others sorted
+      auto rows = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
+      auto columns = std::vector<int>{};
+      auto last_row = std::vector<int>(static_cast<std::size_t>(n), -1);
+      for (int r = 0; r != n; ++r) {
+        const auto begin = columns.size();
+        for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
+          const auto e = elements[static_cast<std::size_t>(p)];
+          for (int j = 0; j != nde; ++j) {
+            const auto c = d[nde * e + j];
+            if (last_row[static_cast<std::size_t>(c)] != r) {
+              last_row[static_cast<std::size_t>(c)] = r;
+              columns.push_back(c);
+            }
+          }
+        }
+        const auto first = columns.begin() + static_cast<std::ptrdiff_t>(begin);
+        std::sort(first, columns.end());
+        const auto diagonal = std::lower_bound(first, columns.end(), r);
+        if ((diagonal != columns.end()) && (*diagonal == r)) {
+          std::rotate(first, diagonal, diagonal + 1);
+        }
+        if (columns.size() >
+            static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+          std::ignore = ctx.registerErrorMessage(
+              "makeAssembledStiffnessMatrix: too many values for MFEM");
+          return {};
+        }
+        rows[static_cast<std::size_t>(r) + 1] =
+            static_cast<int>(columns.size());
+      }
+      // arrays allocated by the memory manager of MFEM (as
+      // `mfem::Transpose`), owned by the matrix, whose values are allocated
+      // and set to zero by its constructor
+      const auto nnz = static_cast<int>(columns.size());
+      int* const I = mfem::Memory<int>(n + 1);
+      int* const J = mfem::Memory<int>(nnz);
+      std::copy(rows.begin(), rows.end(), I);
+      std::copy(columns.begin(), columns.end(), J);
+      return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
+                                                  true, false);
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+    }
+    return {};
+  }  // end of makeAssembledStiffnessMatrix
 
   bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES

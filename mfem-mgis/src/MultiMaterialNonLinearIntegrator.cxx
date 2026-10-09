@@ -557,18 +557,30 @@ namespace mfem_mgis {
     this->stiffness_matrices_computed_by_kernels = b;
   }  // end of setStiffnessMatricesComputedByKernels
 
+  bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
+      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+    if ((this->element_dofs.Size() != 0) || (fes.GetNE() == 0)) {
+      return true;
+    }
+    return batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs, fes);
+  }  // end of computeElementsDegreesOfFreedom
+
+  std::unique_ptr<mfem::SparseMatrix>
+  MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix(
+      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+    if (!this->computeElementsDegreesOfFreedom(ctx, fes)) {
+      return {};
+    }
+    return batch::makeAssembledStiffnessMatrix(ctx, fes, this->element_dofs);
+  }  // end of makeAssembledStiffnessMatrix
+
   bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
       Context& ctx,
       const mfem::FiniteElementSpace& fes,
       mfem::SparseMatrix& m) noexcept {
-    if (!this->computeElementsGeometry(ctx, fes)) {
+    if ((!this->computeElementsGeometry(ctx, fes)) ||
+        (!this->computeElementsDegreesOfFreedom(ctx, fes))) {
       return false;
-    }
-    if ((this->element_dofs.Size() == 0) && (fes.GetNE() != 0)) {
-      if (!batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs,
-                                                  fes)) {
-        return false;
-      }
     }
     if (!batch::zeroSparseMatrixValues(ctx, m)) {
       return false;

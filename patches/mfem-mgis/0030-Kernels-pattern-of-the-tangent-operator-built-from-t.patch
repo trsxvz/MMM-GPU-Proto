@@ -1,0 +1,568 @@
+From 799941c8fd38d5a482c8d96d25515e8b5dba6e1b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 21:44:47 +0200
+Subject: [PATCH] Kernels: pattern of the tangent operator built from the
+ elements
+
+The local matrix of the tangent operator assembled by kernels is
+created from the degrees of freedom of the elements
+(batch::makeAssembledStiffnessMatrix), at the first call of
+GetGradient: the element loop of MFEM is no longer used to build its
+pattern. In each row, the diagonal entry comes first, then the other
+columns, sorted: the ordering of hypre, which mfem::HypreParMatrix
+imposes in place on the rows of the local matrix that it aliases
+(hypre_CSRMatrixReorder), so that the rows of a sorted matrix would not
+stay sorted in parallel. The kernel tests the first column of the row,
+then searches the others by bisection, then linearly (any ordering is
+supported).
+
+Beam (111843 unknowns, 1 process, 10 tangent operators): 0.16 s on the
+GPU instead of 1.26 s, 4.00 s on a CPU core instead of 4.47 s for the
+element loop of MFEM (the linear search in the rows dominated).
+---
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  | 30 +++++--
+ .../MultiMaterialNonLinearIntegrator.hxx      | 27 +++++-
+ src/Batch/StiffnessMatrices.cxx               | 88 +++++++++++++++++++
+ src/Batch/StiffnessMatricesKernels.cxx        | 59 ++++++++++---
+ src/MultiMaterialNonLinearIntegrator.cxx      | 26 ++++--
+ ...onLinearEvolutionProblemImplementation.cxx | 56 ++++++------
+ tests/GradientsKernelsTest.cxx                | 54 ++++++++++++
+ 7 files changed, 284 insertions(+), 56 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index db10a468be..de3bada519 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -9,6 +9,7 @@
+ #ifndef LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+ #define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+ 
++#include <memory>
+ #include "mfem/general/array.hpp"
+ #include "mfem/linalg/vector.hpp"
+ #include "MGIS/FieldView.hxx"
+@@ -64,8 +65,7 @@ namespace mfem_mgis::batch {
+     /*!
+      * \brief matrix, finalized, on the local vector of the finite element
+      * space, whose pattern contains all the entries of the stiffness
+-     * matrices of the elements (for instance assembled once by the element
+-     * loop of MFEM)
++     * matrices of the elements (see `makeAssembledStiffnessMatrix`)
+      */
+     mfem::SparseMatrix* matrix = nullptr;
+     /*!
+@@ -88,6 +88,25 @@ namespace mfem_mgis::batch {
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsDegreesOfFreedom(
+       Context&, mfem::Array<int>&, const mfem::FiniteElementSpace&) noexcept;
++  /*!
++   * \brief creates the sparse matrix in which the stiffness matrices of all
++   * the elements are assembled (see `AssembledStiffnessMatrix`), on the
++   * local vector of the finite element space: its pattern contains the
++   * couplings between the degrees of freedom of each element, and its
++   * values are null. In each row, the diagonal entry comes first, then the
++   * other columns, sorted: the ordering of hypre, which
++   * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
++   * uses (the columns of a sorted row would not stay sorted).
++   * \return the matrix, or a null pointer on error
++   * \param[in, out] ctx: execution context
++   * \param[in] fes: finite element space
++   * \param[in] dofs: degrees of freedom of all the elements (see
++   * `computeElementsDegreesOfFreedom`)
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
++  makeAssembledStiffnessMatrix(Context&,
++                               const mfem::FiniteElementSpace&,
++                               const mfem::Array<int>&) noexcept;
+   /*!
+    * \brief sets the values of a sparse matrix to zero, on the device if a
+    * device is enabled
+@@ -100,9 +119,10 @@ namespace mfem_mgis::batch {
+   /*!
+    * \brief adds the stiffness matrices of the elements of a material to an
+    * assembled sparse matrix, on the device if a device is enabled, without
+-   * storing them: the position of each entry is searched in its row, and
+-   * the additions are atomic (several materials may share degrees of
+-   * freedom)
++   * storing them: the position of each entry is searched in its row (by
++   * bisection for the ordering of `makeAssembledStiffnessMatrix` or sorted
++   * rows, linearly otherwise), and the additions are atomic (several
++   * materials may share degrees of freedom)
+    * \return true on success, false if an entry is not in the pattern of the
+    * matrix
+    * \param[in, out] m: assembled matrix
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 93bef81425..2628255b05 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -184,6 +184,17 @@ namespace mfem_mgis {
+      * \param[in] b: boolean
+      */
+     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
++    /*!
++     * \brief create the sparse matrix in which
++     * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
++     * all the elements (see `batch::makeAssembledStiffnessMatrix`)
++     * \return the matrix, or a null pointer on error
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     */
++    [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
++    makeAssembledStiffnessMatrix(Context&,
++                                 const mfem::FiniteElementSpace&) noexcept;
+     /*!
+      * \brief assemble the stiffness matrices of all the elements, computed
+      * by kernels, in a sparse matrix on the local vector of the finite
+@@ -193,8 +204,9 @@ namespace mfem_mgis {
+      * \return true on success
+      * \param[in, out] ctx: execution context
+      * \param[in] fes: finite element space
+-     * \param[in, out] m: matrix, finalized, whose pattern contains all the
+-     * entries of the stiffness matrices of the elements
++     * \param[in, out] m: matrix created by `makeAssembledStiffnessMatrix`,
++     * or a matrix, finalized, whose pattern contains all the entries of the
++     * stiffness matrices of the elements
+      */
+     [[nodiscard]] bool assembleStiffnessMatrixByKernels(
+         Context& ctx,
+@@ -369,9 +381,18 @@ namespace mfem_mgis {
+     /*!
+      * \brief degrees of freedom of all the elements (see
+      * `batch::computeElementsDegreesOfFreedom`), computed once by
+-     * `assembleStiffnessMatrixByKernels`
++     * `computeElementsDegreesOfFreedom`
+      */
+     mfem::Array<int> element_dofs;
++    /*!
++     * \brief computes the degrees of freedom of all the elements if they are
++     * not computed yet
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     */
++    [[nodiscard]] bool computeElementsDegreesOfFreedom(
++        Context&, const mfem::FiniteElementSpace&) noexcept;
+     /*!
+      * \brief computes the geometric data of the integration rules of the
+      * behaviour integrators which are not computed yet (see
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index a454c9c382..785935eaeb 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -6,9 +6,15 @@
+  * \date   09/10/2026
+  */
+ 
++#include <tuple>
+ #include <limits>
++#include <memory>
+ #include <string>
++#include <vector>
++#include <cstddef>
+ #include <cstdint>
++#include <numeric>
++#include <algorithm>
+ #include <exception>
+ #include "mfem/general/device.hpp"
+ #include "mfem/fem/fe/fe_base.hpp"
+@@ -182,6 +188,88 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of computeElementsDegreesOfFreedom
+ 
++  std::unique_ptr<mfem::SparseMatrix> makeAssembledStiffnessMatrix(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Array<int>& dofs) noexcept {
++    try {
++      const auto n = fes.GetVSize();
++      const auto ne = fes.GetNE();
++      const auto nde = (ne == 0) ? 0 : dofs.Size() / ne;
++      if (nde * ne != dofs.Size()) {
++        std::ignore = ctx.registerErrorMessage(
++            "makeAssembledStiffnessMatrix: invalid number of degrees of "
++            "freedom of the elements");
++        return {};
++      }
++      const auto* const d = dofs.HostRead();
++      // elements of each degree of freedom
++      auto offsets = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
++      for (int i = 0; i != dofs.Size(); ++i) {
++        if ((d[i] < 0) || (d[i] >= n)) {
++          std::ignore = ctx.registerErrorMessage(
++              "makeAssembledStiffnessMatrix: invalid degree of freedom");
++          return {};
++        }
++        ++offsets[static_cast<std::size_t>(d[i]) + 1];
++      }
++      std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
++      auto elements = std::vector<int>(static_cast<std::size_t>(offsets[n]));
++      auto positions = std::vector<int>(offsets.begin(), offsets.end() - 1);
++      for (int e = 0; e != ne; ++e) {
++        for (int j = 0; j != nde; ++j) {
++          const auto r = static_cast<std::size_t>(d[nde * e + j]);
++          elements[static_cast<std::size_t>(positions[r]++)] = e;
++        }
++      }
++      // columns of each row: degrees of freedom of the elements of the row,
++      // without repetitions, the diagonal first and the others sorted
++      auto rows = std::vector<int>(static_cast<std::size_t>(n) + 1, 0);
++      auto columns = std::vector<int>{};
++      auto last_row = std::vector<int>(static_cast<std::size_t>(n), -1);
++      for (int r = 0; r != n; ++r) {
++        const auto begin = columns.size();
++        for (auto p = offsets[r]; p != offsets[r + 1]; ++p) {
++          const auto e = elements[static_cast<std::size_t>(p)];
++          for (int j = 0; j != nde; ++j) {
++            const auto c = d[nde * e + j];
++            if (last_row[static_cast<std::size_t>(c)] != r) {
++              last_row[static_cast<std::size_t>(c)] = r;
++              columns.push_back(c);
++            }
++          }
++        }
++        const auto first = columns.begin() + static_cast<std::ptrdiff_t>(begin);
++        std::sort(first, columns.end());
++        const auto diagonal = std::lower_bound(first, columns.end(), r);
++        if ((diagonal != columns.end()) && (*diagonal == r)) {
++          std::rotate(first, diagonal, diagonal + 1);
++        }
++        if (columns.size() >
++            static_cast<std::size_t>(std::numeric_limits<int>::max())) {
++          std::ignore = ctx.registerErrorMessage(
++              "makeAssembledStiffnessMatrix: too many values for MFEM");
++          return {};
++        }
++        rows[static_cast<std::size_t>(r) + 1] =
++            static_cast<int>(columns.size());
++      }
++      // arrays allocated by the memory manager of MFEM (as
++      // `mfem::Transpose`), owned by the matrix, whose values are allocated
++      // and set to zero by its constructor
++      const auto nnz = static_cast<int>(columns.size());
++      int* const I = mfem::Memory<int>(n + 1);
++      int* const J = mfem::Memory<int>(nnz);
++      std::copy(rows.begin(), rows.end(), I);
++      std::copy(columns.begin(), columns.end(), J);
++      return std::make_unique<mfem::SparseMatrix>(I, J, nullptr, n, n, true,
++                                                  true, false);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    return {};
++  }  // end of makeAssembledStiffnessMatrix
++
+   bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index a028c36774..bd62a47738 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -45,6 +45,49 @@ namespace mfem_mgis::batch::internals {
+     }
+   };
+ 
++  /*!
++   * \return the position of a column in a row of a sparse matrix, or `end`
++   * if the column is not in the row. The first column is tested first, then
++   * the other columns are searched by bisection, which is exact for sorted
++   * rows and for rows whose first column is the diagonal one, the others
++   * being sorted (see `makeAssembledStiffnessMatrix`). Otherwise, the row is
++   * searched linearly.
++   * \param[in] J: columns of the matrix
++   * \param[in] begin: position of the first column of the row
++   * \param[in] end: position after the last column of the row
++   * \param[in] c: column
++   */
++  MFEM_HOST_DEVICE inline int findColumn(const int* const J,
++                                         const int begin,
++                                         const int end,
++                                         const int c) {
++    if (begin == end) {
++      return end;
++    }
++    if (J[begin] == c) {
++      return begin;
++    }
++    auto lo = begin + 1;
++    auto hi = end;
++    while (lo != hi) {
++      const auto mid = lo + (hi - lo) / 2;
++      if (J[mid] < c) {
++        lo = mid + 1;
++      } else {
++        hi = mid;
++      }
++    }
++    if ((lo != end) && (J[lo] == c)) {
++      return lo;
++    }
++    for (auto p = begin + 1; p != end; ++p) {
++      if (J[p] == c) {
++        return p;
++      }
++    }
++    return end;
++  }  // end of findColumn
++
+   //! \brief adds the blocks to an assembled sparse matrix
+   struct SparseMatrixAssembly {
+     //! \brief assembled matrix
+@@ -64,17 +107,13 @@ namespace mfem_mgis::batch::internals {
+           ::AtomicAdd(this->o.missing[0], N);
+           continue;
+         }
++        const auto end = this->o.I[row + 1];
+         for (std::size_t d = 0; d != N; ++d) {
+-          const auto col = dofs[nb + nd * d];
+-          auto found = false;
+-          for (auto p = this->o.I[row]; p != this->o.I[row + 1]; ++p) {
+-            if (this->o.J[p] == col) {
+-              ::AtomicAdd(this->o.values[p], m[c][d]);
+-              found = true;
+-              break;
+-            }
+-          }
+-          if (!found) {
++          const auto p =
++              findColumn(this->o.J, this->o.I[row], end, dofs[nb + nd * d]);
++          if (p != end) {
++            ::AtomicAdd(this->o.values[p], m[c][d]);
++          } else {
+             ::AtomicAdd(this->o.missing[0], 1);
+           }
+         }
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index d0bb7ae0a7..4818818a1a 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -557,19 +557,31 @@ namespace mfem_mgis {
+     this->stiffness_matrices_computed_by_kernels = b;
+   }  // end of setStiffnessMatricesComputedByKernels
+ 
++  bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
++      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
++    if ((this->element_dofs.Size() != 0) || (fes.GetNE() == 0)) {
++      return true;
++    }
++    return batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs, fes);
++  }  // end of computeElementsDegreesOfFreedom
++
++  std::unique_ptr<mfem::SparseMatrix>
++  MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix(
++      Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
++    if (!this->computeElementsDegreesOfFreedom(ctx, fes)) {
++      return {};
++    }
++    return batch::makeAssembledStiffnessMatrix(ctx, fes, this->element_dofs);
++  }  // end of makeAssembledStiffnessMatrix
++
+   bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
+       Context& ctx,
+       const mfem::FiniteElementSpace& fes,
+       mfem::SparseMatrix& m) noexcept {
+-    if (!this->computeElementsGeometry(ctx, fes)) {
++    if ((!this->computeElementsGeometry(ctx, fes)) ||
++        (!this->computeElementsDegreesOfFreedom(ctx, fes))) {
+       return false;
+     }
+-    if ((this->element_dofs.Size() == 0) && (fes.GetNE() != 0)) {
+-      if (!batch::computeElementsDegreesOfFreedom(ctx, this->element_dofs,
+-                                                  fes)) {
+-        return false;
+-      }
+-    }
+     if (!batch::zeroSparseMatrixValues(ctx, m)) {
+       return false;
+     }
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index dd951cca10..5d2563629c 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -436,19 +436,25 @@ namespace mfem_mgis {
+ 
+   /*!
+    * \brief assembles the stiffness matrices of the elements computed by
+-   * kernels in a local matrix
++   * kernels in the local matrix of the tangent operator, created at the
++   * first call (see
++   * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
+    * \param[in] fed: finite element discretization
+    * \param[in, out] mi: multi-material integrator
+    * \param[in] fes: finite element space
+-   * \param[in, out] m: local matrix
++   * \param[in, out] m: local matrix, owned by the caller
+    */
+   static void assembleStiffnessMatrixByKernels(
+       const FiniteElementDiscretization& fed,
+       MultiMaterialNonLinearIntegrator& mi,
+       const mfem::FiniteElementSpace& fes,
+-      mfem::SparseMatrix& m) {
++      mfem::SparseMatrix*& m) {
+     auto ctx = Context{};
+-    const auto success = mi.assembleStiffnessMatrixByKernels(ctx, fes, m);
++    if (m == nullptr) {
++      m = mi.makeAssembledStiffnessMatrix(ctx, fes).release();
++    }
++    const auto success =
++        (m != nullptr) && (mi.assembleStiffnessMatrixByKernels(ctx, fes, *m));
+     raiseOnFailureOnAnyProcess(fed, ctx, success,
+                                "computation of the tangent operator");
+   }  // end of assembleStiffnessMatrixByKernels
+@@ -569,14 +575,13 @@ namespace mfem_mgis {
+     }
+     const auto only_mfem_mgis =
+         isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
+-        (this->Grad->Finalized())) {
+-      // the stiffness matrices are assembled by kernels in the local matrix
+-      // assembled by MFEM at the first call (same pattern), then the global
+-      // matrix is built as by `mfem::ParNonlinearForm::GetGradient`
++    if (only_mfem_mgis) {
++      // the stiffness matrices are assembled by kernels in the local matrix,
++      // then the global matrix is built as by
++      // `mfem::ParNonlinearForm::GetGradient`
+       assembleStiffnessMatrixByKernels(
+           this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-          this->getFiniteElementSpace(), *(this->Grad));
++          this->getFiniteElementSpace(), this->Grad);
+       auto* const pfes = this->ParFESpace();
+       this->pGrad.Clear();
+       mfem::OperatorHandle dA(this->pGrad.Type());
+@@ -597,17 +602,11 @@ namespace mfem_mgis {
+       }
+       return *(this->pGrad.Ptr());
+     }
+-    // first call (the pattern of the matrix is built by MFEM, from the
+-    // stiffness matrices computed element by element), or other integrators
+-    // in the form (the stiffness matrices computed by kernels are copied by
+-    // the element loop of MFEM)
+-    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
+-        !only_mfem_mgis);
+-    if (!only_mfem_mgis) {
+-      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+-                                        *(this->mgis_integrator),
+-                                        this->getFiniteElementSpace());
+-    }
++    // other integrators in the form: the stiffness matrices computed by
++    // kernels are copied by the element loop of MFEM
++    computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
++                                      *(this->mgis_integrator),
++                                      this->getFiniteElementSpace());
+     return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+   }  // end of GetGradient
+ 
+@@ -898,11 +897,10 @@ namespace mfem_mgis {
+     }
+     const auto only_mfem_mgis =
+         isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
+-        (this->Grad->Finalized())) {
++    if (only_mfem_mgis) {
+       assembleStiffnessMatrixByKernels(
+           this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-          this->getFiniteElementSpace(), *(this->Grad));
++          this->getFiniteElementSpace(), this->Grad);
+       // as `mfem::NonlinearForm::GetGradient`, the elimination of the
+       // essential degrees of freedom giving the same result as
+       // `EliminateRowCol`, the pattern of the matrix being symmetric
+@@ -924,13 +922,9 @@ namespace mfem_mgis {
+       static_cast<void>(mGrad->HostReadData());
+       return *mGrad;
+     }
+-    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
+-        !only_mfem_mgis);
+-    if (!only_mfem_mgis) {
+-      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+-                                        *(this->mgis_integrator),
+-                                        this->getFiniteElementSpace());
+-    }
++    computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
++                                      *(this->mgis_integrator),
++                                      this->getFiniteElementSpace());
+     return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+   }  // end of GetGradient
+ 
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index c7e9862e75..c31e601fa2 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -275,7 +275,11 @@ static void testCase(mfem_mgis::Context& ctx,
+       reference_matrix.AddSubMatrix(vdofs, vdofs, Ke, 0);
+     }
+     reference_matrix.Finalize(0);
++    // the assembled matrix keeps the ordering of MFEM (search of the
++    // entries by bisection, then linearly), and is sorted to be compared to
++    // the reference
+     auto assembled_matrix = mfem::SparseMatrix(reference_matrix);
++    reference_matrix.SortColumnIndices();
+     auto element_dofs = mfem::Array<int>{};
+     check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
+           name + ": degrees of freedom of the elements (" +
+@@ -290,6 +294,7 @@ static void testCase(mfem_mgis::Context& ctx,
+               geometry),
+           name + ": assembly of the stiffness matrices by kernels (" +
+               ctx.getErrorMessage() + ")");
++    assembled_matrix.SortColumnIndices();
+     const auto* const av = assembled_matrix.HostReadData();
+     const auto* const rv = reference_matrix.HostReadData();
+     auto da = real{};
+@@ -317,6 +322,55 @@ static void testCase(mfem_mgis::Context& ctx,
+               geometry),
+           name + ": entries outside of the pattern of the matrix not detected");
+   }
++  // pattern of the matrix in which the stiffness matrices are assembled: the
++  // one built by MFEM from the matrices of all the elements, the diagonal
++  // entry being the first of each row
++  auto element_dofs = mfem::Array<int>{};
++  check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
++        c.name + ": degrees of freedom of the elements (" +
++            ctx.getErrorMessage() + ")");
++  const auto m = batch::makeAssembledStiffnessMatrix(ctx, fes, element_dofs);
++  check(m != nullptr, c.name + ": creation of the assembled matrix (" +
++                          ctx.getErrorMessage() + ")");
++  if (m == nullptr) {
++    return;
++  }
++  auto reference = mfem::SparseMatrix(fes.GetVSize());
++  auto vdofs = mfem::Array<int>{};
++  auto Ke = mfem::DenseMatrix{};
++  for (int i = 0; i != fes.GetNE(); ++i) {
++    fes.GetElementVDofs(i, vdofs);
++    Ke.SetSize(vdofs.Size());
++    Ke = real{0};
++    reference.AddSubMatrix(vdofs, vdofs, Ke, 0);
++  }
++  reference.Finalize(0);
++  reference.SortColumnIndices();
++  const auto nnz = reference.NumNonZeroElems();
++  auto same_pattern = (m->Height() == reference.Height()) &&
++                      (m->Width() == reference.Width()) &&
++                      (m->NumNonZeroElems() == nnz);
++  if (same_pattern) {
++    const auto* const I = m->HostReadI();
++    const auto* const J = m->HostReadJ();
++    const auto* const v = m->HostReadData();
++    for (int r = 0; r != m->Height(); ++r) {
++      same_pattern = same_pattern && (I[r] != I[r + 1]) && (J[I[r]] == r);
++    }
++    same_pattern = same_pattern &&
++                   std::all_of(v, v + nnz, [](const real x) { return x == 0; });
++    auto sorted = mfem::SparseMatrix(*m);
++    sorted.SortColumnIndices();
++    const auto* const sI = sorted.HostReadI();
++    const auto* const sJ = sorted.HostReadJ();
++    const auto* const rI = reference.HostReadI();
++    const auto* const rJ = reference.HostReadJ();
++    same_pattern = same_pattern && std::equal(sI, sI + m->Height() + 1, rI) &&
++                   std::equal(sJ, sJ + nnz, rJ);
++  }
++  std::cout << c.name << ": pattern of the assembled matrix, " << nnz
++            << " values\n";
++  check(same_pattern, c.name + ": pattern of the assembled matrix");
+ }  // end of testCase
+ 
+ /*!
+-- 
+2.43.0
+

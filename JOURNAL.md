@@ -3080,3 +3080,21 @@ Mesures : `results/L3-poutre-assemblage-2026-10-09/`. Suite : motif
 construit à partir des ddl des éléments (premier appel sans boucle de
 MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
 élément), test MPI des noyaux dans mfem-mgis.
+
+### 2026-10-09 (nuit), lot L3 : motif de la tangente construit à partir des éléments
+
+- mfem-mgis 799941c8fd : la matrice locale est créée à partir des ddl des
+  éléments au premier appel de `GetGradient` (plus de boucle de MFEM).
+  Premier essai avec des colonnes triées : faux en parallèle.
+  `HypreParMatrix` (constructeur bloc diagonal) partage les tableaux de
+  la matrice locale et met le terme diagonal en tête de chaque ligne, en
+  place, sans toucher au drapeau `isSorted`. Le motif suit donc l'ordre
+  de hypre (diagonale, puis colonnes triées), que ce réordonnancement
+  laisse intact, et la recherche du noyau accepte tout ordre (première
+  colonne, dichotomie, puis parcours).
+- Le défaut n'a été vu que par les cas du prototype et la suite en mode
+  noyaux (tests `...P`) : aucun test de mfem-mgis sur les noyaux ne tourne
+  en parallèle. Test MPI à ajouter.
+- Tangente de la poutre (3 pas) : 16 ms par appel sur GPU, 0,40 s sur un
+  cœur de CPU contre 0,45 s pour la boucle de MFEM. Sur GPU, la
+  prédiction fait maintenant 73 % du temps.

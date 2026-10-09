@@ -436,19 +436,25 @@ namespace mfem_mgis {
 
   /*!
    * \brief assembles the stiffness matrices of the elements computed by
-   * kernels in a local matrix
+   * kernels in the local matrix of the tangent operator, created at the
+   * first call (see
+   * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
    * \param[in] fed: finite element discretization
    * \param[in, out] mi: multi-material integrator
    * \param[in] fes: finite element space
-   * \param[in, out] m: local matrix
+   * \param[in, out] m: local matrix, owned by the caller
    */
   static void assembleStiffnessMatrixByKernels(
       const FiniteElementDiscretization& fed,
       MultiMaterialNonLinearIntegrator& mi,
       const mfem::FiniteElementSpace& fes,
-      mfem::SparseMatrix& m) {
+      mfem::SparseMatrix*& m) {
     auto ctx = Context{};
-    const auto success = mi.assembleStiffnessMatrixByKernels(ctx, fes, m);
+    if (m == nullptr) {
+      m = mi.makeAssembledStiffnessMatrix(ctx, fes).release();
+    }
+    const auto success =
+        (m != nullptr) && (mi.assembleStiffnessMatrixByKernels(ctx, fes, *m));
     raiseOnFailureOnAnyProcess(fed, ctx, success,
                                "computation of the tangent operator");
   }  // end of assembleStiffnessMatrixByKernels
@@ -569,14 +575,13 @@ namespace mfem_mgis {
     }
     const auto only_mfem_mgis =
         isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
-        (this->Grad->Finalized())) {
-      // the stiffness matrices are assembled by kernels in the local matrix
-      // assembled by MFEM at the first call (same pattern), then the global
-      // matrix is built as by `mfem::ParNonlinearForm::GetGradient`
+    if (only_mfem_mgis) {
+      // the stiffness matrices are assembled by kernels in the local matrix,
+      // then the global matrix is built as by
+      // `mfem::ParNonlinearForm::GetGradient`
       assembleStiffnessMatrixByKernels(
           this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-          this->getFiniteElementSpace(), *(this->Grad));
+          this->getFiniteElementSpace(), this->Grad);
       auto* const pfes = this->ParFESpace();
       this->pGrad.Clear();
       mfem::OperatorHandle dA(this->pGrad.Type());
@@ -597,17 +602,11 @@ namespace mfem_mgis {
       }
       return *(this->pGrad.Ptr());
     }
-    // first call (the pattern of the matrix is built by MFEM, from the
-    // stiffness matrices computed element by element), or other integrators
-    // in the form (the stiffness matrices computed by kernels are copied by
-    // the element loop of MFEM)
-    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
-        !only_mfem_mgis);
-    if (!only_mfem_mgis) {
-      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
-                                        *(this->mgis_integrator),
-                                        this->getFiniteElementSpace());
-    }
+    // other integrators in the form: the stiffness matrices computed by
+    // kernels are copied by the element loop of MFEM
+    computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace());
     return mfem_mgis::NonlinearForm<true>::GetGradient(u);
   }  // end of GetGradient
 
@@ -898,11 +897,10 @@ namespace mfem_mgis {
     }
     const auto only_mfem_mgis =
         isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if ((only_mfem_mgis) && (this->Grad != nullptr) &&
-        (this->Grad->Finalized())) {
+    if (only_mfem_mgis) {
       assembleStiffnessMatrixByKernels(
           this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-          this->getFiniteElementSpace(), *(this->Grad));
+          this->getFiniteElementSpace(), this->Grad);
       // as `mfem::NonlinearForm::GetGradient`, the elimination of the
       // essential degrees of freedom giving the same result as
       // `EliminateRowCol`, the pattern of the matrix being symmetric
@@ -924,13 +922,9 @@ namespace mfem_mgis {
       static_cast<void>(mGrad->HostReadData());
       return *mGrad;
     }
-    this->mgis_integrator->setStiffnessMatricesComputedByKernels(
-        !only_mfem_mgis);
-    if (!only_mfem_mgis) {
-      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
-                                        *(this->mgis_integrator),
-                                        this->getFiniteElementSpace());
-    }
+    computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace());
     return mfem_mgis::NonlinearForm<false>::GetGradient(u);
   }  // end of GetGradient
 

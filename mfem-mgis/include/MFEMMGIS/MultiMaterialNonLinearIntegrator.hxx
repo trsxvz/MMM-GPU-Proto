@@ -185,6 +185,17 @@ namespace mfem_mgis {
      */
     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
     /*!
+     * \brief create the sparse matrix in which
+     * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
+     * all the elements (see `batch::makeAssembledStiffnessMatrix`)
+     * \return the matrix, or a null pointer on error
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     */
+    [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
+    makeAssembledStiffnessMatrix(Context&,
+                                 const mfem::FiniteElementSpace&) noexcept;
+    /*!
      * \brief assemble the stiffness matrices of all the elements, computed
      * by kernels, in a sparse matrix on the local vector of the finite
      * element space, without storing them (see
@@ -193,8 +204,9 @@ namespace mfem_mgis {
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in] fes: finite element space
-     * \param[in, out] m: matrix, finalized, whose pattern contains all the
-     * entries of the stiffness matrices of the elements
+     * \param[in, out] m: matrix created by `makeAssembledStiffnessMatrix`,
+     * or a matrix, finalized, whose pattern contains all the entries of the
+     * stiffness matrices of the elements
      */
     [[nodiscard]] bool assembleStiffnessMatrixByKernels(
         Context& ctx,
@@ -369,9 +381,18 @@ namespace mfem_mgis {
     /*!
      * \brief degrees of freedom of all the elements (see
      * `batch::computeElementsDegreesOfFreedom`), computed once by
-     * `assembleStiffnessMatrixByKernels`
+     * `computeElementsDegreesOfFreedom`
      */
     mfem::Array<int> element_dofs;
+    /*!
+     * \brief computes the degrees of freedom of all the elements if they are
+     * not computed yet
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     */
+    [[nodiscard]] bool computeElementsDegreesOfFreedom(
+        Context&, const mfem::FiniteElementSpace&) noexcept;
     /*!
      * \brief computes the geometric data of the integration rules of the
      * behaviour integrators which are not computed yet (see

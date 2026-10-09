@@ -9,6 +9,7 @@
 #ifndef LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
 #define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
 
+#include <memory>
 #include "mfem/general/array.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "MGIS/FieldView.hxx"
@@ -64,8 +65,7 @@ namespace mfem_mgis::batch {
     /*!
      * \brief matrix, finalized, on the local vector of the finite element
      * space, whose pattern contains all the entries of the stiffness
-     * matrices of the elements (for instance assembled once by the element
-     * loop of MFEM)
+     * matrices of the elements (see `makeAssembledStiffnessMatrix`)
      */
     mfem::SparseMatrix* matrix = nullptr;
     /*!
@@ -89,6 +89,25 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsDegreesOfFreedom(
       Context&, mfem::Array<int>&, const mfem::FiniteElementSpace&) noexcept;
   /*!
+   * \brief creates the sparse matrix in which the stiffness matrices of all
+   * the elements are assembled (see `AssembledStiffnessMatrix`), on the
+   * local vector of the finite element space: its pattern contains the
+   * couplings between the degrees of freedom of each element, and its
+   * values are null. In each row, the diagonal entry comes first, then the
+   * other columns, sorted: the ordering of hypre, which
+   * `mfem::HypreParMatrix` imposes on the rows of a local matrix that it
+   * uses (the columns of a sorted row would not stay sorted).
+   * \return the matrix, or a null pointer on error
+   * \param[in, out] ctx: execution context
+   * \param[in] fes: finite element space
+   * \param[in] dofs: degrees of freedom of all the elements (see
+   * `computeElementsDegreesOfFreedom`)
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
+  makeAssembledStiffnessMatrix(Context&,
+                               const mfem::FiniteElementSpace&,
+                               const mfem::Array<int>&) noexcept;
+  /*!
    * \brief sets the values of a sparse matrix to zero, on the device if a
    * device is enabled
    * \return true on success
@@ -100,9 +119,10 @@ namespace mfem_mgis::batch {
   /*!
    * \brief adds the stiffness matrices of the elements of a material to an
    * assembled sparse matrix, on the device if a device is enabled, without
-   * storing them: the position of each entry is searched in its row, and
-   * the additions are atomic (several materials may share degrees of
-   * freedom)
+   * storing them: the position of each entry is searched in its row (by
+   * bisection for the ordering of `makeAssembledStiffnessMatrix` or sorted
+   * rows, linearly otherwise), and the additions are atomic (several
+   * materials may share degrees of freedom)
    * \return true on success, false if an entry is not in the pattern of the
    * matrix
    * \param[in, out] m: assembled matrix

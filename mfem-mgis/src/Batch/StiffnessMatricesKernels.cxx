@@ -45,6 +45,49 @@ namespace mfem_mgis::batch::internals {
     }
   };
 
+  /*!
+   * \return the position of a column in a row of a sparse matrix, or `end`
+   * if the column is not in the row. The first column is tested first, then
+   * the other columns are searched by bisection, which is exact for sorted
+   * rows and for rows whose first column is the diagonal one, the others
+   * being sorted (see `makeAssembledStiffnessMatrix`). Otherwise, the row is
+   * searched linearly.
+   * \param[in] J: columns of the matrix
+   * \param[in] begin: position of the first column of the row
+   * \param[in] end: position after the last column of the row
+   * \param[in] c: column
+   */
+  MFEM_HOST_DEVICE inline int findColumn(const int* const J,
+                                         const int begin,
+                                         const int end,
+                                         const int c) {
+    if (begin == end) {
+      return end;
+    }
+    if (J[begin] == c) {
+      return begin;
+    }
+    auto lo = begin + 1;
+    auto hi = end;
+    while (lo != hi) {
+      const auto mid = lo + (hi - lo) / 2;
+      if (J[mid] < c) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if ((lo != end) && (J[lo] == c)) {
+      return lo;
+    }
+    for (auto p = begin + 1; p != end; ++p) {
+      if (J[p] == c) {
+        return p;
+      }
+    }
+    return end;
+  }  // end of findColumn
+
   //! \brief adds the blocks to an assembled sparse matrix
   struct SparseMatrixAssembly {
     //! \brief assembled matrix
@@ -64,17 +107,13 @@ namespace mfem_mgis::batch::internals {
           ::AtomicAdd(this->o.missing[0], N);
           continue;
         }
+        const auto end = this->o.I[row + 1];
         for (std::size_t d = 0; d != N; ++d) {
-          const auto col = dofs[nb + nd * d];
-          auto found = false;
-          for (auto p = this->o.I[row]; p != this->o.I[row + 1]; ++p) {
-            if (this->o.J[p] == col) {
-              ::AtomicAdd(this->o.values[p], m[c][d]);
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
+          const auto p =
+              findColumn(this->o.J, this->o.I[row], end, dofs[nb + nd * d]);
+          if (p != end) {
+            ::AtomicAdd(this->o.values[p], m[c][d]);
+          } else {
             ::AtomicAdd(this->o.missing[0], 1);
           }
         }
