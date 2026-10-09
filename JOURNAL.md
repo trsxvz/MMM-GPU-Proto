@@ -3188,3 +3188,14 @@ macroscopiques à 4e-13 près de l'échelle des contraintes. La loi, qui
 domine sur CPU, prend 5,7 s sur le GPU, autant que la résolution. Avec la
 loi sur l'hôte, le GPU ne gagne rien (107 s). Deux processus sur le même
 GPU : résolution 14 fois plus lente, comme pour la poutre.
+
+### 2026-10-09 (nuit), fin de pas sur le GPU
+
+mfem-mgis (commit « Update and revert on the device ») : les états d'un
+matériau dont la loi est intégrée sur le périphérique sont mis à jour et
+restaurés sur le périphérique (`update` et `revert` de MGIS sur une vue
+des copies, par `MFEMFieldOperations`), et la synchronisation sur l'hôte
+au début de chaque résolution n'est plus faite quand toutes les lois sont
+intégrées sur le périphérique (sauf avec PETSc). Les tableaux restent sur
+le GPU d'un pas à l'autre. Poutre r4, 10 pas, GPU : 3,3 s au lieu de
+4,1 s (8 cœurs : 17,5 s).

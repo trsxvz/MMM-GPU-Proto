@@ -33,7 +33,15 @@ namespace mfem_mgis {
                              const real t,
                              const real dt) noexcept override;
     [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
+    /*!
+     * \brief revert the state of the material; for a behaviour integrated on
+     * the device (see `integratesBatchesOnDevice`), on the device
+     */
     void revert() override;
+    /*!
+     * \brief update the state of the material; for a behaviour integrated on
+     * the device (see `integratesBatchesOnDevice`), on the device
+     */
     void update() override;
     [[nodiscard]] bool hasMaterial() const noexcept override;
     OptionalReference<Material> getMaterial(Context& ctx) noexcept override;
@@ -352,6 +360,14 @@ namespace mfem_mgis {
      * \param[in] it: integration type
      */
     [[nodiscard]] bool integrateBatchOnDevice(const IntegrationType);
+    /*!
+     * \brief copies, on the device, the state at the end of the time step
+     * in the state at the beginning of the time step (update), or
+     * conversely (revert), and sets the tangent operator blocks to zero,
+     * for a behaviour integrated on the device (see `update`, `revert`)
+     * \param[in] u: if true, update, otherwise revert
+     */
+    void copyStatesOnDevice(const bool);
   };  // end of struct BehaviourIntegratorBase
 
 }  // end of namespace mfem_mgis

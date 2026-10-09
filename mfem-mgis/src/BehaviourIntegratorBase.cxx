@@ -6,6 +6,7 @@
  */
 
 #include <span>
+#include <algorithm>
 #include <limits>
 #include <utility>
 #include <variant>
@@ -15,6 +16,7 @@
 #include "MGIS/Behaviour/Integrate.hxx"
 #include "MGIS/Behaviour/BehaviourDataView.hxx"
 #include "MGIS/Behaviour/MaterialDataView.hxx"
+#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
 #include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
@@ -1135,13 +1137,67 @@ namespace mfem_mgis {
     return true;
   }  // end of cleanup
 
+  void BehaviourIntegratorBase::copyStatesOnDevice(const bool u) {
+    using StateArray = mfem_mgis::MaterialArrays::StateArray;
+    auto& arrays = this->getArrays();
+    // view of the arrays on the host, whose views of the states and of the
+    // tangent operator blocks are replaced by views of the copies on the
+    // device; the material properties and the external state variables are
+    // not used
+    auto v = mgis::behaviour::make_unchecked_view(*this);
+    v.memory_location = getDeviceMemoryLocation();
+    for (auto& [st, stage] : {std::pair{&v.s0, bts}, std::pair{&v.s1, ets}}) {
+      // the state at the end of the time step is copied in the one at the
+      // beginning of the time step by an update, and conversely
+      const auto output = (stage == bts) == u;
+      for (const auto& [view, a] :
+           {std::pair{&(st->gradients), StateArray::GRADIENTS},
+            std::pair{&(st->thermodynamic_forces),
+                      StateArray::THERMODYNAMIC_FORCES},
+            std::pair{&(st->internal_state_variables),
+                      StateArray::INTERNAL_STATE_VARIABLES},
+            std::pair{&(st->stored_energies), StateArray::STORED_ENERGIES},
+            std::pair{&(st->dissipated_energies),
+                      StateArray::DISSIPATED_ENERGIES}}) {
+        const auto& array = arrays.getArray(a, stage);
+        auto* const p =
+            output ? arrays.write(a, stage) : const_cast<real*>(array.Read());
+        *view = relocate(*view, p, array.Size());
+      }
+      std::fill(st->material_properties.begin(), st->material_properties.end(),
+                mgis::FieldView<const real>{});
+      std::fill(st->external_state_variables.begin(),
+                st->external_state_variables.end(),
+                mgis::FieldView<const real>{});
+      st->mass_density = {};
+    }
+    // the tangent operator blocks are set to zero
+    v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
+                   arrays.getTangentOperatorBlocks().Size());
+    v.speed_of_sound = {};
+    auto ops = batch::MFEMFieldOperations(true);
+    if (u) {
+      mgis::behaviour::update(v, ops);
+    } else {
+      mgis::behaviour::revert(v, ops);
+    }
+  }  // end of copyStatesOnDevice
+
   void BehaviourIntegratorBase::revert() {
     this->wks.has_rotated_thermodynamic_forces = false;
-    this->revertMaterialStates();
+    if (this->integratesBatchesOnDevice()) {
+      this->copyStatesOnDevice(false);
+    } else {
+      this->revertMaterialStates();
+    }
   }  // end of revert
 
   void BehaviourIntegratorBase::update() {
-    this->updateMaterialStates();
+    if (this->integratesBatchesOnDevice()) {
+      this->copyStatesOnDevice(true);
+    } else {
+      this->updateMaterialStates();
+    }
   }  // end of update
 
   void BehaviourIntegratorBase::setMacroscopicGradients(

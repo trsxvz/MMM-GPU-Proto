@@ -1,0 +1,175 @@
+From f0239ab807ef7c5a3288852cf7c8ffee53384044 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 23:44:17 +0200
+Subject: [PATCH] Update and revert on the device
+
+The states of a material whose behaviour is integrated on the device are
+updated and reverted on the device (mgis::behaviour::update and revert
+on a view of the copies of the arrays on the device, by
+batch::MFEMFieldOperations), and the arrays of the materials are no
+longer synchronized on the host at the beginning of a resolution when
+all the behaviours are integrated on the device (except with PETSc,
+which integrates the behaviours on the host): the arrays stay on the
+device from one time step to the next.
+
+Beam (111843 unknowns, 10 steps, 1 process, GPU): 3.3 s instead of
+4.1 s.
+---
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  | 16 +++++
+ src/BehaviourIntegratorBase.cxx               | 60 ++++++++++++++++++-
+ ...nearEvolutionProblemImplementationBase.cxx | 14 +++--
+ 3 files changed, 82 insertions(+), 8 deletions(-)
+
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index 5a7169e6ff..d836003584 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -33,7 +33,15 @@ namespace mfem_mgis {
+                              const real t,
+                              const real dt) noexcept override;
+     [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
++    /*!
++     * \brief revert the state of the material; for a behaviour integrated on
++     * the device (see `integratesBatchesOnDevice`), on the device
++     */
+     void revert() override;
++    /*!
++     * \brief update the state of the material; for a behaviour integrated on
++     * the device (see `integratesBatchesOnDevice`), on the device
++     */
+     void update() override;
+     [[nodiscard]] bool hasMaterial() const noexcept override;
+     OptionalReference<Material> getMaterial(Context& ctx) noexcept override;
+@@ -352,6 +360,14 @@ namespace mfem_mgis {
+      * \param[in] it: integration type
+      */
+     [[nodiscard]] bool integrateBatchOnDevice(const IntegrationType);
++    /*!
++     * \brief copies, on the device, the state at the end of the time step
++     * in the state at the beginning of the time step (update), or
++     * conversely (revert), and sets the tangent operator blocks to zero,
++     * for a behaviour integrated on the device (see `update`, `revert`)
++     * \param[in] u: if true, update, otherwise revert
++     */
++    void copyStatesOnDevice(const bool);
+   };  // end of struct BehaviourIntegratorBase
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 770bfb3d07..90b468c236 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <span>
++#include <algorithm>
+ #include <limits>
+ #include <utility>
+ #include <variant>
+@@ -15,6 +16,7 @@
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/Behaviour/BehaviourDataView.hxx"
+ #include "MGIS/Behaviour/MaterialDataView.hxx"
++#include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/MeshDiscretization.hxx"
+@@ -1135,13 +1137,67 @@ namespace mfem_mgis {
+     return true;
+   }  // end of cleanup
+ 
++  void BehaviourIntegratorBase::copyStatesOnDevice(const bool u) {
++    using StateArray = mfem_mgis::MaterialArrays::StateArray;
++    auto& arrays = this->getArrays();
++    // view of the arrays on the host, whose views of the states and of the
++    // tangent operator blocks are replaced by views of the copies on the
++    // device; the material properties and the external state variables are
++    // not used
++    auto v = mgis::behaviour::make_unchecked_view(*this);
++    v.memory_location = getDeviceMemoryLocation();
++    for (auto& [st, stage] : {std::pair{&v.s0, bts}, std::pair{&v.s1, ets}}) {
++      // the state at the end of the time step is copied in the one at the
++      // beginning of the time step by an update, and conversely
++      const auto output = (stage == bts) == u;
++      for (const auto& [view, a] :
++           {std::pair{&(st->gradients), StateArray::GRADIENTS},
++            std::pair{&(st->thermodynamic_forces),
++                      StateArray::THERMODYNAMIC_FORCES},
++            std::pair{&(st->internal_state_variables),
++                      StateArray::INTERNAL_STATE_VARIABLES},
++            std::pair{&(st->stored_energies), StateArray::STORED_ENERGIES},
++            std::pair{&(st->dissipated_energies),
++                      StateArray::DISSIPATED_ENERGIES}}) {
++        const auto& array = arrays.getArray(a, stage);
++        auto* const p =
++            output ? arrays.write(a, stage) : const_cast<real*>(array.Read());
++        *view = relocate(*view, p, array.Size());
++      }
++      std::fill(st->material_properties.begin(), st->material_properties.end(),
++                mgis::FieldView<const real>{});
++      std::fill(st->external_state_variables.begin(),
++                st->external_state_variables.end(),
++                mgis::FieldView<const real>{});
++      st->mass_density = {};
++    }
++    // the tangent operator blocks are set to zero
++    v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
++                   arrays.getTangentOperatorBlocks().Size());
++    v.speed_of_sound = {};
++    auto ops = batch::MFEMFieldOperations(true);
++    if (u) {
++      mgis::behaviour::update(v, ops);
++    } else {
++      mgis::behaviour::revert(v, ops);
++    }
++  }  // end of copyStatesOnDevice
++
+   void BehaviourIntegratorBase::revert() {
+     this->wks.has_rotated_thermodynamic_forces = false;
+-    this->revertMaterialStates();
++    if (this->integratesBatchesOnDevice()) {
++      this->copyStatesOnDevice(false);
++    } else {
++      this->revertMaterialStates();
++    }
+   }  // end of revert
+ 
+   void BehaviourIntegratorBase::update() {
+-    this->updateMaterialStates();
++    if (this->integratesBatchesOnDevice()) {
++      this->copyStatesOnDevice(true);
++    } else {
++      this->updateMaterialStates();
++    }
+   }  // end of update
+ 
+   void BehaviourIntegratorBase::setMacroscopicGradients(
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index a42b00265b..ff0130ef78 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -594,12 +594,14 @@ namespace mfem_mgis {
+       Context& ctx, const real t, const real dt) noexcept {
+     CatchTimeSection(ctx, "NLEPIB::solve");
+     NonLinearResolutionOutput output;
+-    // phase of accesses on the host at the beginning of the resolution (the
+-    // behaviours integrated on the host, also by the assembly of the
+-    // residual when PETSc is used, which does not call `integrate`); the
+-    // behaviours integrated on the device and the kernels make the copies
+-    // on the device valid again (see `MaterialArrays`)
+-    if (this->mgis_integrator != nullptr) {
++    // phase of accesses on the host at the beginning of the resolution, for
++    // the behaviours integrated on the host, also by the assembly of the
++    // residual when PETSc is used, which does not call `integrate`; the
++    // arrays of the behaviours integrated on the device stay there (see
++    // `MaterialArrays`)
++    if ((this->mgis_integrator != nullptr) &&
++        ((usePETSc()) ||
++         (!this->mgis_integrator->integratesBatchesOnDevice()))) {
+       try {
+         this->mgis_integrator->synchronizeOnHost();
+       } catch (...) {
+-- 
+2.43.0
+
