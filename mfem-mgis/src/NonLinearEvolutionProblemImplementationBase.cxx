@@ -594,10 +594,11 @@ namespace mfem_mgis {
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::solve");
     NonLinearResolutionOutput output;
-    // the behaviours are integrated on the host, also by the assembly of the
-    // residual when PETSc is used (which does not call `integrate`): nothing
-    // may access the arrays of the materials on the device during the
-    // resolution
+    // phase of accesses on the host at the beginning of the resolution (the
+    // behaviours integrated on the host, also by the assembly of the
+    // residual when PETSc is used, which does not call `integrate`); the
+    // behaviours integrated on the device and the kernels make the copies
+    // on the device valid again (see `MaterialArrays`)
     if (this->mgis_integrator != nullptr) {
       try {
         this->mgis_integrator->synchronizeOnHost();

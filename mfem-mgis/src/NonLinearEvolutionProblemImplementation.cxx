@@ -165,6 +165,25 @@ namespace mfem_mgis {
   }  // end of computeStiffnessMatricesByKernels
 
   /*!
+   * \return the local matrix in which the stiffness matrices of the
+   * elements are assembled by kernels (see
+   * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
+   * \param[in] fed: finite element discretization
+   * \param[in, out] mi: multi-material integrator
+   * \param[in] fes: finite element space
+   */
+  static std::unique_ptr<mfem::SparseMatrix> makeAssembledStiffnessMatrix(
+      const FiniteElementDiscretization& fed,
+      MultiMaterialNonLinearIntegrator& mi,
+      const mfem::FiniteElementSpace& fes) {
+    auto ctx = Context{};
+    auto m = mi.makeAssembledStiffnessMatrix(ctx, fes);
+    raiseOnFailureOnAnyProcess(fed, ctx, m != nullptr,
+                               "computation of the tangent operator");
+    return m;
+  }  // end of makeAssembledStiffnessMatrix
+
+  /*!
    * \brief assembles the stiffness matrices of the elements computed by
    * kernels in the local matrix of the tangent operator, created at the
    * first call (see
@@ -179,12 +198,11 @@ namespace mfem_mgis {
       MultiMaterialNonLinearIntegrator& mi,
       const mfem::FiniteElementSpace& fes,
       mfem::SparseMatrix*& m) {
-    auto ctx = Context{};
     if (m == nullptr) {
-      m = mi.makeAssembledStiffnessMatrix(ctx, fes).release();
+      m = makeAssembledStiffnessMatrix(fed, mi, fes).release();
     }
-    const auto success =
-        (m != nullptr) && (mi.assembleStiffnessMatrixByKernels(ctx, fes, *m));
+    auto ctx = Context{};
+    const auto success = mi.assembleStiffnessMatrixByKernels(ctx, fes, *m);
     raiseOnFailureOnAnyProcess(fed, ctx, success,
                                "computation of the tangent operator");
   }  // end of assembleStiffnessMatrixByKernels
@@ -449,11 +467,11 @@ namespace mfem_mgis {
       // B[e] = X[e] (diagonal of the operator set to one)
       try {
         auto& mi = *(kernels.integrator);
+        if (kernels.matrix->get() == nullptr) {
+          *(kernels.matrix) = makeAssembledStiffnessMatrix(fed, mi, fespace);
+        }
         auto* m = kernels.matrix->get();
         assembleStiffnessMatrixByKernels(fed, mi, fespace, m);
-        if (m != kernels.matrix->get()) {
-          kernels.matrix->reset(m);
-        }
         X = mdu_values;
         B.SetSize(fespace.GetTrueVSize());
         B.UseDevice(true);
@@ -465,6 +483,17 @@ namespace mfem_mgis {
         }
         addInnerForcesComputedByKernels(fed, mi, fespace, edofs_list,
                                         *(kernels.inner_forces), B);
+        // elimination in the local matrix, without prolongation
+        const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
+          m->AddMult(X, B, real{-1});
+          m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
+          // the linear solvers may read the matrix on the host without
+          // declaring it
+          static_cast<void>(m->HostReadI());
+          static_cast<void>(m->HostReadJ());
+          static_cast<void>(m->HostReadData());
+          op = m;
+        };
 #ifdef MFEM_USE_MPI
         if constexpr (parallel) {
           mfem::OperatorHandle dA(mfem::Operator::Hypre_ParCSR);
@@ -478,22 +507,10 @@ namespace mfem_mgis {
           K.EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
           op = &K;
         } else {
-          m->AddMult(X, B, real{-1});
-          m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
-          // the linear solvers may read the matrix on the host without
-          // declaring it
-          static_cast<void>(m->HostReadI());
-          static_cast<void>(m->HostReadJ());
-          static_cast<void>(m->HostReadData());
-          op = m;
+          eliminateInLocalMatrix();
         }
 #else  /* MFEM_USE_MPI */
-        m->AddMult(X, B, real{-1});
-        m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
-        static_cast<void>(m->HostReadI());
-        static_cast<void>(m->HostReadJ());
-        static_cast<void>(m->HostReadData());
-        op = m;
+        eliminateInLocalMatrix();
 #endif /* MFEM_USE_MPI */
         auto values = mfem::Vector{};
         X.GetSubVector(edofs_list, values);

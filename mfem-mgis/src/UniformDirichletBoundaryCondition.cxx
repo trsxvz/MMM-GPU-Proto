@@ -63,10 +63,11 @@ namespace mfem_mgis {
 
   void UniformDirichletBoundaryCondition::updateImposedValues(
       mfem::Vector& u, const real t) const {
+    // the loading function is evaluated on all the processes
+    const auto uv = this->ufct(t);
     if (this->dofs.empty()) {
       return;
     }
-    const auto uv = this->ufct(t);
     // write on the host, the copy on the device being invalidated (the
     // unknowns may be read on the device by the kernels of mfem-mgis)
     auto* const values = u.HostReadWrite();
@@ -77,10 +78,11 @@ namespace mfem_mgis {
 
   void UniformDirichletBoundaryCondition::setImposedValuesIncrements(
       mfem::Vector& du, const real ti, const real te, const real f) const {
+    // the loading function is evaluated on all the processes
+    const auto duv = f * (this->ufct(te) - this->ufct(ti));
     if (this->dofs.empty()) {
       return;
     }
-    const auto duv = f * (this->ufct(te) - this->ufct(ti));
     // see `updateImposedValues`
     auto* const values = du.HostReadWrite();
     for (const auto& dof : this->dofs) {

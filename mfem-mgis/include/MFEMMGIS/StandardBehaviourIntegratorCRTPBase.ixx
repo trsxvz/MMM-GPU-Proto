@@ -311,7 +311,7 @@ namespace mfem_mgis {
       if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
         // thermodynamic forces in the global frame at all the points
         auto& v = this->wks.rotated_thermodynamic_forces;
-        if (this->getRotatedThermodynamicForces().empty()) {
+        if (!this->updateRotatedThermodynamicForces()) {
           this->computeThermodynamicForcesInGlobalFrame(v);
         }
         const auto s = std::span<const real>(

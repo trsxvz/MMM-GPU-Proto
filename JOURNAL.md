@@ -3144,3 +3144,37 @@ MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
   cœurs avec les mêmes noyaux. Il reste la résolution de hypre (61 %) et
   la prédiction (21 %, dont sa résolution). Deux processus sur le même
   GPU : 28,6 s (résolution 9 fois plus lente, non analysé).
+
+### 2026-10-09 (nuit), relecture indépendante des lots L3, L4 (prédiction) et L6 (tranche GPU)
+
+Relecture adverse de mfem-mgis b47f65c3cf à 7159b6de4c et de MGIS a0b5140
+(lecture complète, MFEM 4.10 comparé, programmes de comparaison sur cpu,
+`debug` et `cuda`, 1 à 3 processus dont un sans élément, éléments
+d'ordre 2, rangement `byVDIM`). **Aucun défaut de sévérité 3 à 5.**
+Prédiction par noyaux, élimination en place, motif dans l'ordre de hypre
+et synchronisations après l'intégration sur le périphérique vérifiés.
+
+Traité (mfem-mgis 9398a9e33c, decb6fd2c1) :
+- tests (sévérité 2) : la prédiction de chaque pas est enregistrée et
+  comparée ; cas avec pression imposée (les forces intérieures au début
+  du pas comptent ; leur oubli dans la prédiction par noyaux, que les
+  tests ne voyaient pas, est maintenant détecté) ; deux matériaux, l'un
+  intégré sur le périphérique, l'autre sur l'hôte (nouveau maillage
+  `cube-two-materials.mesh` : `cube_2mat_per.mesh` est périodique, ses
+  faces x = 0 et x = 1 sont identifiées et une condition de Dirichlet n'y
+  charge rien) ; loi à propriétés variables d'un point à l'autre en
+  `generic-parallel` ; noyaux avec prédiction pour ces lois ;
+- documentation devenue fausse (calcul dans le repère global sur le
+  périphérique, commentaires de `solve` et de `MaterialArrays`) ;
+- copie inutile vers l'hôte des forces tournées à chaque résidu ; fuite
+  possible de la matrice de la prédiction ; fonction de chargement des
+  conditions de Dirichlet évaluée sur tous les processus ; débordement
+  d'entier refusé ; tests GPU jamais simultanés.
+
+Restent (sévérité 1, notés) : `update` et `revert` sur l'hôte (aller et
+retour des tableaux à chaque pas ; MGIS a les opérations CUDA pour les
+faire sur le GPU) ; synchronisation de tous les tableaux quand seuls les
+gradients sont calculés sur l'hôte ; matrice de la prédiction en double
+de la tangente ; chaque processus réserve environ 5 Go sur le GPU
+(réserve Umpire de hypre), et hypre serait compilé sans MPI compatible
+GPU, ce qui pourrait expliquer la lenteur de deux processus sur un GPU.

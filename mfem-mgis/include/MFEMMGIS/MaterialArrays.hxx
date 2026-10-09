@@ -38,7 +38,10 @@ namespace mfem_mgis {
    * Validity of the copies: MFEM keeps track of the valid copies of each
    * array, but MGIS (and the views returned by the accessors of the
    * material) read and write the arrays through the pointers of the host,
-   * which MFEM does not see. Hence:
+   * which MFEM does not see, except for the behaviours integrated on the
+   * device, whose views are built from pointers obtained by `Read`,
+   * `Write` or `ReadWrite` (see `BehaviourIntegratorBase::integrateBatch`).
+   * Hence:
    *
    * - a phase of accesses on the host (integration of the behaviours by
    *   MGIS, update, revert, accessors of the material, post-processings...)

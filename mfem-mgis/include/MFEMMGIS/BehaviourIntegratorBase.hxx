@@ -231,6 +231,14 @@ namespace mfem_mgis {
     std::span<const real> getRotatedThermodynamicForces();
     /*!
      * \brief computes the thermodynamic forces at the end of the time step in
+     * the global frame (see `getRotatedThermodynamicForces`) if they are
+     * required and not computed yet, without copying them to the host
+     * \return true if they are required: they are then stored in
+     * `wks.rotated_thermodynamic_forces`
+     */
+    bool updateRotatedThermodynamicForces();
+    /*!
+     * \brief computes the thermodynamic forces at the end of the time step in
      * the global frame (see `getRotatedThermodynamicForces`)
      * \param[in] matrices: rotation matrices (see
      * `Material::computeRotationMatrices`)

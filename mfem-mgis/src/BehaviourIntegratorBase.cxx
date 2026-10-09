@@ -1075,10 +1075,9 @@ namespace mfem_mgis {
     this->wks.has_rotated_thermodynamic_forces = true;
   }  // end of computeRotatedThermodynamicForces
 
-  std::span<const real>
-  BehaviourIntegratorBase::getRotatedThermodynamicForces() {
+  bool BehaviourIntegratorBase::updateRotatedThermodynamicForces() {
     if (!requiresRotatedThermodynamicForces(this->b)) {
-      return {};
+      return false;
     }
     if (!this->wks.has_rotated_thermodynamic_forces) {
       // on the host, or on the device if the computations of the behaviour
@@ -1086,6 +1085,14 @@ namespace mfem_mgis {
       this->computeThermodynamicForcesInGlobalFrame(
           this->wks.rotated_thermodynamic_forces);
       this->wks.has_rotated_thermodynamic_forces = true;
+    }
+    return true;
+  }  // end of updateRotatedThermodynamicForces
+
+  std::span<const real>
+  BehaviourIntegratorBase::getRotatedThermodynamicForces() {
+    if (!this->updateRotatedThermodynamicForces()) {
+      return {};
     }
     const auto& v = this->wks.rotated_thermodynamic_forces;
     if (v.Size() == 0) {
