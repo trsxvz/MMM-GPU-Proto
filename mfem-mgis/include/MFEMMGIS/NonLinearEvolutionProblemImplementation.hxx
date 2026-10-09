@@ -114,6 +114,15 @@ namespace mfem_mgis {
     ~NonLinearEvolutionProblemImplementation() override;
 
    protected:
+    /*!
+     * \return the tangent operator on the true degrees of freedom, the
+     * stiffness matrices of the elements being computed and assembled by
+     * kernels (see `TangentOperatorComputation`), the essential degrees of
+     * freedom being eliminated
+     * \note the non linear form must only contain the integrator of
+     * mfem-mgis
+     */
+    mfem::Operator& assembleTangentOperatorByKernels() const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;
@@ -209,6 +218,15 @@ namespace mfem_mgis {
     ~NonLinearEvolutionProblemImplementation() override;
 
    protected:
+    /*!
+     * \return the tangent operator on the true degrees of freedom, the
+     * stiffness matrices of the elements being computed and assembled by
+     * kernels (see `TangentOperatorComputation`), the essential degrees of
+     * freedom being eliminated
+     * \note the non linear form must only contain the integrator of
+     * mfem-mgis
+     */
+    mfem::Operator& assembleTangentOperatorByKernels() const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;

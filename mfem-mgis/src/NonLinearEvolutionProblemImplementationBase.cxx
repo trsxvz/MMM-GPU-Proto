@@ -694,7 +694,8 @@ namespace mfem_mgis {
 
   mfem::Operator&
   NonLinearEvolutionProblemImplementationBase::getMatrixFreeTangentOperator(
-      const mfem::Array<int>& essential_dofs) const {
+      const mfem::Array<int>& essential_dofs,
+      std::function<mfem::Operator&()> f) const {
     if (this->mgis_integrator == nullptr) {
       raise("no multiple material integrator defined");
     }
@@ -705,9 +706,8 @@ namespace mfem_mgis {
       this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
           *(this->fe_discretization), *(this->mgis_integrator));
       this->constrained_tangent_operator =
-          std::make_unique<mfem::ConstrainedOperator>(
-              this->tangent_operator.get(), essential_dofs, false,
-              mfem::Operator::DIAG_ONE);
+          std::make_unique<ConstrainedMatrixFreeTangentOperator>(
+              *(this->tangent_operator), essential_dofs, std::move(f));
       this->constrained_tangent_operator_essential_dofs = essential_dofs.Size();
     }
     return *(this->constrained_tangent_operator);

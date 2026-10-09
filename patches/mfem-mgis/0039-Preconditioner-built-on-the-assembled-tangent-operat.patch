@@ -1,0 +1,572 @@
+From b129009b0ca5bf2ffff3d1b26670179bff07b52b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 00:16:46 +0200
+Subject: [PATCH] Preconditioner built on the assembled tangent operator
+ (AssembledOperator)
+
+With the tangent operator applied without assembly (MatrixFree), the
+preconditioner may be built on the tangent operator assembled by
+kernels: new AssembledOperator preconditioner of the linear solvers,
+wrapping another preconditioner (for instance HypreBoomerAMG), set up on
+the assembled operator every UpdatePeriod calls to SetOperator (one per
+Newton iteration), and kept between them. The Krylov solver uses the
+action of the kernels. An operator which can't give an assembled
+version, as the assembled operator of the prediction, is given directly
+to the wrapped preconditioner.
+
+The operator applied without assembly gives its assembled version
+through the AssembledOperatorProvider interface, implemented by
+ConstrainedMatrixFreeTangentOperator (mfem::ConstrainedOperator), the
+assembly by kernels of the tangent operator on the true degrees of
+freedom being now a method of NonLinearEvolutionProblemImplementation
+(assembleTangentOperatorByKernels), shared with the Kernels value of
+TangentOperatorComputation.
+
+BatchIntegrationTest: matrix free computations with this preconditioner
+(BoomerAMG in parallel, Jacobi in sequential), compared to the
+integration point by point.
+---
+ .../MFEMMGIS/MatrixFreeTangentOperator.hxx    |  44 +++++++
+ ...onLinearEvolutionProblemImplementation.hxx |  18 +++
+ ...nearEvolutionProblemImplementationBase.hxx |  11 +-
+ src/LinearSolverFactory.cxx                   |  76 +++++++++++
+ src/MatrixFreeTangentOperator.cxx             |  20 +++
+ ...onLinearEvolutionProblemImplementation.cxx | 124 ++++++++++--------
+ ...nearEvolutionProblemImplementationBase.cxx |   8 +-
+ tests/BatchIntegrationTest.cxx                |  32 ++++-
+ 8 files changed, 269 insertions(+), 64 deletions(-)
+
+diff --git a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+index 3b4f5f50d5..54c5f650c4 100644
+--- a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
++++ b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+@@ -7,6 +7,7 @@
+ #ifndef LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
+ #define LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
+ 
++#include <functional>
+ #include "mfem/linalg/operator.hpp"
+ #include "mfem/linalg/vector.hpp"
+ #include "MFEMMGIS/Config.hxx"
+@@ -64,6 +65,49 @@ namespace mfem_mgis {
+     mutable mfem::Vector yl;
+   };  // end of struct MatrixFreeTangentOperator
+ 
++  /*!
++   * \brief interface of the operators applied without assembly which can
++   * give an assembled version of themselves, used by the preconditioners
++   * requiring a matrix (see the `AssembledOperator` preconditioner of the
++   * linear solvers)
++   */
++  struct MFEM_MGIS_EXPORT AssembledOperatorProvider {
++    /*!
++     * \return the assembled operator, assembled at each call. It stays valid
++     * until the next call.
++     */
++    [[nodiscard]] virtual mfem::Operator& getAssembledOperator() const = 0;
++    //! \brief destructor
++    virtual ~AssembledOperatorProvider();
++  };  // end of struct AssembledOperatorProvider
++
++  /*!
++   * \brief tangent operator applied without assembly whose essential degrees
++   * of freedom are constrained (see `mfem::ConstrainedOperator`), which can
++   * give its assembled version
++   */
++  struct MFEM_MGIS_EXPORT ConstrainedMatrixFreeTangentOperator final
++      : mfem::ConstrainedOperator,
++        AssembledOperatorProvider {
++    /*!
++     * \brief constructor
++     * \param[in] op: tangent operator applied without assembly
++     * \param[in] essential_dofs: essential true degrees of freedom
++     * \param[in] f: function assembling the tangent operator, the essential
++     * degrees of freedom being eliminated
++     */
++    ConstrainedMatrixFreeTangentOperator(MatrixFreeTangentOperator&,
++                                         const mfem::Array<int>&,
++                                         std::function<mfem::Operator&()>);
++    [[nodiscard]] mfem::Operator& getAssembledOperator() const override;
++    //! \brief destructor
++    ~ConstrainedMatrixFreeTangentOperator() override;
++
++   private:
++    //! \brief function assembling the tangent operator
++    std::function<mfem::Operator&()> assemble;
++  };  // end of struct ConstrainedMatrixFreeTangentOperator
++
+ }  // end of namespace mfem_mgis
+ 
+ #endif /* LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX */
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+index a6b3daf496..dfe9976952 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+@@ -114,6 +114,15 @@ namespace mfem_mgis {
+     ~NonLinearEvolutionProblemImplementation() override;
+ 
+    protected:
++    /*!
++     * \return the tangent operator on the true degrees of freedom, the
++     * stiffness matrices of the elements being computed and assembled by
++     * kernels (see `TangentOperatorComputation`), the essential degrees of
++     * freedom being eliminated
++     * \note the non linear form must only contain the integrator of
++     * mfem-mgis
++     */
++    mfem::Operator& assembleTangentOperatorByKernels() const;
+     //
+     [[nodiscard]] std::optional<real> computePrediction(
+         Context& ctx, const real t, const real dt) noexcept override;
+@@ -209,6 +218,15 @@ namespace mfem_mgis {
+     ~NonLinearEvolutionProblemImplementation() override;
+ 
+    protected:
++    /*!
++     * \return the tangent operator on the true degrees of freedom, the
++     * stiffness matrices of the elements being computed and assembled by
++     * kernels (see `TangentOperatorComputation`), the essential degrees of
++     * freedom being eliminated
++     * \note the non linear form must only contain the integrator of
++     * mfem-mgis
++     */
++    mfem::Operator& assembleTangentOperatorByKernels() const;
+     //
+     [[nodiscard]] std::optional<real> computePrediction(
+         Context& ctx, const real t, const real dt) noexcept override;
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index c3fb4c78e1..0c5ffa8d5a 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -10,6 +10,7 @@
+ #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
+ 
+ #include <memory>
++#include <functional>
+ #include <vector>
+ #include "mfem/linalg/vector.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+@@ -35,6 +36,7 @@ namespace mfem_mgis {
+   struct AbstractBehaviourIntegrator;
+   struct MultiMaterialNonLinearIntegrator;
+   struct MatrixFreeTangentOperator;
++  struct ConstrainedMatrixFreeTangentOperator;
+   struct NewtonSolver;
+   enum struct IntegrationType;
+   struct LinearSolverHandler;
+@@ -354,11 +356,14 @@ namespace mfem_mgis {
+     /*!
+      * \return the tangent operator applied without assembly, the essential
+      * degrees of freedom being constrained (created at the first call, or
+-     * if the number of essential degrees of freedom changed)
++     * if the number of essential degrees of freedom changed), which can give
++     * its assembled version (see `AssembledOperatorProvider`)
+      * \param[in] essential_dofs: essential true degrees of freedom
++     * \param[in] f: function assembling the tangent operator, the essential
++     * degrees of freedom being eliminated
+      */
+     [[nodiscard]] mfem::Operator& getMatrixFreeTangentOperator(
+-        const mfem::Array<int>&) const;
++        const mfem::Array<int>&, std::function<mfem::Operator&()>) const;
+     /*!
+      * \brief inner forces computed by kernels (local vector of the finite
+      * element space), kept between the evaluations of the residual
+@@ -375,7 +380,7 @@ namespace mfem_mgis {
+     //! \brief tangent operator applied without assembly
+     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
+     //! \brief tangent operator with constrained essential degrees of freedom
+-    mutable std::unique_ptr<mfem::ConstrainedOperator>
++    mutable std::unique_ptr<ConstrainedMatrixFreeTangentOperator>
+         constrained_tangent_operator;
+     //! \brief number of essential degrees of freedom of this operator
+     mutable int constrained_tangent_operator_essential_dofs = -1;
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index b7e09a709a..4707a49372 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -18,6 +18,7 @@
+ #include "mfem/linalg/mumps.hpp"
+ #endif
+ #include "MGIS/Raise.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MGIS/Contract.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -264,6 +265,51 @@ namespace mfem_mgis {
+       std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
+     };
+ 
++    /*!
++     * \brief preconditioner built on the assembled version of an operator
++     * applied without assembly (see `AssembledOperatorProvider`), set up
++     * every `period` calls to `SetOperator`, and kept between them. An
++     * operator which can't give an assembled version (for instance an
++     * assembled matrix) is given directly to the preconditioner.
++     */
++    struct AssembledOperatorPreconditioner final : mfem::Solver {
++      /*!
++       * \param[in] p: preconditioner
++       * \param[in] n: period of the updates
++       */
++      AssembledOperatorPreconditioner(std::unique_ptr<mfem::Solver> p,
++                                      const int n)
++          : preconditioner(std::move(p)), period(n) {}
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        const auto* const provider =
++            dynamic_cast<const AssembledOperatorProvider*>(&op);
++        if (provider == nullptr) {
++          this->preconditioner->SetOperator(op);
++          // the next operator applied without assembly sets the
++          // preconditioner up again
++          this->count = 0;
++          return;
++        }
++        if (this->count % this->period == 0) {
++          this->preconditioner->SetOperator(provider->getAssembledOperator());
++        }
++        ++(this->count);
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        this->preconditioner->Mult(x, y);
++      }
++
++     private:
++      //! \brief preconditioner
++      std::unique_ptr<mfem::Solver> preconditioner;
++      //! \brief period of the updates
++      const int period;
++      //! \brief number of calls to `SetOperator` since the last update
++      int count = 0;
++    };
++
+   }  // end of namespace
+ 
+   template <bool parallel>
+@@ -287,6 +333,36 @@ namespace mfem_mgis {
+             *oname + "'");
+       }
+       return {};
++    } else if (*oname == "AssembledOperator") {
++      // preconditioner built on the assembled version of an operator applied
++      // without assembly (see `MatrixFreeTangentOperator`)
++      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
++      if (isInvalid(oparams)) {
++        return {};
++      }
++      if (!checkParameters(ctx, *oparams,
++                           std::vector<std::string>{"Preconditioner",
++                                                    "UpdatePeriod"})) {
++        return {};
++      }
++      const auto oprec = get<Parameters>(ctx, *oparams, "Preconditioner");
++      const auto operiod = get_if<int>(ctx, *oparams, "UpdatePeriod", 1);
++      if ((isInvalid(oprec)) || (isInvalid(operiod))) {
++        return {};
++      }
++      if (*operiod < 1) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: invalid update period of the "
++            "'AssembledOperator' preconditioner");
++      }
++      auto p = getLinearSolverPreconditioner<parallel>(ctx, fespace, *oprec);
++      if (p == nullptr) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: no preconditioner given to the "
++            "'AssembledOperator' preconditioner");
++      }
++      return std::make_unique<AssembledOperatorPreconditioner>(std::move(p),
++                                                               *operiod);
+     } else if (*oname == "OperatorJacobiSmoother") {
+       // Jacobi smoother of MFEM, whose diagonal is computed by the operator
+       // (`AssembleDiagonal`): usable with an operator applied without
+diff --git a/src/MatrixFreeTangentOperator.cxx b/src/MatrixFreeTangentOperator.cxx
+index 9955aa0da9..8ad00c0107 100644
+--- a/src/MatrixFreeTangentOperator.cxx
++++ b/src/MatrixFreeTangentOperator.cxx
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <string>
++#include <utility>
+ #include "mfem/fem/fespace.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+@@ -101,4 +102,23 @@ namespace mfem_mgis {
+ 
+   MatrixFreeTangentOperator::~MatrixFreeTangentOperator() = default;
+ 
++  AssembledOperatorProvider::~AssembledOperatorProvider() = default;
++
++  ConstrainedMatrixFreeTangentOperator::ConstrainedMatrixFreeTangentOperator(
++      MatrixFreeTangentOperator& op,
++      const mfem::Array<int>& essential_dofs,
++      std::function<mfem::Operator&()> f)
++      : mfem::ConstrainedOperator(
++            &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
++        assemble(std::move(f)) {
++  }  // end of ConstrainedMatrixFreeTangentOperator
++
++  mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
++      const {
++    return this->assemble();
++  }  // end of getAssembledOperator
++
++  ConstrainedMatrixFreeTangentOperator::
++      ~ConstrainedMatrixFreeTangentOperator() = default;
++
+ }  // end of namespace mfem_mgis
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 4ba940007e..16915bd78c 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -747,44 +747,50 @@ namespace mfem_mgis {
+         this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
++  mfem::Operator& NonLinearEvolutionProblemImplementation<
++      true>::assembleTangentOperatorByKernels() const {
++    // the stiffness matrices are assembled by kernels in the local matrix,
++    // then the global matrix is built as by
++    // `mfem::ParNonlinearForm::GetGradient`
++    assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
++                                     *(this->mgis_integrator),
++                                     this->getFiniteElementSpace(), this->Grad);
++    auto* const pfes = this->ParFESpace();
++    this->pGrad.Clear();
++    mfem::OperatorHandle dA(this->pGrad.Type());
++    mfem::OperatorHandle Ph(this->pGrad.Type());
++    dA.MakeSquareBlockDiag(pfes->GetComm(), pfes->GlobalVSize(),
++                           pfes->GetDofOffsets(), this->Grad);
++    Ph.ConvertFrom(pfes->Dof_TrueDof_Matrix());
++    this->pGrad.MakePtAP(dA, Ph);
++    if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
++      // same result as `EliminateRowsCols`, the pattern of the matrix
++      // being symmetric, but in place (on the device if hypre uses it),
++      // without computing the eliminated part
++      this->pGrad.As<mfem::HypreParMatrix>()->EliminateBC(
++          this->ess_tdof_list, mfem::Operator::DIAG_ONE);
++    } else {
++      mfem::OperatorHandle pGrad_e;
++      pGrad_e.EliminateRowsCols(this->pGrad, this->ess_tdof_list);
++    }
++    return *(this->pGrad.Ptr());
++  }  // end of assembleTangentOperatorByKernels
++
+   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
+       const mfem::Vector& u) const {
+     if (this->matrix_free_tangent_operator) {
+       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
+-      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
++      return this->getMatrixFreeTangentOperator(
++          this->ess_tdof_list, [this]() -> mfem::Operator& {
++            return this->assembleTangentOperatorByKernels();
++          });
+     }
+     if ((!this->tangent_operator_kernels) ||
+         (this->mgis_integrator == nullptr)) {
+       return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+     }
+-    const auto only_mfem_mgis =
+-        isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if (only_mfem_mgis) {
+-      // the stiffness matrices are assembled by kernels in the local matrix,
+-      // then the global matrix is built as by
+-      // `mfem::ParNonlinearForm::GetGradient`
+-      assembleStiffnessMatrixByKernels(
+-          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-          this->getFiniteElementSpace(), this->Grad);
+-      auto* const pfes = this->ParFESpace();
+-      this->pGrad.Clear();
+-      mfem::OperatorHandle dA(this->pGrad.Type());
+-      mfem::OperatorHandle Ph(this->pGrad.Type());
+-      dA.MakeSquareBlockDiag(pfes->GetComm(), pfes->GlobalVSize(),
+-                             pfes->GetDofOffsets(), this->Grad);
+-      Ph.ConvertFrom(pfes->Dof_TrueDof_Matrix());
+-      this->pGrad.MakePtAP(dA, Ph);
+-      if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
+-        // same result as `EliminateRowsCols`, the pattern of the matrix
+-        // being symmetric, but in place (on the device if hypre uses it),
+-        // without computing the eliminated part
+-        this->pGrad.As<mfem::HypreParMatrix>()->EliminateBC(
+-            this->ess_tdof_list, mfem::Operator::DIAG_ONE);
+-      } else {
+-        mfem::OperatorHandle pGrad_e;
+-        pGrad_e.EliminateRowsCols(this->pGrad, this->ess_tdof_list);
+-      }
+-      return *(this->pGrad.Ptr());
++    if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
++      return this->assembleTangentOperatorByKernels();
+     }
+     // other integrators in the form: the stiffness matrices computed by
+     // kernels are copied by the element loop of MFEM
+@@ -1088,42 +1094,48 @@ namespace mfem_mgis {
+         this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
++  mfem::Operator& NonLinearEvolutionProblemImplementation<
++      false>::assembleTangentOperatorByKernels() const {
++    assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
++                                     *(this->mgis_integrator),
++                                     this->getFiniteElementSpace(), this->Grad);
++    // as `mfem::NonlinearForm::GetGradient`, the elimination of the
++    // essential degrees of freedom giving the same result as
++    // `EliminateRowCol`, the pattern of the matrix being symmetric
++    auto* mGrad = this->Grad;
++    if (this->cP != nullptr) {
++      // `RAP` reads the matrix on the host without declaring it
++      static_cast<void>(this->Grad->HostReadI());
++      static_cast<void>(this->Grad->HostReadJ());
++      static_cast<void>(this->Grad->HostReadData());
++      delete this->cGrad;
++      this->cGrad = mfem::RAP(*(this->cP), *(this->Grad), *(this->cP));
++      mGrad = this->cGrad;
++    }
++    mGrad->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
++    // the linear solvers may read the matrix on the host without declaring
++    // it
++    static_cast<void>(mGrad->HostReadI());
++    static_cast<void>(mGrad->HostReadJ());
++    static_cast<void>(mGrad->HostReadData());
++    return *mGrad;
++  }  // end of assembleTangentOperatorByKernels
++
+   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
+       const mfem::Vector& u) const {
+     if (this->matrix_free_tangent_operator) {
+       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
+-      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
++      return this->getMatrixFreeTangentOperator(
++          this->ess_tdof_list, [this]() -> mfem::Operator& {
++            return this->assembleTangentOperatorByKernels();
++          });
+     }
+     if ((!this->tangent_operator_kernels) ||
+         (this->mgis_integrator == nullptr)) {
+       return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+     }
+-    const auto only_mfem_mgis =
+-        isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if (only_mfem_mgis) {
+-      assembleStiffnessMatrixByKernels(
+-          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-          this->getFiniteElementSpace(), this->Grad);
+-      // as `mfem::NonlinearForm::GetGradient`, the elimination of the
+-      // essential degrees of freedom giving the same result as
+-      // `EliminateRowCol`, the pattern of the matrix being symmetric
+-      auto* mGrad = this->Grad;
+-      if (this->cP != nullptr) {
+-        // `RAP` reads the matrix on the host without declaring it
+-        static_cast<void>(this->Grad->HostReadI());
+-        static_cast<void>(this->Grad->HostReadJ());
+-        static_cast<void>(this->Grad->HostReadData());
+-        delete this->cGrad;
+-        this->cGrad = mfem::RAP(*(this->cP), *(this->Grad), *(this->cP));
+-        mGrad = this->cGrad;
+-      }
+-      mGrad->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
+-      // the linear solvers may read the matrix on the host without declaring
+-      // it
+-      static_cast<void>(mGrad->HostReadI());
+-      static_cast<void>(mGrad->HostReadJ());
+-      static_cast<void>(mGrad->HostReadData());
+-      return *mGrad;
++    if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
++      return this->assembleTangentOperatorByKernels();
+     }
+     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+                                       *(this->mgis_integrator),
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index ae5ef1812c..57bad4a0d6 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -694,7 +694,8 @@ namespace mfem_mgis {
+ 
+   mfem::Operator&
+   NonLinearEvolutionProblemImplementationBase::getMatrixFreeTangentOperator(
+-      const mfem::Array<int>& essential_dofs) const {
++      const mfem::Array<int>& essential_dofs,
++      std::function<mfem::Operator&()> f) const {
+     if (this->mgis_integrator == nullptr) {
+       raise("no multiple material integrator defined");
+     }
+@@ -705,9 +706,8 @@ namespace mfem_mgis {
+       this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
+           *(this->fe_discretization), *(this->mgis_integrator));
+       this->constrained_tangent_operator =
+-          std::make_unique<mfem::ConstrainedOperator>(
+-              this->tangent_operator.get(), essential_dofs, false,
+-              mfem::Operator::DIAG_ONE);
++          std::make_unique<ConstrainedMatrixFreeTangentOperator>(
++              *(this->tangent_operator), essential_dofs, std::move(f));
+       this->constrained_tangent_operator_essential_dofs = essential_dofs.Size();
+     }
+     return *(this->constrained_tangent_operator);
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 428bf9a751..11ccb25367 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -113,6 +113,13 @@ struct ComputationOptions {
+    * Jacobi preconditioner
+    */
+   bool matrix_free = false;
++  /*!
++   * \brief if true, with the tangent operator applied without assembly, the
++   * preconditioner is built on the assembled tangent operator, every two
++   * Newton iterations (`AssembledOperator` preconditioner): BoomerAMG in
++   * parallel, Jacobi in sequential
++   */
++  bool assembled_preconditioner = false;
+   /*!
+    * \brief if not null, the mesh has two materials (1 and 2), the second one
+    * being an isotropic elastic material whose behaviour is taken from this
+@@ -321,7 +328,19 @@ static Results compute(mfem_mgis::Context& ctx,
+          {"RelativeTolerance", 1e-14},
+          {"AbsoluteTolerance", 0.},
+          {"MaximumNumberOfIterations", 10000},
+-         {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
++         {"Preconditioner",
++          opts.assembled_preconditioner
++              ? Parameters{{"Name", "AssembledOperator"},
++                           {"Options",
++                            Parameters{
++                                {"UpdatePeriod", 2},
++                                {"Preconditioner",
++                                 parallel
++                                     ? Parameters{{"Name", "HypreBoomerAMG"}}
++                                     : Parameters{{"Name",
++                                                   "OperatorJacobi"
++                                                   "Smoother"}}}}}}
++              : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+         or_die;
+   } else {
+     problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
+@@ -868,6 +887,16 @@ int main(int argc, char** argv) {
+                       .inner_forces_kernels = true,
+                       .matrix_free = true},
+                      ", matrix free, plane strain"});
++    for (const auto* const b :
++         {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity"}) {
++      cases.push_back({b,
++                       {.prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .matrix_free = true,
++                        .assembled_preconditioner = true},
++                       ", matrix free, assembled preconditioner"});
++    }
+     cases.push_back({"IsotropicLinearHardeningPlasticity",
+                      {.gradients_kernels = true,
+                       .inner_forces_kernels = true,
+@@ -881,6 +910,7 @@ int main(int argc, char** argv) {
+       reference.inner_forces_kernels = false;
+       reference.tangent_operator_kernels = false;
+       reference.matrix_free = false;
++      reference.assembled_preconditioner = false;
+       compare(compute(ctx, m, library, b, "PointByPoint", reference),
+               compute(ctx, m, library, b, "Batch", opts),
+               b + " (kernels" + name + ")", 1e-10);
+-- 
+2.43.0
+

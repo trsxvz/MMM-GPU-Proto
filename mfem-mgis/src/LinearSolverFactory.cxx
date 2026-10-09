@@ -18,6 +18,7 @@
 #include "mfem/linalg/mumps.hpp"
 #endif
 #include "MGIS/Raise.hxx"
+#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 #include "MGIS/Contract.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -264,6 +265,51 @@ namespace mfem_mgis {
       std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
     };
 
+    /*!
+     * \brief preconditioner built on the assembled version of an operator
+     * applied without assembly (see `AssembledOperatorProvider`), set up
+     * every `period` calls to `SetOperator`, and kept between them. An
+     * operator which can't give an assembled version (for instance an
+     * assembled matrix) is given directly to the preconditioner.
+     */
+    struct AssembledOperatorPreconditioner final : mfem::Solver {
+      /*!
+       * \param[in] p: preconditioner
+       * \param[in] n: period of the updates
+       */
+      AssembledOperatorPreconditioner(std::unique_ptr<mfem::Solver> p,
+                                      const int n)
+          : preconditioner(std::move(p)), period(n) {}
+      void SetOperator(const mfem::Operator& op) override {
+        this->height = op.Height();
+        this->width = op.Width();
+        const auto* const provider =
+            dynamic_cast<const AssembledOperatorProvider*>(&op);
+        if (provider == nullptr) {
+          this->preconditioner->SetOperator(op);
+          // the next operator applied without assembly sets the
+          // preconditioner up again
+          this->count = 0;
+          return;
+        }
+        if (this->count % this->period == 0) {
+          this->preconditioner->SetOperator(provider->getAssembledOperator());
+        }
+        ++(this->count);
+      }
+      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+        this->preconditioner->Mult(x, y);
+      }
+
+     private:
+      //! \brief preconditioner
+      std::unique_ptr<mfem::Solver> preconditioner;
+      //! \brief period of the updates
+      const int period;
+      //! \brief number of calls to `SetOperator` since the last update
+      int count = 0;
+    };
+
   }  // end of namespace
 
   template <bool parallel>
@@ -287,6 +333,36 @@ namespace mfem_mgis {
             *oname + "'");
       }
       return {};
+    } else if (*oname == "AssembledOperator") {
+      // preconditioner built on the assembled version of an operator applied
+      // without assembly (see `MatrixFreeTangentOperator`)
+      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+      if (isInvalid(oparams)) {
+        return {};
+      }
+      if (!checkParameters(ctx, *oparams,
+                           std::vector<std::string>{"Preconditioner",
+                                                    "UpdatePeriod"})) {
+        return {};
+      }
+      const auto oprec = get<Parameters>(ctx, *oparams, "Preconditioner");
+      const auto operiod = get_if<int>(ctx, *oparams, "UpdatePeriod", 1);
+      if ((isInvalid(oprec)) || (isInvalid(operiod))) {
+        return {};
+      }
+      if (*operiod < 1) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverPreconditioner: invalid update period of the "
+            "'AssembledOperator' preconditioner");
+      }
+      auto p = getLinearSolverPreconditioner<parallel>(ctx, fespace, *oprec);
+      if (p == nullptr) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverPreconditioner: no preconditioner given to the "
+            "'AssembledOperator' preconditioner");
+      }
+      return std::make_unique<AssembledOperatorPreconditioner>(std::move(p),
+                                                               *operiod);
     } else if (*oname == "OperatorJacobiSmoother") {
       // Jacobi smoother of MFEM, whose diagonal is computed by the operator
       // (`AssembleDiagonal`): usable with an operator applied without

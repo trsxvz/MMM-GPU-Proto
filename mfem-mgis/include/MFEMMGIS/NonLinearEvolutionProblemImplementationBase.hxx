@@ -10,6 +10,7 @@
 #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATIONBASE_HXX
 
 #include <memory>
+#include <functional>
 #include <vector>
 #include "mfem/linalg/vector.hpp"
 #include "mfem/linalg/sparsemat.hpp"
@@ -35,6 +36,7 @@ namespace mfem_mgis {
   struct AbstractBehaviourIntegrator;
   struct MultiMaterialNonLinearIntegrator;
   struct MatrixFreeTangentOperator;
+  struct ConstrainedMatrixFreeTangentOperator;
   struct NewtonSolver;
   enum struct IntegrationType;
   struct LinearSolverHandler;
@@ -354,11 +356,14 @@ namespace mfem_mgis {
     /*!
      * \return the tangent operator applied without assembly, the essential
      * degrees of freedom being constrained (created at the first call, or
-     * if the number of essential degrees of freedom changed)
+     * if the number of essential degrees of freedom changed), which can give
+     * its assembled version (see `AssembledOperatorProvider`)
      * \param[in] essential_dofs: essential true degrees of freedom
+     * \param[in] f: function assembling the tangent operator, the essential
+     * degrees of freedom being eliminated
      */
     [[nodiscard]] mfem::Operator& getMatrixFreeTangentOperator(
-        const mfem::Array<int>&) const;
+        const mfem::Array<int>&, std::function<mfem::Operator&()>) const;
     /*!
      * \brief inner forces computed by kernels (local vector of the finite
      * element space), kept between the evaluations of the residual
@@ -375,7 +380,7 @@ namespace mfem_mgis {
     //! \brief tangent operator applied without assembly
     mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
     //! \brief tangent operator with constrained essential degrees of freedom
-    mutable std::unique_ptr<mfem::ConstrainedOperator>
+    mutable std::unique_ptr<ConstrainedMatrixFreeTangentOperator>
         constrained_tangent_operator;
     //! \brief number of essential degrees of freedom of this operator
     mutable int constrained_tangent_operator_essential_dofs = -1;

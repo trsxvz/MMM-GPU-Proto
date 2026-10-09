@@ -747,44 +747,50 @@ namespace mfem_mgis {
         this->inner_forces_by_kernels, r);
   }  // end of Mult
 
+  mfem::Operator& NonLinearEvolutionProblemImplementation<
+      true>::assembleTangentOperatorByKernels() const {
+    // the stiffness matrices are assembled by kernels in the local matrix,
+    // then the global matrix is built as by
+    // `mfem::ParNonlinearForm::GetGradient`
+    assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                     *(this->mgis_integrator),
+                                     this->getFiniteElementSpace(), this->Grad);
+    auto* const pfes = this->ParFESpace();
+    this->pGrad.Clear();
+    mfem::OperatorHandle dA(this->pGrad.Type());
+    mfem::OperatorHandle Ph(this->pGrad.Type());
+    dA.MakeSquareBlockDiag(pfes->GetComm(), pfes->GlobalVSize(),
+                           pfes->GetDofOffsets(), this->Grad);
+    Ph.ConvertFrom(pfes->Dof_TrueDof_Matrix());
+    this->pGrad.MakePtAP(dA, Ph);
+    if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
+      // same result as `EliminateRowsCols`, the pattern of the matrix
+      // being symmetric, but in place (on the device if hypre uses it),
+      // without computing the eliminated part
+      this->pGrad.As<mfem::HypreParMatrix>()->EliminateBC(
+          this->ess_tdof_list, mfem::Operator::DIAG_ONE);
+    } else {
+      mfem::OperatorHandle pGrad_e;
+      pGrad_e.EliminateRowsCols(this->pGrad, this->ess_tdof_list);
+    }
+    return *(this->pGrad.Ptr());
+  }  // end of assembleTangentOperatorByKernels
+
   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
       const mfem::Vector& u) const {
     if (this->matrix_free_tangent_operator) {
       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
-      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
+      return this->getMatrixFreeTangentOperator(
+          this->ess_tdof_list, [this]() -> mfem::Operator& {
+            return this->assembleTangentOperatorByKernels();
+          });
     }
     if ((!this->tangent_operator_kernels) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<true>::GetGradient(u);
     }
-    const auto only_mfem_mgis =
-        isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if (only_mfem_mgis) {
-      // the stiffness matrices are assembled by kernels in the local matrix,
-      // then the global matrix is built as by
-      // `mfem::ParNonlinearForm::GetGradient`
-      assembleStiffnessMatrixByKernels(
-          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-          this->getFiniteElementSpace(), this->Grad);
-      auto* const pfes = this->ParFESpace();
-      this->pGrad.Clear();
-      mfem::OperatorHandle dA(this->pGrad.Type());
-      mfem::OperatorHandle Ph(this->pGrad.Type());
-      dA.MakeSquareBlockDiag(pfes->GetComm(), pfes->GlobalVSize(),
-                             pfes->GetDofOffsets(), this->Grad);
-      Ph.ConvertFrom(pfes->Dof_TrueDof_Matrix());
-      this->pGrad.MakePtAP(dA, Ph);
-      if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
-        // same result as `EliminateRowsCols`, the pattern of the matrix
-        // being symmetric, but in place (on the device if hypre uses it),
-        // without computing the eliminated part
-        this->pGrad.As<mfem::HypreParMatrix>()->EliminateBC(
-            this->ess_tdof_list, mfem::Operator::DIAG_ONE);
-      } else {
-        mfem::OperatorHandle pGrad_e;
-        pGrad_e.EliminateRowsCols(this->pGrad, this->ess_tdof_list);
-      }
-      return *(this->pGrad.Ptr());
+    if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
+      return this->assembleTangentOperatorByKernels();
     }
     // other integrators in the form: the stiffness matrices computed by
     // kernels are copied by the element loop of MFEM
@@ -1088,42 +1094,48 @@ namespace mfem_mgis {
         this->inner_forces_by_kernels, r);
   }  // end of Mult
 
+  mfem::Operator& NonLinearEvolutionProblemImplementation<
+      false>::assembleTangentOperatorByKernels() const {
+    assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                     *(this->mgis_integrator),
+                                     this->getFiniteElementSpace(), this->Grad);
+    // as `mfem::NonlinearForm::GetGradient`, the elimination of the
+    // essential degrees of freedom giving the same result as
+    // `EliminateRowCol`, the pattern of the matrix being symmetric
+    auto* mGrad = this->Grad;
+    if (this->cP != nullptr) {
+      // `RAP` reads the matrix on the host without declaring it
+      static_cast<void>(this->Grad->HostReadI());
+      static_cast<void>(this->Grad->HostReadJ());
+      static_cast<void>(this->Grad->HostReadData());
+      delete this->cGrad;
+      this->cGrad = mfem::RAP(*(this->cP), *(this->Grad), *(this->cP));
+      mGrad = this->cGrad;
+    }
+    mGrad->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
+    // the linear solvers may read the matrix on the host without declaring
+    // it
+    static_cast<void>(mGrad->HostReadI());
+    static_cast<void>(mGrad->HostReadJ());
+    static_cast<void>(mGrad->HostReadData());
+    return *mGrad;
+  }  // end of assembleTangentOperatorByKernels
+
   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
       const mfem::Vector& u) const {
     if (this->matrix_free_tangent_operator) {
       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
-      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
+      return this->getMatrixFreeTangentOperator(
+          this->ess_tdof_list, [this]() -> mfem::Operator& {
+            return this->assembleTangentOperatorByKernels();
+          });
     }
     if ((!this->tangent_operator_kernels) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<false>::GetGradient(u);
     }
-    const auto only_mfem_mgis =
-        isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if (only_mfem_mgis) {
-      assembleStiffnessMatrixByKernels(
-          this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-          this->getFiniteElementSpace(), this->Grad);
-      // as `mfem::NonlinearForm::GetGradient`, the elimination of the
-      // essential degrees of freedom giving the same result as
-      // `EliminateRowCol`, the pattern of the matrix being symmetric
-      auto* mGrad = this->Grad;
-      if (this->cP != nullptr) {
-        // `RAP` reads the matrix on the host without declaring it
-        static_cast<void>(this->Grad->HostReadI());
-        static_cast<void>(this->Grad->HostReadJ());
-        static_cast<void>(this->Grad->HostReadData());
-        delete this->cGrad;
-        this->cGrad = mfem::RAP(*(this->cP), *(this->Grad), *(this->cP));
-        mGrad = this->cGrad;
-      }
-      mGrad->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
-      // the linear solvers may read the matrix on the host without declaring
-      // it
-      static_cast<void>(mGrad->HostReadI());
-      static_cast<void>(mGrad->HostReadJ());
-      static_cast<void>(mGrad->HostReadData());
-      return *mGrad;
+    if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
+      return this->assembleTangentOperatorByKernels();
     }
     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
                                       *(this->mgis_integrator),

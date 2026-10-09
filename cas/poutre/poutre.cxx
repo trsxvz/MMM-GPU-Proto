@@ -37,6 +37,7 @@ int main(int argc, char** argv) {
   auto max_iterations = 50;
   auto prediction = true;
   auto profiling = false;
+  auto update_period = 1;
   auto displacement = real{0.5};
   auto relative_tolerance = real{1e-8};
   auto linear_tolerance = real{1e-10};
@@ -48,7 +49,9 @@ int main(int argc, char** argv) {
   args.AddOption(&library, "-l", "--library", "Behaviour library.");
   args.AddOption(&linear_solver, "-ls", "--linear-solver",
                  "Linear solver: mumps (parallel), umfpack (sequential), "
-                 "pcg-amg (parallel, PCG of hypre and BoomerAMG) or cg-jacobi "
+                 "pcg-amg (parallel, PCG of hypre and BoomerAMG), cg-amg "
+                 "(parallel, conjugate gradient of MFEM and BoomerAMG built on "
+                 "the assembled tangent operator) or cg-jacobi "
                  "(conjugate gradient of MFEM and Jacobi preconditioner, "
                  "usable with the tangent operator applied without "
                  "assembly).");
@@ -64,6 +67,9 @@ int main(int argc, char** argv) {
   args.AddOption(&refinements, "-r", "--refinements",
                  "Number of uniform refinements of the mesh.");
   args.AddOption(&steps, "-n", "--steps", "Number of time steps.");
+  args.AddOption(&update_period, "-pu", "--preconditioner-update-period",
+                 "Period of the updates of the preconditioner built on the "
+                 "assembled tangent operator (linear solver cg-amg).");
   args.AddOption(&max_iterations, "-mi", "--max-iterations",
                  "Maximum number of Newton iterations per step.");
   args.AddOption(&prediction, "-pr", "--prediction", "-no-pr",
@@ -152,6 +158,28 @@ int main(int argc, char** argv) {
            {"Preconditioner",
             Parameters{{"Name", "HypreBoomerAMG"},
                        {"Options", Parameters{{"VerbosityLevel", 0}}}}}}) |
+          or_die;
+    } else if (ls == "cg-amg") {
+      // conjugate gradient of MFEM, BoomerAMG built on the assembled tangent
+      // operator every `update_period` Newton iterations: with the tangent
+      // operator applied without assembly, the Krylov products use the
+      // action of the kernels
+      problem.setLinearSolver(
+          ctx, "CGSolver",
+          {{"VerbosityLevel", 0},
+           {"RelativeTolerance", linear_tolerance},
+           {"AbsoluteTolerance", 0.},
+           {"MaximumNumberOfIterations", 2000},
+           {"Preconditioner",
+            Parameters{
+                {"Name", "AssembledOperator"},
+                {"Options",
+                 Parameters{{"UpdatePeriod", update_period},
+                            {"Preconditioner",
+                             Parameters{{"Name", "HypreBoomerAMG"},
+                                        {"Options",
+                                         Parameters{
+                                             {"VerbosityLevel", 0}}}}}}}}}}) |
           or_die;
     } else if (ls == "cg-jacobi") {
       // conjugate gradient of MFEM with a Jacobi preconditioner: usable with

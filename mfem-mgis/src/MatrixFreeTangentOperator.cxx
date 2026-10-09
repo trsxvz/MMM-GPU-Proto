@@ -5,6 +5,7 @@
  */
 
 #include <string>
+#include <utility>
 #include "mfem/fem/fespace.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/MPI.hxx"
@@ -100,5 +101,24 @@ namespace mfem_mgis {
   }  // end of AssembleDiagonal
 
   MatrixFreeTangentOperator::~MatrixFreeTangentOperator() = default;
+
+  AssembledOperatorProvider::~AssembledOperatorProvider() = default;
+
+  ConstrainedMatrixFreeTangentOperator::ConstrainedMatrixFreeTangentOperator(
+      MatrixFreeTangentOperator& op,
+      const mfem::Array<int>& essential_dofs,
+      std::function<mfem::Operator&()> f)
+      : mfem::ConstrainedOperator(
+            &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
+        assemble(std::move(f)) {
+  }  // end of ConstrainedMatrixFreeTangentOperator
+
+  mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
+      const {
+    return this->assemble();
+  }  // end of getAssembledOperator
+
+  ConstrainedMatrixFreeTangentOperator::
+      ~ConstrainedMatrixFreeTangentOperator() = default;
 
 }  // end of namespace mfem_mgis

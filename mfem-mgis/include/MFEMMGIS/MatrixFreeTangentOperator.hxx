@@ -7,6 +7,7 @@
 #ifndef LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
 #define LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
 
+#include <functional>
 #include "mfem/linalg/operator.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "MFEMMGIS/Config.hxx"
@@ -63,6 +64,49 @@ namespace mfem_mgis {
     //! \brief local vector of the result (workspace)
     mutable mfem::Vector yl;
   };  // end of struct MatrixFreeTangentOperator
+
+  /*!
+   * \brief interface of the operators applied without assembly which can
+   * give an assembled version of themselves, used by the preconditioners
+   * requiring a matrix (see the `AssembledOperator` preconditioner of the
+   * linear solvers)
+   */
+  struct MFEM_MGIS_EXPORT AssembledOperatorProvider {
+    /*!
+     * \return the assembled operator, assembled at each call. It stays valid
+     * until the next call.
+     */
+    [[nodiscard]] virtual mfem::Operator& getAssembledOperator() const = 0;
+    //! \brief destructor
+    virtual ~AssembledOperatorProvider();
+  };  // end of struct AssembledOperatorProvider
+
+  /*!
+   * \brief tangent operator applied without assembly whose essential degrees
+   * of freedom are constrained (see `mfem::ConstrainedOperator`), which can
+   * give its assembled version
+   */
+  struct MFEM_MGIS_EXPORT ConstrainedMatrixFreeTangentOperator final
+      : mfem::ConstrainedOperator,
+        AssembledOperatorProvider {
+    /*!
+     * \brief constructor
+     * \param[in] op: tangent operator applied without assembly
+     * \param[in] essential_dofs: essential true degrees of freedom
+     * \param[in] f: function assembling the tangent operator, the essential
+     * degrees of freedom being eliminated
+     */
+    ConstrainedMatrixFreeTangentOperator(MatrixFreeTangentOperator&,
+                                         const mfem::Array<int>&,
+                                         std::function<mfem::Operator&()>);
+    [[nodiscard]] mfem::Operator& getAssembledOperator() const override;
+    //! \brief destructor
+    ~ConstrainedMatrixFreeTangentOperator() override;
+
+   private:
+    //! \brief function assembling the tangent operator
+    std::function<mfem::Operator&()> assemble;
+  };  // end of struct ConstrainedMatrixFreeTangentOperator
 
 }  // end of namespace mfem_mgis
 
