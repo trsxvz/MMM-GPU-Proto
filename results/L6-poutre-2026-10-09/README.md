@@ -75,3 +75,25 @@ itérations de Newton, 13 résidus), environ 1,8 s :
   des lancements de hypre, pas par le calcul. Pistes : moins d'itérations
   de PCG (préconditionneur réutilisé d'une itération à l'autre, options
   de BoomerAMG pour le GPU), problèmes plus gros, opérateur sans matrice.
+
+## Tangente sans matrice (mfem-mgis 4d465460c3)
+
+Option `TangentOperatorComputation=MatrixFree` : la tangente est appliquée
+par noyaux sans assemblage (`Σ Bᵀ K B` aux points), sa diagonale aussi ;
+gradient conjugué de MFEM avec un préconditionneur de Jacobi (`-ls
+cg-jacobi`), même tolérance relative (1e-4) que PCG + BoomerAMG. Loi
+`cuda`, 10 pas, 1 processus :
+
+| Cas | Total | Tangente | Résolution | Prédiction |
+|---|---|---|---|---|
+| tangente assemblée, PCG + BoomerAMG | 3,61 | 0,22 (32) | 2,23 | 0,77 |
+| tangente sans matrice, CG + Jacobi | 95,31 | 0,00 (30) | 93,30 | 1,58 |
+
+Même solution (48,83704586), mêmes nombres d'itérations de Newton à
+l'arrondi près. Le chemin sans matrice est juste, mais Jacobi ne suffit
+pas : 3,1 s de gradient conjugué par itération de Newton (des milliers
+d'itérations sur cette poutre élancée). Il faut un vrai préconditionneur
+pour l'opérateur sans matrice : AMG construit sur la tangente assemblée
+(ou sur l'opérateur élastique) et gardé plusieurs itérations, ou
+multigrille polynomial avec des lisseurs de Chebyshev (lots L4 et L5 du
+plan).

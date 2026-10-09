@@ -79,6 +79,25 @@ namespace mfem_mgis {
   }  // end of isTheOnlyIntegrator
 
   /*!
+   * \brief checks that the tangent operator can be applied without assembly
+   * (see `TangentOperatorComputation`): the non linear form must only
+   * contain the integrator of mfem-mgis, the contributions of the other
+   * integrators to the tangent operator being otherwise lost
+   * \param[in] f: non linear form
+   * \param[in] mi: multi-material integrator
+   */
+  static void checkMatrixFreeTangentOperatorSupport(
+      const mfem::NonlinearForm& f,
+      const MultiMaterialNonLinearIntegrator* const mi) {
+    if (!isTheOnlyIntegrator(f, mi)) {
+      raise(
+          "the tangent operator applied without assembly (parameter "
+          "TangentOperatorComputation set to MatrixFree) requires that the "
+          "non linear form only contains the integrator of mfem-mgis");
+    }
+  }  // end of checkMatrixFreeTangentOperatorSupport
+
+  /*!
    * \brief raises an exception on all the processes if a computation by
    * kernels failed on one of them. This check is made before the collective
    * operations following the computation, so that all the processes leave
@@ -730,6 +749,10 @@ namespace mfem_mgis {
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
       const mfem::Vector& u) const {
+    if (this->matrix_free_tangent_operator) {
+      checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
+      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
+    }
     if ((!this->tangent_operator_kernels) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<true>::GetGradient(u);
@@ -1067,6 +1090,10 @@ namespace mfem_mgis {
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
       const mfem::Vector& u) const {
+    if (this->matrix_free_tangent_operator) {
+      checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
+      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
+    }
     if ((!this->tangent_operator_kernels) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<false>::GetGradient(u);

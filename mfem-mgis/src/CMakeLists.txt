@@ -28,6 +28,7 @@ list(APPEND MFEMMGIS_SOURCES
   AbstractBehaviourIntegrator.cxx
   BehaviourIntegratorBase.cxx
   BehaviourIntegratorFactory.cxx
+  MatrixFreeTangentOperator.cxx
   MultiMaterialNonLinearIntegrator.cxx
   AbstractDirichletBoundaryCondition.cxx
   DirichletBoundaryConditionBase.cxx

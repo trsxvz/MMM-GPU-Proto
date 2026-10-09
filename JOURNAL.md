@@ -3208,3 +3208,25 @@ itération). Le GPU calcule 0,71 s sur 1,8 s, en 95 000 lancements de
 noyaux, dont 65 % de produits matrice-vecteur de hypre : la résolution est
 limitée par la latence des lancements. Détails dans
 `results/L6-poutre-2026-10-09/README.md`.
+
+### 2026-10-10 (nuit), action de la tangente sans assemblage
+
+- mfem-mgis cbe693a9a8 : action de la tangente `Σ Bᵀ K B x w det J` et sa
+  diagonale par noyaux, sans assemblage (incréments des gradients par le
+  noyau des gradients, produit par les blocs de la tangente à chaque
+  point, noyau des forces intérieures ; diagonale par le noyau des
+  matrices élémentaires restreint aux couples d'un nœud avec lui-même).
+  Égales au produit par la matrice assemblée et à sa diagonale à 1e-16
+  près (tous les cas de `GradientsKernelsTest`, cpu, `debug`, `cuda`).
+  Contrôles communs des calculs par noyaux factorisés (`getKernelsData`).
+- mfem-mgis 4d465460c3 : `TangentOperatorComputation=MatrixFree`, la
+  tangente rendue par `GetGradient` est un opérateur sans matrice
+  (`MatrixFreeTangentOperator`, ddl imposés par `ConstrainedOperator`),
+  avec le préconditionneur `OperatorJacobiSmoother` (diagonale par
+  `AssembleDiagonal`, ou `GetDiag` pour une `SparseMatrix` de MFEM, qui
+  n'a pas `AssembleDiagonal`). Calculs complets égaux au point par point
+  (petites et grandes déformations, orthotrope, deux matériaux, lois
+  `generic-parallel`, `debug`, GPU, 2 processus). Cas `poutre-sans-matrice`.
+- Poutre r4 sur GPU : 95 s avec CG + Jacobi contre 3,4 s avec la tangente
+  assemblée et BoomerAMG. Juste, mais il faut un préconditionneur adapté
+  (AMG gardé plusieurs itérations, multigrille polynomial).

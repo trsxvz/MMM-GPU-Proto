@@ -1,0 +1,677 @@
+From 4d465460c37b0fe22ccf6640f4dad804687152b2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 00:04:58 +0200
+Subject: [PATCH] Tangent operator applied without assembly (MatrixFree)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+New value MatrixFree of the TangentOperatorComputation parameter (and of
+the MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION environment variable): the
+tangent operator returned by GetGradient is applied without assembly,
+by kernels (MatrixFreeTangentOperator, y = Pᵀ (Σ Bᵀ K B w det J) P x,
+whose diagonal is computed by kernels by AssembleDiagonal), the
+essential degrees of freedom being constrained by
+mfem::ConstrainedOperator. The non linear form must only contain the
+integrator of mfem-mgis (otherwise, an exception is thrown). The
+prediction uses the operator assembled by kernels.
+
+The linear solver must not require a matrix: the OperatorJacobiSmoother
+preconditioner (option Damping) is added to the linear solvers of MFEM,
+its diagonal being computed by AssembleDiagonal, or by GetDiag for a
+sparse matrix (MFEM 4.10 does not implement AssembleDiagonal for
+mfem::SparseMatrix).
+
+BatchIntegrationTest: computations with the tangent operator applied
+without assembly, the conjugate gradient of MFEM and the Jacobi
+preconditioner, compared to the integration point by point (small and
+finite strain, orthotropic, plane strain, two materials, prediction,
+behaviours of the generic-parallel interface, on the debug device, on
+the GPU and on two processes).
+---
+ include/CMakeLists.txt                        |   1 +
+ .../MFEMMGIS/MatrixFreeTangentOperator.hxx    |  69 ++++++++++++
+ ...nearEvolutionProblemImplementationBase.hxx |  40 ++++++-
+ src/CMakeLists.txt                            |   1 +
+ src/LinearSolverFactory.cxx                   |  61 ++++++++++
+ src/MatrixFreeTangentOperator.cxx             | 104 ++++++++++++++++++
+ ...onLinearEvolutionProblemImplementation.cxx |  27 +++++
+ ...nearEvolutionProblemImplementationBase.cxx |  57 +++++++++-
+ tests/BatchIntegrationTest.cxx                |  63 ++++++++++-
+ 9 files changed, 411 insertions(+), 12 deletions(-)
+ create mode 100644 include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+ create mode 100644 src/MatrixFreeTangentOperator.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 5547b2c6e1..f39d69f8bb 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -44,6 +44,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
++mfem_mgis_header(MFEMMGIS MatrixFreeTangentOperator.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+ mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
+ mfem_mgis_header(MFEMMGIS BehaviourIntegratorTraits.hxx)
+diff --git a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+new file mode 100644
+index 0000000000..3b4f5f50d5
+--- /dev/null
++++ b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+@@ -0,0 +1,69 @@
++/*!
++ * \file   include/MFEMMGIS/MatrixFreeTangentOperator.hxx
++ * \brief  This file declares the `MatrixFreeTangentOperator` class
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
++#define LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
++
++#include "mfem/linalg/operator.hpp"
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem {
++  // forward declaration
++  class FiniteElementSpace;
++}  // end of namespace mfem
++
++namespace mfem_mgis {
++
++  // forward declarations
++  struct FiniteElementDiscretization;
++  struct MultiMaterialNonLinearIntegrator;
++
++  /*!
++   * \brief tangent operator of the behaviour integrators of mfem-mgis,
++   * applied without assembly by kernels on the true degrees of freedom:
++   * `y = Pᵀ (Σ Bᵀ K B w det J) P x`, `P` being the prolongation of the finite
++   * element space (see
++   * `MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels`).
++   *
++   * Its diagonal is computed by kernels (`AssembleDiagonal`), as required
++   * by the smoothers of MFEM (`mfem::OperatorJacobiSmoother`, ...).
++   *
++   * The essential degrees of freedom are not taken into account: see
++   * `mfem::ConstrainedOperator`. The tangent operator blocks are the ones
++   * of the last integration of the behaviours. A failure of the
++   * computations by kernels on a process is reported by an exception on
++   * all the processes.
++   */
++  struct MFEM_MGIS_EXPORT MatrixFreeTangentOperator final : mfem::Operator {
++    /*!
++     * \brief constructor
++     * \param[in] fed: finite element discretization
++     * \param[in] mi: multi-material integrator
++     */
++    MatrixFreeTangentOperator(const FiniteElementDiscretization&,
++                              MultiMaterialNonLinearIntegrator&);
++    void Mult(const mfem::Vector&, mfem::Vector&) const override;
++    void AssembleDiagonal(mfem::Vector&) const override;
++    //! \brief destructor
++    ~MatrixFreeTangentOperator() override;
++
++   private:
++    //! \brief finite element discretization
++    const FiniteElementDiscretization& fe_discretization;
++    //! \brief finite element space
++    const mfem::FiniteElementSpace& fe_space;
++    //! \brief multi-material integrator
++    MultiMaterialNonLinearIntegrator& integrator;
++    //! \brief local vector of the argument (workspace)
++    mutable mfem::Vector xl;
++    //! \brief local vector of the result (workspace)
++    mutable mfem::Vector yl;
++  };  // end of struct MatrixFreeTangentOperator
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX */
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 350010e113..c3fb4c78e1 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -20,6 +20,11 @@
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ 
++namespace mfem {
++  // forward declaration
++  class ConstrainedOperator;
++}  // end of namespace mfem
++
+ namespace mfem_mgis {
+ 
+   // forward declarations
+@@ -29,6 +34,7 @@ namespace mfem_mgis {
+   struct Material;
+   struct AbstractBehaviourIntegrator;
+   struct MultiMaterialNonLinearIntegrator;
++  struct MatrixFreeTangentOperator;
+   struct NewtonSolver;
+   enum struct IntegrationType;
+   struct LinearSolverHandler;
+@@ -98,9 +104,15 @@ namespace mfem_mgis {
+      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
+      * `Kernels` (computed for all the elements by kernels from the tangent
+      * operator blocks, on the device if a device is enabled, then given to
+-     * the assembly of MFEM). `Kernels` is supported for the same behaviour
+-     * integrators and meshes as for `GradientsComputation`, not with PETSc.
+-     * The default value is given by the environment variable
++     * the assembly of MFEM), or `MatrixFree` (the tangent operator is
++     * applied without assembly by kernels, see `MatrixFreeTangentOperator`,
++     * the essential degrees of freedom being constrained by
++     * `mfem::ConstrainedOperator`: the linear solver must not require a
++     * matrix, for instance `CGSolver` with the `OperatorJacobiSmoother`
++     * preconditioner; the non linear form must only contain the integrator
++     * of mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
++     * behaviour integrators and meshes as for `GradientsComputation`, not
++     * with PETSc. The default value is given by the environment variable
+      * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
+      */
+     static const char* const TangentOperatorComputation;
+@@ -334,6 +346,19 @@ namespace mfem_mgis {
+      * kernels
+      */
+     const bool tangent_operator_kernels;
++    /*!
++     * \brief if true, the tangent operator is applied without assembly (see
++     * `TangentOperatorComputation`)
++     */
++    const bool matrix_free_tangent_operator;
++    /*!
++     * \return the tangent operator applied without assembly, the essential
++     * degrees of freedom being constrained (created at the first call, or
++     * if the number of essential degrees of freedom changed)
++     * \param[in] essential_dofs: essential true degrees of freedom
++     */
++    [[nodiscard]] mfem::Operator& getMatrixFreeTangentOperator(
++        const mfem::Array<int>&) const;
+     /*!
+      * \brief inner forces computed by kernels (local vector of the finite
+      * element space), kept between the evaluations of the residual
+@@ -345,6 +370,15 @@ namespace mfem_mgis {
+      * prediction
+      */
+     std::unique_ptr<mfem::SparseMatrix> prediction_matrix;
++
++   private:
++    //! \brief tangent operator applied without assembly
++    mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
++    //! \brief tangent operator with constrained essential degrees of freedom
++    mutable std::unique_ptr<mfem::ConstrainedOperator>
++        constrained_tangent_operator;
++    //! \brief number of essential degrees of freedom of this operator
++    mutable int constrained_tangent_operator_essential_dofs = -1;
+   };  // end of struct NonLinearEvolutionProblemImplementationBase
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index e9139f3969..2ea84d8f3a 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -28,6 +28,7 @@ list(APPEND MFEMMGIS_SOURCES
+   AbstractBehaviourIntegrator.cxx
+   BehaviourIntegratorBase.cxx
+   BehaviourIntegratorFactory.cxx
++  MatrixFreeTangentOperator.cxx
+   MultiMaterialNonLinearIntegrator.cxx
+   AbstractDirichletBoundaryCondition.cxx
+   DirichletBoundaryConditionBase.cxx
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 911cb18e85..b7e09a709a 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <utility>
+ #include "mfem/linalg/solvers.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "mfem/config/config.hpp"
+ #include "mfem/fem/fespace.hpp"
+@@ -221,6 +222,50 @@ namespace mfem_mgis {
+ 
+ #endif /* MFEM_USE_MPI */
+ 
++  namespace {
++
++    /*!
++     * \brief Jacobi smoother of MFEM (`mfem::OperatorJacobiSmoother`), whose
++     * diagonal is computed by the operator (`AssembleDiagonal`), or by
++     * `GetDiag` for a sparse matrix of MFEM, which does not implement
++     * `AssembleDiagonal`. The diagonal entries of the essential degrees of
++     * freedom are the ones of the operator.
++     */
++    struct JacobiSmoother final : mfem::Solver {
++      //! \param[in] d: damping factor
++      explicit JacobiSmoother(const real d) : damping(d) {}
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        this->diagonal.UseDevice(true);
++        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++            m != nullptr) {
++          m->GetDiag(this->diagonal);
++        } else {
++          this->diagonal.SetSize(op.Height());
++          op.AssembleDiagonal(this->diagonal);
++        }
++        this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
++            this->diagonal, mfem::Array<int>{}, this->damping);
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        if (this->smoother == nullptr) {
++          raise("JacobiSmoother::Mult: the operator is not set");
++        }
++        this->smoother->Mult(x, y);
++      }
++
++     private:
++      //! \brief damping factor
++      const real damping;
++      //! \brief diagonal of the operator
++      mfem::Vector diagonal;
++      //! \brief smoother of MFEM
++      std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
++    };
++
++  }  // end of namespace
++
+   template <bool parallel>
+   std::unique_ptr<LinearSolverPreconditioner> getLinearSolverPreconditioner(
+       Context& ctx,
+@@ -242,6 +287,22 @@ namespace mfem_mgis {
+             *oname + "'");
+       }
+       return {};
++    } else if (*oname == "OperatorJacobiSmoother") {
++      // Jacobi smoother of MFEM, whose diagonal is computed by the operator
++      // (`AssembleDiagonal`): usable with an operator applied without
++      // assembly (see `MatrixFreeTangentOperator`)
++      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
++      if (isInvalid(oparams)) {
++        return {};
++      }
++      if (!checkParameters(ctx, *oparams, {"Damping"})) {
++        return {};
++      }
++      const auto odamping = get_if<double>(ctx, *oparams, "Damping", 1.);
++      if (isInvalid(odamping)) {
++        return {};
++      }
++      return std::make_unique<JacobiSmoother>(*odamping);
+     } else if (*oname == "HypreBoomerAMG") {
+       if constexpr (parallel) {
+         const auto oparams =
+diff --git a/src/MatrixFreeTangentOperator.cxx b/src/MatrixFreeTangentOperator.cxx
+new file mode 100644
+index 0000000000..9955aa0da9
+--- /dev/null
++++ b/src/MatrixFreeTangentOperator.cxx
+@@ -0,0 +1,104 @@
++/*!
++ * \file   src/MatrixFreeTangentOperator.cxx
++ * \brief  This file implements the `MatrixFreeTangentOperator` class
++ * \date   10/10/2026
++ */
++
++#include <string>
++#include "mfem/fem/fespace.hpp"
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \return the finite element space of a finite element discretization
++   * \param[in] fed: finite element discretization
++   */
++  static const mfem::FiniteElementSpace& getFiniteElementSpace(
++      const FiniteElementDiscretization& fed) {
++#ifdef MFEM_USE_MPI
++    if (fed.describesAParallelComputation()) {
++      return fed.getFiniteElementSpace<true>();
++    }
++#endif /* MFEM_USE_MPI */
++    return fed.getFiniteElementSpace<false>();
++  }  // end of getFiniteElementSpace
++
++  /*!
++   * \brief raises an exception on all the processes if a computation failed
++   * on one of them, before the collective operations following it
++   * \param[in] fed: finite element discretization
++   * \param[in, out] ctx: execution context of the computation
++   * \param[in] success: result of the computation on this process
++   * \param[in] what: description of the computation
++   */
++  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
++                                         Context& ctx,
++                                         const bool success,
++                                         const std::string& what) {
++    if (isTrueOnAllProcesses(fed, success)) {
++      return;
++    }
++    if (!success) {
++      raise(what + ": " + ctx.getErrorMessage());
++    }
++    raise(what + ": failure on another process");
++  }  // end of raiseOnFailureOnAnyProcess
++
++  MatrixFreeTangentOperator::MatrixFreeTangentOperator(
++      const FiniteElementDiscretization& fed,
++      MultiMaterialNonLinearIntegrator& mi)
++      : mfem::Operator(getFiniteElementSpace(fed).GetTrueVSize()),
++        fe_discretization(fed),
++        fe_space(getFiniteElementSpace(fed)),
++        integrator(mi) {
++    this->xl.UseDevice(true);
++    this->yl.UseDevice(true);
++  }  // end of MatrixFreeTangentOperator
++
++  void MatrixFreeTangentOperator::Mult(const mfem::Vector& x,
++                                       mfem::Vector& y) const {
++    const auto* const P = this->fe_space.GetProlongationMatrix();
++    if (P != nullptr) {
++      this->xl.SetSize(P->Height());
++      P->Mult(x, this->xl);
++    }
++    const auto& xl_ = (P != nullptr) ? this->xl : x;
++    auto& yl_ = (P != nullptr) ? this->yl : y;
++    yl_.SetSize(this->fe_space.GetVSize());
++    yl_ = real{0};
++    auto ctx = Context{};
++    const auto success = this->integrator.addTangentOperatorActionByKernels(
++        ctx, this->fe_space, xl_, yl_);
++    raiseOnFailureOnAnyProcess(this->fe_discretization, ctx, success,
++                               "action of the tangent operator");
++    if (P != nullptr) {
++      P->MultTranspose(yl_, y);
++    }
++  }  // end of Mult
++
++  void MatrixFreeTangentOperator::AssembleDiagonal(mfem::Vector& d) const {
++    const auto* const P = this->fe_space.GetProlongationMatrix();
++    auto& dl = (P != nullptr) ? this->yl : d;
++    dl.SetSize(this->fe_space.GetVSize());
++    dl = real{0};
++    auto ctx = Context{};
++    const auto success = this->integrator.addTangentOperatorDiagonalByKernels(
++        ctx, this->fe_space, dl);
++    raiseOnFailureOnAnyProcess(this->fe_discretization, ctx, success,
++                               "diagonal of the tangent operator");
++    if (P != nullptr) {
++      // the prolongation of a conforming space is boolean: the diagonal of
++      // Pᵀ A P is Pᵀ diag(A) for the true degrees of freedom
++      d.SetSize(this->Height());
++      P->MultTranspose(dl, d);
++    }
++  }  // end of AssembleDiagonal
++
++  MatrixFreeTangentOperator::~MatrixFreeTangentOperator() = default;
++
++}  // end of namespace mfem_mgis
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index ab283decea..4ba940007e 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -78,6 +78,25 @@ namespace mfem_mgis {
+            (f.GetBdrFaceIntegrators().Size() == 0);
+   }  // end of isTheOnlyIntegrator
+ 
++  /*!
++   * \brief checks that the tangent operator can be applied without assembly
++   * (see `TangentOperatorComputation`): the non linear form must only
++   * contain the integrator of mfem-mgis, the contributions of the other
++   * integrators to the tangent operator being otherwise lost
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator
++   */
++  static void checkMatrixFreeTangentOperatorSupport(
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi) {
++    if (!isTheOnlyIntegrator(f, mi)) {
++      raise(
++          "the tangent operator applied without assembly (parameter "
++          "TangentOperatorComputation set to MatrixFree) requires that the "
++          "non linear form only contains the integrator of mfem-mgis");
++    }
++  }  // end of checkMatrixFreeTangentOperatorSupport
++
+   /*!
+    * \brief raises an exception on all the processes if a computation by
+    * kernels failed on one of them. This check is made before the collective
+@@ -730,6 +749,10 @@ namespace mfem_mgis {
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
+       const mfem::Vector& u) const {
++    if (this->matrix_free_tangent_operator) {
++      checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
++      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
++    }
+     if ((!this->tangent_operator_kernels) ||
+         (this->mgis_integrator == nullptr)) {
+       return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+@@ -1067,6 +1090,10 @@ namespace mfem_mgis {
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
+       const mfem::Vector& u) const {
++    if (this->matrix_free_tangent_operator) {
++      checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
++      return this->getMatrixFreeTangentOperator(this->ess_tdof_list);
++    }
+     if ((!this->tangent_operator_kernels) ||
+         (this->mgis_integrator == nullptr)) {
+       return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index ff0130ef78..ae5ef1812c 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -17,6 +17,7 @@
+ #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+ #include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -123,6 +124,31 @@ namespace mfem_mgis {
+     return false;
+   }  // end of useKernels
+ 
++  /*!
++   * \return the value of the `TangentOperatorComputation` parameter, or of
++   * the `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable:
++   * `ElementByElement`, `Kernels` or `MatrixFree`
++   * \param[in] p: parameters
++   */
++  [[nodiscard]] static std::string getTangentOperatorComputation(
++      attributes::Throwing, const Parameters& p) {
++    const auto* const n =
++        NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
++    const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
++    const auto* const e = std::getenv(v);
++    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
++    const auto value = get_if<std::string>(throwing, p, n, d);
++    if ((value != "ElementByElement") && (value != "Kernels") &&
++        (value != "MatrixFree")) {
++      const auto origin = contains(p, n)
++                              ? "parameter '" + std::string{n} + "'"
++                              : "environment variable '" + std::string{v} + "'";
++      raise("invalid value '" + value + "' for " + origin +
++            " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
++    }
++    return value;
++  }  // end of getTangentOperatorComputation
++
+   NonLinearEvolutionProblemImplementationBase::
+       NonLinearEvolutionProblemImplementationBase(
+           Context&,
+@@ -146,12 +172,10 @@ namespace mfem_mgis {
+             p,
+             NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
+             "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
+-        tangent_operator_kernels(
+-            useKernels(throwing,
+-                       p,
+-                       NonLinearEvolutionProblemImplementationBase::
+-                           TangentOperatorComputation,
+-                       "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION")) {
++        tangent_operator_kernels(getTangentOperatorComputation(throwing, p) !=
++                                 "ElementByElement"),
++        matrix_free_tangent_operator(
++            getTangentOperatorComputation(throwing, p) == "MatrixFree") {
+     if (this->mgis_integrator != nullptr) {
+       this->mgis_integrator->setInnerForcesComputedByKernels(
+           this->inner_forces_kernels);
+@@ -668,6 +692,27 @@ namespace mfem_mgis {
+     return output;
+   }  // end of solve
+ 
++  mfem::Operator&
++  NonLinearEvolutionProblemImplementationBase::getMatrixFreeTangentOperator(
++      const mfem::Array<int>& essential_dofs) const {
++    if (this->mgis_integrator == nullptr) {
++      raise("no multiple material integrator defined");
++    }
++    if ((this->constrained_tangent_operator == nullptr) ||
++        (this->constrained_tangent_operator_essential_dofs !=
++         essential_dofs.Size())) {
++      this->constrained_tangent_operator.reset();
++      this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
++          *(this->fe_discretization), *(this->mgis_integrator));
++      this->constrained_tangent_operator =
++          std::make_unique<mfem::ConstrainedOperator>(
++              this->tangent_operator.get(), essential_dofs, false,
++              mfem::Operator::DIAG_ONE);
++      this->constrained_tangent_operator_essential_dofs = essential_dofs.Size();
++    }
++    return *(this->constrained_tangent_operator);
++  }  // end of getMatrixFreeTangentOperator
++
+   NonLinearEvolutionProblemImplementationBase::
+       ~NonLinearEvolutionProblemImplementationBase() = default;
+ 
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 4a4910f7aa..428bf9a751 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -106,6 +106,13 @@ struct ComputationOptions {
+    * (parameter `TangentOperatorComputation`)
+    */
+   bool tangent_operator_kernels = false;
++  /*!
++   * \brief if true, the tangent operator is applied without assembly
++   * (parameter `TangentOperatorComputation` set to `MatrixFree`), the
++   * linear systems being solved by the conjugate gradient of MFEM with a
++   * Jacobi preconditioner
++   */
++  bool matrix_free = false;
+   /*!
+    * \brief if not null, the mesh has two materials (1 and 2), the second one
+    * being an isotropic elastic material whose behaviour is taken from this
+@@ -160,7 +167,9 @@ static Results compute(mfem_mgis::Context& ctx,
+   const auto* const inner_forces =
+       opts.inner_forces_kernels ? "Kernels" : "ElementByElement";
+   const auto* const tangent_operator =
+-      opts.tangent_operator_kernels ? "Kernels" : "ElementByElement";
++      opts.matrix_free
++          ? "MatrixFree"
++          : (opts.tangent_operator_kernels ? "Kernels" : "ElementByElement");
+   // in 3D, the material 2 of a mesh with two materials is elastic (see
+   // `ComputationOptions::second_material_library`)
+   const auto materials = (opts.second_material_library != nullptr)
+@@ -305,8 +314,20 @@ static Results compute(mfem_mgis::Context& ctx,
+                }}}) |
+         or_die;
+   }
+-  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
+-      or_die;
++  if (opts.matrix_free) {
++    problem.setLinearSolver(
++        ctx, "CGSolver",
++        {{"VerbosityLevel", 0},
++         {"RelativeTolerance", 1e-14},
++         {"AbsoluteTolerance", 0.},
++         {"MaximumNumberOfIterations", 10000},
++         {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
++        or_die;
++  } else {
++    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
++                            {}) |
++        or_die;
++  }
+   const auto setMaximumNumberOfIterations = [&ctx, &problem,
+                                              &or_die](const int n) {
+     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+@@ -828,12 +849,38 @@ int main(int argc, char** argv) {
+                       .tangent_operator_kernels = true,
+                       .second_material_library = library},
+                      ", two materials"});
++    // tangent operator applied without assembly
++    for (const auto* const b :
++         {"IsotropicLinearHardeningPlasticity",
++          "SaintVenantKirchhoffElasticity", "OrthotropicElasticity",
++          "OrthotropicSaintVenantKirchhoffElasticity",
++          "IsotropicLinearElasticity"}) {
++      cases.push_back({b,
++                       {.prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .matrix_free = true},
++                       ", matrix free"});
++    }
++    cases.push_back({"OrthotropicElasticity",
++                     {.plane_strain = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true},
++                     ", matrix free, plane strain"});
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true,
++                      .second_material_library = library},
++                     ", matrix free, two materials"});
+     for (const auto& [b, opts, name] : cases) {
+       const auto* const m = getMesh(opts);
+       auto reference = opts;
+       reference.gradients_kernels = false;
+       reference.inner_forces_kernels = false;
+       reference.tangent_operator_kernels = false;
++      reference.matrix_free = false;
+       compare(compute(ctx, m, library, b, "PointByPoint", reference),
+               compute(ctx, m, library, b, "Batch", opts),
+               b + " (kernels" + name + ")", 1e-10);
+@@ -898,6 +945,15 @@ int main(int argc, char** argv) {
+                       .inner_forces_kernels = true,
+                       .tangent_operator_kernels = true},
+                      ", kernels, pressure and prediction"});
++    for (const auto* const b :
++         {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity"}) {
++      cases.push_back({b,
++                       {.prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .matrix_free = true},
++                       ", matrix free"});
++    }
+     // a second material whose behaviour is generated by the generic
+     // interface, integrated on the host, the first one being integrated on
+     // the device with a device enabled
+@@ -917,6 +973,7 @@ int main(int argc, char** argv) {
+       reference.gradients_kernels = false;
+       reference.inner_forces_kernels = false;
+       reference.tangent_operator_kernels = false;
++      reference.matrix_free = false;
+       compare(compute(ctx, m, library, b, "PointByPoint", reference),
+               compute(ctx, m, l, b, "Batch", opts),
+               b + " (generic-parallel, " + backend + name + ")", 1e-10);
+-- 
+2.43.0
+

@@ -7,6 +7,7 @@
 
 #include <utility>
 #include "mfem/linalg/solvers.hpp"
+#include "mfem/linalg/sparsemat.hpp"
 #include "mfem/linalg/petsc.hpp"
 #include "mfem/config/config.hpp"
 #include "mfem/fem/fespace.hpp"
@@ -221,6 +222,50 @@ namespace mfem_mgis {
 
 #endif /* MFEM_USE_MPI */
 
+  namespace {
+
+    /*!
+     * \brief Jacobi smoother of MFEM (`mfem::OperatorJacobiSmoother`), whose
+     * diagonal is computed by the operator (`AssembleDiagonal`), or by
+     * `GetDiag` for a sparse matrix of MFEM, which does not implement
+     * `AssembleDiagonal`. The diagonal entries of the essential degrees of
+     * freedom are the ones of the operator.
+     */
+    struct JacobiSmoother final : mfem::Solver {
+      //! \param[in] d: damping factor
+      explicit JacobiSmoother(const real d) : damping(d) {}
+      void SetOperator(const mfem::Operator& op) override {
+        this->height = op.Height();
+        this->width = op.Width();
+        this->diagonal.UseDevice(true);
+        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+            m != nullptr) {
+          m->GetDiag(this->diagonal);
+        } else {
+          this->diagonal.SetSize(op.Height());
+          op.AssembleDiagonal(this->diagonal);
+        }
+        this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
+            this->diagonal, mfem::Array<int>{}, this->damping);
+      }
+      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+        if (this->smoother == nullptr) {
+          raise("JacobiSmoother::Mult: the operator is not set");
+        }
+        this->smoother->Mult(x, y);
+      }
+
+     private:
+      //! \brief damping factor
+      const real damping;
+      //! \brief diagonal of the operator
+      mfem::Vector diagonal;
+      //! \brief smoother of MFEM
+      std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
+    };
+
+  }  // end of namespace
+
   template <bool parallel>
   std::unique_ptr<LinearSolverPreconditioner> getLinearSolverPreconditioner(
       Context& ctx,
@@ -242,6 +287,22 @@ namespace mfem_mgis {
             *oname + "'");
       }
       return {};
+    } else if (*oname == "OperatorJacobiSmoother") {
+      // Jacobi smoother of MFEM, whose diagonal is computed by the operator
+      // (`AssembleDiagonal`): usable with an operator applied without
+      // assembly (see `MatrixFreeTangentOperator`)
+      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+      if (isInvalid(oparams)) {
+        return {};
+      }
+      if (!checkParameters(ctx, *oparams, {"Damping"})) {
+        return {};
+      }
+      const auto odamping = get_if<double>(ctx, *oparams, "Damping", 1.);
+      if (isInvalid(odamping)) {
+        return {};
+      }
+      return std::make_unique<JacobiSmoother>(*odamping);
     } else if (*oname == "HypreBoomerAMG") {
       if constexpr (parallel) {
         const auto oparams =

@@ -17,6 +17,7 @@
 #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/AbstractDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -123,6 +124,31 @@ namespace mfem_mgis {
     return false;
   }  // end of useKernels
 
+  /*!
+   * \return the value of the `TangentOperatorComputation` parameter, or of
+   * the `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable:
+   * `ElementByElement`, `Kernels` or `MatrixFree`
+   * \param[in] p: parameters
+   */
+  [[nodiscard]] static std::string getTangentOperatorComputation(
+      attributes::Throwing, const Parameters& p) {
+    const auto* const n =
+        NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
+    const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
+    const auto* const e = std::getenv(v);
+    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
+    const auto value = get_if<std::string>(throwing, p, n, d);
+    if ((value != "ElementByElement") && (value != "Kernels") &&
+        (value != "MatrixFree")) {
+      const auto origin = contains(p, n)
+                              ? "parameter '" + std::string{n} + "'"
+                              : "environment variable '" + std::string{v} + "'";
+      raise("invalid value '" + value + "' for " + origin +
+            " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
+    }
+    return value;
+  }  // end of getTangentOperatorComputation
+
   NonLinearEvolutionProblemImplementationBase::
       NonLinearEvolutionProblemImplementationBase(
           Context&,
@@ -146,12 +172,10 @@ namespace mfem_mgis {
             p,
             NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
             "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
-        tangent_operator_kernels(
-            useKernels(throwing,
-                       p,
-                       NonLinearEvolutionProblemImplementationBase::
-                           TangentOperatorComputation,
-                       "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION")) {
+        tangent_operator_kernels(getTangentOperatorComputation(throwing, p) !=
+                                 "ElementByElement"),
+        matrix_free_tangent_operator(
+            getTangentOperatorComputation(throwing, p) == "MatrixFree") {
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->setInnerForcesComputedByKernels(
           this->inner_forces_kernels);
@@ -667,6 +691,27 @@ namespace mfem_mgis {
     }
     return output;
   }  // end of solve
+
+  mfem::Operator&
+  NonLinearEvolutionProblemImplementationBase::getMatrixFreeTangentOperator(
+      const mfem::Array<int>& essential_dofs) const {
+    if (this->mgis_integrator == nullptr) {
+      raise("no multiple material integrator defined");
+    }
+    if ((this->constrained_tangent_operator == nullptr) ||
+        (this->constrained_tangent_operator_essential_dofs !=
+         essential_dofs.Size())) {
+      this->constrained_tangent_operator.reset();
+      this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
+          *(this->fe_discretization), *(this->mgis_integrator));
+      this->constrained_tangent_operator =
+          std::make_unique<mfem::ConstrainedOperator>(
+              this->tangent_operator.get(), essential_dofs, false,
+              mfem::Operator::DIAG_ONE);
+      this->constrained_tangent_operator_essential_dofs = essential_dofs.Size();
+    }
+    return *(this->constrained_tangent_operator);
+  }  // end of getMatrixFreeTangentOperator
 
   NonLinearEvolutionProblemImplementationBase::
       ~NonLinearEvolutionProblemImplementationBase() = default;
