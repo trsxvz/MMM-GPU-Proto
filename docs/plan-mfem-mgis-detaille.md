@@ -4,7 +4,14 @@ Statut : plan établi le 09/10/2026, relu de façon indépendante le même
 jour, puis confronté à tout le code de mfem-mgis (82 fonctionnalités
 inventoriées ; oublis et couvertures partielles intégrés). Avancement
 au 09/10/2026 au soir : L0, L1 et L2 faits et relus (voir le
-[journal](../JOURNAL.md)), L3 commencé (gradients par noyaux). Les choix
+[journal](../JOURNAL.md)). L3 avancé : gradients, résidu et tangente
+assemblée par noyaux, par les points d'entrée de
+`NonLinearEvolutionProblemImplementation` (`Mult`, `GetGradient`) ;
+restent l'action sans matrice, la diagonale, l'opérateur propre complet
+et l'assemblage partiel de MFEM. Tranche minimale de L6 faite (loi `cuda`
+intégrée sur les tableaux du GPU, validation par le périphérique `debug`),
+prédiction de L4 par noyaux faite. Poutre r4 en 4,06 s sur un GPU contre
+17,54 s sur 8 cœurs (`results/L6-poutre-2026-10-09/`). Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
