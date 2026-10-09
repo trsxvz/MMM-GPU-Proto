@@ -33,8 +33,15 @@ run() {
   local name=$1 threads=$2 np=$3 library=$4 integration=$5
   echo "== $name : $np processus, $threads fils, $integration" |
     tee -a "$out/resume.txt"
+  # one thread: the default placement of OpenMPI (one core per process);
+  # several threads: `threads` cores reserved for each process (with
+  # `--bind-to none`, OpenMPI 5 binds all the processes to the first core)
+  local placement=()
+  if [ "$threads" != 1 ]; then
+    placement=(--map-by "slot:PE=$threads" --bind-to core)
+  fi
   (cd "$B" && OMP_NUM_THREADS=$threads \
-    timeout 3600 mpirun --bind-to none -n "$np" ./poutre -r 4 -n 10 \
+    timeout 3600 mpirun "${placement[@]}" -n "$np" ./poutre -r 4 -n 10 \
     -mi 3000 -ls pcg-amg -lt 1e-4 -l "$library" -bi "$integration" \
     --profiling) < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
@@ -45,10 +52,10 @@ for np in 8 1; do
   run poutre-np$np-lots-generic 1 "$np" "$generic" Batch
   run poutre-np$np-lots-openmp-1fil 1 "$np" "$openmp" Batch
 done
-# un processus, toutes les unités de calcul de la machine pour la loi
-# (le backend stlpar de g++ utilise TBB, qui prend toujours tous les cœurs)
-run poutre-np1-lots-openmp-16fils 16 1 "$openmp" Batch
-run poutre-np1-lots-stlpar-16fils 16 1 "$stlpar" Batch
-# deux processus de huit fils
-run poutre-np2-lots-openmp-8fils 8 2 "$openmp" Batch
+# un processus sur les 8 cœurs physiques (le backend stlpar de g++ utilise
+# TBB, qui prend tous les fils matériels des cœurs réservés)
+run poutre-np1-lots-openmp-8fils 8 1 "$openmp" Batch
+run poutre-np1-lots-stlpar-8coeurs 8 1 "$stlpar" Batch
+# deux processus de quatre cœurs
+run poutre-np2-lots-openmp-4fils 4 2 "$openmp" Batch
 echo "résultats dans $out"

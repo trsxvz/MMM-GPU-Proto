@@ -4,9 +4,9 @@
 usage : cas/resume-profilage.py fichier...
 
 Pour chaque fichier (sortie d'un cas lancé avec le profilage), somme le
-temps maximal sur les processus de chaque section, toutes positions dans
-l'arbre confondues (les sections de même nom ne sont pas imbriquées entre
-elles), et l'affiche par phase.
+temps de chaque section (le temps maximal sur les processus en parallèle),
+toutes positions dans l'arbre confondues (les sections de même nom ne sont
+pas imbriquées entre elles), et l'affiche par phase.
 """
 import re
 import sys
@@ -22,8 +22,10 @@ PHASES = [
     ("prédiction", ["NLEPIB::computePrediction"]),
     ("fin de pas", ["NLEPIB::update"]),
 ]
+# tableau séquentiel : appels, temps, part ; parallèle : appels, min, moyenne,
+# max, part, déséquilibre
 LINE = re.compile(r"^\s*\|[\s|]*(?:-->|>)\s*(\S.*?)\s*\|\s*(\d+)\s*\|"
-                  r"\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|")
+                  r"((?:\s*[\d.]+%?\s*\|)+)\s*$")
 
 
 def summarize(path):
@@ -35,7 +37,10 @@ def summarize(path):
             if m is None:
                 continue
             name = m.group(1)
-            times[name] = times.get(name, 0.0) + float(m.group(5))
+            values = [v.strip() for v in m.group(3).split("|") if v.strip()]
+            # temps maximal en parallèle (4e colonne), temps en séquentiel
+            t = float(values[2] if len(values) > 3 else values[0])
+            times[name] = times.get(name, 0.0) + t
             calls[name] = calls.get(name, 0) + int(m.group(2))
     return times, calls
 

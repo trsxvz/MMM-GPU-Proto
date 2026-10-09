@@ -1,0 +1,39 @@
+date : 2026-10-09 18:07:30
+machine : 16 cœurs, 30 Go
+mfem-mgis : ef52adb445
+== poutre-np8-point-par-point : 8 processus, 1 fils, PointByPoint
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
+time 19.976 s
+== poutre-np8-lots-generic : 8 processus, 1 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
+time 19.539 s
+== poutre-np8-lots-openmp-1fil : 8 processus, 1 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
+time 17.150 s
+== poutre-np1-point-par-point : 1 processus, 1 fils, PointByPoint
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 66.909 s
+== poutre-np1-lots-generic : 1 processus, 1 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 67.471 s
+== poutre-np1-lots-openmp-1fil : 1 processus, 1 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 67.397 s
+== poutre-np1-lots-openmp-8fils : 1 processus, 8 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 70.205 s
+== poutre-np1-lots-stlpar-8coeurs : 1 processus, 8 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 68.873 s
+== poutre-np2-lots-openmp-4fils : 2 processus, 4 fils, Batch
+   statut 0
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 37.390 s
