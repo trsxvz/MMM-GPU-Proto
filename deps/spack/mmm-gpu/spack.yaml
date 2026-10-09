@@ -24,8 +24,11 @@ spack:
   specs:
   - nvhpc@25.11
   - cuda@13.0.2
-  # MPI able to exchange GPU buffers (GPU-aware MPI of MFEM and hypre)
-  - openmpi@5 +cuda
+  # MPI without the exchange of GPU buffers: a GPU-aware OpenMPI needs either
+  # its internal hwloc, which does not build with CUDA (path of OpenCL), or
+  # hwloc with CUDA, whose change rebuilds LLVM and TBB, used by TFEL. With
+  # one GPU, a GPU-aware MPI brings nothing. PETSc must be run with the
+  # option -use_gpu_aware_mpi 0 (see the package petsc of mmm_gpu)
   # Kokkos 5 always enables the CUDA lambdas
   - kokkos@5.2.2 +cuda +openmp +serial +shared +wrapper ~cuda_relocatable_device_code
     +cuda_constexpr cxxstd=20 cuda_arch=120
@@ -70,6 +73,8 @@ spack:
   packages:
     all:
       require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
     # OpenBLAS rather than the BLAS and LAPACK of the HPC SDK
     blas:
       require: [openblas]

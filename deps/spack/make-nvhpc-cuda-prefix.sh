@@ -47,10 +47,14 @@ rm -rf "$dest"
 mkdir -p "$dest"
 for e in "$cuda"/*; do
   case $(basename "$e") in
-    include | lib64 | targets) ;;
+    bin | include | lib64 | targets) ;;
     *) ln -s "$(readlink -f "$e")" "$dest/$(basename "$e")" ;;
   esac
 done
+# `bin` is a directory of links, not a link: nvcc finds its headers in
+# `bin/../targets`, which must be the one of this prefix (with the headers of
+# the mathematical libraries), not the one of the SDK
+merge "$dest/bin" "$cuda/bin/"
 merge "$dest/include" "$cuda/include/" "$math/include/"
 merge "$dest/lib64" "$cuda/lib64/" "$math/lib64/"
 mkdir -p "$dest/targets/x86_64-linux"

@@ -5,7 +5,8 @@
 # where `spack` is the spack executable (default: ~/Bureau/spack-mmm/bin/spack).
 #
 # Two phases:
-# 1. everything but MFEM, two packages at a time, 4 jobs each;
+# 1. everything but MFEM, two packages at a time, 4 jobs each (in two
+#    steps: the dependencies of MFEM, then the other roots);
 # 2. MFEM, alone, 2 jobs: each ptxas process of the CUDA kernels of MFEM
 #    can take about 10 GB.
 # Each phase runs under scripts/memory-governor.sh, which pauses the build

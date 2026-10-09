@@ -259,7 +259,8 @@ class Petsc(Package, CudaPackage, ROCmPackage):
     conflicts("+ptscotch", when="~mpi", msg=mpi_msg)
     conflicts("+superlu-dist", when="~mpi", msg=mpi_msg)
     conflicts("+kokkos", when="~mpi", msg=mpi_msg)
-    conflicts("^openmpi~cuda", when="+cuda")  # +cuda requires CUDA enabled OpenMPI
+    # mmm_gpu: an OpenMPI without CUDA is accepted (one GPU per machine); PETSc
+    # must then be run with the option -use_gpu_aware_mpi 0
 
     filter_compiler_wrappers("petscvariables", "reconfigure*.py", relative_root="lib/petsc/conf")
     filter_compiler_wrappers("petsc.pc", "PETSc.pc", relative_root="lib/pkgconfig")
