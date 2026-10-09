@@ -78,6 +78,21 @@ namespace mfem_mgis {
      * \note this call is only meaningful in 3D for orthotropic behaviours
      */
     void setRotationMatrix(const RotationMatrix3D &r);
+    /*!
+     * \brief makes the copies of the arrays on the host valid before an
+     * access on the host, and invalidates their copies on the device (see
+     * `MaterialArrays`). Required before a direct access to the states (`s0`,
+     * `s1`) or to the tangent operator blocks (`K`) after a computation on
+     * the device. The accessors (`getInternalStateVariable`, ...), the
+     * integration of the behaviours, `update`, `revert` and the
+     * post-processings call it.
+     */
+    using MaterialArrays::synchronizeOnHost;
+    /*!
+     * \brief makes the copies of the arrays on the host valid before a
+     * read-only access on the host, keeping their copies on the device valid
+     */
+    using MaterialArrays::synchronizeOnHostForReading;
     //! \return the arrays of the data at the integration points
     MaterialArrays &getArrays();
     //! \return the arrays of the data at the integration points

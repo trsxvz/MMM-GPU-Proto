@@ -47,13 +47,13 @@ namespace mfem_mgis {
 
   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
                      std::unique_ptr<const Behaviour> b_ptr)
-      : MaterialArrays(
-            Material_dereferenceBehaviour(b_ptr),
-            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints()),
-        MaterialDataManager(
-            Material_dereferenceBehaviour(b_ptr),
-            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints(),
-            this->getInitializer()),
+      : MaterialArrays(Material_dereferenceBehaviour(b_ptr),
+                       Material_dereferenceQuadratureSpace(s)
+                           .getNumberOfIntegrationPoints()),
+        MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
+                            Material_dereferenceQuadratureSpace(s)
+                                .getNumberOfIntegrationPoints(),
+                            this->getInitializer()),
         quadrature_space(s),
         macroscopic_gradients(this->s1.gradients_stride, real(0)),
         get_rotation_fct_ptr(this->b.symmetry ==
@@ -283,6 +283,7 @@ namespace mfem_mgis {
       Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHost();
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
@@ -293,6 +294,7 @@ namespace mfem_mgis {
       const Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHostForReading();
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
@@ -303,6 +305,7 @@ namespace mfem_mgis {
       Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHost();
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
@@ -314,6 +317,7 @@ namespace mfem_mgis {
       const Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHostForReading();
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
@@ -325,6 +329,7 @@ namespace mfem_mgis {
       Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHost();
     return buildPartialQuadratureFunction(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
@@ -336,6 +341,7 @@ namespace mfem_mgis {
                            const Material &m,
                            const std::string_view n,
                            const Material::StateSelection s) noexcept {
+    m.synchronizeOnHostForReading();
     return buildImmutablePartialQuadratureFunctionView(
         ctx, m.getPartialQuadratureSpacePointer(),
         getStateManager(m, s).internal_state_variables, m.b.isvs, n,
@@ -344,6 +350,7 @@ namespace mfem_mgis {
 
   std::optional<PartialQuadratureFunction> getStoredEnergy(
       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
+    m.synchronizeOnHost();
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesStoredEnergy) {
       return ctx.registerErrorMessage(
@@ -358,6 +365,7 @@ namespace mfem_mgis {
       Context &ctx,
       const Material &m,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHostForReading();
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesStoredEnergy) {
       return ctx.registerErrorMessage(
@@ -370,6 +378,7 @@ namespace mfem_mgis {
 
   std::optional<PartialQuadratureFunction> getDissipatedEnergy(
       Context &ctx, Material &m, const Material::StateSelection s) noexcept {
+    m.synchronizeOnHost();
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesDissipatedEnergy) {
       return ctx.registerErrorMessage(
@@ -384,6 +393,7 @@ namespace mfem_mgis {
       Context &ctx,
       const Material &m,
       const Material::StateSelection s) noexcept {
+    m.synchronizeOnHostForReading();
     const auto &sm = getStateManager(m, s);
     if (!sm.b.computesDissipatedEnergy) {
       return ctx.registerErrorMessage(

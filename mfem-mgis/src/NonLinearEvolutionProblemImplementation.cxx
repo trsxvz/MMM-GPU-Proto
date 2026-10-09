@@ -442,6 +442,10 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
+    // the post-processings access the materials on the host
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->synchronizeOnHost();
+    }
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
@@ -454,6 +458,10 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
+    // the post-processings access the materials on the host
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->synchronizeOnHost();
+    }
     auto success = true;
     for (auto& p : this->postprocessings) {
       if (!p->execute(ctx, *this, t, dt)) {
@@ -489,6 +497,8 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       return true;
     }
+    // the behaviours are integrated on the host
+    this->mgis_integrator->synchronizeOnHost();
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {
       this->mgis_integrator->setTimeIncrement(*odt);
@@ -650,6 +660,10 @@ namespace mfem_mgis {
   bool
   NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
       Context& ctx, const real t) noexcept {
+    // the post-processings access the materials on the host
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->synchronizeOnHost();
+    }
     for (auto& p : this->postprocessings) {
       if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
         if (!p->executeInitialPostProcessing(ctx, *this, t)) {
@@ -662,6 +676,10 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
+    // the post-processings access the materials on the host
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->synchronizeOnHost();
+    }
     auto success = true;
     for (auto& p : this->postprocessings) {
       if (!p->execute(ctx, *this, t, dt)) {
@@ -719,6 +737,8 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       return true;
     }
+    // the behaviours are integrated on the host
+    this->mgis_integrator->synchronizeOnHost();
     const auto dt = this->mgis_integrator->getTimeIncrement();
     if (odt.has_value()) {
       this->mgis_integrator->setTimeIncrement(*odt);

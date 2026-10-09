@@ -106,6 +106,22 @@ namespace mfem_mgis {
     static_cast<void>(getHostView(this->tangent_operator_blocks));
   }  // end of synchronizeOnHost
 
+  void MaterialArrays::synchronizeOnHostForReading() const {
+    auto read = [](const mfem::Vector& v) {
+      if (v.Size() != 0) {
+        static_cast<void>(v.HostRead());
+      }
+    };
+    for (std::size_t i = 0; i != 2; ++i) {
+      read(this->gradients[i]);
+      read(this->thermodynamic_forces[i]);
+      read(this->internal_state_variables[i]);
+      read(this->stored_energies[i]);
+      read(this->dissipated_energies[i]);
+    }
+    read(this->tangent_operator_blocks);
+  }  // end of synchronizeOnHostForReading
+
   MaterialArrays::~MaterialArrays() = default;
 
 }  // end of namespace mfem_mgis

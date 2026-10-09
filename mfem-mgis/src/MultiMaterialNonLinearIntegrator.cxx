@@ -491,7 +491,23 @@ namespace mfem_mgis {
     return true;
   }  // end of setup
 
+  void MultiMaterialNonLinearIntegrator::synchronizeOnHost() {
+    auto ctx = Context{};
+    for (auto& bis : this->behaviour_integrators) {
+      for (auto& bi : bis) {
+        if (!bi->hasMaterial()) {
+          continue;
+        }
+        auto om = bi->getMaterial(ctx);
+        if (!isInvalid(om)) {
+          om->synchronizeOnHost();
+        }
+      }
+    }
+  }  // end of synchronizeOnHost
+
   void MultiMaterialNonLinearIntegrator::revert() {
+    this->synchronizeOnHost();
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         bi->revert();
@@ -500,6 +516,7 @@ namespace mfem_mgis {
   }  // end of revert
 
   void MultiMaterialNonLinearIntegrator::update() {
+    this->synchronizeOnHost();
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         bi->update();

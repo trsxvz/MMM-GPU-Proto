@@ -183,6 +183,11 @@ namespace mfem_mgis {
      */
     void update();
     /*!
+     * \brief makes the copies of the arrays of the materials on the host
+     * valid before an access on the host (see `Material::synchronizeOnHost`)
+     */
+    void synchronizeOnHost();
+    /*!
      * \brief set the macroscopic gradients
      * \param[in] g: macroscopic gradients
      */

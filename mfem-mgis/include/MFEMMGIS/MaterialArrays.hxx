@@ -62,6 +62,12 @@ namespace mfem_mgis {
      * before an access of the arrays by MGIS on the host.
      */
     void synchronizeOnHost();
+    /*!
+     * \brief makes the copies of the arrays on the host valid (copying them
+     * from the device if needed), keeping the copies on the device valid,
+     * before a read-only access of the arrays on the host.
+     */
+    void synchronizeOnHostForReading() const;
     //! \brief destructor
     ~MaterialArrays();
     //! \brief gradients, at the beginning and at the end of the time step

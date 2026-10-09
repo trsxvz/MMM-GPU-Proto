@@ -18,6 +18,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -123,6 +124,99 @@ static void testMaterial(
         name + ": values of MGIS not seen on the device");
 }  // end of testMaterial
 
+/*!
+ * \brief writes the values `3 * i + k` in an array on the device
+ * \param[in] v: array
+ * \param[in] k: value at the first index, different for each call, so that
+ * a stale copy on the host can't hold the expected values
+ */
+static void writeOnTheDevice(mfem::Vector& v, const int k) {
+  auto* const d = v.ReadWrite();
+  mfem::forall(v.Size(), [=] MFEM_HOST_DEVICE(int i) { d[i] = 3 * i + k; });
+}  // end of writeOnTheDevice
+
+/*!
+ * \brief checks the values written by `writeOnTheDevice`
+ * \param[in] v: values
+ * \param[in] stride: stride between two values
+ * \param[in] n: number of values
+ * \param[in] k: value at the first index
+ * \param[in] msg: message
+ */
+static void checkWrittenValues(const mfem_mgis::real* const v,
+                               const mfem_mgis::size_type stride,
+                               const mfem_mgis::size_type n,
+                               const int k,
+                               const std::string& msg) {
+  for (mfem_mgis::size_type i = 0; i != n; ++i) {
+    if (v[i * stride] != static_cast<mfem_mgis::real>(3 * i * stride + k)) {
+      check(false, msg);
+      return;
+    }
+  }
+}  // end of checkWrittenValues
+
+/*!
+ * \brief the accessors of the materials and the update of a problem see
+ * the values written on the device
+ */
+static void testHostAccesses(mfem_mgis::Context& ctx,
+                             const char* const mesh,
+                             const char* const library) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 3},
+                                     {"NumberOfUniformRefinements", 1},
+                                     {"Hypothesis", "Tridimensional"},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                 "IsotropicLinearHardeningPlasticity") |
+      or_die;
+  auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+  auto& isvs = m.getArrays().internal_state_variables[1];
+  const auto n = m.n;
+  const auto stride = m.s1.internal_state_variables_stride;
+  // first internal state variable (first component of the elastic strain)
+  // at the end of the time step, through the accessor
+  writeOnTheDevice(isvs, 1);
+  const auto of = getInternalStateVariable(ctx, m, "ElasticStrain", ets);
+  if (isInvalid(of)) {
+    std::cerr << ctx.getErrorMessage() << '\n';
+    ++failures;
+    return;
+  }
+  checkWrittenValues(of->getValues().data(), stride, n, 1,
+                     "accessor: values of the device not seen");
+  // read-only accessor: the copy on the device stays valid
+  writeOnTheDevice(isvs, 2);
+  const auto& cm = static_cast<const Material&>(m);
+  const auto ocf = getInternalStateVariable(ctx, cm, "ElasticStrain", ets);
+  if (isInvalid(ocf)) {
+    std::cerr << ctx.getErrorMessage() << '\n';
+    ++failures;
+    return;
+  }
+  checkWrittenValues(ocf->getValues().data(), stride, n, 2,
+                     "read-only accessor: values of the device not seen");
+  check(!mfem::Device::IsEnabled() || isvs.GetMemory().DeviceIsValid(),
+        "read-only accessor: the copy on the device is invalidated");
+  // update: the values at the end of the time step written on the device
+  // are copied at the beginning of the time step
+  writeOnTheDevice(isvs, 3);
+  if (!problem.update(ctx)) {
+    std::cerr << ctx.getErrorMessage() << '\n';
+    ++failures;
+    return;
+  }
+  checkWrittenValues(m.s0.internal_state_variables.data(), 1, n * stride, 3,
+                     "update: values of the device not seen");
+}  // end of testHostAccesses
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -157,6 +251,7 @@ int main(int argc, char** argv) {
         "IsotropicLinearElasticity"}) {
     testMaterial(ctx, qspace, library, b);
   }
+  testHostAccesses(ctx, mesh, library);
   std::cout << (failures == 0 ? "success" : "failure") << " (device "
             << (mfem::Device::IsEnabled() ? "enabled" : "disabled") << ")\n";
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
