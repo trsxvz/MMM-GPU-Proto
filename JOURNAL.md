@@ -3098,3 +3098,29 @@ MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
 - Tangente de la poutre (3 pas) : 16 ms par appel sur GPU, 0,40 s sur un
   cœur de CPU contre 0,45 s pour la boucle de MFEM. Sur GPU, la
   prédiction fait maintenant 73 % du temps.
+
+### 2026-10-09 (soir), tranche GPU minimale : loi intégrée sur le GPU
+
+- MGIS a0b5140 : `make_unchecked_view`, vue sur un gestionnaire sans
+  vérifier que les valeurs qu'il garde sur l'hôte (valeurs uniformes,
+  stockage local) sont accessibles aux calculs de la loi ; l'appelant
+  remplace les vues des tableaux et copie ces valeurs. `make_view`
+  inchangé (refus). Test CUDA étendu.
+- mfem-mgis ee1f31fa1c : une loi `generic-parallel` est intégrée sur les
+  copies des tableaux du matériau sur le périphérique si ses calculs y ont
+  accès (loi `cuda` sur GPU ; toute loi sur le périphérique `debug`, dont
+  les copies sont en mémoire hôte). Vue de MGIS déplacée sur les copies
+  rendues valides par MFEM (`Read`, `ReadWrite`, `Write`), propriétés,
+  variables externes et masse volumique copiées sur le périphérique à
+  chaque appel, rotations des lois orthotropes sur le périphérique, ainsi
+  que le passage au repère global quand la loi n'a pas accès à l'hôte.
+  Plus de synchronisation sur l'hôte avant l'intégration quand tout est
+  sur le périphérique ; synchronisation en lecture après l'intégration si
+  les forces ou la tangente restent élément par élément.
+- Validation : lois `openmp` et `stlpar` sur le périphérique `debug`
+  (accès à des copies invalides détectés), identiques au point par point
+  au dernier bit sans noyaux ; lois `cuda` sur GPU, en séquentiel et sur 2
+  processus, avec et sans noyaux, orthotropes compris. Cas `poutre-gpu`.
+- Poutre r4, 3 pas, GPU : 6,25 s. Intégration 0,24 s (0,47 s avec la loi
+  `generic` sur l'hôte). La prédiction fait 77 % du temps : prochain
+  chantier (lot L4).
