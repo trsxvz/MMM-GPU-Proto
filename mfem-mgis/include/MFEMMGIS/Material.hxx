@@ -22,6 +22,7 @@
 #include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
+#include "MFEMMGIS/MaterialArrays.hxx"
 #include "MFEMMGIS/TimeStepStage.hxx"
 #include "MFEMMGIS/RotationMatrix.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
@@ -34,8 +35,16 @@ namespace mfem_mgis {
 
   /*!
    * \brief a simple structure describing a material and the associated data.
+   *
+   * The arrays of the data at the integration points are in the memory of
+   * MFEM (see `MaterialArrays`, and its rules of validity of the copies on
+   * the host and on the device). They are held by a base class declared
+   * before the material data manager of MGIS, so that they are created
+   * before it.
    */
-  struct MFEM_MGIS_EXPORT Material : mgis::behaviour::MaterialDataManager {
+  struct MFEM_MGIS_EXPORT Material
+      : private MaterialArrays,
+        public mgis::behaviour::MaterialDataManager {
     //! \brief a simple alias used to select the state of the material
     using StateSelection = TimeStepStage;
     //! \brief beginning of the time step
@@ -69,6 +78,10 @@ namespace mfem_mgis {
      * \note this call is only meaningful in 3D for orthotropic behaviours
      */
     void setRotationMatrix(const RotationMatrix3D &r);
+    //! \return the arrays of the data at the integration points
+    MaterialArrays &getArrays();
+    //! \return the arrays of the data at the integration points
+    const MaterialArrays &getArrays() const;
     //! \return the quadrature space
     const PartialQuadratureSpace &getPartialQuadratureSpace() const;
     //! \return the quadrature space

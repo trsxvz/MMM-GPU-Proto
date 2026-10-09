@@ -749,6 +749,27 @@ if(MFEM_MGIS_HAVE_TFEL)
         "$<TARGET_FILE:BehaviourTest>")
   endif()
 
+  # MaterialArraysTest executable: arrays of the materials in the memory of
+  # MFEM, on the host, on the debug device of MFEM and on the GPU
+  if(NOT MFEM_USE_HIP STREQUAL "YES")
+    add_test_executable(MaterialArraysTest)
+    mfem_mgis_compile_as_device_code(MaterialArraysTest MaterialArraysTest.cxx)
+    add_test(NAME MaterialArraysTest
+             COMMAND MaterialArraysTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    add_test(NAME MaterialArraysTest-debug
+             COMMAND MaterialArraysTest --device debug
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME MaterialArraysTest-cuda
+               COMMAND MaterialArraysTest --device cuda
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --library $<TARGET_FILE:BehaviourTest>)
+    endif()
+  endif()
+
   # HypreBoomerAMGTest executable
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)

@@ -1,0 +1,563 @@
+From 8492d43d6aa27fc58d31783265aff18e1aeac478 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:47:05 +0200
+Subject: [PATCH] Material: arrays of the integration points in the memory of
+ MFEM
+
+The arrays of a material (gradients, thermodynamic forces, internal state
+variables and energies of both states, blocks of the tangent operator)
+are `mfem::Vector`s held by the new class `MaterialArrays`, a private
+base of `Material` declared before the material data manager of MGIS,
+which uses them without copy (initializer, `HOST` location, point by
+point layout).
+
+MFEM keeps track of the valid copies of each array (host, device); MGIS
+writes through raw pointers. `MaterialArrays::synchronizeOnHost` copies
+the arrays back to the host if needed and invalidates the copies on the
+device, before an access by MGIS on the host. The deformation gradients
+are initialized to the identity, as MGIS does for the arrays it
+allocates.
+
+MaterialArraysTest: sizes, use without copy by MGIS, identity of the
+deformation gradients, values written on the device seen by MGIS and
+values written by MGIS seen on the device, with the cpu, debug and cuda
+devices (fails on the debug and cuda devices if `synchronizeOnHost` does
+nothing).
+---
+ include/CMakeLists.txt              |   1 +
+ include/MFEMMGIS/Material.hxx       |  15 ++-
+ include/MFEMMGIS/MaterialArrays.hxx |  96 ++++++++++++++++
+ src/CMakeLists.txt                  |   1 +
+ src/Material.cxx                    |  18 ++-
+ src/MaterialArrays.cxx              | 111 +++++++++++++++++++
+ tests/CMakeLists.txt                |  21 ++++
+ tests/MaterialArraysTest.cxx        | 163 ++++++++++++++++++++++++++++
+ 8 files changed, 422 insertions(+), 4 deletions(-)
+ create mode 100644 include/MFEMMGIS/MaterialArrays.hxx
+ create mode 100644 src/MaterialArrays.cxx
+ create mode 100644 tests/MaterialArraysTest.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 7960322c20..ad3bce91ea 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -32,6 +32,7 @@ mfem_mgis_header(MFEMMGIS RotationMatrix.hxx)
+ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+ mfem_mgis_header(MFEMMGIS Material.hxx)
+ mfem_mgis_header(MFEMMGIS Material.ixx)
++mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+ mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index 838d136fa4..84d8b04c7b 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -22,6 +22,7 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Behaviour.hxx"
++#include "MFEMMGIS/MaterialArrays.hxx"
+ #include "MFEMMGIS/TimeStepStage.hxx"
+ #include "MFEMMGIS/RotationMatrix.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+@@ -34,8 +35,16 @@ namespace mfem_mgis {
+ 
+   /*!
+    * \brief a simple structure describing a material and the associated data.
++   *
++   * The arrays of the data at the integration points are in the memory of
++   * MFEM (see `MaterialArrays`, and its rules of validity of the copies on
++   * the host and on the device). They are held by a base class declared
++   * before the material data manager of MGIS, so that they are created
++   * before it.
+    */
+-  struct MFEM_MGIS_EXPORT Material : mgis::behaviour::MaterialDataManager {
++  struct MFEM_MGIS_EXPORT Material
++      : private MaterialArrays,
++        public mgis::behaviour::MaterialDataManager {
+     //! \brief a simple alias used to select the state of the material
+     using StateSelection = TimeStepStage;
+     //! \brief beginning of the time step
+@@ -69,6 +78,10 @@ namespace mfem_mgis {
+      * \note this call is only meaningful in 3D for orthotropic behaviours
+      */
+     void setRotationMatrix(const RotationMatrix3D &r);
++    //! \return the arrays of the data at the integration points
++    MaterialArrays &getArrays();
++    //! \return the arrays of the data at the integration points
++    const MaterialArrays &getArrays() const;
+     //! \return the quadrature space
+     const PartialQuadratureSpace &getPartialQuadratureSpace() const;
+     //! \return the quadrature space
+diff --git a/include/MFEMMGIS/MaterialArrays.hxx b/include/MFEMMGIS/MaterialArrays.hxx
+new file mode 100644
+index 0000000000..6775ef0480
+--- /dev/null
++++ b/include/MFEMMGIS/MaterialArrays.hxx
+@@ -0,0 +1,96 @@
++/*!
++ * \file   include/MFEMMGIS/MaterialArrays.hxx
++ * \brief  This file declares the `MaterialArrays` class
++ * \date   09/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_MATERIALARRAYS_HXX
++#define LIB_MFEM_MGIS_MATERIALARRAYS_HXX
++
++#include <array>
++#include "mfem/linalg/vector.hpp"
++#include "MGIS/Behaviour/MaterialDataManager.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
++#include "MFEMMGIS/TimeStepStage.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \brief arrays of the data of a material at its integration points, in
++   * the memory of MFEM (`mfem::Memory`, with a copy on the host and, with a
++   * GPU device, a copy on the device): gradients, thermodynamic forces,
++   * internal state variables and energies at the beginning and at the end
++   * of the time step, and blocks of the tangent operator.
++   *
++   * The material data manager of MGIS uses these arrays without copy (see
++   * `getInitializer`). It is given the pointers of their copies on the
++   * host, at the `HOST` location, in the point by point layout.
++   *
++   * Validity of the copies: MFEM keeps track of the valid copies of each
++   * array. MGIS reads and writes the arrays through the pointers given at
++   * construction, which MFEM does not see. Hence:
++   *
++   * - the code accessing the arrays through MGIS on the host (integration
++   *   of the behaviours, accessors of the material, post-processings...)
++   *   must first call `synchronizeOnHost`, which copies the arrays back to
++   *   the host if a kernel modified them on the device, and invalidates
++   *   their copies on the device;
++   * - a kernel accessing the arrays on the device must get its pointers
++   *   with `Read`, `Write` or `ReadWrite`, which copy the arrays to the
++   *   device if needed.
++   *
++   * Without GPU device, both steps do nothing.
++   */
++  struct MFEM_MGIS_EXPORT MaterialArrays {
++    /*!
++     * \brief constructor
++     * \param[in] b: behaviour
++     * \param[in] n: number of integration points
++     */
++    MaterialArrays(const Behaviour&, const size_type);
++    /*!
++     * \return the initializer of the material data manager of MGIS using
++     * these arrays
++     * \note the host copies of the arrays are made valid, and the copies on
++     * the device invalid (see `synchronizeOnHost`).
++     */
++    mgis::behaviour::MaterialDataManagerInitializer getInitializer();
++    /*!
++     * \brief makes the copies of the arrays on the host valid (copying them
++     * from the device if needed) and invalidates the copies on the device,
++     * before an access of the arrays by MGIS on the host.
++     */
++    void synchronizeOnHost();
++    //! \brief destructor
++    ~MaterialArrays();
++    //! \brief gradients, at the beginning and at the end of the time step
++    std::array<mfem::Vector, 2u> gradients;
++    //! \brief thermodynamic forces
++    std::array<mfem::Vector, 2u> thermodynamic_forces;
++    //! \brief internal state variables
++    std::array<mfem::Vector, 2u> internal_state_variables;
++    //! \brief stored energies (empty if the behaviour does not compute them)
++    std::array<mfem::Vector, 2u> stored_energies;
++    /*!
++     * \brief dissipated energies (empty if the behaviour does not compute
++     * them)
++     */
++    std::array<mfem::Vector, 2u> dissipated_energies;
++    //! \brief blocks of the tangent operator
++    mfem::Vector tangent_operator_blocks;
++
++   private:
++    //! \brief copy constructor (disabled)
++    MaterialArrays(const MaterialArrays&) = delete;
++    //! \brief move constructor (disabled)
++    MaterialArrays(MaterialArrays&&) = delete;
++    //! \brief standard assignment (disabled)
++    MaterialArrays& operator=(const MaterialArrays&) = delete;
++    //! \brief move assignment (disabled)
++    MaterialArrays& operator=(MaterialArrays&&) = delete;
++  };  // end of struct MaterialArrays
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_MATERIALARRAYS_HXX */
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index d14184935c..174686cffe 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -23,6 +23,7 @@ list(APPEND MFEMMGIS_SOURCES
+   QPEvaluatorsFactory.cxx
+   Behaviour.cxx
+   Material.cxx
++  MaterialArrays.cxx
+   MaterialQuantityProviderSearch.cxx
+   AbstractBehaviourIntegrator.cxx
+   BehaviourIntegratorBase.cxx
+diff --git a/src/Material.cxx b/src/Material.cxx
+index 93c85db029..f89c8555a2 100644
+--- a/src/Material.cxx
++++ b/src/Material.cxx
+@@ -47,9 +47,13 @@ namespace mfem_mgis {
+ 
+   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
+                      std::unique_ptr<const Behaviour> b_ptr)
+-      : MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
+-                            Material_dereferenceQuadratureSpace(s)
+-                                .getNumberOfIntegrationPoints()),
++      : MaterialArrays(
++            Material_dereferenceBehaviour(b_ptr),
++            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints()),
++        MaterialDataManager(
++            Material_dereferenceBehaviour(b_ptr),
++            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints(),
++            this->getInitializer()),
+         quadrature_space(s),
+         macroscopic_gradients(this->s1.gradients_stride, real(0)),
+         get_rotation_fct_ptr(this->b.symmetry ==
+@@ -60,6 +64,14 @@ namespace mfem_mgis {
+     this->allocateArrayOfTangentOperatorBlocks();
+   }  // end of Material::Material
+ 
++  MaterialArrays &Material::getArrays() {
++    return *this;
++  }  // end of getArrays
++
++  const MaterialArrays &Material::getArrays() const {
++    return *this;
++  }  // end of getArrays
++
+   const PartialQuadratureSpace &Material::getPartialQuadratureSpace() const {
+     return *(this->quadrature_space);
+   }  // end of getPartialQuadratureSpace
+diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
+new file mode 100644
+index 0000000000..63fd02b930
+--- /dev/null
++++ b/src/MaterialArrays.cxx
+@@ -0,0 +1,111 @@
++/*!
++ * \file   src/MaterialArrays.cxx
++ * \brief  This file implements the `MaterialArrays` class
++ * \date   09/10/2026
++ */
++
++#include <limits>
++#include <algorithm>
++#include "MGIS/Raise.hxx"
++#include "MGIS/MemoryLocation.hxx"
++#include "MGIS/FieldView.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/MaterialArrays.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \brief allocates an array in the memory of MFEM, set to zero on the host
++   * \param[out] v: array
++   * \param[in] s: size of the array
++   */
++  static void allocateMaterialArray(mfem::Vector& v, const size_type s) {
++    if (s > static_cast<size_type>(std::numeric_limits<int>::max())) {
++      mgis::raise("MaterialArrays: array too large for MFEM");
++    }
++    v.SetSize(static_cast<int>(s));
++    v.UseDevice(true);
++    if (s != 0) {
++      std::fill_n(v.HostWrite(), s, real{0});
++    }
++  }  // end of allocateMaterialArray
++
++  /*!
++   * \return a view of the copy of the array on the host, made valid, the
++   * copy on the device being invalidated
++   * \param[in] v: array
++   */
++  static std::span<real> getHostView(mfem::Vector& v) {
++    if (v.Size() == 0) {
++      return {};
++    }
++    return {v.HostReadWrite(), static_cast<std::size_t>(v.Size())};
++  }  // end of getHostView
++
++  MaterialArrays::MaterialArrays(const Behaviour& b, const size_type n) {
++    using mgis::behaviour::getArraySize;
++    const auto gs = getArraySize(b.gradients, b.hypothesis);
++    const auto ts = getArraySize(b.thermodynamic_forces, b.hypothesis);
++    const auto is = getArraySize(b.isvs, b.hypothesis);
++    for (std::size_t i = 0; i != 2; ++i) {
++      allocateMaterialArray(this->gradients[i], n * gs);
++      allocateMaterialArray(this->thermodynamic_forces[i], n * ts);
++      allocateMaterialArray(this->internal_state_variables[i], n * is);
++      if (b.computesStoredEnergy) {
++        allocateMaterialArray(this->stored_energies[i], n);
++      }
++      if (b.computesDissipatedEnergy) {
++        allocateMaterialArray(this->dissipated_energies[i], n);
++      }
++    }
++    allocateMaterialArray(this->tangent_operator_blocks,
++                          n * mgis::behaviour::getTangentOperatorArraySize(b));
++    // the deformation gradients are initialized to the identity, as MGIS
++    // does for the arrays it allocates (point by point layout: the first
++    // three components are the diagonal ones)
++    if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
++        (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
++        (n != 0)) {
++      for (auto& g : this->gradients) {
++        auto* const F = g.HostReadWrite();
++        for (size_type i = 0; i != n; ++i) {
++          F[i * gs] = F[i * gs + 1] = F[i * gs + 2] = real{1};
++        }
++      }
++    }
++  }  // end of MaterialArrays
++
++  mgis::behaviour::MaterialDataManagerInitializer
++  MaterialArrays::getInitializer() {
++    auto i = mgis::behaviour::MaterialDataManagerInitializer{};
++    auto state = [this](mgis::behaviour::MaterialStateManagerInitializer& si,
++                        const std::size_t s) {
++      si.gradients = getHostView(this->gradients[s]);
++      si.thermodynamic_forces = getHostView(this->thermodynamic_forces[s]);
++      si.internal_state_variables =
++          getHostView(this->internal_state_variables[s]);
++      si.stored_energies = getHostView(this->stored_energies[s]);
++      si.dissipated_energies = getHostView(this->dissipated_energies[s]);
++    };
++    state(i.s0, 0);
++    state(i.s1, 1);
++    i.K = getHostView(this->tangent_operator_blocks);
++    i.location = mgis::MemoryLocation::HOST;
++    i.layout = mgis::FieldLayout::POINT_BY_POINT;
++    return i;
++  }  // end of getInitializer
++
++  void MaterialArrays::synchronizeOnHost() {
++    for (std::size_t i = 0; i != 2; ++i) {
++      static_cast<void>(getHostView(this->gradients[i]));
++      static_cast<void>(getHostView(this->thermodynamic_forces[i]));
++      static_cast<void>(getHostView(this->internal_state_variables[i]));
++      static_cast<void>(getHostView(this->stored_energies[i]));
++      static_cast<void>(getHostView(this->dissipated_energies[i]));
++    }
++    static_cast<void>(getHostView(this->tangent_operator_blocks));
++  }  // end of synchronizeOnHost
++
++  MaterialArrays::~MaterialArrays() = default;
++
++}  // end of namespace mfem_mgis
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index d732a6f68c..c5a4b7bf4f 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -749,6 +749,27 @@ if(MFEM_MGIS_HAVE_TFEL)
+         "$<TARGET_FILE:BehaviourTest>")
+   endif()
+ 
++  # MaterialArraysTest executable: arrays of the materials in the memory of
++  # MFEM, on the host, on the debug device of MFEM and on the GPU
++  if(NOT MFEM_USE_HIP STREQUAL "YES")
++    add_test_executable(MaterialArraysTest)
++    mfem_mgis_compile_as_device_code(MaterialArraysTest MaterialArraysTest.cxx)
++    add_test(NAME MaterialArraysTest
++             COMMAND MaterialArraysTest
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    add_test(NAME MaterialArraysTest-debug
++             COMMAND MaterialArraysTest --device debug
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++      add_test(NAME MaterialArraysTest-cuda
++               COMMAND MaterialArraysTest --device cuda
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --library $<TARGET_FILE:BehaviourTest>)
++    endif()
++  endif()
++
+   # HypreBoomerAMGTest executable
+   if(MFEM_USE_MPI)
+     add_test_executable(HypreBoomerAMGTest)
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+new file mode 100644
+index 0000000000..2f0430112e
+--- /dev/null
++++ b/tests/MaterialArraysTest.cxx
+@@ -0,0 +1,163 @@
++/*!
++ * \file   MaterialArraysTest.cxx
++ * \brief  Test of the arrays of the materials in the memory of MFEM
++ * (`MaterialArrays`): sizes, use without copy by MGIS, identity of the
++ * deformation gradients, validity of the copies on the host and on the
++ * device selected by the `--device` option
++ * \date   09/10/2026
++ */
++
++#include <cstdlib>
++#include <iostream>
++#include <string>
++#include "mfem/general/forall.hpp"
++#include "mfem/general/optparser.hpp"
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Material.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \brief checks that MGIS uses an array of the memory of MFEM without copy
++ * \param[in] v: array of the memory of MFEM
++ * \param[in] s: view used by MGIS
++ * \param[in] n: name of the array
++ */
++static void checkAlias(const mfem::Vector& v,
++                       const std::span<mfem_mgis::real> s,
++                       const std::string& n) {
++  if (v.Size() == 0) {
++    return;
++  }
++  check(static_cast<std::size_t>(v.Size()) == s.size(), n + ": size");
++  check(v.HostRead() == s.data(), n + ": MGIS does not use the array");
++}  // end of checkAlias
++
++static void testMaterial(
++    mfem_mgis::Context& ctx,
++    std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
++    const char* const library,
++    const char* const behaviour) {
++  using namespace mfem_mgis;
++  auto b = mfem_mgis::load(ctx, library, behaviour, Hypothesis::TRIDIMENSIONAL);
++  if (isInvalid(b)) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    ++failures;
++    return;
++  }
++  auto m = Material(qspace, std::move(b));
++  auto& a = m.getArrays();
++  const auto n = qspace->getNumberOfIntegrationPoints();
++  const auto name = std::string{behaviour};
++  // sizes and use without copy
++  for (std::size_t i = 0; i != 2; ++i) {
++    auto& s = i == 0 ? m.s0 : m.s1;
++    check(
++        static_cast<size_type>(a.gradients[i].Size()) == n * s.gradients_stride,
++        name + ": size of the gradients");
++    checkAlias(a.gradients[i], s.gradients, name + ": gradients");
++    checkAlias(a.thermodynamic_forces[i], s.thermodynamic_forces,
++               name + ": thermodynamic forces");
++    checkAlias(a.internal_state_variables[i], s.internal_state_variables,
++               name + ": internal state variables");
++    checkAlias(a.stored_energies[i], s.stored_energies,
++               name + ": stored energies");
++    checkAlias(a.dissipated_energies[i], s.dissipated_energies,
++               name + ": dissipated energies");
++  }
++  check(static_cast<size_type>(a.tangent_operator_blocks.Size()) ==
++            n * m.K_stride,
++        name + ": size of the tangent operator blocks");
++  checkAlias(a.tangent_operator_blocks, m.K,
++             name + ": tangent operator blocks");
++  // identity of the deformation gradients
++  if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
++      (m.b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY)) {
++    for (const auto* s : {&m.s0, &m.s1}) {
++      for (size_type o = 0; o != n; ++o) {
++        const auto* const F = s->gradients.data() + o * s->gradients_stride;
++        for (size_type c = 0; c != s->gradients_stride; ++c) {
++          check(F[c] == (c < 3 ? 1 : 0),
++                name + ": deformation gradient not initialized to identity");
++        }
++      }
++    }
++  }
++  // validity of the copies: values written by a kernel on the device are
++  // seen by MGIS on the host after `synchronizeOnHost`
++  auto& v = a.thermodynamic_forces[1];
++  const auto size = v.Size();
++  auto* const d = v.ReadWrite();
++  mfem::forall(size, [=] MFEM_HOST_DEVICE(int i) { d[i] = 3 * i + 1; });
++  a.synchronizeOnHost();
++  const auto& sig = m.s1.thermodynamic_forces;
++  for (int i = 0; i != size; ++i) {
++    if (sig[i] != 3 * i + 1) {
++      check(false, name + ": values of the device not seen by MGIS");
++      break;
++    }
++  }
++  // the copy on the device is invalid: MGIS may modify the values on the
++  // host, a kernel then reads them
++  check(!v.GetMemory().DeviceIsValid() || !mfem::Device::IsEnabled(),
++        name + ": the copy on the device is still valid");
++  sig[0] = -1;
++  auto* const r = v.Read();
++  auto first = mfem::Vector(1);
++  first.UseDevice(true);
++  auto* const f = first.Write();
++  mfem::forall(1, [=] MFEM_HOST_DEVICE(int) { f[0] = r[0]; });
++  check(first.HostRead()[0] == -1,
++        name + ": values of MGIS not seen on the device");
++}  // end of testMaterial
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh file");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  auto ctx = Context{};
++  auto fed = std::make_shared<FiniteElementDiscretization>(
++      ctx, Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"NumberOfUniformRefinements", 2},
++                      {"Parallel", false}});
++  auto qspace = std::make_shared<const PartialQuadratureSpace>(
++      *fed, 1,
++      [](const mfem::FiniteElement& e,
++         const mfem::ElementTransformation& tr) noexcept
++          -> const mfem::IntegrationRule& {
++        return mfem::IntRules.Get(e.GetGeomType(), 2 * tr.OrderGrad(&e));
++      });
++  for (const auto* const b :
++       {"IsotropicLinearHardeningPlasticity", "SaintVenantKirchhoffElasticity",
++        "IsotropicLinearElasticity"}) {
++    testMaterial(ctx, qspace, library, b);
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << " (device "
++            << (mfem::Device::IsEnabled() ? "enabled" : "disabled") << ")\n";
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

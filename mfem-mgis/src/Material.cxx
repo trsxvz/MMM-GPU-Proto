@@ -47,9 +47,13 @@ namespace mfem_mgis {
 
   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
                      std::unique_ptr<const Behaviour> b_ptr)
-      : MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
-                            Material_dereferenceQuadratureSpace(s)
-                                .getNumberOfIntegrationPoints()),
+      : MaterialArrays(
+            Material_dereferenceBehaviour(b_ptr),
+            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints()),
+        MaterialDataManager(
+            Material_dereferenceBehaviour(b_ptr),
+            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints(),
+            this->getInitializer()),
         quadrature_space(s),
         macroscopic_gradients(this->s1.gradients_stride, real(0)),
         get_rotation_fct_ptr(this->b.symmetry ==
@@ -59,6 +63,14 @@ namespace mfem_mgis {
         behaviour_ptr(std::move(b_ptr)) {
     this->allocateArrayOfTangentOperatorBlocks();
   }  // end of Material::Material
+
+  MaterialArrays &Material::getArrays() {
+    return *this;
+  }  // end of getArrays
+
+  const MaterialArrays &Material::getArrays() const {
+    return *this;
+  }  // end of getArrays
 
   const PartialQuadratureSpace &Material::getPartialQuadratureSpace() const {
     return *(this->quadrature_space);
