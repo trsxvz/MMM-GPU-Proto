@@ -20,11 +20,11 @@
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 source "$P/scripts/env.sh" > /dev/null
-# env.sh binds the threads of OpenMP (for Kokkos and AdaptiveCpp): libgomp,
-# loaded by the libraries of the cases, then binds the main thread to the
-# first CPU of the process, so that TBB (stlpar backend) sees one CPU, and
-# `spread` over the hardware threads only uses half of the cores. The
-# processes are placed by OpenMPI instead.
+# env.sh lie les fils d'OpenMP (pour Kokkos et AdaptiveCpp) : libgomp,
+# chargée par les bibliothèques des cas, attache alors le fil principal au
+# premier processeur du processus, si bien que TBB (backend stlpar) ne voit
+# qu'un processeur, et `spread` sur les fils matériels n'occupe que la
+# moitié des cœurs. Le placement est laissé à OpenMPI.
 unset OMP_PROC_BIND OMP_PLACES
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
@@ -60,8 +60,8 @@ out=$(cd "$out" && pwd)
   echo "charge : $(cut -d ' ' -f 1-3 /proc/loadavg)"
   echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
 } | tee -a "$out/resume.txt"
-# usage: command library integration name
-# prints the command running the case
+# usage : command_of bibliothèque intégration nom
+# affiche la commande du cas
 command_of() {
   local library=$1 integration=$2 name=$3
   case "$case_name" in
@@ -76,14 +76,14 @@ command_of() {
       ;;
   esac
 }
-# usage: run name threads processes library integration
+# usage : run nom fils processus bibliothèque intégration
 run() {
   local name=$1 threads=$2 np=$3 library=$4 integration=$5
   echo "== $name : $np processus, $threads fils, $integration" |
     tee -a "$out/resume.txt"
-  # one thread: the default placement of OpenMPI (one core per process);
-  # several threads: `threads` cores reserved for each process (with
-  # `--bind-to none`, OpenMPI 5 binds all the processes to the first core)
+  # un fil : placement par défaut d'OpenMPI (un cœur par processus) ;
+  # plusieurs fils : `threads` cœurs réservés à chaque processus (avec
+  # `--bind-to none`, OpenMPI 5 attache tous les processus au premier cœur)
   local placement=()
   if [ "$threads" != 1 ]; then
     placement=(--map-by "slot:PE=$threads" --bind-to core)
@@ -96,8 +96,8 @@ run() {
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/resume.txt"
-  # comparison with the integration point by point on the same number of
-  # processes (the partition changes the results of the iterative solver)
+  # comparaison au calcul point par point sur le même nombre de processus
+  # (la partition change les résultats du solveur itératif)
   local reference=$out/$case_name-np$np-point-par-point.res
   if [ -f "$out/$name.res" ] && [ -f "$reference" ] &&
     [ "$out/$name.res" != "$reference" ]; then
