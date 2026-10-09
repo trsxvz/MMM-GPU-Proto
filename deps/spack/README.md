@@ -80,6 +80,16 @@ le hwloc de spack avec CUDA, dont le changement reconstruit LLVM et TBB,
 utilisés par TFEL. Avec un seul GPU, un MPI compatible GPU n'apporte rien.
 PETSc doit être lancé avec l'option `-use_gpu_aware_mpi 0`.
 
+## Contraintes entre paquets
+
+- PETSc avec `+openmp` : les en-têtes d'un Kokkos compilé avec OpenMP
+  exigent OpenMP chez le compilateur (`#error "You enabled Kokkos OpenMP
+  support without enabling OpenMP in the compiler!"`).
+- MFEM avec `cxxstd=20` : Umpire 2026 (par camp) utilise les concepts du
+  C++20 ; MFEM se compile en C++17 par défaut.
+- kokkos-kernels partagé exige Kokkos `+pic` : Kokkos a été reconstruit
+  avec cette variante (même version, mêmes options sinon).
+
 ## Pilotes
 
 CUDA 13.0 demande un pilote 580 ou plus récent. Avec un pilote plus

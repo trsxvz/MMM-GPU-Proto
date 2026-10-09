@@ -2542,3 +2542,19 @@ volontaires détectées par les nouveaux tests.
   - `SystemHypreBoomerAMG` écrase deux réglages de BoomerAMG à chaque
     `SetOperator` ; `AmgXSolver::UpdateOperator` est une réutilisation
     complète, pas partielle.
+
+### 2026-10-09 (nuit, fin), compilation de l'environnement
+
+- Deuxième passe : tout s'installe (hypre, Ginkgo, AmgX, SuperLU_DIST,
+  STRUMPACK, SUNDIALS, MUMPS, cuDSS, kokkos-kernels) sauf PETSc : ses
+  fichiers Kokkos étaient compilés sans OpenMP, que les en-têtes d'un
+  Kokkos compilé avec OpenMP exigent. Corrigé par `petsc +openmp`.
+- Troisième passe : PETSc s'installe ; MFEM échoue dès la configuration,
+  compilé en C++17 alors qu'Umpire 2026 (par camp) exige C++20. Corrigé
+  par `mfem cxxstd=20`.
+- Kokkos a été reconstruit (`+pic`, exigé par kokkos-kernels partagé) : les
+  tests Kokkos de TFEL passent (lois et propriétés matériau, `kokkos` et
+  `kokkos-host`, 4/4), et les en-têtes GPU de MGIS avec Kokkos aussi.
+- Leçon d'outillage : dans les surveillances de journaux, `grep` du shell
+  est une fonction (ugrep) qui ne remontait rien ; attendre plutôt la fin
+  d'un processus par son PID.
