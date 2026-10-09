@@ -1,0 +1,43 @@
+From 09a0688e938df754b191e73e66d78158c71e721d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 12:55:19 +0200
+Subject: [PATCH] bubble: loop over the bubbles on the host with
+ hypre_forall_cpu
+
+The bubbles and the points are stored in host memory (std::vector) and the
+search uses std::lower_bound: the loop must run on the host.
+mfem::forall would run it on the device when MFEM uses one, and, since
+MFEM 4.10, requires the file to be compiled as CUDA or HIP code when MFEM
+is compiled with CUDA or HIP (static assertion). mfem::hypre_forall_cpu
+runs on the host, with OpenMP if hypre was compiled with it, as the
+comment of the loop described.
+---
+ bubble/src/Bubble.cxx | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 9d49656..f421c7e 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -521,11 +521,13 @@ int main(int argc, char** argv) {
+     const auto num_bubbles = bubbles.size();
+     const auto num_points = all_locations_and_stresses_above_threshold.size();
+ 
+-    // Parallel loop over all bubbles
+-    // NB it can run OMP on CPU parallelization if hypre was compiled with this
+-    // support otherwise it degenerates to a simple for. it can do something
+-    // exotic with gpu but idk.
+-    mfem::forall(num_bubbles, [=] MFEM_HOST_DEVICE(int i) {
++    // Parallel loop over all bubbles, on the host: the bubbles and the points
++    // are stored in host memory (std::vector) and the search uses
++    // std::lower_bound. It runs with OpenMP if hypre was compiled with it,
++    // otherwise it is a simple loop. mfem::forall would run the loop on the
++    // device when MFEM uses one, and requires this file to be compiled as
++    // CUDA or HIP code when MFEM is compiled with CUDA or HIP.
++    mfem::hypre_forall_cpu(static_cast<int>(num_bubbles), [=](int i) {
+       // 1. Get current bubble to process
+       const auto& b = bubbles_data[i];
+ 
+-- 
+2.43.0
+
