@@ -59,10 +59,13 @@ installations de spack de la machine, dont le dépôt `builtin` peut être à
 un autre commit, ce qui casse l'index des patchs.
 
 `install-mmm-gpu.sh` installe d'abord tout sauf MFEM (deux paquets à la
-fois, 4 tâches chacun), puis MFEM seul avec 2 tâches : chaque processus
-`ptxas` des noyaux CUDA de MFEM peut prendre 10 Go. Chaque phase tourne
-sous `scripts/memory-governor.sh`, qui met la construction en pause quand
-la mémoire disponible est trop basse.
+fois, 4 tâches chacun), sous `scripts/memory-governor.sh`, qui met la
+construction en pause quand la mémoire disponible est trop basse. Puis
+MFEM seul, avec une tâche et sans le régulateur : `ptxas` prend environ
+22 Go pour les noyaux de `fem/lor/lor_batched.cpp` (MFEM 4.9, sm_120), les
+autres fichiers jusqu'à 8 Go. Mettre ce processus en pause ne libère pas
+sa mémoire : le régulateur attendrait sans fin. Une construction
+interrompue reprend où elle s'est arrêtée (`--dont-restage`).
 
 ## Préfixe CUDA
 
