@@ -798,6 +798,7 @@ if(MFEM_MGIS_HAVE_TFEL)
            COMMAND BatchIntegrationTest
                    --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                    --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
+                   --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
                    --library $<TARGET_FILE:BehaviourTest>
                    ${batch_integration_test_libraries})
 

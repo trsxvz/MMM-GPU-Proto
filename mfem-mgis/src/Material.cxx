@@ -144,7 +144,6 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r2D = r;
-    ++(this->rotation_version);
   }  // end of setRotationMatrix
 
   void Material::setRotationMatrix(const RotationMatrix3D &r) {
@@ -230,7 +229,6 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r3D = r;
-    ++(this->rotation_version);
   }  // end of setRotationMatrix
 
   /*!
@@ -294,12 +292,13 @@ namespace mfem_mgis {
     return mgis::makePointByPointFieldView(matrices, np, 9, 9);
   }  // end of computeRotationMatrices
 
-  std::span<const real> Material::getValuesInGlobalFrame(
-      const StateArray a, const StateSelection s) const {
+  void Material::computeValuesInGlobalFrame(mfem::Vector &v,
+                                            const StateArray a,
+                                            const StateSelection s) const {
     const auto gradients = a == StateArray::GRADIENTS;
     const auto *const method =
-        gradients ? "Material::getGradientsInGlobalFrame"
-                  : "Material::getThermodynamicForcesInGlobalFrame";
+        gradients ? "Material::computeGradientsInGlobalFrame"
+                  : "Material::computeThermodynamicForcesInGlobalFrame";
     if (this->b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
       raise(std::string{method} +
             ": invalid call (behaviour is not orthotropic)");
@@ -309,48 +308,36 @@ namespace mfem_mgis {
     const auto nc =
         gradients ? sm.gradients_stride : sm.thermodynamic_forces_stride;
     const auto size = static_cast<std::size_t>(np) * nc;
-    auto &c = this->global_frame_values[gradients ? 0 : 1]
-                                       [s == BEGINNING_OF_TIME_STEP ? 0 : 1];
-    const auto versions =
-        std::array<std::size_t, 2u>{this->getVersion(a, s),
-                                    this->rotation_version};
-    if (c.versions != versions) {
-      c.versions.reset();
-      resizeArray(c.values, size, method);
-      if (size != 0) {
-        this->synchronizeOnHostForReading(a, s);
-        auto r = mfem::Vector{};
-        // the gradients are rotated by the transposed matrices, from the
-        // material frame to the global frame
-        const auto matrices = this->computeRotationMatrices(r, gradients);
-        const auto d = mgis::makePointByPointFieldView(
-            std::span<real>(c.values.HostWrite(), size), np, nc, nc);
-        if (gradients) {
-          mgis::behaviour::rotateGradients(
-              d, this->b, mgis::behaviour::getGradientsView(sm), matrices);
-        } else {
-          mgis::behaviour::rotateThermodynamicForces(
-              d, this->b, mgis::behaviour::getThermodynamicForcesView(sm),
-              matrices);
-        }
-      }
-      c.versions = versions;
-    }
+    resizeArray(v, size, method);
     if (size == 0) {
-      return {};
+      return;
     }
-    return {c.values.HostRead(), size};
-  }  // end of getValuesInGlobalFrame
+    this->synchronizeOnHostForReading(a, s);
+    auto r = mfem::Vector{};
+    // the gradients are rotated by the transposed matrices, from the
+    // material frame to the global frame
+    const auto matrices = this->computeRotationMatrices(r, gradients);
+    const auto d = mgis::makePointByPointFieldView(
+        std::span<real>(v.HostWrite(), size), np, nc, nc);
+    if (gradients) {
+      mgis::behaviour::rotateGradients(
+          d, this->b, mgis::behaviour::getGradientsView(sm), matrices);
+    } else {
+      mgis::behaviour::rotateThermodynamicForces(
+          d, this->b, mgis::behaviour::getThermodynamicForcesView(sm),
+          matrices);
+    }
+  }  // end of computeValuesInGlobalFrame
 
-  std::span<const real> Material::getGradientsInGlobalFrame(
-      const StateSelection s) const {
-    return this->getValuesInGlobalFrame(StateArray::GRADIENTS, s);
-  }  // end of getGradientsInGlobalFrame
+  void Material::computeGradientsInGlobalFrame(mfem::Vector &v,
+                                               const StateSelection s) const {
+    this->computeValuesInGlobalFrame(v, StateArray::GRADIENTS, s);
+  }  // end of computeGradientsInGlobalFrame
 
-  std::span<const real> Material::getThermodynamicForcesInGlobalFrame(
-      const StateSelection s) const {
-    return this->getValuesInGlobalFrame(StateArray::THERMODYNAMIC_FORCES, s);
-  }  // end of getThermodynamicForcesInGlobalFrame
+  void Material::computeThermodynamicForcesInGlobalFrame(
+      mfem::Vector &v, const StateSelection s) const {
+    this->computeValuesInGlobalFrame(v, StateArray::THERMODYNAMIC_FORCES, s);
+  }  // end of computeThermodynamicForcesInGlobalFrame
 
   Material::~Material() = default;
 

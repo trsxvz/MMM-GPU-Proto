@@ -547,8 +547,15 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
                                      const bool gradients,
                                      const mfem_mgis::TimeStepStage s) {
   using namespace mfem_mgis;
-  const auto global = gradients ? m.getGradientsInGlobalFrame(s)
-                                : m.getThermodynamicForcesInGlobalFrame(s);
+  auto values_in_global_frame = mfem::Vector{};
+  if (gradients) {
+    m.computeGradientsInGlobalFrame(values_in_global_frame, s);
+  } else {
+    m.computeThermodynamicForcesInGlobalFrame(values_in_global_frame, s);
+  }
+  const auto global = std::span<const real>(
+      values_in_global_frame.HostRead(),
+      static_cast<std::size_t>(values_in_global_frame.Size()));
   m.synchronizeOnHostForReading();
   const auto& sm = s == ets ? m.s1 : m.s0;
   const auto values =
@@ -586,99 +593,91 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
 
 /*!
  * \brief the rotations in the global frame of the values written on the
- * device, in both layouts: post-processing of the thermodynamic forces,
- * gradients and thermodynamic forces in the global frame kept by the
- * material and computed again when the arrays (see
- * `MaterialArrays::getVersion`) or the rotation change
+ * device, in both layouts, for small and finite strain behaviours:
+ * post-processing of the thermodynamic forces, gradients and thermodynamic
+ * forces in the global frame of the material, computed from the current
+ * values and rotation
  */
 static void testRotation(
     mfem_mgis::Context& ctx,
     std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
     const char* const library) {
   using namespace mfem_mgis;
-  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
-                       mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
-    const auto lname = std::string{l == mgis::FieldLayout::POINT_BY_POINT
-                                       ? " (point by point)"
-                                       : " (component by component)"};
-    auto b = mfem_mgis::load(ctx, library, "OrthotropicElasticity",
-                             Hypothesis::TRIDIMENSIONAL);
-    if (isInvalid(b)) {
-      std::cerr << ctx.getErrorMessage() << '\n';
-      ++failures;
-      return;
-    }
-    auto m = Material(qspace, std::move(b), l);
-    m.setRotationMatrix(
-        RotationMatrix3D{std::array<real, 9u>{1, 0, 0, 0, 1, 0, 0, 0, 1}});
-    auto& a = m.getArrays();
-    writeAllOnTheDevice(a, 11);
-    // identity rotation: the values written on the device, stored point by
-    // point
-    auto f = PartialQuadratureFunction(qspace, 6);
-    auto c = Context{};
-    const auto ok = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
-    const auto n = static_cast<std::size_t>(m.n);
-    const auto k = getFirstValue(11, StateArray::THERMODYNAMIC_FORCES, ets);
-    auto written = ok;
-    for (std::size_t i = 0; i != n; ++i) {
-      for (std::size_t cc = 0; cc != 6; ++cc) {
-        const auto index =
-            l == mgis::FieldLayout::POINT_BY_POINT ? i * 6 + cc : cc * n + i;
-        written = written && (f.getValues()[i * 6 + cc] ==
-                              static_cast<real>(3 * index + k));
+  for (const auto* const behaviour :
+       {"OrthotropicElasticity", "OrthotropicSaintVenantKirchhoffElasticity"}) {
+    for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
+                         mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+      const auto name = std::string{" ("} + behaviour +
+                        (l == mgis::FieldLayout::POINT_BY_POINT
+                             ? ", point by point)"
+                             : ", component by component)");
+      auto b =
+          mfem_mgis::load(ctx, library, behaviour, Hypothesis::TRIDIMENSIONAL);
+      if (isInvalid(b)) {
+        std::cerr << ctx.getErrorMessage() << '\n';
+        ++failures;
+        return;
       }
+      auto m = Material(qspace, std::move(b), l);
+      m.setRotationMatrix(
+          RotationMatrix3D{std::array<real, 9u>{1, 0, 0, 0, 1, 0, 0, 0, 1}});
+      auto& a = m.getArrays();
+      writeAllOnTheDevice(a, 11);
+      // identity rotation: the values written on the device, stored point by
+      // point
+      const auto n = static_cast<std::size_t>(m.n);
+      const auto nc =
+          static_cast<std::size_t>(m.s1.thermodynamic_forces_stride);
+      auto f = PartialQuadratureFunction(qspace, static_cast<size_type>(nc));
+      auto c = Context{};
+      const auto ok = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
+      const auto k = getFirstValue(11, StateArray::THERMODYNAMIC_FORCES, ets);
+      auto written = ok;
+      for (std::size_t i = 0; i != n; ++i) {
+        for (std::size_t cc = 0; cc != nc; ++cc) {
+          const auto index =
+              l == mgis::FieldLayout::POINT_BY_POINT ? i * nc + cc : cc * n + i;
+          written = written && (f.getValues()[i * nc + cc] ==
+                                static_cast<real>(3 * index + k));
+        }
+      }
+      check(
+          written,
+          "rotation of the thermodynamic forces written on the device" + name);
+      // a rotation which is not a symmetry of the material, nor its own
+      // inverse
+      const auto theta = 0.3;
+      const auto cs = std::cos(theta);
+      const auto sn = std::sin(theta);
+      m.setRotationMatrix(RotationMatrix3D{
+          std::array<real, 9u>{cs, sn, 0, -sn, cs, 0, 0, 0, 1}});
+      for (const auto s : states) {
+        check(checkValuesInGlobalFrame(m, false, s),
+              "thermodynamic forces in the global frame" + name);
+        check(checkValuesInGlobalFrame(m, true, s),
+              "gradients in the global frame" + name);
+      }
+      // values written on the host, and another rotation
+      m.synchronizeOnHost();
+      for (std::size_t i = 0; i != m.s1.thermodynamic_forces.size(); ++i) {
+        m.s1.thermodynamic_forces[i] = std::sin(real(i));
+      }
+      m.setRotationMatrix(RotationMatrix3D{
+          std::array<real, 9u>{cs, 0, sn, 0, 1, 0, -sn, 0, cs}});
+      check(checkValuesInGlobalFrame(m, false, ets),
+            "thermodynamic forces in the global frame after a write on the "
+            "host and a new rotation" +
+                name);
+      // post-processing compared to the values computed by the material
+      const auto ok2 = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
+      auto global = mfem::Vector{};
+      m.computeThermodynamicForcesInGlobalFrame(global, ets);
+      check(ok2 &&
+                std::equal(global.HostRead(), global.HostRead() + global.Size(),
+                           f.getValues().begin()),
+            "post-processing of the thermodynamic forces in the global frame" +
+                name);
     }
-    check(written,
-          "rotation of the thermodynamic forces written on the device" + lname);
-    // a rotation which is not a symmetry of the material
-    const auto theta = 0.3;
-    const auto cs = std::cos(theta);
-    const auto sn = std::sin(theta);
-    m.setRotationMatrix(
-        RotationMatrix3D{std::array<real, 9u>{cs, sn, 0, -sn, cs, 0, 0, 0, 1}});
-    for (const auto s : states) {
-      check(checkValuesInGlobalFrame(m, false, s),
-            "thermodynamic forces in the global frame" + lname);
-      check(checkValuesInGlobalFrame(m, true, s),
-            "gradients in the global frame" + lname);
-    }
-    // new values written on the device: the versions of the arrays change,
-    // and the values in the global frame are computed again
-    const auto v0 = a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets);
-    static_cast<void>(a.getArray(StateArray::THERMODYNAMIC_FORCES, ets));
-    a.synchronizeOnHostForReading();
-    check(a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets) == v0,
-          "version changed by a read-only access" + lname);
-    writeAllOnTheDevice(a, 12);
-    check(a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets) != v0,
-          "version unchanged by a write" + lname);
-    check(checkValuesInGlobalFrame(m, false, ets),
-          "thermodynamic forces in the global frame after a write" + lname);
-    check(checkValuesInGlobalFrame(m, true, ets),
-          "gradients in the global frame after a write" + lname);
-    // writes on the host after `synchronizeOnHost`
-    m.synchronizeOnHost();
-    std::fill(m.s1.thermodynamic_forces.begin(),
-              m.s1.thermodynamic_forces.end(), real{2});
-    check(checkValuesInGlobalFrame(m, false, ets),
-          "thermodynamic forces in the global frame after a write on the "
-          "host" +
-              lname);
-    // new rotation: the values in the global frame are computed again
-    m.setRotationMatrix(
-        RotationMatrix3D{std::array<real, 9u>{cs, 0, sn, 0, 1, 0, -sn, 0, cs}});
-    check(checkValuesInGlobalFrame(m, false, ets),
-          "thermodynamic forces in the global frame after a new rotation" +
-              lname);
-    // rotation of the post-processing, compared to the values kept by the
-    // material
-    const auto ok2 = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
-    const auto global = m.getThermodynamicForcesInGlobalFrame(ets);
-    check(
-        ok2 && std::equal(global.begin(), global.end(), f.getValues().begin()),
-        "post-processing of the thermodynamic forces in the global frame" +
-            lname);
   }
 }  // end of testRotation
 

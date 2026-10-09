@@ -20,6 +20,12 @@
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 source "$P/scripts/env.sh" > /dev/null
+# env.sh binds the threads of OpenMP (for Kokkos and AdaptiveCpp): libgomp,
+# loaded by the libraries of the cases, then binds the main thread to the
+# first CPU of the process, so that TBB (stlpar backend) sees one CPU, and
+# `spread` over the hardware threads only uses half of the cores. The
+# processes are placed by OpenMPI instead.
+unset OMP_PROC_BIND OMP_PLACES
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
   location -i openmpi)
@@ -45,6 +51,8 @@ esac
 openmp=$gp/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
 stlpar=$gp/generic-parallel-stlpar/src/libGenericParallelBehaviour-stlpar.so
 mkdir -p "$out"
+# absolute path: the cases run in their build directories
+out=$(cd "$out" && pwd)
 {
   echo "date : $(date '+%F %T')"
   echo "cas : $case_name"
@@ -88,16 +96,17 @@ run() {
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/resume.txt"
-  if [ -f "$out/$name.res" ] && [ -f "$out/reference.res" ]; then
-    python3 "$P/cas/comparer-sorties.py" "$out/reference.res" \
+  # comparison with the integration point by point on the same number of
+  # processes (the partition changes the results of the iterative solver)
+  local reference=$out/$case_name-np$np-point-par-point.res
+  if [ -f "$out/$name.res" ] && [ -f "$reference" ] &&
+    [ "$out/$name.res" != "$reference" ]; then
+    python3 "$P/cas/comparer-sorties.py" "$reference" \
       "$out/$name.res" --rtol 1e-8 | sed 's/^/   /' | tee -a "$out/resume.txt"
   fi
 }
 for np in 8 1; do
   run "$case_name-np$np-point-par-point" 1 "$np" "$generic" PointByPoint
-  if [ "$np" = 8 ] && [ -f "$out/$case_name-np8-point-par-point.res" ]; then
-    cp "$out/$case_name-np8-point-par-point.res" "$out/reference.res"
-  fi
   run "$case_name-np$np-lots-generic" 1 "$np" "$generic" Batch
   run "$case_name-np$np-lots-openmp-1fil" 1 "$np" "$openmp" Batch
 done
@@ -105,6 +114,8 @@ done
 # TBB, qui prend tous les fils matériels des cœurs réservés)
 run "$case_name-np1-lots-openmp-8fils" 8 1 "$openmp" Batch
 run "$case_name-np1-lots-stlpar-8coeurs" 8 1 "$stlpar" Batch
-# deux processus de quatre cœurs
+# deux processus de quatre cœurs (et la référence point par point sur deux
+# processus d'un cœur)
+run "$case_name-np2-point-par-point" 1 2 "$generic" PointByPoint
 run "$case_name-np2-lots-openmp-4fils" 4 2 "$openmp" Batch
 echo "résultats dans $out"

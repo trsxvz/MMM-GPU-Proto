@@ -9,6 +9,7 @@
 #ifndef LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATION_IXX
 #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATION_IXX
 
+#include <map>
 #include <span>
 #include <exception>
 #include "MFEMMGIS/Material.hxx"
@@ -192,6 +193,9 @@ namespace mfem_mgis {
     }
     std::vector<mfem_mgis::real> volumes(stress_integrals.size(),
                                          mfem_mgis::real(0));
+    // thermodynamic forces in the global frame of the orthotropic
+    // behaviours, rotated at all the points at once, material by material
+    auto rotated_thermodynamic_forces = std::map<const Material*, mfem::Vector>{};
     const auto& fes = p.getFiniteElementSpace();
     for (mfem_mgis::size_type i = 0; i < fes.GetNE(); i++) {
       auto& e = *(fes.GetFE(i));
@@ -218,17 +222,21 @@ namespace mfem_mgis {
         const auto thsize =
             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
         const auto eoffset = qspace.getOffset(tr.ElementNo);
-        // thermodynamic forces in the global frame, rotated at all the
-        // points at once for an orthotropic behaviour
         auto thforces = std::span<const real>(s1.thermodynamic_forces);
         if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-          try {
-            thforces = om->getThermodynamicForcesInGlobalFrame();
-          } catch (std::exception& e) {
-            return ctx.registerErrorMessage(e.what());
-          } catch (...) {
-            return ctx.registerErrorMessage("unknown exception");
+          auto [pv, inserted] = rotated_thermodynamic_forces.try_emplace(&*om);
+          if (inserted) {
+            try {
+              om->computeThermodynamicForcesInGlobalFrame(pv->second);
+            } catch (std::exception& ex) {
+              return ctx.registerErrorMessage(ex.what());
+            } catch (...) {
+              return ctx.registerErrorMessage("unknown exception");
+            }
           }
+          const auto& values = pv->second;
+          thforces = std::span<const real>(
+              values.HostRead(), static_cast<std::size_t>(values.Size()));
         }
         for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
           const auto o = eoffset + j;

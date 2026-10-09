@@ -71,8 +71,13 @@ namespace mfem_mgis {
       return true;
     }
     if (v != "PointByPoint") {
-      raise("invalid value '" + v + "' for parameter '" + std::string{n} +
-            "' (expected 'PointByPoint' or 'Batch')");
+      const auto origin = contains(p, n)
+                              ? "parameter '" + std::string{n} + "'"
+                              : std::string{
+                                    "environment variable "
+                                    "'MFEM_MGIS_BEHAVIOUR_INTEGRATION'"};
+      raise("invalid value '" + v + "' for " + origin +
+            " (expected 'PointByPoint' or 'Batch')");
     }
     return false;
   }  // end of useBatchIntegration

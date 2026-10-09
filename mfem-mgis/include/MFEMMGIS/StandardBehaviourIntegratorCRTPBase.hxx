@@ -28,11 +28,13 @@ namespace mfem_mgis {
    * - a method called `updateStiffnessMatrix`
    * - a method called `getRotationMatrix`
    * - a method called `rotateGradients`
+   * - a method called `rotateThermodynamicForces`
    * - a method called `rotateTangentOperatorBlocks`
    *
-   * The thermodynamic forces of an orthotropic behaviour are rotated in the
-   * global frame at all the points at once (see
-   * `Material::getThermodynamicForcesInGlobalFrame`).
+   * The thermodynamic forces of an orthotropic behaviour without functions
+   * rotating the values of one point (`generic-parallel` interface) are
+   * rotated in the global frame at all the points at once (see
+   * `BehaviourIntegratorBase::getRotatedThermodynamicForces`).
    */
   template <typename Child>
   struct StandardBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {

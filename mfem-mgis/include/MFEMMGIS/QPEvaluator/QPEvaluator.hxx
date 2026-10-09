@@ -88,9 +88,9 @@ namespace mfem_mgis {
     /*!
      * \brief perform consistency checks (orthotropic behaviour), and compute
      * the rotated values at all the integration points (see
-     * `Material::getThermodynamicForcesInGlobalFrame` and
-     * `Material::getGradientsInGlobalFrame`), read by the evaluations which
-     * follow
+     * `Material::computeThermodynamicForcesInGlobalFrame` and
+     * `Material::computeGradientsInGlobalFrame`), kept by the evaluator and
+     * read by the evaluations which follow
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -109,6 +109,8 @@ namespace mfem_mgis {
     const Material& material;
     //! \brief time step stage
     const Material::StateSelection stage;
+    //! \brief rotated values at all the integration points, computed by `check`
+    mutable mfem::Vector values;
   };  // end of
       // RotatedThermodynamicForcesMatrixQPEvaluator
 
@@ -157,9 +159,9 @@ namespace mfem_mgis {
     /*!
      * \brief perform consistency checks (orthotropic behaviour), and compute
      * the rotated values at all the integration points (see
-     * `Material::getThermodynamicForcesInGlobalFrame` and
-     * `Material::getGradientsInGlobalFrame`), read by the evaluations which
-     * follow
+     * `Material::computeThermodynamicForcesInGlobalFrame` and
+     * `Material::computeGradientsInGlobalFrame`), kept by the evaluator and
+     * read by the evaluations which follow
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -181,6 +183,8 @@ namespace mfem_mgis {
     const Material& material;
     //! \brief time step stage
     const Material::StateSelection stage;
+    //! \brief rotated values at all the integration points, computed by `check`
+    mutable mfem::Vector values;
   };  // end of RotatedGradientsMatrixQPEvaluator
 
   /*!

@@ -66,10 +66,22 @@ namespace mfem_mgis {
      * the integration (except for a prediction), and the tangent operator
      * blocks in the global frame after it, by the rotation functions of MGIS
      * processing all the points (see `Material::computeRotationMatrices`).
+     * For an orthotropic behaviour without functions rotating the values of
+     * one point (`generic-parallel` interface), the thermodynamic forces in
+     * the global frame used by the computation of the inner forces are also
+     * computed at all the points (see `getRotatedThermodynamicForces`).
      *
      * As in `performsLocalBehaviourIntegration`, the material properties at
      * the beginning of the time step given to the behaviour are the ones at
-     * the end of the time step: they are copied for the call.
+     * the end of the time step: for the call, the material properties at the
+     * beginning of the time step are replaced by views on the ones at the
+     * end of the time step, then restored (without copy).
+     *
+     * Difference with `performsLocalBehaviourIntegration`: MGIS gives the
+     * behaviour an initial time step scaling factor of 10 (1 point by
+     * point). It only matters for the behaviours whose a priori time step
+     * scaling factor depends on it, and mfem-mgis does not use the factor
+     * proposed by the behaviours.
      *
      * \return true on success, i.e. if the integration succeeded at all the
      * points, possibly with unreliable results
@@ -185,6 +197,27 @@ namespace mfem_mgis {
     virtual bool performsLocalBehaviourIntegration(const size_type ip,
                                                    const IntegrationType it);
     /*!
+     * \return the thermodynamic forces at the end of the time step in the
+     * global frame at all the integration points, stored point by point,
+     * for an orthotropic behaviour without functions rotating the values of
+     * one point (`generic-parallel` interface); an empty view for the other
+     * behaviours, whose thermodynamic forces are rotated point by point by
+     * the computation of the inner forces.
+     *
+     * The values are computed by `integrateBatch`, or by this method if the
+     * thermodynamic forces were changed since (integration point by point,
+     * `revert`). A direct modification of the thermodynamic forces of the
+     * material is not detected.
+     */
+    std::span<const real> getRotatedThermodynamicForces();
+    /*!
+     * \brief computes the thermodynamic forces at the end of the time step in
+     * the global frame (see `getRotatedThermodynamicForces`)
+     * \param[in] matrices: rotation matrices (see
+     * `Material::computeRotationMatrices`)
+     */
+    void computeRotatedThermodynamicForces(const mgis::FieldView<const real>&);
+    /*!
      * \brief evaluators of the material properties at the beginning of the
      * time step.
      */
@@ -268,6 +301,13 @@ namespace mfem_mgis {
       std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
       //! \brief rotation matrices used by `integrateBatch`
       mfem::Vector rotation_matrices;
+      //! \brief see `getRotatedThermodynamicForces`
+      mfem::Vector rotated_thermodynamic_forces;
+      /*!
+       * \brief if true, `rotated_thermodynamic_forces` holds the current
+       * thermodynamic forces in the global frame
+       */
+      bool has_rotated_thermodynamic_forces = false;
     } wks;  //!< workspace
     //! \brief time increment for the given time step
     real time_increment;

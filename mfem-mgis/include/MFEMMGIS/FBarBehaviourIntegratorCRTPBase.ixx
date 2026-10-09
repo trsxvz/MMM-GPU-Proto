@@ -314,12 +314,11 @@ namespace mfem_mgis {
 #endif
     const auto nnodes = e.GetDof();
     const auto thsize = this->s1.thermodynamic_forces_stride;
-    // thermodynamic forces in the global frame, rotated at all the points
-    // at once for an orthotropic behaviour
-    const auto thforces =
-        (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC)
-            ? this->getThermodynamicForcesInGlobalFrame()
-            : std::span<const real>(this->s1.thermodynamic_forces);
+    // thermodynamic forces in the global frame: rotated point by point, or,
+    // for an orthotropic behaviour without functions rotating the values of
+    // one point (generic-parallel interface), rotated at all the points at
+    // once by the integration by batches
+    const auto rotated_thforces = this->getRotatedThermodynamicForces();
     // element offset
     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
     Fe.SetSize(e.GetDof() * Traits::unknownsSize);
@@ -340,13 +339,22 @@ namespace mfem_mgis {
       const auto w = child.getIntegrationPointWeight(tr, ip);
       // offset of the integration point
       const auto o = eoffset + i;
-      const auto s = thforces.subspan(o * thsize, thsize);
-      for (size_type ni = 0; ni != nnodes; ++ni) {
-        if constexpr (evaluateShapeFunctionsDerivatives) {
-          child.updateInnerForces(Fe, s, dshape, w, ni);
-        } else {
-          child.updateInnerForces(Fe, s, shape, w, ni);
+      auto update = [&](const std::span<const real>& rs) {
+        for (size_type ni = 0; ni != nnodes; ++ni) {
+          if constexpr (evaluateShapeFunctionsDerivatives) {
+            child.updateInnerForces(Fe, rs, dshape, w, ni);
+          } else {
+            child.updateInnerForces(Fe, rs, shape, w, ni);
+          }
         }
+      };
+      if (!rotated_thforces.empty()) {
+        update(rotated_thforces.subspan(o * thsize, thsize));
+      } else {
+        const auto r = child.getRotationMatrix(o);
+        const auto s =
+            this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+        update(child.rotateThermodynamicForces(s, r));
       }
     }
   }  // end of implementComputeInnerForces

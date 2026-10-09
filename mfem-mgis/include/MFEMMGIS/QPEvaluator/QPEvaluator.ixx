@@ -65,20 +65,21 @@ namespace mfem_mgis::internals {
    * \return the values of an integration point
    * \tparam N: number of components, or `dynamic_extent`
    * \param[in] values: values of all the integration points, stored point by
-   * point
+   * point, valid on the host
    * \param[in] i: offset of the integration point
    * \param[in] nc: number of components
    */
   template <size_type N>
-  auto getIntegrationPointValues(const std::span<const real> values,
+  auto getIntegrationPointValues(const mfem::Vector& values,
                                  const size_type i,
                                  const size_type nc) noexcept {
     const auto o = static_cast<std::size_t>(i) * static_cast<std::size_t>(nc);
+    const auto* const v = values.HostRead() + o;
     if constexpr (N == dynamic_extent) {
-      return values.subspan(o, static_cast<std::size_t>(nc));
+      return std::span<const real>(v, static_cast<std::size_t>(nc));
     } else {
       return std::span<const real, static_cast<std::size_t>(N)>(
-          values.data() + o, static_cast<std::size_t>(N));
+          v, static_cast<std::size_t>(N));
     }
   }  // end of getIntegrationPointValues
 
@@ -128,8 +129,8 @@ namespace mfem_mgis {
       }
     }
     try {
-      static_cast<void>(
-          this->material.getThermodynamicForcesInGlobalFrame(this->stage));
+      this->material.computeThermodynamicForcesInGlobalFrame(this->values,
+                                                             this->stage);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(e.what());
     } catch (...) {
@@ -158,11 +159,9 @@ namespace mfem_mgis {
   template <size_type ThermodynamicForcesSize>
   auto RotatedThermodynamicForcesMatrixQPEvaluator<
       ThermodynamicForcesSize>::operator()(const size_type i) const {
-    // values computed by `check`, kept by the material
-    const auto values =
-        this->material.getThermodynamicForcesInGlobalFrame(this->stage);
+    // values computed by `check`
     return internals::getIntegrationPointValues<ThermodynamicForcesSize>(
-        values, i, this->getNumberOfComponents());
+        this->values, i, this->getNumberOfComponents());
   }
 
   template <size_type ThermodynamicForcesSize>
@@ -207,7 +206,7 @@ namespace mfem_mgis {
       }
     }
     try {
-      static_cast<void>(this->material.getGradientsInGlobalFrame(this->stage));
+      this->material.computeGradientsInGlobalFrame(this->values, this->stage);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(e.what());
     } catch (...) {
@@ -236,10 +235,9 @@ namespace mfem_mgis {
   template <size_type GradientsSize>
   auto RotatedGradientsMatrixQPEvaluator<GradientsSize>::operator()(
       const size_type i) const {
-    // values computed by `check`, kept by the material
-    const auto values = this->material.getGradientsInGlobalFrame(this->stage);
+    // values computed by `check`
     return internals::getIntegrationPointValues<GradientsSize>(
-        values, i, this->getNumberOfComponents());
+        this->values, i, this->getNumberOfComponents());
   }
 
   template <size_type GradientsSize>

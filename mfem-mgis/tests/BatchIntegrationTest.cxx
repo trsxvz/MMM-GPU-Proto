@@ -17,11 +17,13 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "mfem/general/optparser.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
@@ -60,6 +62,13 @@ struct ComputationOptions {
    * one integration point to another (partial quadrature functions)
    */
   bool varying_material_axes = false;
+  /*!
+   * \brief if true, the computation is made under the plane strain
+   * hypothesis on the unit square of the two-dimensional mesh
+   */
+  bool plane_strain = false;
+  //! \brief if true, a prediction is made at the beginning of each time step
+  bool prediction = false;
 };
 
 /*!
@@ -103,21 +112,36 @@ static Results compute(mfem_mgis::Context& ctx,
                        const ComputationOptions& opts = {}) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
+  // (5) and x = 1 (4)
   auto problem =
       construct<NonLinearEvolutionProblem>(
           ctx,
-          Parameters{
-              {"MeshFileName", mesh},
-              {"FiniteElementFamily", "H1"},
-              {"FiniteElementOrder", 1},
-              {"UnknownsSize", 3},
-              {"NumberOfUniformRefinements", 1},
-              {"Materials", Parameters{{"Cube", 1}}},
-              {"Boundaries",
-               Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
-              {"Hypothesis", "Tridimensional"},
-              {"BehaviourIntegration", mode},
-              {"Parallel", false}}) |
+          opts.plane_strain
+              ? Parameters{{"MeshFileName", mesh},
+                           {"FiniteElementFamily", "H1"},
+                           {"FiniteElementOrder", 1},
+                           {"UnknownsSize", 2},
+                           {"NumberOfUniformRefinements", 0},
+                           {"Materials", Parameters{{"Cube", 1}}},
+                           {"Boundaries",
+                            Parameters{{"Ymin", 5}, {"Xmax", 4}, {"Xmin", 2}}},
+                           {"Hypothesis", "PlaneStrain"},
+                           {"BehaviourIntegration", mode},
+                           {"Parallel", false}}
+              : Parameters{{"MeshFileName", mesh},
+                           {"FiniteElementFamily", "H1"},
+                           {"FiniteElementOrder", 1},
+                           {"UnknownsSize", 3},
+                           {"NumberOfUniformRefinements", 1},
+                           {"Materials", Parameters{{"Cube", 1}}},
+                           {"Boundaries", Parameters{{"Ymin", 1},
+                                                     {"Zmin", 2},
+                                                     {"Xmax", 3},
+                                                     {"Xmin", 5}}},
+                           {"Hypothesis", "Tridimensional"},
+                           {"BehaviourIntegration", mode},
+                           {"Parallel", false}}) |
       or_die;
   if (opts.fbar) {
     problem.addBehaviourIntegrator(
@@ -138,11 +162,16 @@ static Results compute(mfem_mgis::Context& ctx,
       (opts.varying_material_axes)) {
     setVaryingMaterialAxes(m);
   } else if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-    // a rotation which is not a symmetry of the material
+    // a rotation which is not a symmetry of the material, nor its own
+    // inverse
     const auto c = std::cos(0.3);
     const auto s = std::sin(0.3);
-    m.setRotationMatrix(
-        RotationMatrix3D{std::array<real, 9u>{c, s, 0, -s, c, 0, 0, 0, 1}});
+    const auto r = std::array<real, 9u>{c, s, 0, -s, c, 0, 0, 0, 1};
+    if (opts.plane_strain) {
+      m.setRotationMatrix(RotationMatrix2D{r});
+    } else {
+      m.setRotationMatrix(RotationMatrix3D{r});
+    }
   }
   if (behaviour == "IsotropicLinearElasticity") {
     // material properties given at the end of the time step only, varying
@@ -164,9 +193,15 @@ static Results compute(mfem_mgis::Context& ctx,
   problem.addUniformDirichletBoundaryCondition(
       ctx, {{"Boundary", "Ymin"}, {"Component", 1}}) |
       or_die;
-  problem.addUniformDirichletBoundaryCondition(
-      ctx, {{"Boundary", "Zmin"}, {"Component", 2}}) |
-      or_die;
+  if (!opts.plane_strain) {
+    problem.addUniformDirichletBoundaryCondition(
+        ctx, {{"Boundary", "Zmin"}, {"Component", 2}}) |
+        or_die;
+  }
+  if (opts.prediction) {
+    problem.setPredictionPolicy(
+        {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+  }
   problem.addUniformDirichletBoundaryCondition(
       ctx, {{"Boundary", "Xmax"},
             {"Component", 0},
@@ -203,8 +238,9 @@ static Results compute(mfem_mgis::Context& ctx,
   r.sig.assign(m.s1.thermodynamic_forces.begin(),
                m.s1.thermodynamic_forces.end());
   if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-    const auto gsig = m.getThermodynamicForcesInGlobalFrame();
-    r.global_sig.assign(gsig.begin(), gsig.end());
+    auto gsig = mfem::Vector{};
+    m.computeThermodynamicForcesInGlobalFrame(gsig);
+    r.global_sig.assign(gsig.HostRead(), gsig.HostRead() + gsig.Size());
   }
   return r;
 }  // end of compute
@@ -401,11 +437,108 @@ static void testFailure(mfem_mgis::Context& ctx,
   check(ok, name + ": stresses where the integration succeeds");
 }  // end of testFailure
 
+/*!
+ * \brief inner forces computed element by element just after the
+ * integration of the behaviour on the element, as by the assembly of the
+ * residual with PETSc (`MultiMaterialNonLinearIntegrator`): same values as
+ * when all the elements are integrated before the computation of the inner
+ * forces, for an orthotropic behaviour whose thermodynamic forces are
+ * rotated in the global frame by the computation of the inner forces
+ * \param[in] behaviour: behaviour
+ */
+static void testElementByElementSequence(mfem_mgis::Context& ctx,
+                                         const char* const mesh,
+                                         const char* const library,
+                                         const std::string& behaviour) {
+  using namespace mfem_mgis;
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 3},
+                                     {"NumberOfUniformRefinements", 1},
+                                     {"Hypothesis", "Tridimensional"},
+                                     {"Parallel", false}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
+      or_die;
+  auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+  for (auto* s : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
+        or_die;
+  }
+  const auto c = std::cos(0.3);
+  const auto s = std::sin(0.3);
+  m.setRotationMatrix(
+      RotationMatrix3D{std::array<real, 9u>{c, s, 0, -s, c, 0, 0, 0, 1}});
+  auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
+  check(bi.setup(ctx, 0, 1), behaviour + ": setup");
+  auto& fes =
+      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
+  // a displacement field with a non uniform gradient
+  auto displacement = [&fes](const real a) {
+    auto gf = mfem::GridFunction(&fes);
+    auto f = mfem::VectorFunctionCoefficient(
+        3, [a](const mfem::Vector& x, mfem::Vector& v) {
+          v[0] = a * (x[0] * x[0] + 0.3 * x[1]);
+          v[1] = a * 0.5 * x[0] * x[2];
+          v[2] = -a * 0.2 * x[1] * x[1];
+        });
+    gf.ProjectCoefficient(f);
+    return mfem::Vector(gf);
+  };
+  using ElementsInnerForces = std::vector<std::vector<real>>;
+  // inner forces, element by element: if `interleaved` is true, each
+  // element is integrated just before the computation of its inner forces;
+  // otherwise, all the elements are integrated first
+  auto compute_inner_forces = [&](const mfem::Vector& u,
+                                  const bool interleaved) {
+    m.synchronizeOnHost();
+    auto F = ElementsInnerForces{};
+    auto vdofs = mfem::Array<int>{};
+    auto ue = mfem::Vector{};
+    auto Fe = mfem::Vector{};
+    auto integrate = [&](const int i) {
+      fes.GetElementVDofs(i, vdofs);
+      u.GetSubVector(vdofs, ue);
+      check(bi.integrate(
+                *(fes.GetFE(i)), *(fes.GetElementTransformation(i)), ue,
+                IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR),
+            behaviour + ": integration");
+    };
+    if (!interleaved) {
+      for (int i = 0; i != fes.GetNE(); ++i) {
+        integrate(i);
+      }
+    }
+    for (int i = 0; i != fes.GetNE(); ++i) {
+      if (interleaved) {
+        integrate(i);
+      }
+      bi.computeInnerForces(Fe, *(fes.GetFE(i)),
+                            *(fes.GetElementTransformation(i)));
+      F.emplace_back(Fe.GetData(), Fe.GetData() + Fe.Size());
+    }
+    return F;
+  };
+  // two successive residuals, as two iterations of a non linear solver
+  for (const auto a : {1e-3, 2e-3}) {
+    const auto u = displacement(a);
+    const auto F1 = compute_inner_forces(u, true);
+    const auto F2 = compute_inner_forces(u, false);
+    check(F1 == F2, behaviour +
+                        ": inner forces computed element by element just "
+                        "after the integration of each element");
+  }
+}  // end of testElementByElementSequence
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
   const char* mesh = "cube.mesh";
   const char* mesh_2d = "bar.msh";
+  const char* square_mesh = "cube2d.msh";
   const char* library = "src/libBehaviourTest.so";
   const char* openmp_library = "";
   const char* stlpar_library = "";
@@ -414,6 +547,9 @@ int main(int argc, char** argv) {
   args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
   args.AddOption(&mesh_2d, "-m2", "--mesh-2d",
                  "two-dimensional mesh (material 5)");
+  args.AddOption(&square_mesh, "-ms", "--square-mesh",
+                 "two-dimensional mesh of the unit square (material 1, "
+                 "boundaries x = 0 (2), y = 0 (5) and x = 1 (4))");
   args.AddOption(&library, "-l", "--library", "behaviour library");
   args.AddOption(&openmp_library, "-lo", "--openmp-library",
                  "library generated by the generic-parallel interface "
@@ -444,37 +580,57 @@ int main(int argc, char** argv) {
             std::string{b} + " (varying material axes)", 0);
   }
   // FBar formulation
-  {
-    const auto b = std::string{"SaintVenantKirchhoffElasticity"};
+  for (const auto* const b : {"SaintVenantKirchhoffElasticity",
+                              "OrthotropicSaintVenantKirchhoffElasticity"}) {
     const auto opts = ComputationOptions{.fbar = true};
     compare(compute(ctx, mesh, library, b, "PointByPoint", opts),
-            compute(ctx, mesh, library, b, "Batch", opts), b + " (FBar)", 0);
+            compute(ctx, mesh, library, b, "Batch", opts),
+            std::string{b} + " (FBar)", 0);
+  }
+  // orthotropic behaviours: plane strain hypothesis (rotation matrix in 2D)
+  // and prediction at the beginning of each time step
+  for (const auto* const b :
+       {"OrthotropicElasticity", "OrthotropicSaintVenantKirchhoffElasticity"}) {
+    const auto opts = ComputationOptions{.plane_strain = true};
+    compare(compute(ctx, square_mesh, library, b, "PointByPoint", opts),
+            compute(ctx, square_mesh, library, b, "Batch", opts),
+            std::string{b} + " (plane strain)", 0);
+    const auto opts2 = ComputationOptions{.prediction = true};
+    compare(compute(ctx, mesh, library, b, "PointByPoint", opts2),
+            compute(ctx, mesh, library, b, "Batch", opts2),
+            std::string{b} + " (prediction)", 0);
+    testElementByElementSequence(ctx, mesh, library, b);
   }
   // behaviours generated by the generic-parallel interface: same results as
   // the integration point by point of the behaviour generated by the generic
-  // interface, to the rounding errors
+  // interface, whose inner forces are computed with the rotations of one
+  // point, to the rounding errors
   for (const auto& [backend, l] : {std::pair{"openmp", openmp_library},
                                    std::pair{"stlpar", stlpar_library}}) {
     if (std::string_view{l}.empty()) {
+      std::cout << "generic-parallel behaviours (" << backend
+                << "): no library, not tested\n";
       continue;
     }
-    for (const auto* const b :
-         {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity",
-          "OrthotropicSaintVenantKirchhoffElasticity"}) {
-      for (const auto varying_material_axes : {false, true}) {
-        const auto orthotropic = std::string_view{b}.starts_with("Orthotropic");
-        if ((varying_material_axes) && (!orthotropic)) {
-          continue;
-        }
-        const auto opts =
-            ComputationOptions{.varying_material_axes = varying_material_axes};
-        compare(compute(ctx, mesh, library, b, "PointByPoint", opts),
-                compute(ctx, mesh, l, b, "Batch", opts),
-                std::string{b} + " (generic-parallel, " + backend +
-                    (varying_material_axes ? ", varying material axes" : "") +
-                    ")",
-                1e-10);
-      }
+    auto cases =
+        std::vector<std::tuple<std::string, ComputationOptions, std::string>>{
+            {"IsotropicLinearHardeningPlasticity", {}, ""}};
+    for (const auto* const b : {"OrthotropicElasticity",
+                                "OrthotropicSaintVenantKirchhoffElasticity"}) {
+      cases.push_back({b, {}, ""});
+      cases.push_back(
+          {b, {.varying_material_axes = true}, ", varying material axes"});
+      cases.push_back({b, {.plane_strain = true}, ", plane strain"});
+      cases.push_back({b, {.prediction = true}, ", prediction"});
+    }
+    cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                     {.fbar = true},
+                     ", FBar"});
+    for (const auto& [b, opts, name] : cases) {
+      const auto* const m = opts.plane_strain ? square_mesh : mesh;
+      compare(compute(ctx, m, library, b, "PointByPoint", opts),
+              compute(ctx, m, l, b, "Batch", opts),
+              b + " (generic-parallel, " + backend + name + ")", 1e-10);
     }
     testPointByPointRefusal(ctx, mesh, l);
   }

@@ -5,7 +5,9 @@
  * \date   13/10/2020
  */
 
+#include <limits>
 #include <utility>
+#include <variant>
 #include "MGIS/Raise.hxx"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/Integrate.hxx"
@@ -673,6 +675,7 @@ namespace mfem_mgis {
 
   bool BehaviourIntegratorBase::performsLocalBehaviourIntegration(
       const size_type ip, const IntegrationType it) {
+    this->wks.has_rotated_thermodynamic_forces = false;
     char error_msg[512];
     error_msg[0] = '\0';
     const auto g_offset = this->s0.gradients_stride * ip;
@@ -744,7 +747,85 @@ namespace mfem_mgis {
     return (r == 0) || (r == 1);
   }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
 
+  /*!
+   * \return true if the computation of the inner forces needs the
+   * thermodynamic forces in the global frame of all the points (see
+   * `BehaviourIntegratorBase::getRotatedThermodynamicForces`)
+   * \param[in] b: behaviour
+   */
+  static bool requiresRotatedThermodynamicForces(const Behaviour& b) noexcept {
+    return (b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) &&
+           (b.rotate_thermodynamic_forces_ptr == nullptr);
+  }  // end of requiresRotatedThermodynamicForces
+
+  /*!
+   * \return a view on the values of a material property
+   * \param[in] h: material property
+   */
+  static mgis::behaviour::MaterialStateManager::FieldHolder getView(
+      const mgis::behaviour::MaterialStateManager::FieldHolder& h) {
+    using FieldHolder = mgis::behaviour::MaterialStateManager::FieldHolder;
+    using MutableFieldHolder =
+        mgis::behaviour::MaterialStateManager::MutableFieldHolder;
+    if (const auto* const mh = std::get_if<MutableFieldHolder>(&h)) {
+      if (const auto* const v = std::get_if<real>(&(mh->value))) {
+        auto r = FieldHolder{};
+        r = *v;
+        return r;
+      }
+      if (const auto* const v = std::get_if<std::span<real>>(&(mh->value))) {
+        return std::span<const real>(*v);
+      }
+      return std::span<const real>(std::get<std::vector<real>>(mh->value));
+    }
+    return h;
+  }  // end of getView
+
+  namespace {
+
+    /*!
+     * \brief gives the behaviour, for the integration by batches, the
+     * material properties at the end of the time step as the ones at the
+     * beginning of the time step (views, without copy), and restores the
+     * material properties at the beginning of the time step at its
+     * destruction
+     */
+    struct MaterialPropertiesAtTheBeginningOfTheTimeStepGuard {
+      /*!
+       * \param[in, out] s0: state at the beginning of the time step
+       * \param[in] s1: state at the end of the time step
+       */
+      MaterialPropertiesAtTheBeginningOfTheTimeStepGuard(
+          mgis::behaviour::MaterialStateManager& s0,
+          const mgis::behaviour::MaterialStateManager& s1)
+          : state(s0), saved(std::move(s0.material_properties)) {
+        s0.material_properties.clear();
+        for (const auto& [name, h] : this->saved) {
+          s0.material_properties[name] = getView(h);
+        }
+        for (const auto& [name, h] : s1.material_properties) {
+          s0.material_properties[name] = getView(h);
+        }
+      }  // end of MaterialPropertiesAtTheBeginningOfTheTimeStepGuard
+      //! \brief destructor
+      ~MaterialPropertiesAtTheBeginningOfTheTimeStepGuard() {
+        this->state.material_properties = std::move(this->saved);
+      }
+
+     private:
+      //! \brief state at the beginning of the time step
+      mgis::behaviour::MaterialStateManager& state;
+      //! \brief saved material properties
+      decltype(mgis::behaviour::MaterialStateManager::material_properties)
+          saved;
+    };
+
+  }  // end of namespace
+
   bool BehaviourIntegratorBase::integrateBatch(const IntegrationType it) {
+    if (!this->supportsBatchIntegration()) {
+      return false;
+    }
     const auto orthotropic =
         this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
     const auto prediction =
@@ -753,13 +834,7 @@ namespace mfem_mgis {
         (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
     const auto rotateTangentOperatorBlocks =
         orthotropic && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
-    // the material properties at the beginning of the time step are the
-    // ones at the end of the time step, as in
-    // `performsLocalBehaviourIntegration`: they are restored after the call
-    auto mps0 = this->s0.material_properties;
-    for (const auto& [name, h] : this->s1.material_properties) {
-      this->s0.material_properties[name] = h;
-    }
+    this->wks.has_rotated_thermodynamic_forces = false;
     const auto opts = mgis::behaviour::BehaviourIntegrationOptions{
         .integration_type =
             static_cast<mgis::behaviour::IntegrationType>(static_cast<int>(it)),
@@ -774,27 +849,69 @@ namespace mfem_mgis {
         const auto g = mgis::behaviour::getGradientsView(this->s1);
         mgis::behaviour::rotateGradients(g, this->b, matrices);
       }
-      r = mgis::behaviour::integrate(*this, opts, this->time_increment);
-      if (rotateTangentOperatorBlocks &&
-          ((r.exit_status == 0) || (r.exit_status == 1))) {
+      {
+        const auto guard = MaterialPropertiesAtTheBeginningOfTheTimeStepGuard(
+            this->s0, this->s1);
+        r = mgis::behaviour::integrate(*this, opts, this->time_increment);
+      }
+      if (!((r.exit_status == 0) || (r.exit_status == 1))) {
+        std::cerr << "behaviour integration failed: " << r.error_message
+                  << " (exit value: " << r.exit_status
+                  << ", first point in failure: " << r.n << ")" << std::endl;
+        return false;
+      }
+      if (rotateTangentOperatorBlocks) {
         const auto blocks =
             mgis::behaviour::getTangentOperatorBlocksView(*this);
         mgis::behaviour::rotateTangentOperatorBlocks(blocks, this->b, matrices);
       }
+      if (requiresRotatedThermodynamicForces(this->b)) {
+        this->computeRotatedThermodynamicForces(matrices);
+      }
     } catch (std::exception& e) {
-      this->s0.material_properties = std::move(mps0);
       std::cerr << "behaviour integration failed: " << e.what() << std::endl;
-      return false;
-    }
-    this->s0.material_properties = std::move(mps0);
-    if (!((r.exit_status == 0) || (r.exit_status == 1))) {
-      std::cerr << "behaviour integration failed: " << r.error_message
-                << " (exit value: " << r.exit_status
-                << ", first point in failure: " << r.n << ")" << std::endl;
       return false;
     }
     return true;
   }  // end of integrateBatch
+
+  void BehaviourIntegratorBase::computeRotatedThermodynamicForces(
+      const mgis::FieldView<const real>& matrices) {
+    const auto np = static_cast<size_type>(this->n);
+    const auto nc = this->s1.thermodynamic_forces_stride;
+    const auto size = static_cast<std::size_t>(np) * nc;
+    if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      raise("BehaviourIntegratorBase: array too large for MFEM");
+    }
+    auto& v = this->wks.rotated_thermodynamic_forces;
+    v.SetSize(static_cast<int>(size));
+    if (size != 0) {
+      const auto d = mgis::makePointByPointFieldView(
+          std::span<real>(v.HostWrite(), size), np, nc, nc);
+      mgis::behaviour::rotateThermodynamicForces(
+          d, this->b, mgis::behaviour::getThermodynamicForcesView(this->s1),
+          matrices);
+    }
+    this->wks.has_rotated_thermodynamic_forces = true;
+  }  // end of computeRotatedThermodynamicForces
+
+  std::span<const real>
+  BehaviourIntegratorBase::getRotatedThermodynamicForces() {
+    if (!requiresRotatedThermodynamicForces(this->b)) {
+      return {};
+    }
+    if (!this->wks.has_rotated_thermodynamic_forces) {
+      this->synchronizeOnHostForReading(
+          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
+      this->computeRotatedThermodynamicForces(
+          this->computeRotationMatrices(this->wks.rotation_matrices));
+    }
+    const auto& v = this->wks.rotated_thermodynamic_forces;
+    if (v.Size() == 0) {
+      return {};
+    }
+    return {v.HostRead(), static_cast<std::size_t>(v.Size())};
+  }  // end of getRotatedThermodynamicForces
 
   bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
     for (const auto& [name, e] : this->material_properties_evaluators_bts) {
@@ -831,6 +948,7 @@ namespace mfem_mgis {
   }  // end of cleanup
 
   void BehaviourIntegratorBase::revert() {
+    this->wks.has_rotated_thermodynamic_forces = false;
     this->revertMaterialStates();
   }  // end of revert
 
