@@ -1,0 +1,782 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 2.59587e-05, ||r||/||r_0|| = 1.98834e-14
+Convergence order undefined
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 2.89034e-05, ||r||/||r_0|| = 2.2139e-14
+Convergence order undefined
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 2380.88, ||r||/||r_0|| = 1.82367e-06
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 0.489862, ||r||/||r_0|| = 3.75216e-10
+Convergence order undefined
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 194214, ||r||/||r_0|| = 0.000148761
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 16533.8, ||r||/||r_0|| = 1.26643e-05
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 4.86048, ||r||/||r_0|| = 3.72295e-09
+Convergence order 3.30093
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 1.98229e+06, ||r||/||r_0|| = 0.00151836
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 165183, ||r||/||r_0|| = 0.000126524
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 6505.61, ||r||/||r_0|| = 4.98306e-06
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 14.999, ||r||/||r_0|| = 1.14887e-08
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  4 : ||r|| = 2.4532e-05, ||r||/||r_0|| = 1.87907e-14
+Convergence order 2.1941
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 3.30477e+06, ||r||/||r_0|| = 0.00253133
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 407111, ||r||/||r_0|| = 0.000311832
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 8281.29, ||r||/||r_0|| = 6.34317e-06
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 9.91123, ||r||/||r_0|| = 7.59164e-09
+Convergence order 1.72733
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 3.62989e+06, ||r||/||r_0|| = 0.00278037
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 509878, ||r||/||r_0|| = 0.000390548
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 10464.9, ||r||/||r_0|| = 8.01574e-06
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 39.8323, ||r||/||r_0|| = 3.05101e-08
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  4 : ||r|| = 4.68693e-05, ||r||/||r_0|| = 3.59002e-14
+Convergence order 2.45065
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 3.77174e+06, ||r||/||r_0|| = 0.00288902
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 561407, ||r||/||r_0|| = 0.000430017
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 16765.5, ||r||/||r_0|| = 1.28417e-05
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 197.099, ||r||/||r_0|| = 1.5097e-07
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  4 : ||r|| = 0.00310432, ||r||/||r_0|| = 2.37779e-12
+Convergence order 2.4888
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 3.85043e+06, ||r||/||r_0|| = 0.00294929
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 582813, ||r||/||r_0|| = 0.000446413
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 23358.7, ||r||/||r_0|| = 1.78919e-05
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 697.723, ||r||/||r_0|| = 5.34431e-07
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  4 : ||r|| = 0.0244609, ||r||/||r_0|| = 1.87361e-11
+Convergence order 2.9219
+
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          127556
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               1
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          127556
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  0 : ||r|| = 3.89321e+06, ||r||/||r_0|| = 0.00298206
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  1 : ||r|| = 593101, ||r||/||r_0|| = 0.000454294
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  2 : ||r|| = 22877.8, ||r||/||r_0|| = 1.75236e-05
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  3 : ||r|| = 1012.94, ||r||/||r_0|| = 7.75874e-07
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=           83869
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               3
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=           83869
+Re-running MUMPS factorization with memory relaxation 40
+Newton iteration  4 : ||r|| = 0.0685657, ||r||/||r_0|| = 5.25189e-11
+Convergence order 3.07976
+
+dofs 111843 | ls mumps | ||u|| 48.83704586 | iterations per step: 0 0 1 2 4 3 4 4 4 4 | total 26
+time 65.595 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |          65.621127 |          65.621513 |          65.623322 |        100.000000% |          0.002757% |
+ | |--> Mesh::Constructor                          |                  1 |           0.023365 |           0.023639 |           0.023989 |          0.036555% |          1.480498% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000212 |           0.000221 |           0.000224 |          0.000342% |          1.240207% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  3 |           0.021340 |           0.021616 |           0.021963 |          0.033469% |          1.605319% |
+ | |--> FED::Constructor                           |                  1 |           0.002471 |           0.002814 |           0.003066 |          0.004672% |          8.955004% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000000 |           0.000001 |           0.000003 |          0.000004% |        173.605948% |
+ | |--> NLEP::solve                                |                 10 |          65.566980 |          65.567622 |          65.568367 |         99.916258% |          0.001137% |
+ |    |--> NLEPIB::setup                           |                 10 |           0.000293 |           0.000928 |           0.001744 |          0.002658% |         88.058570% |
+ |    |--> NLEPIB::solve                           |                 10 |          65.566594 |          65.566672 |          65.567151 |         99.914405% |          0.000732% |
+ |       |--> NLEPIB::computePrediction            |                 10 |          26.334901 |          26.335054 |          26.335139 |         40.130762% |          0.000324% |
+ |       |--> NS::Mult                             |                 10 |          39.231443 |          39.231585 |          39.232097 |         59.783772% |          0.001304% |
+ |          |--> NS::processNewUnknownsEstimate    |                 10 |           0.118005 |           0.118084 |           0.118219 |          0.180148% |          0.114393% |
+ |          |--> NS::computeResidual               |                 10 |           0.102716 |           0.103838 |           0.104814 |          0.159721% |          0.940206% |
+ |          |--> NS::Mult::WhileLoop               |                 36 |          39.007553 |          39.007622 |          39.008068 |         59.442386% |          0.001144% |
+ |             |--> NS::computeNewtonCorrection    |                 26 |          38.449471 |          38.450500 |          38.450762 |         58.593136% |          0.000683% |
+ |                |--> NS::getJacobian             |                 26 |           1.840559 |           1.841471 |           1.841631 |          2.806366% |          0.008688% |
+ |                |--> NS::setLinearSolverOperator |                 26 |          35.814133 |          35.814136 |          35.814142 |         54.575326% |          0.000017% |
+ |                |--> MFEM::Mult(r,c)             |                 26 |           0.794594 |           0.794742 |           0.794859 |          1.211245% |          0.014831% |
+ |             |--> NS::processNewUnknownsEstimate |                 26 |           0.293322 |           0.293451 |           0.293529 |          0.447294% |          0.026726% |
+ |             |--> NS::computeResidual            |                 26 |           0.251798 |           0.254902 |           0.258261 |          0.393550% |          1.317698% |
+ | |--> NLEPIB::update                             |                 10 |           0.026327 |           0.027192 |           0.027897 |          0.042511% |          2.594188% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------|

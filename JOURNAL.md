@@ -2710,3 +2710,23 @@ test vérifie que la comparaison détecte une solution fausse.
 `cas/mesures-reference.sh` mesure les temps de référence du lot L0.
 
 Suites : mfem-mgis 132/132, exemples 20/20, mm-opera-hpc 6/6, cas 4/4.
+
+### 2026-10-09 (après-midi), temps de référence, fin du lot L0
+
+Temps de référence du chemin actuel sur CPU pour les cas de la campagne :
+`results/reference-L0-2026-10-09/README.md` (poutre, ssna303 en 3D,
+polycristal, thermomécanique). La résolution linéaire (jusqu'à 61 %) et
+l'intégration des lois (jusqu'à 55 %) dominent ; avec MUMPS, la prédiction
+refactorise l'opérateur élastique à chaque pas (40 % du temps de la poutre
+raffinée).
+
+Comparaison avec l'ancienne pile (MFEM 4.9), même cas et même Newton :
+PCG et BoomerAMG un peu plus rapides (15,4 s contre 17,5 s), MUMPS 1,55
+fois plus lent (65,6 s contre 42,2 s), dont environ 10 % dus à OpenMPI
+compilé avec CUDA (`--mca accelerator null`). Le reste est à éclaircir
+(MUMPS 5.9.1, OpenBLAS avec OpenMP, MFEM 4.10) ; MUMPS avec METIS est à
+essayer à la reconstruction de MFEM.
+
+Le lot L0 est terminé : trois dépôts construits et testés contre MFEM
+4.10 avec CUDA, option `--device`, compilation des noyaux de MFEM,
+sections de profilage synchronisées avec le GPU, temps de référence.

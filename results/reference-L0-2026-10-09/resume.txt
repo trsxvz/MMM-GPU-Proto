@@ -1,0 +1,33 @@
+date : 2026-10-09 14:19:58
+machine : 16 cœurs, 30 Go (corrigé : le script affichait le nombre de fils OpenMP)
+mfem-mgis : 373550f0d0
+== poutre-r3-np4-pcg-amg : mpirun -n 4 ./poutre -r 3 -n 10 -mi 3000 -ls pcg-amg --profiling
+   statut 0, 3.388631968 s
+dofs 15795 | ls pcg-amg | ||u|| 18.38573629 | iterations per step: 0 0 0 2 3 3 3 3 4 4 | total 22
+time 2.548 s
+== poutre-r3-np4-pcg-amg_-lt_1e-4 : mpirun -n 4 ./poutre -r 3 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 --profiling
+   statut 0, 2.788370548 s
+dofs 15795 | ls pcg-amg | ||u|| 18.38573629 | iterations per step: 1 1 1 2 3 3 3 3 4 4 | total 25
+time 2.195 s
+== poutre-r3-np4-mumps : mpirun -n 4 ./poutre -r 3 -n 10 -mi 3000 -ls mumps --profiling
+   statut 0, 4.025030588 s
+dofs 15795 | ls mumps | ||u|| 18.38573629 | iterations per step: 0 0 0 2 3 3 3 3 4 4 | total 22
+time 3.416 s
+== poutre-r4-np8-pcg-amg_-lt_1e-4 : mpirun -n 8 ./poutre -r 4 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 --profiling
+   statut 0, 16.159667095 s
+dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
+time 15.424 s
+== poutre-r4-np8-mumps : mpirun -n 8 ./poutre -r 4 -n 10 -mi 3000 -ls mumps --profiling
+   statut 0, 66.536828224 s
+dofs 111843 | ls mumps | ||u|| 48.83704586 | iterations per step: 0 0 1 2 4 3 4 4 4 4 | total 26
+time 65.595 s
+== ssna303-3d-hypre-r0-np4 : mpirun -n 4 ./ssna303_3d_hypre -ns 10 -et 1 --profiling
+   statut 0, 11.159182016 s
+== ssna303-3d-hypre-r1-np8 : mpirun -n 8 ./ssna303_3d_hypre -ns 10 -et 1 -r 1 --profiling
+   statut 0, 67.650669698 s
+== polycristal-r0-np4 : mpirun -n 4 ./uniaxial-polycrystal --disable-post-processing --nstep 10 --duration 10
+   statut 0, 50.744453822 s
+== polycristal-r1-np8 : mpirun -n 8 ./uniaxial-polycrystal --disable-post-processing --nstep 10 --duration 10 -r 1
+   statut 0, 388.870235938 s
+== thermomecanique-np4 : mpirun -n 4 ./rjh_plate -m assemblage_hexa.msh -lsMc MUMPSSolver
+   statut 0, 5.911030730 s

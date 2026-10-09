@@ -36,7 +36,7 @@ run() {
 }
 {
   echo "date : $(date '+%F %T')"
-  echo "machine : $(nproc) cœurs, $(free -g | awk '/^Mem/ {print $2}') Go"
+  echo "machine : $(nproc --all) cœurs, $(free -g | awk '/^Mem/ {print $2}') Go"
   echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
 } | tee -a "$out/resume.txt"
 

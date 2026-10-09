@@ -1,0 +1,93 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Newton iteration  0 : ||r|| = 123156, ||r||/||r_0|| = 9.44256e-05
+Newton iteration  1 : ||r|| = 12.2464, ||r||/||r_0|| = 9.38945e-09
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 123156, ||r||/||r_0|| = 9.44256e-05
+Newton iteration  1 : ||r|| = 12.2464, ||r||/||r_0|| = 9.38945e-09
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 123156, ||r||/||r_0|| = 9.44256e-05
+Newton iteration  1 : ||r|| = 12.2464, ||r||/||r_0|| = 9.38945e-09
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 228788, ||r||/||r_0|| = 0.000175415
+Newton iteration  1 : ||r|| = 3915.62, ||r||/||r_0|| = 3.00216e-06
+Newton iteration  2 : ||r|| = 0.315788, ||r||/||r_0|| = 2.42119e-10
+Convergence order 2.31707
+
+Newton iteration  0 : ||r|| = 2.87392e+06, ||r||/||r_0|| = 0.00220348
+Newton iteration  1 : ||r|| = 274557, ||r||/||r_0|| = 0.000210506
+Newton iteration  2 : ||r|| = 13753.9, ||r||/||r_0|| = 1.05453e-05
+Newton iteration  3 : ||r|| = 1.17166, ||r||/||r_0|| = 8.98325e-10
+Convergence order 3.12998
+
+Newton iteration  0 : ||r|| = 5.89597e+06, ||r||/||r_0|| = 0.00452051
+Newton iteration  1 : ||r|| = 469968, ||r||/||r_0|| = 0.000360331
+Newton iteration  2 : ||r|| = 2600.73, ||r||/||r_0|| = 1.99402e-06
+Newton iteration  3 : ||r|| = 0.217332, ||r||/||r_0|| = 1.66632e-10
+Convergence order 1.80683
+
+Newton iteration  0 : ||r|| = 6.83572e+06, ||r||/||r_0|| = 0.00524104
+Newton iteration  1 : ||r|| = 780097, ||r||/||r_0|| = 0.000598111
+Newton iteration  2 : ||r|| = 13911.7, ||r||/||r_0|| = 1.06663e-05
+Newton iteration  3 : ||r|| = 1.22445, ||r||/||r_0|| = 9.38802e-10
+Convergence order 2.31903
+
+Newton iteration  0 : ||r|| = 7.22879e+06, ||r||/||r_0|| = 0.00554241
+Newton iteration  1 : ||r|| = 879037, ||r||/||r_0|| = 0.000673969
+Newton iteration  2 : ||r|| = 14773.2, ||r||/||r_0|| = 1.13268e-05
+Newton iteration  3 : ||r|| = 1.5007, ||r||/||r_0|| = 1.15061e-09
+Convergence order 2.25027
+
+Newton iteration  0 : ||r|| = 7.37841e+06, ||r||/||r_0|| = 0.00565713
+Newton iteration  1 : ||r|| = 910411, ||r||/||r_0|| = 0.000698024
+Newton iteration  2 : ||r|| = 23217.5, ||r||/||r_0|| = 1.78012e-05
+Newton iteration  3 : ||r|| = 31.4824, ||r||/||r_0|| = 2.4138e-08
+Newton iteration  4 : ||r|| = 0.00150221, ||r||/||r_0|| = 1.15177e-12
+Convergence order 1.50687
+
+Newton iteration  0 : ||r|| = 7.50268e+06, ||r||/||r_0|| = 0.0057524
+Newton iteration  1 : ||r|| = 934073, ||r||/||r_0|| = 0.000716166
+Newton iteration  2 : ||r|| = 21579.7, ||r||/||r_0|| = 1.65455e-05
+Newton iteration  3 : ||r|| = 315.415, ||r||/||r_0|| = 2.41833e-07
+Newton iteration  4 : ||r|| = 0.0102111, ||r||/||r_0|| = 7.829e-12
+Convergence order 2.44654
+
+dofs 15795 | ls pcg-amg | ||u|| 18.38573629 | iterations per step: 1 1 1 2 3 3 3 3 4 4 | total 25
+time 2.195 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |           2.201857 |           2.201880 |           2.201906 |        100.000000% |          0.001161% |
+ | |--> Mesh::Constructor                          |                  1 |           0.006012 |           0.006026 |           0.006040 |          0.274288% |          0.230347% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000206 |           0.000207 |           0.000208 |          0.009429% |          0.222060% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  3 |           0.005421 |           0.005434 |           0.005447 |          0.247394% |          0.239725% |
+ | |--> FED::Constructor                           |                  1 |           0.000691 |           0.000694 |           0.000697 |          0.031671% |          0.487044% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000001 |           0.000001 |           0.000001 |          0.000041% |          7.784431% |
+ | |--> NLEP::solve                                |                 10 |           2.194825 |           2.194836 |           2.194846 |         99.679366% |          0.000426% |
+ |    |--> NLEPIB::setup                           |                 10 |           0.000126 |           0.000176 |           0.000206 |          0.009334% |         16.443576% |
+ |    |--> NLEPIB::solve                           |                 10 |           2.194633 |           2.194652 |           2.194707 |         99.673076% |          0.002522% |
+ |       |--> NLEPIB::computePrediction            |                 10 |           0.507603 |           0.507615 |           0.507622 |         23.053775% |          0.001380% |
+ |       |--> NS::Mult                             |                 10 |           1.686998 |           1.687023 |           1.687074 |         76.618813% |          0.003056% |
+ |          |--> NS::processNewUnknownsEstimate    |                 10 |           0.029553 |           0.029561 |           0.029574 |          1.343094% |          0.043850% |
+ |          |--> NS::computeResidual               |                 10 |           0.025981 |           0.026225 |           0.026363 |          1.197260% |          0.524071% |
+ |          |--> NS::Mult::WhileLoop               |                 35 |           1.630849 |           1.630865 |           1.630912 |         74.068204% |          0.002865% |
+ |             |--> NS::computeNewtonCorrection    |                 25 |           1.491312 |           1.491455 |           1.491505 |         67.737010% |          0.003360% |
+ |                |--> NS::getJacobian             |                 25 |           0.362674 |           0.362839 |           0.362907 |         16.481486% |          0.018627% |
+ |                |--> NS::setLinearSolverOperator |                 25 |           0.000479 |           0.000527 |           0.000571 |          0.025947% |          8.352733% |
+ |                |--> MFEM::Mult(r,c)             |                 25 |           1.127999 |           1.128063 |           1.128130 |         51.234243% |          0.005896% |
+ |             |--> NS::processNewUnknownsEstimate |                 25 |           0.072017 |           0.072038 |           0.072051 |          3.272188% |          0.016758% |
+ |             |--> NS::computeResidual            |                 25 |           0.065510 |           0.065840 |           0.066112 |          3.002469% |          0.412412% |
+ | |--> NLEPIB::update                             |                 10 |           0.000303 |           0.000312 |           0.000322 |          0.014634% |          3.187111% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------|
