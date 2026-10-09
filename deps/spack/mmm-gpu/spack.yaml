@@ -11,24 +11,21 @@
 # architecture is given by `cuda_arch`: 120 (Blackwell, RTX 5080) here, 80
 # for A100 (Kokkos supports one architecture per build).
 #
-# Solvers and preconditioners: MFEM 4.9 (version used by mfem-mgis) with
-# CUDA and with all the libraries of interest for the study of the solvers
+# Solvers and preconditioners: MFEM 4.10 with CUDA and with all the libraries of interest for the study of the solvers
 # on CPU and GPU (see docs/solveurs-gpu.md): hypre, Ginkgo, PETSc (with
 # Kokkos, for GAMG), SUNDIALS (KINSOL), AmgX, SuperLU_DIST, STRUMPACK, and
-# the direct solvers of mfem-mgis on CPU (MUMPS, UMFPACK). cuDSS is
-# installed alone: MFEM 4.9 has no interface to it (MFEM 4.10 has one).
+# the direct solvers of mfem-mgis on CPU (MUMPS, UMFPACK), and cuDSS.
 # The packages of the repository mmm_gpu (deps/spack/repos) replace the
-# ones of spack for AdaptiveCpp, AmgX (commit compatible with CUDA 13) and
-# PETSc (Kokkos 5).
+# ones of spack for AdaptiveCpp, AmgX (commit compatible with CUDA 13),
+# OpenMPI (internal hwloc without OpenCL) and PETSc (Kokkos 5).
 spack:
   specs:
   - nvhpc@25.11
   - cuda@13.0.2
-  # MPI without the exchange of GPU buffers: a GPU-aware OpenMPI needs either
-  # its internal hwloc, which does not build with CUDA (path of OpenCL), or
-  # hwloc with CUDA, whose change rebuilds LLVM and TBB, used by TFEL. With
-  # one GPU, a GPU-aware MPI brings nothing. PETSc must be run with the
-  # option -use_gpu_aware_mpi 0 (see the package petsc of mmm_gpu)
+  # GPU-aware MPI, with its internal hwloc (built without OpenCL, see the
+  # package openmpi of mmm_gpu): the hwloc of spack with CUDA would rebuild
+  # LLVM and TBB, used by TFEL
+  - openmpi@5 +cuda +internal-hwloc +internal-pmix
   # Kokkos 5 always enables the CUDA lambdas
   - kokkos@5.2.2 +cuda +openmp +serial +shared +wrapper ~cuda_relocatable_device_code
     +cuda_constexpr cxxstd=20 cuda_arch=120
@@ -51,9 +48,11 @@ spack:
   - strumpack +mpi +cuda ~butterflypack ~zfp cuda_arch=120
   - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
   - cudss@0.7.1-13 +mpi
-  # C++20: Umpire 2026 (camp) requires it, and mfem-mgis uses it
-  - mfem@4.9.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +ginkgo +petsc
-    +sundials +superlu-dist +strumpack +amgx +umpire +suite-sparse +mumps +gslib
+  # MFEM 4.10: interface to cuDSS, distributed solvers of Ginkgo. C++20:
+  # Umpire 2026 (camp) requires it, and mfem-mgis uses it
+  - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +ginkgo
+    +petsc +sundials +superlu-dist +strumpack +amgx +cudss +umpire
+    +suite-sparse +mumps +gslib
   - hip@7.2.3 +cuda ~rocm
   # one LLVM: AdaptiveCpp 25.10 supports LLVM 15 to 20
   - llvm@20.1.8 +clang +lld ~lldb ~flang ~mlir ~python ~lua +offload +libomptarget

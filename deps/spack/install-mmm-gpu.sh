@@ -4,40 +4,44 @@
 # usage: deps/spack/install-mmm-gpu.sh [spack]
 # where `spack` is the spack executable (default: ~/Bureau/spack-mmm/bin/spack).
 #
-# Two phases:
-# 1. everything but MFEM, two packages at a time, 4 jobs each (in two
-#    steps: the dependencies of MFEM, then the other roots), under
-#    scripts/memory-governor.sh, which pauses the build when the available
-#    memory is too low;
-# 2. MFEM, alone, one job, without the governor: ptxas takes about 22 GB
-#    for the CUDA kernels of fem/lor/lor_batched.cpp (MFEM 4.9, sm_120).
-#    Pausing it does not free its memory: the governor would wait forever
-#    for the memory to come back.
-# A failed package does not stop the other ones: the log tells which ones
-# failed. A partial build is resumed where it stopped (--dont-restage).
+# Phases, each one under scripts/memory-governor.sh, which pauses all the
+# build but its largest process when the available memory is too low:
+# 1. everything but MFEM, two packages at a time, 4 jobs each (the
+#    dependencies of MFEM, then the other roots);
+# 2. MFEM, alone, 2 jobs. ptxas takes about 22 GB for the CUDA kernels of
+#    fem/lor/lor_batched.cpp (sm_120): if the build fails (lack of memory),
+#    it is resumed with one job, where it stopped (--dont-restage, and the
+#    package mfem of mmm_gpu keeps the objects of MFEM up to date).
+# Each phase is tried again (up to 3 times) when it fails.
 set -u
 P=$(cd "$(dirname "$0")/../.." && pwd)
 SPACK=${1:-$HOME/Bureau/spack-mmm/bin/spack}
 export SPACK_DISABLE_LOCAL_CONFIG=1
 E="$P/deps/spack/mmm-gpu"
-# usage: run governor|alone spack-arguments...
 run() {
-  local mode=$1
-  shift
   echo "$(date '+%F %T') $*"
   "$SPACK" -e "$E" "$@" &
   local pid=$!
-  if [ "$mode" = governor ]; then
-    "$P/scripts/memory-governor.sh" $pid &
-  fi
+  "$P/scripts/memory-governor.sh" $pid &
   wait $pid
   local status=$?
   echo "$(date '+%F %T') exit status $status"
   return $status
 }
+# usage: retry jobs-of-the-first-attempt jobs-of-the-next-ones arguments...
+retry() {
+  local first=$1 next=$2
+  shift 2
+  run install --dont-restage -j "$first" "$@" && return 0
+  for attempt in 2 3; do
+    echo "$(date '+%F %T') attempt $attempt"
+    run install --dont-restage -j "$next" "$@" && return 0
+  done
+  return 1
+}
 status=0
-run governor install --dont-restage -p 2 -j 4 --only dependencies mfem || status=1
-run governor install --dont-restage -p 2 -j 4 kokkos kokkos-kernels cudss || status=1
-run alone install --dont-restage -p 1 -j 1 || status=1
+retry 4 4 -p 2 --only dependencies mfem || status=1
+retry 4 4 -p 2 kokkos kokkos-kernels cudss || status=1
+retry 2 1 -p 1 || status=1
 echo "$(date '+%F %T') done (status $status)"
 exit $status

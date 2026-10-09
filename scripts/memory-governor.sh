@@ -2,28 +2,51 @@
 # Pauses a process tree (SIGSTOP) when the available memory falls below a
 # low mark, and resumes it (SIGCONT) above a high mark, so that a long
 # background build does not lead the kernel to kill other processes.
-# A paused process keeps its memory: this only helps against transient
-# peaks. A build whose processes need a lot of memory (for instance the
-# CUDA kernels of MFEM, about 10 GB per ptxas process) must rather be run
-# with fewer parallel jobs, or alone.
-# usage: scripts/memory-governor.sh root-pid [low MiB] [high MiB]
+#
+# A paused process keeps its memory. So the process of the tree using the
+# most memory, and its ancestors, keep running: it ends and frees its
+# memory, and the other ones are resumed. Pausing it too would wait forever
+# (a ptxas process of MFEM takes about 22 GB on its own). If the memory is
+# still low after `timeout` seconds, the tree is resumed anyway.
+# usage: scripts/memory-governor.sh root-pid [low MiB] [high MiB] [timeout s]
 root=$1
 low=${2:-3500}
 high=${3:-7000}
+timeout=${4:-1800}
 paused=0
+since=0
 tree() {
   echo "$1"
   for c in $(ps -o pid= --ppid "$1"); do
     tree "$c"
   done
 }
+ancestors() {
+  local p=$1
+  while [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != "$root" ]; do
+    echo "$p"
+    p=$(ps -o ppid= -p "$p" | tr -d ' ')
+  done
+  echo "$root"
+}
 while kill -0 "$root" 2> /dev/null; do
   available=$(awk '/MemAvailable/ {print int($2 / 1024)}' /proc/meminfo)
   if [ "$paused" = 0 ] && [ "$available" -lt "$low" ]; then
-    kill -STOP $(tree "$root") 2> /dev/null
+    processes=$(tree "$root")
+    largest=$(ps -o pid=,rss= -p "$(echo $processes | tr ' ' ',')" 2> /dev/null |
+      sort -k2 -n -r | awk 'NR == 1 {print $1}')
+    keep=" $(ancestors "$largest" | tr '\n' ' ') "
+    for p in $processes; do
+      case "$keep" in
+        *" $p "*) ;;
+        *) kill -STOP "$p" 2> /dev/null ;;
+      esac
+    done
     paused=1
-    echo "$(date +%H:%M:%S) paused (${available} MiB available)"
-  elif [ "$paused" = 1 ] && [ "$available" -gt "$high" ]; then
+    since=$(date +%s)
+    echo "$(date +%H:%M:%S) paused all but $largest (${available} MiB available)"
+  elif [ "$paused" = 1 ] && { [ "$available" -gt "$high" ] ||
+    [ $(($(date +%s) - since)) -gt "$timeout" ]; }; then
     kill -CONT $(tree "$root") 2> /dev/null
     paused=0
     echo "$(date +%H:%M:%S) resumed (${available} MiB available)"
