@@ -2585,3 +2585,39 @@ volontaires détectées par les nouveaux tests.
   complété ; techniques de point fixe de l'étude préalable ajoutées (point
   fixe sur `K0`, accélérateurs de MTest portés, Newton modifié, AMG de `K0`
   gelé, simple précision, prédiction).
+
+### 2026-10-09 (midi), MFEM 4.10 installé, lot L0 commencé
+
+- **MFEM 4.10 installé** (12 h 32), avec CUDA, OpenMP, libCEED, Ginkgo,
+  AmgX, cuDSS, PETSc, SUNDIALS, SuperLU_DIST, STRUMPACK, MUMPS, SuiteSparse,
+  Umpire et gslib. L'exemple `ex1p` tourne sur CPU, sur GPU en assemblage
+  partiel, avec BoomerAMG sur GPU à deux processus (OpenMPI compatible
+  CUDA) et avec le backend `ceed-cuda`.
+- **Dernières difficultés de construction** :
+  - `fem/integ/bilininteg_convection_ea.cpp` : cicc grossissait de 8 Go
+    toutes les 20 minutes (17 Go après 2 h 30) ; patch qui garde les
+    spécialisations 3D jusqu'à l'ordre 3 (le noyau générique prend la
+    suite), 1 min 42 ;
+  - édition de liens : `-lnvToolsExt` (absent de CUDA 13), demandé par les
+    options d'AmgX de MFEM, retiré ;
+  - `libgs.a` de gslib non relogeable : recompilée avec `-fPIC`.
+  L'installation actuelle a été finie à la main (même contenu que les
+  recettes) ; une reconstruction entièrement par les recettes reste à
+  faire (`deps/spack/README.md`).
+- **Lot L0** : les trois dépôts se construisent et passent leurs tests
+  contre MFEM 4.10 avec CUDA (périphérique CPU) : mfem-mgis 128/128,
+  mfem-mgis-examples 20/20, mm-opera-hpc 6/6. Corrections :
+  - mfem-mgis : `FindMFEM.cmake` tronquait les valeurs de `config.mk`
+    contenant un signe égal ; options de nvcc traduites pour le compilateur
+    C++ ; toolkit CUDA ajouté ; `tfel.cmake` lit plusieurs dossiers rendus
+    par `tfel-config` (TDLS) ; tolérance absolue des Krylov de hypre
+    (code mort et mauvais appel pour FGMRES) avec un test qui détecte la
+    régression ; option `--device` avec un test ;
+  - bases des exemples et de mm-opera-hpc : dépôts de référence
+    (`latug0/mfem-mgis-examples` master `8397eec`,
+    `rprat-pro/mm-opera-hpc` main `8bd56eb`) ; les anciennes bases, prises
+    sur des miroirs plus anciens, ne compilaient plus avec mfem-mgis ;
+  - mm-opera-hpc : la boucle des bulles, sur des données de l'hôte,
+    utilisait `mfem::forall`, qui exige depuis MFEM 4.10 une compilation
+    CUDA quand MFEM a CUDA (et lancerait la boucle sur le GPU) :
+    `mfem::hypre_forall_cpu`.
