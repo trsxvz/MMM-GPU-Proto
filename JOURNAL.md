@@ -2730,3 +2730,38 @@ essayer à la reconstruction de MFEM.
 Le lot L0 est terminé : trois dépôts construits et testés contre MFEM
 4.10 avec CUDA, option `--device`, compilation des noyaux de MFEM,
 sections de profilage synchronisées avec le GPU, temps de référence.
+
+### 2026-10-09 (après-midi), lot L1 : données aux points dans la mémoire de MFEM
+
+Étapes faites (mfem-mgis, patchs 0016 à 0020) :
+
+- **Tableaux des matériaux dans des `mfem::Vector`** (`MaterialArrays`,
+  base privée de `Material` déclarée avant le gestionnaire de MGIS) :
+  gradients, forces, variables internes et énergies des deux états, blocs
+  de la tangente. MGIS les utilise sans copie (emplacement hôte). MGIS ne
+  met plus F à l'identité quand on lui donne les gradients : mfem-mgis le
+  fait, dans les deux rangements.
+- **Validité des copies** : MGIS écrit par des pointeurs bruts, que MFEM
+  ne voit pas. Chaque accès hôte de mfem-mgis passe d'abord par
+  `synchronizeOnHost` (intégration, fin de pas, retour arrière,
+  post-traitements, accesseurs ; lecture seule par
+  `synchronizeOnHostForReading`). Sans GPU, rien ne change.
+- **Éléments d'un matériau lisibles sur le GPU** : tableaux des éléments
+  et des décalages de leurs points dans `PartialQuadratureSpace`.
+- **Copies des états par noyaux de MFEM** (`batch::MFEMFieldOperations`,
+  première source de la bibliothèque compilée comme du CUDA). La fin de
+  pas et le retour arrière passent par `Material`, y compris pour les
+  modèles ponctuels, qui ne synchronisaient pas.
+- **Rangement composante par composante** : choisi à la construction du
+  matériau ; les accesseurs fondés sur un pas entre points le refusent.
+
+Reportés : propriétés matériau et variables externes en mémoire de
+l'utilisateur (sans objet tant que MGIS reçoit les pointeurs de l'hôte),
+paramètre `QuadratureDataLayout` du problème (pas encore de chemin par
+lots), variante des tableaux alloués par MGIS.
+
+Tests : `MaterialArraysTest` et `MFEMFieldOperationsTest` sur les
+périphériques `cpu`, `debug` et `cuda` ; chaque synchronisation et
+l'initialisation de F selon le rangement sont vérifiées par mutation (le
+test échoue quand on les retire). Suites : mfem-mgis 138/138, exemples
+20/20, mm-opera-hpc 6/6, cas 4/4. Relecture indépendante en cours.
