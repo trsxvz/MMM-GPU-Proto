@@ -1,15 +1,22 @@
 #!/bin/bash
-# Mesures du lot L2 (lois intégrées par lots sur CPU) sur la poutre :
-# intégration point par point (bibliothèque `generic`) contre intégration
-# par lots (bibliothèques `generic` et `generic-parallel`, backends
-# `openmp` et `stlpar`), à 1 et à 8 processus. À lancer sur une machine
-# calme, après build-mfem-mgis.sh.
+# Mesures du lot L2 (lois intégrées par lots sur CPU) : intégration point
+# par point (bibliothèque `generic`) contre intégration par lots
+# (bibliothèques `generic` et `generic-parallel`, backends `openmp` et
+# `stlpar`), à 1 et à 8 processus, puis avec plusieurs fils par processus.
+# À lancer sur une machine calme, après build-mfem-mgis.sh.
 #
-# usage : cas/mesures-L2.sh [dossier de résultats]
+# usage : cas/mesures-L2.sh [poutre|polycristal] [dossier de résultats]
+#
+# - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
+#   linéaire ;
+# - polycristal : polycristal de mm-opera-hpc (5 grains, loi de monocristal
+#   de l'UO2, orthotrope, en grandes transformations), 10 pas.
 #
 # Sorties brutes (avec les tableaux de profilage) dans le dossier de
-# résultats (par défaut results/L2-<date>), résumé dans resume.txt ; temps
-# par phase : cas/resume-profilage.py <dossier>/*.txt
+# résultats (par défaut results/L2-<cas>-<date>), résumé dans resume.txt ;
+# temps par phase : cas/resume-profilage.py <dossier>/*.txt. Pour le
+# polycristal, les contraintes macroscopiques de chaque calcul sont
+# comparées à celles du calcul point par point (cas/comparer-sorties.py).
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 source "$P/scripts/env.sh" > /dev/null
@@ -17,17 +24,50 @@ SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
   location -i openmpi)
 export PATH=$MPI/bin:$PATH
-out=${1:-$P/results/L2-$(date +%Y-%m-%d-%H%M)}
+case_name=${1:-poutre}
+out=${2:-$P/results/L2-$case_name-$(date +%Y-%m-%d-%H%M)}
+case "$case_name" in
+  poutre)
+    B=$P/build/cas/poutre
+    generic=$B/src/libBehaviour.so
+    gp=$B
+    ;;
+  polycristal)
+    B=$P/build/mm-opera-hpc/polycrystal
+    generic=$B/src/libBehaviour.so
+    gp=$P/build/cas/polycristal
+    ;;
+  *)
+    echo "usage : $0 [poutre|polycristal] [dossier de résultats]" >&2
+    exit 1
+    ;;
+esac
+openmp=$gp/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
+stlpar=$gp/generic-parallel-stlpar/src/libGenericParallelBehaviour-stlpar.so
 mkdir -p "$out"
-B=$P/build/cas/poutre
-generic=$B/src/libBehaviour.so
-openmp=$B/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
-stlpar=$B/generic-parallel-stlpar/src/libGenericParallelBehaviour-stlpar.so
 {
   echo "date : $(date '+%F %T')"
+  echo "cas : $case_name"
   echo "machine : $(nproc --all) cœurs, $(free -g | awk '/^Mem/ {print $2}') Go"
+  echo "charge : $(cut -d ' ' -f 1-3 /proc/loadavg)"
   echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
 } | tee -a "$out/resume.txt"
+# usage: command library integration name
+# prints the command running the case
+command_of() {
+  local library=$1 integration=$2 name=$3
+  case "$case_name" in
+    poutre)
+      echo ./poutre -r 4 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 -l "$library" \
+        -bi "$integration" --profiling
+      ;;
+    polycristal)
+      echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
+        --duration 10 -l "$library" \
+        --macroscopic-stress-output-file "$out/$name.res"
+      ;;
+  esac
+}
 # usage: run name threads processes library integration
 run() {
   local name=$1 threads=$2 np=$3 library=$4 integration=$5
@@ -40,22 +80,31 @@ run() {
   if [ "$threads" != 1 ]; then
     placement=(--map-by "slot:PE=$threads" --bind-to core)
   fi
+  local cmd
+  read -r -a cmd <<< "$(command_of "$library" "$integration" "$name")"
   (cd "$B" && OMP_NUM_THREADS=$threads \
-    timeout 3600 mpirun "${placement[@]}" -n "$np" ./poutre -r 4 -n 10 \
-    -mi 3000 -ls pcg-amg -lt 1e-4 -l "$library" -bi "$integration" \
-    --profiling) < /dev/null > "$out/$name.txt" 2>&1
+    MFEM_MGIS_BEHAVIOUR_INTEGRATION=$integration \
+    timeout 3600 mpirun "${placement[@]}" -n "$np" "${cmd[@]}") \
+    < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/resume.txt"
+  if [ -f "$out/$name.res" ] && [ -f "$out/reference.res" ]; then
+    python3 "$P/cas/comparer-sorties.py" "$out/reference.res" \
+      "$out/$name.res" --rtol 1e-8 | sed 's/^/   /' | tee -a "$out/resume.txt"
+  fi
 }
 for np in 8 1; do
-  run poutre-np$np-point-par-point 1 "$np" "$generic" PointByPoint
-  run poutre-np$np-lots-generic 1 "$np" "$generic" Batch
-  run poutre-np$np-lots-openmp-1fil 1 "$np" "$openmp" Batch
+  run "$case_name-np$np-point-par-point" 1 "$np" "$generic" PointByPoint
+  if [ "$np" = 8 ] && [ -f "$out/$case_name-np8-point-par-point.res" ]; then
+    cp "$out/$case_name-np8-point-par-point.res" "$out/reference.res"
+  fi
+  run "$case_name-np$np-lots-generic" 1 "$np" "$generic" Batch
+  run "$case_name-np$np-lots-openmp-1fil" 1 "$np" "$openmp" Batch
 done
 # un processus sur les 8 cœurs physiques (le backend stlpar de g++ utilise
 # TBB, qui prend tous les fils matériels des cœurs réservés)
-run poutre-np1-lots-openmp-8fils 8 1 "$openmp" Batch
-run poutre-np1-lots-stlpar-8coeurs 8 1 "$stlpar" Batch
+run "$case_name-np1-lots-openmp-8fils" 8 1 "$openmp" Batch
+run "$case_name-np1-lots-stlpar-8coeurs" 8 1 "$stlpar" Batch
 # deux processus de quatre cœurs
-run poutre-np2-lots-openmp-4fils 4 2 "$openmp" Batch
+run "$case_name-np2-lots-openmp-4fils" 4 2 "$openmp" Batch
 echo "résultats dans $out"

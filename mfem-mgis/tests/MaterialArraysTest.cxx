@@ -14,6 +14,11 @@
  * \date   09/10/2026
  */
 
+#include <span>
+#include <cmath>
+#include <array>
+#include <vector>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -512,9 +517,79 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
 }  // end of testHostAccesses
 
 /*!
- * \brief the thermodynamic forces written on the device are rotated to the
- * global frame (identity rotation) on the host, and the rotation is refused
- * in the component by component layout
+ * \return the value of a component of a point of an array of a material, in
+ * its layout
+ * \param[in] v: values of the array
+ * \param[in] l: layout
+ * \param[in] n: number of points
+ * \param[in] nc: number of components
+ * \param[in] i: point
+ * \param[in] c: component
+ */
+static mfem_mgis::real getValue(const std::span<const mfem_mgis::real> v,
+                                const mgis::FieldLayout l,
+                                const std::size_t n,
+                                const std::size_t nc,
+                                const std::size_t i,
+                                const std::size_t c) {
+  return l == mgis::FieldLayout::POINT_BY_POINT ? v[i * nc + c] : v[c * n + i];
+}  // end of getValue
+
+/*!
+ * \return true if the values in the global frame computed by the material
+ * are the ones computed point by point with the functions of the behaviour
+ * \param[in] m: material
+ * \param[in] gradients: if true, the gradients are checked, the
+ * thermodynamic forces otherwise
+ * \param[in] s: state
+ */
+static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
+                                     const bool gradients,
+                                     const mfem_mgis::TimeStepStage s) {
+  using namespace mfem_mgis;
+  const auto global = gradients ? m.getGradientsInGlobalFrame(s)
+                                : m.getThermodynamicForcesInGlobalFrame(s);
+  m.synchronizeOnHostForReading();
+  const auto& sm = s == ets ? m.s1 : m.s0;
+  const auto values =
+      std::span<const real>(gradients ? sm.gradients : sm.thermodynamic_forces);
+  const auto n = static_cast<std::size_t>(m.n);
+  const auto nc = static_cast<std::size_t>(
+      gradients ? sm.gradients_stride : sm.thermodynamic_forces_stride);
+  if (global.size() != n * nc) {
+    return false;
+  }
+  auto v = std::vector<real>(nc);
+  auto rv = std::vector<real>(nc);
+  for (std::size_t i = 0; i != n; ++i) {
+    for (std::size_t c = 0; c != nc; ++c) {
+      v[c] = getValue(values, m.getArrays().array_layout, n, nc, i, c);
+    }
+    const auto r = m.getRotationMatrixAtIntegrationPoint(i);
+    if (gradients) {
+      // rotation from the material frame to the global frame
+      const auto tr = std::array<real, 9u>{r[0], r[3], r[6], r[1], r[4],
+                                           r[7], r[2], r[5], r[8]};
+      m.b.rotate_gradients_ptr(rv.data(), v.data(), tr.data());
+    } else {
+      m.b.rotate_thermodynamic_forces_ptr(rv.data(), v.data(), r.data());
+    }
+    for (std::size_t c = 0; c != nc; ++c) {
+      if (std::abs(global[i * nc + c] - rv[c]) >
+          1e-14 * (1 + std::abs(rv[c]))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}  // end of checkValuesInGlobalFrame
+
+/*!
+ * \brief the rotations in the global frame of the values written on the
+ * device, in both layouts: post-processing of the thermodynamic forces,
+ * gradients and thermodynamic forces in the global frame kept by the
+ * material and computed again when the arrays (see
+ * `MaterialArrays::getVersion`) or the rotation change
  */
 static void testRotation(
     mfem_mgis::Context& ctx,
@@ -523,6 +598,9 @@ static void testRotation(
   using namespace mfem_mgis;
   for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
                        mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+    const auto lname = std::string{l == mgis::FieldLayout::POINT_BY_POINT
+                                       ? " (point by point)"
+                                       : " (component by component)"};
     auto b = mfem_mgis::load(ctx, library, "OrthotropicElasticity",
                              Hypothesis::TRIDIMENSIONAL);
     if (isInvalid(b)) {
@@ -535,17 +613,72 @@ static void testRotation(
         RotationMatrix3D{std::array<real, 9u>{1, 0, 0, 0, 1, 0, 0, 0, 1}});
     auto& a = m.getArrays();
     writeAllOnTheDevice(a, 11);
+    // identity rotation: the values written on the device, stored point by
+    // point
     auto f = PartialQuadratureFunction(qspace, 6);
     auto c = Context{};
     const auto ok = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
-    if (l == mgis::FieldLayout::POINT_BY_POINT) {
-      check(ok && checkWrittenValues(
-                      f.getValues().data(), 6, m.n,
-                      getFirstValue(11, StateArray::THERMODYNAMIC_FORCES, ets)),
-            "rotation of the thermodynamic forces written on the device");
-    } else {
-      check(!ok, "rotation in the component by component layout");
+    const auto n = static_cast<std::size_t>(m.n);
+    const auto k = getFirstValue(11, StateArray::THERMODYNAMIC_FORCES, ets);
+    auto written = ok;
+    for (std::size_t i = 0; i != n; ++i) {
+      for (std::size_t cc = 0; cc != 6; ++cc) {
+        const auto index =
+            l == mgis::FieldLayout::POINT_BY_POINT ? i * 6 + cc : cc * n + i;
+        written = written && (f.getValues()[i * 6 + cc] ==
+                              static_cast<real>(3 * index + k));
+      }
     }
+    check(written,
+          "rotation of the thermodynamic forces written on the device" + lname);
+    // a rotation which is not a symmetry of the material
+    const auto theta = 0.3;
+    const auto cs = std::cos(theta);
+    const auto sn = std::sin(theta);
+    m.setRotationMatrix(
+        RotationMatrix3D{std::array<real, 9u>{cs, sn, 0, -sn, cs, 0, 0, 0, 1}});
+    for (const auto s : states) {
+      check(checkValuesInGlobalFrame(m, false, s),
+            "thermodynamic forces in the global frame" + lname);
+      check(checkValuesInGlobalFrame(m, true, s),
+            "gradients in the global frame" + lname);
+    }
+    // new values written on the device: the versions of the arrays change,
+    // and the values in the global frame are computed again
+    const auto v0 = a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets);
+    static_cast<void>(a.getArray(StateArray::THERMODYNAMIC_FORCES, ets));
+    a.synchronizeOnHostForReading();
+    check(a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets) == v0,
+          "version changed by a read-only access" + lname);
+    writeAllOnTheDevice(a, 12);
+    check(a.getVersion(StateArray::THERMODYNAMIC_FORCES, ets) != v0,
+          "version unchanged by a write" + lname);
+    check(checkValuesInGlobalFrame(m, false, ets),
+          "thermodynamic forces in the global frame after a write" + lname);
+    check(checkValuesInGlobalFrame(m, true, ets),
+          "gradients in the global frame after a write" + lname);
+    // writes on the host after `synchronizeOnHost`
+    m.synchronizeOnHost();
+    std::fill(m.s1.thermodynamic_forces.begin(),
+              m.s1.thermodynamic_forces.end(), real{2});
+    check(checkValuesInGlobalFrame(m, false, ets),
+          "thermodynamic forces in the global frame after a write on the "
+          "host" +
+              lname);
+    // new rotation: the values in the global frame are computed again
+    m.setRotationMatrix(
+        RotationMatrix3D{std::array<real, 9u>{cs, 0, sn, 0, 1, 0, -sn, 0, cs}});
+    check(checkValuesInGlobalFrame(m, false, ets),
+          "thermodynamic forces in the global frame after a new rotation" +
+              lname);
+    // rotation of the post-processing, compared to the values kept by the
+    // material
+    const auto ok2 = rotateThermodynamicsForcesToGlobalFrame(c, f, m, ets);
+    const auto global = m.getThermodynamicForcesInGlobalFrame(ets);
+    check(
+        ok2 && std::equal(global.begin(), global.end(), f.getValues().begin()),
+        "post-processing of the thermodynamic forces in the global frame" +
+            lname);
   }
 }  // end of testRotation
 

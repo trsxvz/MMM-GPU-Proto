@@ -7,9 +7,11 @@
 
 #include <utility>
 #include "MGIS/Raise.hxx"
+#include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/Integrate.hxx"
 #include "MGIS/Behaviour/BehaviourDataView.hxx"
 #include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
@@ -742,8 +744,15 @@ namespace mfem_mgis {
     return (r == 0) || (r == 1);
   }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
 
-  bool BehaviourIntegratorBase::integrateAllIntegrationPoints(
-      const IntegrationType it) {
+  bool BehaviourIntegratorBase::integrateBatch(const IntegrationType it) {
+    const auto orthotropic =
+        this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
+    const auto prediction =
+        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+    const auto rotateTangentOperatorBlocks =
+        orthotropic && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
     // the material properties at the beginning of the time step are the
     // ones at the end of the time step, as in
     // `performsLocalBehaviourIntegration`: they are restored after the call
@@ -757,7 +766,21 @@ namespace mfem_mgis {
         .compute_speed_of_sound = false};
     auto r = mgis::behaviour::BehaviourIntegrationResult{};
     try {
+      auto matrices = mgis::FieldView<const real>{};
+      if (orthotropic) {
+        matrices = this->computeRotationMatrices(this->wks.rotation_matrices);
+      }
+      if (orthotropic && !prediction) {
+        const auto g = mgis::behaviour::getGradientsView(this->s1);
+        mgis::behaviour::rotateGradients(g, this->b, matrices);
+      }
       r = mgis::behaviour::integrate(*this, opts, this->time_increment);
+      if (rotateTangentOperatorBlocks &&
+          ((r.exit_status == 0) || (r.exit_status == 1))) {
+        const auto blocks =
+            mgis::behaviour::getTangentOperatorBlocksView(*this);
+        mgis::behaviour::rotateTangentOperatorBlocks(blocks, this->b, matrices);
+      }
     } catch (std::exception& e) {
       this->s0.material_properties = std::move(mps0);
       std::cerr << "behaviour integration failed: " << e.what() << std::endl;
@@ -771,7 +794,7 @@ namespace mfem_mgis {
       return false;
     }
     return true;
-  }  // end of integrateAllIntegrationPoints
+  }  // end of integrateBatch
 
   bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
     for (const auto& [name, e] : this->material_properties_evaluators_bts) {

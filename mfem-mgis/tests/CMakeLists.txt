@@ -69,7 +69,8 @@ if(MFEM_MGIS_HAVE_TFEL)
     MicromorphicDamageII
     StationaryNonLinearHeatTransfer
     UO2Shrinkage_RAPHAEL2008
-    FailingIsotropicLinearElasticity)
+    FailingIsotropicLinearElasticity
+    OrthotropicSaintVenantKirchhoffElasticity)
 
   # TwoLayerCube executable
   add_test_executable(TwoLayerCube)
@@ -757,6 +758,14 @@ if(MFEM_MGIS_HAVE_TFEL)
   # (backends openmp and stlpar)
   add_test_executable(BatchIntegrationTest)
   set(batch_integration_test_libraries)
+  set(batch_integration_test_behaviours)
+  foreach(_behaviour IsotropicLinearHardeningPlasticity
+                     FailingIsotropicLinearElasticity
+                     OrthotropicElasticity
+                     OrthotropicSaintVenantKirchhoffElasticity)
+    list(APPEND batch_integration_test_behaviours
+         "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
+  endforeach()
   get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
   foreach(backend_configuration openmp:config-openmp-host-gcc.json
                                 stlpar:config-stlpar-parunseq-gcc.json)
@@ -774,11 +783,9 @@ if(MFEM_MGIS_HAVE_TFEL)
         OUTPUT "${_library}"
         COMMAND "${MFRONT}" --obuild --interface=generic-parallel
                 "--configuration-file=${_configuration}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/IsotropicLinearHardeningPlasticity.mfront"
-                "${CMAKE_CURRENT_SOURCE_DIR}/FailingIsotropicLinearElasticity.mfront"
+                ${batch_integration_test_behaviours}
         WORKING_DIRECTORY "${_directory}"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/IsotropicLinearHardeningPlasticity.mfront"
-                "${CMAKE_CURRENT_SOURCE_DIR}/FailingIsotropicLinearElasticity.mfront"
+        DEPENDS ${batch_integration_test_behaviours}
         COMMENT "MFront: generic-parallel behaviour (${_backend})")
       add_custom_target(GenericParallelBehaviour-${_backend}
                         DEPENDS "${_library}")

@@ -8,6 +8,7 @@
 #define LIB_MFEM_MGIS_MATERIALARRAYS_HXX
 
 #include <array>
+#include <cstddef>
 #include "mfem/linalg/vector.hpp"
 #include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
@@ -156,16 +157,33 @@ namespace mfem_mgis {
      * device is enabled)
      */
     real* writeTangentOperatorBlocks(const bool = true);
+    /*!
+     * \return the version of an array of a state, a number incremented by
+     * each access which allows its modification (`getInitializer`,
+     * `synchronizeOnHost`, `readWrite` and `write`). A value computed from
+     * the array (for instance, its rotation in the global frame) remains
+     * valid while its version is unchanged, provided that it is not computed
+     * between such an access and the modifications which follow it.
+     * \param[in] a: array
+     * \param[in] s: state
+     */
+    [[nodiscard]] std::size_t getVersion(const StateArray,
+                                         const TimeStepStage) const noexcept;
     //! \brief destructor
     ~MaterialArrays();
     //! \brief layout of the arrays
     const mgis::FieldLayout array_layout;
 
    private:
-    //! \return an array of a state
+    /*!
+     * \return an array of a state, for an access which allows its
+     * modification (its version is incremented)
+     */
     mfem::Vector& getMutableArray(const StateArray, const TimeStepStage);
     //! \brief arrays of the two states, indexed by `StateArray`
     std::array<std::array<mfem::Vector, 2u>, 5u> state_arrays;
+    //! \brief versions of the arrays of the two states (see `getVersion`)
+    std::array<std::array<std::size_t, 2u>, 5u> versions = {};
     //! \brief blocks of the tangent operator
     mfem::Vector tangent_operator_blocks;
     //! \brief copy constructor (disabled)

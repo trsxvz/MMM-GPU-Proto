@@ -28,8 +28,11 @@ namespace mfem_mgis {
    * - a method called `updateStiffnessMatrix`
    * - a method called `getRotationMatrix`
    * - a method called `rotateGradients`
-   * - a method called `rotateThermodynamicForces`
    * - a method called `rotateTangentOperatorBlocks`
+   *
+   * The thermodynamic forces of an orthotropic behaviour are rotated in the
+   * global frame at all the points at once (see
+   * `Material::getThermodynamicForcesInGlobalFrame`).
    */
   template <typename Child>
   struct StandardBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
@@ -37,7 +40,6 @@ namespace mfem_mgis {
     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
                                         mfem::ElementTransformation&,
                                         const mfem::Vector&) override;
-    [[nodiscard]] bool integrateBatch(const IntegrationType) override;
 
    protected:
     /*!
@@ -67,7 +69,9 @@ namespace mfem_mgis {
     /*!
      * \brief compute the gradients at the integration points of an element:
      * the operations of `implementIntegrate` which precede the integration of
-     * the behaviour
+     * the behaviour, except the rotation of the gradients of an orthotropic
+     * behaviour in the material frame, made at all the points by
+     * `integrateBatch`
      * \param[in] e: finite element
      * \param[in, out] tr: finite element transformation
      * \param[in] u: current estimate of the unknowns
@@ -77,10 +81,9 @@ namespace mfem_mgis {
                                    mfem::ElementTransformation& tr,
                                    const mfem::Vector& u);
     /*!
-     * \brief compute the gradients at an integration point: macroscopic
-     * gradients, contributions of the nodes, external state variables
-     * computed from the unknowns, rotation in the material frame
-     * \return the rotation matrix at the integration point
+     * \brief compute the gradients at an integration point in the global
+     * frame: macroscopic gradients, contributions of the nodes, external
+     * state variables computed from the unknowns
      * \param[in] e: finite element
      * \param[in, out] tr: finite element transformation
      * \param[in] u: current estimate of the unknowns
@@ -90,7 +93,7 @@ namespace mfem_mgis {
      * \param[in, out] shape_functions_derivatives: derivatives of the shape
      * functions
      */
-    auto computeGradientsAtIntegrationPoint(
+    void computeGradientsAtIntegrationPoint(
         const mfem::FiniteElement& e,
         mfem::ElementTransformation& tr,
         const mfem::Vector& u,

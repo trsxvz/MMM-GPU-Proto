@@ -11,7 +11,6 @@
 
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
-#include "MFEMMGIS/Utilities/Buffer.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
 
@@ -87,11 +86,11 @@ namespace mfem_mgis {
     [[nodiscard]] const PartialQuadratureSpace& getPartialQuadratureSpace()
         const;
     /*!
-     * \brief perform consistency checks (orthotropic behaviour, point by
-     * point layout of the arrays of the material), and synchronize the
-     * evaluated array of the material (thermodynamic forces or gradients)
-     * on the host for reading (see `Material::synchronizeOnHostForReading`):
-     * the evaluations which follow read it on the host
+     * \brief perform consistency checks (orthotropic behaviour), and compute
+     * the rotated values at all the integration points (see
+     * `Material::getThermodynamicForcesInGlobalFrame` and
+     * `Material::getGradientsInGlobalFrame`), read by the evaluations which
+     * follow
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -108,12 +107,8 @@ namespace mfem_mgis {
    private:
     //! \brief underlying material
     const Material& material;
-    //! \brief thermodynamic forces
-    std::span<real> thforces;
     //! \brief time step stage
     const Material::StateSelection stage;
-    //! \brief buffer
-    mutable Buffer<ThermodynamicForcesSize> buffer;
   };  // end of
       // RotatedThermodynamicForcesMatrixQPEvaluator
 
@@ -160,11 +155,11 @@ namespace mfem_mgis {
         const Material& m,
         const Material::StateSelection s = Material::END_OF_TIME_STEP);
     /*!
-     * \brief perform consistency checks (orthotropic behaviour, point by
-     * point layout of the arrays of the material), and synchronize the
-     * evaluated array of the material (thermodynamic forces or gradients)
-     * on the host for reading (see `Material::synchronizeOnHostForReading`):
-     * the evaluations which follow read it on the host
+     * \brief perform consistency checks (orthotropic behaviour), and compute
+     * the rotated values at all the integration points (see
+     * `Material::getThermodynamicForcesInGlobalFrame` and
+     * `Material::getGradientsInGlobalFrame`), read by the evaluations which
+     * follow
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -184,12 +179,8 @@ namespace mfem_mgis {
    private:
     //! \brief underlying material
     const Material& material;
-    //! \brief gradients
-    std::span<real> gradients;
     //! \brief time step stage
     const Material::StateSelection stage;
-    //! \brief buffer
-    mutable Buffer<GradientsSize> buffer;
   };  // end of RotatedGradientsMatrixQPEvaluator
 
   /*!

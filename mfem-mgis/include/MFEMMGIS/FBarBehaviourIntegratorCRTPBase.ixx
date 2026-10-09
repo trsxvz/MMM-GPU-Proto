@@ -103,11 +103,14 @@ namespace mfem_mgis {
 #endif
     const auto J0 = this->computeDeformationGradientDeterminantAtCenter(
         e, tr, u, shape0, dshape0);
+    const auto gsize = this->s1.gradients_stride;
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
       // offset of the integration point
       const auto o = eoffset + i;
-      const auto r = this->computeGradientsAtIntegrationPoint(
-          e, tr, u, ir.IntPoint(i), o, J0, shape, dshape);
+      this->computeGradientsAtIntegrationPoint(e, tr, u, ir.IntPoint(i), o, J0,
+                                               shape, dshape);
+      const auto r = child.getRotationMatrix(o);
+      child.rotateGradients(this->s1.gradients.subspan(o * gsize, gsize), r);
       if (!this->performsLocalBehaviourIntegration(o, it)) {
         return false;
       }
@@ -160,7 +163,7 @@ namespace mfem_mgis {
   }  // end of computeDeformationGradientDeterminantAtCenter
 
   template <typename Child, Hypothesis H>
-  auto FBarBehaviourIntegratorCRTPBase<Child, H>::
+  void FBarBehaviourIntegratorCRTPBase<Child, H>::
       computeGradientsAtIntegrationPoint(
           const mfem::FiniteElement &e,
           mfem::ElementTransformation &tr,
@@ -216,9 +219,6 @@ namespace mfem_mgis {
         g[c] = alpha * F[c];
       }
     }
-    const auto r = child.getRotationMatrix(o);
-    child.rotateGradients(g, r);
-    return r;
   }  // end of computeGradientsAtIntegrationPoint
 
   template <typename Child, Hypothesis H>
@@ -255,8 +255,8 @@ namespace mfem_mgis {
     const auto J0 = this->computeDeformationGradientDeterminantAtCenter(
         e, tr, u, shape0, dshape0);
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
-      static_cast<void>(this->computeGradientsAtIntegrationPoint(
-          e, tr, u, ir.IntPoint(i), eoffset + i, J0, shape, dshape));
+      this->computeGradientsAtIntegrationPoint(e, tr, u, ir.IntPoint(i),
+                                               eoffset + i, J0, shape, dshape);
     }
     return true;
   }  // end of implementComputeGradients
@@ -264,9 +264,7 @@ namespace mfem_mgis {
   template <typename Child, Hypothesis H>
   bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsBatchIntegration()
       const noexcept {
-    // see StandardBehaviourIntegratorCRTPBase::supportsBatchIntegration
-    return !((this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) &&
-             (this->b.batch_b != nullptr));
+    return true;
   }  // end of supportsBatchIntegration
 
   template <typename Child, Hypothesis H>
@@ -276,26 +274,6 @@ namespace mfem_mgis {
       const mfem::Vector &u) {
     return this->implementComputeGradients(e, tr, u);
   }  // end of computeGradients
-
-  template <typename Child, Hypothesis H>
-  bool FBarBehaviourIntegratorCRTPBase<Child, H>::integrateBatch(
-      const IntegrationType it) {
-    if (!this->integrateAllIntegrationPoints(it)) {
-      return false;
-    }
-    if (it == IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {
-      return true;
-    }
-    // rotation of the tangent operator blocks, as in `implementIntegrate`
-    auto &child = static_cast<Child &>(*this);
-    const auto np = static_cast<size_type>(this->n);
-    for (size_type o = 0; o != np; ++o) {
-      const auto r = child.getRotationMatrix(o);
-      auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
-      child.rotateTangentOperatorBlocks(Kip, r);
-    }
-    return true;
-  }  // end of integrateBatch
 
   template <typename Child, Hypothesis H>
   void FBarBehaviourIntegratorCRTPBase<Child, H>::implementUpdateResidual(
@@ -336,6 +314,12 @@ namespace mfem_mgis {
 #endif
     const auto nnodes = e.GetDof();
     const auto thsize = this->s1.thermodynamic_forces_stride;
+    // thermodynamic forces in the global frame, rotated at all the points
+    // at once for an orthotropic behaviour
+    const auto thforces =
+        (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC)
+            ? this->getThermodynamicForcesInGlobalFrame()
+            : std::span<const real>(this->s1.thermodynamic_forces);
     // element offset
     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
     Fe.SetSize(e.GetDof() * Traits::unknownsSize);
@@ -356,14 +340,12 @@ namespace mfem_mgis {
       const auto w = child.getIntegrationPointWeight(tr, ip);
       // offset of the integration point
       const auto o = eoffset + i;
-      const auto r = child.getRotationMatrix(o);
-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
-      const auto &rs = child.rotateThermodynamicForces(s, r);
+      const auto s = thforces.subspan(o * thsize, thsize);
       for (size_type ni = 0; ni != nnodes; ++ni) {
         if constexpr (evaluateShapeFunctionsDerivatives) {
-          child.updateInnerForces(Fe, rs, dshape, w, ni);
+          child.updateInnerForces(Fe, s, dshape, w, ni);
         } else {
-          child.updateInnerForces(Fe, rs, shape, w, ni);
+          child.updateInnerForces(Fe, s, shape, w, ni);
         }
       }
     }

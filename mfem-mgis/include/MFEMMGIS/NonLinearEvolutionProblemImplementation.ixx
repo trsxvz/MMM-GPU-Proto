@@ -9,6 +9,8 @@
 #ifndef LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATION_IXX
 #define LIB_MFEM_MGIS_NONLINEAREVOLUTIONPROBLEMIMPLEMENTATION_IXX
 
+#include <span>
+#include <exception>
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
@@ -119,7 +121,13 @@ namespace mfem_mgis {
         if (isInvalid(obi)) {
           return ctx.registerErrorMessage("invalid behaviour integrator");
         }
-        obi->computeInnerForces(elt_forces, fe, tr);
+        try {
+          obi->computeInnerForces(elt_forces, fe, tr);
+        } catch (std::exception& ex) {
+          return ctx.registerErrorMessage(ex.what());
+        } catch (...) {
+          return ctx.registerErrorMessage("unknown exception");
+        }
         for (size_type c = 0; c != nc; ++c) {
           const auto* const Fe = elt_forces.GetData() + c * nnodes;
           for (const auto& i : e.second[c]) {
@@ -210,24 +218,26 @@ namespace mfem_mgis {
         const auto thsize =
             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
         const auto eoffset = qspace.getOffset(tr.ElementNo);
+        // thermodynamic forces in the global frame, rotated at all the
+        // points at once for an orthotropic behaviour
+        auto thforces = std::span<const real>(s1.thermodynamic_forces);
+        if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+          try {
+            thforces = om->getThermodynamicForcesInGlobalFrame();
+          } catch (std::exception& e) {
+            return ctx.registerErrorMessage(e.what());
+          } catch (...) {
+            return ctx.registerErrorMessage("unknown exception");
+          }
+        }
         for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
           const auto o = eoffset + j;
           const auto& ip = ir.IntPoint(j);
           tr.SetIntPoint(&ip);
-          const auto thf = s1.thermodynamic_forces.subspan(o * thsize, thsize);
+          const auto thf = thforces.subspan(o * thsize, thsize);
           const auto w = obi->getIntegrationPointWeight(tr, ip);
-          if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
-            const auto r = om->getRotationMatrixAtIntegrationPoint(o);
-            std::vector<real> rthf(thf.begin(), thf.end());
-            om->b.rotate_thermodynamic_forces_ptr(rthf.data(), rthf.data(),
-                                                  r.data());
-            for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
-              s[k] += w * rthf[k];
-            }
-          } else {
-            for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
-              s[k] += w * thf[k];
-            }
+          for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
+            s[k] += w * thf[k];
           }
           // the volume is computed with the first selected behaviour integrator
           if (b == obis->first) {

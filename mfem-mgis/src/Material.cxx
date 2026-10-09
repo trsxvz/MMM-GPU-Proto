@@ -5,6 +5,9 @@
  * \date   26/08/2020
  */
 
+#include <limits>
+#include <string>
+#include <variant>
 #include <algorithm>
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/RotationMatrix.hxx"
@@ -141,6 +144,7 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r2D = r;
+    ++(this->rotation_version);
   }  // end of setRotationMatrix
 
   void Material::setRotationMatrix(const RotationMatrix3D &r) {
@@ -226,7 +230,127 @@ namespace mfem_mgis {
       raise("Material::setRotationMatrix: unimplemented case yet");
     }
     this->r3D = r;
+    ++(this->rotation_version);
   }  // end of setRotationMatrix
+
+  /*!
+   * \brief resizes an array of the memory of MFEM
+   * \param[out] v: array
+   * \param[in] s: size
+   * \param[in] m: calling method
+   */
+  static void resizeArray(mfem::Vector &v,
+                          const std::size_t s,
+                          const char *const m) {
+    if (s > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      raise(std::string{m} + ": array too large for MFEM");
+    }
+    v.SetSize(static_cast<int>(s));
+  }  // end of resizeArray
+
+  mgis::FieldView<const real> Material::computeRotationMatrices(
+      mfem::Vector &r, const bool t) const {
+    if (this->b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      raise(
+          "Material::computeRotationMatrices: "
+          "invalid call (behaviour is not orthotropic)");
+    }
+    // an unset rotation matrix is not uniform: the first call to
+    // `getRotationMatrixAtIntegrationPoint` reports it
+    const auto uniform = [this] {
+      if (mgis::behaviour::getSpaceDimension(this->b.hypothesis) == 2u) {
+        return std::holds_alternative<std::array<real, 9u>>(this->r2D);
+      }
+      if (std::holds_alternative<std::array<real, 9u>>(this->r3D)) {
+        return true;
+      }
+      const auto *const axes =
+          std::get_if<std::array<MaterialAxis3D, 2u>>(&(this->r3D));
+      return (axes != nullptr) &&
+             (std::holds_alternative<std::array<real, 3u>>((*axes)[0])) &&
+             (std::holds_alternative<std::array<real, 3u>>((*axes)[1]));
+    }();
+    const auto np = static_cast<size_type>(this->n);
+    const auto nm = uniform ? size_type{1} : np;
+    const auto size = 9 * static_cast<std::size_t>(nm);
+    resizeArray(r, size, "Material::computeRotationMatrices");
+    if (size == 0) {
+      return mgis::makePointByPointFieldView(std::span<const real>{}, 0, 9, 9);
+    }
+    auto *const values = r.HostWrite();
+    for (size_type i = 0; i != nm; ++i) {
+      const auto m = this->getRotationMatrixAtIntegrationPoint(i);
+      auto *const v = values + 9 * static_cast<std::size_t>(i);
+      for (std::size_t j = 0; j != 3; ++j) {
+        for (std::size_t k = 0; k != 3; ++k) {
+          v[3 * j + k] = t ? m[3 * k + j] : m[3 * j + k];
+        }
+      }
+    }
+    const auto matrices = std::span<const real>(values, size);
+    if (uniform) {
+      return mgis::makeUniformFieldView(matrices, np);
+    }
+    return mgis::makePointByPointFieldView(matrices, np, 9, 9);
+  }  // end of computeRotationMatrices
+
+  std::span<const real> Material::getValuesInGlobalFrame(
+      const StateArray a, const StateSelection s) const {
+    const auto gradients = a == StateArray::GRADIENTS;
+    const auto *const method =
+        gradients ? "Material::getGradientsInGlobalFrame"
+                  : "Material::getThermodynamicForcesInGlobalFrame";
+    if (this->b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
+      raise(std::string{method} +
+            ": invalid call (behaviour is not orthotropic)");
+    }
+    const auto &sm = getStateManager(*this, s);
+    const auto np = static_cast<size_type>(this->n);
+    const auto nc =
+        gradients ? sm.gradients_stride : sm.thermodynamic_forces_stride;
+    const auto size = static_cast<std::size_t>(np) * nc;
+    auto &c = this->global_frame_values[gradients ? 0 : 1]
+                                       [s == BEGINNING_OF_TIME_STEP ? 0 : 1];
+    const auto versions =
+        std::array<std::size_t, 2u>{this->getVersion(a, s),
+                                    this->rotation_version};
+    if (c.versions != versions) {
+      c.versions.reset();
+      resizeArray(c.values, size, method);
+      if (size != 0) {
+        this->synchronizeOnHostForReading(a, s);
+        auto r = mfem::Vector{};
+        // the gradients are rotated by the transposed matrices, from the
+        // material frame to the global frame
+        const auto matrices = this->computeRotationMatrices(r, gradients);
+        const auto d = mgis::makePointByPointFieldView(
+            std::span<real>(c.values.HostWrite(), size), np, nc, nc);
+        if (gradients) {
+          mgis::behaviour::rotateGradients(
+              d, this->b, mgis::behaviour::getGradientsView(sm), matrices);
+        } else {
+          mgis::behaviour::rotateThermodynamicForces(
+              d, this->b, mgis::behaviour::getThermodynamicForcesView(sm),
+              matrices);
+        }
+      }
+      c.versions = versions;
+    }
+    if (size == 0) {
+      return {};
+    }
+    return {c.values.HostRead(), size};
+  }  // end of getValuesInGlobalFrame
+
+  std::span<const real> Material::getGradientsInGlobalFrame(
+      const StateSelection s) const {
+    return this->getValuesInGlobalFrame(StateArray::GRADIENTS, s);
+  }  // end of getGradientsInGlobalFrame
+
+  std::span<const real> Material::getThermodynamicForcesInGlobalFrame(
+      const StateSelection s) const {
+    return this->getValuesInGlobalFrame(StateArray::THERMODYNAMIC_FORCES, s);
+  }  // end of getThermodynamicForcesInGlobalFrame
 
   Material::~Material() = default;
 

@@ -139,6 +139,11 @@ namespace mfem_mgis {
         static_cast<void>(getHostView(v));
       }
     }
+    for (auto& versions : this->versions) {
+      for (auto& v : versions) {
+        ++v;
+      }
+    }
     static_cast<void>(getHostView(this->tangent_operator_blocks));
   }  // end of synchronizeOnHost
 
@@ -183,8 +188,14 @@ namespace mfem_mgis {
 
   mfem::Vector& MaterialArrays::getMutableArray(const StateArray a,
                                                 const TimeStepStage s) {
+    ++(this->versions[getArrayIndex(a)][getStateIndex(s)]);
     return this->state_arrays[getArrayIndex(a)][getStateIndex(s)];
   }  // end of getMutableArray
+
+  std::size_t MaterialArrays::getVersion(const StateArray a,
+                                         const TimeStepStage s) const noexcept {
+    return this->versions[getArrayIndex(a)][getStateIndex(s)];
+  }  // end of getVersion
 
   const mfem::Vector& MaterialArrays::getTangentOperatorBlocks() const {
     return this->tangent_operator_blocks;

@@ -9,7 +9,10 @@
 #ifndef LIB_MFEM_MGIS_QPEVALUATOR_IXX
 #define LIB_MFEM_MGIS_QPEVALUATOR_IXX
 
+#include <span>
+#include <cstddef>
 #include <iterator>
+#include <exception>
 #include <algorithm>
 
 namespace mfem_mgis::algorithm {
@@ -56,6 +59,31 @@ namespace mfem_mgis::algorithm {
 
 }  // end of namespace mfem_mgis::algorithm
 
+namespace mfem_mgis::internals {
+
+  /*!
+   * \return the values of an integration point
+   * \tparam N: number of components, or `dynamic_extent`
+   * \param[in] values: values of all the integration points, stored point by
+   * point
+   * \param[in] i: offset of the integration point
+   * \param[in] nc: number of components
+   */
+  template <size_type N>
+  auto getIntegrationPointValues(const std::span<const real> values,
+                                 const size_type i,
+                                 const size_type nc) noexcept {
+    const auto o = static_cast<std::size_t>(i) * static_cast<std::size_t>(nc);
+    if constexpr (N == dynamic_extent) {
+      return values.subspan(o, static_cast<std::size_t>(nc));
+    } else {
+      return std::span<const real, static_cast<std::size_t>(N)>(
+          values.data() + o, static_cast<std::size_t>(N));
+    }
+  }  // end of getIntegrationPointValues
+
+}  // end of namespace mfem_mgis::internals
+
 namespace mfem_mgis {
 
   inline auto RotationMatrixQPEvaluator::operator()(const size_type i) const {
@@ -81,15 +109,8 @@ namespace mfem_mgis {
   RotatedThermodynamicForcesMatrixQPEvaluator<ThermodynamicForcesSize>::
       RotatedThermodynamicForcesMatrixQPEvaluator(
           const Material& m, const Material::StateSelection s) noexcept
-      : material(m),
-        thforces(getStateManager(m, s).thermodynamic_forces),
-        stage(s) {
-    if constexpr (ThermodynamicForcesSize == dynamic_extent) {
-      const auto& sm = getStateManager(this->material, this->stage);
-      const auto thsize = sm.thermodynamic_forces_stride;
-      this->buffer.resize(thsize);
-    }
-  }  // end of RotatedThermodynamicForcesMatrixQPEvaluator
+      : material(m), stage(s) {}  // end of
+                                  // RotatedThermodynamicForcesMatrixQPEvaluator
 
   template <size_type ThermodynamicForcesSize>
   bool
@@ -98,18 +119,6 @@ namespace mfem_mgis {
     if (this->material.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
       return ctx.registerErrorMessage("material is not orthotropic");
     }
-    // the values are read with a stride between points, on the host
-    if (!checkPointByPointLayout(ctx, this->material)) {
-      return false;
-    }
-    try {
-      this->material.synchronizeOnHostForReading(
-          MaterialArrays::StateArray::THERMODYNAMIC_FORCES, this->stage);
-    } catch (std::exception& e) {
-      return ctx.registerErrorMessage(e.what());
-    } catch (...) {
-      return ctx.registerErrorMessage("unknown exception");
-    }
     if constexpr (ThermodynamicForcesSize != dynamic_extent) {
       const auto& sm = getStateManager(this->material, this->stage);
       const auto thsize = sm.thermodynamic_forces_stride;
@@ -117,6 +126,14 @@ namespace mfem_mgis {
         return ctx.registerErrorMessage(
             "inconsistent number of components of the thermodynamic forces");
       }
+    }
+    try {
+      static_cast<void>(
+          this->material.getThermodynamicForcesInGlobalFrame(this->stage));
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("unknown exception");
     }
     return true;
   }
@@ -141,17 +158,11 @@ namespace mfem_mgis {
   template <size_type ThermodynamicForcesSize>
   auto RotatedThermodynamicForcesMatrixQPEvaluator<
       ThermodynamicForcesSize>::operator()(const size_type i) const {
-    const auto* const mf = [this, i] {
-      if constexpr (ThermodynamicForcesSize == dynamic_extent) {
-        return this->thforces.data() + i * (this->buffer.size());
-      } else {
-        return this->thforces.data() + i * ThermodynamicForcesSize;
-      }
-    }();
-    const auto r = this->material.getRotationMatrixAtIntegrationPoint(i);
-    this->material.b.rotate_thermodynamic_forces_ptr(this->buffer.data(), mf,
-                                                     r.data());
-    return makeSpan(this->buffer);
+    // values computed by `check`, kept by the material
+    const auto values =
+        this->material.getThermodynamicForcesInGlobalFrame(this->stage);
+    return internals::getIntegrationPointValues<ThermodynamicForcesSize>(
+        values, i, this->getNumberOfComponents());
   }
 
   template <size_type ThermodynamicForcesSize>
@@ -179,31 +190,13 @@ namespace mfem_mgis {
   RotatedGradientsMatrixQPEvaluator<GradientsSize>::
       RotatedGradientsMatrixQPEvaluator(const Material& m,
                                         const Material::StateSelection s)
-      : material(m), gradients(getStateManager(m, s).gradients), stage(s) {
-    if constexpr (GradientsSize == dynamic_extent) {
-      const auto& sm = getStateManager(this->material, this->stage);
-      const auto gsize = sm.gradients_stride;
-      this->buffer.resize(gsize);
-    }
-  }
+      : material(m), stage(s) {}  // end of RotatedGradientsMatrixQPEvaluator
 
   template <size_type GradientsSize>
   bool RotatedGradientsMatrixQPEvaluator<GradientsSize>::check(
       AbstractErrorHandler& ctx) const {
     if (this->material.b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
       return ctx.registerErrorMessage("material is not orthotropic");
-    }
-    // the values are read with a stride between points, on the host
-    if (!checkPointByPointLayout(ctx, this->material)) {
-      return false;
-    }
-    try {
-      this->material.synchronizeOnHostForReading(
-          MaterialArrays::StateArray::GRADIENTS, this->stage);
-    } catch (std::exception& e) {
-      return ctx.registerErrorMessage(e.what());
-    } catch (...) {
-      return ctx.registerErrorMessage("unknown exception");
     }
     if constexpr (GradientsSize != dynamic_extent) {
       const auto& sm = getStateManager(this->material, this->stage);
@@ -212,6 +205,13 @@ namespace mfem_mgis {
         return ctx.registerErrorMessage(
             "inconsistent number of components of the gradients");
       }
+    }
+    try {
+      static_cast<void>(this->material.getGradientsInGlobalFrame(this->stage));
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("unknown exception");
     }
     return true;
   }  // end of check
@@ -236,20 +236,10 @@ namespace mfem_mgis {
   template <size_type GradientsSize>
   auto RotatedGradientsMatrixQPEvaluator<GradientsSize>::operator()(
       const size_type i) const {
-    const auto* const mg = [this, i] {
-      if constexpr (GradientsSize == dynamic_extent) {
-        return this->gradients.data() + i * (this->buffer.size());
-      } else {
-        return this->gradients.data() + i * GradientsSize;
-      }
-    }();
-    const auto r = this->material.getRotationMatrixAtIntegrationPoint(i);
-    // transposed rotation matrix
-    const auto tr = std::array<real, 9>{r[0], r[3], r[6],  //
-                                        r[1], r[4], r[7],  //
-                                        r[2], r[5], r[8]};
-    this->material.b.rotate_gradients_ptr(this->buffer.data(), mg, tr.data());
-    return makeSpan(this->buffer);
+    // values computed by `check`, kept by the material
+    const auto values = this->material.getGradientsInGlobalFrame(this->stage);
+    return internals::getIntegrationPointValues<GradientsSize>(
+        values, i, this->getNumberOfComponents());
   }
 
   template <size_type GradientsSize>

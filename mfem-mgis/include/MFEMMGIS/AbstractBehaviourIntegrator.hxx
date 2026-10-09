@@ -102,7 +102,7 @@ namespace mfem_mgis {
      * first step of the integration by batches: the operations of
      * `integrate` which precede the integration of the behaviour at each
      * point (including the update of the external state variables computed
-     * from the unknowns and the rotation of the gradients).
+     * from the unknowns), the gradients being left in the global frame.
      *
      * \param[in] e: finite element
      * \param[in, out] tr: finite element transformation
@@ -116,9 +116,10 @@ namespace mfem_mgis {
     /*!
      * \brief integrate the behaviour at all the integration points, as a
      * batch, after the computation of the gradients on all the elements
-     * (see `computeGradients`), or without it for a prediction. The
-     * operations of `integrate` which follow the integration of the
-     * behaviour (rotation of the tangent operator blocks) are included.
+     * (see `computeGradients`), or without it for a prediction. For an
+     * orthotropic behaviour, the gradients are rotated in the material frame
+     * before the integration, and the tangent operator blocks in the global
+     * frame after it, at all the points at once.
      *
      * Contrary to `integrate`, all the points are integrated, even if the
      * integration fails at some of them.

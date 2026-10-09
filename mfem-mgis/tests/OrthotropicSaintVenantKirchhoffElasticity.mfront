@@ -1,0 +1,28 @@
+@DSL DefaultFiniteStrainDSL;
+@Behaviour OrthotropicSaintVenantKirchhoffElasticity;
+@Description{
+  Orthotropic Saint Venant Kirchhoff elasticity: used to test the rotations
+  of the gradients, of the thermodynamic forces and of the tangent operator
+  blocks of the orthotropic finite strain behaviours.
+}
+
+@OrthotropicBehaviour<Pipe>;
+@ComputeStiffnessTensor<UnAltered>{7.8e+10, 2.64233e+11, 3.32e+11,
+                                   0.13,    0.24,        0.18,
+                                   4.8e+10, 1.16418e+11, 7.8e+10};
+
+@PredictionOperator<DS_DEGL>{
+  static_cast<void>(smt);
+  Dt = D;
+}
+
+@Integrator{
+  const auto e = computeGreenLagrangeTensor(F1);
+  const auto s = D * e;
+  sig = convertSecondPiolaKirchhoffStressToCauchyStress(s, F1);
+}
+
+@TangentOperator<DS_DEGL>{
+  static_cast<void>(smt);
+  Dt = D;
+}
