@@ -26,6 +26,20 @@ if(Python3_Interpreter_FOUND AND
   set_tests_properties(polycristal-point-par-point PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
     FIXTURES_SETUP polycristal-reference)
+  # periodic problem with the computations by kernels (generic library)
+  set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-noyaux.res")
+  add_test(NAME polycristal-noyaux
+    COMMAND ${_run} --macroscopic-stress-output-file "${_output}"
+    WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
+  set_tests_properties(polycristal-noyaux PROPERTIES
+    ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+    FIXTURES_SETUP polycristal-noyaux)
+  add_test(NAME polycristal-comparison-noyaux
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/../comparer-sorties.py"
+            "${_reference}" "${_output}" --rtol 1e-8)
+  set_tests_properties(polycristal-comparison-noyaux PROPERTIES
+    FIXTURES_REQUIRED "polycristal-reference;polycristal-noyaux")
   foreach(_backend ${polycristal-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-batch-${_backend}.res")

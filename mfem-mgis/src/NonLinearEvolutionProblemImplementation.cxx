@@ -255,8 +255,9 @@ namespace mfem_mgis {
     // sequential, one in parallel)
     const auto norm = [&B, &fespace, &essential_dofs] {
       auto r = B;
+      auto* const rv = r.HostReadWrite();
       for (const auto i : essential_dofs) {
-        r[i] = real{0};
+        rv[i] = real{0};
       }
       if constexpr (parallel) {
         return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
@@ -273,8 +274,12 @@ namespace mfem_mgis {
     }
     // an iterative linear solver only approximates the imposed increments,
     // which are known exactly
-    for (const auto i : essential_dofs) {
-      X[i] = mdu_values[i];
+    {
+      auto* const x = X.HostReadWrite();
+      const auto* const mv = mdu_values.HostRead();
+      for (const auto i : essential_dofs) {
+        x[i] = mv[i];
+      }
     }
     a.RecoverFEMSolution(X, b, *mdu);
     //
@@ -355,6 +360,9 @@ namespace mfem_mgis {
       r += f;
     }
     r.SetSubVector(essential_dofs, real{0});
+    // `SetSubVector` may read the essential degrees of freedom on the device,
+    // and `GetGradient` of MFEM reads them on the host without declaring it
+    static_cast<void>(essential_dofs.HostRead());
   }  // end of addInnerForcesComputedByKernels
 
   /*!
@@ -460,14 +468,28 @@ namespace mfem_mgis {
 
   void NonLinearEvolutionProblemImplementation<true>::Mult(
       const mfem::Vector& u, mfem::Vector& r) const {
-    // with the inner forces computed by kernels, the integrator of mfem-mgis
-    // gives null contributions to the residual assembled by MFEM
-    mfem_mgis::NonlinearForm<true>::Mult(u, r);
-    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
-      addInnerForcesComputedByKernels(*(this->mgis_integrator),
-                                      this->getFiniteElementSpace(),
-                                      this->ess_tdof_list, r);
+    // the element loops of MFEM read the unknowns on the host without
+    // declaring it, while the kernels of mfem-mgis read them on the device
+    static_cast<void>(u.HostRead());
+    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+      mfem_mgis::NonlinearForm<true>::Mult(u, r);
+      return;
     }
+    // with the inner forces computed by kernels, the integrator of mfem-mgis
+    // gives null contributions to the residual assembled by MFEM: the
+    // assembly of MFEM is skipped if the form has no other integrator
+    const auto only_mfem_mgis =
+        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
+        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
+        (this->bfnfi.Size() == 0);
+    if (only_mfem_mgis) {
+      r = real{0};
+    } else {
+      mfem_mgis::NonlinearForm<true>::Mult(u, r);
+    }
+    addInnerForcesComputedByKernels(*(this->mgis_integrator),
+                                    this->getFiniteElementSpace(),
+                                    this->ess_tdof_list, r);
   }  // end of Mult
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
@@ -477,6 +499,8 @@ namespace mfem_mgis {
       computeStiffnessMatricesByKernels(*(this->mgis_integrator),
                                         this->getFiniteElementSpace());
     }
+    // see `Mult`
+    static_cast<void>(u.HostRead());
     return mfem_mgis::NonlinearForm<true>::GetGradient(u);
   }  // end of GetGradient
 
@@ -743,12 +767,25 @@ namespace mfem_mgis {
   void NonLinearEvolutionProblemImplementation<false>::Mult(
       const mfem::Vector& u, mfem::Vector& r) const {
     // see the parallel version
-    mfem_mgis::NonlinearForm<false>::Mult(u, r);
-    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
-      addInnerForcesComputedByKernels(*(this->mgis_integrator),
-                                      this->getFiniteElementSpace(),
-                                      this->ess_tdof_list, r);
+    // the element loops of MFEM read the unknowns on the host without
+    // declaring it, while the kernels of mfem-mgis read them on the device
+    static_cast<void>(u.HostRead());
+    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+      mfem_mgis::NonlinearForm<false>::Mult(u, r);
+      return;
     }
+    const auto only_mfem_mgis =
+        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
+        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
+        (this->bfnfi.Size() == 0);
+    if (only_mfem_mgis) {
+      r = real{0};
+    } else {
+      mfem_mgis::NonlinearForm<false>::Mult(u, r);
+    }
+    addInnerForcesComputedByKernels(*(this->mgis_integrator),
+                                    this->getFiniteElementSpace(),
+                                    this->ess_tdof_list, r);
   }  // end of Mult
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
@@ -758,6 +795,8 @@ namespace mfem_mgis {
       computeStiffnessMatricesByKernels(*(this->mgis_integrator),
                                         this->getFiniteElementSpace());
     }
+    // see `Mult`
+    static_cast<void>(u.HostRead());
     return mfem_mgis::NonlinearForm<false>::GetGradient(u);
   }  // end of GetGradient
 

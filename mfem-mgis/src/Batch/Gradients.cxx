@@ -107,10 +107,15 @@ namespace mfem_mgis::batch {
       if (!resizeArray(ctx, d.values, size)) {
         return false;
       }
-      // the interpolator is shared: its options are set before each use
+      // the interpolator is shared: its options are set before its use and
+      // restored after
+      const auto layout = qi->GetOutputLayout();
+      const auto tensor_products = qi->UsesTensorProducts();
       qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
       qi->DisableTensorProducts();
       qi->Derivatives(d.element_values, d.values);
+      qi->SetOutputLayout(layout);
+      qi->DisableTensorProducts(!tensor_products);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
           std::string{"computeUnknownsDerivatives: "} + e.what());

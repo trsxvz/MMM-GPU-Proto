@@ -14,6 +14,7 @@
 #include "MGIS/Raise.hxx"
 #include "mfem/fem/linearform.hpp"
 #include "mfem/fem/restriction.hpp"
+#include "mfem/fem/quadinterpolator.hpp"
 #include "mfem/fem/bilinearform.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/mesh/pmesh.hpp"
@@ -365,10 +366,54 @@ namespace mfem_mgis {
               std::to_string(m) +
               "' can't be computed by kernels (supported: standard "
               "mechanical behaviours in 3D, plane strain and plane stress, "
-              "small or finite strain, without FBar, all the elements of the "
-              "material using the same integration rule)");
+              "small or finite strain, without FBar nor regularization, all "
+              "the elements of the material using the same integration "
+              "rule)");
         }
       }
+    }
+    try {
+      const auto& fes = [this]() -> const mfem::FiniteElementSpace& {
+#ifdef MFEM_USE_MPI
+        if (this->fe_discretization->describesAParallelComputation()) {
+          return this->fe_discretization->getFiniteElementSpace<true>();
+        }
+#endif /* MFEM_USE_MPI */
+        return this->fe_discretization->getFiniteElementSpace<false>();
+      }();
+      const auto& mesh = *(fes.GetMesh());
+      if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
+        return ctx.registerErrorMessage(
+            "the computations by kernels do not support meshes mixing several "
+            "geometries");
+      }
+      if (mesh.SpaceDimension() != mesh.Dimension()) {
+        return ctx.registerErrorMessage(
+            "the computations by kernels require the dimension of the space "
+            "to be the dimension of the mesh");
+      }
+      if (!mfem::QuadratureInterpolator::SupportsFESpace(fes)) {
+        return ctx.registerErrorMessage(
+            "the finite element space is not supported by the quadrature "
+            "interpolator of MFEM, used by the computations by kernels");
+      }
+      // all the elements must have a behaviour integrator (with the
+      // computations element by element, `AssembleElementVector` reports an
+      // error otherwise)
+      for (int i = 0; i != mesh.attributes.Size(); ++i) {
+        const auto a = static_cast<size_type>(mesh.attributes[i]);
+        if ((a >= static_cast<size_type>(this->behaviour_integrators.size())) ||
+            (this->behaviour_integrators[a].empty())) {
+          return ctx.registerErrorMessage(
+              "the computations by kernels require a behaviour integrator on "
+              "each material, and material '" +
+              std::to_string(a) + "' has none");
+        }
+      }
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("unknown exception");
     }
     return true;
   }  // end of checkKernelsSupport
@@ -460,6 +505,8 @@ namespace mfem_mgis {
         if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
           if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
                                               fes, *r)) {
+            // no partial entry is kept
+            this->elements_geometry.erase(r);
             return false;
           }
         }

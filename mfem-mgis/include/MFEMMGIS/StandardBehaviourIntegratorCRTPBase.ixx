@@ -235,6 +235,14 @@ namespace mfem_mgis {
           (!batch::getGradientsKind(this->b).has_value())) {
         return false;
       }
+      // the kernels compute the inner forces and the stiffness matrices from
+      // the thermodynamic forces and the tangent operator blocks only: the
+      // behaviour integrators whose residual or jacobian also depend on the
+      // unknowns (regularisations, such as Faltus2026) are refused
+      if ((this->requiresCurrentSolutionForResidualAssembly()) ||
+          (this->requiresCurrentSolutionForJacobianAssembly())) {
+        return false;
+      }
       // all the elements must use the same integration rule
       return (this->quadrature_space->getNumberOfElements() == 0) ||
              (this->quadrature_space->getUniformIntegrationRule() != nullptr);

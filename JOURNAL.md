@@ -2990,3 +2990,45 @@ attendus échouent (thermique, endommagement micromorphe).
 Étape suivante : l'opérateur propre (résidu sans la boucle de MFEM sur les
 éléments, tangente sans matrice ou par matrices élémentaires calculées par
 noyaux), puis la thermique et FBar.
+
+### 2026-10-09 (nuit), lot L3 : tangente par noyaux, géométrie, relecture
+
+- **Géométrie sans nœuds** : `Mesh::GetGeometricFactors` (et
+  `QuadratureInterpolator::PhysDerivatives`, qui l'appelle) donne des
+  nœuds au maillage (`EnsureNodes`). Toutes les transformations d'éléments
+  passent ensuite par eux, et les boucles restées élément par élément
+  étaient 50 % plus lentes (poutre). Les facteurs géométriques des noyaux
+  sont calculés sur une copie des sommets (module `Batch/ElementsGeometry`,
+  gardés par règle d'intégration), et les gradients partent des dérivées
+  de référence, converties par l'inverse des jacobiens dans le noyau.
+- **Matrices élémentaires de la tangente par noyaux**
+  (`TangentOperatorComputation`) : un fil par couple de nœuds d'un
+  élément, `Σ Bᵀ K B w det J`, recopiées dans l'assemblage de MFEM. Égales
+  au calcul élément par élément à 1e-16 près (CPU, `debug`, GPU). Plus
+  lentes sur CPU (+24 % par appel) : elles ne vaudront qu'avec un
+  assemblage sur le périphérique, à écrire (`ElementRestriction::
+  FillJAndData` de MFEM ne traite que les espaces scalaires), ou sans
+  matrice.
+- **Résidu par noyaux sans boucle de MFEM** quand le formulaire n'a pas
+  d'autre intégrateur.
+- **Relecture indépendante** des noyaux : conventions de MFEM, opérateur
+  B, rangements vérifiés justes ; deux défauts graves reproduits et
+  corrigés : sur le GPU, les conditions de Dirichlet écrivaient les
+  inconnues sur l'hôte sans le déclarer à MFEM (copie périmée lue par le
+  noyau des gradients, Newton qui échoue) ; les intégrateurs régularisés
+  (`Faltus2026`) étaient acceptés et perdaient leur terme de
+  régularisation sans message. Corrigés aussi : refus au `setup`
+  (maillage mixte, espace non pris en charge, attribut sans intégrateur),
+  exceptions du Newton rapportées au lieu d'arrêter le programme, accès
+  hôte non déclarés de la prédiction (plantage sur le périphérique
+  `debug`), cache de géométrie sans entrée partielle, options de
+  l'interpolateur partagé de MFEM remises en état. Nouveaux tests :
+  refus de `Faltus2026`, `BatchIntegrationTest` sur `debug` et `cuda`,
+  poutre et polycristal (périodique) en mode noyaux sur 2 processus.
+
+Mesures (`results/L3-poutre-2026-10-09/`, `results/L3-polycristal-2026-10-09/`) :
+gradients par noyaux, phase d'intégration de la poutre divisée par 2,5 à
+3,4 ; résidu par noyaux divisé par 2,1 (poutre) et 2,8 (polycristal), avant
+la suppression de la boucle de MFEM ; matrices élémentaires par noyaux plus
+lentes sur CPU (+24 à +38 %). Calculs complets avec tous les noyaux sur le
+GPU égaux au calcul point par point (`BatchIntegrationTest-cuda`).

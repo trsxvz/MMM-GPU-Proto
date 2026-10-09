@@ -41,7 +41,8 @@ namespace mfem_mgis::batch {
     if (elements.Size() == 0) {
       return true;
     }
-    if ((g.rule == nullptr) || (qs.getUniformIntegrationRule() != g.rule)) {
+    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
+        (qs.getUniformIntegrationRule() != g.rule)) {
       return ctx.registerErrorMessage(
           "addStiffnessMatrices: the elements of the material do not use the "
           "integration rule of the geometric data");

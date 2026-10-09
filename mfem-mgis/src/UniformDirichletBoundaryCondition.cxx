@@ -64,16 +64,21 @@ namespace mfem_mgis {
   void UniformDirichletBoundaryCondition::updateImposedValues(
       mfem::Vector& u, const real t) const {
     const auto uv = this->ufct(t);
+    // write on the host, the copy on the device being invalidated (the
+    // unknowns may be read on the device by the kernels of mfem-mgis)
+    auto* const values = u.HostReadWrite();
     for (const auto& dof : this->dofs) {
-      u[dof] = uv;
+      values[dof] = uv;
     }
   }  // end of updateImposedValues
 
   void UniformDirichletBoundaryCondition::setImposedValuesIncrements(
       mfem::Vector& du, const real ti, const real te, const real f) const {
     const auto duv = f * (this->ufct(te) - this->ufct(ti));
+    // see `updateImposedValues`
+    auto* const values = du.HostReadWrite();
     for (const auto& dof : this->dofs) {
-      du[dof] = duv;
+      values[dof] = duv;
     }
   }  // end of setImposedValuesIncrements
 

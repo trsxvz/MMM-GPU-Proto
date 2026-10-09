@@ -260,11 +260,14 @@ static void testCase(mfem_mgis::Context& ctx,
 }  // end of testCase
 
 /*!
- * \brief the FBar formulation is refused
+ * \brief the FBar formulation and the regularisation of Faltus et al. are
+ * refused
+ * \param[in] regularisation: regularisation
  */
 static void testRefusal(mfem_mgis::Context& ctx,
                         const char* const mesh,
-                        const char* const library) {
+                        const char* const library,
+                        const mfem_mgis::Parameters& regularisation) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
   auto problem = construct<NonLinearEvolutionProblem>(
@@ -275,19 +278,19 @@ static void testRefusal(mfem_mgis::Context& ctx,
                                      {"NumberOfUniformRefinements", 0},
                                      {"Hypothesis", "Tridimensional"},
                                      {"BehaviourIntegration", "Batch"},
-                                     {"GradientsComputation", "Kernels"},
+                                     {"InnerForcesComputation", "Kernels"},
                                      {"Parallel", false}}) |
                  or_die;
-  problem.addBehaviourIntegrator(
-      ctx, "Mechanics", 1, library, "SaintVenantKirchhoffElasticity",
-      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                 "SaintVenantKirchhoffElasticity",
+                                 {{"Regularization", regularisation}}) |
       or_die;
   auto c = Context{};
   const auto r = problem.solve(c, 0, 1);
   const auto msg = std::string{c.getErrorMessage()};
   check((!r.status) &&
             (msg.find("can't be computed by kernels") != std::string::npos),
-        "FBar not refused (" + msg + ")");
+        "regularisation not refused (" + msg + ")");
 }  // end of testRefusal
 
 int main(int argc, char** argv) {
@@ -363,7 +366,9 @@ int main(int argc, char** argv) {
   for (const auto& c : cases) {
     testCase(ctx, library, c);
   }
-  testRefusal(ctx, cube, library);
+  testRefusal(ctx, cube, library, {{"FBar", Parameters{}}});
+  testRefusal(ctx, cube, library,
+              {{"Faltus2026", Parameters{{"PenalizationCoefficient", 1e9}}}});
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }  // end of main

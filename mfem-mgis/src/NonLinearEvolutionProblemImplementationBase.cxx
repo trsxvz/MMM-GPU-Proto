@@ -641,7 +641,17 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_PETSC */
     } else {
       this->solver->setContext(ctx);
-      this->solver->Mult(this->u0, this->u1);
+      // the computations of the residual and of the tangent operator report
+      // their errors by exceptions (`Mult` and `GetGradient` of MFEM)
+      try {
+        this->solver->Mult(this->u0, this->u1);
+      } catch (...) {
+        this->solver->unsetContext();
+        this->solver->unsetReferenceResidualNorm();
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+        output.status = false;
+        return output;
+      }
       this->solver->unsetContext();
       fill_output(*(this->solver));
       output.initial_residual_norm = this->solver->GetInitialNorm();

@@ -230,7 +230,8 @@ namespace mfem_mgis {
       return;
     }
     const auto uv = this->ufct(t);
-    u[*(this->dof)] = uv;
+    // write on the host, the copy on the device being invalidated
+    u.HostReadWrite()[*(this->dof)] = uv;
   }  // end of updateImposedValues
 
   void
@@ -240,7 +241,8 @@ namespace mfem_mgis {
       return;
     }
     const auto duv = f * (this->ufct(te) - this->ufct(ti));
-    du[*(this->dof)] = duv;
+    // see `updateImposedValues`
+    du.HostReadWrite()[*(this->dof)] = duv;
   }  // end of setImposedValuesIncrements
 
   ImposedDirichletBoundaryConditionAtClosestNode::

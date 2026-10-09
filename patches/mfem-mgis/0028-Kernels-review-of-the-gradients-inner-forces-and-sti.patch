@@ -1,0 +1,496 @@
+From cf7f7646285fe1ce8b68ad877e83033fb2c8748e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 20:51:27 +0200
+Subject: [PATCH] Kernels: review of the gradients, inner forces and stiffness
+ matrices
+
+An independent review of the computations by kernels found two defects
+giving wrong results, both reproduced:
+
+- on the GPU, the Dirichlet boundary conditions wrote the unknowns on the
+  host without declaring it to MFEM (`operator[]`): the gradients computed
+  by kernels read an outdated copy on the device, and the Newton algorithm
+  failed. `updateImposedValues` and `setImposedValuesIncrements` now write
+  through `HostReadWrite`;
+- the behaviour integrators whose residual or jacobian depend on the
+  unknowns (regularisation of Faltus et al.) were accepted by the kernels,
+  which only use the thermodynamic forces and the tangent operator blocks:
+  the regularisation was silently lost. They are refused.
+
+Also corrected:
+
+- the refusals are made by `setup`: meshes mixing several geometries,
+  finite element spaces not supported by the quadrature interpolator of
+  MFEM, materials without behaviour integrator;
+- the exceptions of the computations of the residual and of the tangent
+  operator are reported by `solve` instead of stopping the program;
+- accesses on the host declared to MFEM: prediction (crash on the debug
+  device), unknowns and essential degrees of freedom before the element
+  loops of MFEM (read on the device by the kernels);
+- residual by kernels: the element loop of MFEM is skipped when the form
+  has no other integrator;
+- no partial entry in the cache of the geometric data after an error, and
+  checks of the geometric data by the kernels;
+- the options of the shared quadrature interpolator of MFEM are restored
+  after use.
+
+Tests: refusal of the FBar formulation and of the regularisation of
+Faltus et al.; BatchIntegrationTest on the debug device of MFEM and on the
+GPU (complete computations with the gradients, the inner forces and the
+stiffness matrices computed by kernels, equal to the integration point by
+point). 144/144.
+---
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  8 +++
+ src/Batch/Gradients.cxx                       |  7 +-
+ src/Batch/InnerForces.cxx                     |  3 +-
+ src/Batch/StiffnessMatrices.cxx               |  3 +-
+ ...irichletBoundaryConditionAtClosestNode.cxx |  6 +-
+ src/MultiMaterialNonLinearIntegrator.cxx      | 51 +++++++++++++-
+ ...onLinearEvolutionProblemImplementation.cxx | 67 +++++++++++++++----
+ ...nearEvolutionProblemImplementationBase.cxx | 12 +++-
+ src/UniformDirichletBoundaryCondition.cxx     |  9 ++-
+ tests/CMakeLists.txt                          | 22 ++++--
+ tests/GradientsKernelsTest.cxx                | 21 +++---
+ 11 files changed, 172 insertions(+), 37 deletions(-)
+
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 090652b23c..2a1da5c545 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -235,6 +235,14 @@ namespace mfem_mgis {
+           (!batch::getGradientsKind(this->b).has_value())) {
+         return false;
+       }
++      // the kernels compute the inner forces and the stiffness matrices from
++      // the thermodynamic forces and the tangent operator blocks only: the
++      // behaviour integrators whose residual or jacobian also depend on the
++      // unknowns (regularisations, such as Faltus2026) are refused
++      if ((this->requiresCurrentSolutionForResidualAssembly()) ||
++          (this->requiresCurrentSolutionForJacobianAssembly())) {
++        return false;
++      }
+       // all the elements must use the same integration rule
+       return (this->quadrature_space->getNumberOfElements() == 0) ||
+              (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index ac97199f68..b1a45481ae 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -107,10 +107,15 @@ namespace mfem_mgis::batch {
+       if (!resizeArray(ctx, d.values, size)) {
+         return false;
+       }
+-      // the interpolator is shared: its options are set before each use
++      // the interpolator is shared: its options are set before its use and
++      // restored after
++      const auto layout = qi->GetOutputLayout();
++      const auto tensor_products = qi->UsesTensorProducts();
+       qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
+       qi->DisableTensorProducts();
+       qi->Derivatives(d.element_values, d.values);
++      qi->SetOutputLayout(layout);
++      qi->DisableTensorProducts(!tensor_products);
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+           std::string{"computeUnknownsDerivatives: "} + e.what());
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+index b82828b0e8..4f77b2aca4 100644
+--- a/src/Batch/InnerForces.cxx
++++ b/src/Batch/InnerForces.cxx
+@@ -43,7 +43,8 @@ namespace mfem_mgis::batch {
+     if (elements.Size() == 0) {
+       return true;
+     }
+-    if ((g.rule == nullptr) || (qs.getUniformIntegrationRule() != g.rule)) {
++    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
++        (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+           "addInnerForces: the elements of the material do not use the "
+           "integration rule of the geometric data");
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 53b86c785c..a49772e8d5 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -41,7 +41,8 @@ namespace mfem_mgis::batch {
+     if (elements.Size() == 0) {
+       return true;
+     }
+-    if ((g.rule == nullptr) || (qs.getUniformIntegrationRule() != g.rule)) {
++    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
++        (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+           "addStiffnessMatrices: the elements of the material do not use the "
+           "integration rule of the geometric data");
+diff --git a/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx b/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
+index f25cd355dc..4347e50672 100644
+--- a/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
++++ b/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
+@@ -230,7 +230,8 @@ namespace mfem_mgis {
+       return;
+     }
+     const auto uv = this->ufct(t);
+-    u[*(this->dof)] = uv;
++    // write on the host, the copy on the device being invalidated
++    u.HostReadWrite()[*(this->dof)] = uv;
+   }  // end of updateImposedValues
+ 
+   void
+@@ -240,7 +241,8 @@ namespace mfem_mgis {
+       return;
+     }
+     const auto duv = f * (this->ufct(te) - this->ufct(ti));
+-    du[*(this->dof)] = duv;
++    // see `updateImposedValues`
++    du.HostReadWrite()[*(this->dof)] = duv;
+   }  // end of setImposedValuesIncrements
+ 
+   ImposedDirichletBoundaryConditionAtClosestNode::
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 2f240fef21..26cc204d32 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -14,6 +14,7 @@
+ #include "MGIS/Raise.hxx"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/restriction.hpp"
++#include "mfem/fem/quadinterpolator.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/mesh/pmesh.hpp"
+@@ -365,11 +366,55 @@ namespace mfem_mgis {
+               std::to_string(m) +
+               "' can't be computed by kernels (supported: standard "
+               "mechanical behaviours in 3D, plane strain and plane stress, "
+-              "small or finite strain, without FBar, all the elements of the "
+-              "material using the same integration rule)");
++              "small or finite strain, without FBar nor regularization, all "
++              "the elements of the material using the same integration "
++              "rule)");
+         }
+       }
+     }
++    try {
++      const auto& fes = [this]() -> const mfem::FiniteElementSpace& {
++#ifdef MFEM_USE_MPI
++        if (this->fe_discretization->describesAParallelComputation()) {
++          return this->fe_discretization->getFiniteElementSpace<true>();
++        }
++#endif /* MFEM_USE_MPI */
++        return this->fe_discretization->getFiniteElementSpace<false>();
++      }();
++      const auto& mesh = *(fes.GetMesh());
++      if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
++        return ctx.registerErrorMessage(
++            "the computations by kernels do not support meshes mixing several "
++            "geometries");
++      }
++      if (mesh.SpaceDimension() != mesh.Dimension()) {
++        return ctx.registerErrorMessage(
++            "the computations by kernels require the dimension of the space "
++            "to be the dimension of the mesh");
++      }
++      if (!mfem::QuadratureInterpolator::SupportsFESpace(fes)) {
++        return ctx.registerErrorMessage(
++            "the finite element space is not supported by the quadrature "
++            "interpolator of MFEM, used by the computations by kernels");
++      }
++      // all the elements must have a behaviour integrator (with the
++      // computations element by element, `AssembleElementVector` reports an
++      // error otherwise)
++      for (int i = 0; i != mesh.attributes.Size(); ++i) {
++        const auto a = static_cast<size_type>(mesh.attributes[i]);
++        if ((a >= static_cast<size_type>(this->behaviour_integrators.size())) ||
++            (this->behaviour_integrators[a].empty())) {
++          return ctx.registerErrorMessage(
++              "the computations by kernels require a behaviour integrator on "
++              "each material, and material '" +
++              std::to_string(a) + "' has none");
++        }
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("unknown exception");
++    }
+     return true;
+   }  // end of checkKernelsSupport
+ 
+@@ -460,6 +505,8 @@ namespace mfem_mgis {
+         if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
+           if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
+                                               fes, *r)) {
++            // no partial entry is kept
++            this->elements_geometry.erase(r);
+             return false;
+           }
+         }
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 0d7b4cfbe2..e89096a965 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -255,8 +255,9 @@ namespace mfem_mgis {
+     // sequential, one in parallel)
+     const auto norm = [&B, &fespace, &essential_dofs] {
+       auto r = B;
++      auto* const rv = r.HostReadWrite();
+       for (const auto i : essential_dofs) {
+-        r[i] = real{0};
++        rv[i] = real{0};
+       }
+       if constexpr (parallel) {
+         return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
+@@ -273,8 +274,12 @@ namespace mfem_mgis {
+     }
+     // an iterative linear solver only approximates the imposed increments,
+     // which are known exactly
+-    for (const auto i : essential_dofs) {
+-      X[i] = mdu_values[i];
++    {
++      auto* const x = X.HostReadWrite();
++      const auto* const mv = mdu_values.HostRead();
++      for (const auto i : essential_dofs) {
++        x[i] = mv[i];
++      }
+     }
+     a.RecoverFEMSolution(X, b, *mdu);
+     //
+@@ -355,6 +360,9 @@ namespace mfem_mgis {
+       r += f;
+     }
+     r.SetSubVector(essential_dofs, real{0});
++    // `SetSubVector` may read the essential degrees of freedom on the device,
++    // and `GetGradient` of MFEM reads them on the host without declaring it
++    static_cast<void>(essential_dofs.HostRead());
+   }  // end of addInnerForcesComputedByKernels
+ 
+   /*!
+@@ -460,14 +468,28 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<true>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
++    // the element loops of MFEM read the unknowns on the host without
++    // declaring it, while the kernels of mfem-mgis read them on the device
++    static_cast<void>(u.HostRead());
++    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
++      mfem_mgis::NonlinearForm<true>::Mult(u, r);
++      return;
++    }
+     // with the inner forces computed by kernels, the integrator of mfem-mgis
+-    // gives null contributions to the residual assembled by MFEM
+-    mfem_mgis::NonlinearForm<true>::Mult(u, r);
+-    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
+-      addInnerForcesComputedByKernels(*(this->mgis_integrator),
+-                                      this->getFiniteElementSpace(),
+-                                      this->ess_tdof_list, r);
++    // gives null contributions to the residual assembled by MFEM: the
++    // assembly of MFEM is skipped if the form has no other integrator
++    const auto only_mfem_mgis =
++        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
++        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
++        (this->bfnfi.Size() == 0);
++    if (only_mfem_mgis) {
++      r = real{0};
++    } else {
++      mfem_mgis::NonlinearForm<true>::Mult(u, r);
+     }
++    addInnerForcesComputedByKernels(*(this->mgis_integrator),
++                                    this->getFiniteElementSpace(),
++                                    this->ess_tdof_list, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
+@@ -477,6 +499,8 @@ namespace mfem_mgis {
+       computeStiffnessMatricesByKernels(*(this->mgis_integrator),
+                                         this->getFiniteElementSpace());
+     }
++    // see `Mult`
++    static_cast<void>(u.HostRead());
+     return mfem_mgis::NonlinearForm<true>::GetGradient(u);
+   }  // end of GetGradient
+ 
+@@ -743,12 +767,25 @@ namespace mfem_mgis {
+   void NonLinearEvolutionProblemImplementation<false>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+     // see the parallel version
+-    mfem_mgis::NonlinearForm<false>::Mult(u, r);
+-    if ((this->inner_forces_kernels) && (this->mgis_integrator != nullptr)) {
+-      addInnerForcesComputedByKernels(*(this->mgis_integrator),
+-                                      this->getFiniteElementSpace(),
+-                                      this->ess_tdof_list, r);
++    // the element loops of MFEM read the unknowns on the host without
++    // declaring it, while the kernels of mfem-mgis read them on the device
++    static_cast<void>(u.HostRead());
++    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
++      mfem_mgis::NonlinearForm<false>::Mult(u, r);
++      return;
++    }
++    const auto only_mfem_mgis =
++        (this->dnfi.Size() == 1) && (this->dnfi[0] == this->mgis_integrator) &&
++        (this->bnfi.Size() == 0) && (this->fnfi.Size() == 0) &&
++        (this->bfnfi.Size() == 0);
++    if (only_mfem_mgis) {
++      r = real{0};
++    } else {
++      mfem_mgis::NonlinearForm<false>::Mult(u, r);
+     }
++    addInnerForcesComputedByKernels(*(this->mgis_integrator),
++                                    this->getFiniteElementSpace(),
++                                    this->ess_tdof_list, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
+@@ -758,6 +795,8 @@ namespace mfem_mgis {
+       computeStiffnessMatricesByKernels(*(this->mgis_integrator),
+                                         this->getFiniteElementSpace());
+     }
++    // see `Mult`
++    static_cast<void>(u.HostRead());
+     return mfem_mgis::NonlinearForm<false>::GetGradient(u);
+   }  // end of GetGradient
+ 
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 581e6fb754..798af95ddc 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -641,7 +641,17 @@ namespace mfem_mgis {
+ #endif /* MFEM_USE_PETSC */
+     } else {
+       this->solver->setContext(ctx);
+-      this->solver->Mult(this->u0, this->u1);
++      // the computations of the residual and of the tangent operator report
++      // their errors by exceptions (`Mult` and `GetGradient` of MFEM)
++      try {
++        this->solver->Mult(this->u0, this->u1);
++      } catch (...) {
++        this->solver->unsetContext();
++        this->solver->unsetReferenceResidualNorm();
++        std::ignore = registerExceptionInErrorBacktrace(ctx);
++        output.status = false;
++        return output;
++      }
+       this->solver->unsetContext();
+       fill_output(*(this->solver));
+       output.initial_residual_norm = this->solver->GetInitialNorm();
+diff --git a/src/UniformDirichletBoundaryCondition.cxx b/src/UniformDirichletBoundaryCondition.cxx
+index 02df7f862e..f2d4146f3d 100644
+--- a/src/UniformDirichletBoundaryCondition.cxx
++++ b/src/UniformDirichletBoundaryCondition.cxx
+@@ -64,16 +64,21 @@ namespace mfem_mgis {
+   void UniformDirichletBoundaryCondition::updateImposedValues(
+       mfem::Vector& u, const real t) const {
+     const auto uv = this->ufct(t);
++    // write on the host, the copy on the device being invalidated (the
++    // unknowns may be read on the device by the kernels of mfem-mgis)
++    auto* const values = u.HostReadWrite();
+     for (const auto& dof : this->dofs) {
+-      u[dof] = uv;
++      values[dof] = uv;
+     }
+   }  // end of updateImposedValues
+ 
+   void UniformDirichletBoundaryCondition::setImposedValuesIncrements(
+       mfem::Vector& du, const real ti, const real te, const real f) const {
+     const auto duv = f * (this->ufct(te) - this->ufct(ti));
++    // see `updateImposedValues`
++    auto* const values = du.HostReadWrite();
+     for (const auto& dof : this->dofs) {
+-      du[dof] = duv;
++      values[dof] = duv;
+     }
+   }  // end of setImposedValuesIncrements
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 59c0468df9..1f90756926 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -794,13 +794,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+            "--${_backend}-library" "${_library}")
+     endif()
+   endforeach()
++  set(batch_integration_test_arguments
++      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++      --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
++      --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
++      --library $<TARGET_FILE:BehaviourTest>)
+   add_test(NAME BatchIntegrationTest
+-           COMMAND BatchIntegrationTest
+-                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+-                   --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
+-                   --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
+-                   --library $<TARGET_FILE:BehaviourTest>
++           COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
+                    ${batch_integration_test_libraries})
++  # computations by kernels on the debug device of MFEM and on the GPU (the
++  # behaviours generated by the generic-parallel interface on the host
++  # require the arrays of the materials on the host: they are not tested)
++  add_test(NAME BatchIntegrationTest-debug
++           COMMAND BatchIntegrationTest --device debug
++                   ${batch_integration_test_arguments})
++  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++    add_test(NAME BatchIntegrationTest-cuda
++             COMMAND BatchIntegrationTest --device cuda
++                     ${batch_integration_test_arguments})
++  endif()
+ 
+   # MaterialArraysTest executable: arrays of the materials in the memory of
+   # MFEM, on the host, on the debug device of MFEM and on the GPU
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index e9d0021c2f..2b15c6d1d6 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -260,11 +260,14 @@ static void testCase(mfem_mgis::Context& ctx,
+ }  // end of testCase
+ 
+ /*!
+- * \brief the FBar formulation is refused
++ * \brief the FBar formulation and the regularisation of Faltus et al. are
++ * refused
++ * \param[in] regularisation: regularisation
+  */
+ static void testRefusal(mfem_mgis::Context& ctx,
+                         const char* const mesh,
+-                        const char* const library) {
++                        const char* const library,
++                        const mfem_mgis::Parameters& regularisation) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
+   auto problem = construct<NonLinearEvolutionProblem>(
+@@ -275,19 +278,19 @@ static void testRefusal(mfem_mgis::Context& ctx,
+                                      {"NumberOfUniformRefinements", 0},
+                                      {"Hypothesis", "Tridimensional"},
+                                      {"BehaviourIntegration", "Batch"},
+-                                     {"GradientsComputation", "Kernels"},
++                                     {"InnerForcesComputation", "Kernels"},
+                                      {"Parallel", false}}) |
+                  or_die;
+-  problem.addBehaviourIntegrator(
+-      ctx, "Mechanics", 1, library, "SaintVenantKirchhoffElasticity",
+-      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
++  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
++                                 "SaintVenantKirchhoffElasticity",
++                                 {{"Regularization", regularisation}}) |
+       or_die;
+   auto c = Context{};
+   const auto r = problem.solve(c, 0, 1);
+   const auto msg = std::string{c.getErrorMessage()};
+   check((!r.status) &&
+             (msg.find("can't be computed by kernels") != std::string::npos),
+-        "FBar not refused (" + msg + ")");
++        "regularisation not refused (" + msg + ")");
+ }  // end of testRefusal
+ 
+ int main(int argc, char** argv) {
+@@ -363,7 +366,9 @@ int main(int argc, char** argv) {
+   for (const auto& c : cases) {
+     testCase(ctx, library, c);
+   }
+-  testRefusal(ctx, cube, library);
++  testRefusal(ctx, cube, library, {{"FBar", Parameters{}}});
++  testRefusal(ctx, cube, library,
++              {{"Faltus2026", Parameters{{"PenalizationCoefficient", 1e9}}}});
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+
