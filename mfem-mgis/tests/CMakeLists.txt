@@ -813,6 +813,23 @@ if(MFEM_MGIS_HAVE_TFEL)
              COMMAND BatchIntegrationTest --device cuda
                      ${batch_integration_test_arguments})
   endif()
+  # computations on two processes (the comparisons only), with MUMPS, one
+  # thread per process
+  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+    add_test(NAME BatchIntegrationTestP
+             COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                     ${batch_integration_test_arguments}
+                     ${batch_integration_test_libraries})
+    set_tests_properties(BatchIntegrationTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME BatchIntegrationTestP-cuda
+               COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                       --device cuda ${batch_integration_test_arguments})
+      set_tests_properties(BatchIntegrationTestP-cuda
+                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+    endif()
+  endif()
 
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU
