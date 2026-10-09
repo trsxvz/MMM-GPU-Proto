@@ -38,6 +38,12 @@ sommes, additions atomiques sur GPU).
 - **Loi sur le GPU** : l'intégration passe de 0,79 s à 0,10 s (plus de
   copies des tableaux entre l'hôte et le GPU).
 - **Deux processus sur un même GPU** : la résolution devient 9 fois plus
-  lente (22,9 s). Non analysé : échanges de hypre par l'hôte (MPI sans
-  prise en charge du GPU), ou partage du GPU. Un processus par GPU reste
-  la configuration naturelle.
+  lente (22,9 s). Non analysé. Hypothèse la plus probable : sans le
+  service MPS de CUDA, les contextes des deux processus se partagent le
+  GPU par tranches de temps, et les nombreux petits noyaux de BoomerAMG
+  s'exécutent l'un après l'autre avec des changements de contexte. À
+  vérifier avec MPS (`nvidia-cuda-mps-control -d`). Un processus par GPU
+  reste la configuration naturelle.
+- **Mémoire** : chaque processus sur le GPU réserve une réserve de 4 Gio
+  (Umpire) ; quatre processus sur le GPU de 16 Go échouent (vu en lançant
+  les tests en parallèle).
