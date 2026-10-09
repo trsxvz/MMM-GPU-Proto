@@ -415,7 +415,12 @@ Travail :
 - **Rangement composante par composante** : le chemin actuel suppose le
   rangement point par point partout (accès contigus, `o * stride`). Ce
   rangement est donc refusé avec `AssemblyStrategy=Legacy`, et réservé
-  au chemin par lots. Dans ce lot, seules les données des matériaux et
+  au chemin par lots. Fait dans L1 : le rangement se choisit à la construction
+  d'un matériau ; les intégrateurs du chemin actuel construisent toujours
+  leurs matériaux point par point, et les accesseurs et évaluateurs à pas
+  refusent l'autre rangement avec un message. Le paramètre du problème
+  (`QuadratureDataLayout`) et son refus avec `AssemblyStrategy=Legacy`
+  viennent avec le chemin par lots (L2, L3). Dans ce lot, seules les données des matériaux et
   leur description changent ; les accès du chemin actuel restent point
   par point.
 - **Accès hôte par l'API publique** (accesseurs de `Material`,
@@ -983,3 +988,16 @@ Comparaisons :
   et un statut global.
 - **Plusieurs processus sans MPI compatible GPU** : copies vers l'hôte à
   chaque échange, inévitables avec l'environnement local.
+
+- **Plusieurs GPU par nœud et deux runtimes CUDA** : les noyaux de
+  mfem-mgis passent par le runtime CUDA partagé, ceux de MFEM par la copie
+  statique du runtime que contient `libmfem.so`. Les deux suivent le
+  contexte courant du pilote, donc a priori le même GPU, mais ce n'est pas
+  vérifiable sur une machine à un seul GPU. À tester sur un nœud à
+  plusieurs GPU (un GPU par processus, opérations de MFEM et de mfem-mgis
+  sur les mêmes tableaux).
+- **Stockage externe entre matériaux** : un matériau peut lire ses
+  variables externes dans les tableaux d'un autre (mode `EXTERNAL_STORAGE`,
+  exemple ex8 : gonflement lu dans les variables internes du modèle de
+  gonflement). La synchronisation d'un matériau ne couvre pas les tableaux
+  de l'autre : à traiter quand ces tableaux seront écrits sur le GPU.

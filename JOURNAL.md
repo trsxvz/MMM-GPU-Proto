@@ -2761,7 +2761,53 @@ paramètre `QuadratureDataLayout` du problème (pas encore de chemin par
 lots), variante des tableaux alloués par MGIS.
 
 Tests : `MaterialArraysTest` et `MFEMFieldOperationsTest` sur les
-périphériques `cpu`, `debug` et `cuda` ; chaque synchronisation et
-l'initialisation de F selon le rangement sont vérifiées par mutation (le
-test échoue quand on les retire). Suites : mfem-mgis 138/138, exemples
-20/20, mm-opera-hpc 6/6, cas 4/4. Relecture indépendante en cours.
+périphériques `cpu`, `debug` et `cuda`. Suites : mfem-mgis 138/138,
+exemples 20/20, mm-opera-hpc 6/6, cas 4/4. (Correction après relecture :
+cette entrée disait que chaque synchronisation était vérifiée par
+mutation ; c'était faux pour l'intégration, les post-traitements et le
+retour arrière. Voir l'entrée suivante.)
+
+### 2026-10-09 (après-midi), relecture du lot L1 et corrections
+
+Une relecture indépendante du lot L1 a donné 27 constats, aucun de
+gravité 3 ou plus sur le chemin actuel (rien n'écrit encore les tableaux
+sur le GPU), mais quatre qui deviendraient des résultats faux dès qu'un
+noyau les écrirait. Tous sont traités :
+
+- **Points d'accès hôte manquants** : intégration par PETSc (dans
+  l'assemblage du résidu, sans passer par `integrate`) : synchronisation
+  au début de `solve` ; modèles ponctuels (`computeNextState`) ; fonctions
+  publiques de calcul des forces moyennes et des résultantes ;
+  évaluateurs de contraintes et de gradients tournés ; boucles de
+  mm-opera-hpc (bulles) et de l'exemple ex8 qui lisent les tableaux
+  directement.
+- **Post-traitements en lecture seule** : ils gardaient valides les
+  copies du GPU, au lieu de les invalider à chaque pas.
+- **Règle de validité complète** : une phase d'accès hôte commence par la
+  synchronisation, et aucun accès au GPU n'a lieu pendant cette phase ;
+  les vues rendues par les accesseurs ne valent que jusque-là.
+- **Tableaux privés** : plus de réallocation possible derrière MGIS ;
+  accès par pointeurs (`Read`, `Write`, `ReadWrite`).
+- **Fin de pas sur l'hôte** par `mgis::HostFieldOperations`, qui garde les
+  copies denses (les noyaux génériques étaient 3,5 à 12 fois plus lents) ;
+  les opérations par noyaux de MFEM restent pour des tableaux sur le GPU.
+  Avec un MFEM compilé avec HIP, leur source n'est plus compilée (la
+  configuration échouait).
+- **CMake** : runtime CUDA porté par la bibliothèque elle-même, contrôle
+  de l'API de MGIS à la configuration.
+- **Types** : tailles en `std::size_t` (les contrôles « trop grand pour
+  MFEM » ne pouvaient pas se déclencher), exceptions des synchronisations
+  rapportées dans le contexte au lieu d'arrêter le programme.
+- **Rangement composante par composante** refusé aussi par les
+  évaluateurs tournés.
+- **Tests** : chaque point d'entrée (accesseurs, intégration,
+  post-traitements, retour arrière, fin de pas) est appelé après une
+  écriture de tous les tableaux sur le GPU ; fin de pas et retour arrière
+  dans les deux rangements ; six accesseurs refusés ; loi qui calcule une
+  énergie ; matériau sans point ; copies et remplissages dans les deux
+  sens. Vérifié par mutation : les synchronisations de l'intégration, du
+  retour arrière, de la fin de pas, des blocs de la tangente et des
+  accesseurs font échouer le test quand on les retire (périphérique
+  `debug`, et `cuda` quand des valeurs sont comparées). Exception : la
+  synchronisation globale avant les post-traitements double celle que font
+  déjà les fonctions qu'ils appellent ; la retirer ne fait rien échouer.
