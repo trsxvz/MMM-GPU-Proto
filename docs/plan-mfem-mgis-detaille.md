@@ -443,11 +443,12 @@ Travail :
   `mfem::Memory` (compilées comme du CUDA quand MFEM l'est).
 
 Tests : suite complète inchangée (rangement point par point, données
-dans `mfem::Memory`) ; refus du rangement composante par composante avec
-`Legacy` ; accesseurs hôte après un calcul sur le périphérique (valeurs
-à jour) ; tests unitaires des opérations de fin de pas dans les deux
-rangements ; test de la politique de validité sous le périphérique
-`debug` de MFEM.
+dans `mfem::Memory`) ; refus du rangement composante par composante par
+les accesseurs et les évaluateurs fondés sur un pas entre points (le
+refus avec `Legacy` vient avec le paramètre du problème, en L2 ou L3) ;
+accesseurs hôte après un calcul sur le périphérique (valeurs à jour) ;
+tests unitaires des opérations de fin de pas dans les deux rangements ;
+test de la politique de validité sous le périphérique `debug` de MFEM.
 
 Fin : suite verte, données dans la mémoire de MFEM.
 

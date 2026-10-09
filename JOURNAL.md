@@ -2811,3 +2811,41 @@ noyau les écrirait. Tous sont traités :
   `debug`, et `cuda` quand des valeurs sont comparées). Exception : la
   synchronisation globale avant les post-traitements double celle que font
   déjà les fonctions qu'ils appellent ; la retirer ne fait rien échouer.
+
+### 2026-10-09 (fin d'après-midi), seconde relecture du lot L1
+
+Une seconde relecture des corrections a confirmé 22 constats corrigés, 5
+partiels, et trouvé 10 défauts nouveaux mineurs (gravité 1 ou 2) et un
+oubli plus ancien. Traités :
+
+- synchronisation ciblée sur un tableau : les accesseurs, les évaluateurs
+  et le calcul des forces moyennes ne recopient plus que le tableau lu
+  (avant : les onze tableaux, environ 15 fois trop pour lire les
+  contraintes) ;
+- opérateurs linéarisés publics (`getLinearizedOperators`) : synchronisés
+  à leur création ;
+- exceptions : `integrate` et les évaluateurs les rapportent au lieu
+  d'arrêter le programme ; le modèle ponctuel synchronise son statut entre
+  processus même après une exception ;
+- les évaluateurs tournés utilisent le contrôle de rangement commun ;
+- CMake : l'API de MGIS est vérifiée par la compilation d'un test (et non
+  par la présence d'un en-tête) ; la configuration installée cherche le
+  toolkit CUDA utilisé à la construction ; avec HIP, l'en-tête des
+  opérations par noyaux n'est plus installé ;
+- noms des méthodes selon les règles de mfem-mgis (`readWrite`, `write`) ;
+- tests : modèle ponctuel, rotation des forces d'une loi orthotrope (et
+  son refus en composante par composante), forces moyennes appelées
+  directement, quatre accesseurs de plus, énergies, blocs de la tangente
+  après la fin de pas, matériau sans point, fichiers de sortie distincts
+  par périphérique.
+
+Mutations (chaque synchronisation retirée tour à tour) : toutes font
+échouer le test sous `debug`, et presque toutes sous `cuda`. Deux
+exceptions connues : la synchronisation globale avant les
+post-traitements (redondante) et celle du début de `solve`, qui ne sert
+qu'au chemin PETSc (non testé sur le périphérique `debug`).
+
+Limite connue, comme le reste de mfem-mgis : une erreur locale à un
+processus (ici une exception de synchronisation, possible seulement avec
+MFEM compilé avec les exceptions) est rapportée par ce processus seul ;
+les autres peuvent attendre dans une opération collective.
