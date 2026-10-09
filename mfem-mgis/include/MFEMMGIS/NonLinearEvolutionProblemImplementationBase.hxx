@@ -12,6 +12,7 @@
 #include <memory>
 #include <vector>
 #include "mfem/linalg/vector.hpp"
+#include "mfem/linalg/sparsemat.hpp"
 #ifdef MFEM_USE_PETSC
 #include "mfem/linalg/petsc.hpp"
 #endif /* MFEM_USE_PETSC */
@@ -338,6 +339,12 @@ namespace mfem_mgis {
      * element space), kept between the evaluations of the residual
      */
     mutable mfem::Vector inner_forces_by_kernels;
+    /*!
+     * \brief local matrix of the operator of the prediction, assembled by
+     * kernels (see `TangentOperatorComputation`), created at the first
+     * prediction
+     */
+    std::unique_ptr<mfem::SparseMatrix> prediction_matrix;
   };  // end of struct NonLinearEvolutionProblemImplementationBase
 
 }  // end of namespace mfem_mgis

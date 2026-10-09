@@ -3124,3 +3124,23 @@ MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
 - Poutre r4, 3 pas, GPU : 6,25 s. Intégration 0,24 s (0,47 s avec la loi
   `generic` sur l'hôte). La prédiction fait 77 % du temps : prochain
   chantier (lot L4).
+
+### 2026-10-09 (soir), prédiction par noyaux, poutre en 4 s sur GPU
+
+- mfem-mgis 7159b6de4c : avec les forces et la tangente par noyaux,
+  l'opérateur de la prédiction est assemblé par noyaux dans une matrice
+  locale gardée d'une prédiction à l'autre, et les forces intérieures au
+  début du pas aussi : plus de formes bilinéaires élément par élément.
+  Système formé comme `FormLinearSystem` de MFEM, élimination en place
+  (`B = Pᵀ b - K X`, puis `B[e] = X[e]`). Les conditions aux limites qui
+  contribuent au second membre (pression) restent assemblées par MFEM ;
+  repli sur l'ancien chemin si elles contribuent à l'opérateur.
+- Défaut trouvé en passant : la liste des ddl imposés de la prédiction
+  enveloppait la mémoire d'un `std::vector` ; lue sur le périphérique
+  `debug`, elle faisait planter le test une fois sur quelques-unes (selon
+  la disposition de la mémoire). Copie allouée par MFEM.
+- Poutre r4, 10 pas (`results/L6-poutre-2026-10-09/`) : **4,06 s sur un
+  GPU** contre 17,54 s sur 8 cœurs (point par point) et 14,68 s sur 8
+  cœurs avec les mêmes noyaux. Il reste la résolution de hypre (61 %) et
+  la prédiction (21 %, dont sa résolution). Deux processus sur le même
+  GPU : 28,6 s (résolution 9 fois plus lente, non analysé).

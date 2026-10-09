@@ -1,0 +1,25 @@
+#!/bin/bash
+# Mesures de la tranche GPU (lots L3 à L6) : calcul de référence sur CPU
+# (8 processus, point par point et tout par noyaux), puis sur le GPU avec
+# tous les noyaux, la loi `generic` (intégrée sur l'hôte) ou la loi `cuda`
+# (intégrée sur le GPU), à 1 et 2 processus. À lancer sur une machine
+# calme, après build-mfem-mgis.sh.
+#
+# usage : cas/mesures-L6.sh [poutre] [dossier de résultats]
+# (voir cas/mesures-commun.sh)
+lot=L6
+source "$(dirname "$0")/mesures-commun.sh" "$@"
+batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+  MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+  MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
+cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+device=""
+run "$case_name-cpu-np8-point-par-point" 1 8 "$generic"
+run "$case_name-cpu-np8-noyaux" 1 8 "$generic" "$batch" "${kernels[@]}"
+device=cuda
+run "$case_name-gpu-np1-noyaux-loi-generic" 1 1 "$generic" "$batch" \
+  "${kernels[@]}"
+run "$case_name-gpu-np1-noyaux-loi-cuda" 1 1 "$cuda" "$batch" "${kernels[@]}"
+run "$case_name-gpu-np2-noyaux-loi-cuda" 1 2 "$cuda" "$batch" "${kernels[@]}"
+echo "résultats dans $out"

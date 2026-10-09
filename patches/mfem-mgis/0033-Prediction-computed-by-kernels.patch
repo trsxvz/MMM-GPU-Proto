@@ -1,0 +1,595 @@
+From 7159b6de4c2f3737012f4f3b6c6d172c3c93d3da Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 22:36:23 +0200
+Subject: [PATCH] Prediction computed by kernels
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With the inner forces and the tangent operator computed by kernels, the
+operator of the prediction is assembled by kernels in a local matrix
+kept between the predictions (same pattern as the tangent operator),
+and the inner forces at the beginning of the time step are computed by
+kernels, instead of the bilinear and linear forms assembled by the
+element loops of MFEM: the prediction no longer reads the arrays of the
+materials on the host. The linear system is formed as by
+FormLinearSystem of MFEM, the essential degrees of freedom being
+eliminated in place (EliminateBC with a unit diagonal, the right hand
+side being B = Pᵀ b - K X, then B[e] = X[e]). The contributions of the
+boundary conditions to the right hand side (imposed pressure...) are
+still assembled by MFEM; the prediction is computed as before if they
+contribute to the operator, or in sequential with a non conforming
+mesh.
+
+The list of the essential degrees of freedom of the prediction is now
+allocated by MFEM: an array wrapping the memory of a std::vector can't
+be read on the debug device.
+
+Beam (111843 unknowns, 3 steps, 1 process, GPU): 1.81 s instead of
+6.25 s, the prediction taking 0.51 s instead of 4.80 s.
+---
+ ...nearEvolutionProblemImplementationBase.hxx |   7 +
+ ...onLinearEvolutionProblemImplementation.cxx | 428 ++++++++++++------
+ 2 files changed, 287 insertions(+), 148 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index bb56b343c7..350010e113 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -12,6 +12,7 @@
+ #include <memory>
+ #include <vector>
+ #include "mfem/linalg/vector.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #ifdef MFEM_USE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+ #endif /* MFEM_USE_PETSC */
+@@ -338,6 +339,12 @@ namespace mfem_mgis {
+      * element space), kept between the evaluations of the residual
+      */
+     mutable mfem::Vector inner_forces_by_kernels;
++    /*!
++     * \brief local matrix of the operator of the prediction, assembled by
++     * kernels (see `TangentOperatorComputation`), created at the first
++     * prediction
++     */
++    std::unique_ptr<mfem::SparseMatrix> prediction_matrix;
+   };  // end of struct NonLinearEvolutionProblemImplementationBase
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 294184b7cc..18f1a9799c 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <tuple>
++#include <algorithm>
+ #include <string>
+ #include "mfem/fem/datacollection.hpp"
+ 
+@@ -61,6 +62,133 @@ namespace mfem_mgis {
+     return batch && (kernels || prediction) && mi.integratesBatchesOnDevice();
+   }  // end of integratesOnDevice
+ 
++  /*!
++   * \return if the given multi-material integrator is the only integrator of
++   * a non linear form
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator
++   */
++  static bool isTheOnlyIntegrator(
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi) noexcept {
++    const auto& dnfi = *(f.GetDNFI());
++    return (mi != nullptr) && (dnfi.Size() == 1) && (dnfi[0] == mi) &&
++           (f.GetBNFI()->Size() == 0) &&
++           (f.GetInteriorFaceIntegrators().Size() == 0) &&
++           (f.GetBdrFaceIntegrators().Size() == 0);
++  }  // end of isTheOnlyIntegrator
++
++  /*!
++   * \brief raises an exception on all the processes if a computation by
++   * kernels failed on one of them. This check is made before the collective
++   * operations following the computation, so that all the processes leave
++   * the resolution together.
++   * \param[in] fed: finite element discretization
++   * \param[in, out] ctx: execution context of the computation
++   * \param[in] success: result of the computation on this process
++   * \param[in] what: description of the computation
++   */
++  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
++                                         Context& ctx,
++                                         const bool success,
++                                         const std::string& what) {
++    if (isTrueOnAllProcesses(fed, success)) {
++      return;
++    }
++    if (!success) {
++      raise(what + ": " + ctx.getErrorMessage());
++    }
++    raise(what + ": failure on another process");
++  }  // end of raiseOnFailureOnAnyProcess
++
++  /*!
++   * \brief adds the inner forces computed by kernels to the residual (true
++   * degrees of freedom), and cancels the residual at the essential degrees
++   * of freedom
++   * \param[in] fed: finite element discretization
++   * \param[in, out] mi: multi-material integrator
++   * \param[in] fes: finite element space
++   * \param[in] essential_dofs: essential true degrees of freedom
++   * \param[out] f: inner forces (local vector of the finite element space)
++   * \param[in, out] r: residual
++   */
++  static void addInnerForcesComputedByKernels(
++      const FiniteElementDiscretization& fed,
++      MultiMaterialNonLinearIntegrator& mi,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::Array<int>& essential_dofs,
++      mfem::Vector& f,
++      mfem::Vector& r) {
++    auto ctx = Context{};
++    auto success = false;
++    try {
++      f.UseDevice(true);
++      f.SetSize(fes.GetVSize());
++      f = real{0};
++      success = mi.addInnerForcesByKernels(ctx, fes, f);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the residual");
++    // from the local vector of the finite element space to the true degrees
++    // of freedom
++    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
++      P->AddMultTranspose(f, r);
++    } else {
++      r += f;
++    }
++    r.SetSubVector(essential_dofs, real{0});
++    // with the debug device of MFEM, any access on the device, even a
++    // reading, protects the copy on the host (`MemoryManager::GetDevicePtr`):
++    // the essential degrees of freedom, read on the device by
++    // `SetSubVector`, are made readable on the host, where `GetGradient`
++    // reads them without declaring it
++    static_cast<void>(essential_dofs.HostRead());
++  }  // end of addInnerForcesComputedByKernels
++
++  /*!
++   * \brief computes the stiffness matrices of the elements by kernels, given
++   * to the assembly of the tangent operator by MFEM
++   * \param[in] fed: finite element discretization
++   * \param[in, out] mi: multi-material integrator
++   * \param[in] fes: finite element space
++   */
++  static void computeStiffnessMatricesByKernels(
++      const FiniteElementDiscretization& fed,
++      MultiMaterialNonLinearIntegrator& mi,
++      const mfem::FiniteElementSpace& fes) {
++    auto ctx = Context{};
++    const auto success = mi.computeStiffnessMatricesByKernels(ctx, fes);
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the tangent operator");
++  }  // end of computeStiffnessMatricesByKernels
++
++  /*!
++   * \brief assembles the stiffness matrices of the elements computed by
++   * kernels in the local matrix of the tangent operator, created at the
++   * first call (see
++   * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
++   * \param[in] fed: finite element discretization
++   * \param[in, out] mi: multi-material integrator
++   * \param[in] fes: finite element space
++   * \param[in, out] m: local matrix, owned by the caller
++   */
++  static void assembleStiffnessMatrixByKernels(
++      const FiniteElementDiscretization& fed,
++      MultiMaterialNonLinearIntegrator& mi,
++      const mfem::FiniteElementSpace& fes,
++      mfem::SparseMatrix*& m) {
++    auto ctx = Context{};
++    if (m == nullptr) {
++      m = mi.makeAssembledStiffnessMatrix(ctx, fes).release();
++    }
++    const auto success =
++        (m != nullptr) && (mi.assembleStiffnessMatrixByKernels(ctx, fes, *m));
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the tangent operator");
++  }  // end of assembleStiffnessMatrixByKernels
++
+   /*!
+    * \brief integrate the behaviours by batches: gradients computed element
+    * by element, or by kernels (not for a prediction), then one call per
+@@ -168,6 +296,34 @@ namespace mfem_mgis {
+         "unsupported integration operator");
+   }  // end of convertToIntegrationType
+ 
++  /*!
++   * \brief data of the computation of the prediction by kernels: the
++   * operator of the prediction and the inner forces are computed by kernels
++   * instead of the element loops of MFEM
++   */
++  struct PredictionKernels {
++    //! \brief multi-material integrator
++    MultiMaterialNonLinearIntegrator* integrator = nullptr;
++    /*!
++     * \brief local matrix of the operator of the prediction, created at the
++     * first call (see
++     * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
++     */
++    std::unique_ptr<mfem::SparseMatrix>* matrix = nullptr;
++    //! \brief inner forces (local vector, workspace)
++    mfem::Vector* inner_forces = nullptr;
++  };
++
++  /*!
++   * \return true if a bilinear form has integrators
++   * \param[in] a: bilinear form
++   */
++  template <typename BilinearFormType>
++  static bool hasIntegrators(BilinearFormType& a) noexcept {
++    return (a.GetDBFI()->Size() != 0) || (a.GetBBFI()->Size() != 0) ||
++           (a.GetFBFI()->Size() != 0) || (a.GetBFBFI()->Size() != 0);
++  }  // end of hasIntegrators
++
+   template <bool parallel>
+   [[nodiscard]] std::optional<PredictionResult<parallel>> computePrediction(
+       mfem_mgis::Context& ctx,
+@@ -175,7 +331,8 @@ namespace mfem_mgis {
+       LinearSolver& ls,
+       const real t,
+       const real dt,
+-      const bool discardLinearSolverFailure) noexcept {
++      const bool discardLinearSolverFailure,
++      const PredictionKernels& kernels) noexcept {
+     auto& fed = p.getFiniteElementDiscretization();
+     auto& fespace = fed.template getFiniteElementSpace<parallel>();
+     const auto& u0 = p.getUnknowns(mfem_mgis::bts);
+@@ -216,27 +373,33 @@ namespace mfem_mgis {
+     } else {
+       u0_local = u0;
+     }
+-    auto operators = p.getLinearizedOperators(ctx, u0_local);
+-    if (isInvalid(operators)) {
+-      return {};
+-    }
+-    //
++    // contributions of the boundary conditions
+     auto mdu = std::make_unique<mfem_mgis::GridFunction<parallel>>(&fespace);
+     *mdu = 0.0;
+     auto a = mfem_mgis::BilinearForm<parallel>(&fespace);
+-    a.AddDomainIntegrator(operators->K.release());
+     auto b = mfem_mgis::LinearForm<parallel>(&fespace);
+-    if (operators->mFi.get() != nullptr) {
+-      b.AddDomainIntegrator(operators->mFi.release());
+-    }
+-    //
+     for (const auto& bc : p.getBoundaryConditions()) {
+       if (!bc->addLinearFormIntegrators(ctx, a, b, u0_local, t, dt)) {
+         return {};
+       }
+     }
+-    //
+-    a.Assemble();
++    // the operator and the inner forces are computed by kernels if the
++    // boundary conditions do not contribute to the operator, and, in
++    // sequential, if there is no prolongation (non conforming mesh)
++    const auto use_kernels =
++        (kernels.integrator != nullptr) && (!hasIntegrators(a)) &&
++        (parallel || (fespace.GetProlongationMatrix() == nullptr));
++    if (!use_kernels) {
++      auto operators = p.getLinearizedOperators(ctx, u0_local);
++      if (isInvalid(operators)) {
++        return {};
++      }
++      a.AddDomainIntegrator(operators->K.release());
++      if (operators->mFi.get() != nullptr) {
++        b.AddDomainIntegrator(operators->mFi.release());
++      }
++      a.Assemble();
++    }
+     b.Assemble();
+     //
+     auto A = [] {
+@@ -250,11 +413,18 @@ namespace mfem_mgis {
+       return mfem::SparseMatrix{};
+ #endif /* MFEM_USE_MPI */
+     }();
++    // operator built by kernels
++    auto pK = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
++    const mfem::Operator* op = &A;
+     mfem::Vector B, X;
+     //
+     auto essential_dofs = p.getEssentialDegreesOfFreedom();
+-    auto edofs_list = mfem::Array<mfem_mgis::size_type>(essential_dofs.data(),
+-                                                        essential_dofs.size());
++    // copy allocated by MFEM, readable on the device (an array wrapping the
++    // memory of the vector can't be read on the debug device of MFEM)
++    auto edofs_list = mfem::Array<mfem_mgis::size_type>(
++        static_cast<int>(essential_dofs.size()));
++    std::copy(essential_dofs.begin(), essential_dofs.end(),
++              edofs_list.HostWrite());
+     auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
+     mdu_values = 0.0;
+     if constexpr (parallel) {
+@@ -272,11 +442,72 @@ namespace mfem_mgis {
+       mdu->SetFromTrueDofs(mdu_values);
+     }
+     //
+-    a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
++    if (use_kernels) {
++      // as `FormLinearSystem` of MFEM, the elimination of the essential
++      // degrees of freedom of the operator being made in place: B = Pᵀ b - K
++      // X, X being null except at the essential degrees of freedom, then
++      // B[e] = X[e] (diagonal of the operator set to one)
++      try {
++        auto& mi = *(kernels.integrator);
++        auto* m = kernels.matrix->get();
++        assembleStiffnessMatrixByKernels(fed, mi, fespace, m);
++        if (m != kernels.matrix->get()) {
++          kernels.matrix->reset(m);
++        }
++        X = mdu_values;
++        B.SetSize(fespace.GetTrueVSize());
++        B.UseDevice(true);
++        if (const auto* const P = fespace.GetProlongationMatrix();
++            P != nullptr) {
++          P->MultTranspose(b, B);
++        } else {
++          B = b;
++        }
++        addInnerForcesComputedByKernels(fed, mi, fespace, edofs_list,
++                                        *(kernels.inner_forces), B);
++#ifdef MFEM_USE_MPI
++        if constexpr (parallel) {
++          mfem::OperatorHandle dA(mfem::Operator::Hypre_ParCSR);
++          mfem::OperatorHandle Ph(mfem::Operator::Hypre_ParCSR);
++          dA.MakeSquareBlockDiag(fespace.GetComm(), fespace.GlobalVSize(),
++                                 fespace.GetDofOffsets(), m);
++          Ph.ConvertFrom(fespace.Dof_TrueDof_Matrix());
++          pK.MakePtAP(dA, Ph);
++          auto& K = *(pK.As<mfem::HypreParMatrix>());
++          K.Mult(real{-1}, X, real{1}, B);
++          K.EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
++          op = &K;
++        } else {
++          m->AddMult(X, B, real{-1});
++          m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
++          // the linear solvers may read the matrix on the host without
++          // declaring it
++          static_cast<void>(m->HostReadI());
++          static_cast<void>(m->HostReadJ());
++          static_cast<void>(m->HostReadData());
++          op = m;
++        }
++#else  /* MFEM_USE_MPI */
++        m->AddMult(X, B, real{-1});
++        m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
++        static_cast<void>(m->HostReadI());
++        static_cast<void>(m->HostReadJ());
++        static_cast<void>(m->HostReadData());
++        op = m;
++#endif /* MFEM_USE_MPI */
++        auto values = mfem::Vector{};
++        X.GetSubVector(edofs_list, values);
++        B.SetSubVector(edofs_list, values);
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
++    } else {
++      a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
++    }
+     // the essential degrees of freedom are excluded from the norm: the
+     // residual of the non linear solver is null for them, and their values in
+     // B depend on the diagonal policy (the diagonal of the stiffness in
+-    // sequential, one in parallel)
++    // sequential, one in parallel and with the kernels)
+     const auto norm = [&B, &fespace, &essential_dofs] {
+       auto r = B;
+       auto* const rv = r.HostReadWrite();
+@@ -289,7 +520,7 @@ namespace mfem_mgis {
+         return std::sqrt(mfem::InnerProduct(r, r));
+       }
+     }();
+-    ls.SetOperator(A);
++    ls.SetOperator(*op);
+     ls.Mult(B, X);
+     clearHypreErrors();
+     // check for convergence
+@@ -305,7 +536,15 @@ namespace mfem_mgis {
+         x[i] = mv[i];
+       }
+     }
+-    a.RecoverFEMSolution(X, b, *mdu);
++    if (use_kernels) {
++      if constexpr (parallel) {
++        mdu->Distribute(X);
++      } else {
++        mdu->SetFromTrueDofs(X);
++      }
++    } else {
++      a.RecoverFEMSolution(X, b, *mdu);
++    }
+     //
+     return PredictionResult<parallel>{.mdu = std::move(mdu),
+                                       .initial_residual_norm = norm};
+@@ -354,133 +593,6 @@ namespace mfem_mgis {
+     std::function<void(const real, const real)> f;
+   };  // end of struct StdFunctionPostProcessing
+ 
+-  /*!
+-   * \return if the given multi-material integrator is the only integrator of
+-   * a non linear form
+-   * \param[in] f: non linear form
+-   * \param[in] mi: multi-material integrator
+-   */
+-  static bool isTheOnlyIntegrator(
+-      const mfem::NonlinearForm& f,
+-      const MultiMaterialNonLinearIntegrator* const mi) noexcept {
+-    const auto& dnfi = *(f.GetDNFI());
+-    return (mi != nullptr) && (dnfi.Size() == 1) && (dnfi[0] == mi) &&
+-           (f.GetBNFI()->Size() == 0) &&
+-           (f.GetInteriorFaceIntegrators().Size() == 0) &&
+-           (f.GetBdrFaceIntegrators().Size() == 0);
+-  }  // end of isTheOnlyIntegrator
+-
+-  /*!
+-   * \brief raises an exception on all the processes if a computation by
+-   * kernels failed on one of them. This check is made before the collective
+-   * operations following the computation, so that all the processes leave
+-   * the resolution together.
+-   * \param[in] fed: finite element discretization
+-   * \param[in, out] ctx: execution context of the computation
+-   * \param[in] success: result of the computation on this process
+-   * \param[in] what: description of the computation
+-   */
+-  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
+-                                         Context& ctx,
+-                                         const bool success,
+-                                         const std::string& what) {
+-    if (isTrueOnAllProcesses(fed, success)) {
+-      return;
+-    }
+-    if (!success) {
+-      raise(what + ": " + ctx.getErrorMessage());
+-    }
+-    raise(what + ": failure on another process");
+-  }  // end of raiseOnFailureOnAnyProcess
+-
+-  /*!
+-   * \brief adds the inner forces computed by kernels to the residual (true
+-   * degrees of freedom), and cancels the residual at the essential degrees
+-   * of freedom
+-   * \param[in] fed: finite element discretization
+-   * \param[in, out] mi: multi-material integrator
+-   * \param[in] fes: finite element space
+-   * \param[in] essential_dofs: essential true degrees of freedom
+-   * \param[out] f: inner forces (local vector of the finite element space)
+-   * \param[in, out] r: residual
+-   */
+-  static void addInnerForcesComputedByKernels(
+-      const FiniteElementDiscretization& fed,
+-      MultiMaterialNonLinearIntegrator& mi,
+-      const mfem::FiniteElementSpace& fes,
+-      const mfem::Array<int>& essential_dofs,
+-      mfem::Vector& f,
+-      mfem::Vector& r) {
+-    auto ctx = Context{};
+-    auto success = false;
+-    try {
+-      f.UseDevice(true);
+-      f.SetSize(fes.GetVSize());
+-      f = real{0};
+-      success = mi.addInnerForcesByKernels(ctx, fes, f);
+-    } catch (...) {
+-      std::ignore = registerExceptionInErrorBacktrace(ctx);
+-    }
+-    raiseOnFailureOnAnyProcess(fed, ctx, success,
+-                               "computation of the residual");
+-    // from the local vector of the finite element space to the true degrees
+-    // of freedom
+-    if (const auto* const P = fes.GetProlongationMatrix(); P != nullptr) {
+-      P->AddMultTranspose(f, r);
+-    } else {
+-      r += f;
+-    }
+-    r.SetSubVector(essential_dofs, real{0});
+-    // with the debug device of MFEM, any access on the device, even a
+-    // reading, protects the copy on the host (`MemoryManager::GetDevicePtr`):
+-    // the essential degrees of freedom, read on the device by
+-    // `SetSubVector`, are made readable on the host, where `GetGradient`
+-    // reads them without declaring it
+-    static_cast<void>(essential_dofs.HostRead());
+-  }  // end of addInnerForcesComputedByKernels
+-
+-  /*!
+-   * \brief computes the stiffness matrices of the elements by kernels, given
+-   * to the assembly of the tangent operator by MFEM
+-   * \param[in] fed: finite element discretization
+-   * \param[in, out] mi: multi-material integrator
+-   * \param[in] fes: finite element space
+-   */
+-  static void computeStiffnessMatricesByKernels(
+-      const FiniteElementDiscretization& fed,
+-      MultiMaterialNonLinearIntegrator& mi,
+-      const mfem::FiniteElementSpace& fes) {
+-    auto ctx = Context{};
+-    const auto success = mi.computeStiffnessMatricesByKernels(ctx, fes);
+-    raiseOnFailureOnAnyProcess(fed, ctx, success,
+-                               "computation of the tangent operator");
+-  }  // end of computeStiffnessMatricesByKernels
+-
+-  /*!
+-   * \brief assembles the stiffness matrices of the elements computed by
+-   * kernels in the local matrix of the tangent operator, created at the
+-   * first call (see
+-   * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
+-   * \param[in] fed: finite element discretization
+-   * \param[in, out] mi: multi-material integrator
+-   * \param[in] fes: finite element space
+-   * \param[in, out] m: local matrix, owned by the caller
+-   */
+-  static void assembleStiffnessMatrixByKernels(
+-      const FiniteElementDiscretization& fed,
+-      MultiMaterialNonLinearIntegrator& mi,
+-      const mfem::FiniteElementSpace& fes,
+-      mfem::SparseMatrix*& m) {
+-    auto ctx = Context{};
+-    if (m == nullptr) {
+-      m = mi.makeAssembledStiffnessMatrix(ctx, fes).release();
+-    }
+-    const auto success =
+-        (m != nullptr) && (mi.assembleStiffnessMatrixByKernels(ctx, fes, *m));
+-    raiseOnFailureOnAnyProcess(fed, ctx, success,
+-                               "computation of the tangent operator");
+-  }  // end of assembleStiffnessMatrixByKernels
+-
+ #ifdef MFEM_USE_MPI
+ 
+   NonLinearEvolutionProblemImplementation<true>::
+@@ -555,8 +667,18 @@ namespace mfem_mgis {
+       }
+       return false;
+     }();
++    auto kernels = PredictionKernels{};
++    if ((this->batch_integration) && (this->inner_forces_kernels) &&
++        (this->tangent_operator_kernels) &&
++        (this->mgis_integrator != nullptr)) {
++      kernels =
++          PredictionKernels{.integrator = this->mgis_integrator,
++                            .matrix = &(this->prediction_matrix),
++                            .inner_forces = &(this->inner_forces_by_kernels)};
++    }
+     const auto oresult = ::mfem_mgis::computePrediction<true>(
+-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
++        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
++        kernels);
+ #pragma message("required ?")
+     this->solver->setLinearSolver(*(this->linear_solver));
+     if (isInvalid(oresult)) {
+@@ -886,8 +1008,18 @@ namespace mfem_mgis {
+       }
+       return false;
+     }();
++    auto kernels = PredictionKernels{};
++    if ((this->batch_integration) && (this->inner_forces_kernels) &&
++        (this->tangent_operator_kernels) &&
++        (this->mgis_integrator != nullptr)) {
++      kernels =
++          PredictionKernels{.integrator = this->mgis_integrator,
++                            .matrix = &(this->prediction_matrix),
++                            .inner_forces = &(this->inner_forces_by_kernels)};
++    }
+     const auto oresult = ::mfem_mgis::computePrediction<false>(
+-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
++        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
++        kernels);
+     this->solver->setLinearSolver(*(this->linear_solver));
+     if (isInvalid(oresult)) {
+       return {};
+-- 
+2.43.0
+

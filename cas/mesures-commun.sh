@@ -63,6 +63,8 @@ out=$(cd "$out" && pwd)
   echo "charge : $(cut -d ' ' -f 1-3 /proc/loadavg)"
   echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
 } | tee -a "$out/resume.txt"
+# périphérique de MFEM des calculs (option --device), vide pour le CPU
+device=""
 # usage : command_of bibliothèque nom
 # affiche la commande du cas
 command_of() {
@@ -70,7 +72,7 @@ command_of() {
   case "$case_name" in
     poutre)
       echo ./poutre -r 4 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 -l "$library" \
-        --profiling
+        --profiling ${device:+--device $device}
       ;;
     polycristal)
       echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
@@ -86,7 +88,7 @@ run() {
   local name=$1 threads=$2 np=$3 library=$4
   shift 4
   local settings=("$@")
-  echo "== $name : $np processus, $threads fils, ${settings[*]:-défaut}" |
+  echo "== $name : $np processus, $threads fils, ${device:-cpu}, ${settings[*]:-défaut}" |
     tee -a "$out/resume.txt"
   # un fil : placement par défaut d'OpenMPI (un cœur par processus) ;
   # plusieurs fils : `threads` cœurs réservés à chaque processus (avec

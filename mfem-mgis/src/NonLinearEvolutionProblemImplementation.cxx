@@ -7,6 +7,7 @@
  */
 
 #include <tuple>
+#include <algorithm>
 #include <string>
 #include "mfem/fem/datacollection.hpp"
 
@@ -60,299 +61,6 @@ namespace mfem_mgis {
         (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
     return batch && (kernels || prediction) && mi.integratesBatchesOnDevice();
   }  // end of integratesOnDevice
-
-  /*!
-   * \brief integrate the behaviours by batches: gradients computed element
-   * by element, or by kernels (not for a prediction), then one call per
-   * behaviour integrator
-   * \return true on success
-   * \param[in] mi: multi-material integrator
-   * \param[in] fespace: finite element space
-   * \param[in] u: unknowns (local degrees of freedom)
-   * \param[in] it: integration type
-   * \param[in] kernels: if true, the gradients are computed by kernels
-   */
-  template <typename FiniteElementSpaceType>
-  static bool integrateByBatches(MultiMaterialNonLinearIntegrator& mi,
-                                 const FiniteElementSpaceType& fespace,
-                                 const mfem::Vector& u,
-                                 const IntegrationType it,
-                                 const bool kernels) {
-    const auto prediction =
-        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
-        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
-        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
-    if ((!prediction) && (kernels)) {
-      auto ctx = Context{};
-      if (!mi.computeGradientsByKernels(ctx, fespace, u)) {
-        getErrorStream() << ctx.getErrorMessage() << '\n';
-        return false;
-      }
-      // the behaviours integrated on the host read the gradients there
-      if (!mi.integratesBatchesOnDevice()) {
-        try {
-          mi.synchronizeOnHost();
-        } catch (std::exception& e) {
-          getErrorStream() << "integrate: " << e.what() << '\n';
-          return false;
-        }
-      }
-    } else if (!prediction) {
-      mfem::Array<int> vdofs;
-      mfem::Vector ue;
-      for (size_type i = 0; i != fespace.GetNE(); ++i) {
-        const auto& e = *(fespace.GetFE(i));
-        auto& tr = *(fespace.GetElementTransformation(i));
-        fespace.GetElementVDofs(i, vdofs);
-        u.GetSubVector(vdofs, ue);
-        if (!mi.computeGradients(e, tr, ue)) {
-          return false;
-        }
-      }
-    }
-    return mi.integrateBatch(it);
-  }  // end of integrateByBatches
-
-  // template <bool parallel>
-  // static void export_prediction(
-  //     mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
-  //     mfem_mgis::GridFunction<parallel>& mdu,
-  //     const real te) {
-  //   static auto cycle = size_type{1};
-  //   auto& fed = p.getFiniteElementDiscretization();
-  //   auto exporter = mfem::ParaViewDataCollection{
-  //       parallel ? "result-prediction-test-parallel"
-  //                : "result-prediction-test"};
-  //   exporter.SetMesh(&(fed.template getMesh<parallel>()));
-  //   exporter.SetDataFormat(mfem::VTKFormat::BINARY);
-  //   exporter.RegisterField("OppositeOfDisplacementIncrementPrediction",
-  //   &mdu); exporter.SetCycle(cycle); exporter.SetTime(te); exporter.Save();
-  //   ++cycle;
-  // }
-
-  template <bool parallel>
-  struct PredictionResult {
-    //! \brief prediction of the opposite of the increment of the unknowns
-    std::unique_ptr<mfem_mgis::GridFunction<parallel>> mdu;
-    //! \brief norm of the initial residual
-    const real initial_residual_norm;
-  };
-
-  [[nodiscard]] static IntegrationType convertToIntegrationType(
-      const PredictionOperator o) noexcept {
-    if (o == PredictionOperator::ELASTIC) {
-      return IntegrationType::PREDICTION_ELASTIC_OPERATOR;
-    } else if (o == PredictionOperator::SECANT) {
-      return IntegrationType::PREDICTION_SECANT_OPERATOR;
-    } else if (o == PredictionOperator::TANGENT) {
-      return IntegrationType::PREDICTION_TANGENT_OPERATOR;
-    }
-    abort(
-        "convertToIntegrationType: internal error, "
-        "unsupported prediction operator");
-  }  // end of convertToIntegrationType
-
-  [[nodiscard]] static IntegrationType convertToIntegrationType(
-      const IntegrationOperator o) noexcept {
-    if (o == IntegrationOperator::ELASTIC) {
-      return IntegrationType::INTEGRATION_ELASTIC_OPERATOR;
-    } else if (o == IntegrationOperator::SECANT) {
-      return IntegrationType::INTEGRATION_SECANT_OPERATOR;
-    } else if (o == IntegrationOperator::TANGENT) {
-      return IntegrationType::INTEGRATION_TANGENT_OPERATOR;
-    } else if (o == IntegrationOperator::CONSISTENT_TANGENT) {
-      return IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
-    }
-    abort(
-        "convertToIntegrationType: internal error, "
-        "unsupported integration operator");
-  }  // end of convertToIntegrationType
-
-  template <bool parallel>
-  [[nodiscard]] std::optional<PredictionResult<parallel>> computePrediction(
-      mfem_mgis::Context& ctx,
-      mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
-      LinearSolver& ls,
-      const real t,
-      const real dt,
-      const bool discardLinearSolverFailure) noexcept {
-    auto& fed = p.getFiniteElementDiscretization();
-    auto& fespace = fed.template getFiniteElementSpace<parallel>();
-    const auto& u0 = p.getUnknowns(mfem_mgis::bts);
-    auto success = [&p, &u0, dt] {
-      const auto policy = p.getPredictionPolicy();
-      if (policy.strategy ==
-          PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) {
-        if (policy.prediction_operator ==
-            PredictionOperator::LAST_ITERATE_OPERATOR) {
-          return p.integrate(
-              u0, convertToIntegrationType(PredictionOperator::ELASTIC), {});
-        } else {
-          return p.integrate(
-              u0, convertToIntegrationType(policy.prediction_operator), {});
-        }
-      }
-      const auto ndt = [&policy, dt] {
-        if (policy.null_time_increment) {
-          return real{};
-        }
-        return dt;
-      }();
-      return p.integrate(
-          u0, convertToIntegrationType(policy.integration_operator), ndt);
-    }();
-#ifdef MFEM_USE_MPI
-    if constexpr (parallel) {
-      success = isTrueOnAllProcesses(fed, success);
-    }
-#endif /* MFEM_USE_MPI */
-    if (!success) {
-      return ctx.registerErrorMessage("integration failure");
-    }
-    //
-    auto u0_local = mfem_mgis::GridFunction<parallel>(&fespace);
-    if constexpr (parallel) {
-      u0_local.Distribute(u0);
-    } else {
-      u0_local = u0;
-    }
-    auto operators = p.getLinearizedOperators(ctx, u0_local);
-    if (isInvalid(operators)) {
-      return {};
-    }
-    //
-    auto mdu = std::make_unique<mfem_mgis::GridFunction<parallel>>(&fespace);
-    *mdu = 0.0;
-    auto a = mfem_mgis::BilinearForm<parallel>(&fespace);
-    a.AddDomainIntegrator(operators->K.release());
-    auto b = mfem_mgis::LinearForm<parallel>(&fespace);
-    if (operators->mFi.get() != nullptr) {
-      b.AddDomainIntegrator(operators->mFi.release());
-    }
-    //
-    for (const auto& bc : p.getBoundaryConditions()) {
-      if (!bc->addLinearFormIntegrators(ctx, a, b, u0_local, t, dt)) {
-        return {};
-      }
-    }
-    //
-    a.Assemble();
-    b.Assemble();
-    //
-    auto A = [] {
-#ifdef MFEM_USE_MPI
-      if constexpr (parallel) {
-        return mfem::HypreParMatrix{};
-      } else {
-        return mfem::SparseMatrix{};
-      }
-#else
-      return mfem::SparseMatrix{};
-#endif /* MFEM_USE_MPI */
-    }();
-    mfem::Vector B, X;
-    //
-    auto essential_dofs = p.getEssentialDegreesOfFreedom();
-    auto edofs_list = mfem::Array<mfem_mgis::size_type>(essential_dofs.data(),
-                                                        essential_dofs.size());
-    auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
-    mdu_values = 0.0;
-    if constexpr (parallel) {
-      //
-      for (const auto& bc : p.getDirichletBoundaryConditions()) {
-        // we impose the opposite of the displacement increment
-        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
-      }
-      mdu->Distribute(mdu_values);
-    } else {
-      for (const auto& bc : p.getDirichletBoundaryConditions()) {
-        // we impose the opposite of the displacement increment
-        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
-      }
-      mdu->SetFromTrueDofs(mdu_values);
-    }
-    //
-    a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
-    // the essential degrees of freedom are excluded from the norm: the
-    // residual of the non linear solver is null for them, and their values in
-    // B depend on the diagonal policy (the diagonal of the stiffness in
-    // sequential, one in parallel)
-    const auto norm = [&B, &fespace, &essential_dofs] {
-      auto r = B;
-      auto* const rv = r.HostReadWrite();
-      for (const auto i : essential_dofs) {
-        rv[i] = real{0};
-      }
-      if constexpr (parallel) {
-        return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
-      } else {
-        return std::sqrt(mfem::InnerProduct(r, r));
-      }
-    }();
-    ls.SetOperator(A);
-    ls.Mult(B, X);
-    clearHypreErrors();
-    // check for convergence
-    if ((!discardLinearSolverFailure) && (!hasConverged(ls))) {
-      return ctx.registerErrorMessage("linear solver did not converge");
-    }
-    // an iterative linear solver only approximates the imposed increments,
-    // which are known exactly
-    {
-      auto* const x = X.HostReadWrite();
-      const auto* const mv = mdu_values.HostRead();
-      for (const auto i : essential_dofs) {
-        x[i] = mv[i];
-      }
-    }
-    a.RecoverFEMSolution(X, b, *mdu);
-    //
-    return PredictionResult<parallel>{.mdu = std::move(mdu),
-                                      .initial_residual_norm = norm};
-  }  // end of computePrediction
-
-  /*!
-   * \brief post-processing defined by an std::function
-   * \tparam parallel: boolean stating if the computations are performed in
-   * parallel.
-   */
-  template <bool parallel>
-  struct StdFunctionPostProcessing final
-      : NonLinearEvolutionProblemPostProcessingBase<parallel> {
-    /*!
-     * \brief constructor
-     * \param[in] fct: function executing the postprocessing
-     */
-    StdFunctionPostProcessing(
-        const std::function<void(const real, const real)>& fct)
-        : f(fct) {
-      if (!f) {
-        raise("invalid function");
-      }
-    }  // end of StdFunctionPostProcessing
-    //
-    [[nodiscard]] bool execute(
-        Context& ctx,
-        NonLinearEvolutionProblemImplementation<parallel>& p,
-        const real t,
-        const real dt) noexcept override {
-      auto success = true;
-      auto fed = p.getFiniteElementDiscretization();
-      try {
-        this->f(t, dt);
-      } catch (...) {
-        std::ignore = registerExceptionInErrorBacktrace(ctx);
-        success = false;
-      }
-      return isTrueOnAllProcesses(fed, success);
-    }  // end of execute
-    //! \brief destructor
-    ~StdFunctionPostProcessing() override = default;
-
-   private:
-    //! \brief function executing the post-processing
-    std::function<void(const real, const real)> f;
-  };  // end of struct StdFunctionPostProcessing
 
   /*!
    * \return if the given multi-material integrator is the only integrator of
@@ -481,6 +189,410 @@ namespace mfem_mgis {
                                "computation of the tangent operator");
   }  // end of assembleStiffnessMatrixByKernels
 
+  /*!
+   * \brief integrate the behaviours by batches: gradients computed element
+   * by element, or by kernels (not for a prediction), then one call per
+   * behaviour integrator
+   * \return true on success
+   * \param[in] mi: multi-material integrator
+   * \param[in] fespace: finite element space
+   * \param[in] u: unknowns (local degrees of freedom)
+   * \param[in] it: integration type
+   * \param[in] kernels: if true, the gradients are computed by kernels
+   */
+  template <typename FiniteElementSpaceType>
+  static bool integrateByBatches(MultiMaterialNonLinearIntegrator& mi,
+                                 const FiniteElementSpaceType& fespace,
+                                 const mfem::Vector& u,
+                                 const IntegrationType it,
+                                 const bool kernels) {
+    const auto prediction =
+        (it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
+        (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
+    if ((!prediction) && (kernels)) {
+      auto ctx = Context{};
+      if (!mi.computeGradientsByKernels(ctx, fespace, u)) {
+        getErrorStream() << ctx.getErrorMessage() << '\n';
+        return false;
+      }
+      // the behaviours integrated on the host read the gradients there
+      if (!mi.integratesBatchesOnDevice()) {
+        try {
+          mi.synchronizeOnHost();
+        } catch (std::exception& e) {
+          getErrorStream() << "integrate: " << e.what() << '\n';
+          return false;
+        }
+      }
+    } else if (!prediction) {
+      mfem::Array<int> vdofs;
+      mfem::Vector ue;
+      for (size_type i = 0; i != fespace.GetNE(); ++i) {
+        const auto& e = *(fespace.GetFE(i));
+        auto& tr = *(fespace.GetElementTransformation(i));
+        fespace.GetElementVDofs(i, vdofs);
+        u.GetSubVector(vdofs, ue);
+        if (!mi.computeGradients(e, tr, ue)) {
+          return false;
+        }
+      }
+    }
+    return mi.integrateBatch(it);
+  }  // end of integrateByBatches
+
+  // template <bool parallel>
+  // static void export_prediction(
+  //     mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
+  //     mfem_mgis::GridFunction<parallel>& mdu,
+  //     const real te) {
+  //   static auto cycle = size_type{1};
+  //   auto& fed = p.getFiniteElementDiscretization();
+  //   auto exporter = mfem::ParaViewDataCollection{
+  //       parallel ? "result-prediction-test-parallel"
+  //                : "result-prediction-test"};
+  //   exporter.SetMesh(&(fed.template getMesh<parallel>()));
+  //   exporter.SetDataFormat(mfem::VTKFormat::BINARY);
+  //   exporter.RegisterField("OppositeOfDisplacementIncrementPrediction",
+  //   &mdu); exporter.SetCycle(cycle); exporter.SetTime(te); exporter.Save();
+  //   ++cycle;
+  // }
+
+  template <bool parallel>
+  struct PredictionResult {
+    //! \brief prediction of the opposite of the increment of the unknowns
+    std::unique_ptr<mfem_mgis::GridFunction<parallel>> mdu;
+    //! \brief norm of the initial residual
+    const real initial_residual_norm;
+  };
+
+  [[nodiscard]] static IntegrationType convertToIntegrationType(
+      const PredictionOperator o) noexcept {
+    if (o == PredictionOperator::ELASTIC) {
+      return IntegrationType::PREDICTION_ELASTIC_OPERATOR;
+    } else if (o == PredictionOperator::SECANT) {
+      return IntegrationType::PREDICTION_SECANT_OPERATOR;
+    } else if (o == PredictionOperator::TANGENT) {
+      return IntegrationType::PREDICTION_TANGENT_OPERATOR;
+    }
+    abort(
+        "convertToIntegrationType: internal error, "
+        "unsupported prediction operator");
+  }  // end of convertToIntegrationType
+
+  [[nodiscard]] static IntegrationType convertToIntegrationType(
+      const IntegrationOperator o) noexcept {
+    if (o == IntegrationOperator::ELASTIC) {
+      return IntegrationType::INTEGRATION_ELASTIC_OPERATOR;
+    } else if (o == IntegrationOperator::SECANT) {
+      return IntegrationType::INTEGRATION_SECANT_OPERATOR;
+    } else if (o == IntegrationOperator::TANGENT) {
+      return IntegrationType::INTEGRATION_TANGENT_OPERATOR;
+    } else if (o == IntegrationOperator::CONSISTENT_TANGENT) {
+      return IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+    }
+    abort(
+        "convertToIntegrationType: internal error, "
+        "unsupported integration operator");
+  }  // end of convertToIntegrationType
+
+  /*!
+   * \brief data of the computation of the prediction by kernels: the
+   * operator of the prediction and the inner forces are computed by kernels
+   * instead of the element loops of MFEM
+   */
+  struct PredictionKernels {
+    //! \brief multi-material integrator
+    MultiMaterialNonLinearIntegrator* integrator = nullptr;
+    /*!
+     * \brief local matrix of the operator of the prediction, created at the
+     * first call (see
+     * `MultiMaterialNonLinearIntegrator::makeAssembledStiffnessMatrix`)
+     */
+    std::unique_ptr<mfem::SparseMatrix>* matrix = nullptr;
+    //! \brief inner forces (local vector, workspace)
+    mfem::Vector* inner_forces = nullptr;
+  };
+
+  /*!
+   * \return true if a bilinear form has integrators
+   * \param[in] a: bilinear form
+   */
+  template <typename BilinearFormType>
+  static bool hasIntegrators(BilinearFormType& a) noexcept {
+    return (a.GetDBFI()->Size() != 0) || (a.GetBBFI()->Size() != 0) ||
+           (a.GetFBFI()->Size() != 0) || (a.GetBFBFI()->Size() != 0);
+  }  // end of hasIntegrators
+
+  template <bool parallel>
+  [[nodiscard]] std::optional<PredictionResult<parallel>> computePrediction(
+      mfem_mgis::Context& ctx,
+      mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& p,
+      LinearSolver& ls,
+      const real t,
+      const real dt,
+      const bool discardLinearSolverFailure,
+      const PredictionKernels& kernels) noexcept {
+    auto& fed = p.getFiniteElementDiscretization();
+    auto& fespace = fed.template getFiniteElementSpace<parallel>();
+    const auto& u0 = p.getUnknowns(mfem_mgis::bts);
+    auto success = [&p, &u0, dt] {
+      const auto policy = p.getPredictionPolicy();
+      if (policy.strategy ==
+          PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) {
+        if (policy.prediction_operator ==
+            PredictionOperator::LAST_ITERATE_OPERATOR) {
+          return p.integrate(
+              u0, convertToIntegrationType(PredictionOperator::ELASTIC), {});
+        } else {
+          return p.integrate(
+              u0, convertToIntegrationType(policy.prediction_operator), {});
+        }
+      }
+      const auto ndt = [&policy, dt] {
+        if (policy.null_time_increment) {
+          return real{};
+        }
+        return dt;
+      }();
+      return p.integrate(
+          u0, convertToIntegrationType(policy.integration_operator), ndt);
+    }();
+#ifdef MFEM_USE_MPI
+    if constexpr (parallel) {
+      success = isTrueOnAllProcesses(fed, success);
+    }
+#endif /* MFEM_USE_MPI */
+    if (!success) {
+      return ctx.registerErrorMessage("integration failure");
+    }
+    //
+    auto u0_local = mfem_mgis::GridFunction<parallel>(&fespace);
+    if constexpr (parallel) {
+      u0_local.Distribute(u0);
+    } else {
+      u0_local = u0;
+    }
+    // contributions of the boundary conditions
+    auto mdu = std::make_unique<mfem_mgis::GridFunction<parallel>>(&fespace);
+    *mdu = 0.0;
+    auto a = mfem_mgis::BilinearForm<parallel>(&fespace);
+    auto b = mfem_mgis::LinearForm<parallel>(&fespace);
+    for (const auto& bc : p.getBoundaryConditions()) {
+      if (!bc->addLinearFormIntegrators(ctx, a, b, u0_local, t, dt)) {
+        return {};
+      }
+    }
+    // the operator and the inner forces are computed by kernels if the
+    // boundary conditions do not contribute to the operator, and, in
+    // sequential, if there is no prolongation (non conforming mesh)
+    const auto use_kernels =
+        (kernels.integrator != nullptr) && (!hasIntegrators(a)) &&
+        (parallel || (fespace.GetProlongationMatrix() == nullptr));
+    if (!use_kernels) {
+      auto operators = p.getLinearizedOperators(ctx, u0_local);
+      if (isInvalid(operators)) {
+        return {};
+      }
+      a.AddDomainIntegrator(operators->K.release());
+      if (operators->mFi.get() != nullptr) {
+        b.AddDomainIntegrator(operators->mFi.release());
+      }
+      a.Assemble();
+    }
+    b.Assemble();
+    //
+    auto A = [] {
+#ifdef MFEM_USE_MPI
+      if constexpr (parallel) {
+        return mfem::HypreParMatrix{};
+      } else {
+        return mfem::SparseMatrix{};
+      }
+#else
+      return mfem::SparseMatrix{};
+#endif /* MFEM_USE_MPI */
+    }();
+    // operator built by kernels
+    auto pK = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+    const mfem::Operator* op = &A;
+    mfem::Vector B, X;
+    //
+    auto essential_dofs = p.getEssentialDegreesOfFreedom();
+    // copy allocated by MFEM, readable on the device (an array wrapping the
+    // memory of the vector can't be read on the debug device of MFEM)
+    auto edofs_list = mfem::Array<mfem_mgis::size_type>(
+        static_cast<int>(essential_dofs.size()));
+    std::copy(essential_dofs.begin(), essential_dofs.end(),
+              edofs_list.HostWrite());
+    auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
+    mdu_values = 0.0;
+    if constexpr (parallel) {
+      //
+      for (const auto& bc : p.getDirichletBoundaryConditions()) {
+        // we impose the opposite of the displacement increment
+        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
+      }
+      mdu->Distribute(mdu_values);
+    } else {
+      for (const auto& bc : p.getDirichletBoundaryConditions()) {
+        // we impose the opposite of the displacement increment
+        bc->setImposedValuesIncrements(mdu_values, t, t + dt, -1);
+      }
+      mdu->SetFromTrueDofs(mdu_values);
+    }
+    //
+    if (use_kernels) {
+      // as `FormLinearSystem` of MFEM, the elimination of the essential
+      // degrees of freedom of the operator being made in place: B = Pᵀ b - K
+      // X, X being null except at the essential degrees of freedom, then
+      // B[e] = X[e] (diagonal of the operator set to one)
+      try {
+        auto& mi = *(kernels.integrator);
+        auto* m = kernels.matrix->get();
+        assembleStiffnessMatrixByKernels(fed, mi, fespace, m);
+        if (m != kernels.matrix->get()) {
+          kernels.matrix->reset(m);
+        }
+        X = mdu_values;
+        B.SetSize(fespace.GetTrueVSize());
+        B.UseDevice(true);
+        if (const auto* const P = fespace.GetProlongationMatrix();
+            P != nullptr) {
+          P->MultTranspose(b, B);
+        } else {
+          B = b;
+        }
+        addInnerForcesComputedByKernels(fed, mi, fespace, edofs_list,
+                                        *(kernels.inner_forces), B);
+#ifdef MFEM_USE_MPI
+        if constexpr (parallel) {
+          mfem::OperatorHandle dA(mfem::Operator::Hypre_ParCSR);
+          mfem::OperatorHandle Ph(mfem::Operator::Hypre_ParCSR);
+          dA.MakeSquareBlockDiag(fespace.GetComm(), fespace.GlobalVSize(),
+                                 fespace.GetDofOffsets(), m);
+          Ph.ConvertFrom(fespace.Dof_TrueDof_Matrix());
+          pK.MakePtAP(dA, Ph);
+          auto& K = *(pK.As<mfem::HypreParMatrix>());
+          K.Mult(real{-1}, X, real{1}, B);
+          K.EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
+          op = &K;
+        } else {
+          m->AddMult(X, B, real{-1});
+          m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
+          // the linear solvers may read the matrix on the host without
+          // declaring it
+          static_cast<void>(m->HostReadI());
+          static_cast<void>(m->HostReadJ());
+          static_cast<void>(m->HostReadData());
+          op = m;
+        }
+#else  /* MFEM_USE_MPI */
+        m->AddMult(X, B, real{-1});
+        m->EliminateBC(edofs_list, mfem::Operator::DIAG_ONE);
+        static_cast<void>(m->HostReadI());
+        static_cast<void>(m->HostReadJ());
+        static_cast<void>(m->HostReadData());
+        op = m;
+#endif /* MFEM_USE_MPI */
+        auto values = mfem::Vector{};
+        X.GetSubVector(edofs_list, values);
+        B.SetSubVector(edofs_list, values);
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
+    } else {
+      a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
+    }
+    // the essential degrees of freedom are excluded from the norm: the
+    // residual of the non linear solver is null for them, and their values in
+    // B depend on the diagonal policy (the diagonal of the stiffness in
+    // sequential, one in parallel and with the kernels)
+    const auto norm = [&B, &fespace, &essential_dofs] {
+      auto r = B;
+      auto* const rv = r.HostReadWrite();
+      for (const auto i : essential_dofs) {
+        rv[i] = real{0};
+      }
+      if constexpr (parallel) {
+        return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
+      } else {
+        return std::sqrt(mfem::InnerProduct(r, r));
+      }
+    }();
+    ls.SetOperator(*op);
+    ls.Mult(B, X);
+    clearHypreErrors();
+    // check for convergence
+    if ((!discardLinearSolverFailure) && (!hasConverged(ls))) {
+      return ctx.registerErrorMessage("linear solver did not converge");
+    }
+    // an iterative linear solver only approximates the imposed increments,
+    // which are known exactly
+    {
+      auto* const x = X.HostReadWrite();
+      const auto* const mv = mdu_values.HostRead();
+      for (const auto i : essential_dofs) {
+        x[i] = mv[i];
+      }
+    }
+    if (use_kernels) {
+      if constexpr (parallel) {
+        mdu->Distribute(X);
+      } else {
+        mdu->SetFromTrueDofs(X);
+      }
+    } else {
+      a.RecoverFEMSolution(X, b, *mdu);
+    }
+    //
+    return PredictionResult<parallel>{.mdu = std::move(mdu),
+                                      .initial_residual_norm = norm};
+  }  // end of computePrediction
+
+  /*!
+   * \brief post-processing defined by an std::function
+   * \tparam parallel: boolean stating if the computations are performed in
+   * parallel.
+   */
+  template <bool parallel>
+  struct StdFunctionPostProcessing final
+      : NonLinearEvolutionProblemPostProcessingBase<parallel> {
+    /*!
+     * \brief constructor
+     * \param[in] fct: function executing the postprocessing
+     */
+    StdFunctionPostProcessing(
+        const std::function<void(const real, const real)>& fct)
+        : f(fct) {
+      if (!f) {
+        raise("invalid function");
+      }
+    }  // end of StdFunctionPostProcessing
+    //
+    [[nodiscard]] bool execute(
+        Context& ctx,
+        NonLinearEvolutionProblemImplementation<parallel>& p,
+        const real t,
+        const real dt) noexcept override {
+      auto success = true;
+      auto fed = p.getFiniteElementDiscretization();
+      try {
+        this->f(t, dt);
+      } catch (...) {
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+        success = false;
+      }
+      return isTrueOnAllProcesses(fed, success);
+    }  // end of execute
+    //! \brief destructor
+    ~StdFunctionPostProcessing() override = default;
+
+   private:
+    //! \brief function executing the post-processing
+    std::function<void(const real, const real)> f;
+  };  // end of struct StdFunctionPostProcessing
+
 #ifdef MFEM_USE_MPI
 
   NonLinearEvolutionProblemImplementation<true>::
@@ -555,8 +667,18 @@ namespace mfem_mgis {
       }
       return false;
     }();
+    auto kernels = PredictionKernels{};
+    if ((this->batch_integration) && (this->inner_forces_kernels) &&
+        (this->tangent_operator_kernels) &&
+        (this->mgis_integrator != nullptr)) {
+      kernels =
+          PredictionKernels{.integrator = this->mgis_integrator,
+                            .matrix = &(this->prediction_matrix),
+                            .inner_forces = &(this->inner_forces_by_kernels)};
+    }
     const auto oresult = ::mfem_mgis::computePrediction<true>(
-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
+        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
+        kernels);
 #pragma message("required ?")
     this->solver->setLinearSolver(*(this->linear_solver));
     if (isInvalid(oresult)) {
@@ -886,8 +1008,18 @@ namespace mfem_mgis {
       }
       return false;
     }();
+    auto kernels = PredictionKernels{};
+    if ((this->batch_integration) && (this->inner_forces_kernels) &&
+        (this->tangent_operator_kernels) &&
+        (this->mgis_integrator != nullptr)) {
+      kernels =
+          PredictionKernels{.integrator = this->mgis_integrator,
+                            .matrix = &(this->prediction_matrix),
+                            .inner_forces = &(this->inner_forces_by_kernels)};
+    }
     const auto oresult = ::mfem_mgis::computePrediction<false>(
-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure);
+        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
+        kernels);
     this->solver->setLinearSolver(*(this->linear_solver));
     if (isInvalid(oresult)) {
       return {};
