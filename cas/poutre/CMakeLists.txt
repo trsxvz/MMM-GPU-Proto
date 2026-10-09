@@ -38,8 +38,11 @@ foreach(_backend ${poutre-behaviours_BACKENDS})
     add_test(NAME poutre-gpu
       COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls pcg-amg -bi Batch
               --device cuda -l "${_library}" -en ${norm})
+    # each process on the GPU reserves a memory pool of 4 GiB (Umpire): the
+    # tests on the GPU are not run at the same time
     set_tests_properties(poutre-gpu PROPERTIES ENVIRONMENT
-      "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+      "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+      RESOURCE_LOCK gpu)
   else()
     add_test(NAME poutre-batch-${_backend}
       COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls pcg-amg -bi Batch

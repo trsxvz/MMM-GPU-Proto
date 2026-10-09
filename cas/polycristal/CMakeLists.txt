@@ -52,7 +52,8 @@ if(Python3_Interpreter_FOUND AND
         WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
       set_tests_properties(polycristal-batch-${_backend} PROPERTIES
         ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
-        FIXTURES_SETUP polycristal-${_backend})
+        FIXTURES_SETUP polycristal-${_backend}
+        RESOURCE_LOCK gpu)
     else()
       add_test(NAME polycristal-batch-${_backend}
         COMMAND ${_run} -l "${_library}"
