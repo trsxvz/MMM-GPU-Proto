@@ -1,0 +1,51 @@
+From 839849d61f59c58b4ac18e16040da36817e226af Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:19:38 +0200
+Subject: [PATCH] CMake: one line of env.sh per library directory of TFEL
+
+Same as mfem-mgis (copies of its files, unused by this project for now).
+---
+ cmake/env.sh.in               | 9 ++-------
+ cmake/modules/mfem-mgis.cmake | 6 ++++++
+ 2 files changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/cmake/env.sh.in b/cmake/env.sh.in
+index 9f7993a..73646db 100644
+--- a/cmake/env.sh.in
++++ b/cmake/env.sh.in
+@@ -19,13 +19,8 @@ pathadd "@MPICXX_PATH@"
+ pathadd "@CMAKE_CP_PATH@"
+ export PATH
+ 
+-# TFEL may have several library directories (CMake list)
+-IFS=';' read -ra _tfel_library_paths <<< "@TFEL_LIBRARY_PATH@"
+-for _d in "${_tfel_library_paths[@]}"; do
+-    ldadd "$_d"
+-done
+-unset _d _tfel_library_paths
+-ldadd "@MFrontGenericInterface_DIR@/../../../lib"
++# library directories of TFEL
++@TFEL_LDADD@ldadd "@MFrontGenericInterface_DIR@/../../../lib"
+ export LD_LIBRARY_PATH
+ 
+ export CC=@CMAKE_C_COMPILER@
+diff --git a/cmake/modules/mfem-mgis.cmake b/cmake/modules/mfem-mgis.cmake
+index 5a1ed44..2755307 100644
+--- a/cmake/modules/mfem-mgis.cmake
++++ b/cmake/modules/mfem-mgis.cmake
+@@ -16,6 +16,12 @@ function(mfem_mgis_buildenv)
+   string(REGEX REPLACE "/cmake\n$" "" CMAKE_CP_PATH "${CMAKE_CP_PATH}")
+   get_target_property(MFEM_LIB_LIST MFEM::mfem INTERFACE_LINK_LIBRARIES)
+   get_target_property(MFEM_INCLUDE_DIRS MFEM::mfem INTERFACE_INCLUDE_DIRECTORIES)
++  # one line per library directory of TFEL (a CMake list), so that env.sh
++  # does not have to split it
++  set(TFEL_LDADD "")
++  foreach(_d IN LISTS TFEL_LIBRARY_PATH)
++    string(APPEND TFEL_LDADD "ldadd \"${_d}\"\n")
++  endforeach()
+   configure_file(cmake/env.sh.in
+     ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/env.sh  @ONLY)
+   install(FILES
+-- 
+2.43.0
+

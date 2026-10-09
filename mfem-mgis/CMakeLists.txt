@@ -47,7 +47,7 @@ mfem_mgis_enable_device_language()
 # description of MFEM written in the configuration file of mfem-mgis, for
 # the projects which find MFEM before mfem-mgis
 foreach(_property USE_CUDA USE_HIP CUDA_COMPILER CUDA_HOST_COMPILER
-                  CUDA_ARCHITECTURES CXX_STANDARD)
+                  CUDA_ARCHITECTURES)
   get_property(MFEM_MGIS_MFEM_${_property} GLOBAL
                PROPERTY MFEM_MGIS_MFEM_${_property})
 endforeach(_property)

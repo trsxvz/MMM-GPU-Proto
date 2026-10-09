@@ -15,6 +15,12 @@
 #   - MFEM_LIBRARIES
 #   - MFEM_INCLUDE_DIRS
 #   - MFEM_LIBRARY_DIRS
+# and the variables of the `config.mk` file of MFEM (`MFEM_USE_CUDA`, ...).
+#
+# When MFEM is compiled with CUDA, the sources containing kernels of MFEM
+# must be compiled as CUDA code: see `MFEMMGISDeviceCode.cmake`, loaded by
+# this file (`mfem_mgis_enable_device_language`,
+# `mfem_mgis_compile_as_device_code`). CMake 3.18 is then required.
 
 # FIXME: Perhaps I should try to assert that we're building against
 # the same hypre library MFEM built on?
@@ -93,6 +99,12 @@ separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
 # `add_compile_options` removes duplicated options. The flags written in
 # the syntax of nvcc are given as such to the sources compiled as CUDA code
 # by nvcc (see `MFEMMGISDeviceCode.cmake`) and translated for the others.
+if(MFEM_USE_CUDA STREQUAL "YES")
+  if(CMAKE_VERSION VERSION_LESS 3.18)
+    message(FATAL_ERROR "mfem-mgis: CMake 3.18 or later is required with "
+            "MFEM compiled with CUDA")
+  endif()
+endif()
 set(_isystem OFF)
 set(_nvcc "$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CUDA_COMPILER_ID:NVIDIA>>")
 foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
@@ -113,6 +125,10 @@ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
     endif()
   endif()
 endforeach(FLAG)
+if(_isystem)
+  message(WARNING "mfem-mgis: the last flag of MFEM_TPLFLAGS is "
+          "'-isystem', without directory: ignored")
+endif()
 
 # Description of MFEM used to compile its kernels (see
 # `MFEMMGISDeviceCode.cmake`)
@@ -148,7 +164,17 @@ mfem_mgis_host_flags(MFEM_EXT_LIBS_LIST ${MFEM_EXT_LIBS_LIST})
 # of the toolkit (`-lcusparse`, ...) without their directory, which nvcc
 # knows but not the C++ compiler
 if(MFEM_USE_CUDA STREQUAL "YES")
+  # the toolkit of the nvcc used to compile MFEM
+  if((NOT DEFINED CUDAToolkit_ROOT) AND (MFEM_CXX MATCHES "nvcc$"))
+    get_filename_component(_mfem_cuda_bin "${MFEM_CXX}" DIRECTORY)
+    get_filename_component(CUDAToolkit_ROOT "${_mfem_cuda_bin}" DIRECTORY)
+  endif()
+  # `CUDAToolkit_ROOT` is used (policy CMP0074, not set by the minimum
+  # version of CMake required by mfem-mgis)
+  cmake_policy(PUSH)
+  cmake_policy(SET CMP0074 NEW)
   find_package(CUDAToolkit REQUIRED)
+  cmake_policy(POP)
   list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
   set_property(TARGET MFEM::mfem APPEND
     PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)

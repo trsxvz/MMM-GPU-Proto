@@ -1,0 +1,90 @@
+From 5df42daf3fa12b9dff89ea30bda12e7a5022dafe Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:19:38 +0200
+Subject: [PATCH] Config: alias gpu, device already configured, GPU of each
+ process tested
+
+- The GPU of each process is also chosen for the configurations naming
+  `gpu` (alias of MFEM for the GPU backend, `raja-gpu`, `ceed-gpu`, ...):
+  all the processes used the first GPU before.
+- `initialize` reports an error if the MFEM device is already configured
+  when `--device` is given.
+- DeviceForallTest checks the GPU of each process.
+---
+ src/Config.cxx             | 11 +++++++++--
+ tests/DeviceForallTest.cxx | 21 +++++++++++++++++++++
+ 2 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/src/Config.cxx b/src/Config.cxx
+index d7740aa354..9c7c005017 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -96,10 +96,12 @@ namespace mfem_mgis {
+   static int getDeviceIdentifier(const char* const configuration) {
+ #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
+     // MFEM aborts if the number of GPUs is queried on a machine without GPU:
+-    // it is only queried for a configuration using a GPU
++    // it is only queried for a configuration using a GPU (`cuda`, `hip`,
++    // `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
+     const auto c = std::string_view{configuration};
+     if ((c.find("cuda") == std::string_view::npos) &&
+-        (c.find("hip") == std::string_view::npos)) {
++        (c.find("hip") == std::string_view::npos) &&
++        (c.find("gpu") == std::string_view::npos)) {
+       return 0;
+     }
+     const auto n = mfem::Device::GetDeviceCount();
+@@ -197,6 +199,11 @@ namespace mfem_mgis {
+     // before the one of PETSc, which uses the GPU of the device, as in the
+     // parallel examples of MFEM
+     if (device_configuration != nullptr) {
++      if (mfem::Device::IsConfigured()) {
++        mgis::raise(
++            "initialize: the MFEM device is already configured, the "
++            "option '--device' can't be used");
++      }
+       this->device = std::make_unique<mfem::Device>(
+           device_configuration, getDeviceIdentifier(device_configuration));
+       // the kernels are launched asynchronously on a GPU: the profiling
+diff --git a/tests/DeviceForallTest.cxx b/tests/DeviceForallTest.cxx
+index 9cd998afdc..9002f36d00 100644
+--- a/tests/DeviceForallTest.cxx
++++ b/tests/DeviceForallTest.cxx
+@@ -9,6 +9,10 @@
+ #include <cstdlib>
+ #include <cstring>
+ #include <iostream>
++#include "mfem/config/config.hpp"
++#ifdef MFEM_USE_MPI
++#include <mpi.h>
++#endif /* MFEM_USE_MPI */
+ #include "mfem/general/device.hpp"
+ #include "mfem/general/forall.hpp"
+ #include "mfem/general/optparser.hpp"
+@@ -35,6 +39,23 @@ int main(int argc, char** argv) {
+     std::cerr << "unexpected backend\n";
+     return EXIT_FAILURE;
+   }
++  // the processes of a node use the GPUs of the node in turn
++  if (cuda) {
++    auto r = int{};
++#ifdef MFEM_USE_MPI
++    auto local = MPI_Comm{};
++    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
++                        &local);
++    MPI_Comm_rank(local, &r);
++    MPI_Comm_free(&local);
++#endif /* MFEM_USE_MPI */
++    const auto expected_id = r % mfem::Device::GetDeviceCount();
++    if (mfem::Device::GetId() != expected_id) {
++      std::cerr << "unexpected GPU " << mfem::Device::GetId() << " (expected "
++                << expected_id << ")\n";
++      return EXIT_FAILURE;
++    }
++  }
+   // with a GPU, the profiling sections wait for the kernels
+   if ((mgis::getProfilingSynchronization() != nullptr) != cuda) {
+     std::cerr << "unexpected synchronization of the profiling sections\n";
+-- 
+2.43.0
+

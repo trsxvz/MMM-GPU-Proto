@@ -9,7 +9,9 @@
 #   (`MFEM_CXX` and `MFEM_HOST_CXX` in `config.mk`), unless
 #   `CMAKE_CUDA_COMPILER` and `CMAKE_CUDA_HOST_COMPILER` are given. This
 #   macro enables a language: it must be called at file scope (not in a
-#   function), before `mfem_mgis_compile_as_device_code`.
+#   function), before `mfem_mgis_compile_as_device_code`. A warning is
+#   printed if the CUDA compiler is not the one of MFEM (for instance a build
+#   directory configured before a change of MFEM).
 # - `mfem_mgis_compile_as_device_code(target sources...)`: compiles the
 #   given sources of the target as CUDA code if MFEM is compiled with CUDA,
 #   and does nothing otherwise.
@@ -23,8 +25,7 @@
 # - `MFEM_MGIS_MFEM_CUDA_COMPILER`, `MFEM_MGIS_MFEM_CUDA_HOST_COMPILER`:
 #   compilers used to compile MFEM;
 # - `MFEM_MGIS_MFEM_CUDA_ARCHITECTURES`: GPU architectures of MFEM, in the
-#   syntax of the `CUDA_ARCHITECTURES` property;
-# - `MFEM_MGIS_MFEM_CXX_STANDARD`: C++ standard used to compile MFEM.
+#   syntax of the `CUDA_ARCHITECTURES` property.
 
 # usage: mfem_mgis_set_mfem_device_properties(use_cuda use_hip cxx host_cxx
 #                                             cxxflags)
@@ -35,8 +36,7 @@ function(mfem_mgis_set_mfem_device_properties use_cuda use_hip cxx host_cxx
          cxxflags)
   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA "${use_cuda}")
   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP "${use_hip}")
-  foreach(_property CUDA_COMPILER CUDA_HOST_COMPILER CUDA_ARCHITECTURES
-                    CXX_STANDARD)
+  foreach(_property CUDA_COMPILER CUDA_HOST_COMPILER CUDA_ARCHITECTURES)
     set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_${_property} "")
   endforeach(_property)
   if(NOT use_cuda STREQUAL "YES")
@@ -64,9 +64,6 @@ function(mfem_mgis_set_mfem_device_properties use_cuda use_hip cxx host_cxx
     elseif(_flag MATCHES "^(-gencode|--generate-code)=?(.*)code=\\[?([^]]*)\\]?$")
       string(REPLACE "," ";" _c "${CMAKE_MATCH_3}")
       list(APPEND _codes ${_c})
-    elseif(_flag MATCHES "^-std=(c|gnu)\\+\\+([0-9]+)$")
-      set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD
-                   "${CMAKE_MATCH_2}")
     endif()
   endforeach(_flag)
   # translation in the syntax of the `CUDA_ARCHITECTURES` property: `sm_X`
@@ -115,6 +112,18 @@ macro(mfem_mgis_enable_device_language)
                    PROPERTY MFEM_MGIS_MFEM_CUDA_HOST_COMPILER)
     endif()
     enable_language(CUDA)
+    get_property(_mfem_mgis_cuda_compiler GLOBAL
+                 PROPERTY MFEM_MGIS_MFEM_CUDA_COMPILER)
+    if(_mfem_mgis_cuda_compiler)
+      get_filename_component(_mfem_mgis_c1 "${CMAKE_CUDA_COMPILER}" REALPATH)
+      get_filename_component(_mfem_mgis_c2 "${_mfem_mgis_cuda_compiler}"
+                             REALPATH)
+      if(NOT _mfem_mgis_c1 STREQUAL _mfem_mgis_c2)
+        message(WARNING "mfem-mgis: the CUDA compiler "
+                "(${CMAKE_CUDA_COMPILER}) is not the one of MFEM "
+                "(${_mfem_mgis_cuda_compiler})")
+      endif()
+    endif()
   endif()
 endmacro(mfem_mgis_enable_device_language)
 
@@ -129,8 +138,9 @@ function(mfem_mgis_compile_as_device_code target)
   if(NOT _use_cuda STREQUAL "YES")
     return()
   endif()
-  get_property(_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
-  if(NOT "CUDA" IN_LIST _languages)
+  # the language must be enabled in the directory of the call (or in one of
+  # its parents)
+  if(NOT CMAKE_CUDA_COMPILER_LOADED)
     message(FATAL_ERROR "mfem-mgis: MFEM is compiled with CUDA and the "
             "sources of target '${target}' contain kernels of MFEM: the "
             "CUDA language must be enabled (see "
@@ -138,24 +148,24 @@ function(mfem_mgis_compile_as_device_code target)
   endif()
   set_source_files_properties(${ARGN}
     TARGET_DIRECTORY ${target} PROPERTIES LANGUAGE CUDA)
-  # same C++ standard as the other sources of the target, or as MFEM
+  # same C++ standard as the other sources of the target, at least C++20
+  # (required by the headers of mfem-mgis)
   get_target_property(_standard ${target} CXX_STANDARD)
   if(NOT _standard)
     set(_standard "${CMAKE_CXX_STANDARD}")
   endif()
-  if(NOT _standard)
-    get_property(_standard GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD)
+  if((NOT _standard) OR (_standard LESS 20) OR (_standard EQUAL 98))
+    set(_standard 20)
   endif()
-  if(_standard)
-    set_target_properties(${target} PROPERTIES
-      CUDA_STANDARD "${_standard}" CUDA_STANDARD_REQUIRED ON)
-  endif()
+  set_target_properties(${target} PROPERTIES
+    CUDA_STANDARD "${_standard}" CUDA_STANDARD_REQUIRED ON)
   get_property(_archs GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES)
   if(_archs)
     set_target_properties(${target} PROPERTIES CUDA_ARCHITECTURES "${_archs}")
   endif()
-  # MFEM is linked to the shared CUDA runtime (`CUDA::cudart`): a second,
-  # static, runtime would not share its state (device, streams, memory)
+  # the CUDA sources use the shared CUDA runtime (`CUDA::cudart`), linked to
+  # all the code of mfem-mgis by the target `MFEM::mfem`, rather than a
+  # static copy per target (MFEM itself embeds its own static runtime)
   set_target_properties(${target} PROPERTIES
     CUDA_RUNTIME_LIBRARY Shared LINKER_LANGUAGE CXX)
   # options required by the kernels of MFEM (nvcc only)

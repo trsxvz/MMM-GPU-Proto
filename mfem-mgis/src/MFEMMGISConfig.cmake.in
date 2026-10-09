@@ -46,8 +46,6 @@ if(NOT _mfem_mgis_mfem_described)
                "@MFEM_MGIS_MFEM_CUDA_HOST_COMPILER@")
   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES
                "@MFEM_MGIS_MFEM_CUDA_ARCHITECTURES@")
-  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD
-               "@MFEM_MGIS_MFEM_CXX_STANDARD@")
 endif()
 
 # Require MGIS

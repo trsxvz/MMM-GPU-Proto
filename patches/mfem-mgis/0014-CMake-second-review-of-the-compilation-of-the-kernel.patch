@@ -1,0 +1,303 @@
+From ddab4eb8490d634899bb241c9e8f85cc64af09ce Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 14:19:38 +0200
+Subject: [PATCH] CMake: second review of the compilation of the kernels of
+ MFEM
+
+- The CUDA toolkit is the one of the nvcc used to compile MFEM
+  (`CUDAToolkit_ROOT`), not the first one found.
+- CMake 3.18 is checked as soon as MFEM uses CUDA, before the first
+  command requiring it.
+- Warning when the CUDA compiler is not the one of MFEM (build directory
+  configured before a change of MFEM) and when `-isystem` has no
+  directory.
+- The CUDA language is checked in the directory of the target, not
+  globally.
+- The CUDA sources are compiled in C++20 at least (required by the
+  headers of mfem-mgis) when the target gives no standard; the standard
+  of MFEM is no longer read.
+- Comment on the CUDA runtime corrected: MFEM embeds its own static copy.
+- With MFEM compiled with HIP, DeviceForallTest is not built (the
+  configuration failed).
+- Documentation of the module in the installation guide.
+---
+ CMakeLists.txt                                |  2 +-
+ cmake/modules/FindMFEM.cmake                  | 26 ++++++++++
+ cmake/modules/MFEMMGISDeviceCode.cmake        | 48 +++++++++++--------
+ .../installation_guide/installation_guide.rst | 21 ++++++++
+ src/MFEMMGISConfig.cmake.in                   |  2 -
+ tests/CMakeLists.txt                          | 31 ++++++------
+ 6 files changed, 94 insertions(+), 36 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 47b0f954ae..8297edbfb4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -47,7 +47,7 @@ mfem_mgis_enable_device_language()
+ # description of MFEM written in the configuration file of mfem-mgis, for
+ # the projects which find MFEM before mfem-mgis
+ foreach(_property USE_CUDA USE_HIP CUDA_COMPILER CUDA_HOST_COMPILER
+-                  CUDA_ARCHITECTURES CXX_STANDARD)
++                  CUDA_ARCHITECTURES)
+   get_property(MFEM_MGIS_MFEM_${_property} GLOBAL
+                PROPERTY MFEM_MGIS_MFEM_${_property})
+ endforeach(_property)
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index b101c97b65..e3accce111 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -15,6 +15,12 @@
+ #   - MFEM_LIBRARIES
+ #   - MFEM_INCLUDE_DIRS
+ #   - MFEM_LIBRARY_DIRS
++# and the variables of the `config.mk` file of MFEM (`MFEM_USE_CUDA`, ...).
++#
++# When MFEM is compiled with CUDA, the sources containing kernels of MFEM
++# must be compiled as CUDA code: see `MFEMMGISDeviceCode.cmake`, loaded by
++# this file (`mfem_mgis_enable_device_language`,
++# `mfem_mgis_compile_as_device_code`). CMake 3.18 is then required.
+ 
+ # FIXME: Perhaps I should try to assert that we're building against
+ # the same hypre library MFEM built on?
+@@ -93,6 +99,12 @@ separate_arguments(MFEM_EXTRA_INC_DIRS UNIX_COMMAND "${MFEM_TPLFLAGS}")
+ # `add_compile_options` removes duplicated options. The flags written in
+ # the syntax of nvcc are given as such to the sources compiled as CUDA code
+ # by nvcc (see `MFEMMGISDeviceCode.cmake`) and translated for the others.
++if(MFEM_USE_CUDA STREQUAL "YES")
++  if(CMAKE_VERSION VERSION_LESS 3.18)
++    message(FATAL_ERROR "mfem-mgis: CMake 3.18 or later is required with "
++            "MFEM compiled with CUDA")
++  endif()
++endif()
+ set(_isystem OFF)
+ set(_nvcc "$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CUDA_COMPILER_ID:NVIDIA>>")
+ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
+@@ -113,6 +125,10 @@ foreach(FLAG IN LISTS MFEM_EXTRA_INC_DIRS)
+     endif()
+   endif()
+ endforeach(FLAG)
++if(_isystem)
++  message(WARNING "mfem-mgis: the last flag of MFEM_TPLFLAGS is "
++          "'-isystem', without directory: ignored")
++endif()
+ 
+ # Description of MFEM used to compile its kernels (see
+ # `MFEMMGISDeviceCode.cmake`)
+@@ -148,7 +164,17 @@ mfem_mgis_host_flags(MFEM_EXT_LIBS_LIST ${MFEM_EXT_LIBS_LIST})
+ # of the toolkit (`-lcusparse`, ...) without their directory, which nvcc
+ # knows but not the C++ compiler
+ if(MFEM_USE_CUDA STREQUAL "YES")
++  # the toolkit of the nvcc used to compile MFEM
++  if((NOT DEFINED CUDAToolkit_ROOT) AND (MFEM_CXX MATCHES "nvcc$"))
++    get_filename_component(_mfem_cuda_bin "${MFEM_CXX}" DIRECTORY)
++    get_filename_component(CUDAToolkit_ROOT "${_mfem_cuda_bin}" DIRECTORY)
++  endif()
++  # `CUDAToolkit_ROOT` is used (policy CMP0074, not set by the minimum
++  # version of CMake required by mfem-mgis)
++  cmake_policy(PUSH)
++  cmake_policy(SET CMP0074 NEW)
+   find_package(CUDAToolkit REQUIRED)
++  cmake_policy(POP)
+   list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
+   set_property(TARGET MFEM::mfem APPEND
+     PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)
+diff --git a/cmake/modules/MFEMMGISDeviceCode.cmake b/cmake/modules/MFEMMGISDeviceCode.cmake
+index e92feed99b..571983259a 100644
+--- a/cmake/modules/MFEMMGISDeviceCode.cmake
++++ b/cmake/modules/MFEMMGISDeviceCode.cmake
+@@ -9,7 +9,9 @@
+ #   (`MFEM_CXX` and `MFEM_HOST_CXX` in `config.mk`), unless
+ #   `CMAKE_CUDA_COMPILER` and `CMAKE_CUDA_HOST_COMPILER` are given. This
+ #   macro enables a language: it must be called at file scope (not in a
+-#   function), before `mfem_mgis_compile_as_device_code`.
++#   function), before `mfem_mgis_compile_as_device_code`. A warning is
++#   printed if the CUDA compiler is not the one of MFEM (for instance a build
++#   directory configured before a change of MFEM).
+ # - `mfem_mgis_compile_as_device_code(target sources...)`: compiles the
+ #   given sources of the target as CUDA code if MFEM is compiled with CUDA,
+ #   and does nothing otherwise.
+@@ -23,8 +25,7 @@
+ # - `MFEM_MGIS_MFEM_CUDA_COMPILER`, `MFEM_MGIS_MFEM_CUDA_HOST_COMPILER`:
+ #   compilers used to compile MFEM;
+ # - `MFEM_MGIS_MFEM_CUDA_ARCHITECTURES`: GPU architectures of MFEM, in the
+-#   syntax of the `CUDA_ARCHITECTURES` property;
+-# - `MFEM_MGIS_MFEM_CXX_STANDARD`: C++ standard used to compile MFEM.
++#   syntax of the `CUDA_ARCHITECTURES` property.
+ 
+ # usage: mfem_mgis_set_mfem_device_properties(use_cuda use_hip cxx host_cxx
+ #                                             cxxflags)
+@@ -35,8 +36,7 @@ function(mfem_mgis_set_mfem_device_properties use_cuda use_hip cxx host_cxx
+          cxxflags)
+   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA "${use_cuda}")
+   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP "${use_hip}")
+-  foreach(_property CUDA_COMPILER CUDA_HOST_COMPILER CUDA_ARCHITECTURES
+-                    CXX_STANDARD)
++  foreach(_property CUDA_COMPILER CUDA_HOST_COMPILER CUDA_ARCHITECTURES)
+     set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_${_property} "")
+   endforeach(_property)
+   if(NOT use_cuda STREQUAL "YES")
+@@ -64,9 +64,6 @@ function(mfem_mgis_set_mfem_device_properties use_cuda use_hip cxx host_cxx
+     elseif(_flag MATCHES "^(-gencode|--generate-code)=?(.*)code=\\[?([^]]*)\\]?$")
+       string(REPLACE "," ";" _c "${CMAKE_MATCH_3}")
+       list(APPEND _codes ${_c})
+-    elseif(_flag MATCHES "^-std=(c|gnu)\\+\\+([0-9]+)$")
+-      set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD
+-                   "${CMAKE_MATCH_2}")
+     endif()
+   endforeach(_flag)
+   # translation in the syntax of the `CUDA_ARCHITECTURES` property: `sm_X`
+@@ -115,6 +112,18 @@ macro(mfem_mgis_enable_device_language)
+                    PROPERTY MFEM_MGIS_MFEM_CUDA_HOST_COMPILER)
+     endif()
+     enable_language(CUDA)
++    get_property(_mfem_mgis_cuda_compiler GLOBAL
++                 PROPERTY MFEM_MGIS_MFEM_CUDA_COMPILER)
++    if(_mfem_mgis_cuda_compiler)
++      get_filename_component(_mfem_mgis_c1 "${CMAKE_CUDA_COMPILER}" REALPATH)
++      get_filename_component(_mfem_mgis_c2 "${_mfem_mgis_cuda_compiler}"
++                             REALPATH)
++      if(NOT _mfem_mgis_c1 STREQUAL _mfem_mgis_c2)
++        message(WARNING "mfem-mgis: the CUDA compiler "
++                "(${CMAKE_CUDA_COMPILER}) is not the one of MFEM "
++                "(${_mfem_mgis_cuda_compiler})")
++      endif()
++    endif()
+   endif()
+ endmacro(mfem_mgis_enable_device_language)
+ 
+@@ -129,8 +138,9 @@ function(mfem_mgis_compile_as_device_code target)
+   if(NOT _use_cuda STREQUAL "YES")
+     return()
+   endif()
+-  get_property(_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+-  if(NOT "CUDA" IN_LIST _languages)
++  # the language must be enabled in the directory of the call (or in one of
++  # its parents)
++  if(NOT CMAKE_CUDA_COMPILER_LOADED)
+     message(FATAL_ERROR "mfem-mgis: MFEM is compiled with CUDA and the "
+             "sources of target '${target}' contain kernels of MFEM: the "
+             "CUDA language must be enabled (see "
+@@ -138,24 +148,24 @@ function(mfem_mgis_compile_as_device_code target)
+   endif()
+   set_source_files_properties(${ARGN}
+     TARGET_DIRECTORY ${target} PROPERTIES LANGUAGE CUDA)
+-  # same C++ standard as the other sources of the target, or as MFEM
++  # same C++ standard as the other sources of the target, at least C++20
++  # (required by the headers of mfem-mgis)
+   get_target_property(_standard ${target} CXX_STANDARD)
+   if(NOT _standard)
+     set(_standard "${CMAKE_CXX_STANDARD}")
+   endif()
+-  if(NOT _standard)
+-    get_property(_standard GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD)
+-  endif()
+-  if(_standard)
+-    set_target_properties(${target} PROPERTIES
+-      CUDA_STANDARD "${_standard}" CUDA_STANDARD_REQUIRED ON)
++  if((NOT _standard) OR (_standard LESS 20) OR (_standard EQUAL 98))
++    set(_standard 20)
+   endif()
++  set_target_properties(${target} PROPERTIES
++    CUDA_STANDARD "${_standard}" CUDA_STANDARD_REQUIRED ON)
+   get_property(_archs GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES)
+   if(_archs)
+     set_target_properties(${target} PROPERTIES CUDA_ARCHITECTURES "${_archs}")
+   endif()
+-  # MFEM is linked to the shared CUDA runtime (`CUDA::cudart`): a second,
+-  # static, runtime would not share its state (device, streams, memory)
++  # the CUDA sources use the shared CUDA runtime (`CUDA::cudart`), linked to
++  # all the code of mfem-mgis by the target `MFEM::mfem`, rather than a
++  # static copy per target (MFEM itself embeds its own static runtime)
+   set_target_properties(${target} PROPERTIES
+     CUDA_RUNTIME_LIBRARY Shared LINKER_LANGUAGE CXX)
+   # options required by the kernels of MFEM (nvcc only)
+diff --git a/docs/source/installation_guide/installation_guide.rst b/docs/source/installation_guide/installation_guide.rst
+index a6b14bbcb1..1e46718efe 100644
+--- a/docs/source/installation_guide/installation_guide.rst
++++ b/docs/source/installation_guide/installation_guide.rst
+@@ -120,6 +120,27 @@ CMake builds the sources, and the ``check`` target runs the tests:
+    cmake --build build --target check
+    cmake --build build --target install
+ 
++MFEM compiled with CUDA
++^^^^^^^^^^^^^^^^^^^^^^^
++
++When ``MFEM`` is compiled with ``CUDA``, the sources containing kernels
++of ``MFEM`` (``mfem::forall``) must be compiled by ``nvcc``. The CMake
++module ``MFEMMGISDeviceCode.cmake``, installed with ``mfem-mgis`` and
++loaded by ``find_package(MFEMMGIS)``, provides:
++
++- ``mfem_mgis_enable_device_language()``, to be called at file scope
++  (not in a function), which enables the ``CUDA`` language with the
++  compilers used to build ``MFEM`` (unless ``CMAKE_CUDA_COMPILER`` and
++  ``CMAKE_CUDA_HOST_COMPILER`` are given);
++- ``mfem_mgis_compile_as_device_code(target sources...)``, which compiles
++  the given sources of the target as ``CUDA`` code, for the GPU
++  architectures of ``MFEM``.
++
++Both do nothing when ``MFEM`` is not compiled with ``CUDA``. CMake 3.18
++or later is then required. ``MFEM`` compiled with ``HIP`` is not
++supported yet. The tests which require a GPU are disabled by
++``-Denable-gpu-tests=OFF``.
++
+ Creating a simple example based on ``mfem-mgis``
+ ------------------------------------------------
+ 
+diff --git a/src/MFEMMGISConfig.cmake.in b/src/MFEMMGISConfig.cmake.in
+index 9a38c60160..487ac2e67a 100644
+--- a/src/MFEMMGISConfig.cmake.in
++++ b/src/MFEMMGISConfig.cmake.in
+@@ -46,8 +46,6 @@ if(NOT _mfem_mgis_mfem_described)
+                "@MFEM_MGIS_MFEM_CUDA_HOST_COMPILER@")
+   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES
+                "@MFEM_MGIS_MFEM_CUDA_ARCHITECTURES@")
+-  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CXX_STANDARD
+-               "@MFEM_MGIS_MFEM_CXX_STANDARD@")
+ endif()
+ 
+ # Require MGIS
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 5b1b8b9456..d732a6f68c 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -765,20 +765,23 @@ if(MFEM_USE_MPI)
+ endif(MFEM_USE_MPI)
+ 
+ # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
+-# when MFEM is compiled with CUDA. The test on the GPU requires one.
+-add_test_executable(DeviceForallTest)
+-mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
+-add_test(NAME DeviceForallTest-cpu
+-         COMMAND DeviceForallTest --expected cpu)
+-if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+-  add_test(NAME DeviceForallTest-cuda
+-           COMMAND DeviceForallTest --device cuda --expected cuda)
+-  # the processes of a node use its GPUs in turn
+-  if(MFEM_USE_MPI)
+-    add_test(NAME DeviceForallTestP-cuda
+-             COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
+-                     --expected cuda)
+-  endif(MFEM_USE_MPI)
++# when MFEM is compiled with CUDA (not supported yet with HIP). The test on
++# the GPU requires one.
++if(NOT MFEM_USE_HIP STREQUAL "YES")
++  add_test_executable(DeviceForallTest)
++  mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
++  add_test(NAME DeviceForallTest-cpu
++           COMMAND DeviceForallTest --expected cpu)
++  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++    add_test(NAME DeviceForallTest-cuda
++             COMMAND DeviceForallTest --device cuda --expected cuda)
++    # the processes of a node use its GPUs in turn
++    if(MFEM_USE_MPI)
++      add_test(NAME DeviceForallTestP-cuda
++               COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
++                       --expected cuda)
++    endif(MFEM_USE_MPI)
++  endif()
+ endif()
+ 
+ # DeviceOptionTest executable
+-- 
+2.43.0
+

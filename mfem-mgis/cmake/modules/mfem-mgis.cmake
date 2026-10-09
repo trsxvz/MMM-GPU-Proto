@@ -17,6 +17,12 @@ function(mfem_mgis_buildenv)
   string(REGEX REPLACE "/cmake\n$" "" CMAKE_CP_PATH "${CMAKE_CP_PATH}")
   get_target_property(MFEM_LIB_LIST MFEM::mfem INTERFACE_LINK_LIBRARIES)
   get_target_property(MFEM_INCLUDE_DIRS MFEM::mfem INTERFACE_INCLUDE_DIRECTORIES)
+  # one line per library directory of TFEL (a CMake list), so that env.sh
+  # does not have to split it
+  set(TFEL_LDADD "")
+  foreach(_d IN LISTS TFEL_LIBRARY_PATH)
+    string(APPEND TFEL_LDADD "ldadd \"${_d}\"\n")
+  endforeach()
   configure_file(cmake/env.sh.in
     ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/env.sh  @ONLY)
   install(FILES

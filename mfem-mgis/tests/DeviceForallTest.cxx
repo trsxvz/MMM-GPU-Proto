@@ -9,6 +9,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include "mfem/config/config.hpp"
+#ifdef MFEM_USE_MPI
+#include <mpi.h>
+#endif /* MFEM_USE_MPI */
 #include "mfem/general/device.hpp"
 #include "mfem/general/forall.hpp"
 #include "mfem/general/optparser.hpp"
@@ -34,6 +38,23 @@ int main(int argc, char** argv) {
   if ((std::strcmp(expected, "cuda") == 0) != cuda) {
     std::cerr << "unexpected backend\n";
     return EXIT_FAILURE;
+  }
+  // the processes of a node use the GPUs of the node in turn
+  if (cuda) {
+    auto r = int{};
+#ifdef MFEM_USE_MPI
+    auto local = MPI_Comm{};
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
+                        &local);
+    MPI_Comm_rank(local, &r);
+    MPI_Comm_free(&local);
+#endif /* MFEM_USE_MPI */
+    const auto expected_id = r % mfem::Device::GetDeviceCount();
+    if (mfem::Device::GetId() != expected_id) {
+      std::cerr << "unexpected GPU " << mfem::Device::GetId() << " (expected "
+                << expected_id << ")\n";
+      return EXIT_FAILURE;
+    }
   }
   // with a GPU, the profiling sections wait for the kernels
   if ((mgis::getProfilingSynchronization() != nullptr) != cuda) {

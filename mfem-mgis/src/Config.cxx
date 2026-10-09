@@ -96,10 +96,12 @@ namespace mfem_mgis {
   static int getDeviceIdentifier(const char* const configuration) {
 #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
     // MFEM aborts if the number of GPUs is queried on a machine without GPU:
-    // it is only queried for a configuration using a GPU
+    // it is only queried for a configuration using a GPU (`cuda`, `hip`,
+    // `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
     const auto c = std::string_view{configuration};
     if ((c.find("cuda") == std::string_view::npos) &&
-        (c.find("hip") == std::string_view::npos)) {
+        (c.find("hip") == std::string_view::npos) &&
+        (c.find("gpu") == std::string_view::npos)) {
       return 0;
     }
     const auto n = mfem::Device::GetDeviceCount();
@@ -197,6 +199,11 @@ namespace mfem_mgis {
     // before the one of PETSc, which uses the GPU of the device, as in the
     // parallel examples of MFEM
     if (device_configuration != nullptr) {
+      if (mfem::Device::IsConfigured()) {
+        mgis::raise(
+            "initialize: the MFEM device is already configured, the "
+            "option '--device' can't be used");
+      }
       this->device = std::make_unique<mfem::Device>(
           device_configuration, getDeviceIdentifier(device_configuration));
       // the kernels are launched asynchronously on a GPU: the profiling

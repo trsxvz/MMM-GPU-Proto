@@ -120,6 +120,27 @@ CMake builds the sources, and the ``check`` target runs the tests:
    cmake --build build --target check
    cmake --build build --target install
 
+MFEM compiled with CUDA
+^^^^^^^^^^^^^^^^^^^^^^^
+
+When ``MFEM`` is compiled with ``CUDA``, the sources containing kernels
+of ``MFEM`` (``mfem::forall``) must be compiled by ``nvcc``. The CMake
+module ``MFEMMGISDeviceCode.cmake``, installed with ``mfem-mgis`` and
+loaded by ``find_package(MFEMMGIS)``, provides:
+
+- ``mfem_mgis_enable_device_language()``, to be called at file scope
+  (not in a function), which enables the ``CUDA`` language with the
+  compilers used to build ``MFEM`` (unless ``CMAKE_CUDA_COMPILER`` and
+  ``CMAKE_CUDA_HOST_COMPILER`` are given);
+- ``mfem_mgis_compile_as_device_code(target sources...)``, which compiles
+  the given sources of the target as ``CUDA`` code, for the GPU
+  architectures of ``MFEM``.
+
+Both do nothing when ``MFEM`` is not compiled with ``CUDA``. CMake 3.18
+or later is then required. ``MFEM`` compiled with ``HIP`` is not
+supported yet. The tests which require a GPU are disabled by
+``-Denable-gpu-tests=OFF``.
+
 Creating a simple example based on ``mfem-mgis``
 ------------------------------------------------
 

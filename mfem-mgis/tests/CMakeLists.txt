@@ -765,20 +765,23 @@ if(MFEM_USE_MPI)
 endif(MFEM_USE_MPI)
 
 # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
-# when MFEM is compiled with CUDA. The test on the GPU requires one.
-add_test_executable(DeviceForallTest)
-mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
-add_test(NAME DeviceForallTest-cpu
-         COMMAND DeviceForallTest --expected cpu)
-if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
-  add_test(NAME DeviceForallTest-cuda
-           COMMAND DeviceForallTest --device cuda --expected cuda)
-  # the processes of a node use its GPUs in turn
-  if(MFEM_USE_MPI)
-    add_test(NAME DeviceForallTestP-cuda
-             COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
-                     --expected cuda)
-  endif(MFEM_USE_MPI)
+# when MFEM is compiled with CUDA (not supported yet with HIP). The test on
+# the GPU requires one.
+if(NOT MFEM_USE_HIP STREQUAL "YES")
+  add_test_executable(DeviceForallTest)
+  mfem_mgis_compile_as_device_code(DeviceForallTest DeviceForallTest.cxx)
+  add_test(NAME DeviceForallTest-cpu
+           COMMAND DeviceForallTest --expected cpu)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME DeviceForallTest-cuda
+             COMMAND DeviceForallTest --device cuda --expected cuda)
+    # the processes of a node use its GPUs in turn
+    if(MFEM_USE_MPI)
+      add_test(NAME DeviceForallTestP-cuda
+               COMMAND mpirun -n 2 ./DeviceForallTest --device cuda
+                       --expected cuda)
+    endif(MFEM_USE_MPI)
+  endif()
 endif()
 
 # DeviceOptionTest executable
