@@ -57,9 +57,15 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] s: quadrature space
      * \param[in] b_ptr: behaviour
+     * \param[in] l: layout of the arrays of the data at the integration
+     * points. The component by component layout is not supported by the
+     * accessors based on a stride between points (`getGradient`,
+     * `getInternalStateVariable`...), nor by the behaviour integrators of
+     * mfem-mgis, which use the point by point layout.
      */
     Material(std::shared_ptr<const PartialQuadratureSpace> s,
-             std::unique_ptr<const Behaviour> b_ptr);
+             std::unique_ptr<const Behaviour> b_ptr,
+             const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief set the macroscopic gradients
      * \param[in] g: macroscopic gradients

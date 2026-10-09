@@ -42,7 +42,10 @@ namespace mfem_mgis {
     return {v.HostReadWrite(), static_cast<std::size_t>(v.Size())};
   }  // end of getHostView
 
-  MaterialArrays::MaterialArrays(const Behaviour& b, const size_type n) {
+  MaterialArrays::MaterialArrays(const Behaviour& b,
+                                 const size_type n,
+                                 const mgis::FieldLayout l)
+      : array_layout(l) {
     using mgis::behaviour::getArraySize;
     const auto gs = getArraySize(b.gradients, b.hypothesis);
     const auto ts = getArraySize(b.thermodynamic_forces, b.hypothesis);
@@ -61,15 +64,20 @@ namespace mfem_mgis {
     allocateMaterialArray(this->tangent_operator_blocks,
                           n * mgis::behaviour::getTangentOperatorArraySize(b));
     // the deformation gradients are initialized to the identity, as MGIS
-    // does for the arrays it allocates (point by point layout: the first
-    // three components are the diagonal ones)
+    // does for the arrays it allocates (the first three components are the
+    // diagonal ones)
     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
         (n != 0)) {
+      const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
+      const auto ps = pbp ? gs : size_type{1};
+      const auto cs = pbp ? size_type{1} : n;
       for (auto& g : this->gradients) {
         auto* const F = g.HostReadWrite();
         for (size_type i = 0; i != n; ++i) {
-          F[i * gs] = F[i * gs + 1] = F[i * gs + 2] = real{1};
+          for (size_type c = 0; c != 3; ++c) {
+            F[i * ps + c * cs] = real{1};
+          }
         }
       }
     }
@@ -91,7 +99,7 @@ namespace mfem_mgis {
     state(i.s1, 1);
     i.K = getHostView(this->tangent_operator_blocks);
     i.location = mgis::MemoryLocation::HOST;
-    i.layout = mgis::FieldLayout::POINT_BY_POINT;
+    i.layout = this->array_layout;
     return i;
   }  // end of getInitializer
 

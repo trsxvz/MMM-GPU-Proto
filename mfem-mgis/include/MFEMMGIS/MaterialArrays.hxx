@@ -25,7 +25,9 @@ namespace mfem_mgis {
    *
    * The material data manager of MGIS uses these arrays without copy (see
    * `getInitializer`). It is given the pointers of their copies on the
-   * host, at the `HOST` location, in the point by point layout.
+   * host, at the `HOST` location, in the layout chosen at construction
+   * (point by point by default, or component by component, which gives
+   * coalesced accesses on a GPU).
    *
    * Validity of the copies: MFEM keeps track of the valid copies of each
    * array. MGIS reads and writes the arrays through the pointers given at
@@ -47,8 +49,11 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] b: behaviour
      * \param[in] n: number of integration points
+     * \param[in] l: layout of the arrays
      */
-    MaterialArrays(const Behaviour&, const size_type);
+    MaterialArrays(const Behaviour&,
+                   const size_type,
+                   const mgis::FieldLayout = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \return the initializer of the material data manager of MGIS using
      * these arrays
@@ -85,6 +90,8 @@ namespace mfem_mgis {
     std::array<mfem::Vector, 2u> dissipated_energies;
     //! \brief blocks of the tangent operator
     mfem::Vector tangent_operator_blocks;
+    //! \brief layout of the arrays
+    const mgis::FieldLayout array_layout;
 
    private:
     //! \brief copy constructor (disabled)

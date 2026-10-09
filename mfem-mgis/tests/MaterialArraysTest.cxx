@@ -50,7 +50,8 @@ static void testMaterial(
     mfem_mgis::Context& ctx,
     std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
     const char* const library,
-    const char* const behaviour) {
+    const char* const behaviour,
+    const mgis::FieldLayout layout) {
   using namespace mfem_mgis;
   auto b = mfem_mgis::load(ctx, library, behaviour, Hypothesis::TRIDIMENSIONAL);
   if (isInvalid(b)) {
@@ -58,10 +59,15 @@ static void testMaterial(
     ++failures;
     return;
   }
-  auto m = Material(qspace, std::move(b));
+  auto m = Material(qspace, std::move(b), layout);
   auto& a = m.getArrays();
   const auto n = qspace->getNumberOfIntegrationPoints();
-  const auto name = std::string{behaviour};
+  const auto pbp = layout == mgis::FieldLayout::POINT_BY_POINT;
+  const auto name = std::string{behaviour} +
+                    (pbp ? " (point by point)" : " (component by component)");
+  check((m.layout == layout) && (m.s0.layout == layout) &&
+            (m.s1.layout == layout),
+        name + ": layout not given to MGIS");
   // sizes and use without copy
   for (std::size_t i = 0; i != 2; ++i) {
     auto& s = i == 0 ? m.s0 : m.s1;
@@ -86,15 +92,25 @@ static void testMaterial(
   // identity of the deformation gradients
   if ((m.b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
       (m.b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY)) {
-    for (const auto* s : {&m.s0, &m.s1}) {
+    for (auto* s : {&m.s0, &m.s1}) {
+      const auto F = mgis::behaviour::getGradientsView(*s);
+      auto identity = true;
       for (size_type o = 0; o != n; ++o) {
-        const auto* const F = s->gradients.data() + o * s->gradients_stride;
         for (size_type c = 0; c != s->gradients_stride; ++c) {
-          check(F[c] == (c < 3 ? 1 : 0),
-                name + ": deformation gradient not initialized to identity");
+          identity = identity && (F(o, c) == (c < 3 ? 1 : 0));
         }
       }
+      check(identity,
+            name + ": deformation gradient not initialized to identity");
     }
+  }
+  // the accessors based on a stride between points require the point by
+  // point layout
+  if (!m.b.isvs.empty()) {
+    auto ctx2 = Context{};
+    const auto o =
+        getInternalStateVariable(ctx2, m, m.b.isvs.front().name, ets);
+    check(isInvalid(o) != pbp, name + ": accessor and layout");
   }
   // validity of the copies: values written by a kernel on the device are
   // seen by MGIS on the host after `synchronizeOnHost`
@@ -297,7 +313,10 @@ int main(int argc, char** argv) {
   for (const auto* const b :
        {"IsotropicLinearHardeningPlasticity", "SaintVenantKirchhoffElasticity",
         "IsotropicLinearElasticity"}) {
-    testMaterial(ctx, qspace, library, b);
+    for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
+                         mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+      testMaterial(ctx, qspace, library, b, l);
+    }
   }
   testHostAccesses(ctx, mesh, library);
   testQuadratureSpaceArrays(*qspace);
