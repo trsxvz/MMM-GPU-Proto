@@ -12,6 +12,7 @@
 #include <memory>
 #include <functional>
 #include <vector>
+#include "mfem/general/array.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #ifdef MFEM_USE_PETSC
@@ -105,19 +106,30 @@ namespace mfem_mgis {
      * stiffness matrices of the elements of the behaviour integrators of
      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
      * `Kernels` (computed for all the elements by kernels from the tangent
-     * operator blocks, on the device if a device is enabled, then given to
-     * the assembly of MFEM), or `MatrixFree` (the tangent operator is
-     * applied without assembly by kernels, see `MatrixFreeTangentOperator`,
-     * the essential degrees of freedom being constrained by
-     * `mfem::ConstrainedOperator`: the linear solver must not require a
-     * matrix, for instance `CGSolver` with the `OperatorJacobiSmoother`
-     * preconditioner; the non linear form must only contain the integrator
-     * of mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
+     * operator blocks, on the device if a device is enabled, and assembled
+     * by kernels in the sparse matrix of the tangent operator), or
+     * `MatrixFree` (the tangent operator is applied without assembly by
+     * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
+     * freedom being constrained by `mfem::ConstrainedOperator`: the linear
+     * solver must not require a matrix, for instance `CGSolver` with the
+     * `OperatorJacobiSmoother` preconditioner, or with the
+     * `AssembledOperator` preconditioner, built on the assembled tangent
+     * operator; the non linear form must only contain the integrator of
+     * mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
      * behaviour integrators and meshes as for `GradientsComputation`, not
      * with PETSc. The default value is given by the environment variable
      * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
      */
     static const char* const TangentOperatorComputation;
+    //! \brief computations of the tangent operator
+    enum struct TangentOperatorComputationMode {
+      //! \brief stiffness matrices computed element by element, assembled
+      ELEMENT_BY_ELEMENT,
+      //! \brief stiffness matrices computed by kernels, assembled
+      KERNELS,
+      //! \brief tangent operator applied without assembly by kernels
+      MATRIX_FREE
+    };
     //! \return the list of valid parameters
     static std::vector<std::string> getParametersList();
     /*!
@@ -343,20 +355,24 @@ namespace mfem_mgis {
     const bool gradients_kernels;
     //! \brief if true, the inner forces are computed by kernels
     const bool inner_forces_kernels;
+    //! \brief computation of the tangent operator
+    const TangentOperatorComputationMode tangent_operator_computation;
     /*!
-     * \brief if true, the stiffness matrices of the elements are computed by
-     * kernels
-     */
-    const bool tangent_operator_kernels;
-    /*!
-     * \brief if true, the tangent operator is applied without assembly (see
+     * \return if the stiffness matrices of the elements are computed by
+     * kernels: computation by kernels, or tangent operator applied without
+     * assembly, whose assembled version is computed by kernels (see
      * `TangentOperatorComputation`)
      */
-    const bool matrix_free_tangent_operator;
+    [[nodiscard]] bool computesStiffnessMatricesByKernels() const noexcept;
+    /*!
+     * \return if the tangent operator is applied without assembly (see
+     * `TangentOperatorComputation`)
+     */
+    [[nodiscard]] bool appliesTangentOperatorWithoutAssembly() const noexcept;
     /*!
      * \return the tangent operator applied without assembly, the essential
      * degrees of freedom being constrained (created at the first call, or
-     * if the number of essential degrees of freedom changed), which can give
+     * if the essential degrees of freedom changed), which can give
      * its assembled version (see `AssembledOperatorProvider`)
      * \param[in] essential_dofs: essential true degrees of freedom
      * \param[in] f: function assembling the tangent operator, the essential
@@ -382,8 +398,11 @@ namespace mfem_mgis {
     //! \brief tangent operator with constrained essential degrees of freedom
     mutable std::unique_ptr<ConstrainedMatrixFreeTangentOperator>
         constrained_tangent_operator;
-    //! \brief number of essential degrees of freedom of this operator
-    mutable int constrained_tangent_operator_essential_dofs = -1;
+    /*!
+     * \brief essential degrees of freedom of this operator, copied because
+     * `mfem::ConstrainedOperator` keeps a reference to its list
+     */
+    mutable mfem::Array<int> constrained_tangent_operator_essential_dofs;
   };  // end of struct NonLinearEvolutionProblemImplementationBase
 
 }  // end of namespace mfem_mgis

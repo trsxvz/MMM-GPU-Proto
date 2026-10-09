@@ -9,6 +9,7 @@
 #define LIB_MFEM_MGIS_MPI_HXX
 
 #include <cstdint>
+#include <string_view>
 #include <concepts>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
@@ -102,6 +103,21 @@ namespace mfem_mgis {
   template <typename T>
   [[nodiscard]] bool isValidOnAllProcesses(const MeshDiscretization& m,
                                            const T& v) noexcept;
+  /*!
+   * \brief raises an exception on all the processes if a computation failed
+   * on one of them, before the collective operations following it
+   *
+   * \param[in] m: mesh discretization
+   * \param[in, out] ctx: execution context of the computation
+   * \param[in] success: result of the computation in the current process
+   * \param[in] what: description of the computation
+   *
+   * \note if the computations are sequential, no MPI call is made
+   */
+  MFEM_MGIS_EXPORT void raiseOnFailureOnAnyProcess(const MeshDiscretization&,
+                                                   Context&,
+                                                   const bool,
+                                                   std::string_view);
 
 }  // end of namespace mfem_mgis
 

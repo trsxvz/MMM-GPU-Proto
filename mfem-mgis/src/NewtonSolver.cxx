@@ -7,9 +7,11 @@
 
 #include <array>
 #include <iomanip>
+#include <tuple>
 #include <utility>
 #include "MFEMMGIS/Parameters.hxx"
 #include "MGIS/Raise.hxx"
+#include "MGIS/ErrorBacktrace.hxx"
 #include "MGIS/Profiling.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
@@ -243,24 +245,36 @@ namespace mfem_mgis {
     MFEM_ASSERT(this->prec != nullptr,
                 "the Solver is not set (use setLinearSolver).");
     // the assembly of the tangent operator and the setup of the linear solver
-    // (and of its preconditioner) are timed separately
-    auto &J = this->getJacobian(u);
-    {
-      auto profiler_setup =
-          this->ctx_ptr != nullptr
-              ? this->ctx_ptr->startNewProfiling(
-                    "NS::setLinearSolverOperator",
-                    this->ctx_ptr->isProfilingEnabled())
-              : mgis::ProfilingSection{};
-      this->prec->SetOperator(J);
-    }
-    {
-      auto profiler_mfem =
-          this->ctx_ptr != nullptr
-              ? this->ctx_ptr->startNewProfiling(
-                    "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
-              : mgis::ProfilingSection{};
-      this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
+    // (and of its preconditioner) are timed separately. An exception thrown
+    // by the computations by kernels is thrown on all the processes: the
+    // computation of the correction fails on all of them.
+    try {
+      auto &J = this->getJacobian(u);
+      {
+        auto profiler_setup = this->ctx_ptr != nullptr
+                                  ? this->ctx_ptr->startNewProfiling(
+                                        "NS::setLinearSolverOperator",
+                                        this->ctx_ptr->isProfilingEnabled())
+                                  : mgis::ProfilingSection{};
+        this->prec->SetOperator(J);
+      }
+      {
+        auto profiler_mfem =
+            this->ctx_ptr != nullptr
+                ? this->ctx_ptr->startNewProfiling(
+                      "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
+                : mgis::ProfilingSection{};
+        this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
+      }
+    } catch (...) {
+      // the error is reported in the execution context of the resolution,
+      // if any (see `setContext`)
+      if (this->ctx_ptr != nullptr) {
+        std::ignore = mgis::registerExceptionInErrorBacktrace(*(this->ctx_ptr));
+      } else {
+        getErrorStream() << "computation of the Newton correction failed\n";
+      }
+      return false;
     }
     clearHypreErrors();
     if (this->discardLinearSolverFailure) {

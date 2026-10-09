@@ -95,9 +95,18 @@ namespace mfem_mgis {
      * Required before a direct access to the states (`s0`, `s1`) or to the
      * tangent operator blocks (`K`) after a computation on the device. It is
      * called by the mutable accessors (`getInternalStateVariable`, ...), by
-     * the integration of the behaviours (`integrate` and `solve` of the
-     * non linear evolution problems, `computeNextState` of the point-wise
-     * models), by `updateMaterialStates` and by `revertMaterialStates`.
+     * the integration of the behaviours on the host (`integrate` and `solve`
+     * of the non linear evolution problems, `computeNextState` of the
+     * point-wise models), by `updateMaterialStates` and by
+     * `revertMaterialStates`.
+     *
+     * \note a behaviour integrated on the device (see
+     * `BehaviourIntegratorBase::integratesBatchesOnDevice`) is integrated
+     * without synchronization on the host: between the first integration of
+     * a time step and the end of the resolution, the copies on the host of
+     * its arrays are outdated, and a direct access to its states must be
+     * preceded by a synchronization. Its update and its revert are made on
+     * the device and end with `synchronizeOnHostForReading`.
      *
      * \note the arrays of a material used by another one as external
      * storage (material properties or external state variables given with

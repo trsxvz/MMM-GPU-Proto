@@ -61,6 +61,7 @@ if(MFEM_MGIS_HAVE_TFEL)
     IsotropicLinearElasticity
     OrthotropicElasticity
     IsotropicLinearHardeningPlasticity
+    IsotropicLinearHardeningThermoPlasticity
     Mazars
     SaintVenantKirchhoffElasticity
     SaintVenantKirchhoffElasticityV2
@@ -760,6 +761,7 @@ if(MFEM_MGIS_HAVE_TFEL)
   set(batch_integration_test_libraries)
   set(batch_integration_test_behaviours)
   foreach(_behaviour IsotropicLinearHardeningPlasticity
+                     IsotropicLinearHardeningThermoPlasticity
                      IsotropicLinearElasticity
                      FailingIsotropicLinearElasticity
                      OrthotropicElasticity

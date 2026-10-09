@@ -230,7 +230,9 @@ namespace mfem_mgis {
      * diagonal is computed by the operator (`AssembleDiagonal`), or by
      * `GetDiag` for a sparse matrix of MFEM, which does not implement
      * `AssembleDiagonal`. The diagonal entries of the essential degrees of
-     * freedom are the ones of the operator.
+     * freedom are the ones of the operator. The smoother of MFEM is kept
+     * from an operator to the next one of the same size: only its inverse
+     * diagonal is computed again.
      */
     struct JacobiSmoother final : mfem::Solver {
       //! \param[in] d: damping factor
@@ -246,8 +248,13 @@ namespace mfem_mgis {
           this->diagonal.SetSize(op.Height());
           op.AssembleDiagonal(this->diagonal);
         }
-        this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
-            this->diagonal, mfem::Array<int>{}, this->damping);
+        if ((this->smoother == nullptr) ||
+            (this->smoother->Height() != op.Height())) {
+          this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
+              this->diagonal, this->essential_dofs, this->damping);
+        } else {
+          this->smoother->Setup(this->diagonal);
+        }
       }
       void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
         if (this->smoother == nullptr) {
@@ -261,6 +268,11 @@ namespace mfem_mgis {
       const real damping;
       //! \brief diagonal of the operator
       mfem::Vector diagonal;
+      /*!
+       * \brief essential degrees of freedom, empty (the operator is
+       * constrained), referenced by the smoother of MFEM
+       */
+      const mfem::Array<int> essential_dofs;
       //! \brief smoother of MFEM
       std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
     };

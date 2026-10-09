@@ -4,51 +4,14 @@
  * \date   10/10/2026
  */
 
-#include <string>
 #include <utility>
 #include "mfem/fem/fespace.hpp"
-#include "MGIS/Raise.hxx"
 #include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
 #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 
 namespace mfem_mgis {
-
-  /*!
-   * \return the finite element space of a finite element discretization
-   * \param[in] fed: finite element discretization
-   */
-  static const mfem::FiniteElementSpace& getFiniteElementSpace(
-      const FiniteElementDiscretization& fed) {
-#ifdef MFEM_USE_MPI
-    if (fed.describesAParallelComputation()) {
-      return fed.getFiniteElementSpace<true>();
-    }
-#endif /* MFEM_USE_MPI */
-    return fed.getFiniteElementSpace<false>();
-  }  // end of getFiniteElementSpace
-
-  /*!
-   * \brief raises an exception on all the processes if a computation failed
-   * on one of them, before the collective operations following it
-   * \param[in] fed: finite element discretization
-   * \param[in, out] ctx: execution context of the computation
-   * \param[in] success: result of the computation on this process
-   * \param[in] what: description of the computation
-   */
-  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
-                                         Context& ctx,
-                                         const bool success,
-                                         const std::string& what) {
-    if (isTrueOnAllProcesses(fed, success)) {
-      return;
-    }
-    if (!success) {
-      raise(what + ": " + ctx.getErrorMessage());
-    }
-    raise(what + ": failure on another process");
-  }  // end of raiseOnFailureOnAnyProcess
 
   MatrixFreeTangentOperator::MatrixFreeTangentOperator(
       const FiniteElementDiscretization& fed,
@@ -92,11 +55,19 @@ namespace mfem_mgis {
         ctx, this->fe_space, dl);
     raiseOnFailureOnAnyProcess(this->fe_discretization, ctx, success,
                                "diagonal of the tangent operator");
-    if (P != nullptr) {
+    if (P == nullptr) {
+      return;
+    }
+    d.SetSize(this->Height());
+    if (this->fe_space.Conforming()) {
       // the prolongation of a conforming space is boolean: the diagonal of
-      // Pᵀ A P is Pᵀ diag(A) for the true degrees of freedom
-      d.SetSize(this->Height());
+      // Pᵀ A P is Pᵀ diag(A)
       P->MultTranspose(dl, d);
+    } else {
+      // non-conforming mesh: |Pᵀ| diag(A), where |Pᵀ| has the absolute
+      // values of the entries of Pᵀ, which approximates the diagonal of
+      // Pᵀ A P, as `mfem::BilinearForm::AssembleDiagonal`
+      P->AbsMultTranspose(dl, d);
     }
   }  // end of AssembleDiagonal
 

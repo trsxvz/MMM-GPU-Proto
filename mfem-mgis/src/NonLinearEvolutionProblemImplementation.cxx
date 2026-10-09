@@ -98,29 +98,6 @@ namespace mfem_mgis {
   }  // end of checkMatrixFreeTangentOperatorSupport
 
   /*!
-   * \brief raises an exception on all the processes if a computation by
-   * kernels failed on one of them. This check is made before the collective
-   * operations following the computation, so that all the processes leave
-   * the resolution together.
-   * \param[in] fed: finite element discretization
-   * \param[in, out] ctx: execution context of the computation
-   * \param[in] success: result of the computation on this process
-   * \param[in] what: description of the computation
-   */
-  static void raiseOnFailureOnAnyProcess(const FiniteElementDiscretization& fed,
-                                         Context& ctx,
-                                         const bool success,
-                                         const std::string& what) {
-    if (isTrueOnAllProcesses(fed, success)) {
-      return;
-    }
-    if (!success) {
-      raise(what + ": " + ctx.getErrorMessage());
-    }
-    raise(what + ": failure on another process");
-  }  // end of raiseOnFailureOnAnyProcess
-
-  /*!
    * \brief adds the inner forces computed by kernels to the residual (true
    * degrees of freedom), and cancels the residual at the essential degrees
    * of freedom
@@ -705,7 +682,7 @@ namespace mfem_mgis {
     }();
     auto kernels = PredictionKernels{};
     if ((this->batch_integration) && (this->inner_forces_kernels) &&
-        (this->tangent_operator_kernels) &&
+        this->computesStiffnessMatricesByKernels() &&
         (this->mgis_integrator != nullptr)) {
       kernels =
           PredictionKernels{.integrator = this->mgis_integrator,
@@ -778,14 +755,14 @@ namespace mfem_mgis {
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
       const mfem::Vector& u) const {
-    if (this->matrix_free_tangent_operator) {
+    if (this->appliesTangentOperatorWithoutAssembly()) {
       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
       return this->getMatrixFreeTangentOperator(
           this->ess_tdof_list, [this]() -> mfem::Operator& {
             return this->assembleTangentOperatorByKernels();
           });
     }
-    if ((!this->tangent_operator_kernels) ||
+    if ((!this->computesStiffnessMatricesByKernels()) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<true>::GetGradient(u);
     }
@@ -1056,7 +1033,7 @@ namespace mfem_mgis {
     }();
     auto kernels = PredictionKernels{};
     if ((this->batch_integration) && (this->inner_forces_kernels) &&
-        (this->tangent_operator_kernels) &&
+        this->computesStiffnessMatricesByKernels() &&
         (this->mgis_integrator != nullptr)) {
       kernels =
           PredictionKernels{.integrator = this->mgis_integrator,
@@ -1123,14 +1100,14 @@ namespace mfem_mgis {
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
       const mfem::Vector& u) const {
-    if (this->matrix_free_tangent_operator) {
+    if (this->appliesTangentOperatorWithoutAssembly()) {
       checkMatrixFreeTangentOperatorSupport(*this, this->mgis_integrator);
       return this->getMatrixFreeTangentOperator(
           this->ess_tdof_list, [this]() -> mfem::Operator& {
             return this->assembleTangentOperatorByKernels();
           });
     }
-    if ((!this->tangent_operator_kernels) ||
+    if ((!this->computesStiffnessMatricesByKernels()) ||
         (this->mgis_integrator == nullptr)) {
       return mfem_mgis::NonlinearForm<false>::GetGradient(u);
     }

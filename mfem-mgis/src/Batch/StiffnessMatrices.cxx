@@ -44,6 +44,10 @@ namespace mfem_mgis::batch {
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients
    * \param[in] use_device: if true, the pointers are located on the device
+   * \param[in] name: name of the calling function, for the error messages
+   * \param[in] diagonals: if true, the kernels compute the diagonals of the
+   * stiffness matrices (one thread per node of an element), otherwise the
+   * stiffness matrices (one thread per pair of nodes)
    */
   static bool getStiffnessMatricesKernelArguments(
       Context& ctx,
@@ -53,7 +57,9 @@ namespace mfem_mgis::batch {
       const mgis::FieldView<const real>& K,
       const ElementsGeometry& g,
       const GradientsKind k,
-      const bool use_device) {
+      const bool use_device,
+      const std::string& name,
+      const bool diagonals) {
     error = false;
     const auto& elements = qs.getElements();
     const auto& offsets = qs.getElementOffsets();
@@ -64,26 +70,31 @@ namespace mfem_mgis::batch {
     if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
         (qs.getUniformIntegrationRule() != g.rule)) {
       return ctx.registerErrorMessage(
-          "addStiffnessMatrices: the elements of the material do not use the "
+          name +
+          ": the elements of the material do not use the "
           "integration rule of the geometric data");
     }
     const auto dim = getSpaceDimension(k);
     if (g.dim != dim) {
       return ctx.registerErrorMessage(
-          "addStiffnessMatrices: unexpected dimension of the space (" +
+          name + ": unexpected dimension of the space (" +
           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
     }
-    // one thread per pair of nodes of an element
-    if (std::int64_t{elements.Size()} * g.nd * g.nd >
+    // one thread per node (diagonals) or per pair of nodes (matrices) of
+    // an element
+    const auto threads_per_element =
+        diagonals ? std::int64_t{g.nd} : std::int64_t{g.nd} * g.nd;
+    if (std::int64_t{elements.Size()} * threads_per_element >
         std::numeric_limits<int>::max()) {
-      return ctx.registerErrorMessage(
-          "addStiffnessMatrices: too many elements for the kernels");
+      return ctx.registerErrorMessage(name +
+                                      ": too many elements for the kernels");
     }
     const auto gsize = getGradientsSize(k);
     if ((K.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
         (K.getNumberOfComponents() != gsize * gsize)) {
       return ctx.registerErrorMessage(
-          "addStiffnessMatrices: unexpected number of points or of components "
+          name +
+          ": unexpected number of points or of components "
           "of the tangent operator blocks");
     }
     a.number_of_elements = elements.Size();
@@ -126,7 +137,8 @@ namespace mfem_mgis::batch {
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
       if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
-                                               use_device)) {
+                                               use_device,
+                                               "addStiffnessMatrices", false)) {
         return !error;
       }
       const auto ndofs = std::int64_t{g.nd} * getSpaceDimension(k);
@@ -168,8 +180,9 @@ namespace mfem_mgis::batch {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
-      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
-                                               use_device)) {
+      if (!getStiffnessMatricesKernelArguments(
+              ctx, a, error, qs, K, g, k, use_device,
+              "addStiffnessMatricesDiagonals", true)) {
         return !error;
       }
       const auto size =
@@ -424,7 +437,8 @@ namespace mfem_mgis::batch {
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
       if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
-                                               use_device)) {
+                                               use_device,
+                                               "addStiffnessMatrices", false)) {
         return !error;
       }
       auto missing = mfem::Array<int>(1);

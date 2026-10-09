@@ -396,14 +396,7 @@ namespace mfem_mgis {
       }
     }
     try {
-      const auto& fes = [this]() -> const mfem::FiniteElementSpace& {
-#ifdef MFEM_USE_MPI
-        if (this->fe_discretization->describesAParallelComputation()) {
-          return this->fe_discretization->getFiniteElementSpace<true>();
-        }
-#endif /* MFEM_USE_MPI */
-        return this->fe_discretization->getFiniteElementSpace<false>();
-      }();
+      const auto& fes = getFiniteElementSpace(*(this->fe_discretization));
       const auto& mesh = *(fes.GetMesh());
       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
         return ctx.registerErrorMessage(

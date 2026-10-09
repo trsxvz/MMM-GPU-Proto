@@ -35,12 +35,16 @@ namespace mfem_mgis {
     [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
     /*!
      * \brief revert the state of the material; for a behaviour integrated on
-     * the device (see `integratesBatchesOnDevice`), on the device
+     * the device (see `integratesBatchesOnDevice`), the arrays are copied
+     * on the device, then synchronized on the host for reading (see
+     * `copyStatesOnDevice`)
      */
     void revert() override;
     /*!
      * \brief update the state of the material; for a behaviour integrated on
-     * the device (see `integratesBatchesOnDevice`), on the device
+     * the device (see `integratesBatchesOnDevice`), the arrays are copied
+     * on the device, then synchronized on the host for reading (see
+     * `copyStatesOnDevice`)
      */
     void update() override;
     [[nodiscard]] bool hasMaterial() const noexcept override;
@@ -375,7 +379,15 @@ namespace mfem_mgis {
      * \brief copies, on the device, the state at the end of the time step
      * in the state at the beginning of the time step (update), or
      * conversely (revert), and sets the tangent operator blocks to zero,
-     * for a behaviour integrated on the device (see `update`, `revert`)
+     * for a behaviour integrated on the device (see `update`, `revert`).
+     *
+     * The material properties, the external state variables and the mass
+     * density, stored on the host, are updated on the host as by
+     * `Material::updateMaterialStates` (see
+     * `mgis::behaviour::updateInputValues`). The arrays are then
+     * synchronized on the host for reading, so that their copies on the host
+     * are valid after an update or a revert, as for a behaviour integrated on
+     * the host, while their copies on the device stay valid.
      * \param[in] u: if true, update, otherwise revert
      */
     void copyStatesOnDevice(const bool);

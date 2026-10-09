@@ -16,6 +16,7 @@
 #include "MGIS/Behaviour/Integrate.hxx"
 #include "MGIS/Behaviour/BehaviourDataView.hxx"
 #include "MGIS/Behaviour/MaterialDataView.hxx"
+#include "MGIS/Behaviour/MaterialStateManager.hxx"
 #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
 #include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
@@ -1181,6 +1182,23 @@ namespace mfem_mgis {
     } else {
       mgis::behaviour::revert(v, ops);
     }
+    // the material properties, the external state variables and the mass
+    // density are stored on the host (and copied to the device at each
+    // integration): they are updated as by `updateMaterialStates`
+    auto ctx = Context{};
+    auto host_ops = mgis::HostFieldOperations{};
+    const auto updated = u ? mgis::behaviour::updateInputValues(
+                                 ctx, this->s0, this->s1, host_ops)
+                           : mgis::behaviour::updateInputValues(
+                                 ctx, this->s1, this->s0, host_ops);
+    if (!updated) {
+      raise(std::string{u ? "BehaviourIntegratorBase::update: "
+                          : "BehaviourIntegratorBase::revert: "} +
+            ctx.getErrorMessage());
+    }
+    // the copies of the arrays on the host are valid after an update or a
+    // revert, as on the host
+    this->synchronizeOnHostForReading();
   }  // end of copyStatesOnDevice
 
   void BehaviourIntegratorBase::revert() {

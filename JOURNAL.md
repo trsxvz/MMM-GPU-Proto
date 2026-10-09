@@ -3230,3 +3230,51 @@ limitée par la latence des lancements. Détails dans
 - Poutre r4 sur GPU : 95 s avec CG + Jacobi contre 3,4 s avec la tangente
   assemblée et BoomerAMG. Juste, mais il faut un préconditionneur adapté
   (AMG gardé plusieurs itérations, multigrille polynomial).
+
+### 2026-10-10 (nuit), préconditionneur sur la tangente assemblée
+
+- mfem-mgis b129009b0c : préconditionneur `AssembledOperator` pour la
+  tangente sans matrice. Il demande à l'opérateur sa version assemblée
+  (tangente assemblée par noyaux, ddl imposés éliminés) et y construit le
+  préconditionneur donné en option (BoomerAMG, Jacobi...), refait toutes
+  les `UpdatePeriod` itérations de Newton et gardé entre deux. Solveur
+  `cg-amg` du cas de la poutre.
+
+### 2026-10-10 (nuit), corrections de la seconde relecture des lots L3 et L6
+
+Relecture indépendante de cbe693a9a8 et 4d465460c3
+(`scratch/nuit-2026-10-09/relecture-L3-L6-suite.md`). Corrigé dans
+mfem-mgis 1bbcb877d8 (et MGIS 860b693) :
+
+- F1 : `update` et `revert` d'une loi intégrée sur le périphérique ne
+  reportaient plus les variables externes de s1 dans s0 (température de
+  s0 figée : dilatation thermique recomptée à chaque pas, sans message).
+  Nouvelle fonction de MGIS `updateInputValues` (propriétés matériau,
+  variables externes et masse volumique, mêmes règles que `updateValues`,
+  sans les tableaux), appelée sur l'hôte après la copie des tableaux sur
+  le périphérique.
+- F2 : après `update` sur le périphérique, les copies hôte des tableaux
+  étaient périmées. Elles sont maintenant synchronisées en lecture à la
+  fin de `update` et de `revert` (une copie du GPU vers l'hôte par pas).
+- F3 : une exception de la tangente, de sa diagonale ou de son action dans
+  `computeNewtonCorrection` (`noexcept`) finissait en `std::terminate`.
+  Elle est enregistrée dans le contexte de la résolution, qui échoue
+  proprement.
+- F4 : diagonale sur maillage non conforme : `|Pᵀ| diag(A)`, comme MFEM.
+- F5, F6, A2, Q2 : copie de la liste des ddl imposés de l'opérateur
+  contraint (reconstruit quand elle change), liste du lisseur de Jacobi
+  gardée en membre (lisseur réutilisé), garde du nombre de fils par nœud
+  pour la diagonale, fonctions partagées au lieu de copiées, paramètre
+  `TangentOperatorComputation` lu une fois (énumération), documentation
+  des synchronisations.
+- Tests (T1) dans `BatchIntegrationTest` : loi avec dilatation thermique
+  et température variable dans le temps, états relus sur l'hôte sans
+  synchronisation après chaque `update` et `revert`, diagonale de
+  l'opérateur sans matrice comparée à celle de la tangente assemblée,
+  refus propre de MatrixFree avec un intégrateur de bord. Chaque test a
+  été vérifié par mutation : sans l'appel de `updateInputValues`, les cas
+  « temperature » échouent sur `debug` ; sans la synchronisation, `debug`
+  s'arrête à la lecture ; avec une diagonale faussée de 1e-6, tous les
+  cas MatrixFree échouent ; sans le `try/catch`, `std::terminate`.
+- Suites : 146/146 (dont 7 sur GPU), noyaux forcés 129/139 (10 refus
+  attendus : chaleur, micromorphe), cas 19/19.

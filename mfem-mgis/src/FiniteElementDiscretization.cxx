@@ -217,6 +217,18 @@ namespace mfem_mgis {
     return fed.getFiniteElementSpace<false>().GetTrueVSize();
   }  // end of getTrueVSize
 
+  const mfem::FiniteElementSpace& getFiniteElementSpace(
+      const FiniteElementDiscretization& fed) noexcept {
+    if (fed.describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      return fed.getFiniteElementSpace<true>();
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    }
+    return fed.getFiniteElementSpace<false>();
+  }  // end of getFiniteElementSpace
+
   template <>
   bool getInformation<FiniteElementDiscretization>(
       Context& ctx,

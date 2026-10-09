@@ -6,6 +6,7 @@
  * \date   11/12/2020
  */
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <utility>
@@ -125,28 +126,37 @@ namespace mfem_mgis {
   }  // end of useKernels
 
   /*!
-   * \return the value of the `TangentOperatorComputation` parameter, or of
-   * the `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable:
+   * \return the computation of the tangent operator given by the
+   * `TangentOperatorComputation` parameter, or by the
+   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable:
    * `ElementByElement`, `Kernels` or `MatrixFree`
    * \param[in] p: parameters
    */
-  [[nodiscard]] static std::string getTangentOperatorComputation(
-      attributes::Throwing, const Parameters& p) {
+  [[nodiscard]] static NonLinearEvolutionProblemImplementationBase::
+      TangentOperatorComputationMode
+      getTangentOperatorComputation(attributes::Throwing, const Parameters& p) {
+    using Mode = NonLinearEvolutionProblemImplementationBase::
+        TangentOperatorComputationMode;
     const auto* const n =
         NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
     const auto* const e = std::getenv(v);
     const auto d = std::string{e != nullptr ? e : "ElementByElement"};
     const auto value = get_if<std::string>(throwing, p, n, d);
-    if ((value != "ElementByElement") && (value != "Kernels") &&
-        (value != "MatrixFree")) {
-      const auto origin = contains(p, n)
-                              ? "parameter '" + std::string{n} + "'"
-                              : "environment variable '" + std::string{v} + "'";
-      raise("invalid value '" + value + "' for " + origin +
-            " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
+    if (value == "ElementByElement") {
+      return Mode::ELEMENT_BY_ELEMENT;
     }
-    return value;
+    if (value == "Kernels") {
+      return Mode::KERNELS;
+    }
+    if (value == "MatrixFree") {
+      return Mode::MATRIX_FREE;
+    }
+    const auto origin = contains(p, n)
+                            ? "parameter '" + std::string{n} + "'"
+                            : "environment variable '" + std::string{v} + "'";
+    raise("invalid value '" + value + "' for " + origin +
+          " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
   }  // end of getTangentOperatorComputation
 
   NonLinearEvolutionProblemImplementationBase::
@@ -172,15 +182,13 @@ namespace mfem_mgis {
             p,
             NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
             "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
-        tangent_operator_kernels(getTangentOperatorComputation(throwing, p) !=
-                                 "ElementByElement"),
-        matrix_free_tangent_operator(
-            getTangentOperatorComputation(throwing, p) == "MatrixFree") {
+        tangent_operator_computation(
+            getTangentOperatorComputation(throwing, p)) {
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->setInnerForcesComputedByKernels(
           this->inner_forces_kernels);
       this->mgis_integrator->setStiffnessMatricesComputedByKernels(
-          this->tangent_operator_kernels);
+          this->computesStiffnessMatricesByKernels());
     }
     this->u0 = real{0};
     this->u1 = real{0};
@@ -509,7 +517,7 @@ namespace mfem_mgis {
           return false;
         }
         if (((this->gradients_kernels) || (this->inner_forces_kernels) ||
-             (this->tangent_operator_kernels)) &&
+             this->computesStiffnessMatricesByKernels()) &&
             (!this->mgis_integrator->checkKernelsSupport(ctx))) {
           return false;
         }
@@ -517,7 +525,8 @@ namespace mfem_mgis {
           return false;
         }
       }
-      if (((this->inner_forces_kernels) || (this->tangent_operator_kernels)) &&
+      if (((this->inner_forces_kernels) ||
+           this->computesStiffnessMatricesByKernels()) &&
           (usePETSc())) {
         std::ignore = ctx.registerErrorMessage(
             "the computation of the inner forces or of the stiffness matrices "
@@ -699,19 +708,44 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       raise("no multiple material integrator defined");
     }
-    if ((this->constrained_tangent_operator == nullptr) ||
-        (this->constrained_tangent_operator_essential_dofs !=
-         essential_dofs.Size())) {
-      this->constrained_tangent_operator.reset();
+    // the constrained operator is rebuilt when the essential degrees of
+    // freedom change (comparison on the host)
+    auto& dofs = this->constrained_tangent_operator_essential_dofs;
+    const auto changed = [&dofs, &essential_dofs] {
+      if (dofs.Size() != essential_dofs.Size()) {
+        return true;
+      }
+      if (dofs.Size() == 0) {
+        return false;
+      }
+      const auto* const p = essential_dofs.HostRead();
+      return !std::equal(p, p + essential_dofs.Size(), dofs.HostRead());
+    };
+    if (this->tangent_operator == nullptr) {
       this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
           *(this->fe_discretization), *(this->mgis_integrator));
+    }
+    if ((this->constrained_tangent_operator == nullptr) || changed()) {
+      this->constrained_tangent_operator.reset();
+      dofs = essential_dofs;
       this->constrained_tangent_operator =
           std::make_unique<ConstrainedMatrixFreeTangentOperator>(
-              *(this->tangent_operator), essential_dofs, std::move(f));
-      this->constrained_tangent_operator_essential_dofs = essential_dofs.Size();
+              *(this->tangent_operator), dofs, std::move(f));
     }
     return *(this->constrained_tangent_operator);
   }  // end of getMatrixFreeTangentOperator
+
+  bool NonLinearEvolutionProblemImplementationBase::
+      computesStiffnessMatricesByKernels() const noexcept {
+    return this->tangent_operator_computation !=
+           TangentOperatorComputationMode::ELEMENT_BY_ELEMENT;
+  }  // end of computesStiffnessMatricesByKernels
+
+  bool NonLinearEvolutionProblemImplementationBase::
+      appliesTangentOperatorWithoutAssembly() const noexcept {
+    return this->tangent_operator_computation ==
+           TangentOperatorComputationMode::MATRIX_FREE;
+  }  // end of appliesTangentOperatorWithoutAssembly
 
   NonLinearEvolutionProblemImplementationBase::
       ~NonLinearEvolutionProblemImplementationBase() = default;

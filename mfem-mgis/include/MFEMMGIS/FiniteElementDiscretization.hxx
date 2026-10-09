@@ -202,6 +202,14 @@ namespace mfem_mgis {
   getTrueVSize(const FiniteElementDiscretization& fed) noexcept;
 
   /*!
+   * \return the finite element space, the parallel one for a parallel
+   * computation
+   * \param[in] fed: finite element discretization
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] const mfem::FiniteElementSpace&
+  getFiniteElementSpace(const FiniteElementDiscretization& fed) noexcept;
+
+  /*!
    * \brief display information about a finite element discretization
    *
    * \param[in, out] ctx: execution context

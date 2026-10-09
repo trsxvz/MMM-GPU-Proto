@@ -44,11 +44,12 @@ namespace mfem_mgis {
    * Hence:
    *
    * - a phase of accesses on the host (integration of the behaviours by
-   *   MGIS, update, revert, accessors of the material, post-processings...)
-   *   must start with `synchronizeOnHost`, which copies the arrays back to
-   *   the host if a kernel modified them on the device, and invalidates
-   *   their copies on the device, or with `synchronizeOnHostForReading` for
-   *   read-only accesses, which keeps the copies on the device valid;
+   *   MGIS on the host, update and revert of these behaviours, accessors of
+   *   the material, post-processings...) must start with
+   *   `synchronizeOnHost`, which copies the arrays back to the host if a
+   *   kernel modified them on the device, and invalidates their copies on
+   *   the device, or with `synchronizeOnHostForReading` for read-only
+   *   accesses, which keeps the copies on the device valid;
    * - no access on the device may happen during such a phase: a kernel
    *   which reads an array (`Read`) after the synchronization makes its
    *   copy on the device valid again, and a later write on the host would
@@ -56,7 +57,10 @@ namespace mfem_mgis {
    *   accessors are only valid until the next access on the device;
    * - a kernel accessing the arrays on the device gets its pointers with
    *   `Read`, `Write` or `ReadWrite`, which copy the arrays to the device
-   *   if needed.
+   *   if needed;
+   * - the update and the revert of a behaviour integrated on the device are
+   *   made on the device, then the arrays are synchronized on the host for
+   *   reading (see `BehaviourIntegratorBase::update`).
    *
    * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
    * device of MFEM, the copies are made between the memory of the host and
