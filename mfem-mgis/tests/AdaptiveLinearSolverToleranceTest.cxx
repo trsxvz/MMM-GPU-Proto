@@ -122,10 +122,13 @@ static void checkSecondChoice() {
 static void checkFirstChoice() {
   using namespace mfem_mgis;
   auto ctx = Context{};
+  // the formula of the first choice does not depend on gamma (MFEM
+  // multiplies it by gamma)
   const auto ot = AdaptiveLinearSolverTolerance::read(
       ctx, Parameters{{"AdaptiveLinearSolverTolerance",
                        Parameters{{"EisenstatWalker1",
-                                   Parameters{{"InitialTolerance", 0.05}}}}}});
+                                   Parameters{{"InitialTolerance", 0.05},
+                                              {"Gamma", 0.5}}}}}});
   check(ot.has_value(), "first choice: options refused");
   if (!ot.has_value()) {
     return;
@@ -142,6 +145,12 @@ static void checkFirstChoice() {
     u.setLinearResidualNorm(0.06);
     check(areClose(u.update(1, 0.1, 1e-12), 0.04),
           "first choice: tolerance of the second iteration");
+    // without the norm of the residual of the linear solve, formula of the
+    // second choice, γ (0.01 / 0.1)^α, the safeguard 0.04^((1+√5)/2) being
+    // below the threshold
+    check(areClose(u.update(2, 0.01, 1e-12),
+                   ot->gamma * std::pow(0.1, ot->alpha)),
+          "first choice: tolerance without the residual of the linear solve");
   }
   check(areClose(*getRelativeTolerance(s), 1e-9),
         "first choice: initial tolerance not restored");

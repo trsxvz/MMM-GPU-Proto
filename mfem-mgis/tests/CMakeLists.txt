@@ -765,7 +765,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                      IsotropicLinearElasticity
                      FailingIsotropicLinearElasticity
                      OrthotropicElasticity
-                     OrthotropicSaintVenantKirchhoffElasticity)
+                     OrthotropicSaintVenantKirchhoffElasticity
+                     StationaryNonLinearHeatTransfer)
     list(APPEND batch_integration_test_behaviours
          "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
   endforeach()
@@ -850,27 +851,36 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
-  # OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
-  # only use products by the operator and its diagonal, as preconditioners
-  # of the conjugate gradient
-  add_test_executable(OperatorSmoothersTest)
-  add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
-  if(MFEM_USE_MPI)
-    add_test(NAME OperatorSmoothersTestP
-             COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
-    set_tests_properties(OperatorSmoothersTestP
-                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  # HeatTransferKernelsTest executable: stationary non linear heat transfer
+  # by kernels compared to the integration point by point, on the host, on
+  # the debug device of MFEM and on the GPU, sequential and on two processes
+  add_test_executable(HeatTransferKernelsTest)
+  set(heat_transfer_kernels_test_arguments
+      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+      --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
+      --library $<TARGET_FILE:BehaviourTest>)
+  add_test(NAME HeatTransferKernelsTest
+           COMMAND HeatTransferKernelsTest
+                   ${heat_transfer_kernels_test_arguments}
+                   ${batch_integration_test_libraries})
+  add_test(NAME HeatTransferKernelsTest-debug
+           COMMAND HeatTransferKernelsTest --device debug
+                   ${heat_transfer_kernels_test_arguments}
+                   ${batch_integration_test_libraries})
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME HeatTransferKernelsTest-cuda
+             COMMAND HeatTransferKernelsTest --device cuda
+                     ${heat_transfer_kernels_test_arguments}
+                     ${batch_integration_test_cuda_library})
+    set_tests_properties(HeatTransferKernelsTest-cuda
+                         PROPERTIES RESOURCE_LOCK gpu)
   endif()
-
-  # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
-  # iterative linear solvers adapted to the decrease of the residual
-  add_test_executable(AdaptiveLinearSolverToleranceTest)
-  add_test(NAME AdaptiveLinearSolverToleranceTest
-           COMMAND AdaptiveLinearSolverToleranceTest)
-  if(MFEM_USE_MPI)
-    add_test(NAME AdaptiveLinearSolverToleranceTestP
-             COMMAND mpirun -n 2 ./AdaptiveLinearSolverToleranceTest)
-    set_tests_properties(AdaptiveLinearSolverToleranceTestP
+  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+    add_test(NAME HeatTransferKernelsTestP
+             COMMAND mpirun -n 2 ./HeatTransferKernelsTest --parallel
+                     ${heat_transfer_kernels_test_arguments}
+                     ${batch_integration_test_libraries})
+    set_tests_properties(HeatTransferKernelsTestP
                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
   endif()
 
@@ -966,6 +976,31 @@ if(MFEM_MGIS_HAVE_TFEL)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)
+
+# tests of the linear solvers, without behaviours
+# OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
+# only use products by the operator and its diagonal, as preconditioners
+# of the conjugate gradient
+add_test_executable(OperatorSmoothersTest)
+add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
+if(MFEM_USE_MPI)
+  add_test(NAME OperatorSmoothersTestP
+           COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
+  set_tests_properties(OperatorSmoothersTestP
+                       PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+endif()
+
+# AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
+# iterative linear solvers adapted to the decrease of the residual
+add_test_executable(AdaptiveLinearSolverToleranceTest)
+add_test(NAME AdaptiveLinearSolverToleranceTest
+         COMMAND AdaptiveLinearSolverToleranceTest)
+if(MFEM_USE_MPI)
+  add_test(NAME AdaptiveLinearSolverToleranceTestP
+           COMMAND mpirun -n 2 ./AdaptiveLinearSolverToleranceTest)
+  set_tests_properties(AdaptiveLinearSolverToleranceTestP
+                       PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+endif()
 
 # HypreKrylovAbsoluteToleranceTest executable
 if(MFEM_USE_MPI)

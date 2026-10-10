@@ -30,6 +30,10 @@ namespace mfem_mgis {
    * - a method called `rotateGradients`
    * - a method called `rotateThermodynamicForces`
    * - a method called `rotateTangentOperatorBlocks`
+   * - if the external state variables are updated from the values of the
+   *   unknowns (see `BehaviourIntegratorTraits`), a method called
+   *   `setExternalStateVariablesFromUnknownsValues`, which sets them at all
+   *   the integration points (computations by kernels)
    *
    * The thermodynamic forces of an orthotropic behaviour without functions
    * rotating the values of one point (`generic-parallel` interface) are
@@ -43,6 +47,8 @@ namespace mfem_mgis {
                                         mfem::ElementTransformation&,
                                         const mfem::Vector&) override;
     [[nodiscard]] bool supportsKernels() const noexcept override;
+    [[nodiscard]] bool requiresUnknownsValuesForKernels()
+        const noexcept override;
     [[nodiscard]] bool computeGradientsByKernels(
         Context&,
         const batch::UnknownsDerivativesSet&,
@@ -71,6 +77,12 @@ namespace mfem_mgis {
         const batch::ElementsGeometrySet&) noexcept override;
 
    protected:
+    /*!
+     * \brief values of the unknowns at the integration points of the
+     * material, computed by kernels (workspace, see
+     * `requiresUnknownsValuesForKernels`)
+     */
+    mfem::Vector unknowns_values;
     //! \brief data of the computations by kernels on the material
     struct KernelsData {
       //! \brief kind of the gradients

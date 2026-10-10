@@ -36,7 +36,10 @@ namespace mfem_mgis::batch::internals {
     long long point_stride = 0;
     //! \brief stride between two components of the thermodynamic forces
     long long component_stride = 0;
-    //! \brief values element by element (`nd x vdim x ne`)
+    /*!
+     * \brief values element by element (`nd x vdim x ne`, `vdim` being the
+     * number of components of the unknowns)
+     */
     real* values = nullptr;
     //! \brief number of elements of the material
     int number_of_elements = 0;
@@ -44,7 +47,7 @@ namespace mfem_mgis::batch::internals {
     int nd = 0;
     //! \brief number of integration points per element
     int nq = 0;
-    //! \brief dimension of the space (and number of components)
+    //! \brief dimension of the space
     int dim = 0;
   };
 

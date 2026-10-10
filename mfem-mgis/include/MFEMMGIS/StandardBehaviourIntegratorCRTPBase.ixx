@@ -225,14 +225,20 @@ namespace mfem_mgis {
   bool StandardBehaviourIntegratorCRTPBase<Child>::supportsKernels()
       const noexcept {
     using Traits = BehaviourIntegratorTraits<Child>;
-    // the kernels compute the gradients of the standard mechanical
-    // behaviours from the derivatives of the unknowns only
-    if constexpr ((Traits::updateExternalStateVariablesFromUnknownsValues) ||
-                  (Traits::gradientsComputationRequiresShapeFunctions)) {
+    // the kernels compute the gradients of the standard mechanical and heat
+    // transfer behaviours from the derivatives of the unknowns; the values of
+    // the unknowns at the integration points (temperature) are computed for
+    // the behaviours which update their external state variables from them
+    if constexpr (Traits::gradientsComputationRequiresShapeFunctions) {
       return false;
     } else {
-      if ((!batch::areGradientsKernelsAvailable()) ||
-          (!batch::getGradientsKind(this->b).has_value())) {
+      if (!batch::areGradientsKernelsAvailable()) {
+        return false;
+      }
+      const auto k = batch::getGradientsKind(this->b);
+      if ((!k.has_value()) ||
+          (batch::requiresUnknownsValues(*k) !=
+           Traits::updateExternalStateVariablesFromUnknownsValues)) {
         return false;
       }
       // the kernels compute the inner forces and the stiffness matrices from
@@ -248,6 +254,13 @@ namespace mfem_mgis {
              (this->quadrature_space->getUniformIntegrationRule() != nullptr);
     }
   }  // end of supportsKernels
+
+  template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<
+      Child>::requiresUnknownsValuesForKernels() const noexcept {
+    using Traits = BehaviourIntegratorTraits<Child>;
+    return Traits::updateExternalStateVariablesFromUnknownsValues;
+  }  // end of requiresUnknownsValuesForKernels
 
   template <typename Child>
   bool StandardBehaviourIntegratorCRTPBase<Child>::getKernelsData(
@@ -313,8 +326,30 @@ namespace mfem_mgis {
           "computeGradientsByKernels: the derivatives of the unknowns are not "
           "computed for the integration rule of the material");
     }
-    return batch::computeGradients(ctx, *this, p->second, *(data.geometry),
-                                   data.kind);
+    if (!batch::computeGradients(ctx, *this, p->second, *(data.geometry),
+                                 data.kind)) {
+      return false;
+    }
+    using Traits = BehaviourIntegratorTraits<Child>;
+    if constexpr (Traits::updateExternalStateVariablesFromUnknownsValues) {
+      // values of the unknowns at the integration points, copied in the
+      // external state variable of the behaviour, stored on the host (the
+      // behaviours integrated on the device read the copies of the external
+      // state variables, see `BehaviourIntegratorBase`)
+      if (!batch::getUnknownsValues(ctx, this->unknowns_values,
+                                    *(this->quadrature_space), p->second)) {
+        return false;
+      }
+      try {
+        const auto size =
+            static_cast<std::size_t>(this->unknowns_values.Size());
+        static_cast<Child&>(*this).setExternalStateVariablesFromUnknownsValues(
+            std::span<const real>(this->unknowns_values.HostRead(), size));
+      } catch (...) {
+        return registerExceptionInErrorBacktrace(ctx);
+      }
+    }
+    return true;
   }  // end of computeGradientsByKernels
 
   template <typename Child>

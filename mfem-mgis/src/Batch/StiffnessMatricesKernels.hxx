@@ -25,13 +25,23 @@ namespace mfem_mgis::batch::internals {
      * (`nq x dim x nd`)
      */
     const real* shape_functions_gradients = nullptr;
+    /*!
+     * \brief values of the shape functions on the reference element
+     * (`nq x nd`), used by the derivatives of the thermodynamic forces with
+     * respect to the unknowns (heat transfer behaviours)
+     */
+    const real* shape_functions = nullptr;
     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
     const real* jacobians = nullptr;
     //! \brief determinants of the jacobians (`nq x ne`)
     const real* determinants = nullptr;
     //! \brief weights of the integration points on the reference element
     const real* weights = nullptr;
-    //! \brief tangent operator blocks
+    /*!
+     * \brief tangent operator blocks: derivatives of the thermodynamic forces
+     * with respect to the gradients, followed, for the heat transfer
+     * behaviours, by their derivatives with respect to the temperature
+     */
     const real* tangent_operator = nullptr;
     //! \brief stride between two points of the tangent operator blocks
     long long point_stride = 0;
@@ -84,7 +94,8 @@ namespace mfem_mgis::batch::internals {
    * \brief launches the kernel adding the diagonals of the stiffness
    * matrices of the elements of a material to values stored element by
    * element, in the layout of the element restriction of MFEM (`node + nd *
-   * (component + dim * element)`)
+   * (component + vdim * element)`, `vdim` being the number of components
+   * of the unknowns)
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments (`matrices` is not used)
    * \param[in, out] d: values element by element
@@ -99,7 +110,8 @@ namespace mfem_mgis::batch::internals {
    * \brief launches the kernel adding the action of the stiffness matrices of
    * the elements of a material, `Σ Bᵀ K B x w det J`, on values given
    * element by element, in the layout of the element restriction of MFEM
-   * (`node + nd * (component + dim * element)`)
+   * (`node + nd * (component + vdim * element)`, `vdim` being the number
+   * of components of the unknowns)
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments (`matrices` is not used)
    * \param[in] x: values element by element

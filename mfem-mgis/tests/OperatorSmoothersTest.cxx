@@ -63,6 +63,49 @@ struct WrappedOperator final : mfem::Operator {
   const mfem::Operator& op;
 };
 
+/*!
+ * \brief operator `S A S` applied without assembly, `S` being a diagonal
+ * scaling: the Jacobi and Chebyshev smoothers, built on the scaled
+ * diagonal, are invariant by this scaling (same numbers of iterations of the
+ * conjugate gradient), which fails if the diagonal is not taken into
+ * account
+ */
+struct ScaledOperator final : mfem::Operator {
+  /*!
+   * \param[in] a: operator
+   * \param[in] s: scaling
+   */
+  ScaledOperator(const mfem::Operator& a, const mfem::Vector& s)
+      : mfem::Operator(a.Height(), a.Width()), op(a), scaling(s) {}
+  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+    auto sx = mfem::Vector(x.Size());
+    for (int i = 0; i != x.Size(); ++i) {
+      sx[i] = this->scaling[i] * x[i];
+    }
+    this->op.Mult(sx, y);
+    for (int i = 0; i != y.Size(); ++i) {
+      y[i] *= this->scaling[i];
+    }
+  }
+  void AssembleDiagonal(mfem::Vector& d) const override {
+    if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+        m != nullptr) {
+      m->GetDiag(d);
+    } else {
+      this->op.AssembleDiagonal(d);
+    }
+    for (int i = 0; i != d.Size(); ++i) {
+      d[i] *= this->scaling[i] * this->scaling[i];
+    }
+  }
+
+ private:
+  //! \brief operator
+  const mfem::Operator& op;
+  //! \brief scaling
+  const mfem::Vector& scaling;
+};
+
 //! \brief result of a resolution
 struct Resolution {
   //! \brief if true, the resolution succeeded
@@ -74,34 +117,22 @@ struct Resolution {
 };
 
 /*!
- * \return the resolution of a linear system by the conjugate gradient of the
- * factory preconditioned by a smoother
+ * \return the resolution of a linear system by a linear solver
  * \param[in] fespace: finite element space
+ * \param[in, out] ls: linear solver
  * \param[in] A: operator
  * \param[in] B: right hand side
- * \param[in] smoother: preconditioner
  */
 template <bool is_parallel>
 static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+                        mfem::Solver& ls,
                         const mfem::Operator& A,
-                        const mfem::Vector& B,
-                        const mfem_mgis::Parameters& smoother) {
+                        const mfem::Vector& B) {
   using namespace mfem_mgis;
-  auto ctx = Context{};
-  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
-      ctx, "CGSolver", fespace,
-      Parameters{{"RelativeTolerance", 1e-10},
-                 {"AbsoluteTolerance", 0.},
-                 {"MaximumNumberOfIterations", 5000},
-                 {"Preconditioner", smoother}});
-  if (isInvalid(ls)) {
-    std::cerr << ctx.getErrorMessage() << '\n';
-    return {};
-  }
   auto X = mfem::Vector(B.Size());
   X = 0.;
-  ls.linear_solver->SetOperator(A);
-  ls.linear_solver->Mult(B, X);
+  ls.SetOperator(A);
+  ls.Mult(B, X);
   auto r = mfem::Vector(B.Size());
   A.Mult(X, r);
   r -= B;
@@ -113,12 +144,35 @@ static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
       return mfem::InnerProduct(a, b);
     }
   };
-  return {
-      .converged = hasConverged(*(ls.linear_solver)),
-      .iterations =
-          getNumberOfIterationsAtConvergence(*(ls.linear_solver)).value_or(0),
-      .residual = std::sqrt(dot(r, r) / dot(B, B))};
+  return {.converged = hasConverged(ls),
+          .iterations = getNumberOfIterationsAtConvergence(ls).value_or(0),
+          .residual = std::sqrt(dot(r, r) / dot(B, B))};
 }  // end of solve
+
+/*!
+ * \return the conjugate gradient of the factory preconditioned by a
+ * smoother
+ * \param[in] fespace: finite element space
+ * \param[in] smoother: preconditioner
+ */
+template <bool is_parallel>
+static mfem_mgis::LinearSolverHandler makeConjugateGradient(
+    mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+    const mfem_mgis::Parameters& smoother) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+      ctx, "CGSolver", fespace,
+      Parameters{{"RelativeTolerance", 1e-10},
+                 {"AbsoluteTolerance", 0.},
+                 {"MaximumNumberOfIterations", 5000},
+                 {"Preconditioner", smoother}});
+  if (isInvalid(ls)) {
+    std::cerr << ctx.getErrorMessage() << '\n';
+    std::exit(EXIT_FAILURE);
+  }
+  return ls;
+}  // end of makeConjugateGradient
 
 /*!
  * \brief checks the smoothers on a linear system
@@ -133,6 +187,14 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
                            const mfem::Vector& B) {
   using namespace mfem_mgis;
   const auto wrapped = WrappedOperator{A};
+  // diagonal scaling from 1 to 10, and the scaled right hand side
+  auto scaling = mfem::Vector(B.Size());
+  auto SB = mfem::Vector(B.Size());
+  for (int i = 0; i != B.Size(); ++i) {
+    scaling[i] = 1 + 9 * ((7 * i) % 11) / 10.;
+    SB[i] = scaling[i] * B[i];
+  }
+  const auto scaled = ScaledOperator{wrapped, scaling};
   auto iterations = std::vector<int>{};
   for (const auto& [name, smoother] :
        {std::pair{std::string{"Jacobi"},
@@ -143,19 +205,28 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
         std::pair{std::string{"Chebyshev of order 4"},
                   Parameters{{"Name", "OperatorChebyshevSmoother"},
                              {"Options", Parameters{{"Order", 4}}}}}}) {
-    const auto ra = solve<is_parallel>(fespace, A, B, smoother);
-    const auto rw = solve<is_parallel>(fespace, wrapped, B, smoother);
+    auto ls = makeConjugateGradient<is_parallel>(fespace, smoother);
+    const auto ra = solve<is_parallel>(fespace, *(ls.linear_solver), A, B);
+    // the smoother is set up again for each operator
+    const auto rw =
+        solve<is_parallel>(fespace, *(ls.linear_solver), wrapped, B);
+    const auto rs =
+        solve<is_parallel>(fespace, *(ls.linear_solver), scaled, SB);
     std::cout << name << ": " << ra.iterations << " iterations (assembled), "
-              << rw.iterations << " (applied without assembly), residuals "
-              << ra.residual << ", " << rw.residual << '\n';
+              << rw.iterations << " (applied without assembly), "
+              << rs.iterations << " (scaled), residuals " << ra.residual << ", "
+              << rw.residual << ", " << rs.residual << '\n';
     for (const auto& [r, kind] :
          {std::pair{ra, "assembled operator"},
-          std::pair{rw, "operator applied without assembly"}}) {
+          std::pair{rw, "operator applied without assembly"},
+          std::pair{rs, "scaled operator"}}) {
       check(r.converged && (r.residual < 1e-9),
             name + ", " + kind + ": resolution");
     }
     check(std::abs(ra.iterations - rw.iterations) <= 1,
           name + ": different numbers of iterations");
+    check(std::abs(rw.iterations - rs.iterations) <= 1,
+          name + ": numbers of iterations changed by a diagonal scaling");
     iterations.push_back(ra.iterations);
   }
   check((iterations.size() == 3) && (iterations[1] < iterations[0]) &&

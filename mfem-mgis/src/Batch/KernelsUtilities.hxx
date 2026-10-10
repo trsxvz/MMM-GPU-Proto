@@ -20,14 +20,32 @@ namespace mfem_mgis::batch::internals {
     return real{0.70710678118654752440};
   }  // end of getInverseOfSquareRootOfTwo
 
+  //! \return true for the gradients of the heat transfer behaviours
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr bool isTemperatureGradient() {
+    return (K == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+           (K == GradientsKind::TEMPERATURE_GRADIENT_2D);
+  }  // end of isTemperatureGradient
+
   //! \return the dimension of the space for the given kind of gradients
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getDimension() {
     return ((K == GradientsKind::SMALL_STRAIN_3D) ||
-            (K == GradientsKind::DEFORMATION_GRADIENT_3D))
+            (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+            (K == GradientsKind::TEMPERATURE_GRADIENT_3D))
                ? 3
                : 2;
   }  // end of getDimension
+
+  /*!
+   * \return the number of components of the unknowns for the given kind of
+   * gradients: the dimension of the space (displacement) or one
+   * (temperature)
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr int getUnknownsSize() {
+    return isTemperatureGradient<K>() ? 1 : getDimension<K>();
+  }  // end of getUnknownsSize
 
   //! \return the number of components of the gradients of the given kind
   template <GradientsKind K>
@@ -38,11 +56,25 @@ namespace mfem_mgis::batch::internals {
       return 4;
     } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
       return 9;
-    } else {
-      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
       return 5;
+    } else {
+      static_assert(isTemperatureGradient<K>());
+      return getDimension<K>();
     }
   }  // end of getGradientsSize
+
+  /*!
+   * \return true if the tangent operator blocks contain, after the
+   * derivatives of the thermodynamic forces with respect to the gradients,
+   * their derivatives with respect to the unknowns (the derivative of the
+   * heat flux with respect to the temperature), which multiply the values
+   * of the shape functions
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr bool hasUnknownsBlock() {
+    return isTemperatureGradient<K>();
+  }  // end of hasUnknownsBlock
 
   /*!
    * \brief computes the inverse of a jacobian
@@ -116,7 +148,9 @@ namespace mfem_mgis::batch::internals {
    * component of the gradients with respect to the `c`-th component of the
    * unknowns at the node
    * \tparam K: kind of the gradients
-   * \param[out] B: block of the operator (9 x 3 values at most)
+   * \param[out] B: block of the operator (9 x 3 values at most). For the
+   * heat transfer behaviours, `B[c][0]` is the derivative of the shape
+   * function with respect to the `c`-th coordinate.
    * \param[in] dN: derivatives of the shape function of the node in the
    * physical frame
    */
@@ -153,12 +187,16 @@ namespace mfem_mgis::batch::internals {
       B[6][2] = dN[0];
       B[7][1] = dN[2];
       B[8][2] = dN[1];
-    } else {
-      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
       B[0][0] = dN[0];
       B[1][1] = dN[1];
       B[3][0] = dN[1];
       B[4][1] = dN[0];
+    } else {
+      static_assert(isTemperatureGradient<K>());
+      for (int c = 0; c != getDimension<K>(); ++c) {
+        B[c][0] = dN[c];
+      }
     }
   }  // end of computeB
 

@@ -55,7 +55,7 @@ namespace mfem_mgis::batch {
           "addInnerForces: unexpected dimension of the space (" +
           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
     }
-    const auto size = std::int64_t{g.nd} * dim * g.ne;
+    const auto size = std::int64_t{g.nd} * getUnknownsSize(k) * g.ne;
     if (static_cast<std::int64_t>(f.Size()) != size) {
       return ctx.registerErrorMessage(
           "addInnerForces: unexpected size of the values element by element");

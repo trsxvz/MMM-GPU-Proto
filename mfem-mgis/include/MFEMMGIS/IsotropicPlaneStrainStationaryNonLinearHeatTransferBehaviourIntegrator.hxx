@@ -8,6 +8,7 @@
 #ifndef LIB_MFEM_MGIS_ISOTROPICPLANESTRAINSTATIONARYNONLINEARHEATTRANSFERBEHAVIOURINTEGRATOR_HXX
 #define LIB_MFEM_MGIS_ISOTROPICPLANESTRAINSTATIONARYNONLINEARHEATTRANSFERBEHAVIOURINTEGRATOR_HXX
 
+#include <span>
 #include <array>
 #include <mfem/linalg/densemat.hpp>
 #include "MFEMMGIS/Config.hxx"
@@ -92,6 +93,14 @@ namespace mfem_mgis {
     void updateExternalStateVariablesFromUnknownsValues(const mfem::Vector &u,
                                                         const mfem::Vector &N,
                                                         const size_type o);
+    /*!
+     * \brief set the external state variable corresponding to the unknowns
+     * at all the integration points (computations by kernels)
+     *
+     * \param[in] values: values of the unknowns at the integration points
+     */
+    void setExternalStateVariablesFromUnknownsValues(
+        std::span<const real> values);
     /*!
      * \brief get the rotation matrix at the given integration point
      * \return the rotation matrix associated with the given integration

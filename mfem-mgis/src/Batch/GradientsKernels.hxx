@@ -64,8 +64,19 @@ namespace mfem_mgis::batch::internals {
      * (`nq x dim x nd`, layout of `mfem::DofToQuad` in the `FULL` mode)
      */
     const real* shape_functions_gradients = nullptr;
+    /*!
+     * \brief values of the shape functions on the reference element
+     * (`nq x nd`, layout of `mfem::DofToQuad` in the `FULL` mode), required
+     * if the values at the points are computed
+     */
+    const real* shape_functions = nullptr;
     //! \brief derivatives (layout of `UnknownsDerivatives::values`)
     real* derivatives = nullptr;
+    /*!
+     * \brief values at the points (layout of
+     * `UnknownsDerivatives::point_values`), not computed if null
+     */
+    real* point_values = nullptr;
     //! \brief number of elements
     int number_of_elements = 0;
     //! \brief number of degrees of freedom per element and per component
@@ -79,9 +90,40 @@ namespace mfem_mgis::batch::internals {
   };
 
   /*!
+   * \brief arguments of the kernel gathering the values of the unknowns at
+   * the integration points of a material (see `getUnknownsValues`)
+   */
+  struct UnknownsValuesKernelArguments {
+    //! \brief elements of the material
+    const int* elements = nullptr;
+    //! \brief offsets of the integration points of the elements
+    const int* offsets = nullptr;
+    //! \brief values at the points of all the elements
+    const real* point_values = nullptr;
+    //! \brief values at the points of the material
+    real* values = nullptr;
+    //! \brief number of elements of the material
+    int number_of_elements = 0;
+    //! \brief number of integration points per element
+    int nq = 0;
+    //! \brief number of components of the unknowns
+    int vdim = 0;
+  };
+
+  /*!
+   * \brief launches the kernel gathering the values of the unknowns at the
+   * integration points of a material: one thread per point
+   * \param[in] a: arguments
+   * \param[in] d: if true, the kernel runs on the device
+   */
+  void launchUnknownsValuesKernel(const UnknownsValuesKernelArguments&,
+                                  const bool);
+
+  /*!
    * \brief launches the kernel computing the derivatives of the unknowns
    * with respect to the reference coordinates at all the points of all the
-   * elements: one thread per point of an element
+   * elements, and their values if required: one thread per point of an
+   * element
    * \param[in] a: arguments
    * \param[in] d: if true, the kernel runs on the device (if a device is
    * enabled), and the pointers of the arguments are located on the device

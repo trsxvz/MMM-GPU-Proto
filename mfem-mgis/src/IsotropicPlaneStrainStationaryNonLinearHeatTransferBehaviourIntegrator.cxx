@@ -111,6 +111,12 @@ namespace mfem_mgis {
     }
   }
 
+  void IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+      setExternalStateVariablesFromUnknownsValues(
+          std::span<const real> values) {
+    std::copy(values.begin(), values.end(), this->uesv);
+  }  // end of setExternalStateVariablesFromUnknownsValues
+
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
       RotationMatrix
       IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::

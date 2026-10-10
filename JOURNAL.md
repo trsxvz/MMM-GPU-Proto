@@ -3493,3 +3493,27 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   Newton, ×1,24) et sur 8 cœurs (23,46 s contre 29,60 s) ; la résolution
   devient négligeable sur le GPU et la loi domine (7,1 s sur 9,6 s).
 
+### 2026-10-10 (matin), thermique par noyaux, relecture C
+
+- Relecture de b4127a6c12, 4b72095ee0 et du polycristal
+  (`scratch/nuit-2026-10-10/relecture-C.md`) : rien au-dessus de la
+  sévérité 2. Corrigé : mfem-mgis 6cae30af99 (invariance des lisseurs par
+  mise à l'échelle diagonale, qui détecte une diagonale ignorée ou un
+  lisseur figé ; choix 1 sans résidu linéaire ; glossaire), mm-opera-hpc
+  976a60b (erreurs des options), README des mesures (mémoire non réduite
+  sans matrice, chiffres arrondis).
+- mfem-mgis 0a26a38be0 : thermique stationnaire non linéaire par noyaux
+  (lot L7.3) : genres de gradient de température 2D et 3D, nombre de
+  composantes des inconnues séparé de la dimension dans tous les noyaux,
+  bloc dérivée du flux par rapport à la température (matrice, diagonale,
+  action sans matrice), valeurs des fonctions de forme, température aux
+  points recopiée dans la variable externe (nouvelle méthode des
+  intégrateurs thermiques générés et du générateur). Test
+  `HeatTransferKernelsTest` : 3D et déformations planes, assemblée et sans
+  matrice, avec et sans prédiction, lois generic et generic-parallel,
+  séquentiel, 2 processus, `debug` et GPU, écarts au point par point de
+  1e-16 à 3e-14 ; trois mutations détectées. Suite à noyaux forcés : seuls
+  les 6 tests micromorphes restent refusés (10 avant). La tangente
+  thermique est définie négative : le gradient conjugué ne s'applique pas
+  sans matrice (GMRES dans le test). Relecture indépendante en cours.
+

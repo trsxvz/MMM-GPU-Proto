@@ -32,7 +32,8 @@ namespace mfem_mgis {
    *   which requires the norm of the residual of the previous linear solve
    *   (one product by the tangent operator per iteration; after a reduction
    *   of the correction, the residual of the complete linear solve is
-   *   used);
+   *   used; if this norm is not given, the formula of the second choice is
+   *   used for this iteration);
    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
    *
    * Safeguards, as Eisenstat and Walker and PETSc: when the following value

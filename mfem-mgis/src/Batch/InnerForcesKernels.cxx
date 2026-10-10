@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/InnerForcesKernels.cxx
  * \brief  This file implements the kernels computing the inner forces of
- * the standard mechanical behaviour integrators. It contains kernels of
- * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+ * the standard mechanical and heat transfer behaviour integrators. It contains
+ * kernels of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
  * \date   09/10/2026
  */
 
@@ -40,10 +40,15 @@ namespace mfem_mgis::batch::internals {
       f[0] += w * (dN[0] * s(0) + dN[1] * s(3) + dN[2] * s(5));
       f[1] += w * (dN[0] * s(4) + dN[1] * s(1) + dN[2] * s(7));
       f[2] += w * (dN[0] * s(6) + dN[1] * s(8) + dN[2] * s(2));
-    } else {
-      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
       f[0] += w * (dN[0] * s(0) + dN[1] * s(3));
       f[1] += w * (dN[0] * s(4) + dN[1] * s(1));
+    } else {
+      // heat flux
+      static_assert(isTemperatureGradient<K>());
+      for (int c = 0; c != getDimension<K>(); ++c) {
+        f[0] += w * dN[c] * s(c);
+      }
     }
   }  // end of addInnerForces
 
@@ -52,17 +57,19 @@ namespace mfem_mgis::batch::internals {
    * material: one thread per element, which inverts the jacobian once per
    * point (a thread per node of an element inverted it for each node)
    * \tparam K: kind of the gradients
-   * \tparam N: dimension
    */
-  template <GradientsKind K, int N>
+  template <GradientsKind K>
   static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
                                       const bool use_device) {
     mfem::forall_switch(
         use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
+          // dimension and number of components of the unknowns
+          constexpr auto N = getDimension<K>();
+          constexpr auto V = getUnknownsSize<K>();
           const auto e = static_cast<std::size_t>(a.elements[k]);
           const auto nq = static_cast<std::size_t>(a.nq);
           const auto nd = static_cast<std::size_t>(a.nd);
-          auto* const fe = a.values + nd * N * e;
+          auto* const fe = a.values + nd * V * e;
           for (std::size_t q = 0; q != nq; ++q) {
             const auto detJ = a.determinants[q + nq * e];
             real iJ[N * N];
@@ -77,9 +84,9 @@ namespace mfem_mgis::batch::internals {
               real dN[N];
               computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
                                             nq, node, iJ);
-              real f[N] = {};
+              real f[V] = {};
               addInnerForces<K>(f, dN, s, w);
-              for (std::size_t c = 0; c != N; ++c) {
+              for (std::size_t c = 0; c != V; ++c) {
                 fe[node + nd * c] += f[c];
               }
             }
@@ -92,19 +99,25 @@ namespace mfem_mgis::batch::internals {
                                const bool use_device) {
     switch (k) {
       case GradientsKind::SMALL_STRAIN_3D:
-        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_3D, 3>(a,
-                                                                   use_device);
+        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_3D>(a, use_device);
         break;
       case GradientsKind::SMALL_STRAIN_2D:
-        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_2D, 2>(a,
-                                                                   use_device);
+        launchInnerForcesKernel<GradientsKind::SMALL_STRAIN_2D>(a, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_3D:
-        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_3D, 3>(
+        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
             a, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_2D:
-        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_2D, 2>(
+        launchInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
+            a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_GRADIENT_3D:
+        launchInnerForcesKernel<GradientsKind::TEMPERATURE_GRADIENT_3D>(
+            a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_GRADIENT_2D:
+        launchInnerForcesKernel<GradientsKind::TEMPERATURE_GRADIENT_2D>(
             a, use_device);
         break;
     }

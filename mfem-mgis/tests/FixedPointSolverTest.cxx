@@ -368,6 +368,11 @@ static void checkAdaptiveTolerances(
     for (std::size_t k = 1; k < step.size(); ++k) {
       // norm of the residual before the linear solve of the iteration k
       const auto fk = step[k - 1].norm;
+      // the conjugate gradients of the test (without preconditioner, or
+      // preconditioned by the exact inverse of the elastic operator) reduce
+      // the norm of the residual: a norm above the one of the non linear
+      // problem reveals a wrong computation of the residual of the linear
+      // solve (its sign, for instance)
       if (step[k].linear_residual_norm.has_value()) {
         check(*(step[k].linear_residual_norm) < fk,
               name +

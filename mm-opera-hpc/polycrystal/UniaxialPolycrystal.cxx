@@ -7,6 +7,8 @@
  */
 
 #include <memory>
+#include <string>
+#include <exception>
 #include <csignal>
 #include <cstdlib>
 #include <fstream>
@@ -73,7 +75,7 @@ struct NumericalParameters {
    * `EisenstatWalker2` (see `AdaptiveLinearSolverTolerance` in mfem-mgis)
    */
   const char *adaptive_linear_solver_tolerance = "None";
-  //! \brief initial adaptive tolerance, the default one if negative
+  //! \brief initial adaptive tolerance, the default one if not given
   mfem_mgis::real adaptive_linear_solver_initial_tolerance = -1;
 };
 
@@ -185,9 +187,17 @@ int main(int argc, char *argv[]) {
   // options of the non linear solver: adaptive tolerance of its linear
   // solver, if required
   auto non_linear_solver_options = mfem_mgis::Parameters{};
+  const auto initial_tolerance_given =
+      p.adaptive_linear_solver_initial_tolerance != -1;
+  if ((std::string_view{p.adaptive_linear_solver_tolerance} == "None") &&
+      (initial_tolerance_given)) {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: an initial tolerance is given without adaptive tolerance");
+    std::exit(EXIT_FAILURE);
+  }
   if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
     auto adaptive_options = mfem_mgis::Parameters{};
-    if (p.adaptive_linear_solver_initial_tolerance > 0) {
+    if (initial_tolerance_given) {
       adaptive_options.insert(ctx, "InitialTolerance",
                               p.adaptive_linear_solver_initial_tolerance) |
           or_die;
@@ -229,8 +239,18 @@ int main(int argc, char *argv[]) {
         "error: invalid non linear solver (expected Newton or NewtonK0)");
     std::exit(EXIT_FAILURE);
   }
-  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(
-      ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
+  // the constructor of the problem throws on invalid options (of the non
+  // linear solver for instance)
+  auto problem_ptr = [&ctx, &fed, &problem_parameters] {
+    try {
+      return std::make_unique<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
+          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
+    } catch (std::exception &e) {
+      mfem_mgis::Profiler::Utils::Message(std::string{"error: "} + e.what());
+      std::exit(EXIT_FAILURE);
+    }
+  }();
+  auto &problem = *problem_ptr;
   mm_opera_hpc::printMeshInformation(ctx, problem);
 
   // set problem

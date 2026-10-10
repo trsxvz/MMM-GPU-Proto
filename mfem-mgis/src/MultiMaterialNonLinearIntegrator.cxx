@@ -387,10 +387,10 @@ namespace mfem_mgis {
               "the behaviour integrator of material '" +
               std::to_string(m) +
               "' can't be computed by kernels (supported: standard "
-              "mechanical behaviours in 3D, plane strain and plane stress, "
-              "small or finite strain, without FBar nor regularization, all "
-              "the elements of the material using the same integration "
-              "rule)");
+              "mechanical behaviours, small or finite strain, and stationary "
+              "non linear heat transfer behaviours, in 3D, plane strain and "
+              "plane stress, without FBar nor regularization, all the "
+              "elements of the material using the same integration rule)");
         }
       }
     }
@@ -467,8 +467,20 @@ namespace mfem_mgis {
       return std::find(rules.begin(), rules.end(), d.first) == rules.end();
     });
     for (const auto* const r : rules) {
+      // the values of the unknowns at the points are computed if a behaviour
+      // integrator of this rule requires them
+      auto values = false;
+      for (const auto& bis : this->behaviour_integrators) {
+        for (const auto& bi : bis) {
+          values =
+              values ||
+              ((bi->getPartialQuadratureSpace().getUniformIntegrationRule() ==
+                r) &&
+               (bi->requiresUnknownsValuesForKernels()));
+        }
+      }
       if (!batch::computeUnknownsDerivatives(ctx, this->unknowns_derivatives[r],
-                                             fes, u, *r)) {
+                                             fes, u, *r, values)) {
         return false;
       }
     }

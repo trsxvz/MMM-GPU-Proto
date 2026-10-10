@@ -449,6 +449,9 @@ void generateHeaderFile(std::ostream &os,
   const auto [b, B] = d.generator(os, "", false);
   writeFileDescription(os, d.name, "declares");
   writeHeaderGuardAtBeginnnigOfFile(os, d.name, "HXX");
+  if (d.requires_unknown_value_as_external_state_variable) {
+    os << "#include <span>\n";
+  }
   os << "#include <array>\n"
      << "#include <mfem/linalg/densemat.hpp>\n"
      << "#include \"MFEMMGIS/Config.hxx\"\n"
@@ -578,7 +581,17 @@ void generateHeaderFile(std::ostream &os,
        << " * current integration point\n"
        << " */\n"
        << "void updateExternalStateVariablesFromUnknownsValues(\n"
-       << "const mfem::Vector &u, const mfem::Vector &N, const size_type o);\n";
+       << "const mfem::Vector &u, const mfem::Vector &N, const size_type o);\n"
+       << "/*!\n"
+       << " * \\brief set the external state variable corresponding to the "
+       << "unknowns\n"
+       << " * at all the integration points (computations by kernels)\n"
+       << " *\n"
+       << " * \\param[in] values: values of the unknowns at the integration "
+       << "points\n"
+       << " */\n"
+       << "void setExternalStateVariablesFromUnknownsValues(\n"
+       << "std::span<const real> values);\n";
   }
   os << "/*!\n"
      << " * \\brief get the rotation matrix at the given integration point\n"
@@ -901,7 +914,12 @@ void generateSourceFile(std::ostream &os,
           "unsupport case: multicomponents unknowns as external state "
           "variables is not supported");
     }
-    os << "}\n\n";
+    os << "}\n\n"
+       << "void " << d.name
+       << "::setExternalStateVariablesFromUnknownsValues(\n"
+       << "std::span<const real> values) {\n"
+       << "std::copy(values.begin(), values.end(), this->uesv);\n"
+       << "}  // end of setExternalStateVariablesFromUnknownsValues\n\n";
   }
   if (d.isotropic) {
     os << d.name << "::RotationMatrix\n"

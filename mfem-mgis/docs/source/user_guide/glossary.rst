@@ -575,7 +575,8 @@ Chebyshev smoother (OperatorChebyshevSmoother)
 
 Chebyshev smoother of ``MFEM``: polynomial of the operator scaled by the
 inverse of its diagonal, the largest eigenvalue of the scaled operator being
-estimated by the power method each time the operator changes. As the Jacobi
+estimated by the power method each time the operator changes (ten products
+by the operator by default). As the Jacobi
 smoother, it only uses products by the operator and its diagonal. The
 essential degrees of freedom shall be eliminated with a diagonal set to one.
 
@@ -614,6 +615,16 @@ at the end of each resolution (the predictions keep it).
 - Option name: ``AdaptiveLinearSolverTolerance``, with the value ``None``
   (default), ``EisenstatWalker1`` or ``EisenstatWalker2``, possibly with
   options.
+- The first choice uses the norm of the residual of the previous linear
+  solve (one more product by the tangent operator per iteration), as in the
+  paper of Eisenstat and Walker and in PETSc; MFEM multiplies it by
+  ``Gamma`` and uses the safeguard of the second choice.
+- The tolerance does not decrease too fast (safeguard), is bounded by the
+  maximum tolerance, and is not smaller than half the ratio of the
+  convergence criterion of the non linear solver to the norm of the residual
+  (no oversolving of the last linear system, Kelley): it may be lower than
+  the tolerance given to the linear solver. The iterative solvers stop on
+  their own norm (preconditioned norm for the conjugate gradient of MFEM).
 - Options:
 
 +----------------------+---------------------------------------------------+

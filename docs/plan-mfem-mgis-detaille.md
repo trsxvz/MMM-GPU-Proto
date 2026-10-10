@@ -885,7 +885,11 @@ Ordre proposé :
 3. thermique non linéaire stationnaire et transitoire (la transitoire
    demande un noyau sur les valeurs des fonctions de forme, pas seulement
    sur leurs dérivées ; la température lue depuis les inconnues comme
-   variable externe doit vivre sur le GPU) ;
+   variable externe doit vivre sur le GPU). Stationnaire fait (gradient de
+   température, flux, bloc dérivée du flux par rapport à la température,
+   valeurs des fonctions de forme, température aux points recopiée dans la
+   variable externe sur l'hôte) ; reste la transitoire, et la variable
+   externe gardée sur le GPU ;
 4. lois orthotropes : matrices de rotation par point en tableau, rotations
    de MGIS sur vues (plus de pointeurs de fonction) ;
 5. propriétés matériau et variables externes sous toutes leurs formes,

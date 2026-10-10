@@ -42,8 +42,9 @@ Résolution (temps et appels, `cas/resume-profilage.py`) :
 - **Sur le GPU, NewtonK0 avec Eisenstat-Walker 1 est le meilleur solveur
   mesuré** : 2,14 s, ×1,46 contre Newton et ×1,20 contre NewtonK0 à
   tolérance fixe. La résolution passe de 1,60 s à 1,05 s malgré 22
-  itérations de Newton de plus : chaque gradient conjugué est beaucoup plus
-  court, et une itération de plus ne coûte qu'une intégration et un
+  itérations de Newton de plus : les résolutions sont en moyenne bien moins
+  chères (les itérations du gradient conjugué ne sont pas enregistrées par
+  ces mesures), et une itération de plus ne coûte qu'une intégration et un
   assemblage par noyaux (BoomerAMG n'est pas reconstruit).
 - **Avec Newton classique, Eisenstat-Walker ne paie pas** : chaque
   itération de plus reconstruit BoomerAMG et assemble la tangente ; sur
@@ -52,8 +53,8 @@ Résolution (temps et appels, `cas/resume-profilage.py`) :
   un produit par la tangente de plus par itération) fait moins
   d'itérations de Newton (51 à 53 contre 58 à 63) et gagne partout.
 - **Pas élastiques** : avec la tolérance fixe, la prédiction et une
-  itération suffisent ; avec Eisenstat-Walker, la tolérance initiale (0,5)
-  donne 4 ou 5 itérations aux pas élastiques. Une tolérance initiale plus
+  itération (8 processus) ou deux (GPU) suffisent ; avec Eisenstat-Walker,
+  la tolérance initiale (0,5) donne 4 ou 5 itérations aux pas élastiques. Une tolérance initiale plus
   basse (option `InitialTolerance`) est une piste pour gagner encore.
 - **Sur CPU**, le point fixe accéléré reste le meilleur (9,5 s), NewtonK0
   avec Eisenstat-Walker 1 suit (10,9 s).

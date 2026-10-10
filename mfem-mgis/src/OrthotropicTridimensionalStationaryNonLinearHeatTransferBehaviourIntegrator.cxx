@@ -113,6 +113,13 @@ namespace mfem_mgis {
     }
   }
 
+  void
+  OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+      setExternalStateVariablesFromUnknownsValues(
+          std::span<const real> values) {
+    std::copy(values.begin(), values.end(), this->uesv);
+  }  // end of setExternalStateVariablesFromUnknownsValues
+
   OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
       RotationMatrix
       OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::

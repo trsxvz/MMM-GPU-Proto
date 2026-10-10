@@ -46,6 +46,11 @@ namespace mfem_mgis {
     return false;
   }  // end of supportsKernels
 
+  bool AbstractBehaviourIntegrator::requiresUnknownsValuesForKernels()
+      const noexcept {
+    return false;
+  }  // end of requiresUnknownsValuesForKernels
+
   bool AbstractBehaviourIntegrator::computeGradientsByKernels(
       Context& ctx,
       const batch::UnknownsDerivativesSet&,

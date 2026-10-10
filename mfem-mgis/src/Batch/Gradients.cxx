@@ -21,6 +21,28 @@
 
 namespace mfem_mgis::batch {
 
+  /*!
+   * \return true if the behaviour is a stationary non linear heat transfer
+   * behaviour: temperature gradient, heat flux, derivatives of the heat flux
+   * with respect to the temperature gradient and to the temperature
+   * \param[in] b: behaviour
+   */
+  [[nodiscard]] static bool isHeatTransferBehaviour(
+      const Behaviour& b) noexcept {
+    if ((b.btype != Behaviour::GENERALBEHAVIOUR) ||
+        (b.gradients.size() != 1u) || (b.thermodynamic_forces.size() != 1u) ||
+        (b.to_blocks.size() != 2u)) {
+      return false;
+    }
+    const auto& g = b.gradients[0].name;
+    const auto& f = b.thermodynamic_forces[0].name;
+    return (g == "TemperatureGradient") && (f == "HeatFlux") &&
+           (b.to_blocks[0].first.name == f) &&
+           (b.to_blocks[0].second.name == g) &&
+           (b.to_blocks[1].first.name == f) &&
+           (b.to_blocks[1].second.name == "Temperature");
+  }  // end of isHeatTransferBehaviour
+
   std::optional<GradientsKind> getGradientsKind(const Behaviour& b) noexcept {
     const auto h = b.hypothesis;
     const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
@@ -42,6 +64,14 @@ namespace mfem_mgis::batch {
       }
       if (bidimensional) {
         return GradientsKind::DEFORMATION_GRADIENT_2D;
+      }
+    }
+    if (isHeatTransferBehaviour(b)) {
+      if (tridimensional) {
+        return GradientsKind::TEMPERATURE_GRADIENT_3D;
+      }
+      if (bidimensional) {
+        return GradientsKind::TEMPERATURE_GRADIENT_2D;
       }
     }
     return {};
@@ -76,12 +106,14 @@ namespace mfem_mgis::batch {
                                   UnknownsDerivatives& d,
                                   const mfem::FiniteElementSpace& fes,
                                   const mfem::Vector& u,
-                                  const mfem::IntegrationRule& ir) noexcept {
+                                  const mfem::IntegrationRule& ir,
+                                  const bool values) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(d);
     static_cast<void>(fes);
     static_cast<void>(u);
     static_cast<void>(ir);
+    static_cast<void>(values);
     return ctx.registerErrorMessage(
         "computeUnknownsDerivatives: the kernels computing the gradients are "
         "not compiled (MFEM compiled with HIP)");
@@ -101,6 +133,12 @@ namespace mfem_mgis::batch {
       const auto size = std::int64_t{d.vdim} * std::int64_t{d.dim} *
                         std::int64_t{d.nq} * std::int64_t{d.ne};
       if (!resizeArray(ctx, d.values, size)) {
+        return false;
+      }
+      d.has_point_values = values;
+      if ((values) && (!resizeArray(ctx, d.point_values,
+                                    std::int64_t{d.vdim} * std::int64_t{d.nq} *
+                                        std::int64_t{d.ne}))) {
         return false;
       }
       if (d.ne == 0) {
@@ -135,6 +173,10 @@ namespace mfem_mgis::batch {
       a.element_values = d.element_values.Read(use_device);
       a.shape_functions_gradients = maps.G.Read(use_device);
       a.derivatives = d.values.Write(use_device);
+      if (values) {
+        a.shape_functions = maps.B.Read(use_device);
+        a.point_values = d.point_values.Write(use_device);
+      }
       internals::launchUnknownsDerivativesKernel(a, use_device);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
@@ -156,17 +198,37 @@ namespace mfem_mgis::batch {
       case GradientsKind::DEFORMATION_GRADIENT_3D:
         return 9;
       case GradientsKind::DEFORMATION_GRADIENT_2D:
+        return 5;
+      case GradientsKind::TEMPERATURE_GRADIENT_3D:
+        return 3;
+      case GradientsKind::TEMPERATURE_GRADIENT_2D:
         break;
     }
-    return 5;
+    return 2;
   }  // end of getGradientsSize
+
+  bool requiresUnknownsValues(const GradientsKind k) noexcept {
+    return (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+           (k == GradientsKind::TEMPERATURE_GRADIENT_2D);
+  }  // end of requiresUnknownsValues
+
+  size_type getTangentOperatorBlocksSize(const GradientsKind k) noexcept {
+    const auto n = getGradientsSize(k);
+    // derivatives of the heat flux with respect to the temperature
+    return requiresUnknownsValues(k) ? n * n + n : n * n;
+  }  // end of getTangentOperatorBlocksSize
 
   int getSpaceDimension(const GradientsKind k) noexcept {
     return ((k == GradientsKind::SMALL_STRAIN_3D) ||
-            (k == GradientsKind::DEFORMATION_GRADIENT_3D))
+            (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+            (k == GradientsKind::TEMPERATURE_GRADIENT_3D))
                ? 3
                : 2;
   }  // end of getSpaceDimension
+
+  int getUnknownsSize(const GradientsKind k) noexcept {
+    return requiresUnknownsValues(k) ? 1 : getSpaceDimension(k);
+  }  // end of getUnknownsSize
 
 #ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
@@ -212,13 +274,15 @@ namespace mfem_mgis::batch {
           "of the derivatives of the unknowns and of the geometric data");
     }
     const auto dim = getSpaceDimension(k);
-    if ((d.vdim != dim) || (d.dim != dim)) {
+    const auto vdim = getUnknownsSize(k);
+    if ((d.vdim != vdim) || (d.dim != dim)) {
       return ctx.registerErrorMessage(
           name +
           ": unexpected number of components of the unknowns or dimension "
           "of the space (" +
           std::to_string(d.vdim) + ", " + std::to_string(d.dim) +
-          "), the expected value being " + std::to_string(dim));
+          "), the expected values being " + std::to_string(vdim) + " and " +
+          std::to_string(dim));
     }
     const auto n = std::int64_t{elements.Size()} * d.nq;
     if (n != std::int64_t{qs.getNumberOfIntegrationPoints()}) {
@@ -291,5 +355,57 @@ namespace mfem_mgis::batch {
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeGradients
+
+  bool getUnknownsValues(Context& ctx,
+                         mfem::Vector& v,
+                         const PartialQuadratureSpace& qs,
+                         const UnknownsDerivatives& d) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(v);
+    static_cast<void>(qs);
+    static_cast<void>(d);
+    return ctx.registerErrorMessage(
+        "getUnknownsValues: the kernels computing the gradients are not "
+        "compiled (MFEM compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+    const auto& elements = qs.getElements();
+    const auto& offsets = qs.getElementOffsets();
+    const auto n = std::int64_t{qs.getNumberOfIntegrationPoints()};
+    if (!resizeArray(ctx, v, n * d.vdim)) {
+      return false;
+    }
+    if (elements.Size() == 0) {
+      return true;
+    }
+    if ((!d.has_point_values) || (d.rule == nullptr) ||
+        (qs.getUniformIntegrationRule() != d.rule)) {
+      return ctx.registerErrorMessage(
+          "getUnknownsValues: the values of the unknowns are not computed "
+          "for the integration rule of the material");
+    }
+    if (std::int64_t{elements.Size()} * d.nq != n) {
+      return ctx.registerErrorMessage(
+          "getUnknownsValues: unexpected number of integration points");
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      auto a = internals::UnknownsValuesKernelArguments{};
+      a.elements = elements.Read(use_device);
+      a.offsets = offsets.Read(use_device);
+      a.point_values = d.point_values.Read(use_device);
+      a.values = v.Write(use_device);
+      a.number_of_elements = elements.Size();
+      a.nq = d.nq;
+      a.vdim = d.vdim;
+      internals::launchUnknownsValuesKernel(a, use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(std::string{"getUnknownsValues: "} +
+                                      e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("getUnknownsValues: unknown exception");
+    }
+    return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of getUnknownsValues
 
 }  // end of namespace mfem_mgis::batch

@@ -19,7 +19,8 @@ initiale de 0,1 (EW1).
 | NewtonK0 | 25,02 s (98 it.) | 11,22 s (98 it.) |
 | NewtonK0, EW1 | **23,46 s** (156 it.) | **9,58 s** (164 it.) |
 
-Temps totaux (`cas/resume-profilage.py`), itérations de Newton au total.
+Temps totaux (`cas/resume-profilage.py`), itérations de Newton au total
+(une résolution linéaire chacune).
 
 Détail sur le GPU :
 
@@ -41,8 +42,8 @@ Détail sur le GPU :
   les leviers suivants sur ce cas.
 - Avec Newton classique, Eisenstat-Walker ne paie pas sur CPU (chaque
   itération reconstruit BoomerAMG), à peine sur le GPU.
-- Contraintes macroscopiques : écarts à Newton de 1e-6 à 3,5e-6 avec
-  Eisenstat-Walker (2e-13 sans). Le Newton microscopique du polycristal
+- Contraintes macroscopiques : écarts à Newton de 9,6e-7 à 3,5e-6 avec
+  Eisenstat-Walker (2,4e-13 sans). Le Newton microscopique du polycristal
   converge à 1e-4 près en relatif : avec une tolérance linéaire de 1e-12,
   la convergence quadratique dépasse largement ce critère ; avec
   Eisenstat-Walker, la solution s'arrête plus près du critère. Les écarts

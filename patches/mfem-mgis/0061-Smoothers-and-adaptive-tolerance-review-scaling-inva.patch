@@ -1,0 +1,401 @@
+From 6cae30af99a48bb686126e741640fb2511868af9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 05:36:45 +0200
+Subject: [PATCH] Smoothers and adaptive tolerance: review (scaling invariance,
+ first choice)
+
+- OperatorSmoothersTest: the Jacobi and Chebyshev smoothers are checked
+  to be invariant by a symmetric diagonal scaling of the operator (same
+  numbers of iterations of the conjugate gradient), the scaled system
+  being solved by the linear solver of the unscaled one: a smoother which
+  ignores the diagonal, or which is not set up again for a new operator,
+  is detected.
+- AdaptiveLinearSolverTolerance: without the norm of the residual of the
+  previous linear solve, the first choice uses the formula of the second
+  one for this iteration (instead of a null norm); unit tests of the
+  independence of the first choice on gamma and of this fallback.
+- Glossary: differences with MFEM, bound against oversolving, tolerance
+  lower than the one of the linear solver, cost of the power method.
+- The tests of the linear solvers without behaviours are declared outside
+  the tests requiring TFEL.
+---
+ docs/source/user_guide/glossary.rst           |  13 +-
+ .../AdaptiveLinearSolverTolerance.hxx         |   3 +-
+ src/AdaptiveLinearSolverTolerance.cxx         |   9 +-
+ tests/AdaptiveLinearSolverToleranceTest.cxx   |  11 +-
+ tests/CMakeLists.txt                          |  49 +++----
+ tests/FixedPointSolverTest.cxx                |   5 +
+ tests/OperatorSmoothersTest.cxx               | 127 ++++++++++++++----
+ 7 files changed, 159 insertions(+), 58 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 808bdbb3e3..4a9a0f3af3 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -575,7 +575,8 @@ Chebyshev smoother (OperatorChebyshevSmoother)
+ 
+ Chebyshev smoother of ``MFEM``: polynomial of the operator scaled by the
+ inverse of its diagonal, the largest eigenvalue of the scaled operator being
+-estimated by the power method each time the operator changes. As the Jacobi
++estimated by the power method each time the operator changes (ten products
++by the operator by default). As the Jacobi
+ smoother, it only uses products by the operator and its diagonal. The
+ essential degrees of freedom shall be eliminated with a diagonal set to one.
+ 
+@@ -614,6 +615,16 @@ at the end of each resolution (the predictions keep it).
+ - Option name: ``AdaptiveLinearSolverTolerance``, with the value ``None``
+   (default), ``EisenstatWalker1`` or ``EisenstatWalker2``, possibly with
+   options.
++- The first choice uses the norm of the residual of the previous linear
++  solve (one more product by the tangent operator per iteration), as in the
++  paper of Eisenstat and Walker and in PETSc; MFEM multiplies it by
++  ``Gamma`` and uses the safeguard of the second choice.
++- The tolerance does not decrease too fast (safeguard), is bounded by the
++  maximum tolerance, and is not smaller than half the ratio of the
++  convergence criterion of the non linear solver to the norm of the residual
++  (no oversolving of the last linear system, Kelley): it may be lower than
++  the tolerance given to the linear solver. The iterative solvers stop on
++  their own norm (preconditioned norm for the conjugate gradient of MFEM).
+ - Options:
+ 
+ +----------------------+---------------------------------------------------+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+index ce01d2891c..3b2314b6e0 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+@@ -32,7 +32,8 @@ namespace mfem_mgis {
+    *   which requires the norm of the residual of the previous linear solve
+    *   (one product by the tangent operator per iteration; after a reduction
+    *   of the correction, the residual of the complete linear solve is
+-   *   used);
++   *   used; if this norm is not given, the formula of the second choice is
++   *   used for this iteration);
+    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
+    *
+    * Safeguards, as Eisenstat and Walker and PETSc: when the following value
+diff --git a/src/AdaptiveLinearSolverTolerance.cxx b/src/AdaptiveLinearSolverTolerance.cxx
+index f5e515edfe..64c2ff4fe3 100644
+--- a/src/AdaptiveLinearSolverTolerance.cxx
++++ b/src/AdaptiveLinearSolverTolerance.cxx
+@@ -120,11 +120,14 @@ namespace mfem_mgis {
+     const auto& o = this->options;
+     auto eta = o.initial_tolerance;
+     if ((i != 0) && (this->previous_norm > 0)) {
+-      if (o.method ==
+-          AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1) {
+-        eta = std::abs(norm - this->linear_residual_norm.value_or(real{0})) /
++      if ((o.method ==
++           AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1) &&
++          (this->linear_residual_norm.has_value())) {
++        eta = std::abs(norm - *(this->linear_residual_norm)) /
+               this->previous_norm;
+       } else {
++        // second choice, or first choice without the norm of the residual
++        // of the previous linear solve
+         eta = o.gamma * std::pow(norm / this->previous_norm, o.alpha);
+       }
+       // the tolerance does not decrease too fast
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index 19b07fbc61..6cc67ad671 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -122,10 +122,13 @@ static void checkSecondChoice() {
+ static void checkFirstChoice() {
+   using namespace mfem_mgis;
+   auto ctx = Context{};
++  // the formula of the first choice does not depend on gamma (MFEM
++  // multiplies it by gamma)
+   const auto ot = AdaptiveLinearSolverTolerance::read(
+       ctx, Parameters{{"AdaptiveLinearSolverTolerance",
+                        Parameters{{"EisenstatWalker1",
+-                                   Parameters{{"InitialTolerance", 0.05}}}}}});
++                                   Parameters{{"InitialTolerance", 0.05},
++                                              {"Gamma", 0.5}}}}}});
+   check(ot.has_value(), "first choice: options refused");
+   if (!ot.has_value()) {
+     return;
+@@ -142,6 +145,12 @@ static void checkFirstChoice() {
+     u.setLinearResidualNorm(0.06);
+     check(areClose(u.update(1, 0.1, 1e-12), 0.04),
+           "first choice: tolerance of the second iteration");
++    // without the norm of the residual of the linear solve, formula of the
++    // second choice, γ (0.01 / 0.1)^α, the safeguard 0.04^((1+√5)/2) being
++    // below the threshold
++    check(areClose(u.update(2, 0.01, 1e-12),
++                   ot->gamma * std::pow(0.1, ot->alpha)),
++          "first choice: tolerance without the residual of the linear solve");
+   }
+   check(areClose(*getRelativeTolerance(s), 1e-9),
+         "first choice: initial tolerance not restored");
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 664093a021..e2170b20d8 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -884,30 +884,6 @@ if(MFEM_MGIS_HAVE_TFEL)
+                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+ 
+-  # OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
+-  # only use products by the operator and its diagonal, as preconditioners
+-  # of the conjugate gradient
+-  add_test_executable(OperatorSmoothersTest)
+-  add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
+-  if(MFEM_USE_MPI)
+-    add_test(NAME OperatorSmoothersTestP
+-             COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
+-    set_tests_properties(OperatorSmoothersTestP
+-                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+-  endif()
+-
+-  # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
+-  # iterative linear solvers adapted to the decrease of the residual
+-  add_test_executable(AdaptiveLinearSolverToleranceTest)
+-  add_test(NAME AdaptiveLinearSolverToleranceTest
+-           COMMAND AdaptiveLinearSolverToleranceTest)
+-  if(MFEM_USE_MPI)
+-    add_test(NAME AdaptiveLinearSolverToleranceTestP
+-             COMMAND mpirun -n 2 ./AdaptiveLinearSolverToleranceTest)
+-    set_tests_properties(AdaptiveLinearSolverToleranceTestP
+-                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+-  endif()
+-
+   # FixedPointSolverTest executable: fixed point solver (methods,
+   # accelerations, linear solvers of the elastic operator) compared to the
+   # Newton solver
+@@ -1001,6 +977,31 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+ 
++# tests of the linear solvers, without behaviours
++# OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
++# only use products by the operator and its diagonal, as preconditioners
++# of the conjugate gradient
++add_test_executable(OperatorSmoothersTest)
++add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
++if(MFEM_USE_MPI)
++  add_test(NAME OperatorSmoothersTestP
++           COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
++  set_tests_properties(OperatorSmoothersTestP
++                       PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++endif()
++
++# AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
++# iterative linear solvers adapted to the decrease of the residual
++add_test_executable(AdaptiveLinearSolverToleranceTest)
++add_test(NAME AdaptiveLinearSolverToleranceTest
++         COMMAND AdaptiveLinearSolverToleranceTest)
++if(MFEM_USE_MPI)
++  add_test(NAME AdaptiveLinearSolverToleranceTestP
++           COMMAND mpirun -n 2 ./AdaptiveLinearSolverToleranceTest)
++  set_tests_properties(AdaptiveLinearSolverToleranceTestP
++                       PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++endif()
++
+ # HypreKrylovAbsoluteToleranceTest executable
+ if(MFEM_USE_MPI)
+   add_test_executable(HypreKrylovAbsoluteToleranceTest)
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 831da08bc1..a0abad2b5b 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -368,6 +368,11 @@ static void checkAdaptiveTolerances(
+     for (std::size_t k = 1; k < step.size(); ++k) {
+       // norm of the residual before the linear solve of the iteration k
+       const auto fk = step[k - 1].norm;
++      // the conjugate gradients of the test (without preconditioner, or
++      // preconditioned by the exact inverse of the elastic operator) reduce
++      // the norm of the residual: a norm above the one of the non linear
++      // problem reveals a wrong computation of the residual of the linear
++      // solve (its sign, for instance)
+       if (step[k].linear_residual_norm.has_value()) {
+         check(*(step[k].linear_residual_norm) < fk,
+               name +
+diff --git a/tests/OperatorSmoothersTest.cxx b/tests/OperatorSmoothersTest.cxx
+index 8fd89190dd..773d79c3a1 100644
+--- a/tests/OperatorSmoothersTest.cxx
++++ b/tests/OperatorSmoothersTest.cxx
+@@ -63,6 +63,49 @@ struct WrappedOperator final : mfem::Operator {
+   const mfem::Operator& op;
+ };
+ 
++/*!
++ * \brief operator `S A S` applied without assembly, `S` being a diagonal
++ * scaling: the Jacobi and Chebyshev smoothers, built on the scaled
++ * diagonal, are invariant by this scaling (same numbers of iterations of the
++ * conjugate gradient), which fails if the diagonal is not taken into
++ * account
++ */
++struct ScaledOperator final : mfem::Operator {
++  /*!
++   * \param[in] a: operator
++   * \param[in] s: scaling
++   */
++  ScaledOperator(const mfem::Operator& a, const mfem::Vector& s)
++      : mfem::Operator(a.Height(), a.Width()), op(a), scaling(s) {}
++  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++    auto sx = mfem::Vector(x.Size());
++    for (int i = 0; i != x.Size(); ++i) {
++      sx[i] = this->scaling[i] * x[i];
++    }
++    this->op.Mult(sx, y);
++    for (int i = 0; i != y.Size(); ++i) {
++      y[i] *= this->scaling[i];
++    }
++  }
++  void AssembleDiagonal(mfem::Vector& d) const override {
++    if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++        m != nullptr) {
++      m->GetDiag(d);
++    } else {
++      this->op.AssembleDiagonal(d);
++    }
++    for (int i = 0; i != d.Size(); ++i) {
++      d[i] *= this->scaling[i] * this->scaling[i];
++    }
++  }
++
++ private:
++  //! \brief operator
++  const mfem::Operator& op;
++  //! \brief scaling
++  const mfem::Vector& scaling;
++};
++
+ //! \brief result of a resolution
+ struct Resolution {
+   //! \brief if true, the resolution succeeded
+@@ -74,34 +117,22 @@ struct Resolution {
+ };
+ 
+ /*!
+- * \return the resolution of a linear system by the conjugate gradient of the
+- * factory preconditioned by a smoother
++ * \return the resolution of a linear system by a linear solver
+  * \param[in] fespace: finite element space
++ * \param[in, out] ls: linear solver
+  * \param[in] A: operator
+  * \param[in] B: right hand side
+- * \param[in] smoother: preconditioner
+  */
+ template <bool is_parallel>
+ static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                        mfem::Solver& ls,
+                         const mfem::Operator& A,
+-                        const mfem::Vector& B,
+-                        const mfem_mgis::Parameters& smoother) {
++                        const mfem::Vector& B) {
+   using namespace mfem_mgis;
+-  auto ctx = Context{};
+-  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+-      ctx, "CGSolver", fespace,
+-      Parameters{{"RelativeTolerance", 1e-10},
+-                 {"AbsoluteTolerance", 0.},
+-                 {"MaximumNumberOfIterations", 5000},
+-                 {"Preconditioner", smoother}});
+-  if (isInvalid(ls)) {
+-    std::cerr << ctx.getErrorMessage() << '\n';
+-    return {};
+-  }
+   auto X = mfem::Vector(B.Size());
+   X = 0.;
+-  ls.linear_solver->SetOperator(A);
+-  ls.linear_solver->Mult(B, X);
++  ls.SetOperator(A);
++  ls.Mult(B, X);
+   auto r = mfem::Vector(B.Size());
+   A.Mult(X, r);
+   r -= B;
+@@ -113,13 +144,36 @@ static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+       return mfem::InnerProduct(a, b);
+     }
+   };
+-  return {
+-      .converged = hasConverged(*(ls.linear_solver)),
+-      .iterations =
+-          getNumberOfIterationsAtConvergence(*(ls.linear_solver)).value_or(0),
+-      .residual = std::sqrt(dot(r, r) / dot(B, B))};
++  return {.converged = hasConverged(ls),
++          .iterations = getNumberOfIterationsAtConvergence(ls).value_or(0),
++          .residual = std::sqrt(dot(r, r) / dot(B, B))};
+ }  // end of solve
+ 
++/*!
++ * \return the conjugate gradient of the factory preconditioned by a
++ * smoother
++ * \param[in] fespace: finite element space
++ * \param[in] smoother: preconditioner
++ */
++template <bool is_parallel>
++static mfem_mgis::LinearSolverHandler makeConjugateGradient(
++    mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++    const mfem_mgis::Parameters& smoother) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, "CGSolver", fespace,
++      Parameters{{"RelativeTolerance", 1e-10},
++                 {"AbsoluteTolerance", 0.},
++                 {"MaximumNumberOfIterations", 5000},
++                 {"Preconditioner", smoother}});
++  if (isInvalid(ls)) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    std::exit(EXIT_FAILURE);
++  }
++  return ls;
++}  // end of makeConjugateGradient
++
+ /*!
+  * \brief checks the smoothers on a linear system
+  * \param[in] fespace: finite element space
+@@ -133,6 +187,14 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+                            const mfem::Vector& B) {
+   using namespace mfem_mgis;
+   const auto wrapped = WrappedOperator{A};
++  // diagonal scaling from 1 to 10, and the scaled right hand side
++  auto scaling = mfem::Vector(B.Size());
++  auto SB = mfem::Vector(B.Size());
++  for (int i = 0; i != B.Size(); ++i) {
++    scaling[i] = 1 + 9 * ((7 * i) % 11) / 10.;
++    SB[i] = scaling[i] * B[i];
++  }
++  const auto scaled = ScaledOperator{wrapped, scaling};
+   auto iterations = std::vector<int>{};
+   for (const auto& [name, smoother] :
+        {std::pair{std::string{"Jacobi"},
+@@ -143,19 +205,28 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+         std::pair{std::string{"Chebyshev of order 4"},
+                   Parameters{{"Name", "OperatorChebyshevSmoother"},
+                              {"Options", Parameters{{"Order", 4}}}}}}) {
+-    const auto ra = solve<is_parallel>(fespace, A, B, smoother);
+-    const auto rw = solve<is_parallel>(fespace, wrapped, B, smoother);
++    auto ls = makeConjugateGradient<is_parallel>(fespace, smoother);
++    const auto ra = solve<is_parallel>(fespace, *(ls.linear_solver), A, B);
++    // the smoother is set up again for each operator
++    const auto rw =
++        solve<is_parallel>(fespace, *(ls.linear_solver), wrapped, B);
++    const auto rs =
++        solve<is_parallel>(fespace, *(ls.linear_solver), scaled, SB);
+     std::cout << name << ": " << ra.iterations << " iterations (assembled), "
+-              << rw.iterations << " (applied without assembly), residuals "
+-              << ra.residual << ", " << rw.residual << '\n';
++              << rw.iterations << " (applied without assembly), "
++              << rs.iterations << " (scaled), residuals " << ra.residual << ", "
++              << rw.residual << ", " << rs.residual << '\n';
+     for (const auto& [r, kind] :
+          {std::pair{ra, "assembled operator"},
+-          std::pair{rw, "operator applied without assembly"}}) {
++          std::pair{rw, "operator applied without assembly"},
++          std::pair{rs, "scaled operator"}}) {
+       check(r.converged && (r.residual < 1e-9),
+             name + ", " + kind + ": resolution");
+     }
+     check(std::abs(ra.iterations - rw.iterations) <= 1,
+           name + ": different numbers of iterations");
++    check(std::abs(rw.iterations - rs.iterations) <= 1,
++          name + ": numbers of iterations changed by a diagonal scaling");
+     iterations.push_back(ra.iterations);
+   }
+   check((iterations.size() == 3) && (iterations[1] < iterations[0]) &&
+-- 
+2.43.0
+

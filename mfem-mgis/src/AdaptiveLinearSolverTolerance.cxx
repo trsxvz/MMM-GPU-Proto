@@ -120,11 +120,14 @@ namespace mfem_mgis {
     const auto& o = this->options;
     auto eta = o.initial_tolerance;
     if ((i != 0) && (this->previous_norm > 0)) {
-      if (o.method ==
-          AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1) {
-        eta = std::abs(norm - this->linear_residual_norm.value_or(real{0})) /
+      if ((o.method ==
+           AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1) &&
+          (this->linear_residual_norm.has_value())) {
+        eta = std::abs(norm - *(this->linear_residual_norm)) /
               this->previous_norm;
       } else {
+        // second choice, or first choice without the norm of the residual
+        // of the previous linear solve
         eta = o.gamma * std::pow(norm / this->previous_norm, o.alpha);
       }
       // the tolerance does not decrease too fast

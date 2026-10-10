@@ -35,15 +35,19 @@ Temps de la boucle sur les pas ; résolution d'après
 ## Constats
 
 - **Chebyshev ne paie pas ici** : chaque ordre de plus ajoute une action de
-  la tangente sans matrice par application du préconditionneur, plus chère
-  que les itérations de gradient conjugué qu'elle évite (tétraèdres
-  d'ordre 1, action à 3 x 4 = 12 inconnues par élément). Le lisseur reste
-  utile comme brique (lissage d'une multigrille géométrique ou p, ordres
-  élevés) : il est dans la fabrique et testé.
+  la tangente sans matrice par application du préconditionneur (tétraèdres
+  d'ordre 1, action à 3 x 4 = 12 inconnues par élément), et le temps croît
+  avec l'ordre. Les itérations du gradient conjugué ne sont pas
+  enregistrées par ces mesures : la réduction qu'apporte chaque ordre n'est
+  pas chiffrée ici (sur un Laplacien, 46 itérations avec Jacobi, 27 et 17
+  avec Chebyshev d'ordre 2 et 4, test `OperatorSmoothersTest`). Le lisseur
+  reste utile comme brique (lissage d'une multigrille géométrique ou p,
+  ordres élevés) : il est dans la fabrique et testé.
 - **Sans matrice, NewtonK0 avec Eisenstat-Walker 1 est à 3 % de la tangente
-  assemblée** (2,05 s contre 1,99 s) : la tangente n'est plus assemblée
-  du tout pendant les itérations (seul K0 l'est, une fois), ce qui ouvre
-  les maillages trop gros pour stocker la tangente sur le GPU.
-- Eisenstat-Walker apporte autant sans matrice (3,05 s vers 2,05 s) qu'avec
-  la tangente assemblée (2,57 s vers 1,96 s,
+  assemblée** (2,05 s contre 1,99 s, une exécution par cas) : la tangente
+  n'est plus assemblée pendant les itérations. La mémoire n'est pas réduite
+  pour autant : K0 (copie d'une tangente assemblée), la matrice du problème
+  et la matrice de la prédiction restent assemblées.
+- Eisenstat-Walker apporte un peu plus sans matrice (3,05 s vers 2,05 s,
+  -33 %) qu'avec la tangente assemblée (2,57 s vers 1,96 s, -24 %,
   `results/L5-poutre-2026-10-10-0429/`).

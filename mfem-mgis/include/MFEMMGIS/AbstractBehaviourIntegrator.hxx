@@ -150,6 +150,15 @@ namespace mfem_mgis {
      */
     [[nodiscard]] virtual bool supportsKernels() const noexcept;
     /*!
+     * \return true if the computation of the gradients by kernels requires
+     * the values of the unknowns at the integration points (see
+     * `batch::UnknownsDerivatives::point_values`), for instance the
+     * temperature of the heat transfer behaviours, an external state variable
+     * of the behaviour. The default implementation returns false.
+     */
+    [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
+        const noexcept;
+    /*!
      * \brief compute the gradients at all the integration points by
      * kernels, from the derivatives of the unknowns at the points of the
      * integration rule of the elements (see

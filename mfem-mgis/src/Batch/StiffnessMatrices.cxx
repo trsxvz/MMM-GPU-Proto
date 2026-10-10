@@ -91,7 +91,7 @@ namespace mfem_mgis::batch {
     }
     const auto gsize = getGradientsSize(k);
     if ((K.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
-        (K.getNumberOfComponents() != gsize * gsize)) {
+        (K.getNumberOfComponents() != getTangentOperatorBlocksSize(k))) {
       return ctx.registerErrorMessage(
           name +
           ": unexpected number of points or of components "
@@ -107,6 +107,7 @@ namespace mfem_mgis::batch {
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.shape_functions_gradients = g.maps->G.Read(use_device);
+    a.shape_functions = g.maps->B.Read(use_device);
     a.jacobians = g.factors->J.Read(use_device);
     a.determinants = g.factors->detJ.Read(use_device);
     a.weights = g.weights.Read(use_device);
@@ -141,7 +142,7 @@ namespace mfem_mgis::batch {
                                                "addStiffnessMatrices", false)) {
         return !error;
       }
-      const auto ndofs = std::int64_t{g.nd} * getSpaceDimension(k);
+      const auto ndofs = std::int64_t{g.nd} * getUnknownsSize(k);
       if (static_cast<std::int64_t>(m.Size()) != ndofs * ndofs * g.ne) {
         return ctx.registerErrorMessage(
             "addStiffnessMatrices: unexpected size of the matrices element by "
@@ -186,7 +187,7 @@ namespace mfem_mgis::batch {
         return !error;
       }
       const auto size =
-          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
+          std::int64_t{g.nd} * getUnknownsSize(k) * std::int64_t{g.ne};
       if (static_cast<std::int64_t>(d.Size()) != size) {
         return ctx.registerErrorMessage(
             "addStiffnessMatricesDiagonals: unexpected size of the values "
@@ -235,7 +236,7 @@ namespace mfem_mgis::batch {
         return !error;
       }
       const auto size =
-          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
+          std::int64_t{g.nd} * getUnknownsSize(k) * std::int64_t{g.ne};
       if ((static_cast<std::int64_t>(x.Size()) != size) ||
           (static_cast<std::int64_t>(y.Size()) != size)) {
         return ctx.registerErrorMessage(
@@ -431,7 +432,7 @@ namespace mfem_mgis::batch {
         return ctx.registerErrorMessage(
             "addStiffnessMatrices: invalid assembled matrix");
       }
-      const auto ndofs = std::int64_t{g.nd} * getSpaceDimension(k);
+      const auto ndofs = std::int64_t{g.nd} * getUnknownsSize(k);
       if (static_cast<std::int64_t>(m.element_dofs->Size()) != ndofs * g.ne) {
         return ctx.registerErrorMessage(
             "addStiffnessMatrices: unexpected number of degrees of freedom "
