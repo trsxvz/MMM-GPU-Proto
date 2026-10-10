@@ -1,0 +1,99 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Newton iteration  0 : ||r|| = 1038.87, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.5
+Newton iteration  1 : ||r|| = 210.573, ||r||/||r_0|| = 0.202695
+Newton iteration  1 : relative tolerance of the linear solver 0.325779
+Newton iteration  2 : ||r|| = 41.608, ||r||/||r_0|| = 0.0400513
+Newton iteration  2 : relative tolerance of the linear solver 0.16289
+Newton iteration  3 : ||r|| = 2.29418, ||r||/||r_0|| = 0.00220835
+Newton iteration  3 : relative tolerance of the linear solver 0.000192667
+Newton iteration  4 : ||r|| = 0.00224186, ||r||/||r_0|| = 2.15798e-06
+Newton iteration  4 : relative tolerance of the linear solver 0.00231698
+Newton iteration  5 : ||r|| = 2.86574e-06, ||r||/||r_0|| = 2.75853e-09
+Convergence order 0.961247
+
+Newton iteration  0 : ||r|| = 845.352, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.5
+Newton iteration  1 : ||r|| = 172.069, ||r||/||r_0|| = 0.203548
+Newton iteration  1 : relative tolerance of the linear solver 0.325779
+Newton iteration  2 : ||r|| = 33.6511, ||r||/||r_0|| = 0.0398072
+Newton iteration  2 : relative tolerance of the linear solver 0.16289
+Newton iteration  3 : ||r|| = 1.73093, ||r||/||r_0|| = 0.00204758
+Newton iteration  3 : relative tolerance of the linear solver 7.48275e-05
+Newton iteration  4 : ||r|| = 0.000822662, ||r||/||r_0|| = 9.73159e-07
+Newton iteration  4 : relative tolerance of the linear solver 0.0051379
+Newton iteration  5 : ||r|| = 2.71022e-06, ||r||/||r_0|| = 3.20602e-09
+Convergence order 0.746968
+
+Newton iteration  0 : ||r|| = 712.676, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.5
+Newton iteration  1 : ||r|| = 141.131, ||r||/||r_0|| = 0.198029
+Newton iteration  1 : relative tolerance of the linear solver 0.325779
+Newton iteration  2 : ||r|| = 26.5625, ||r||/||r_0|| = 0.0372715
+Newton iteration  2 : relative tolerance of the linear solver 0.16289
+Newton iteration  3 : ||r|| = 1.49584, ||r||/||r_0|| = 0.00209891
+Newton iteration  3 : relative tolerance of the linear solver 5.75518e-05
+Newton iteration  4 : ||r|| = 0.00104233, ||r||/||r_0|| = 1.46255e-06
+Newton iteration  4 : relative tolerance of the linear solver 0.00341868
+Newton iteration  5 : ||r|| = 1.18457e-06, ||r||/||r_0|| = 1.66214e-09
+Convergence order 0.932707
+
+Newton iteration  0 : ||r|| = 616.026, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.5
+Newton iteration  1 : ||r|| = 121.091, ||r||/||r_0|| = 0.196568
+Newton iteration  1 : relative tolerance of the linear solver 0.325779
+Newton iteration  2 : ||r|| = 22.9265, ||r||/||r_0|| = 0.0372168
+Newton iteration  2 : relative tolerance of the linear solver 0.16289
+Newton iteration  3 : ||r|| = 1.30678, ||r||/||r_0|| = 0.0021213
+Newton iteration  3 : relative tolerance of the linear solver 4.23241e-05
+Newton iteration  4 : ||r|| = 0.000509692, ||r||/||r_0|| = 8.27388e-07
+Newton iteration  4 : relative tolerance of the linear solver 0.00604312
+Newton iteration  5 : ||r|| = 1.55653e-06, ||r||/||r_0|| = 2.52673e-09
+Convergence order 0.73782
+
+Newton iteration  0 : ||r|| = 542.474, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.5
+Newton iteration  1 : ||r|| = 103.632, ||r||/||r_0|| = 0.191036
+Newton iteration  1 : relative tolerance of the linear solver 0.325779
+Newton iteration  2 : ||r|| = 20.073, ||r||/||r_0|| = 0.0370027
+Newton iteration  2 : relative tolerance of the linear solver 0.16289
+Newton iteration  3 : ||r|| = 1.30332, ||r||/||r_0|| = 0.00240256
+Newton iteration  3 : relative tolerance of the linear solver 7.69525e-05
+Newton iteration  4 : ||r|| = 0.00113661, ||r||/||r_0|| = 2.09524e-06
+Newton iteration  4 : relative tolerance of the linear solver 0.00238636
+Newton iteration  5 : ||r|| = 1.96141e-06, ||r||/||r_0|| = 3.61568e-09
+Convergence order 0.90312
+
+dofs 279873 | ls gmres-amg | ||T|| 306232.6257 | iterations per step: 5 5 5 5 5 | total 25
+time 4.032 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable ----------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |            time(s) |            part(%) |
+ |-----------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |           6.105744 |        100.000000% |
+ | |--> Mesh::Constructor                          |                  1 |           1.056709 |         17.306805% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000227 |          0.003713% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  5 |           1.056346 |         17.300858% |
+ | |--> FED::Constructor                           |                  1 |           1.016620 |         16.650231% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000002 |          0.000027% |
+ | |--> NLEP::solve                                |                  5 |           3.968695 |         64.999366% |
+ |    |--> NLEPIB::setup                           |                  5 |           0.000115 |          0.001876% |
+ |    |--> NLEPIB::solve                           |                  5 |           3.968562 |         64.997201% |
+ |       |--> NS::Mult                             |                  5 |           3.968534 |         64.996729% |
+ |          |--> NS::processNewUnknownsEstimate    |                  5 |           2.438432 |         39.936690% |
+ |          |--> NS::computeResidual               |                  5 |           0.011310 |          0.185241% |
+ |          |--> NS::Mult::WhileLoop               |                 30 |           1.517738 |         24.857548% |
+ |             |--> NS::computeNewtonCorrection    |                 25 |           1.128271 |         18.478839% |
+ |                |--> NS::getJacobian             |                 25 |           0.513095 |          8.403476% |
+ |                |--> NS::setLinearSolverOperator |                 25 |           0.005244 |          0.085883% |
+ |                |--> MFEM::Mult(r,c)             |                 25 |           0.609771 |          9.986837% |
+ |             |--> NS::processNewUnknownsEstimate |                 25 |           0.340046 |          5.569282% |
+ |             |--> NS::computeResidual            |                 25 |           0.030597 |          0.501123% |
+ | |--> NLEPIB::update                             |                  5 |           0.063718 |          1.043571% |
+ |-- end timetable ------------------------------------------------------------------------------------------------|

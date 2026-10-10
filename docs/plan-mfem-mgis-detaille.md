@@ -560,7 +560,11 @@ Noyaux (`src/Batch/`, `mfem::forall`, petites déformations 3D d'abord) :
   règle d'intégration de chaque matériau. Par défaut, la même règle que
   le chemin actuel (`2 * OrderGrad`). Les noyaux de MFEM demandent une
   règle par type de géométrie : un maillage mixte est traité géométrie
-  par géométrie ;
+  par géométrie. Fait : pour un maillage sans nœuds, les jacobiens sont
+  calculés par un noyau à partir des sommets (les facteurs géométriques de
+  MFEM demandaient un espace d'éléments finis d'ordre un et une
+  projection des coordonnées sur l'hôte, 1,8 s pour 1,6 million de
+  tétraèdres) ;
 - **gradients** : valeurs élémentaires (`ElementRestriction`), dérivées
   aux points, conversion vers les gradients de la loi (déformation en
   notation de Voigt avec √2, comme les matrices `B` actuelles), gradients

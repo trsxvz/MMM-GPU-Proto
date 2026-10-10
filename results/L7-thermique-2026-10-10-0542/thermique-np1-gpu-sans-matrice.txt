@@ -1,0 +1,67 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Newton iteration  0 : ||r|| = 1038.87, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 100.133, ||r||/||r_0|| = 0.0963865
+Newton iteration  2 : ||r|| = 1.09135, ||r||/||r_0|| = 0.00105052
+Newton iteration  3 : ||r|| = 0.000135979, ||r||/||r_0|| = 1.30892e-07
+Newton iteration  4 : ||r|| = 6.9837e-12, ||r||/||r_0|| = 6.72242e-15
+Convergence order 1.86692
+
+Newton iteration  0 : ||r|| = 845.352, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 68.2742, ||r||/||r_0|| = 0.0807642
+Newton iteration  2 : ||r|| = 0.510227, ||r||/||r_0|| = 0.000603568
+Newton iteration  3 : ||r|| = 2.97322e-05, ||r||/||r_0|| = 3.51714e-08
+Newton iteration  4 : ||r|| = 5.43477e-12, ||r||/||r_0|| = 6.429e-15
+Convergence order 1.59121
+
+Newton iteration  0 : ||r|| = 712.676, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 49.5378, ||r||/||r_0|| = 0.0695096
+Newton iteration  2 : ||r|| = 0.269493, ||r||/||r_0|| = 0.000378143
+Newton iteration  3 : ||r|| = 8.29623e-06, ||r||/||r_0|| = 1.1641e-08
+Newton iteration  4 : ||r|| = 6.13772e-12, ||r||/||r_0|| = 8.61221e-15
+Convergence order 1.35889
+
+Newton iteration  0 : ||r|| = 616.026, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 37.5852, ||r||/||r_0|| = 0.0610123
+Newton iteration  2 : ||r|| = 0.155455, ||r||/||r_0|| = 0.000252352
+Newton iteration  3 : ||r|| = 2.76086e-06, ||r||/||r_0|| = 4.48172e-09
+Convergence order 1.99318
+
+Newton iteration  0 : ||r|| = 542.474, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 29.4934, ||r||/||r_0|| = 0.0543683
+Newton iteration  2 : ||r|| = 0.0958563, ||r||/||r_0|| = 0.000176702
+Newton iteration  3 : ||r|| = 1.0498e-06, ||r||/||r_0|| = 1.93521e-09
+Convergence order 1.99369
+
+dofs 279873 | ls gmres-jacobi | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
+time 183.399 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable ----------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |            time(s) |            part(%) |
+ |-----------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |         186.865241 |        100.000000% |
+ | |--> Mesh::Constructor                          |                  1 |           1.574251 |          0.842453% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000251 |          0.000134% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  5 |           1.573835 |          0.842230% |
+ | |--> FED::Constructor                           |                  1 |           1.892300 |          1.012655% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000002 |          0.000001% |
+ | |--> NLEP::solve                                |                  5 |         183.343255 |         98.115227% |
+ |    |--> NLEPIB::setup                           |                  5 |           0.000643 |          0.000344% |
+ |    |--> NLEPIB::solve                           |                  5 |         183.342600 |         98.114876% |
+ |       |--> NS::Mult                             |                  5 |         183.342584 |         98.114868% |
+ |          |--> NS::processNewUnknownsEstimate    |                  5 |           3.334758 |          1.784579% |
+ |          |--> NS::computeResidual               |                  5 |           0.012019 |          0.006432% |
+ |          |--> NS::Mult::WhileLoop               |                 23 |         179.994891 |         96.323366% |
+ |             |--> NS::computeNewtonCorrection    |                 18 |         179.802904 |         96.220626% |
+ |                |--> NS::getJacobian             |                 18 |           0.000079 |          0.000042% |
+ |                |--> NS::setLinearSolverOperator |                 18 |           0.068176 |          0.036484% |
+ |                |--> MFEM::Mult(r,c)             |                 18 |         179.734570 |         96.184057% |
+ |             |--> NS::processNewUnknownsEstimate |                 18 |           0.167625 |          0.089704% |
+ |             |--> NS::computeResidual            |                 18 |           0.021921 |          0.011731% |
+ | |--> NLEPIB::update                             |                  5 |           0.055433 |          0.029665% |
+ |-- end timetable ------------------------------------------------------------------------------------------------|

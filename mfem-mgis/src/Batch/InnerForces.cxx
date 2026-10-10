@@ -43,7 +43,8 @@ namespace mfem_mgis::batch {
     if (elements.Size() == 0) {
       return true;
     }
-    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
+    if ((g.rule == nullptr) || (g.maps == nullptr) ||
+        (g.jacobians == nullptr) || (g.determinants == nullptr) ||
         (qs.getUniformIntegrationRule() != g.rule)) {
       return ctx.registerErrorMessage(
           "addInnerForces: the elements of the material do not use the "
@@ -79,8 +80,8 @@ namespace mfem_mgis::batch {
       a.elements = elements.Read(use_device);
       a.offsets = offsets.Read(use_device);
       a.shape_functions_gradients = g.maps->G.Read(use_device);
-      a.jacobians = g.factors->J.Read(use_device);
-      a.determinants = g.factors->detJ.Read(use_device);
+      a.jacobians = g.jacobians->Read(use_device);
+      a.determinants = g.determinants->Read(use_device);
       a.weights = g.weights.Read(use_device);
       a.values = f.ReadWrite(use_device);
       internals::launchInnerForcesKernel(k, a, use_device);

@@ -158,7 +158,8 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/MFEMFieldOperations.cxx
   Batch/GradientsKernels.cxx
   Batch/InnerForcesKernels.cxx
-  Batch/StiffnessMatricesKernels.cxx)
+  Batch/StiffnessMatricesKernels.cxx
+  Batch/ElementsGeometryKernels.cxx)
 if(MFEM_USE_HIP STREQUAL "YES")
   message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
           "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")

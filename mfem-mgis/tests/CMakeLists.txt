@@ -1029,6 +1029,23 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
   endif()
 endif()
 
+# ElementsGeometryTest executable: jacobians of the element transformations
+# used by the kernels of the batch path, computed by a kernel for the meshes
+# without nodes (not compiled with HIP), on the host, on the debug device
+# and on the GPU
+if(NOT MFEM_USE_HIP STREQUAL "YES")
+  add_test_executable(ElementsGeometryTest)
+  add_test(NAME ElementsGeometryTest COMMAND ElementsGeometryTest)
+  add_test(NAME ElementsGeometryTest-debug
+           COMMAND ElementsGeometryTest --device debug)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME ElementsGeometryTest-cuda
+             COMMAND ElementsGeometryTest --device cuda)
+    set_tests_properties(ElementsGeometryTest-cuda
+                         PROPERTIES RESOURCE_LOCK gpu)
+  endif()
+endif()
+
 # MFEMFieldOperationsTest executable: copies and fills of views by kernels
 # of MFEM, on the host, on the debug device and on the GPU
 if(NOT MFEM_USE_HIP STREQUAL "YES")

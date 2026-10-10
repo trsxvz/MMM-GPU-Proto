@@ -1,0 +1,714 @@
+From 8b0b47acfbd6f19be02545aab4fb1cf489ce0154 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 06:15:50 +0200
+Subject: [PATCH] Batch: jacobians of meshes without nodes computed by a kernel
+
+The jacobians of the element transformations of a mesh without nodes were
+computed by the geometric factors of MFEM from a copy of the vertices in a
+finite element space of order one. Building this space and projecting the
+coordinates on it cost about 1.8 s on the host for 1.6 million tetrahedra,
+once per integration rule, which was 60% of the time of a stationary heat
+transfer computed by kernels on the GPU.
+
+The jacobians and their determinants are now computed by a kernel from the
+vertices of the elements and the gradients of the shape functions of the
+finite element of the transformations of MFEM
+(`mfem::Mesh::GetTransformationFEforElementType`), whose degrees of
+freedom are the vertices of the elements in their order. The mesh is still
+not modified. Meshes with nodes still use the geometric factors of the
+mesh. `ElementsGeometry` exposes the jacobians and the determinants as
+vectors, owned by the mesh or by the geometric data.
+
+ElementsGeometryTest compares the jacobians, their determinants and the
+weights to the element transformations of MFEM for segments, triangles,
+quadrangles, tetrahedra, hexahedra, wedges and pyramids, regular and
+distorted, with unknowns of order one and two, and for a curved mesh, on
+the host, on the debug device and on the GPU.
+
+Stationary heat transfer of the prototype (280 000 unknowns, 5 steps), on
+the GPU: 3.01 s to 1.25 s.
+---
+ include/MFEMMGIS/Batch/ElementsGeometry.hxx |  49 ++++--
+ src/Batch/ElementsGeometry.cxx              | 102 +++++++++--
+ src/Batch/ElementsGeometryKernels.cxx       |  57 ++++++
+ src/Batch/ElementsGeometryKernels.hxx       |  68 +++++++
+ src/Batch/Gradients.cxx                     |   8 +-
+ src/Batch/InnerForces.cxx                   |   7 +-
+ src/Batch/StiffnessMatrices.cxx             |   7 +-
+ src/CMakeLists.txt                          |   3 +-
+ tests/CMakeLists.txt                        |  17 ++
+ tests/ElementsGeometryTest.cxx              | 186 ++++++++++++++++++++
+ 10 files changed, 466 insertions(+), 38 deletions(-)
+ create mode 100644 src/Batch/ElementsGeometryKernels.cxx
+ create mode 100644 src/Batch/ElementsGeometryKernels.hxx
+ create mode 100644 tests/ElementsGeometryTest.cxx
+
+diff --git a/include/MFEMMGIS/Batch/ElementsGeometry.hxx b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+index 39793f3b89..33cc9c9e83 100644
+--- a/include/MFEMMGIS/Batch/ElementsGeometry.hxx
++++ b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+@@ -16,18 +16,31 @@
+ namespace mfem {
+   // forward declarations
+   class DofToQuad;
+-  class GeometricFactors;
+   class IntegrationRule;
+   class FiniteElementSpace;
+ }  // end of namespace mfem
+ 
+ namespace mfem_mgis::batch {
+ 
++  /*!
++   * \brief jacobians of the element transformations of a mesh without nodes
++   * and their determinants (see `computeElementsGeometry`)
++   */
++  struct MFEM_MGIS_EXPORT ElementsJacobians {
++    /*!
++     * \brief jacobians at the points (`nq x dim x dim x ne`, layout of
++     * `mfem::GeometricFactors::J`)
++     */
++    mfem::Vector J;
++    //! \brief determinants of the jacobians (`nq x ne`)
++    mfem::Vector detJ;
++  };
++
+   /*!
+    * \brief geometric data of all the elements of the mesh for one
+    * integration rule: gradients of the shape functions on the reference
+    * element (`mfem::DofToQuad`, owned by the finite element) and jacobians
+-   * of the element transformations (`mfem::GeometricFactors`)
++   * of the element transformations
+    */
+   struct MFEM_MGIS_EXPORT ElementsGeometry {
+     //! \brief integration rule
+@@ -35,15 +48,18 @@ namespace mfem_mgis::batch {
+     //! \brief values and gradients of the shape functions at the points
+     const mfem::DofToQuad* maps = nullptr;
+     /*!
+-     * \brief jacobians and their determinants at the points: owned by the
+-     * mesh if it has nodes, by `owned_factors` otherwise
++     * \brief jacobians at the points (`nq x dim x dim x ne`, layout of
++     * `mfem::GeometricFactors::J`): owned by the geometric factors of the
++     * mesh if it has nodes, by `owned_jacobians` otherwise
+      */
+-    const mfem::GeometricFactors* factors = nullptr;
++    const mfem::Vector* jacobians = nullptr;
++    //! \brief determinants of the jacobians (`nq x ne`), as `jacobians`
++    const mfem::Vector* determinants = nullptr;
+     /*!
+-     * \brief jacobians and their determinants computed from a copy of the
+-     * vertices of a mesh without nodes (see `computeElementsGeometry`)
++     * \brief jacobians and their determinants computed from the vertices of
++     * a mesh without nodes (see `computeElementsGeometry`)
+      */
+-    std::shared_ptr<const mfem::GeometricFactors> owned_factors;
++    std::shared_ptr<const ElementsJacobians> owned_jacobians;
+     //! \brief weights of the integration points (in the memory of MFEM)
+     mfem::Vector weights;
+     //! \brief number of degrees of freedom per element and per component
+@@ -64,11 +80,18 @@ namespace mfem_mgis::batch {
+    * \brief computes the geometric data of all the elements of the mesh for
+    * an integration rule
+    *
+-   * For a mesh without nodes, the jacobians are computed from a copy of the
+-   * vertices: `mfem::Mesh::GetGeometricFactors` would give nodes to the
+-   * mesh (`mfem::Mesh::EnsureNodes`), and the element transformations of
+-   * all the computations which follow would use them, which makes the
+-   * computations element by element about 50% slower.
++   * For a mesh without nodes, the jacobians are computed by a kernel from
++   * the vertices of the elements and the finite element of the
++   * transformations of MFEM (`mfem::Mesh::GetTransformationFEforElementType`):
++   * - `mfem::Mesh::GetGeometricFactors` would give nodes to the mesh
++   *   (`mfem::Mesh::EnsureNodes`), and the element transformations of all
++   *   the computations which follow would use them, which makes the
++   *   computations element by element about 50% slower;
++   * - computing the jacobians from a copy of the vertices in a finite
++   *   element space of order one costs about 1.8 s on the host for 1.6
++   *   million tetrahedra (construction of the finite element space and
++   *   projection of the coordinates), against a few milliseconds for the
++   *   kernel on the GPU.
+    *
+    * \return true on success
+    * \param[in, out] ctx: execution context
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index 331202e5b9..5e5a726201 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -5,17 +5,94 @@
+  * \date   09/10/2026
+  */
+ 
++#include <limits>
+ #include <memory>
+ #include <string>
++#include <cstdint>
++#include <utility>
++#include <algorithm>
+ #include <exception>
++#include "mfem/general/device.hpp"
+ #include "mfem/fem/fespace.hpp"
+ #include "mfem/mesh/mesh.hpp"
+-#include "mfem/fem/fe_coll.hpp"
+-#include "mfem/fem/gridfunc.hpp"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "ElementsGeometryKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
++  /*!
++   * \brief computes the jacobians of the element transformations of a mesh
++   * without nodes from the coordinates of its vertices
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] g: geometric data. The number of elements, the number of
++   * points and the dimension must be set.
++   * \param[in] mesh: mesh, without nodes
++   * \param[in] ir: integration rule
++   */
++  static bool computeJacobiansFromVertices(Context& ctx,
++                                           ElementsGeometry& g,
++                                           const mfem::Mesh& mesh,
++                                           const mfem::IntegrationRule& ir) {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(g);
++    static_cast<void>(mesh);
++    static_cast<void>(ir);
++    return ctx.registerErrorMessage(
++        "computeElementsGeometry: the kernel computing the jacobians is not "
++        "compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    // finite element of the transformations of the elements, whose degrees
++    // of freedom are the vertices of the elements, in their order
++    // (`mfem::Mesh::GetElementTransformation`)
++    const auto* const fe =
++        mfem::Mesh::GetTransformationFEforElementType(mesh.GetElementType(0));
++    const auto nd = fe->GetDof();
++    if (std::int64_t{g.ne} * g.nq * g.dim * g.dim >
++        std::numeric_limits<int>::max()) {
++      return ctx.registerErrorMessage(
++          "computeElementsGeometry: too many points for the kernel");
++    }
++    auto element_vertices = mfem::Array<int>(g.ne * nd);
++    auto* const ev = element_vertices.HostWrite();
++    for (int e = 0; e != g.ne; ++e) {
++      const auto* const element = mesh.GetElement(e);
++      if (element->GetNVertices() != nd) {
++        return ctx.registerErrorMessage(
++            "computeElementsGeometry: unexpected number of vertices");
++      }
++      std::copy_n(element->GetVertices(), nd, ev + nd * e);
++    }
++    auto vertices = mfem::Vector{};
++    mesh.GetVertices(vertices);
++    auto jacobians = std::make_shared<ElementsJacobians>();
++    jacobians->J.UseDevice(true);
++    jacobians->J.SetSize(g.nq * g.dim * g.dim * g.ne);
++    jacobians->detJ.UseDevice(true);
++    jacobians->detJ.SetSize(g.nq * g.ne);
++    const auto use_device = mfem::Device::IsEnabled();
++    const auto& maps = fe->GetDofToQuad(ir, mfem::DofToQuad::FULL);
++    auto a = internals::JacobiansKernelArguments{};
++    a.element_vertices = element_vertices.Read(use_device);
++    a.vertices = vertices.Read(use_device);
++    a.shape_functions_gradients = maps.G.Read(use_device);
++    a.jacobians = jacobians->J.Write(use_device);
++    a.determinants = jacobians->detJ.Write(use_device);
++    a.number_of_elements = g.ne;
++    a.number_of_vertices = mesh.GetNV();
++    a.nd = nd;
++    a.nq = g.nq;
++    a.dim = g.dim;
++    internals::launchJacobiansKernel(a, use_device);
++    g.jacobians = &(jacobians->J);
++    g.determinants = &(jacobians->detJ);
++    g.owned_jacobians = std::move(jacobians);
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeJacobiansFromVertices
++
+   bool computeElementsGeometry(Context& ctx,
+                                ElementsGeometry& g,
+                                const mfem::FiniteElementSpace& fes,
+@@ -42,21 +119,18 @@ namespace mfem_mgis::batch {
+       const auto* const fe = fes.GetTypicalFE();
+       g.maps = &(fe->GetDofToQuad(ir, mfem::DofToQuad::FULL));
+       g.nd = fe->GetDof();
+-      const auto flags = mfem::GeometricFactors::JACOBIANS |
+-                         mfem::GeometricFactors::DETERMINANTS;
+       if (mesh.GetNodes() != nullptr) {
+-        g.factors = mesh.GetGeometricFactors(ir, flags);
++        const auto* const factors = mesh.GetGeometricFactors(
++            ir, mfem::GeometricFactors::JACOBIANS |
++                    mfem::GeometricFactors::DETERMINANTS);
++        g.jacobians = &(factors->J);
++        g.determinants = &(factors->detJ);
+       } else {
+         // the mesh is not modified (see `mfem::Mesh::EnsureNodes`): the
+-        // jacobians are computed from a copy of its vertices
+-        auto fec = mfem::H1_FECollection(1, g.dim);
+-        auto nfes = mfem::FiniteElementSpace(&mesh, &fec, mesh.SpaceDimension(),
+-                                             mfem::Ordering::byVDIM);
+-        auto nodes = mfem::GridFunction(&nfes);
+-        mesh.GetNodes(nodes);
+-        g.owned_factors =
+-            std::make_shared<mfem::GeometricFactors>(nodes, ir, flags);
+-        g.factors = g.owned_factors.get();
++        // jacobians are computed from its vertices
++        if (!computeJacobiansFromVertices(ctx, g, mesh, ir)) {
++          return false;
++        }
+       }
+       g.weights.UseDevice(true);
+       g.weights.SetSize(g.nq);
+diff --git a/src/Batch/ElementsGeometryKernels.cxx b/src/Batch/ElementsGeometryKernels.cxx
+new file mode 100644
+index 0000000000..9076ee2381
+--- /dev/null
++++ b/src/Batch/ElementsGeometryKernels.cxx
+@@ -0,0 +1,57 @@
++/*!
++ * \file   src/Batch/ElementsGeometryKernels.cxx
++ * \brief  This file implements the kernel computing the jacobians of the
++ * element transformations of a mesh without nodes. It contains kernels of
++ * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
++ * \date   10/10/2026
++ */
++
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "ElementsGeometryKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  void launchJacobiansKernel(const JacobiansKernelArguments& a,
++                             const bool use_device) {
++    const auto n = a.number_of_elements * a.nq;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      const auto nq = static_cast<std::size_t>(a.nq);
++      const auto nd = static_cast<std::size_t>(a.nd);
++      const auto nv = static_cast<std::size_t>(a.number_of_vertices);
++      const auto dim = static_cast<std::size_t>(a.dim);
++      const auto e = static_cast<std::size_t>(i) / nq;
++      const auto q = static_cast<std::size_t>(i) - e * nq;
++      const auto* const v = a.element_vertices + nd * e;
++      // `J[r + 3 * c]`: derivative of the `r`-th coordinate with respect to
++      // the `c`-th reference coordinate
++      real J[9] = {};
++      for (std::size_t c = 0; c != dim; ++c) {
++        const auto* const G = a.shape_functions_gradients + q + nq * c;
++        for (std::size_t node = 0; node != nd; ++node) {
++          const auto g = G[nq * dim * node];
++          const auto* const x = a.vertices + static_cast<std::size_t>(v[node]);
++          for (std::size_t r = 0; r != dim; ++r) {
++            J[r + 3 * c] += g * x[nv * r];
++          }
++        }
++      }
++      auto* const Je = a.jacobians + q + nq * dim * dim * e;
++      for (std::size_t c = 0; c != dim; ++c) {
++        for (std::size_t r = 0; r != dim; ++r) {
++          Je[nq * (r + dim * c)] = J[r + 3 * c];
++        }
++      }
++      auto det = J[0];
++      if (dim == 2) {
++        det = J[0] * J[4] - J[1] * J[3];
++      } else if (dim == 3) {
++        det = J[0] * (J[4] * J[8] - J[5] * J[7]) -
++              J[3] * (J[1] * J[8] - J[2] * J[7]) +
++              J[6] * (J[1] * J[5] - J[2] * J[4]);
++      }
++      a.determinants[q + nq * e] = det;
++    });
++  }  // end of launchJacobiansKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/ElementsGeometryKernels.hxx b/src/Batch/ElementsGeometryKernels.hxx
+new file mode 100644
+index 0000000000..8ce87d510b
+--- /dev/null
++++ b/src/Batch/ElementsGeometryKernels.hxx
+@@ -0,0 +1,68 @@
++/*!
++ * \file   src/Batch/ElementsGeometryKernels.hxx
++ * \brief  This file declares the kernel computing the jacobians of the
++ * element transformations of a mesh without nodes (internal header)
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_ELEMENTSGEOMETRYKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_ELEMENTSGEOMETRYKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief arguments of the kernel computing the jacobians of the element
++   * transformations of a mesh without nodes from the coordinates of the
++   * vertices
++   */
++  struct JacobiansKernelArguments {
++    /*!
++     * \brief vertices of the elements (`node + nd * element`), in the order
++     * of the degrees of freedom of the finite element of the transformation
++     */
++    const int* element_vertices = nullptr;
++    /*!
++     * \brief coordinates of the vertices (`vertex + nv * component`, layout
++     * of `mfem::Mesh::GetVertices`)
++     */
++    const real* vertices = nullptr;
++    /*!
++     * \brief gradients of the shape functions of the finite element of the
++     * transformation on the reference element (`nq x dim x nd`, layout of
++     * `mfem::DofToQuad` in the `FULL` mode)
++     */
++    const real* shape_functions_gradients = nullptr;
++    /*!
++     * \brief jacobians (`nq x dim x dim x ne`, layout of
++     * `mfem::GeometricFactors::J`)
++     */
++    real* jacobians = nullptr;
++    //! \brief determinants of the jacobians (`nq x ne`)
++    real* determinants = nullptr;
++    //! \brief number of elements
++    int number_of_elements = 0;
++    //! \brief number of vertices
++    int number_of_vertices = 0;
++    //! \brief number of vertices per element
++    int nd = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief dimension of the space (1, 2 or 3)
++    int dim = 0;
++  };
++
++  /*!
++   * \brief launches the kernel computing the jacobians of the element
++   * transformations of a mesh without nodes and their determinants: one
++   * thread per point of an element
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device (if a device is
++   * enabled), and the pointers of the arguments are located on the device
++   */
++  void launchJacobiansKernel(const JacobiansKernelArguments&, const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_ELEMENTSGEOMETRYKERNELS_HXX */
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 9193900178..68819f6561 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -266,8 +266,8 @@ namespace mfem_mgis::batch {
+     }
+     error = true;
+     if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
+-        (g.rule != d.rule) || (g.factors == nullptr) || (g.nq != d.nq) ||
+-        (g.ne != d.ne)) {
++        (g.rule != d.rule) || (g.jacobians == nullptr) ||
++        (g.determinants == nullptr) || (g.nq != d.nq) || (g.ne != d.ne)) {
+       return ctx.registerErrorMessage(
+           name +
+           ": the elements of the material do not use the integration rule "
+@@ -298,8 +298,8 @@ namespace mfem_mgis::batch {
+     a.elements = elements.Read(use_device);
+     a.offsets = offsets.Read(use_device);
+     a.derivatives = d.values.Read(use_device);
+-    a.jacobians = g.factors->J.Read(use_device);
+-    a.determinants = g.factors->detJ.Read(use_device);
++    a.jacobians = g.jacobians->Read(use_device);
++    a.determinants = g.determinants->Read(use_device);
+     error = false;
+     return true;
+   }  // end of getGradientsKernelArguments
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+index ca30fb35d5..68b4abe477 100644
+--- a/src/Batch/InnerForces.cxx
++++ b/src/Batch/InnerForces.cxx
+@@ -43,7 +43,8 @@ namespace mfem_mgis::batch {
+     if (elements.Size() == 0) {
+       return true;
+     }
+-    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
++    if ((g.rule == nullptr) || (g.maps == nullptr) ||
++        (g.jacobians == nullptr) || (g.determinants == nullptr) ||
+         (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+           "addInnerForces: the elements of the material do not use the "
+@@ -79,8 +80,8 @@ namespace mfem_mgis::batch {
+       a.elements = elements.Read(use_device);
+       a.offsets = offsets.Read(use_device);
+       a.shape_functions_gradients = g.maps->G.Read(use_device);
+-      a.jacobians = g.factors->J.Read(use_device);
+-      a.determinants = g.factors->detJ.Read(use_device);
++      a.jacobians = g.jacobians->Read(use_device);
++      a.determinants = g.determinants->Read(use_device);
+       a.weights = g.weights.Read(use_device);
+       a.values = f.ReadWrite(use_device);
+       internals::launchInnerForcesKernel(k, a, use_device);
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 5173494554..94c5caa41f 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -67,7 +67,8 @@ namespace mfem_mgis::batch {
+       return false;
+     }
+     error = true;
+-    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
++    if ((g.rule == nullptr) || (g.maps == nullptr) ||
++        (g.jacobians == nullptr) || (g.determinants == nullptr) ||
+         (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+           name +
+@@ -108,8 +109,8 @@ namespace mfem_mgis::batch {
+     a.offsets = offsets.Read(use_device);
+     a.shape_functions_gradients = g.maps->G.Read(use_device);
+     a.shape_functions = g.maps->B.Read(use_device);
+-    a.jacobians = g.factors->J.Read(use_device);
+-    a.determinants = g.factors->detJ.Read(use_device);
++    a.jacobians = g.jacobians->Read(use_device);
++    a.determinants = g.determinants->Read(use_device);
+     a.weights = g.weights.Read(use_device);
+     error = false;
+     return true;
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index cdf303465d..c3387c2834 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -158,7 +158,8 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/MFEMFieldOperations.cxx
+   Batch/GradientsKernels.cxx
+   Batch/InnerForcesKernels.cxx
+-  Batch/StiffnessMatricesKernels.cxx)
++  Batch/StiffnessMatricesKernels.cxx
++  Batch/ElementsGeometryKernels.cxx)
+ if(MFEM_USE_HIP STREQUAL "YES")
+   message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
+           "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index e2170b20d8..1799e732b7 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1029,6 +1029,23 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
+   endif()
+ endif()
+ 
++# ElementsGeometryTest executable: jacobians of the element transformations
++# used by the kernels of the batch path, computed by a kernel for the meshes
++# without nodes (not compiled with HIP), on the host, on the debug device
++# and on the GPU
++if(NOT MFEM_USE_HIP STREQUAL "YES")
++  add_test_executable(ElementsGeometryTest)
++  add_test(NAME ElementsGeometryTest COMMAND ElementsGeometryTest)
++  add_test(NAME ElementsGeometryTest-debug
++           COMMAND ElementsGeometryTest --device debug)
++  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++    add_test(NAME ElementsGeometryTest-cuda
++             COMMAND ElementsGeometryTest --device cuda)
++    set_tests_properties(ElementsGeometryTest-cuda
++                         PROPERTIES RESOURCE_LOCK gpu)
++  endif()
++endif()
++
+ # MFEMFieldOperationsTest executable: copies and fills of views by kernels
+ # of MFEM, on the host, on the debug device and on the GPU
+ if(NOT MFEM_USE_HIP STREQUAL "YES")
+diff --git a/tests/ElementsGeometryTest.cxx b/tests/ElementsGeometryTest.cxx
+new file mode 100644
+index 0000000000..e5f8d37efa
+--- /dev/null
++++ b/tests/ElementsGeometryTest.cxx
+@@ -0,0 +1,186 @@
++/*!
++ * \file   ElementsGeometryTest.cxx
++ * \brief  Test of the geometric data of the elements used by the kernels of
++ * the batch path (`mfem_mgis::batch::computeElementsGeometry`): the
++ * jacobians and their determinants at the integration points are the ones
++ * of the element transformations of MFEM, for meshes without nodes (kernel
++ * computing the jacobians from the vertices) of all the geometries, with
++ * distorted elements, and for a curved mesh (geometric factors of MFEM).
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <utility>
++#include <iostream>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "mfem/fem/fe_coll.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "mfem/fem/gridfunc.hpp"
++#include "mfem/fem/intrules.hpp"
++#include "mfem/mesh/mesh.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \brief moves the vertices (or the nodes) of a mesh by a smooth
++ * displacement, small compared to the size of the elements, so that the
++ * elements are distorted but valid
++ * \param[in] x: coordinates (`point + n * component`)
++ * \param[in] n: number of points
++ * \param[in] dim: dimension of the space
++ * \param[in] h: size of the elements
++ */
++static void distort(mfem_mgis::real* const x,
++                    const int n,
++                    const int dim,
++                    const mfem_mgis::real h) {
++  for (int i = 0; i != n; ++i) {
++    auto s = mfem_mgis::real{0};
++    for (int c = 0; c != dim; ++c) {
++      s += (c + 1) * x[i + n * c];
++    }
++    for (int c = 0; c != dim; ++c) {
++      x[i + n * c] += 0.08 * h * std::sin(7 * s + 2 * c);
++    }
++  }
++}  // end of distort
++
++/*!
++ * \brief compares the geometric data of the elements to the element
++ * transformations of MFEM
++ * \param[in] mesh: mesh
++ * \param[in] order: order of the finite element space of the unknowns
++ * \param[in] name: name of the comparison
++ */
++static void compare(mfem::Mesh& mesh, const int order, const std::string& name) {
++  using namespace mfem_mgis;
++  const auto has_nodes = mesh.GetNodes() != nullptr;
++  const auto dim = mesh.Dimension();
++  auto fec = mfem::H1_FECollection(order, dim);
++  auto fes = mfem::FiniteElementSpace(&mesh, &fec);
++  for (const auto iorder : {1, 2, 4}) {
++    const auto& ir = mfem::IntRules.Get(mesh.GetElementBaseGeometry(0), iorder);
++    const auto cname = name + ", order " + std::to_string(order) +
++                       ", rule of order " + std::to_string(iorder);
++    auto ctx = Context{};
++    auto g = batch::ElementsGeometry{};
++    if (!batch::computeElementsGeometry(ctx, g, fes, ir)) {
++      check(false, cname + ": " + ctx.getErrorMessage());
++      continue;
++    }
++    check((mesh.GetNodes() != nullptr) == has_nodes,
++          cname + ": the nodes of the mesh were modified");
++    check((g.nq == ir.GetNPoints()) && (g.dim == dim) &&
++              (g.ne == mesh.GetNE()) && (g.nd == fes.GetTypicalFE()->GetDof()),
++          cname + ": sizes");
++    check((g.jacobians != nullptr) && (g.determinants != nullptr),
++          cname + ": no jacobians");
++    if ((g.jacobians == nullptr) || (g.determinants == nullptr)) {
++      continue;
++    }
++    check(has_nodes == (g.owned_jacobians == nullptr),
++          cname + ": the jacobians are owned only for a mesh without nodes");
++    check((g.jacobians->Size() == g.nq * dim * dim * g.ne) &&
++              (g.determinants->Size() == g.nq * g.ne),
++          cname + ": sizes of the jacobians");
++    const auto* const J = g.jacobians->HostRead();
++    const auto* const detJ = g.determinants->HostRead();
++    const auto* const w = g.weights.HostRead();
++    auto dJ = real{0};
++    auto ddet = real{0};
++    auto dw = real{0};
++    for (int e = 0; e != mesh.GetNE(); ++e) {
++      auto& T = *(mesh.GetElementTransformation(e));
++      for (int q = 0; q != g.nq; ++q) {
++        const auto& ip = ir.IntPoint(q);
++        T.SetIntPoint(&ip);
++        const auto& Jr = T.Jacobian();
++        auto m = real{0};
++        for (int c = 0; c != dim; ++c) {
++          for (int r = 0; r != dim; ++r) {
++            m = std::max(m, std::abs(Jr(r, c)));
++          }
++        }
++        for (int c = 0; c != dim; ++c) {
++          for (int r = 0; r != dim; ++r) {
++            const auto v = J[q + g.nq * (r + dim * (c + dim * e))];
++            dJ = std::max(dJ, std::abs(v - Jr(r, c)) / m);
++          }
++        }
++        const auto det = Jr.Det();
++        ddet = std::max(ddet, std::abs(detJ[q + g.nq * e] - det) /
++                                  std::pow(m, dim));
++        dw = std::max(dw, std::abs(w[q] - ip.weight));
++      }
++    }
++    std::cout << cname << ": " << g.ne << " elements, " << g.nq
++              << " points, relative differences " << dJ << " (jacobians), "
++              << ddet << " (determinants), " << dw << " (weights)\n";
++    check(dJ < 1e-13, cname + ": jacobians");
++    check(ddet < 1e-13, cname + ": determinants");
++    check(dw < 1e-15, cname + ": weights");
++  }
++}  // end of compare
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  using Type = mfem::Element::Type;
++  auto meshes = std::vector<std::pair<std::string, mfem::Mesh>>{};
++  meshes.emplace_back("segments", mfem::Mesh::MakeCartesian1D(6, 2.));
++  for (const auto& [n, t] : {std::pair{"triangles", Type::TRIANGLE},
++                             std::pair{"quadrangles", Type::QUADRILATERAL}}) {
++    meshes.emplace_back(n, mfem::Mesh::MakeCartesian2D(3, 4, t, true, 2., 1.5));
++  }
++  for (const auto& [n, t] : {std::pair{"tetrahedra", Type::TETRAHEDRON},
++                             std::pair{"hexahedra", Type::HEXAHEDRON},
++                             std::pair{"wedges", Type::WEDGE},
++                             std::pair{"pyramids", Type::PYRAMID}}) {
++    meshes.emplace_back(
++        n, mfem::Mesh::MakeCartesian3D(2, 3, 2, t, 1., 1.5, 1.2, true));
++  }
++  for (auto& [name, mesh] : meshes) {
++    check(mesh.GetNodes() == nullptr, name + ": the mesh has nodes");
++    compare(mesh, 1, name);
++    // distorted elements (non affine transformations of the quadrangles,
++    // hexahedra, wedges and pyramids)
++    auto vertices = mfem::Vector{};
++    mesh.GetVertices(vertices);
++    distort(vertices.HostReadWrite(), mesh.GetNV(), mesh.SpaceDimension(),
++            0.5);
++    mesh.SetVertices(vertices);
++    compare(mesh, 1, "distorted " + name);
++    // unknowns of order 2: the jacobians only depend on the vertices
++    compare(mesh, 2, "distorted " + name);
++  }
++  // curved mesh: geometric factors of MFEM
++  auto curved = mfem::Mesh::MakeCartesian3D(2, 2, 2, Type::HEXAHEDRON);
++  curved.SetCurvature(2, false, -1, mfem::Ordering::byNODES);
++  auto& nodes = *(curved.GetNodes());
++  distort(nodes.HostReadWrite(), nodes.Size() / 3, 3, 0.5);
++  curved.NodesUpdated();
++  compare(curved, 1, "curved hexahedra");
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

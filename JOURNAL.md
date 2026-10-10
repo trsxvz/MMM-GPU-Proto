@@ -3517,3 +3517,26 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   thermique est définie négative : le gradient conjugué ne s'applique pas
   sans matrice (GMRES dans le test). Relecture indépendante en cours.
 
+
+### 2026-10-10 (matin), mesures thermiques, jacobiens par noyau
+
+- Mesures de la thermique stationnaire par noyaux (`cas/thermique`, r5,
+  279 873 inconnues, script `cas/mesures-L7-thermique.sh`,
+  `results/L7-thermique-2026-10-10-0542/README.md`) : sur le GPU, la
+  première intégration coûtait 1,76 s, calcul unique de la géométrie sur
+  l'hôte (espace d'éléments finis d'ordre un : 1,0 s ; projection des
+  coordonnées : 0,83 s ; facteurs géométriques de MFEM sur le GPU :
+  0,02 s).
+- mfem-mgis 8b0b47acfb : jacobiens des maillages sans nœuds calculés par
+  un noyau à partir des sommets des éléments et de l'élément fini des
+  transformations de MFEM (`GetTransformationFEforElementType`). Test
+  `ElementsGeometryTest` : segments, triangles, quadrangles, tétraèdres,
+  hexaèdres, prismes, pyramides, réguliers et déformés, inconnues d'ordre
+  un et deux, maillage courbe, hôte, `debug` et GPU, écarts aux
+  transformations de MFEM au plus 2e-15 ; six mutations détectées.
+  Thermique sur le GPU : 3,01 s vers 1,25 s, ×3,8 contre 8 processus avec
+  les noyaux (`results/L7-thermique-2026-10-10-0606/README.md`). Poutre
+  r4 : NewtonK0 + Eisenstat-Walker 1 de 2,14 s à 1,90 s sur le GPU
+  (`results/L5-poutre-2026-10-10-0610/README.md`) ; polycristal inchangé
+  (`results/L5-polycristal-2026-10-10-0612/README.md`). Relecture
+  indépendante en cours.

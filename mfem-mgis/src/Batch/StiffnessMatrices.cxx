@@ -67,7 +67,8 @@ namespace mfem_mgis::batch {
       return false;
     }
     error = true;
-    if ((g.rule == nullptr) || (g.maps == nullptr) || (g.factors == nullptr) ||
+    if ((g.rule == nullptr) || (g.maps == nullptr) ||
+        (g.jacobians == nullptr) || (g.determinants == nullptr) ||
         (qs.getUniformIntegrationRule() != g.rule)) {
       return ctx.registerErrorMessage(
           name +
@@ -108,8 +109,8 @@ namespace mfem_mgis::batch {
     a.offsets = offsets.Read(use_device);
     a.shape_functions_gradients = g.maps->G.Read(use_device);
     a.shape_functions = g.maps->B.Read(use_device);
-    a.jacobians = g.factors->J.Read(use_device);
-    a.determinants = g.factors->detJ.Read(use_device);
+    a.jacobians = g.jacobians->Read(use_device);
+    a.determinants = g.determinants->Read(use_device);
     a.weights = g.weights.Read(use_device);
     error = false;
     return true;
