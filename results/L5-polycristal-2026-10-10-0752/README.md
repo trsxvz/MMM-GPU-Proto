@@ -1,9 +1,8 @@
 # Polycristal, contrôle après la refonte de la géométrie (10/10/2026)
 
 Mêmes cas que `results/L5-polycristal-2026-10-10-0502/`, avec mfem-mgis
-3e3cc5b0f2 (`resume.txt` indique le commit de base 6cae30af99 de la
-racine de mesure) : jacobiens calculés par un noyau à partir des nœuds ou
-des sommets des éléments, matrices de rigidité calculées par élément sur
+3e3cc5b0f2 : jacobiens calculés par un noyau à partir des nœuds ou des
+sommets des éléments, matrices de rigidité calculées par élément sur
 l'hôte (62908a890d). Charge 2,6 au départ.
 
 | Cas | CPU, 8 processus | GPU |
