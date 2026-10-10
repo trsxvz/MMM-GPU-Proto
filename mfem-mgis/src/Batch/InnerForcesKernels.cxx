@@ -49,40 +49,42 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel adding the inner forces of the elements of a
-   * material: one thread per node of an element
+   * material: one thread per element, which inverts the jacobian once per
+   * point (a thread per node of an element inverted it for each node)
    * \tparam K: kind of the gradients
    * \tparam N: dimension
    */
   template <GradientsKind K, int N>
   static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
                                       const bool use_device) {
-    const auto n = a.number_of_elements * a.nd;
-    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
-      const auto k = i / a.nd;
-      const auto node = i - k * a.nd;
-      const auto e = static_cast<std::size_t>(a.elements[k]);
-      const auto nq = static_cast<std::size_t>(a.nq);
-      const auto nd = static_cast<std::size_t>(a.nd);
-      real f[N] = {};
-      for (std::size_t q = 0; q != nq; ++q) {
-        const auto detJ = a.determinants[q + nq * e];
-        real iJ[N * N];
-        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
-        real dN[N];
-        computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q, nq,
-                                      static_cast<std::size_t>(node), iJ);
-        const auto o =
-            static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
-        const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
-        const auto cs = a.component_stride;
-        auto s = [s0, cs](const int c) { return s0[c * cs]; };
-        addInnerForces<K>(f, dN, s, a.weights[q] * detJ);
-      }
-      for (int c = 0; c != N; ++c) {
-        a.values[static_cast<std::size_t>(node) +
-                 nd * (static_cast<std::size_t>(c) + N * e)] += f[c];
-      }
-    });
+    mfem::forall_switch(
+        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
+          const auto e = static_cast<std::size_t>(a.elements[k]);
+          const auto nq = static_cast<std::size_t>(a.nq);
+          const auto nd = static_cast<std::size_t>(a.nd);
+          auto* const fe = a.values + nd * N * e;
+          for (std::size_t q = 0; q != nq; ++q) {
+            const auto detJ = a.determinants[q + nq * e];
+            real iJ[N * N];
+            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+            const auto o = static_cast<long long>(a.offsets[k]) +
+                           static_cast<long long>(q);
+            const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
+            const auto cs = a.component_stride;
+            auto s = [s0, cs](const int c) { return s0[c * cs]; };
+            const auto w = a.weights[q] * detJ;
+            for (std::size_t node = 0; node != nd; ++node) {
+              real dN[N];
+              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
+                                            nq, node, iJ);
+              real f[N] = {};
+              addInnerForces<K>(f, dN, s, w);
+              for (std::size_t c = 0; c != N; ++c) {
+                fe[node + nd * c] += f[c];
+              }
+            }
+          }
+        });
   }  // end of launchInnerForcesKernel
 
   void launchInnerForcesKernel(const GradientsKind k,
