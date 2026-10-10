@@ -3630,4 +3630,9 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   portables. Résultat : 145/147 sur le GPU (les deux tests qui exigent
   l'absence de périphérique), avec et sans les noyaux forcés ; 157/157 sur
   CPU. Procédure dans `docs/validation.md`.
+- Balayage des options de BoomerAMG pour NewtonK0 + Eisenstat-Walker 1
+  (`cas/mesures-L5-amg.sh`, `results/L5-poutre-2026-10-10-1034/README.md`) :
+  le grossissement agressif sur un niveau est le meilleur réglage, 7,22 s
+  sur 8 cœurs (-18 %, avec un seuil de 0,5) et 1,71 s sur le GPU (-5 à
+  -8 %) ; le Jacobi simple de hypre fait échouer le gradient conjugué.
 
