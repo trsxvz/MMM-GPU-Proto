@@ -1,0 +1,2970 @@
+From 9b93bc8c3651cd5212f8cdab6528efe8839f8e51 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 08:35:04 +0200
+Subject: [PATCH] Micromorphic damage by kernels, on the CRTP base of the
+ integrators
+
+- The three micromorphic damage behaviour integrators (3D, 2D, anisotropic
+  2D) are based on `StandardBehaviourIntegratorCRTPBase`, whose inner
+  forces may now depend on the values and on the derivatives of the shape
+  functions. The formulas and their order of evaluation are kept: the
+  integration point by point gives the same results to the last digit
+  (MicromorphicKernelsTest, before and after). They now support the
+  integration by batches.
+- New kinds of gradients `MICROMORPHIC_DAMAGE_3D` and
+  `MICROMORPHIC_DAMAGE_2D`: the gradients are the micromorphic damage and
+  its gradient, computed from the values and from the derivatives of the
+  unknowns, and the tangent operator is block diagonal (`1 + D x D`
+  components), read by `getTangentOperatorComponent` in the kernels of the
+  stiffness matrices, of their diagonals and of the action without
+  assembly. The behaviours are recognised by their structure.
+- `supportsKernels` compares the kind of the gradients to the three traits
+  of the behaviour integrator (values of the unknowns, derivatives of the
+  unknowns, external state variable updated from the unknowns):
+  `gradientsRequireUnknownsValues` and `gradientsRequireUnknownsDerivatives`
+  replace `areGradientsUnknownsValues`.
+
+Tests: MicromorphicKernelsTest compares the integration by batches and
+the kernels (assembled tangent and tangent applied without assembly), with
+and without elastic prediction, to the integration point by point, in 3D,
+plane strain and plane stress, for MicromorphicDamageII and a new
+anisotropic behaviour, OrthotropicMicromorphicDamage, rotated, whose
+tangent operator is not symmetric; the damage grows, stops or saturates
+depending on the points (non linear problem); differences below 5e-14, on
+the host, on the debug device, on the GPU and on two processes.
+MicromorphicDamageII gets a prediction operator. BatchIntegrationTest
+checks the refusal of the integration by batches with a behaviour
+integrator defined in the test, the micromorphic ones supporting it now.
+The test suite passes with all the computations forced to the kernels
+(156/156, the micromorphic tests were the last refused ones). Eight
+mutations (value and gradient of the micromorphic damage, inner forces,
+operator B, transposition and first block of the tangent operator,
+recognition of the behaviours, rotation of the dual forces) are detected.
+---
+ include/MFEMMGIS/Batch/Gradients.hxx          |  45 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx | 145 +++++-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx | 163 +++++--
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  17 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx | 145 +++++-
+ src/Batch/Gradients.cxx                       |  64 ++-
+ src/Batch/GradientsKernels.cxx                |  15 +-
+ src/Batch/GradientsKernels.hxx                |   4 +-
+ src/Batch/InnerForcesKernels.cxx              |  17 +-
+ src/Batch/KernelsUtilities.hxx                |  73 ++-
+ src/Batch/StiffnessMatricesKernels.cxx        |  23 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx | 251 ++++-------
+ src/MultiMaterialNonLinearIntegrator.cxx      |   9 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx | 279 ++++--------
+ ...lMicromorphicDamageBehaviourIntegrator.cxx | 263 ++++-------
+ tests/BatchIntegrationTest.cxx                |  71 ++-
+ tests/CMakeLists.txt                          |  41 +-
+ tests/MicromorphicDamageII.mfront             |   6 +
+ tests/MicromorphicKernelsTest.cxx             | 424 ++++++++++++++++++
+ tests/OrthotropicMicromorphicDamage.mfront    |  90 ++++
+ 20 files changed, 1494 insertions(+), 651 deletions(-)
+ create mode 100644 tests/MicromorphicKernelsTest.cxx
+ create mode 100644 tests/OrthotropicMicromorphicDamage.mfront
+
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index 79166d9b8b..4efd93e55f 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -133,16 +133,31 @@ namespace mfem_mgis::batch {
+      * \brief temperature in 2D (plane strain and plane stress), see
+      * `TEMPERATURE_3D`
+      */
+-    TEMPERATURE_2D
++    TEMPERATURE_2D,
++    /*!
++     * \brief micromorphic damage and its gradient in 3D: `(dχ, ddχ/dx,
++     * ddχ/dy, ddχ/dz)`, computed from the values and from the derivatives of
++     * the unknowns (micromorphic damage). The tangent operator blocks are
++     * the derivative of the first dual force with respect to the
++     * micromorphic damage and the derivatives of the second dual force with
++     * respect to the gradient (block diagonal tangent operator, `1 + 3 x 3`
++     * components).
++     */
++    MICROMORPHIC_DAMAGE_3D,
++    /*!
++     * \brief micromorphic damage and its gradient in 2D (plane strain and
++     * plane stress): `(dχ, ddχ/dx, ddχ/dy)`, see `MICROMORPHIC_DAMAGE_3D`
++     */
++    MICROMORPHIC_DAMAGE_2D
+   };
+ 
+   /*!
+    * \return the kind of the gradients of a behaviour computed by the
+    * kernels, if supported: small strain and finite strain (deformation
+    * gradient) mechanical behaviours, stationary non linear heat transfer
+-   * behaviours (temperature gradient, heat flux) and behaviours of the
++   * behaviours (temperature gradient, heat flux), behaviours of the
+    * transient term of the heat equation (temperature, rate of the enthalpy)
+-   * in 3D, plane strain and plane stress
++   * and micromorphic damage behaviours, in 3D, plane strain and plane stress
+    * \param[in] b: behaviour
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<GradientsKind> getGradientsKind(
+@@ -179,14 +194,22 @@ namespace mfem_mgis::batch {
+   MFEM_MGIS_EXPORT [[nodiscard]] int getUnknownsSize(
+       const GradientsKind) noexcept;
+   /*!
+-   * \return true if the gradients of the given kind are the values of the
+-   * unknowns at the integration points, computed from the values of the
++   * \return true if the gradients of the given kind depend on the values of
++   * the unknowns at the integration points, computed from the values of the
+    * shape functions (temperature of the transient term of the heat
+-   * equation), false if they are computed from the derivatives of the
+-   * unknowns
++   * equation, micromorphic damage)
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool gradientsRequireUnknownsValues(
++      const GradientsKind) noexcept;
++  /*!
++   * \return true if the gradients of the given kind depend on the
++   * derivatives of the unknowns, computed from the derivatives of the shape
++   * functions (all the kinds but the temperature of the transient term of
++   * the heat equation)
+    * \param[in] k: kind of the gradients
+    */
+-  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsUnknownsValues(
++  MFEM_MGIS_EXPORT [[nodiscard]] bool gradientsRequireUnknownsDerivatives(
+       const GradientsKind) noexcept;
+   /*!
+    * \return true if the values of the unknowns at the integration points
+@@ -201,9 +224,9 @@ namespace mfem_mgis::batch {
+       const GradientsKind) noexcept;
+   /*!
+    * \return true if the values of the unknowns at the integration points
+-   * are required by the given kind of gradients: the gradients themselves
+-   * (see `areGradientsUnknownsValues`) or an external state variable of the
+-   * behaviour (see `areUnknownsValuesExternalStateVariables`)
++   * are required by the given kind of gradients: by the gradients (see
++   * `gradientsRequireUnknownsValues`) or by an external state variable of
++   * the behaviour (see `areUnknownsValuesExternalStateVariables`)
+    * \param[in] k: kind of the gradients
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
+diff --git a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 92f258ac9f..0c3ca48681 100644
+--- a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -1,40 +1,100 @@
+ /*!
+  * \file include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+- * \author Thomas Helfer
++ * \brief  This file declares the
++ * `BidimensionalMicromorphicDamageBehaviourIntegrator` class
+  * \date   07/12/2021
+- * \brief header file declaring the
+- * BidimensionalMicromorphicDamageBehaviourIntegrator class
+  */
+ 
+ #ifndef LIB_MFEM_MGIS_BIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ #define LIB_MFEM_MGIS_BIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ 
+-#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
++#include <span>
++#include <array>
++#include "mfem/linalg/densemat.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/BehaviourIntegratorTraits.hxx"
++#include "MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx"
+ 
+ namespace mfem_mgis {
+ 
+   // forward declaration
+   struct FiniteElementDiscretization;
++  // forward declaration
++  struct BidimensionalMicromorphicDamageBehaviourIntegrator;
+ 
+   /*!
+-   * \brief class implementing a behaviour integrator dedicated to
+-   * micromorphic damage in two dimensions (the modelling hypothesis has no
+-   * effect on this specific behaviour as out of plane damage gradients are
+-   * assumed to be zero).
++   * \brief specialisation of the `BehaviourIntegratorTraits` class for the
++   * `BidimensionalMicromorphicDamageBehaviourIntegrator` behaviour integrator
+    */
+-  struct MFEM_MGIS_EXPORT BidimensionalMicromorphicDamageBehaviourIntegrator
+-      : BehaviourIntegratorBase {
++  template <>
++  struct BehaviourIntegratorTraits<
++      BidimensionalMicromorphicDamageBehaviourIntegrator> {
++    //! \brief number of components of the unknowns
++    static constexpr size_type unknownsSize = 1;
++    //! \brief if the computation of the gradients requires the shape functions
++    static constexpr bool gradientsComputationRequiresShapeFunctions = true;
++    /*!
++     * \brief if the computation of the gradients requires the derivatives of
++     * the shape functions
++     */
++    static constexpr bool
++        gradientsComputationRequiresShapeFunctionsDerivatives = true;
++    //! \brief if the external state variables are updated from the unknowns
++    static constexpr bool updateExternalStateVariablesFromUnknownsValues =
++        false;
++  };  // end of struct BehaviourIntegratorTraits<>
++
++  /*!
++   * \brief behaviour integrator dedicated to micromorphic damage in two
++   dimensions (the modelling hypothesis has no effect on this specific
++   behaviour as out of plane damage gradients are assumed to be zero). The
++   gradients are the micromorphic damage and its gradient, the thermodynamic
++   forces their dual forces, and the tangent operator blocks the derivative
++   of the first dual force with respect to the micromorphic damage and the
++   derivative of the second dual force with respect to the gradient.
++   */
++  struct MFEM_MGIS_EXPORT
++      BidimensionalMicromorphicDamageBehaviourIntegrator final
++      : StandardBehaviourIntegratorCRTPBase<
++            BidimensionalMicromorphicDamageBehaviourIntegrator> {
++    //! \brief a dummy structure (isotropic behaviour)
++    struct RotationMatrix {};
+     /*!
+      * \brief constructor
+      * \param[in] fed: finite element discretization
+-     * \param[in] m: material attribute.
++     * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
+      */
+     BidimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+         std::unique_ptr<const Behaviour> b_ptr);
+-    //
++    /*!
++     * \return the rotation matrix associated with the given integration
++     * point
++     * \param[in] i: offset of the integration point
++     */
++    inline RotationMatrix getRotationMatrix(const size_type i) const;
++    /*!
++     * \brief rotate the gradients in the material frame
++     * \param[in, out] g: gradients
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateGradients(std::span<real> g, const RotationMatrix &r);
++    /*!
++     * \return the thermodynamic forces in the global frame
++     * \param[in] s: thermodynamic forces
++     * \param[in] r: rotation matrix
++     */
++    inline std::span<const real> rotateThermodynamicForces(
++        std::span<const real> s, const RotationMatrix &r);
++    /*!
++     * \brief rotate the tangent operator blocks in the global frame
++     * \param[in, out] Kip: tangent operator blocks
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateTangentOperatorBlocks(std::span<real> Kip,
++                                            const RotationMatrix &r);
+     const mfem::IntegrationRule &getIntegrationRule(
+         const mfem::FiniteElement &e,
+         const mfem::ElementTransformation &tr) const override;
+@@ -45,24 +105,24 @@ namespace mfem_mgis {
+                    mfem::ElementTransformation &tr,
+                    const mfem::Vector &u,
+                    const IntegrationType it) override;
+-
+     void updateResidual(mfem::Vector &Fe,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+     void updateJacobian(mfem::DenseMatrix &Ke,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+     void computeInnerForces(mfem::Vector &Fe,
+                             const mfem::FiniteElement &e,
+                             mfem::ElementTransformation &tr) override;
+     //! \brief destructor
+     ~BidimensionalMicromorphicDamageBehaviourIntegrator() override;
+ 
+-   private:
++   protected:
++    //! \brief allow the CRTP base class to access the protected members
++    friend struct StandardBehaviourIntegratorCRTPBase<
++        BidimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+      * \brief select the integration rule for the given element and element
+      * transformation
+@@ -80,13 +140,52 @@ namespace mfem_mgis {
+      */
+     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
+         const FiniteElementDiscretization &fed, const size_type m);
+-
+-#ifndef MFEM_THREAD_SAFE
+-    //! \brief vector used to store the value of the shape functions
+-    mfem::Vector shape;
+-    //! \brief matrix used to store the derivatives of the shape functions
+-    mfem::DenseMatrix dshape;
+-#endif
++    /*!
++     * \brief update the gradients at the integration point with the
++     * contribution of the given node: micromorphic damage and its gradient
++     * \param[in, out] g: gradients
++     * \param[in] u: nodal values of the micromorphic damage
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] ni: node index
++     */
++    void updateGradients(std::span<real> &g,
++                         const mfem::Vector &u,
++                         const mfem::Vector &N,
++                         const mfem::DenseMatrix &dN,
++                         const size_type ni) noexcept;
++    /*!
++     * \brief update the inner forces of the given node with the contribution
++     * of the thermodynamic forces of an integration point
++     * \param[in, out] Fe: inner forces
++     * \param[in] s: thermodynamic forces
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateInnerForces(mfem::Vector &Fe,
++                           const std::span<const real> &s,
++                           const mfem::Vector &N,
++                           const mfem::DenseMatrix &dN,
++                           const real w,
++                           const size_type ni) const noexcept;
++    /*!
++     * \brief update the stiffness matrix of the given node with the
++     * contribution of the tangent operator blocks of an integration point
++     * \param[in, out] Ke: stiffness matrix
++     * \param[in] Kip: tangent operator blocks of the integration point
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateStiffnessMatrix(mfem::DenseMatrix &Ke,
++                               const std::span<const real> &Kip,
++                               const mfem::Vector &N,
++                               const mfem::DenseMatrix &dN,
++                               const real w,
++                               const size_type ni) const noexcept;
+   };  // end of struct BidimensionalMicromorphicDamageBehaviourIntegrator
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index e3c6afc2af..99d6203370 100644
+--- a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -1,89 +1,131 @@
+ /*!
+  * \file
+- * \author Thomas Helfer
++ * include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++ * \brief  This file declares the
++ * `OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator` class
+  * \date   07/12/2021
+- * \brief header file declaring the
+- * OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator class
+  */
+ 
+ #ifndef LIB_MFEM_MGIS_ORTHOTROPICBIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ #define LIB_MFEM_MGIS_ORTHOTROPICBIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ 
+-#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
++#include <span>
++#include <array>
++#include "mfem/linalg/densemat.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/BehaviourIntegratorTraits.hxx"
++#include "MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx"
+ 
+ namespace mfem_mgis {
+ 
+   // forward declaration
+   struct FiniteElementDiscretization;
++  // forward declaration
++  struct OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator;
++
++  /*!
++   * \brief specialisation of the `BehaviourIntegratorTraits` class for the
++   * `OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator` behaviour
++   * integrator
++   */
++  template <>
++  struct BehaviourIntegratorTraits<
++      OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator> {
++    //! \brief number of components of the unknowns
++    static constexpr size_type unknownsSize = 1;
++    //! \brief if the computation of the gradients requires the shape functions
++    static constexpr bool gradientsComputationRequiresShapeFunctions = true;
++    /*!
++     * \brief if the computation of the gradients requires the derivatives of
++     * the shape functions
++     */
++    static constexpr bool
++        gradientsComputationRequiresShapeFunctionsDerivatives = true;
++    //! \brief if the external state variables are updated from the unknowns
++    static constexpr bool updateExternalStateVariablesFromUnknownsValues =
++        false;
++  };  // end of struct BehaviourIntegratorTraits<>
+ 
+   /*!
+-   * \brief class implementing a behaviour integrator dedicated to
+-   * orthotropic micromorphic damage in two dimensions (the modelling
+-   * hypothesis has no effect on this specific behaviour as out of plane
+-   * damage gradients are assumed to be zero).
++   * \brief behaviour integrator dedicated to orthotropic micromorphic
++   damage in two dimensions (the modelling hypothesis has no effect on this
++   specific behaviour as out of plane damage gradients are assumed to be
++   zero). The gradients are the micromorphic damage and its gradient, the
++   thermodynamic forces their dual forces, and the tangent operator blocks
++   the derivative of the first dual force with respect to the micromorphic
++   damage and the derivative of the second dual force with respect to the
++   gradient.
+    */
+   struct MFEM_MGIS_EXPORT
+-      OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator
+-      : BehaviourIntegratorBase {
++      OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator final
++      : StandardBehaviourIntegratorCRTPBase<
++            OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator> {
+     //! \brief a simple alias
+     using RotationMatrix = std::array<real, 9u>;
+     /*!
+      * \brief constructor
+      * \param[in] fed: finite element discretization
+-     * \param[in] m: material attribute.
++     * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
+      */
+     OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+         std::unique_ptr<const Behaviour> b_ptr);
+-    //
++    /*!
++     * \return the rotation matrix associated with the given integration
++     * point
++     * \param[in] i: offset of the integration point
++     */
++    inline RotationMatrix getRotationMatrix(const size_type i) const;
++    /*!
++     * \brief rotate the gradients in the material frame
++     * \param[in, out] g: gradients
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateGradients(std::span<real> g, const RotationMatrix &r);
++    /*!
++     * \return the thermodynamic forces in the global frame
++     * \param[in] s: thermodynamic forces
++     * \param[in] r: rotation matrix
++     */
++    inline std::array<real, 3> rotateThermodynamicForces(
++        std::span<const real> s, const RotationMatrix &r);
++    /*!
++     * \brief rotate the tangent operator blocks in the global frame
++     * \param[in, out] Kip: tangent operator blocks
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateTangentOperatorBlocks(std::span<real> Kip,
++                                            const RotationMatrix &r);
+     const mfem::IntegrationRule &getIntegrationRule(
+         const mfem::FiniteElement &e,
+         const mfem::ElementTransformation &tr) const override;
+     real getIntegrationPointWeight(
+         mfem::ElementTransformation &tr,
+         const mfem::IntegrationPoint &ip) const noexcept override;
+-    /*!
+-     * \brief integrate the behaviour over the time step at the integration
+-     * points of the given element
+-     * \param[in] e: finite element
+-     * \param[in, out] tr: finite element transformation
+-     * \param[in] u: nodal values of the micromorphic damage
+-     * \param[in] it: integration type
+-     * \return true on success
+-     */
+     bool integrate(const mfem::FiniteElement &e,
+                    mfem::ElementTransformation &tr,
+                    const mfem::Vector &u,
+                    const IntegrationType it) override;
+-
+     void updateResidual(mfem::Vector &Fe,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+-    /*!
+-     * \brief compute the contribution of the given element to the jacobian
+-     * \param[out] Ke: element stiffness matrix
+-     * \param[in] e: finite element
+-     * \param[in, out] tr: finite element transformation
+-     * \param[in] u: current estimate of the unknowns, unused
+-     * \note the stored tangent operator blocks are rotated in the global
+-     * frame in place.
+-     */
+     void updateJacobian(mfem::DenseMatrix &Ke,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+     void computeInnerForces(mfem::Vector &Fe,
+                             const mfem::FiniteElement &e,
+                             mfem::ElementTransformation &tr) override;
+     //! \brief destructor
+     ~OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator() override;
+ 
+-   private:
++   protected:
++    //! \brief allow the CRTP base class to access the protected members
++    friend struct StandardBehaviourIntegratorCRTPBase<
++        OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+      * \brief select the integration rule for the given element and element
+      * transformation
+@@ -101,13 +143,52 @@ namespace mfem_mgis {
+      */
+     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
+         const FiniteElementDiscretization &fed, const size_type m);
+-
+-#ifndef MFEM_THREAD_SAFE
+-    //! \brief vector used to store the value of the shape functions
+-    mfem::Vector shape;
+-    //! \brief matrix used to store the derivatives of the shape functions
+-    mfem::DenseMatrix dshape;
+-#endif
++    /*!
++     * \brief update the gradients at the integration point with the
++     * contribution of the given node: micromorphic damage and its gradient
++     * \param[in, out] g: gradients
++     * \param[in] u: nodal values of the micromorphic damage
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] ni: node index
++     */
++    void updateGradients(std::span<real> &g,
++                         const mfem::Vector &u,
++                         const mfem::Vector &N,
++                         const mfem::DenseMatrix &dN,
++                         const size_type ni) noexcept;
++    /*!
++     * \brief update the inner forces of the given node with the contribution
++     * of the thermodynamic forces of an integration point
++     * \param[in, out] Fe: inner forces
++     * \param[in] s: thermodynamic forces
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateInnerForces(mfem::Vector &Fe,
++                           const std::span<const real> &s,
++                           const mfem::Vector &N,
++                           const mfem::DenseMatrix &dN,
++                           const real w,
++                           const size_type ni) const noexcept;
++    /*!
++     * \brief update the stiffness matrix of the given node with the
++     * contribution of the tangent operator blocks of an integration point
++     * \param[in, out] Ke: stiffness matrix
++     * \param[in] Kip: tangent operator blocks of the integration point
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateStiffnessMatrix(mfem::DenseMatrix &Ke,
++                               const std::span<const real> &Kip,
++                               const mfem::Vector &N,
++                               const mfem::DenseMatrix &dN,
++                               const real w,
++                               const size_type ni) const noexcept;
+   };  // end of struct
+       // OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator
+ 
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 9e04bfcfc8..5aea8e8f93 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -227,8 +227,9 @@ namespace mfem_mgis {
+     using Traits = BehaviourIntegratorTraits<Child>;
+     // the kernels compute the gradients of the standard mechanical and
+     // stationary heat transfer behaviours from the derivatives of the
+-    // unknowns, and the ones of the transient term of the heat equation from
+-    // the values of the shape functions (temperature at the point); the
++    // unknowns, the ones of the transient term of the heat equation from the
++    // values of the shape functions (temperature at the point), and the ones
++    // of the micromorphic damage behaviours from both; the
+     // values of the unknowns at the integration points (temperature) are
+     // also computed for the behaviours which update their external state
+     // variables from them. The kind of the gradients of the behaviour must
+@@ -238,8 +239,10 @@ namespace mfem_mgis {
+     }
+     const auto k = batch::getGradientsKind(this->b);
+     if ((!k.has_value()) ||
+-        (batch::areGradientsUnknownsValues(*k) !=
++        (batch::gradientsRequireUnknownsValues(*k) !=
+          Traits::gradientsComputationRequiresShapeFunctions) ||
++        (batch::gradientsRequireUnknownsDerivatives(*k) !=
++         Traits::gradientsComputationRequiresShapeFunctionsDerivatives) ||
+         (batch::areUnknownsValuesExternalStateVariables(*k) !=
+          Traits::updateExternalStateVariablesFromUnknownsValues)) {
+       return false;
+@@ -578,7 +581,13 @@ namespace mfem_mgis {
+       const auto o = eoffset + i;
+       auto update = [&](const std::span<const real>& rs) {
+         for (size_type ni = 0; ni != nnodes; ++ni) {
+-          if constexpr (evaluateShapeFunctionsDerivatives) {
++          if constexpr (
++              (Traits::gradientsComputationRequiresShapeFunctions) &&
++              (Traits::gradientsComputationRequiresShapeFunctionsDerivatives)) {
++            // gradients depending on the values of the unknowns and on their
++            // derivatives (micromorphic damage)
++            child.updateInnerForces(Fe, rs, shape, dshape, w, ni);
++          } else if constexpr (evaluateShapeFunctionsDerivatives) {
+             child.updateInnerForces(Fe, rs, dshape, w, ni);
+           } else {
+             child.updateInnerForces(Fe, rs, shape, w, ni);
+diff --git a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 8f77286055..51bccc873f 100644
+--- a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -1,38 +1,100 @@
+ /*!
+  * \file
+- * \author Thomas Helfer
+- * \date   07/12/2021
+- * \brief header file declaring the
+- * TridimensionalMicromorphicDamageBehaviourIntegrator class
++ * include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
++ * \brief  This file declares the
++ * `TridimensionalMicromorphicDamageBehaviourIntegrator` class
++ * \date   31/03/2023
+  */
+ 
+ #ifndef LIB_MFEM_MGIS_TRIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ #define LIB_MFEM_MGIS_TRIDIMENSIONALMICROMORPHICDAMAGEBEHAVIOURINTEGRATOR_HXX
+ 
+-#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
++#include <span>
++#include <array>
++#include "mfem/linalg/densemat.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/BehaviourIntegratorTraits.hxx"
++#include "MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx"
+ 
+ namespace mfem_mgis {
+ 
+   // forward declaration
+   struct FiniteElementDiscretization;
++  // forward declaration
++  struct TridimensionalMicromorphicDamageBehaviourIntegrator;
+ 
+   /*!
+-   * \brief class implementing a behaviour integrator dedicated to
+-   * micromorphic damage under the tridimensional hypothesis.
++   * \brief specialisation of the `BehaviourIntegratorTraits` class for the
++   * `TridimensionalMicromorphicDamageBehaviourIntegrator` behaviour integrator
+    */
+-  struct MFEM_MGIS_EXPORT TridimensionalMicromorphicDamageBehaviourIntegrator
+-      : BehaviourIntegratorBase {
++  template <>
++  struct BehaviourIntegratorTraits<
++      TridimensionalMicromorphicDamageBehaviourIntegrator> {
++    //! \brief number of components of the unknowns
++    static constexpr size_type unknownsSize = 1;
++    //! \brief if the computation of the gradients requires the shape functions
++    static constexpr bool gradientsComputationRequiresShapeFunctions = true;
++    /*!
++     * \brief if the computation of the gradients requires the derivatives of
++     * the shape functions
++     */
++    static constexpr bool
++        gradientsComputationRequiresShapeFunctionsDerivatives = true;
++    //! \brief if the external state variables are updated from the unknowns
++    static constexpr bool updateExternalStateVariablesFromUnknownsValues =
++        false;
++  };  // end of struct BehaviourIntegratorTraits<>
++
++  /*!
++   * \brief behaviour integrator dedicated to micromorphic damage under the
++   tridimensional hypothesis. The gradients are the micromorphic damage and
++   its gradient, the thermodynamic forces their dual forces, and the tangent
++   operator blocks the derivative of the first dual force with respect to
++   the micromorphic damage and the derivative of the second dual force with
++   respect to the gradient.
++   */
++  struct MFEM_MGIS_EXPORT
++      TridimensionalMicromorphicDamageBehaviourIntegrator final
++      : StandardBehaviourIntegratorCRTPBase<
++            TridimensionalMicromorphicDamageBehaviourIntegrator> {
++    //! \brief a dummy structure (isotropic behaviour)
++    struct RotationMatrix {};
+     /*!
+      * \brief constructor
+      * \param[in] fed: finite element discretization
+-     * \param[in] m: material attribute.
++     * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
+      */
+     TridimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+         std::unique_ptr<const Behaviour> b_ptr);
+-    //
++    /*!
++     * \return the rotation matrix associated with the given integration
++     * point
++     * \param[in] i: offset of the integration point
++     */
++    inline RotationMatrix getRotationMatrix(const size_type i) const;
++    /*!
++     * \brief rotate the gradients in the material frame
++     * \param[in, out] g: gradients
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateGradients(std::span<real> g, const RotationMatrix &r);
++    /*!
++     * \return the thermodynamic forces in the global frame
++     * \param[in] s: thermodynamic forces
++     * \param[in] r: rotation matrix
++     */
++    inline std::span<const real> rotateThermodynamicForces(
++        std::span<const real> s, const RotationMatrix &r);
++    /*!
++     * \brief rotate the tangent operator blocks in the global frame
++     * \param[in, out] Kip: tangent operator blocks
++     * \param[in] r: rotation matrix
++     */
++    inline void rotateTangentOperatorBlocks(std::span<real> Kip,
++                                            const RotationMatrix &r);
+     const mfem::IntegrationRule &getIntegrationRule(
+         const mfem::FiniteElement &e,
+         const mfem::ElementTransformation &tr) const override;
+@@ -43,24 +105,24 @@ namespace mfem_mgis {
+                    mfem::ElementTransformation &tr,
+                    const mfem::Vector &u,
+                    const IntegrationType it) override;
+-
+     void updateResidual(mfem::Vector &Fe,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+     void updateJacobian(mfem::DenseMatrix &Ke,
+                         const mfem::FiniteElement &e,
+                         mfem::ElementTransformation &tr,
+                         const mfem::Vector &u) override;
+-
+     void computeInnerForces(mfem::Vector &Fe,
+                             const mfem::FiniteElement &e,
+                             mfem::ElementTransformation &tr) override;
+     //! \brief destructor
+     ~TridimensionalMicromorphicDamageBehaviourIntegrator() override;
+ 
+-   private:
++   protected:
++    //! \brief allow the CRTP base class to access the protected members
++    friend struct StandardBehaviourIntegratorCRTPBase<
++        TridimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+      * \brief select the integration rule for the given element and element
+      * transformation
+@@ -78,13 +140,52 @@ namespace mfem_mgis {
+      */
+     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
+         const FiniteElementDiscretization &fed, const size_type m);
+-
+-#ifndef MFEM_THREAD_SAFE
+-    //! \brief vector used to store the value of the shape functions
+-    mfem::Vector shape;
+-    //! \brief matrix used to store the derivatives of the shape functions
+-    mfem::DenseMatrix dshape;
+-#endif
++    /*!
++     * \brief update the gradients at the integration point with the
++     * contribution of the given node: micromorphic damage and its gradient
++     * \param[in, out] g: gradients
++     * \param[in] u: nodal values of the micromorphic damage
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] ni: node index
++     */
++    void updateGradients(std::span<real> &g,
++                         const mfem::Vector &u,
++                         const mfem::Vector &N,
++                         const mfem::DenseMatrix &dN,
++                         const size_type ni) noexcept;
++    /*!
++     * \brief update the inner forces of the given node with the contribution
++     * of the thermodynamic forces of an integration point
++     * \param[in, out] Fe: inner forces
++     * \param[in] s: thermodynamic forces
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateInnerForces(mfem::Vector &Fe,
++                           const std::span<const real> &s,
++                           const mfem::Vector &N,
++                           const mfem::DenseMatrix &dN,
++                           const real w,
++                           const size_type ni) const noexcept;
++    /*!
++     * \brief update the stiffness matrix of the given node with the
++     * contribution of the tangent operator blocks of an integration point
++     * \param[in, out] Ke: stiffness matrix
++     * \param[in] Kip: tangent operator blocks of the integration point
++     * \param[in] N: shape functions
++     * \param[in] dN: derivatives of the shape functions
++     * \param[in] w: weight of the integration point
++     * \param[in] ni: node index
++     */
++    void updateStiffnessMatrix(mfem::DenseMatrix &Ke,
++                               const std::span<const real> &Kip,
++                               const mfem::Vector &N,
++                               const mfem::DenseMatrix &dN,
++                               const real w,
++                               const size_type ni) const noexcept;
+   };  // end of struct TridimensionalMicromorphicDamageBehaviourIntegrator
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index d263fc2b6b..1eb72e0df4 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -70,6 +70,32 @@ namespace mfem_mgis::batch {
+            (b.to_blocks[0].second.name == g.name);
+   }  // end of isHeatStorageBehaviour
+ 
++  /*!
++   * \return true if the behaviour is a micromorphic damage behaviour,
++   * recognised by its structure as the behaviour integrator
++   * `MicromorphicDamage`: a scalar gradient (the micromorphic damage) and a
++   * vector gradient (its gradient), their scalar and vector dual forces, and
++   * the derivatives of each force with respect to the associated gradient
++   * \param[in] b: behaviour
++   */
++  [[nodiscard]] static bool isMicromorphicDamageBehaviour(
++      const Behaviour& b) noexcept {
++    using Variable = mgis::behaviour::Variable;
++    if ((b.btype != Behaviour::GENERALBEHAVIOUR) ||
++        (b.gradients.size() != 2u) || (b.thermodynamic_forces.size() != 2u) ||
++        (b.to_blocks.size() != 2u)) {
++      return false;
++    }
++    const auto& g = b.gradients;
++    const auto& f = b.thermodynamic_forces;
++    return (g[0].type == Variable::SCALAR) && (g[1].type == Variable::VECTOR) &&
++           (f[0].type == Variable::SCALAR) && (f[1].type == Variable::VECTOR) &&
++           (b.to_blocks[0].first.name == f[0].name) &&
++           (b.to_blocks[0].second.name == g[0].name) &&
++           (b.to_blocks[1].first.name == f[1].name) &&
++           (b.to_blocks[1].second.name == g[1].name);
++  }  // end of isMicromorphicDamageBehaviour
++
+   std::optional<GradientsKind> getGradientsKind(const Behaviour& b) noexcept {
+     const auto h = b.hypothesis;
+     const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
+@@ -109,6 +135,14 @@ namespace mfem_mgis::batch {
+         return GradientsKind::TEMPERATURE_2D;
+       }
+     }
++    if (isMicromorphicDamageBehaviour(b)) {
++      if (tridimensional) {
++        return GradientsKind::MICROMORPHIC_DAMAGE_3D;
++      }
++      if (bidimensional) {
++        return GradientsKind::MICROMORPHIC_DAMAGE_2D;
++      }
++    }
+     return {};
+   }  // end of getGradientsKind
+ 
+@@ -247,6 +281,10 @@ namespace mfem_mgis::batch {
+         return 3;
+       case GradientsKind::TEMPERATURE_GRADIENT_2D:
+         return 2;
++      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
++        return 4;
++      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
++        return 3;
+       case GradientsKind::TEMPERATURE_3D:
+       case GradientsKind::TEMPERATURE_2D:
+         break;
+@@ -254,10 +292,17 @@ namespace mfem_mgis::batch {
+     return 1;
+   }  // end of getGradientsSize
+ 
+-  bool areGradientsUnknownsValues(const GradientsKind k) noexcept {
++  bool gradientsRequireUnknownsValues(const GradientsKind k) noexcept {
+     return (k == GradientsKind::TEMPERATURE_3D) ||
+-           (k == GradientsKind::TEMPERATURE_2D);
+-  }  // end of areGradientsUnknownsValues
++           (k == GradientsKind::TEMPERATURE_2D) ||
++           (k == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
++           (k == GradientsKind::MICROMORPHIC_DAMAGE_2D);
++  }  // end of gradientsRequireUnknownsValues
++
++  bool gradientsRequireUnknownsDerivatives(const GradientsKind k) noexcept {
++    return (k != GradientsKind::TEMPERATURE_3D) &&
++           (k != GradientsKind::TEMPERATURE_2D);
++  }  // end of gradientsRequireUnknownsDerivatives
+ 
+   bool areUnknownsValuesExternalStateVariables(const GradientsKind k) noexcept {
+     return (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+@@ -265,11 +310,17 @@ namespace mfem_mgis::batch {
+   }  // end of areUnknownsValuesExternalStateVariables
+ 
+   bool requiresUnknownsValues(const GradientsKind k) noexcept {
+-    return areGradientsUnknownsValues(k) ||
++    return gradientsRequireUnknownsValues(k) ||
+            areUnknownsValuesExternalStateVariables(k);
+   }  // end of requiresUnknownsValues
+ 
+   size_type getTangentOperatorBlocksSize(const GradientsKind k) noexcept {
++    if ((k == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
++        (k == GradientsKind::MICROMORPHIC_DAMAGE_2D)) {
++      // block diagonal tangent operator
++      const auto d = getSpaceDimension(k);
++      return 1 + d * d;
++    }
+     const auto n = getGradientsSize(k);
+     // derivatives of the heat flux with respect to the temperature
+     return areUnknownsValuesExternalStateVariables(k) ? n * n + n : n * n;
+@@ -279,7 +330,8 @@ namespace mfem_mgis::batch {
+     return ((k == GradientsKind::SMALL_STRAIN_3D) ||
+             (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+             (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+-            (k == GradientsKind::TEMPERATURE_3D))
++            (k == GradientsKind::TEMPERATURE_3D) ||
++            (k == GradientsKind::MICROMORPHIC_DAMAGE_3D))
+                ? 3
+                : 2;
+   }  // end of getSpaceDimension
+@@ -356,7 +408,7 @@ namespace mfem_mgis::batch {
+     a.elements = elements.Read(use_device);
+     a.offsets = offsets.Read(use_device);
+     a.derivatives = d.values.Read(use_device);
+-    if (areGradientsUnknownsValues(k)) {
++    if (gradientsRequireUnknownsValues(k)) {
+       if (!d.has_point_values) {
+         return ctx.registerErrorMessage(
+             name +
+diff --git a/src/Batch/GradientsKernels.cxx b/src/Batch/GradientsKernels.cxx
+index 922fb11a6d..b5075cf809 100644
+--- a/src/Batch/GradientsKernels.cxx
++++ b/src/Batch/GradientsKernels.cxx
+@@ -65,6 +65,11 @@ namespace mfem_mgis::batch::internals {
+       for (int c = 0; c != getDimension<K>(); ++c) {
+         g[c] = d(0, c);
+       }
++    } else if constexpr (isMicromorphicDamage<K>()) {
++      g[0] = u[0];
++      for (int c = 0; c != getDimension<K>(); ++c) {
++        g[1 + c] = d(0, c);
++      }
+     } else {
+       static_assert(isTemperature<K>());
+       g[0] = u[0];
+@@ -108,7 +113,7 @@ namespace mfem_mgis::batch::internals {
+       }
+       // values of the unknowns at the point
+       const auto* const u =
+-          isTemperature<K>()
++          usesShapeFunctionsValues<K>()
+               ? a.unknowns_values + static_cast<std::size_t>(V) * (sq + nq * e)
+               : nullptr;
+       real g[9];
+@@ -209,6 +214,14 @@ namespace mfem_mgis::batch::internals {
+       case GradientsKind::TEMPERATURE_2D:
+         launchGradientsKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
+         break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
++        launchGradientsKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D>(
++            a, use_device);
++        break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
++        launchGradientsKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D>(
++            a, use_device);
++        break;
+     }
+   }  // end of launchGradientsKernel
+ 
+diff --git a/src/Batch/GradientsKernels.hxx b/src/Batch/GradientsKernels.hxx
+index c3277d047a..bbe064ee9a 100644
+--- a/src/Batch/GradientsKernels.hxx
++++ b/src/Batch/GradientsKernels.hxx
+@@ -27,8 +27,8 @@ namespace mfem_mgis::batch::internals {
+     /*!
+      * \brief values of the unknowns at the points of all the elements
+      * (layout of `UnknownsDerivatives::point_values`), required if the
+-     * gradients are the values of the unknowns (see
+-     * `areGradientsUnknownsValues`)
++     * gradients depend on the values of the unknowns (see
++     * `gradientsRequireUnknownsValues`)
+      */
+     const real* unknowns_values = nullptr;
+     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
+diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
+index cca87fa516..c1e85f2441 100644
+--- a/src/Batch/InnerForcesKernels.cxx
++++ b/src/Batch/InnerForcesKernels.cxx
+@@ -21,7 +21,7 @@ namespace mfem_mgis::batch::internals {
+    * \param[in, out] f: inner forces of the node
+    * \param[in] dN: derivatives of the shape function of the node
+    * \param[in] Nv: value of the shape function of the node (transient term
+-   * of the heat equation)
++   * of the heat equation, micromorphic damage)
+    * \param[in] s: thermodynamic force (accessor)
+    * \param[in] w: weight of the point
+    */
+@@ -51,6 +51,13 @@ namespace mfem_mgis::batch::internals {
+       for (int c = 0; c != getDimension<K>(); ++c) {
+         f[0] += w * dN[c] * s(c);
+       }
++    } else if constexpr (isMicromorphicDamage<K>()) {
++      // dual forces of the micromorphic damage and of its gradient
++      auto v = s(0) * Nv;
++      for (int c = 0; c != getDimension<K>(); ++c) {
++        v += s(1 + c) * dN[c];
++      }
++      f[0] += w * v;
+     } else {
+       // rate of the enthalpy
+       static_assert(isTemperature<K>());
+@@ -134,6 +141,14 @@ namespace mfem_mgis::batch::internals {
+       case GradientsKind::TEMPERATURE_2D:
+         launchInnerForcesKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
+         break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
++        launchInnerForcesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D>(
++            a, use_device);
++        break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
++        launchInnerForcesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D>(
++            a, use_device);
++        break;
+     }
+   }  // end of launchInnerForcesKernel
+ 
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index 8ddc777b4a..723340f721 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -37,13 +37,30 @@ namespace mfem_mgis::batch::internals {
+            (K == GradientsKind::TEMPERATURE_2D);
+   }  // end of isTemperature
+ 
++  //! \return true for the gradients of the micromorphic damage behaviours
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE constexpr bool isMicromorphicDamage() {
++    return (K == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
++           (K == GradientsKind::MICROMORPHIC_DAMAGE_2D);
++  }  // end of isMicromorphicDamage
++
++  /*!
++   * \return true if the operator `B` of the given kind of gradients depends
++   * on the values of the shape functions
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE constexpr bool usesShapeFunctionsValues() {
++    return isTemperature<K>() || isMicromorphicDamage<K>();
++  }  // end of usesShapeFunctionsValues
++
+   //! \return the dimension of the space for the given kind of gradients
+   template <GradientsKind K>
+   MFEM_HOST_DEVICE constexpr int getDimension() {
+     return ((K == GradientsKind::SMALL_STRAIN_3D) ||
+             (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+             (K == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+-            (K == GradientsKind::TEMPERATURE_3D))
++            (K == GradientsKind::TEMPERATURE_3D) ||
++            (K == GradientsKind::MICROMORPHIC_DAMAGE_3D))
+                ? 3
+                : 2;
+   }  // end of getDimension
+@@ -55,7 +72,8 @@ namespace mfem_mgis::batch::internals {
+    */
+   template <GradientsKind K>
+   MFEM_HOST_DEVICE constexpr int getUnknownsSize() {
+-    return (isTemperatureGradient<K>() || isTemperature<K>())
++    return (isTemperatureGradient<K>() || isTemperature<K>() ||
++            isMicromorphicDamage<K>())
+                ? 1
+                : getDimension<K>();
+   }  // end of getUnknownsSize
+@@ -73,6 +91,8 @@ namespace mfem_mgis::batch::internals {
+       return 5;
+     } else if constexpr (isTemperatureGradient<K>()) {
+       return getDimension<K>();
++    } else if constexpr (isMicromorphicDamage<K>()) {
++      return 1 + getDimension<K>();
+     } else {
+       static_assert(isTemperature<K>());
+       return 1;
+@@ -91,6 +111,39 @@ namespace mfem_mgis::batch::internals {
+     return isTemperatureGradient<K>();
+   }  // end of hasUnknownsBlock
+ 
++  /*!
++   * \return the derivative of the `r1`-th component of the thermodynamic
++   * forces with respect to the `r2`-th component of the gradients at a point
++   * \tparam K: kind of the gradients
++   * \param[in] t: tangent operator blocks of the point
++   * \param[in] r1: component of the thermodynamic forces
++   * \param[in] r2: component of the gradients
++   * \param[in] cs: stride between two components of the blocks
++   *
++   * The tangent operator blocks are a `gs x gs` matrix stored by rows, `gs`
++   * being the number of components of the gradients, except for the
++   * micromorphic damage behaviours, whose tangent operator is block
++   * diagonal: the derivative of the first dual force with respect to the
++   * micromorphic damage, then the derivatives of the second dual force with
++   * respect to the gradient of the micromorphic damage, stored by rows.
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline real getTangentOperatorComponent(const real* const t,
++                                                           const std::size_t r1,
++                                                           const std::size_t r2,
++                                                           const long long cs) {
++    if constexpr (isMicromorphicDamage<K>()) {
++      constexpr auto N = static_cast<std::size_t>(getDimension<K>());
++      if ((r1 == 0) || (r2 == 0)) {
++        return ((r1 == 0) && (r2 == 0)) ? t[0] : real{0};
++      }
++      return t[static_cast<long long>(1 + (r1 - 1) * N + (r2 - 1)) * cs];
++    } else {
++      constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++      return t[static_cast<long long>(r1 * gs + r2) * cs];
++    }
++  }  // end of getTangentOperatorComponent
++
+   /*!
+    * \brief computes the inverse of a jacobian
+    * \tparam N: dimension
+@@ -167,10 +220,13 @@ namespace mfem_mgis::batch::internals {
+    * stationary heat transfer behaviours, `B[c][0]` is the derivative of the
+    * shape function with respect to the `c`-th coordinate. For the transient
+    * term of the heat equation, `B[0][0]` is the value of the shape function.
++   * For the micromorphic damage behaviours, `B[0][0]` is the value of the
++   * shape function and `B[1 + c][0]` its derivative with respect to the
++   * `c`-th coordinate.
+    * \param[in] dN: derivatives of the shape function of the node in the
+    * physical frame
+-   * \param[in] Nv: value of the shape function of the node (only used for
+-   * the transient term of the heat equation)
++   * \param[in] Nv: value of the shape function of the node (only used if
++   * the gradients depend on the values of the unknowns)
+    */
+   template <GradientsKind K>
+   MFEM_HOST_DEVICE inline void computeB(real (&B)[9][3],
+@@ -216,6 +272,11 @@ namespace mfem_mgis::batch::internals {
+       for (int c = 0; c != getDimension<K>(); ++c) {
+         B[c][0] = dN[c];
+       }
++    } else if constexpr (isMicromorphicDamage<K>()) {
++      B[0][0] = Nv;
++      for (int c = 0; c != getDimension<K>(); ++c) {
++        B[1 + c][0] = dN[c];
++      }
+     } else {
+       static_assert(isTemperature<K>());
+       B[0][0] = Nv;
+@@ -225,7 +286,7 @@ namespace mfem_mgis::batch::internals {
+   /*!
+    * \return the value of the shape function of a node at a point if the
+    * operator `B` of the given kind of gradients depends on it (transient
+-   * term of the heat equation), zero otherwise
++   * term of the heat equation, micromorphic damage), zero otherwise
+    * \tparam K: kind of the gradients
+    * \param[in] N: values of the shape functions on the reference element
+    * (`nq x nd`, layout of `mfem::DofToQuad` in the `FULL` mode)
+@@ -238,7 +299,7 @@ namespace mfem_mgis::batch::internals {
+                                                      const std::size_t q,
+                                                      const std::size_t nq,
+                                                      const std::size_t node) {
+-    if constexpr (isTemperature<K>()) {
++    if constexpr (usesShapeFunctionsValues<K>()) {
+       return N[q + nq * node];
+     } else {
+       return real{0};
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 75d543e425..ff50db163b 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -231,7 +231,7 @@ namespace mfem_mgis::batch::internals {
+               op.KB[r1][d] = 0;
+               for (std::size_t r2 = 0; r2 != gs; ++r2) {
+                 op.KB[r1][d] +=
+-                    t[static_cast<long long>(r1 * gs + r2) * cs] * op.B[r2][d];
++                    getTangentOperatorComponent<K>(t, r1, r2, cs) * op.B[r2][d];
+               }
+             }
+           }
+@@ -331,7 +331,7 @@ namespace mfem_mgis::batch::internals {
+             KB[r1] = 0;
+             for (std::size_t r2 = 0; r2 != gs; ++r2) {
+               KB[r1] +=
+-                  t[static_cast<long long>(r1 * gs + r2) * cs] * Bb[r2][d];
++                  getTangentOperatorComponent<K>(t, r1, r2, cs) * Bb[r2][d];
+             }
+           }
+           for (std::size_t c = 0; c != V; ++c) {
+@@ -394,6 +394,14 @@ namespace mfem_mgis::batch::internals {
+         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_2D, Output,
+                                       diagonal>(a, o, use_device);
+         break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
++        launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D,
++                                      Output, diagonal>(a, o, use_device);
++        break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
++        launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D,
++                                      Output, diagonal>(a, o, use_device);
++        break;
+     }
+   }  // end of dispatch
+ 
+@@ -477,7 +485,8 @@ namespace mfem_mgis::batch::internals {
+             for (std::size_t r1 = 0; r1 != gs; ++r1) {
+               ds[r1] = 0;
+               for (std::size_t r2 = 0; r2 != gs; ++r2) {
+-                ds[r1] += t[static_cast<long long>(r1 * gs + r2) * cs] * dg[r2];
++                ds[r1] +=
++                    getTangentOperatorComponent<K>(t, r1, r2, cs) * dg[r2];
+               }
+             }
+             if constexpr (hasUnknownsBlock<K>()) {
+@@ -553,6 +562,14 @@ namespace mfem_mgis::batch::internals {
+         launchTangentOperatorActionKernel<GradientsKind::TEMPERATURE_2D>(
+             a, x, y, use_device);
+         break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
++        launchTangentOperatorActionKernel<
++            GradientsKind::MICROMORPHIC_DAMAGE_3D>(a, x, y, use_device);
++        break;
++      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
++        launchTangentOperatorActionKernel<
++            GradientsKind::MICROMORPHIC_DAMAGE_2D>(a, x, y, use_device);
++        break;
+     }
+   }  // end of launchTangentOperatorActionKernel
+ 
+diff --git a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 199e906792..fb8682c102 100644
+--- a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -1,14 +1,14 @@
+ /*!
+- * \file   BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++ * \file   src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+  * \brief  This file implements the
+  * `BidimensionalMicromorphicDamageBehaviourIntegrator` class
+- * \author Thomas Helfer
+  * \date   07/12/2021
+  */
+ 
++#include <algorithm>
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+-#include "MFEMMGIS/Config.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+@@ -19,7 +19,7 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e, const mfem::ElementTransformation &t) {
+     const auto order = 2 * t.OrderGrad(&e);
+     return mfem::IntRules.Get(e.GetGeomType(), order);
+-  }
++  }  // end of selectIntegrationRule
+ 
+   std::shared_ptr<const PartialQuadratureSpace>
+   BidimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
+@@ -37,8 +37,9 @@ namespace mfem_mgis {
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+           std::unique_ptr<const Behaviour> b_ptr)
+-      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-                                std::move(b_ptr)) {
++      : StandardBehaviourIntegratorCRTPBase<
++            BidimensionalMicromorphicDamageBehaviourIntegrator>(
++            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkBehaviourVariablesSizes(
+         throwing, {.gradients_sizes = {1, 2},
+@@ -61,95 +62,92 @@ namespace mfem_mgis {
+         selectIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
++  BidimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
++  BidimensionalMicromorphicDamageBehaviourIntegrator::getRotationMatrix(
++      const size_type) const {
++    return RotationMatrix{};
++  }  // end of getRotationMatrix
++
++  void BidimensionalMicromorphicDamageBehaviourIntegrator::rotateGradients(
++      std::span<real>, const RotationMatrix &) {}  // end of rotateGradients
++
++  std::span<const real>
++  BidimensionalMicromorphicDamageBehaviourIntegrator::rotateThermodynamicForces(
++      std::span<const real> s, const RotationMatrix &) {
++    return s;
++  }  // end of rotateThermodynamicForces
++
++  void BidimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateTangentOperatorBlocks(std::span<real>, const RotationMatrix &) {
++  }  // end of rotateTangentOperatorBlocks
++
++  void BidimensionalMicromorphicDamageBehaviourIntegrator::updateGradients(
++      std::span<real> &g,
++      const mfem::Vector &u,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const size_type ni) noexcept {
++    // micromorphic damage and the components of its gradient
++    g[0] += u[ni] * N[ni];
++    g[1] += u[ni] * dN(ni, 0);
++    g[2] += u[ni] * dN(ni, 1);
++  }  // end of updateGradients
++
++  void BidimensionalMicromorphicDamageBehaviourIntegrator::updateInnerForces(
++      mfem::Vector &Fe,
++      const std::span<const real> &s,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const real w,
++      const size_type ni) const noexcept {
++    // s contains the dual force conjugated with the micromorphic damage
++    // (scalar) and the dual force conjugated with its gradient (vector)
++    Fe[ni] += w * (s[0] * N[ni] +      //
++                   s[1] * dN(ni, 0) +  //
++                   s[2] * dN(ni, 1));
++  }  // end of updateInnerForces
++
++  void
++  BidimensionalMicromorphicDamageBehaviourIntegrator::updateStiffnessMatrix(
++      mfem::DenseMatrix &Ke,
++      const std::span<const real> &Kip,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const real w,
++      const size_type ni) const noexcept {
++    // Kip contains the derivative of the first dual force with respect to
++    // the micromorphic damage (scalar) and the derivative of the second dual
++    // force with respect to the gradient of the micromorphic damage (matrix)
++    const auto nnodes = N.Size();
++    const auto Ni = N[ni];
++    const auto dNi_0 = dN(ni, 0);
++    const auto dNi_1 = dN(ni, 1);
++    for (size_type nj = 0; nj != nnodes; ++nj) {
++      const auto Nj = N[nj];
++      const auto dNj_0 = dN(nj, 0);
++      const auto dNj_1 = dN(nj, 1);
++      Ke(ni, nj) += w * (Kip[0] * Ni * Nj +        //
++                         Kip[2] * dNi_0 * dNj_1 +  //
++                         dNj_0 * Kip[3] * dNi_1 +  //
++                         dNj_1 * dNi_1 * Kip[4] +  //
++                         dNj_0 * dNi_0 * Kip[1]);
++    }
++  }  // end of updateStiffnessMatrix
++
+   bool BidimensionalMicromorphicDamageBehaviourIntegrator::integrate(
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &d_chi,
++      const mfem::Vector &u,
+       const IntegrationType it) {
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    // integration rule
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto gsize = this->s1.gradients_stride;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      const auto o = eoffset + i;
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      //
+-      auto g = this->s1.gradients.subspan(o * gsize, gsize);
+-      std::copy(this->macroscopic_gradients.begin(),
+-                this->macroscopic_gradients.end(), g.begin());
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // computations of the gradients:
+-        // - g[0]: micromorphic damage
+-        // - g[1]: first component of the gradient of the micromorphic damage
+-        // - g[2]: second component of the gradient of the micromorphic damage
+-        g[0] += d_chi[ni] * shape[ni];
+-        g[1] += d_chi[ni] * dshape(ni, 0);
+-        g[2] += d_chi[ni] * dshape(ni, 1);
+-      }
+-      if (!this->performsLocalBehaviourIntegration(o, it)) {
+-        return false;
+-      }
+-    }
+-    return true;
++    return this->implementIntegrate(e, tr, u, it);
+   }  // end of integrate
+ 
+   void BidimensionalMicromorphicDamageBehaviourIntegrator::updateResidual(
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (s[0] * shape[ni] +      //
+-                       s[1] * dshape(ni, 0) +  //
+-                       s[2] * dshape(ni, 1));
+-      }
+-    }
++      const mfem::Vector &u) {
++    this->implementUpdateResidual(Fe, e, tr, u);
+   }  // end of updateResidual
+ 
+   void BidimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
+@@ -157,93 +155,14 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    const auto nnodes = e.GetDof();
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Ke.SetSize(e.GetDof(), e.GetDof());
+-    Ke = 0.;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      // get the gradients of the shape functions
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      e.CalcPhysShape(tr, shape);
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+-      // assembly of the stiffness matrix
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // Kip contains:
+-        // - the derivative of a_chi with respect to d_chi (scalar)
+-        // - the derivative of b_chi with respect to the gradient of d_chi (2 *
+-        // 2 matrix)
+-        const auto Ni = shape[ni];
+-        const auto dNi_0 = dshape(ni, 0);
+-        const auto dNi_1 = dshape(ni, 1);
+-        for (size_type nj = 0; nj != nnodes; ++nj) {
+-          const auto Nj = shape[nj];
+-          const auto dNj_0 = dshape(nj, 0);
+-          const auto dNj_1 = dshape(nj, 1);
+-          Ke(ni, nj) += w * (Kip[0] * Ni * Nj +        //
+-                             Kip[2] * dNi_0 * dNj_1 +  //
+-                             dNj_0 * Kip[3] * dNi_1 +  //
+-                             dNj_1 * dNi_1 * Kip[4] +  //
+-                             dNj_0 * dNi_0 * Kip[1]);
+-        }
+-      }
+-    }
++    this->implementUpdateJacobian(Ke, e, tr);
+   }  // end of updateJacobian
+ 
+   void BidimensionalMicromorphicDamageBehaviourIntegrator::computeInnerForces(
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (s[0] * shape[ni] +      //
+-                       s[1] * dshape(ni, 0) +  //
+-                       s[2] * dshape(ni, 1));
+-      }
+-    }
++    this->implementComputeInnerForces(Fe, e, tr);
+   }  // end of computeInnerForces
+ 
+   BidimensionalMicromorphicDamageBehaviourIntegrator::
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index b7b1d97d52..c0f3a88a0b 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -388,10 +388,11 @@ namespace mfem_mgis {
+               std::to_string(m) +
+               "' can't be computed by kernels (supported: standard "
+               "mechanical behaviours, small or finite strain, stationary non "
+-              "linear heat transfer behaviours and transient term of the "
+-              "heat equation, in 3D, plane strain and plane stress, without "
+-              "FBar nor regularization, all the elements of the material "
+-              "using the same integration rule)");
++              "linear heat transfer behaviours, transient term of the heat "
++              "equation and micromorphic damage behaviours, in 3D, plane "
++              "strain and plane stress, without FBar nor regularization, all "
++              "the elements of the material using the same integration "
++              "rule)");
+         }
+       }
+     }
+diff --git a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 8865ab9e7e..ded59d6d16 100644
+--- a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -1,16 +1,15 @@
+ /*!
+- * \file   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++ * \file   src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+  * \brief  This file implements the
+  * `OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator` class
+- * \author Thomas Helfer
+  * \date   07/12/2021
+  */
+ 
++#include <algorithm>
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+-#include "MFEMMGIS/Config.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+-#include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -21,7 +20,7 @@ namespace mfem_mgis {
+                             const mfem::ElementTransformation &t) {
+     const auto order = 2 * t.OrderGrad(&e);
+     return mfem::IntRules.Get(e.GetGeomType(), order);
+-  }
++  }  // end of selectIntegrationRule
+ 
+   std::shared_ptr<const PartialQuadratureSpace>
+   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+@@ -40,8 +39,9 @@ namespace mfem_mgis {
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+           std::unique_ptr<const Behaviour> b_ptr)
+-      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-                                std::move(b_ptr)) {
++      : StandardBehaviourIntegratorCRTPBase<
++            OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
++            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkBehaviourVariablesSizes(
+         throwing, {.gradients_sizes = {1, 2},
+@@ -64,60 +64,92 @@ namespace mfem_mgis {
+         selectIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
++  OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
++  OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      getRotationMatrix(const size_type i) const {
++    return this->get_rotation_fct_ptr(this->r2D, this->r3D, i);
++  }  // end of getRotationMatrix
++
++  void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateGradients(std::span<real> g, const RotationMatrix &r) {
++    this->b.rotate_gradients_ptr(g.data(), g.data(), r.data());
++  }  // end of rotateGradients
++
++  std::array<real, 3>
++  OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateThermodynamicForces(std::span<const real> s,
++                                const RotationMatrix &r) {
++    std::array<real, 3> rs;
++    std::copy(s.begin(), s.end(), rs.begin());
++    this->b.rotate_thermodynamic_forces_ptr(rs.data(), rs.data(), r.data());
++    return rs;
++  }  // end of rotateThermodynamicForces
++
++  void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateTangentOperatorBlocks(std::span<real> Kip,
++                                  const RotationMatrix &r) {
++    this->b.rotate_tangent_operator_blocks_ptr(Kip.data(), Kip.data(),
++                                               r.data());
++  }  // end of rotateTangentOperatorBlocks
++
++  void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      updateGradients(std::span<real> &g,
++                      const mfem::Vector &u,
++                      const mfem::Vector &N,
++                      const mfem::DenseMatrix &dN,
++                      const size_type ni) noexcept {
++    // micromorphic damage and the components of its gradient
++    g[0] += u[ni] * N[ni];
++    g[1] += u[ni] * dN(ni, 0);
++    g[2] += u[ni] * dN(ni, 1);
++  }  // end of updateGradients
++
++  void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      updateInnerForces(mfem::Vector &Fe,
++                        const std::span<const real> &s,
++                        const mfem::Vector &N,
++                        const mfem::DenseMatrix &dN,
++                        const real w,
++                        const size_type ni) const noexcept {
++    // s contains the dual force conjugated with the micromorphic damage
++    // (scalar) and the dual force conjugated with its gradient (vector)
++    Fe[ni] += w * (s[0] * N[ni] +      //
++                   s[1] * dN(ni, 0) +  //
++                   s[2] * dN(ni, 1));
++  }  // end of updateInnerForces
++
++  void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
++      updateStiffnessMatrix(mfem::DenseMatrix &Ke,
++                            const std::span<const real> &Kip,
++                            const mfem::Vector &N,
++                            const mfem::DenseMatrix &dN,
++                            const real w,
++                            const size_type ni) const noexcept {
++    // Kip contains the derivative of the first dual force with respect to
++    // the micromorphic damage (scalar) and the derivative of the second dual
++    // force with respect to the gradient of the micromorphic damage (matrix)
++    const auto nnodes = N.Size();
++    const auto Ni = N[ni];
++    const auto dNi_0 = dN(ni, 0);
++    const auto dNi_1 = dN(ni, 1);
++    for (size_type nj = 0; nj != nnodes; ++nj) {
++      const auto Nj = N[nj];
++      const auto dNj_0 = dN(nj, 0);
++      const auto dNj_1 = dN(nj, 1);
++      Ke(ni, nj) += w * (Kip[0] * Ni * Nj +        //
++                         Kip[2] * dNi_0 * dNj_1 +  //
++                         dNj_0 * Kip[3] * dNi_1 +  //
++                         dNj_1 * dNi_1 * Kip[4] +  //
++                         dNj_0 * dNi_0 * Kip[1]);
++    }
++  }  // end of updateStiffnessMatrix
++
+   bool OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::integrate(
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &d_chi,
++      const mfem::Vector &u,
+       const IntegrationType it) {
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    // integration rule
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto gsize = this->s1.gradients_stride;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      const auto o = eoffset + i;
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      //
+-      auto g = this->s1.gradients.subspan(o * gsize, gsize);
+-      std::copy(this->macroscopic_gradients.begin(),
+-                this->macroscopic_gradients.end(), g.begin());
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // computations of the gradients:
+-        // - g[0]: micromorphic damage
+-        // - g[1]: first component of the gradient of the micromorphic damage
+-        // - g[2]: second component of the gradient of the micromorphic damage
+-        g[0] += d_chi[ni] * shape[ni];
+-        g[1] += d_chi[ni] * dshape(ni, 0);
+-        g[2] += d_chi[ni] * dshape(ni, 1);
+-      }
+-      const auto r = this->get_rotation_fct_ptr(this->r2D, this->r3D, o);
+-      this->b.rotate_gradients_ptr(g.data(), g.data(), r.data());
+-      if (!this->performsLocalBehaviourIntegration(o, it)) {
+-        return false;
+-      }
+-      // rotate the tangent operator blocks once, as in
+-      // StandardBehaviourIntegratorCRTPBase
+-      if (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {
+-        const auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+-        this->b.rotate_tangent_operator_blocks_ptr(Kip.data(), Kip.data(),
+-                                                   r.data());
+-      }
+-    }
+-    return true;
++    return this->implementIntegrate(e, tr, u, it);
+   }  // end of integrate
+ 
+   void
+@@ -125,48 +157,8 @@ namespace mfem_mgis {
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      const auto r = this->get_rotation_fct_ptr(this->r2D, this->r3D, o);
+-      std::array<real, 3> rs;
+-      std::copy(s.begin(), s.end(), rs.begin());
+-      this->b.rotate_thermodynamic_forces_ptr(rs.data(), rs.data(), r.data());
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (rs[0] * shape[ni] +      //
+-                       rs[1] * dshape(ni, 0) +  //
+-                       rs[2] * dshape(ni, 1));
+-      }
+-    }
++      const mfem::Vector &u) {
++    this->implementUpdateResidual(Fe, e, tr, u);
+   }  // end of updateResidual
+ 
+   void
+@@ -175,99 +167,14 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    const auto nnodes = e.GetDof();
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Ke.SetSize(e.GetDof(), e.GetDof());
+-    Ke = 0.;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      // get the gradients of the shape functions
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      e.CalcPhysShape(tr, shape);
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      // the tangent operator blocks were rotated by integrate
+-      const auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+-      // assembly of the stiffness matrix
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // Kip contains:
+-        // - the derivative of a_chi with respect to d_chi (scalar)
+-        // - the derivative of b_chi with respect to the gradient of d_chi (2 *
+-        // 2 matrix)
+-        const auto Ni = shape[ni];
+-        const auto dNi_0 = dshape(ni, 0);
+-        const auto dNi_1 = dshape(ni, 1);
+-        for (size_type nj = 0; nj != nnodes; ++nj) {
+-          const auto Nj = shape[nj];
+-          const auto dNj_0 = dshape(nj, 0);
+-          const auto dNj_1 = dshape(nj, 1);
+-          Ke(ni, nj) += w * (Kip[0] * Ni * Nj +        //
+-                             Kip[2] * dNi_0 * dNj_1 +  //
+-                             dNj_0 * Kip[3] * dNi_1 +  //
+-                             dNj_1 * dNi_1 * Kip[4] +  //
+-                             dNj_0 * dNi_0 * Kip[1]);
+-        }
+-      }
+-    }
++    this->implementUpdateJacobian(Ke, e, tr);
+   }  // end of updateJacobian
+ 
+   void OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+       computeInnerForces(mfem::Vector &Fe,
+                          const mfem::FiniteElement &e,
+                          mfem::ElementTransformation &tr) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      const auto r = this->get_rotation_fct_ptr(this->r2D, this->r3D, o);
+-      std::array<real, 3> rs;
+-      std::copy(s.begin(), s.end(), rs.begin());
+-      this->b.rotate_thermodynamic_forces_ptr(rs.data(), rs.data(), r.data());
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (rs[0] * shape[ni] +      //
+-                       rs[1] * dshape(ni, 0) +  //
+-                       rs[2] * dshape(ni, 1));
+-      }
+-    }
++    this->implementComputeInnerForces(Fe, e, tr);
+   }  // end of computeInnerForces
+ 
+   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+diff --git a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 2dc02f3a7c..1be93ada72 100644
+--- a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -1,14 +1,14 @@
+ /*!
+- * \file   TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
++ * \file   src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+  * \brief  This file implements the
+  * `TridimensionalMicromorphicDamageBehaviourIntegrator` class
+- * \author Thomas Helfer
+  * \date   31/03/2023
+  */
+ 
++#include <algorithm>
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+-#include "MFEMMGIS/Config.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+@@ -19,7 +19,7 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e, const mfem::ElementTransformation &t) {
+     const auto order = 2 * t.OrderGrad(&e);
+     return mfem::IntRules.Get(e.GetGeomType(), order);
+-  }
++  }  // end of selectIntegrationRule
+ 
+   std::shared_ptr<const PartialQuadratureSpace>
+   TridimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
+@@ -37,8 +37,9 @@ namespace mfem_mgis {
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+           std::unique_ptr<const Behaviour> b_ptr)
+-      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-                                std::move(b_ptr)) {
++      : StandardBehaviourIntegratorCRTPBase<
++            TridimensionalMicromorphicDamageBehaviourIntegrator>(
++            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+@@ -62,97 +63,97 @@ namespace mfem_mgis {
+         selectIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
++  TridimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
++  TridimensionalMicromorphicDamageBehaviourIntegrator::getRotationMatrix(
++      const size_type) const {
++    return RotationMatrix{};
++  }  // end of getRotationMatrix
++
++  void TridimensionalMicromorphicDamageBehaviourIntegrator::rotateGradients(
++      std::span<real>, const RotationMatrix &) {}  // end of rotateGradients
++
++  std::span<const real> TridimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateThermodynamicForces(std::span<const real> s,
++                                const RotationMatrix &) {
++    return s;
++  }  // end of rotateThermodynamicForces
++
++  void TridimensionalMicromorphicDamageBehaviourIntegrator::
++      rotateTangentOperatorBlocks(std::span<real>, const RotationMatrix &) {
++  }  // end of rotateTangentOperatorBlocks
++
++  void TridimensionalMicromorphicDamageBehaviourIntegrator::updateGradients(
++      std::span<real> &g,
++      const mfem::Vector &u,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const size_type ni) noexcept {
++    // micromorphic damage and the components of its gradient
++    g[0] += u[ni] * N[ni];
++    g[1] += u[ni] * dN(ni, 0);
++    g[2] += u[ni] * dN(ni, 1);
++    g[3] += u[ni] * dN(ni, 2);
++  }  // end of updateGradients
++
++  void TridimensionalMicromorphicDamageBehaviourIntegrator::updateInnerForces(
++      mfem::Vector &Fe,
++      const std::span<const real> &s,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const real w,
++      const size_type ni) const noexcept {
++    // s contains the dual force conjugated with the micromorphic damage
++    // (scalar) and the dual force conjugated with its gradient (vector)
++    Fe[ni] += w * (s[0] * N[ni] +      //
++                   s[1] * dN(ni, 0) +  //
++                   s[2] * dN(ni, 1) +  //
++                   s[3] * dN(ni, 2));
++  }  // end of updateInnerForces
++
++  void
++  TridimensionalMicromorphicDamageBehaviourIntegrator::updateStiffnessMatrix(
++      mfem::DenseMatrix &Ke,
++      const std::span<const real> &Kip,
++      const mfem::Vector &N,
++      const mfem::DenseMatrix &dN,
++      const real w,
++      const size_type ni) const noexcept {
++    // Kip contains the derivative of the first dual force with respect to
++    // the micromorphic damage (scalar) and the derivative of the second dual
++    // force with respect to the gradient of the micromorphic damage (matrix)
++    const auto nnodes = N.Size();
++    const auto Ni = N[ni];
++    const auto dNi_0 = dN(ni, 0);
++    const auto dNi_1 = dN(ni, 1);
++    const auto dNi_2 = dN(ni, 2);
++    for (size_type nj = 0; nj != nnodes; ++nj) {
++      const auto Nj = N[nj];
++      const auto dNj_0 = dN(nj, 0);
++      const auto dNj_1 = dN(nj, 1);
++      const auto dNj_2 = dN(nj, 2);
++      Ke(ni, nj) += w * (Kip[0] * Ni * Nj +  //
++                         dNi_1 * dNj_0 * Kip[4] + dNi_1 * dNj_1 * Kip[5] +
++                         Kip[3] * dNj_2 * dNi_0 + dNi_2 * dNj_1 * Kip[8] +
++                         dNj_0 * Kip[1] * dNi_0 + Kip[2] * dNi_0 * dNj_1 +
++                         dNi_1 * Kip[6] * dNj_2 + Kip[9] * dNj_2 * dNi_2 +
++                         dNi_2 * dNj_0 * Kip[7]);
++    }
++  }  // end of updateStiffnessMatrix
++
+   bool TridimensionalMicromorphicDamageBehaviourIntegrator::integrate(
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &d_chi,
++      const mfem::Vector &u,
+       const IntegrationType it) {
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    // integration rule
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto gsize = this->s1.gradients_stride;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      const auto o = eoffset + i;
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      //
+-      auto g = this->s1.gradients.subspan(o * gsize, gsize);
+-      std::copy(this->macroscopic_gradients.begin(),
+-                this->macroscopic_gradients.end(), g.begin());
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // computations of the gradients:
+-        // - g[0]: micromorphic damage
+-        // - g[1]: first component of the gradient of the micromorphic damage
+-        // - g[2]: second component of the gradient of the micromorphic damage
+-        g[0] += d_chi[ni] * shape[ni];
+-        g[1] += d_chi[ni] * dshape(ni, 0);
+-        g[2] += d_chi[ni] * dshape(ni, 1);
+-        g[3] += d_chi[ni] * dshape(ni, 2);
+-      }
+-      if (!this->performsLocalBehaviourIntegration(o, it)) {
+-        return false;
+-      }
+-    }
+-    return true;
++    return this->implementIntegrate(e, tr, u, it);
+   }  // end of integrate
+ 
+   void TridimensionalMicromorphicDamageBehaviourIntegrator::updateResidual(
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+-      const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (s[0] * shape[ni] +      //
+-                       s[1] * dshape(ni, 0) +  //
+-                       s[2] * dshape(ni, 1) +  //
+-                       s[3] * dshape(ni, 2));
+-      }
+-    }
++      const mfem::Vector &u) {
++    this->implementUpdateResidual(Fe, e, tr, u);
+   }  // end of updateResidual
+ 
+   void TridimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
+@@ -160,98 +161,14 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    const auto nnodes = e.GetDof();
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Ke.SetSize(e.GetDof(), e.GetDof());
+-    Ke = 0.;
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      // get the gradients of the shape functions
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      e.CalcPhysShape(tr, shape);
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+-      // assembly of the stiffness matrix
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // Kip contains:
+-        // - the derivative of a_chi with respect to d_chi (scalar)
+-        // - the derivative of b_chi with respect to the gradient of d_chi (3 *
+-        // 3 matrix)
+-        const auto Ni = shape[ni];
+-        const auto dNi_0 = dshape(ni, 0);
+-        const auto dNi_1 = dshape(ni, 1);
+-        const auto dNi_2 = dshape(ni, 2);
+-        for (size_type nj = 0; nj != nnodes; ++nj) {
+-          const auto Nj = shape[nj];
+-          const auto dNj_0 = dshape(nj, 0);
+-          const auto dNj_1 = dshape(nj, 1);
+-          const auto dNj_2 = dshape(nj, 2);
+-          Ke(ni, nj) += w * (Kip[0] * Ni * Nj +  //
+-                             dNi_1 * dNj_0 * Kip[4] + dNi_1 * dNj_1 * Kip[5] +
+-                             Kip[3] * dNj_2 * dNi_0 + dNi_2 * dNj_1 * Kip[8] +
+-                             dNj_0 * Kip[1] * dNi_0 + Kip[2] * dNi_0 * dNj_1 +
+-                             dNi_1 * Kip[6] * dNj_2 + Kip[9] * dNj_2 * dNi_2 +
+-                             dNi_2 * dNj_0 * Kip[7]);
+-        }
+-      }
+-    }
++    this->implementUpdateJacobian(Ke, e, tr);
+   }  // end of updateJacobian
+ 
+   void TridimensionalMicromorphicDamageBehaviourIntegrator::computeInnerForces(
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr) {
+-#ifdef MFEM_THREAD_SAFE
+-    mfem::Vector shape;
+-    shape.SetSize(e.GetDof());
+-    mfem::DenseMatrix dshape(e.GetDof(), e.GetDim());
+-#else
+-    this->shape.SetSize(e.GetDof());
+-    this->dshape.SetSize(e.GetDof(), e.GetDim());
+-#endif
+-    const auto nnodes = e.GetDof();
+-    const auto thsize = this->s1.thermodynamic_forces_stride;
+-    // element offset
+-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    Fe.SetSize(e.GetDof());
+-    Fe = 0.;
+-    const auto &ir = this->getIntegrationRule(e, tr);
+-    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
+-      const auto &ip = ir.IntPoint(i);
+-      tr.SetIntPoint(&ip);
+-      // get the values of the shape functions
+-      e.CalcPhysShape(tr, shape);
+-      // get the gradients of the shape functions
+-      e.CalcPhysDShape(tr, dshape);
+-      // get the weights associated to point ip
+-      const auto w = this->getIntegrationPointWeight(tr, ip);
+-      // offset of the integration point
+-      const auto o = eoffset + i;
+-      const auto s = this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+-      for (size_type ni = 0; ni != nnodes; ++ni) {
+-        // s contains:
+-        // - a_chi, the dual force conjugated with d_chi (scalar)
+-        // - b_chi, the dual force conjugated with the gradient of d_chi
+-        // (vector)
+-        Fe[ni] += w * (s[0] * shape[ni] +      //
+-                       s[1] * dshape(ni, 0) +  //
+-                       s[2] * dshape(ni, 1) +  //
+-                       s[3] * dshape(ni, 2));
+-      }
+-    }
++    this->implementComputeInnerForces(Fe, e, tr);
+   }  // end of computeInnerForces
+ 
+   TridimensionalMicromorphicDamageBehaviourIntegrator::
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 98a0a13101..9229a89c8f 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -26,6 +26,7 @@
+ #include <span>
+ #include <string>
+ #include <tuple>
++#include <stdexcept>
+ #include <utility>
+ #include <vector>
+ #include "mfem/general/device.hpp"
+@@ -35,6 +36,9 @@
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
++#include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+@@ -598,6 +602,60 @@ static void compare(const Results& r1,
+   }
+ }  // end of compare
+ 
++/*!
++ * \brief a behaviour integrator which does not support the integration by
++ * batches, the default of `AbstractBehaviourIntegrator` (all the behaviour
++ * integrators of mfem-mgis support it): only its construction is used
++ */
++struct NoBatchIntegrationBehaviourIntegrator final
++    : mfem_mgis::BehaviourIntegratorBase {
++  NoBatchIntegrationBehaviourIntegrator(
++      const mfem_mgis::FiniteElementDiscretization& fed,
++      const mfem_mgis::size_type m,
++      std::unique_ptr<const mfem_mgis::Behaviour> b)
++      : mfem_mgis::BehaviourIntegratorBase(
++            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
++                fed, m, selectIntegrationRule),
++            std::move(b)) {}
++  static const mfem::IntegrationRule& selectIntegrationRule(
++      const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
++    return mfem::IntRules.Get(e.GetGeomType(), 2);
++  }
++  const mfem::IntegrationRule& getIntegrationRule(
++      const mfem::FiniteElement& e,
++      const mfem::ElementTransformation& tr) const override {
++    return selectIntegrationRule(e, tr);
++  }
++  mfem_mgis::real getIntegrationPointWeight(
++      mfem::ElementTransformation& tr,
++      const mfem::IntegrationPoint& ip) const noexcept override {
++    return ip.weight * tr.Weight();
++  }
++  bool integrate(const mfem::FiniteElement&,
++                 mfem::ElementTransformation&,
++                 const mfem::Vector&,
++                 const mfem_mgis::IntegrationType) override {
++    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
++  }
++  void updateResidual(mfem::Vector&,
++                      const mfem::FiniteElement&,
++                      mfem::ElementTransformation&,
++                      const mfem::Vector&) override {
++    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
++  }
++  void updateJacobian(mfem::DenseMatrix&,
++                      const mfem::FiniteElement&,
++                      mfem::ElementTransformation&,
++                      const mfem::Vector&) override {
++    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
++  }
++  void computeInnerForces(mfem::Vector&,
++                          const mfem::FiniteElement&,
++                          mfem::ElementTransformation&) override {
++    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
++  }
++};  // end of struct NoBatchIntegrationBehaviourIntegrator
++
+ /*!
+  * \brief a behaviour integrator which does not support the integration by
+  * batches is refused
+@@ -607,6 +665,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
+                         const char* const library) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
++  BehaviourIntegratorFactory::get(Hypothesis::PLANESTRAIN)
++          .addGenerator(
++              ctx, "NoBatchIntegration",
++              [](Context&, const FiniteElementDiscretization& fed,
++                 const size_type m, std::unique_ptr<const Behaviour> b,
++                 const Parameters&)
++                  -> std::unique_ptr<AbstractBehaviourIntegrator> {
++                return std::make_unique<NoBatchIntegrationBehaviourIntegrator>(
++                    fed, m, std::move(b));
++              }) |
++      or_die;
+   auto problem = construct<NonLinearEvolutionProblem>(
+                      ctx, Parameters{{"MeshFileName", mesh_2d},
+                                      {"FiniteElementFamily", "H1"},
+@@ -617,7 +686,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
+                                      {"BehaviourIntegration", "Batch"},
+                                      {"Parallel", false}}) |
+                  or_die;
+-  problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", 5, library,
++  problem.addBehaviourIntegrator(ctx, "NoBatchIntegration", 5, library,
+                                  "MiehePhaseFieldDamage") |
+       or_die;
+   auto c = Context{};
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index e020ea778b..c59467fd48 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -71,6 +71,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+     StationaryNonLinearHeatTransfer
+     OrthotropicStationaryNonLinearHeatTransfer
+     HeatStorage
++    OrthotropicMicromorphicDamage
+     UO2Shrinkage_RAPHAEL2008
+     FailingIsotropicLinearElasticity
+     OrthotropicSaintVenantKirchhoffElasticity)
+@@ -770,7 +771,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+                      OrthotropicSaintVenantKirchhoffElasticity
+                      StationaryNonLinearHeatTransfer
+                      OrthotropicStationaryNonLinearHeatTransfer
+-                     HeatStorage)
++                     HeatStorage
++                     MicromorphicDamageII
++                     OrthotropicMicromorphicDamage)
+     list(APPEND batch_integration_test_behaviours
+          "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
+   endforeach()
+@@ -892,6 +895,42 @@ if(MFEM_MGIS_HAVE_TFEL)
+                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+ 
++  # MicromorphicKernelsTest executable: micromorphic damage by kernels
++  # compared to the integration point by point, on the host, on the debug
++  # device of MFEM and on the GPU, sequential and on two processes
++  add_test_executable(MicromorphicKernelsTest)
++  set(micromorphic_kernels_test_arguments
++      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++      --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
++      --library $<TARGET_FILE:BehaviourTest>)
++  # the sequential computations use UMFPack
++  if(MFEM_USE_SUITESPARSE)
++    add_test(NAME MicromorphicKernelsTest
++             COMMAND MicromorphicKernelsTest
++                     ${micromorphic_kernels_test_arguments}
++                     ${batch_integration_test_libraries})
++    # the debug device checks the memory accesses of the kernels: the
++    # behaviours generated by the generic interface are enough
++    add_test(NAME MicromorphicKernelsTest-debug
++             COMMAND MicromorphicKernelsTest --device debug
++                     ${micromorphic_kernels_test_arguments})
++    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++      add_test(NAME MicromorphicKernelsTest-cuda
++               COMMAND MicromorphicKernelsTest --device cuda
++                       ${micromorphic_kernels_test_arguments}
++                       ${batch_integration_test_cuda_library})
++      set_tests_properties(MicromorphicKernelsTest-cuda
++                           PROPERTIES RESOURCE_LOCK gpu)
++    endif()
++  endif()
++  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++    add_test(NAME MicromorphicKernelsTestP
++             COMMAND mpirun -n 2 ./MicromorphicKernelsTest --parallel
++                     ${micromorphic_kernels_test_arguments})
++    set_tests_properties(MicromorphicKernelsTestP
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++
+   # FixedPointSolverTest executable: fixed point solver (methods,
+   # accelerations, linear solvers of the elastic operator) compared to the
+   # Newton solver
+diff --git a/tests/MicromorphicDamageII.mfront b/tests/MicromorphicDamageII.mfront
+index ac332cd273..8ca1c0d943 100644
+--- a/tests/MicromorphicDamageII.mfront
++++ b/tests/MicromorphicDamageII.mfront
+@@ -47,6 +47,12 @@ Yv.setEntryName("EnergyReleaseRateValue");
+   Hχ = beta * Gc / l;
+ }
+ 
++@PredictionOperator {
++  static_cast<void>(smt);
++  ∂a∕∂Δdχ = Hχ;
++  ∂b∕∂Δ∇dχ = Aχ * tmatrix<N, N, real>::Id();
++}
++
+ @Integrator {
+   const auto Y_ets = Y + dY;
+   Yv = Y_ets;
+diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
+new file mode 100644
+index 0000000000..708029463c
+--- /dev/null
++++ b/tests/MicromorphicKernelsTest.cxx
+@@ -0,0 +1,424 @@
++/*!
++ * \file   MicromorphicKernelsTest.cxx
++ * \brief  Test of the computations by kernels of the micromorphic damage
++ * behaviours (micromorphic damage and its gradient, the micromorphic damage
++ * being the unknown): the integration by batches with the gradients, the
++ * inner forces and the tangent operator computed by kernels (assembled, or
++ * applied without assembly), with or without elastic prediction, gives the
++ * results of the integration point by point, in 3D, in plane strain and in
++ * plane stress, for an isotropic behaviour and a rotated anisotropic one
++ * whose tangent operator is not symmetric, for the behaviours generated by
++ * the generic interface and, if given, by the generic-parallel interface.
++ * \date   10/10/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <span>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <iomanip>
++#include <iostream>
++#include <algorithm>
++#include <string_view>
++#include "mfem/general/optparser.hpp"
++#include "MGIS/Behaviour/Variable.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/RotationMatrix.hxx"
++#include "MFEMMGIS/PartialQuadratureFunction.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief problem
++struct Case {
++  //! \brief name
++  std::string name;
++  //! \brief modelling hypothesis
++  const char* hypothesis = "Tridimensional";
++  //! \brief mesh: a cube or a unit square
++  const char* mesh = "";
++  //! \brief behaviour library
++  const char* library = "";
++  //! \brief behaviour
++  const char* behaviour = "MicromorphicDamageII";
++};
++
++//! \brief options of a computation
++struct ComputationOptions {
++  //! \brief integration of the behaviour: `PointByPoint` or `Batch`
++  const char* integration = "PointByPoint";
++  //! \brief if true, the gradients, inner forces and tangent are kernels
++  bool kernels = false;
++  //! \brief if true, the tangent operator is applied without assembly
++  bool matrix_free = false;
++  //! \brief if true, an elastic prediction is made at each time step
++  bool prediction = false;
++};
++
++//! \brief results of a computation
++struct Results {
++  //! \brief status
++  bool status = false;
++  //! \brief micromorphic damage at the nodes at the end of the computation
++  std::vector<mfem_mgis::real> u;
++  //! \brief dual forces at the integration points
++  std::vector<mfem_mgis::real> forces;
++  //! \brief damage at the integration points
++  std::vector<mfem_mgis::real> damage;
++  //! \brief number of Newton iterations of each time step
++  std::vector<int> iterations;
++};
++
++/*!
++ * \brief sets the material axes of an anisotropic behaviour: a rotation
++ * around the z axis which is not a symmetry of the material, nor its own
++ * inverse
++ * \param[in] m: material
++ * \param[in] tridimensional: if true, the computation is 3D
++ */
++static void setMaterialAxes(mfem_mgis::Material& m, const bool tridimensional) {
++  using namespace mfem_mgis;
++  const auto c = std::cos(0.3);
++  const auto s = std::sin(0.3);
++  const auto r = std::array<real, 9u>{c, s, 0, -s, c, 0, 0, 0, 1};
++  if (tridimensional) {
++    m.setRotationMatrix(RotationMatrix3D{r});
++  } else {
++    m.setRotationMatrix(RotationMatrix2D{r});
++  }
++}  // end of setMaterialAxes
++
++/*!
++ * \return the results of the computation
++ * \param[in] c: problem
++ * \param[in] opts: options
++ */
++static Results compute(const Case& c, const ComputationOptions& opts) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  const auto* const kernels = opts.kernels ? "Kernels" : "ElementByElement";
++  const auto* const tangent = opts.matrix_free ? "MatrixFree" : kernels;
++  const auto tridimensional =
++      std::string_view{c.hypothesis} == "Tridimensional";
++  // micromorphic damage imposed on x = 0, boundary 5 of the cube and 2 of
++  // the unit square, increasing with time (the elastic prediction is made
++  // from the increments of the imposed values)
++  auto problem =
++      construct<NonLinearEvolutionProblem>(
++          ctx,
++          Parameters{
++              {"MeshFileName", c.mesh},
++              {"FiniteElementFamily", "H1"},
++              {"FiniteElementOrder", 1},
++              {"UnknownsSize", 1},
++              {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
++              {"Materials", Parameters{{"Body", 1}}},
++              {"Boundaries", Parameters{{"Xmin", tridimensional ? 5 : 2}}},
++              {"Hypothesis", c.hypothesis},
++              {"BehaviourIntegration", opts.integration},
++              {"GradientsComputation", kernels},
++              {"InnerForcesComputation", kernels},
++              {"TangentOperatorComputation", tangent},
++              {"Parallel", parallel}}) |
++      or_die;
++  problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", "Body", c.library,
++                                 c.behaviour) |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Body", 0) | or_die;
++  for (auto* s : {&m.s0, &m.s1}) {
++    for (const auto& [n, v] : {std::pair{"FractureEnergy", 1.},
++                               std::pair{"CharacteristicLength", 0.2},
++                               std::pair{"PenalisationFactor", 1.}}) {
++      mgis::behaviour::setMaterialProperty(ctx, *s, n, v) | or_die;
++    }
++    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++        or_die;
++  }
++  if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++    setMaterialAxes(m, tridimensional);
++  }
++  // energy release rate, increasing with time, depending on all the
++  // coordinates
++  const auto Yr =
++      tridimensional
++          ? PartialQuadratureFunction::evaluate(
++                m.getPartialQuadratureSpacePointer(),
++                [](const real x, const real y, const real z) noexcept {
++                  return 10 * (1 + std::sin(3 * x + 2 * y + z));
++                })
++          : PartialQuadratureFunction::evaluate(
++                m.getPartialQuadratureSpacePointer(),
++                [](const real x, const real y) noexcept {
++                  return 10 * (1 + std::sin(3 * x + 2 * y));
++                });
++  const auto Yv = Yr->getValues();
++  auto Y0 = std::vector<real>(Yv.size(), 0);
++  auto Y1 = std::vector<real>(Yv.size(), 0);
++  mgis::behaviour::setExternalStateVariable(
++      ctx, m.s0, "EnergyReleaseRate", std::span<real>(Y0),
++      mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE) |
++      or_die;
++  mgis::behaviour::setExternalStateVariable(
++      ctx, m.s1, "EnergyReleaseRate", std::span<real>(Y1),
++      mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE) |
++      or_die;
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Xmin"},
++            {"Component", 0},
++            {"LoadingEvolution",
++             [](const real t) noexcept { return real{0.2} * t; }}}) |
++      or_die;
++  if (opts.matrix_free) {
++    // the derivative of the dual force with respect to the gradient of the
++    // micromorphic damage is not symmetric. The residual of the linear
++    // solver must be well below the one of the Newton solver, whose
++    // reference norm is small with the elastic prediction, to keep the same
++    // numbers of iterations as with the direct solvers.
++    problem.setLinearSolver(
++        ctx, "GMRESSolver",
++        {{"VerbosityLevel", 0},
++         {"RelativeTolerance", 1e-14},
++         {"AbsoluteTolerance", 0.},
++         {"MaximumNumberOfIterations", 10000},
++         {"KDim", 300},
++         {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
++        or_die;
++  } else {
++    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
++                            {}) |
++        or_die;
++  }
++  if (opts.prediction) {
++    problem.setPredictionPolicy(
++        {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION,
++         .prediction_operator = PredictionOperator::ELASTIC});
++  }
++  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                    {"RelativeTolerance", 1e-12},
++                                    {"AbsoluteTolerance", 0.},
++                                    {"MaximumNumberOfIterations", 20}}) |
++      or_die;
++  auto r = Results{};
++  constexpr int nsteps = 3;
++  const auto dt = real{1} / nsteps;
++  auto t = real{0};
++  for (int i = 0; i != nsteps; ++i) {
++    // energy release rate decreasing at some points during some time steps:
++    // the damage grows, stops or is bounded by one, depending on the point
++    auto Y = [&Yv](const real ti, const std::size_t k) {
++      return Yv[k] * ti * (1 + std::sin(6 * ti + static_cast<real>(k)));
++    };
++    for (std::size_t k = 0; k != Yv.size(); ++k) {
++      Y0[k] = Y(t, k);
++      Y1[k] = Y(t + dt, k);
++    }
++    const auto o = problem.solve(ctx, t, dt);
++    if (!o.status) {
++      std::cerr << ctx.getErrorMessage() << '\n';
++      return r;
++    }
++    r.iterations.push_back(static_cast<int>(o.iterations));
++    problem.update(ctx) | or_die;
++    t += dt;
++  }
++  const auto& u = problem.getUnknowns(ets);
++  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
++  m.synchronizeOnHostForReading();
++  r.forces.assign(m.s1.thermodynamic_forces.begin(),
++                  m.s1.thermodynamic_forces.end());
++  const auto od =
++      mgis::behaviour::getVariableOffset(m.b.isvs, "Damage", m.b.hypothesis);
++  const auto ns =
++      static_cast<std::size_t>(m.s1.internal_state_variables_stride);
++  for (std::size_t k = 0; k != Yv.size(); ++k) {
++    r.damage.push_back(m.s1.internal_state_variables[k * ns + od]);
++  }
++  r.status = true;
++  return r;
++}  // end of compute
++
++//! \return the maximum difference relative to the maximum absolute value
++static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
++                                    const std::vector<mfem_mgis::real>& b) {
++  if ((a.size() != b.size()) || a.empty()) {
++    return 1;
++  }
++  auto d = 0.;
++  auto m = 0.;
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    d = std::max(d, std::abs(a[i] - b[i]));
++    m = std::max(m, std::abs(a[i]));
++  }
++  return m == 0 ? d : d / m;
++}  // end of getRelativeDifference
++
++/*!
++ * \brief compares two computations
++ * \param[in] a: reference
++ * \param[in] b: computation
++ * \param[in] name: name of the comparison
++ */
++static void compare(const Results& a,
++                    const Results& b,
++                    const std::string& name) {
++  check(a.status, name + ": reference computation failed");
++  check(b.status, name + ": computation failed");
++  if (!(a.status && b.status)) {
++    return;
++  }
++  const auto du = getRelativeDifference(a.u, b.u);
++  const auto df = getRelativeDifference(a.forces, b.forces);
++  const auto dd = getRelativeDifference(a.damage, b.damage);
++  std::cout << name << ": relative differences " << du
++            << " (micromorphic damage), " << df << " (dual forces), " << dd
++            << " (damage)\n";
++  check(du < 1e-10, name + ": micromorphic damage");
++  check(df < 1e-10, name + ": dual forces");
++  check(dd < 1e-10, name + ": damage");
++  check(a.iterations == b.iterations, name + ": numbers of iterations");
++}  // end of compare
++
++/*!
++ * \return the problems
++ * \param[in] cube: mesh of a cube
++ * \param[in] square: mesh of a unit square
++ * \param[in] library: behaviour library
++ */
++static std::vector<Case> getCases(const char* const cube,
++                                  const char* const square,
++                                  const char* const library) {
++  return {{.name = "3D, isotropic",
++           .hypothesis = "Tridimensional",
++           .mesh = cube,
++           .library = library},
++          {.name = "plane strain, isotropic",
++           .hypothesis = "PlaneStrain",
++           .mesh = square,
++           .library = library},
++          {.name = "plane strain, anisotropic",
++           .hypothesis = "PlaneStrain",
++           .mesh = square,
++           .library = library,
++           .behaviour = "OrthotropicMicromorphicDamage"},
++          {.name = "plane stress, anisotropic",
++           .hypothesis = "PlaneStress",
++           .mesh = square,
++           .library = library,
++           .behaviour = "OrthotropicMicromorphicDamage"}};
++}  // end of getCases
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* square_mesh = "cube2d.msh";
++  const char* library = "src/libBehaviourTest.so";
++  const char* openmp_library = "";
++  const char* stlpar_library = "";
++  const char* cuda_library = "";
++  auto print_references = false;
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&square_mesh, "-ms", "--square-mesh",
++                 "two-dimensional mesh of the unit square");
++  args.AddOption(&library, "-l", "--library",
++                 "behaviour library (generic interface)");
++  args.AddOption(&openmp_library, "-lo", "--openmp-library",
++                 "behaviour library (generic-parallel interface, openmp)");
++  args.AddOption(&stlpar_library, "-ls", "--stlpar-library",
++                 "behaviour library (generic-parallel interface, stlpar)");
++  args.AddOption(&cuda_library, "-lc", "--cuda-library",
++                 "behaviour library (generic-parallel interface, cuda)");
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.AddOption(&print_references, "-pr", "--print-references", "-no-pr",
++                 "--no-print-references",
++                 "print the norms of the results of the integration point by "
++                 "point, without the other computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  // libraries integrated by batches with the kernels: the behaviours of the
++  // cuda backend are integrated on the GPU
++  auto libraries =
++      std::vector<std::pair<std::string, const char*>>{{"generic", library}};
++  for (const auto& [name, l] :
++       {std::pair{"openmp", openmp_library},
++        std::pair{"stlpar", stlpar_library}, std::pair{"cuda", cuda_library}}) {
++    if (std::string_view{l}.empty()) {
++      continue;
++    }
++    libraries.emplace_back(name, l);
++  }
++  const auto references = getCases(mesh, square_mesh, library);
++  for (const auto prediction : {false, true}) {
++    for (std::size_t i = 0; i != references.size(); ++i) {
++      const auto reference = compute(references[i], {.prediction = prediction});
++      const auto suffix = references[i].name +
++                          (prediction ? ", prediction" : ", no prediction");
++      check(reference.status, suffix + ": reference computation failed");
++      if (print_references) {
++        // values of the integration point by point, to compare two versions
++        // of the behaviour integrators
++        auto n = [](const std::vector<real>& v) {
++          auto s = real{0};
++          for (const auto x : v) {
++            s += x * x;
++          }
++          return std::sqrt(s);
++        };
++        std::cout << std::setprecision(17) << suffix << ": " << n(reference.u)
++                  << ' ' << n(reference.forces) << ' ' << n(reference.damage)
++                  << '\n';
++        continue;
++      }
++      // the damage must evolve
++      const auto [dmin, dmax] =
++          std::minmax_element(reference.damage.begin(), reference.damage.end());
++      check((dmin != reference.damage.end()) && (*dmax - *dmin > 1e-2),
++            suffix + ": uniform damage");
++      for (const auto& [lname, l] : libraries) {
++        auto c = getCases(mesh, square_mesh, l)[i];
++        // integration by batches with the computations element by element
++        // (behaviours integrated on the host only)
++        if (lname != "cuda") {
++          compare(
++              reference,
++              compute(c, {.integration = "Batch", .prediction = prediction}),
++              "batch, " + lname + ", " + suffix);
++        }
++        compare(reference,
++                compute(c, {.integration = "Batch",
++                            .kernels = true,
++                            .prediction = prediction}),
++                "kernels, " + lname + ", " + suffix);
++        compare(reference,
++                compute(c, {.integration = "Batch",
++                            .kernels = true,
++                            .matrix_free = true,
++                            .prediction = prediction}),
++                "kernels, matrix free, " + lname + ", " + suffix);
++      }
++    }
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/OrthotropicMicromorphicDamage.mfront b/tests/OrthotropicMicromorphicDamage.mfront
+new file mode 100644
+index 0000000000..ae31b14616
+--- /dev/null
++++ b/tests/OrthotropicMicromorphicDamage.mfront
+@@ -0,0 +1,90 @@
++@DSL DefaultGenericBehaviour;
++@Behaviour OrthotropicMicromorphicDamage;
++@Date 10/10/2026;
++@Description {
++  Micromorphic damage (as MicromorphicDamageII) with an anisotropic
++  regularisation given in the material frame: the dual force conjugated
++  with the gradient of the micromorphic damage is A M grad(dχ), where
++  M(i, i) = i + 1. M also has a skew-symmetric part, M(0, 1) = -M(1, 0) =
++  S, so that the derivative of this force with respect to the gradient is
++  not symmetric: the tests detect its transposition.
++}
++@OrthotropicBehaviour;
++@ModellingHypotheses {".+"};
++
++@Gradient real dχ;
++dχ.setEntryName("MicromorphicDamage");
++@ThermodynamicForce real a;
++a.setEntryName("MicromorphicDamageDualForce");
++
++@Gradient TVector ∇dχ;
++∇dχ.setEntryName("MicromorphicDamageGradient");
++@ThermodynamicForce TVector b;
++b.setEntryName("MicromorphicDamageGradientDualForce");
++
++@TangentOperatorBlocks{∂a∕∂Δdχ, ∂b∕∂Δ∇dχ};
++
++@MaterialProperty real Gc;
++Gc.setEntryName("FractureEnergy");
++@MaterialProperty real l;
++l.setEntryName("CharacteristicLength");
++@MaterialProperty real beta;
++beta.setEntryName("PenalisationFactor");
++
++@Parameter real S = 0.5;
++
++@StateVariable real d;
++d.setGlossaryName("Damage");
++
++@ExternalStateVariable stress Y;
++Y.setEntryName("EnergyReleaseRate");
++
++@LocalVariable real Aχ;
++@LocalVariable real Hχ;
++@LocalVariable real dd_ddχ;
++@LocalVariable tmatrix<N, N, real> M;
++
++@InitLocalVariables {
++  Aχ = Gc * l;
++  Hχ = beta * Gc / l;
++  M = tmatrix<N, N, real>(real(0));
++  for (unsigned short i = 0; i != N; ++i) {
++    M(i, i) = real(i + 1);
++  }
++  if constexpr (N > 1) {
++    M(0, 1) = S;
++    M(1, 0) = -S;
++  }
++}
++
++@PredictionOperator {
++  static_cast<void>(smt);
++  ∂a∕∂Δdχ = Hχ;
++  ∂b∕∂Δ∇dχ = Aχ * M;
++}
++
++@Integrator {
++  const auto Y_ets = Y + dY;
++  const auto r = 1 / (Hχ + 2 * Y_ets + (Gc / l));
++  // estimate of the damage
++  const auto d_tr = (2 * Y_ets + Hχ * (dχ + Δdχ)) * r;
++  if (d_tr > d) {
++    if (d_tr > 1) {
++      d = 1;
++      dd_ddχ = real{};
++    } else {
++      d = d_tr;
++      dd_ddχ = r * Hχ;
++    }
++  } else {
++    dd_ddχ = real{};
++  }
++  a = -Hχ * (d - dχ - Δdχ);
++  b = Aχ * (M * (∇dχ + Δ∇dχ));
++}
++
++@TangentOperator {
++  static_cast<void>(smt);
++  ∂a∕∂Δdχ = Hχ * (1 - dd_ddχ);
++  ∂b∕∂Δ∇dχ = Aχ * M;
++}
+-- 
+2.43.0
+

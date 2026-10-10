@@ -3591,4 +3591,18 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   température de référence non uniforme. Sept mutations détectées.
   Polycristal inchangé (`results/L5-polycristal-2026-10-10-0752/README.md`,
   tangente CPU de 2,01 à 1,60 s).
+- mfem-mgis 9b93bc8c36 : micromorphe par noyaux (lot L7.8). Les trois
+  intégrateurs micromorphes passent sur la base CRTP (résultats point par
+  point identiques au dernier chiffre), genres `MICROMORPHIC_DAMAGE_3D/2D`
+  (valeur et gradient de l'inconnue, tangente diagonale par blocs).
+  MicromorphicKernelsTest (isotrope et anisotrope tourné à tangente non
+  symétrique, 3D, déformations et contraintes planes, problème non
+  linéaire) : écarts au point par point au plus 5e-14, huit mutations
+  détectées. **La suite passe entièrement avec tous les calculs forcés
+  aux noyaux (156/156).**
+- Relecture T (`scratch/nuit-2026-10-10/relecture-T.md`) : T1 (sévérité 4)
+  la loi de test HeatStorage avait le mauvais signe pour la convention
+  thermique de mfem-mgis (résidu ∫ grad N . j avec j = -k grad T) : le
+  test validait l'équation de la chaleur rétrograde ; à corriger, avec un
+  contrôle physique du retard du transitoire.
 

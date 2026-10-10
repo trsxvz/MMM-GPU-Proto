@@ -227,8 +227,9 @@ namespace mfem_mgis {
     using Traits = BehaviourIntegratorTraits<Child>;
     // the kernels compute the gradients of the standard mechanical and
     // stationary heat transfer behaviours from the derivatives of the
-    // unknowns, and the ones of the transient term of the heat equation from
-    // the values of the shape functions (temperature at the point); the
+    // unknowns, the ones of the transient term of the heat equation from the
+    // values of the shape functions (temperature at the point), and the ones
+    // of the micromorphic damage behaviours from both; the
     // values of the unknowns at the integration points (temperature) are
     // also computed for the behaviours which update their external state
     // variables from them. The kind of the gradients of the behaviour must
@@ -238,8 +239,10 @@ namespace mfem_mgis {
     }
     const auto k = batch::getGradientsKind(this->b);
     if ((!k.has_value()) ||
-        (batch::areGradientsUnknownsValues(*k) !=
+        (batch::gradientsRequireUnknownsValues(*k) !=
          Traits::gradientsComputationRequiresShapeFunctions) ||
+        (batch::gradientsRequireUnknownsDerivatives(*k) !=
+         Traits::gradientsComputationRequiresShapeFunctionsDerivatives) ||
         (batch::areUnknownsValuesExternalStateVariables(*k) !=
          Traits::updateExternalStateVariablesFromUnknownsValues)) {
       return false;
@@ -578,7 +581,13 @@ namespace mfem_mgis {
       const auto o = eoffset + i;
       auto update = [&](const std::span<const real>& rs) {
         for (size_type ni = 0; ni != nnodes; ++ni) {
-          if constexpr (evaluateShapeFunctionsDerivatives) {
+          if constexpr (
+              (Traits::gradientsComputationRequiresShapeFunctions) &&
+              (Traits::gradientsComputationRequiresShapeFunctionsDerivatives)) {
+            // gradients depending on the values of the unknowns and on their
+            // derivatives (micromorphic damage)
+            child.updateInnerForces(Fe, rs, shape, dshape, w, ni);
+          } else if constexpr (evaluateShapeFunctionsDerivatives) {
             child.updateInnerForces(Fe, rs, dshape, w, ni);
           } else {
             child.updateInnerForces(Fe, rs, shape, w, ni);

@@ -1,0 +1,90 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour OrthotropicMicromorphicDamage;
+@Date 10/10/2026;
+@Description {
+  Micromorphic damage (as MicromorphicDamageII) with an anisotropic
+  regularisation given in the material frame: the dual force conjugated
+  with the gradient of the micromorphic damage is A M grad(dχ), where
+  M(i, i) = i + 1. M also has a skew-symmetric part, M(0, 1) = -M(1, 0) =
+  S, so that the derivative of this force with respect to the gradient is
+  not symmetric: the tests detect its transposition.
+}
+@OrthotropicBehaviour;
+@ModellingHypotheses {".+"};
+
+@Gradient real dχ;
+dχ.setEntryName("MicromorphicDamage");
+@ThermodynamicForce real a;
+a.setEntryName("MicromorphicDamageDualForce");
+
+@Gradient TVector ∇dχ;
+∇dχ.setEntryName("MicromorphicDamageGradient");
+@ThermodynamicForce TVector b;
+b.setEntryName("MicromorphicDamageGradientDualForce");
+
+@TangentOperatorBlocks{∂a∕∂Δdχ, ∂b∕∂Δ∇dχ};
+
+@MaterialProperty real Gc;
+Gc.setEntryName("FractureEnergy");
+@MaterialProperty real l;
+l.setEntryName("CharacteristicLength");
+@MaterialProperty real beta;
+beta.setEntryName("PenalisationFactor");
+
+@Parameter real S = 0.5;
+
+@StateVariable real d;
+d.setGlossaryName("Damage");
+
+@ExternalStateVariable stress Y;
+Y.setEntryName("EnergyReleaseRate");
+
+@LocalVariable real Aχ;
+@LocalVariable real Hχ;
+@LocalVariable real dd_ddχ;
+@LocalVariable tmatrix<N, N, real> M;
+
+@InitLocalVariables {
+  Aχ = Gc * l;
+  Hχ = beta * Gc / l;
+  M = tmatrix<N, N, real>(real(0));
+  for (unsigned short i = 0; i != N; ++i) {
+    M(i, i) = real(i + 1);
+  }
+  if constexpr (N > 1) {
+    M(0, 1) = S;
+    M(1, 0) = -S;
+  }
+}
+
+@PredictionOperator {
+  static_cast<void>(smt);
+  ∂a∕∂Δdχ = Hχ;
+  ∂b∕∂Δ∇dχ = Aχ * M;
+}
+
+@Integrator {
+  const auto Y_ets = Y + dY;
+  const auto r = 1 / (Hχ + 2 * Y_ets + (Gc / l));
+  // estimate of the damage
+  const auto d_tr = (2 * Y_ets + Hχ * (dχ + Δdχ)) * r;
+  if (d_tr > d) {
+    if (d_tr > 1) {
+      d = 1;
+      dd_ddχ = real{};
+    } else {
+      d = d_tr;
+      dd_ddχ = r * Hχ;
+    }
+  } else {
+    dd_ddχ = real{};
+  }
+  a = -Hχ * (d - dχ - Δdχ);
+  b = Aχ * (M * (∇dχ + Δ∇dχ));
+}
+
+@TangentOperator {
+  static_cast<void>(smt);
+  ∂a∕∂Δdχ = Hχ * (1 - dd_ddχ);
+  ∂b∕∂Δ∇dχ = Aχ * M;
+}

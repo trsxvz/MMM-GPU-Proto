@@ -47,6 +47,12 @@ Yv.setEntryName("EnergyReleaseRateValue");
   Hχ = beta * Gc / l;
 }
 
+@PredictionOperator {
+  static_cast<void>(smt);
+  ∂a∕∂Δdχ = Hχ;
+  ∂b∕∂Δ∇dχ = Aχ * tmatrix<N, N, real>::Id();
+}
+
 @Integrator {
   const auto Y_ets = Y + dY;
   Yv = Y_ets;

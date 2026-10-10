@@ -133,16 +133,31 @@ namespace mfem_mgis::batch {
      * \brief temperature in 2D (plane strain and plane stress), see
      * `TEMPERATURE_3D`
      */
-    TEMPERATURE_2D
+    TEMPERATURE_2D,
+    /*!
+     * \brief micromorphic damage and its gradient in 3D: `(dχ, ddχ/dx,
+     * ddχ/dy, ddχ/dz)`, computed from the values and from the derivatives of
+     * the unknowns (micromorphic damage). The tangent operator blocks are
+     * the derivative of the first dual force with respect to the
+     * micromorphic damage and the derivatives of the second dual force with
+     * respect to the gradient (block diagonal tangent operator, `1 + 3 x 3`
+     * components).
+     */
+    MICROMORPHIC_DAMAGE_3D,
+    /*!
+     * \brief micromorphic damage and its gradient in 2D (plane strain and
+     * plane stress): `(dχ, ddχ/dx, ddχ/dy)`, see `MICROMORPHIC_DAMAGE_3D`
+     */
+    MICROMORPHIC_DAMAGE_2D
   };
 
   /*!
    * \return the kind of the gradients of a behaviour computed by the
    * kernels, if supported: small strain and finite strain (deformation
    * gradient) mechanical behaviours, stationary non linear heat transfer
-   * behaviours (temperature gradient, heat flux) and behaviours of the
+   * behaviours (temperature gradient, heat flux), behaviours of the
    * transient term of the heat equation (temperature, rate of the enthalpy)
-   * in 3D, plane strain and plane stress
+   * and micromorphic damage behaviours, in 3D, plane strain and plane stress
    * \param[in] b: behaviour
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<GradientsKind> getGradientsKind(
@@ -179,14 +194,22 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] int getUnknownsSize(
       const GradientsKind) noexcept;
   /*!
-   * \return true if the gradients of the given kind are the values of the
-   * unknowns at the integration points, computed from the values of the
+   * \return true if the gradients of the given kind depend on the values of
+   * the unknowns at the integration points, computed from the values of the
    * shape functions (temperature of the transient term of the heat
-   * equation), false if they are computed from the derivatives of the
-   * unknowns
+   * equation, micromorphic damage)
    * \param[in] k: kind of the gradients
    */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsUnknownsValues(
+  MFEM_MGIS_EXPORT [[nodiscard]] bool gradientsRequireUnknownsValues(
+      const GradientsKind) noexcept;
+  /*!
+   * \return true if the gradients of the given kind depend on the
+   * derivatives of the unknowns, computed from the derivatives of the shape
+   * functions (all the kinds but the temperature of the transient term of
+   * the heat equation)
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool gradientsRequireUnknownsDerivatives(
       const GradientsKind) noexcept;
   /*!
    * \return true if the values of the unknowns at the integration points
@@ -201,9 +224,9 @@ namespace mfem_mgis::batch {
       const GradientsKind) noexcept;
   /*!
    * \return true if the values of the unknowns at the integration points
-   * are required by the given kind of gradients: the gradients themselves
-   * (see `areGradientsUnknownsValues`) or an external state variable of the
-   * behaviour (see `areUnknownsValuesExternalStateVariables`)
+   * are required by the given kind of gradients: by the gradients (see
+   * `gradientsRequireUnknownsValues`) or by an external state variable of
+   * the behaviour (see `areUnknownsValuesExternalStateVariables`)
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(

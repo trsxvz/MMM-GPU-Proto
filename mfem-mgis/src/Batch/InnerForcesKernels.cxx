@@ -21,7 +21,7 @@ namespace mfem_mgis::batch::internals {
    * \param[in, out] f: inner forces of the node
    * \param[in] dN: derivatives of the shape function of the node
    * \param[in] Nv: value of the shape function of the node (transient term
-   * of the heat equation)
+   * of the heat equation, micromorphic damage)
    * \param[in] s: thermodynamic force (accessor)
    * \param[in] w: weight of the point
    */
@@ -51,6 +51,13 @@ namespace mfem_mgis::batch::internals {
       for (int c = 0; c != getDimension<K>(); ++c) {
         f[0] += w * dN[c] * s(c);
       }
+    } else if constexpr (isMicromorphicDamage<K>()) {
+      // dual forces of the micromorphic damage and of its gradient
+      auto v = s(0) * Nv;
+      for (int c = 0; c != getDimension<K>(); ++c) {
+        v += s(1 + c) * dN[c];
+      }
+      f[0] += w * v;
     } else {
       // rate of the enthalpy
       static_assert(isTemperature<K>());
@@ -133,6 +140,14 @@ namespace mfem_mgis::batch::internals {
         break;
       case GradientsKind::TEMPERATURE_2D:
         launchInnerForcesKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+        launchInnerForcesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D>(
+            a, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+        launchInnerForcesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D>(
+            a, use_device);
         break;
     }
   }  // end of launchInnerForcesKernel

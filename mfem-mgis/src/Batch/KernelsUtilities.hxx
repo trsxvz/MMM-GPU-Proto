@@ -37,13 +37,30 @@ namespace mfem_mgis::batch::internals {
            (K == GradientsKind::TEMPERATURE_2D);
   }  // end of isTemperature
 
+  //! \return true for the gradients of the micromorphic damage behaviours
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr bool isMicromorphicDamage() {
+    return (K == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
+           (K == GradientsKind::MICROMORPHIC_DAMAGE_2D);
+  }  // end of isMicromorphicDamage
+
+  /*!
+   * \return true if the operator `B` of the given kind of gradients depends
+   * on the values of the shape functions
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr bool usesShapeFunctionsValues() {
+    return isTemperature<K>() || isMicromorphicDamage<K>();
+  }  // end of usesShapeFunctionsValues
+
   //! \return the dimension of the space for the given kind of gradients
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getDimension() {
     return ((K == GradientsKind::SMALL_STRAIN_3D) ||
             (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
             (K == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
-            (K == GradientsKind::TEMPERATURE_3D))
+            (K == GradientsKind::TEMPERATURE_3D) ||
+            (K == GradientsKind::MICROMORPHIC_DAMAGE_3D))
                ? 3
                : 2;
   }  // end of getDimension
@@ -55,7 +72,8 @@ namespace mfem_mgis::batch::internals {
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getUnknownsSize() {
-    return (isTemperatureGradient<K>() || isTemperature<K>())
+    return (isTemperatureGradient<K>() || isTemperature<K>() ||
+            isMicromorphicDamage<K>())
                ? 1
                : getDimension<K>();
   }  // end of getUnknownsSize
@@ -73,6 +91,8 @@ namespace mfem_mgis::batch::internals {
       return 5;
     } else if constexpr (isTemperatureGradient<K>()) {
       return getDimension<K>();
+    } else if constexpr (isMicromorphicDamage<K>()) {
+      return 1 + getDimension<K>();
     } else {
       static_assert(isTemperature<K>());
       return 1;
@@ -90,6 +110,39 @@ namespace mfem_mgis::batch::internals {
   MFEM_HOST_DEVICE constexpr bool hasUnknownsBlock() {
     return isTemperatureGradient<K>();
   }  // end of hasUnknownsBlock
+
+  /*!
+   * \return the derivative of the `r1`-th component of the thermodynamic
+   * forces with respect to the `r2`-th component of the gradients at a point
+   * \tparam K: kind of the gradients
+   * \param[in] t: tangent operator blocks of the point
+   * \param[in] r1: component of the thermodynamic forces
+   * \param[in] r2: component of the gradients
+   * \param[in] cs: stride between two components of the blocks
+   *
+   * The tangent operator blocks are a `gs x gs` matrix stored by rows, `gs`
+   * being the number of components of the gradients, except for the
+   * micromorphic damage behaviours, whose tangent operator is block
+   * diagonal: the derivative of the first dual force with respect to the
+   * micromorphic damage, then the derivatives of the second dual force with
+   * respect to the gradient of the micromorphic damage, stored by rows.
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE inline real getTangentOperatorComponent(const real* const t,
+                                                           const std::size_t r1,
+                                                           const std::size_t r2,
+                                                           const long long cs) {
+    if constexpr (isMicromorphicDamage<K>()) {
+      constexpr auto N = static_cast<std::size_t>(getDimension<K>());
+      if ((r1 == 0) || (r2 == 0)) {
+        return ((r1 == 0) && (r2 == 0)) ? t[0] : real{0};
+      }
+      return t[static_cast<long long>(1 + (r1 - 1) * N + (r2 - 1)) * cs];
+    } else {
+      constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+      return t[static_cast<long long>(r1 * gs + r2) * cs];
+    }
+  }  // end of getTangentOperatorComponent
 
   /*!
    * \brief computes the inverse of a jacobian
@@ -167,10 +220,13 @@ namespace mfem_mgis::batch::internals {
    * stationary heat transfer behaviours, `B[c][0]` is the derivative of the
    * shape function with respect to the `c`-th coordinate. For the transient
    * term of the heat equation, `B[0][0]` is the value of the shape function.
+   * For the micromorphic damage behaviours, `B[0][0]` is the value of the
+   * shape function and `B[1 + c][0]` its derivative with respect to the
+   * `c`-th coordinate.
    * \param[in] dN: derivatives of the shape function of the node in the
    * physical frame
-   * \param[in] Nv: value of the shape function of the node (only used for
-   * the transient term of the heat equation)
+   * \param[in] Nv: value of the shape function of the node (only used if
+   * the gradients depend on the values of the unknowns)
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE inline void computeB(real (&B)[9][3],
@@ -216,6 +272,11 @@ namespace mfem_mgis::batch::internals {
       for (int c = 0; c != getDimension<K>(); ++c) {
         B[c][0] = dN[c];
       }
+    } else if constexpr (isMicromorphicDamage<K>()) {
+      B[0][0] = Nv;
+      for (int c = 0; c != getDimension<K>(); ++c) {
+        B[1 + c][0] = dN[c];
+      }
     } else {
       static_assert(isTemperature<K>());
       B[0][0] = Nv;
@@ -225,7 +286,7 @@ namespace mfem_mgis::batch::internals {
   /*!
    * \return the value of the shape function of a node at a point if the
    * operator `B` of the given kind of gradients depends on it (transient
-   * term of the heat equation), zero otherwise
+   * term of the heat equation, micromorphic damage), zero otherwise
    * \tparam K: kind of the gradients
    * \param[in] N: values of the shape functions on the reference element
    * (`nq x nd`, layout of `mfem::DofToQuad` in the `FULL` mode)
@@ -238,7 +299,7 @@ namespace mfem_mgis::batch::internals {
                                                      const std::size_t q,
                                                      const std::size_t nq,
                                                      const std::size_t node) {
-    if constexpr (isTemperature<K>()) {
+    if constexpr (usesShapeFunctionsValues<K>()) {
       return N[q + nq * node];
     } else {
       return real{0};

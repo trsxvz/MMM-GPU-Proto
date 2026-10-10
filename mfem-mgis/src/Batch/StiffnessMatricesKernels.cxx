@@ -231,7 +231,7 @@ namespace mfem_mgis::batch::internals {
               op.KB[r1][d] = 0;
               for (std::size_t r2 = 0; r2 != gs; ++r2) {
                 op.KB[r1][d] +=
-                    t[static_cast<long long>(r1 * gs + r2) * cs] * op.B[r2][d];
+                    getTangentOperatorComponent<K>(t, r1, r2, cs) * op.B[r2][d];
               }
             }
           }
@@ -331,7 +331,7 @@ namespace mfem_mgis::batch::internals {
             KB[r1] = 0;
             for (std::size_t r2 = 0; r2 != gs; ++r2) {
               KB[r1] +=
-                  t[static_cast<long long>(r1 * gs + r2) * cs] * Bb[r2][d];
+                  getTangentOperatorComponent<K>(t, r1, r2, cs) * Bb[r2][d];
             }
           }
           for (std::size_t c = 0; c != V; ++c) {
@@ -393,6 +393,14 @@ namespace mfem_mgis::batch::internals {
       case GradientsKind::TEMPERATURE_2D:
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_2D, Output,
                                       diagonal>(a, o, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+        launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D,
+                                      Output, diagonal>(a, o, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+        launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D,
+                                      Output, diagonal>(a, o, use_device);
         break;
     }
   }  // end of dispatch
@@ -477,7 +485,8 @@ namespace mfem_mgis::batch::internals {
             for (std::size_t r1 = 0; r1 != gs; ++r1) {
               ds[r1] = 0;
               for (std::size_t r2 = 0; r2 != gs; ++r2) {
-                ds[r1] += t[static_cast<long long>(r1 * gs + r2) * cs] * dg[r2];
+                ds[r1] +=
+                    getTangentOperatorComponent<K>(t, r1, r2, cs) * dg[r2];
               }
             }
             if constexpr (hasUnknownsBlock<K>()) {
@@ -552,6 +561,14 @@ namespace mfem_mgis::batch::internals {
       case GradientsKind::TEMPERATURE_2D:
         launchTangentOperatorActionKernel<GradientsKind::TEMPERATURE_2D>(
             a, x, y, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+        launchTangentOperatorActionKernel<
+            GradientsKind::MICROMORPHIC_DAMAGE_3D>(a, x, y, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+        launchTangentOperatorActionKernel<
+            GradientsKind::MICROMORPHIC_DAMAGE_2D>(a, x, y, use_device);
         break;
     }
   }  // end of launchTangentOperatorActionKernel

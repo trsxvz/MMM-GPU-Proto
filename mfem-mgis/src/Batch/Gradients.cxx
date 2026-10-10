@@ -70,6 +70,32 @@ namespace mfem_mgis::batch {
            (b.to_blocks[0].second.name == g.name);
   }  // end of isHeatStorageBehaviour
 
+  /*!
+   * \return true if the behaviour is a micromorphic damage behaviour,
+   * recognised by its structure as the behaviour integrator
+   * `MicromorphicDamage`: a scalar gradient (the micromorphic damage) and a
+   * vector gradient (its gradient), their scalar and vector dual forces, and
+   * the derivatives of each force with respect to the associated gradient
+   * \param[in] b: behaviour
+   */
+  [[nodiscard]] static bool isMicromorphicDamageBehaviour(
+      const Behaviour& b) noexcept {
+    using Variable = mgis::behaviour::Variable;
+    if ((b.btype != Behaviour::GENERALBEHAVIOUR) ||
+        (b.gradients.size() != 2u) || (b.thermodynamic_forces.size() != 2u) ||
+        (b.to_blocks.size() != 2u)) {
+      return false;
+    }
+    const auto& g = b.gradients;
+    const auto& f = b.thermodynamic_forces;
+    return (g[0].type == Variable::SCALAR) && (g[1].type == Variable::VECTOR) &&
+           (f[0].type == Variable::SCALAR) && (f[1].type == Variable::VECTOR) &&
+           (b.to_blocks[0].first.name == f[0].name) &&
+           (b.to_blocks[0].second.name == g[0].name) &&
+           (b.to_blocks[1].first.name == f[1].name) &&
+           (b.to_blocks[1].second.name == g[1].name);
+  }  // end of isMicromorphicDamageBehaviour
+
   std::optional<GradientsKind> getGradientsKind(const Behaviour& b) noexcept {
     const auto h = b.hypothesis;
     const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
@@ -107,6 +133,14 @@ namespace mfem_mgis::batch {
       }
       if (bidimensional) {
         return GradientsKind::TEMPERATURE_2D;
+      }
+    }
+    if (isMicromorphicDamageBehaviour(b)) {
+      if (tridimensional) {
+        return GradientsKind::MICROMORPHIC_DAMAGE_3D;
+      }
+      if (bidimensional) {
+        return GradientsKind::MICROMORPHIC_DAMAGE_2D;
       }
     }
     return {};
@@ -247,6 +281,10 @@ namespace mfem_mgis::batch {
         return 3;
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
         return 2;
+      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+        return 4;
+      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+        return 3;
       case GradientsKind::TEMPERATURE_3D:
       case GradientsKind::TEMPERATURE_2D:
         break;
@@ -254,10 +292,17 @@ namespace mfem_mgis::batch {
     return 1;
   }  // end of getGradientsSize
 
-  bool areGradientsUnknownsValues(const GradientsKind k) noexcept {
+  bool gradientsRequireUnknownsValues(const GradientsKind k) noexcept {
     return (k == GradientsKind::TEMPERATURE_3D) ||
-           (k == GradientsKind::TEMPERATURE_2D);
-  }  // end of areGradientsUnknownsValues
+           (k == GradientsKind::TEMPERATURE_2D) ||
+           (k == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
+           (k == GradientsKind::MICROMORPHIC_DAMAGE_2D);
+  }  // end of gradientsRequireUnknownsValues
+
+  bool gradientsRequireUnknownsDerivatives(const GradientsKind k) noexcept {
+    return (k != GradientsKind::TEMPERATURE_3D) &&
+           (k != GradientsKind::TEMPERATURE_2D);
+  }  // end of gradientsRequireUnknownsDerivatives
 
   bool areUnknownsValuesExternalStateVariables(const GradientsKind k) noexcept {
     return (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
@@ -265,11 +310,17 @@ namespace mfem_mgis::batch {
   }  // end of areUnknownsValuesExternalStateVariables
 
   bool requiresUnknownsValues(const GradientsKind k) noexcept {
-    return areGradientsUnknownsValues(k) ||
+    return gradientsRequireUnknownsValues(k) ||
            areUnknownsValuesExternalStateVariables(k);
   }  // end of requiresUnknownsValues
 
   size_type getTangentOperatorBlocksSize(const GradientsKind k) noexcept {
+    if ((k == GradientsKind::MICROMORPHIC_DAMAGE_3D) ||
+        (k == GradientsKind::MICROMORPHIC_DAMAGE_2D)) {
+      // block diagonal tangent operator
+      const auto d = getSpaceDimension(k);
+      return 1 + d * d;
+    }
     const auto n = getGradientsSize(k);
     // derivatives of the heat flux with respect to the temperature
     return areUnknownsValuesExternalStateVariables(k) ? n * n + n : n * n;
@@ -279,7 +330,8 @@ namespace mfem_mgis::batch {
     return ((k == GradientsKind::SMALL_STRAIN_3D) ||
             (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
             (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
-            (k == GradientsKind::TEMPERATURE_3D))
+            (k == GradientsKind::TEMPERATURE_3D) ||
+            (k == GradientsKind::MICROMORPHIC_DAMAGE_3D))
                ? 3
                : 2;
   }  // end of getSpaceDimension
@@ -356,7 +408,7 @@ namespace mfem_mgis::batch {
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.derivatives = d.values.Read(use_device);
-    if (areGradientsUnknownsValues(k)) {
+    if (gradientsRequireUnknownsValues(k)) {
       if (!d.has_point_values) {
         return ctx.registerErrorMessage(
             name +

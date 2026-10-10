@@ -27,8 +27,8 @@ namespace mfem_mgis::batch::internals {
     /*!
      * \brief values of the unknowns at the points of all the elements
      * (layout of `UnknownsDerivatives::point_values`), required if the
-     * gradients are the values of the unknowns (see
-     * `areGradientsUnknownsValues`)
+     * gradients depend on the values of the unknowns (see
+     * `gradientsRequireUnknownsValues`)
      */
     const real* unknowns_values = nullptr;
     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)

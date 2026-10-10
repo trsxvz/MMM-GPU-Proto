@@ -65,6 +65,11 @@ namespace mfem_mgis::batch::internals {
       for (int c = 0; c != getDimension<K>(); ++c) {
         g[c] = d(0, c);
       }
+    } else if constexpr (isMicromorphicDamage<K>()) {
+      g[0] = u[0];
+      for (int c = 0; c != getDimension<K>(); ++c) {
+        g[1 + c] = d(0, c);
+      }
     } else {
       static_assert(isTemperature<K>());
       g[0] = u[0];
@@ -108,7 +113,7 @@ namespace mfem_mgis::batch::internals {
       }
       // values of the unknowns at the point
       const auto* const u =
-          isTemperature<K>()
+          usesShapeFunctionsValues<K>()
               ? a.unknowns_values + static_cast<std::size_t>(V) * (sq + nq * e)
               : nullptr;
       real g[9];
@@ -208,6 +213,14 @@ namespace mfem_mgis::batch::internals {
         break;
       case GradientsKind::TEMPERATURE_2D:
         launchGradientsKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+        launchGradientsKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D>(
+            a, use_device);
+        break;
+      case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+        launchGradientsKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D>(
+            a, use_device);
         break;
     }
   }  // end of launchGradientsKernel

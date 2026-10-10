@@ -26,6 +26,7 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 #include "mfem/general/device.hpp"
@@ -35,6 +36,9 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+#include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
@@ -600,6 +604,60 @@ static void compare(const Results& r1,
 
 /*!
  * \brief a behaviour integrator which does not support the integration by
+ * batches, the default of `AbstractBehaviourIntegrator` (all the behaviour
+ * integrators of mfem-mgis support it): only its construction is used
+ */
+struct NoBatchIntegrationBehaviourIntegrator final
+    : mfem_mgis::BehaviourIntegratorBase {
+  NoBatchIntegrationBehaviourIntegrator(
+      const mfem_mgis::FiniteElementDiscretization& fed,
+      const mfem_mgis::size_type m,
+      std::unique_ptr<const mfem_mgis::Behaviour> b)
+      : mfem_mgis::BehaviourIntegratorBase(
+            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
+                fed, m, selectIntegrationRule),
+            std::move(b)) {}
+  static const mfem::IntegrationRule& selectIntegrationRule(
+      const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
+    return mfem::IntRules.Get(e.GetGeomType(), 2);
+  }
+  const mfem::IntegrationRule& getIntegrationRule(
+      const mfem::FiniteElement& e,
+      const mfem::ElementTransformation& tr) const override {
+    return selectIntegrationRule(e, tr);
+  }
+  mfem_mgis::real getIntegrationPointWeight(
+      mfem::ElementTransformation& tr,
+      const mfem::IntegrationPoint& ip) const noexcept override {
+    return ip.weight * tr.Weight();
+  }
+  bool integrate(const mfem::FiniteElement&,
+                 mfem::ElementTransformation&,
+                 const mfem::Vector&,
+                 const mfem_mgis::IntegrationType) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void updateResidual(mfem::Vector&,
+                      const mfem::FiniteElement&,
+                      mfem::ElementTransformation&,
+                      const mfem::Vector&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void updateJacobian(mfem::DenseMatrix&,
+                      const mfem::FiniteElement&,
+                      mfem::ElementTransformation&,
+                      const mfem::Vector&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void computeInnerForces(mfem::Vector&,
+                          const mfem::FiniteElement&,
+                          mfem::ElementTransformation&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+};  // end of struct NoBatchIntegrationBehaviourIntegrator
+
+/*!
+ * \brief a behaviour integrator which does not support the integration by
  * batches is refused
  */
 static void testRefusal(mfem_mgis::Context& ctx,
@@ -607,6 +665,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
                         const char* const library) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  BehaviourIntegratorFactory::get(Hypothesis::PLANESTRAIN)
+          .addGenerator(
+              ctx, "NoBatchIntegration",
+              [](Context&, const FiniteElementDiscretization& fed,
+                 const size_type m, std::unique_ptr<const Behaviour> b,
+                 const Parameters&)
+                  -> std::unique_ptr<AbstractBehaviourIntegrator> {
+                return std::make_unique<NoBatchIntegrationBehaviourIntegrator>(
+                    fed, m, std::move(b));
+              }) |
+      or_die;
   auto problem = construct<NonLinearEvolutionProblem>(
                      ctx, Parameters{{"MeshFileName", mesh_2d},
                                      {"FiniteElementFamily", "H1"},
@@ -617,7 +686,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
                                      {"BehaviourIntegration", "Batch"},
                                      {"Parallel", false}}) |
                  or_die;
-  problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", 5, library,
+  problem.addBehaviourIntegrator(ctx, "NoBatchIntegration", 5, library,
                                  "MiehePhaseFieldDamage") |
       or_die;
   auto c = Context{};
