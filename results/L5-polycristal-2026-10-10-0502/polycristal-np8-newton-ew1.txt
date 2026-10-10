@@ -1,0 +1,658 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --device 
+   --donot-use-petsc
+   --petsc-configuration-file 
+   --macroscopic-stress-output-file /home/t/Documents/GitHub/mfem-mgis-gpu-proto/results/L5-polycristal-2026-10-10-0502/polycristal-np8-newton-ew1.res
+   --mesh mesh/5crystals.msh
+   --mesh_mode FromScratch
+   --vect mesh/vectors_5crystals.txt
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/mm-opera-hpc/polycrystal/src/libBehaviour.so
+   --behaviour Mono_UO2_Cosh_Jaco3
+   --linear-solver HyprePCG
+   --linear-solver-preconditioner HypreBoomerAMG
+   --non-linear-solver Newton
+   --adaptive-linear-solver-tolerance EisenstatWalker1
+   --adaptive-linear-solver-initial-tolerance 0.1
+   --order 1
+   --refinement 0
+   --disable-export-von-Mises-stress
+   --disable-export-first_eigen_stress
+   --disable-post-processing
+   --verbosity-level 0
+   --duration 10
+   --nstep 10
+Info problem: number of vertices ->  9232
+Info problem: number of elements ->  42593
+Info problem: element size ->  0.0818823
+Info problem: number of finite element unknowns:  20553
+Nombre de matériaux :  5
+GReuss = 6.37443e+10
+GVoigt = 6.73606e+10
+GHSl = 6.73606e+10
+GHSu = 7.40409e+10
+GK = 6.55495e+10
+Solving time step from  0  to  1
+Newton iteration  0 : ||r|| = 1.66221e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 465245, ||r||/||r_0|| = 0.279895
+Newton iteration  1 : relative tolerance of the linear solver 0.0322524
+Newton iteration  2 : ||r|| = 22874.2, ||r||/||r_0|| = 0.0137613
+Newton iteration  2 : relative tolerance of the linear solver 0.0122438
+Newton iteration  3 : ||r|| = 257.035, ||r||/||r_0|| = 0.000154635
+Newton iteration  3 : relative tolerance of the linear solver 0.323343
+Newton iteration  4 : ||r|| = 38.6128, ||r||/||r_0|| = 2.32298e-05
+Convergence order 0.422326
+
+Fixed Point iteration 0 : |res| = 8.89716e+07
+Newton iteration  0 : ||r|| = 991207, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 193388, ||r||/||r_0|| = 0.195103
+Newton iteration  1 : relative tolerance of the linear solver 0.0257675
+Newton iteration  2 : ||r|| = 4374.7, ||r||/||r_0|| = 0.0044135
+Newton iteration  2 : relative tolerance of the linear solver 0.018998
+Newton iteration  3 : ||r|| = 85.8009, ||r||/||r_0|| = 8.6562e-05
+Convergence order 1.03766
+
+Fixed Point iteration 1 : |res| = 7.54619e+06
+Newton iteration  0 : ||r|| = 173773, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 27627.2, ||r||/||r_0|| = 0.158984
+Newton iteration  1 : relative tolerance of the linear solver 0.00300829
+Newton iteration  2 : ||r|| = 102.559, ||r||/||r_0|| = 0.00059019
+Convergence order 3.04311
+
+Fixed Point iteration 2 : |res| = 1.71736e+06
+Newton iteration  0 : ||r|| = 78669, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 11662.6, ||r||/||r_0|| = 0.148248
+Newton iteration  1 : relative tolerance of the linear solver 0.00712626
+Newton iteration  2 : ||r|| = 45.0795, ||r||/||r_0|| = 0.000573028
+Convergence order 2.91048
+
+Fixed Point iteration 3 : |res| = 792554
+Newton iteration  0 : ||r|| = 38792.4, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 5596.75, ||r||/||r_0|| = 0.144275
+Newton iteration  1 : relative tolerance of the linear solver 0.0148498
+Newton iteration  2 : ||r|| = 44.6988, ||r||/||r_0|| = 0.00115226
+Convergence order 2.49478
+
+Fixed Point iteration 4 : |res| = 390106
+Newton iteration  0 : ||r|| = 19182.5, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2821.23, ||r||/||r_0|| = 0.147073
+Newton iteration  1 : relative tolerance of the linear solver 0.0294589
+Newton iteration  2 : ||r|| = 56.0937, ||r||/||r_0|| = 0.00292421
+Convergence order 2.04396
+
+Fixed Point iteration 5 : |res| = 193003
+Newton iteration  0 : ||r|| = 9495.86, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 1409.76, ||r||/||r_0|| = 0.148461
+Newton iteration  1 : relative tolerance of the linear solver 0.0589536
+Newton iteration  2 : ||r|| = 52.4528, ||r||/||r_0|| = 0.00552375
+Convergence order 1.72549
+
+Fixed Point iteration 6 : |res| = 95525.5
+Newton iteration  0 : ||r|| = 4688.94, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 696.139, ||r||/||r_0|| = 0.148464
+Newton iteration  1 : relative tolerance of the linear solver 0.119388
+Newton iteration  2 : ||r|| = 25.7071, ||r||/||r_0|| = 0.00548251
+Convergence order 1.72945
+
+Fixed Point iteration 7 : |res| = 47289.2
+Newton iteration  0 : ||r|| = 2321.04, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 341.965, ||r||/||r_0|| = 0.147333
+Newton iteration  1 : relative tolerance of the linear solver 0.243038
+Newton iteration  2 : ||r|| = 36.3153, ||r||/||r_0|| = 0.0156461
+Convergence order 1.17097
+
+Fixed Point iteration 8 : |res| = 23343
+Newton iteration  0 : ||r|| = 1166.63, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 173.054, ||r||/||r_0|| = 0.148336
+Newton iteration  1 : relative tolerance of the linear solver 0.480258
+Newton iteration  2 : ||r|| = 56.472, ||r||/||r_0|| = 0.0484061
+Convergence order 0.586843
+
+Fixed Point iteration 9 : |res| = 11588.6
+Newton iteration  0 : ||r|| = 556.176, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.149432
+Newton iteration  1 : ||r|| = 197.665, ||r||/||r_0|| = 0.355401
+Newton iteration  1 : relative tolerance of the linear solver 0.42046
+Newton iteration  2 : ||r|| = 44.5638, ||r||/||r_0|| = 0.0801254
+Convergence order 1.43996
+
+Fixed Point iteration 10 : |res| = 5695.12
+Solution at time 1 : 1.0005 4596.68 -3362.29 6.04107e+07
+[At end of temporal sequence: 1.000000]  memory footprint:  3.1458  GB
+Solving time step from  1  to  2
+Newton iteration  0 : ||r|| = 3.05467e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 3.24585e+06, ||r||/||r_0|| = 1.06259
+Newton iteration  1 : relative tolerance of the linear solver 0.866191
+Newton iteration  2 : ||r|| = 1.89505e+06, ||r||/||r_0|| = 0.620379
+Newton iteration  2 : relative tolerance of the linear solver 0.792605
+Newton iteration  3 : ||r|| = 684857, ||r||/||r_0|| = 0.2242
+Newton iteration  3 : relative tolerance of the linear solver 0.686547
+Newton iteration  4 : ||r|| = 454505, ||r||/||r_0|| = 0.14879
+Newton iteration  4 : relative tolerance of the linear solver 0.54416
+Newton iteration  5 : ||r|| = 224878, ||r||/||r_0|| = 0.0736179
+Newton iteration  5 : relative tolerance of the linear solver 0.373591
+Newton iteration  6 : ||r|| = 34401, ||r||/||r_0|| = 0.0112618
+Newton iteration  6 : relative tolerance of the linear solver 0.203294
+Newton iteration  7 : ||r|| = 4042.58, ||r||/||r_0|| = 0.00132341
+Newton iteration  7 : relative tolerance of the linear solver 0.0377812
+Newton iteration  8 : ||r|| = 130.53, ||r||/||r_0|| = 4.27315e-05
+Convergence order 1.60332
+
+Fixed Point iteration 0 : |res| = 2.05847e+07
+Newton iteration  0 : ||r|| = 280897, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 59419.9, ||r||/||r_0|| = 0.211536
+Newton iteration  1 : relative tolerance of the linear solver 0.00616812
+Newton iteration  2 : ||r|| = 342.195, ||r||/||r_0|| = 0.00121822
+Newton iteration  2 : relative tolerance of the linear solver 0.446334
+Newton iteration  3 : ||r|| = 108.373, ||r||/||r_0|| = 0.00038581
+Convergence order 0.222959
+
+Fixed Point iteration 1 : |res| = 3.25842e+06
+Newton iteration  0 : ||r|| = 126698, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 23676, ||r||/||r_0|| = 0.186869
+Newton iteration  1 : relative tolerance of the linear solver 0.00645098
+Newton iteration  2 : ||r|| = 123.147, ||r||/||r_0|| = 0.00097197
+Convergence order 3.13522
+
+Fixed Point iteration 2 : |res| = 1.62378e+06
+Newton iteration  0 : ||r|| = 81811.8, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 15339.1, ||r||/||r_0|| = 0.187492
+Newton iteration  1 : relative tolerance of the linear solver 0.00995713
+Newton iteration  2 : ||r|| = 172.893, ||r||/||r_0|| = 0.0021133
+Convergence order 2.67947
+
+Fixed Point iteration 3 : |res| = 1.04151e+06
+Newton iteration  0 : ||r|| = 53170.5, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 9872.02, ||r||/||r_0|| = 0.185667
+Newton iteration  1 : relative tolerance of the linear solver 0.0154713
+Newton iteration  2 : ||r|| = 109.292, ||r||/||r_0|| = 0.0020555
+Convergence order 2.67457
+
+Fixed Point iteration 4 : |res| = 675283
+Newton iteration  0 : ||r|| = 34493, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 6463.43, ||r||/||r_0|| = 0.187384
+Newton iteration  1 : relative tolerance of the linear solver 0.0236304
+Newton iteration  2 : ||r|| = 142.661, ||r||/||r_0|| = 0.00413595
+Convergence order 2.27723
+
+Fixed Point iteration 5 : |res| = 437856
+Newton iteration  0 : ||r|| = 22353.5, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 4154.14, ||r||/||r_0|| = 0.185838
+Newton iteration  1 : relative tolerance of the linear solver 0.0367665
+Newton iteration  2 : ||r|| = 89.6978, ||r||/||r_0|| = 0.00401269
+Convergence order 2.27908
+
+Fixed Point iteration 6 : |res| = 283712
+Newton iteration  0 : ||r|| = 14480.6, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2668.43, ||r||/||r_0|| = 0.184276
+Newton iteration  1 : relative tolerance of the linear solver 0.0572372
+Newton iteration  2 : ||r|| = 131.93, ||r||/||r_0|| = 0.0091108
+Convergence order 1.77789
+
+Fixed Point iteration 7 : |res| = 183846
+Newton iteration  0 : ||r|| = 9389.32, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 1716.92, ||r||/||r_0|| = 0.182859
+Newton iteration  1 : relative tolerance of the linear solver 0.0889577
+Newton iteration  2 : ||r|| = 122.504, ||r||/||r_0|| = 0.0130472
+Convergence order 1.5539
+
+Fixed Point iteration 8 : |res| = 119019
+Newton iteration  0 : ||r|| = 6049.69, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 1117.32, ||r||/||r_0|| = 0.184691
+Newton iteration  1 : relative tolerance of the linear solver 0.136696
+Newton iteration  2 : ||r|| = 79.7001, ||r||/||r_0|| = 0.0131742
+Convergence order 1.56324
+
+Fixed Point iteration 9 : |res| = 77018.3
+Newton iteration  0 : ||r|| = 3914.47, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 717.821, ||r||/||r_0|| = 0.183376
+Newton iteration  1 : relative tolerance of the linear solver 0.212774
+Newton iteration  2 : ||r|| = 51.4784, ||r||/||r_0|| = 0.0131508
+Convergence order 1.55349
+
+Fixed Point iteration 10 : |res| = 49832.5
+Newton iteration  0 : ||r|| = 2532.66, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 463.41, ||r||/||r_0|| = 0.182974
+Newton iteration  1 : relative tolerance of the linear solver 0.329586
+Newton iteration  2 : ||r|| = 82.0146, ||r||/||r_0|| = 0.0323828
+Convergence order 1.01961
+
+Fixed Point iteration 11 : |res| = 32068.9
+Newton iteration  0 : ||r|| = 1680.22, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 309.429, ||r||/||r_0|| = 0.18416
+Newton iteration  1 : relative tolerance of the linear solver 0.493597
+Newton iteration  2 : ||r|| = 135.657, ||r||/||r_0|| = 0.0807374
+Convergence order 0.487368
+
+Fixed Point iteration 12 : |res| = 20804
+Newton iteration  0 : ||r|| = 1027.13, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.148699
+Newton iteration  1 : ||r|| = 219.076, ||r||/||r_0|| = 0.21329
+Convergence order undefined
+
+Fixed Point iteration 13 : |res| = 13495.6
+Newton iteration  0 : ||r|| = 686.428, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.222504
+Newton iteration  1 : ||r|| = 325.232, ||r||/||r_0|| = 0.473803
+Newton iteration  1 : relative tolerance of the linear solver 0.469614
+Newton iteration  2 : ||r|| = 106.943, ||r||/||r_0|| = 0.155796
+Convergence order 1.48902
+
+Fixed Point iteration 14 : |res| = 8594.01
+Solution at time 2 : 1.001 6656.3 -5436.05 7.73713e+07
+[At end of temporal sequence: 2.000000]  memory footprint:  3.14901  GB
+Solving time step from  2  to  3
+Newton iteration  0 : ||r|| = 2.92798e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 3.86092e+06, ||r||/||r_0|| = 1.31863
+Newton iteration  1 : relative tolerance of the linear solver 0.9
+Newton iteration  2 : ||r|| = 2.01158e+06, ||r||/||r_0|| = 0.687022
+Newton iteration  2 : relative tolerance of the linear solver 0.843263
+Newton iteration  3 : ||r|| = 698924, ||r||/||r_0|| = 0.238706
+Newton iteration  3 : relative tolerance of the linear solver 0.758936
+Newton iteration  4 : ||r|| = 490417, ||r||/||r_0|| = 0.167494
+Newton iteration  4 : relative tolerance of the linear solver 0.639983
+Newton iteration  5 : ||r|| = 258977, ||r||/||r_0|| = 0.0884492
+Newton iteration  5 : relative tolerance of the linear solver 0.485706
+Newton iteration  6 : ||r|| = 54616.4, ||r||/||r_0|| = 0.0186533
+Newton iteration  6 : relative tolerance of the linear solver 0.310843
+Newton iteration  7 : ||r|| = 21579.4, ||r||/||r_0|| = 0.00737007
+Newton iteration  7 : relative tolerance of the linear solver 0.150979
+Newton iteration  8 : ||r|| = 2659.86, ||r||/||r_0|| = 0.00090843
+Newton iteration  8 : relative tolerance of the linear solver 0.05504
+Newton iteration  9 : ||r|| = 127.963, ||r||/||r_0|| = 4.37037e-05
+Convergence order 1.44941
+
+Fixed Point iteration 0 : |res| = 5.1193e+06
+Newton iteration  0 : ||r|| = 56484.1, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 11477.6, ||r||/||r_0|| = 0.203201
+Newton iteration  1 : relative tolerance of the linear solver 0.0127552
+Newton iteration  2 : ||r|| = 81.3028, ||r||/||r_0|| = 0.00143939
+Convergence order 3.10623
+
+Fixed Point iteration 1 : |res| = 695589
+Newton iteration  0 : ||r|| = 21151.5, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 3884.06, ||r||/||r_0|| = 0.18363
+Newton iteration  1 : relative tolerance of the linear solver 0.0376922
+Newton iteration  2 : ||r|| = 120.257, ||r||/||r_0|| = 0.00568551
+Convergence order 2.05035
+
+Fixed Point iteration 2 : |res| = 302158
+Newton iteration  0 : ||r|| = 14684, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2737.07, ||r||/||r_0|| = 0.186399
+Newton iteration  1 : relative tolerance of the linear solver 0.0534873
+Newton iteration  2 : ||r|| = 88.3709, ||r||/||r_0|| = 0.00601818
+Convergence order 2.04367
+
+Fixed Point iteration 3 : |res| = 205694
+Newton iteration  0 : ||r|| = 10281, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 1906.69, ||r||/||r_0|| = 0.185458
+Newton iteration  1 : relative tolerance of the linear solver 0.0767816
+Newton iteration  2 : ||r|| = 131.462, ||r||/||r_0|| = 0.0127869
+Convergence order 1.58725
+
+Fixed Point iteration 4 : |res| = 143380
+Newton iteration  0 : ||r|| = 7191.23, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 1334.89, ||r||/||r_0|| = 0.185628
+Newton iteration  1 : relative tolerance of the linear solver 0.109671
+Newton iteration  2 : ||r|| = 113.929, ||r||/||r_0|| = 0.0158428
+Convergence order 1.46141
+
+Fixed Point iteration 5 : |res| = 99988.2
+Newton iteration  0 : ||r|| = 4983.93, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 926.921, ||r||/||r_0|| = 0.185982
+Newton iteration  1 : relative tolerance of the linear solver 0.157941
+Newton iteration  2 : ||r|| = 80.9961, ||r||/||r_0|| = 0.0162514
+Convergence order 1.44906
+
+Fixed Point iteration 6 : |res| = 69706
+Newton iteration  0 : ||r|| = 3473.92, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 638.117, ||r||/||r_0|| = 0.183688
+Newton iteration  1 : relative tolerance of the linear solver 0.229423
+Newton iteration  2 : ||r|| = 55.4391, ||r||/||r_0|| = 0.0159587
+Convergence order 1.44185
+
+Fixed Point iteration 7 : |res| = 48587.2
+Newton iteration  0 : ||r|| = 2421.48, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 445.669, ||r||/||r_0|| = 0.184049
+Newton iteration  1 : relative tolerance of the linear solver 0.328492
+Newton iteration  2 : ||r|| = 88.4198, ||r||/||r_0|| = 0.0365148
+Convergence order 0.955644
+
+Fixed Point iteration 8 : |res| = 33685.4
+Newton iteration  0 : ||r|| = 1736.38, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 322.415, ||r||/||r_0|| = 0.185683
+Newton iteration  1 : relative tolerance of the linear solver 0.454069
+Newton iteration  2 : ||r|| = 144.602, ||r||/||r_0|| = 0.0832783
+Convergence order 0.47624
+
+Fixed Point iteration 9 : |res| = 23526
+Newton iteration  0 : ||r|| = 1137.61, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.128689
+Newton iteration  1 : ||r|| = 243.867, ||r||/||r_0|| = 0.214367
+Convergence order undefined
+
+Fixed Point iteration 10 : |res| = 16434.9
+Newton iteration  0 : ||r|| = 813.904, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.179872
+Newton iteration  1 : ||r|| = 206.405, ||r||/||r_0|| = 0.253599
+Convergence order undefined
+
+Fixed Point iteration 11 : |res| = 11545.7
+Newton iteration  0 : ||r|| = 567.196, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.25811
+Newton iteration  1 : ||r|| = 272.128, ||r||/||r_0|| = 0.479777
+Convergence order undefined
+
+Fixed Point iteration 12 : |res| = 7923.64
+Solution at time 3 : 1.0015 6047.41 -5119.86 8.32746e+07
+[At end of temporal sequence: 3.000000]  memory footprint:  3.14954  GB
+Solving time step from  3  to  4
+Newton iteration  0 : ||r|| = 2.89042e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 3.48828e+06, ||r||/||r_0|| = 1.20684
+Newton iteration  1 : relative tolerance of the linear solver 0.9
+Newton iteration  2 : ||r|| = 1.59412e+06, ||r||/||r_0|| = 0.551519
+Newton iteration  2 : relative tolerance of the linear solver 0.843263
+Newton iteration  3 : ||r|| = 641323, ||r||/||r_0|| = 0.221878
+Newton iteration  3 : relative tolerance of the linear solver 0.758936
+Newton iteration  4 : ||r|| = 421543, ||r||/||r_0|| = 0.145841
+Newton iteration  4 : relative tolerance of the linear solver 0.639983
+Newton iteration  5 : ||r|| = 255699, ||r||/||r_0|| = 0.0884643
+Newton iteration  5 : relative tolerance of the linear solver 0.485706
+Newton iteration  6 : ||r|| = 55579.6, ||r||/||r_0|| = 0.0192289
+Newton iteration  6 : relative tolerance of the linear solver 0.310843
+Newton iteration  7 : ||r|| = 10482, ||r||/||r_0|| = 0.00362645
+Newton iteration  7 : relative tolerance of the linear solver 0.150979
+Newton iteration  8 : ||r|| = 1181.03, ||r||/||r_0|| = 0.0004086
+Newton iteration  8 : relative tolerance of the linear solver 0.122369
+Newton iteration  9 : ||r|| = 77.1712, ||r||/||r_0|| = 2.66989e-05
+Convergence order 1.24955
+
+Fixed Point iteration 0 : |res| = 1.48499e+06
+Newton iteration  0 : ||r|| = 14271.9, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2910.58, ||r||/||r_0|| = 0.203938
+Newton iteration  1 : relative tolerance of the linear solver 0.0496538
+Newton iteration  2 : ||r|| = 104.356, ||r||/||r_0|| = 0.00731203
+Convergence order 2.09335
+
+Fixed Point iteration 1 : |res| = 170949
+Newton iteration  0 : ||r|| = 2965.76, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 554.56, ||r||/||r_0|| = 0.186988
+Newton iteration  1 : relative tolerance of the linear solver 0.260605
+Newton iteration  2 : ||r|| = 53.1694, ||r||/||r_0|| = 0.0179278
+Convergence order 1.39839
+
+Fixed Point iteration 2 : |res| = 45768.5
+Newton iteration  0 : ||r|| = 2017.19, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 371.448, ||r||/||r_0|| = 0.184142
+Newton iteration  1 : relative tolerance of the linear solver 0.389075
+Newton iteration  2 : ||r|| = 79.0214, ||r||/||r_0|| = 0.0391741
+Convergence order 0.914683
+
+Fixed Point iteration 3 : |res| = 30135.1
+Newton iteration  0 : ||r|| = 1516.32, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 284.916, ||r||/||r_0|| = 0.1879
+Convergence order undefined
+
+Fixed Point iteration 4 : |res| = 21680.2
+Newton iteration  0 : ||r|| = 1049.61, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.13769
+Newton iteration  1 : ||r|| = 261.616, ||r||/||r_0|| = 0.24925
+Convergence order undefined
+
+Fixed Point iteration 5 : |res| = 15733.7
+Newton iteration  0 : ||r|| = 755.893, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.191193
+Newton iteration  1 : ||r|| = 204.969, ||r||/||r_0|| = 0.271161
+Convergence order undefined
+
+Fixed Point iteration 6 : |res| = 11371.4
+Newton iteration  0 : ||r|| = 544.992, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.26518
+Newton iteration  1 : ||r|| = 257.492, ||r||/||r_0|| = 0.472469
+Convergence order undefined
+
+Fixed Point iteration 7 : |res| = 8064.96
+Solution at time 4 : 1.002 6109.02 -5265.31 8.58368e+07
+[At end of temporal sequence: 4.000000]  memory footprint:  3.14954  GB
+Solving time step from  4  to  5
+Newton iteration  0 : ||r|| = 2.86537e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 3.0834e+06, ||r||/||r_0|| = 1.07609
+Newton iteration  1 : relative tolerance of the linear solver 0.9
+Newton iteration  2 : ||r|| = 1.30066e+06, ||r||/||r_0|| = 0.453925
+Newton iteration  2 : relative tolerance of the linear solver 0.843263
+Newton iteration  3 : ||r|| = 577499, ||r||/||r_0|| = 0.201545
+Newton iteration  3 : relative tolerance of the linear solver 0.758936
+Newton iteration  4 : ||r|| = 352416, ||r||/||r_0|| = 0.122992
+Newton iteration  4 : relative tolerance of the linear solver 0.639983
+Newton iteration  5 : ||r|| = 74075.9, ||r||/||r_0|| = 0.0258522
+Newton iteration  5 : relative tolerance of the linear solver 0.485706
+Newton iteration  6 : ||r|| = 44220.2, ||r||/||r_0|| = 0.0154327
+Newton iteration  6 : relative tolerance of the linear solver 0.310843
+Newton iteration  7 : ||r|| = 12514.7, ||r||/||r_0|| = 0.00436759
+Newton iteration  7 : relative tolerance of the linear solver 0.150979
+Newton iteration  8 : ||r|| = 2001.41, ||r||/||r_0|| = 0.000698484
+Newton iteration  8 : relative tolerance of the linear solver 0.0715836
+Newton iteration  9 : ||r|| = 86.2339, ||r||/||r_0|| = 3.00952e-05
+Convergence order 1.71547
+
+Fixed Point iteration 0 : |res| = 429297
+Newton iteration  0 : ||r|| = 3959.28, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 824.696, ||r||/||r_0|| = 0.208295
+Newton iteration  1 : relative tolerance of the linear solver 0.173722
+Newton iteration  2 : ||r|| = 67.1511, ||r||/||r_0|| = 0.0169604
+Convergence order 1.59872
+
+Fixed Point iteration 1 : |res| = 47143.2
+Newton iteration  0 : ||r|| = 500.915, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.286013
+Newton iteration  1 : ||r|| = 187.542, ||r||/||r_0|| = 0.3744
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 7811.07
+Solution at time 5 : 1.0025 7801.87 -378.998 8.73008e+07
+[At end of temporal sequence: 5.000000]  memory footprint:  3.14954  GB
+Solving time step from  5  to  6
+Newton iteration  0 : ||r|| = 2.83663e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2.76599e+06, ||r||/||r_0|| = 0.975095
+Newton iteration  1 : relative tolerance of the linear solver 0.810258
+Newton iteration  2 : ||r|| = 1.1322e+06, ||r||/||r_0|| = 0.399134
+Newton iteration  2 : relative tolerance of the linear solver 0.711458
+Newton iteration  3 : ||r|| = 527466, ||r||/||r_0|| = 0.185948
+Newton iteration  3 : relative tolerance of the linear solver 0.576464
+Newton iteration  4 : ||r|| = 315695, ||r||/||r_0|| = 0.111292
+Newton iteration  4 : relative tolerance of the linear solver 0.41013
+Newton iteration  5 : ||r|| = 67972.8, ||r||/||r_0|| = 0.0239625
+Newton iteration  5 : relative tolerance of the linear solver 0.236425
+Newton iteration  6 : ||r|| = 11964.2, ||r||/||r_0|| = 0.00421775
+Newton iteration  6 : relative tolerance of the linear solver 0.0118547
+Newton iteration  7 : ||r|| = 82.5319, ||r||/||r_0|| = 2.9095e-05
+Convergence order 2.86468
+
+Fixed Point iteration 0 : |res| = 121563
+Newton iteration  0 : ||r|| = 1085.71, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.130635
+Newton iteration  1 : ||r|| = 224.25, ||r||/||r_0|| = 0.206548
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 13274.5
+Newton iteration  0 : ||r|| = 243.332, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 1802.92
+Solution at time 6 : 1.003 1801.91 -60.3765 8.83191e+07
+[At end of temporal sequence: 6.000000]  memory footprint:  3.14954  GB
+Solving time step from  6  to  7
+Newton iteration  0 : ||r|| = 2.80506e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2.52022e+06, ||r||/||r_0|| = 0.898452
+Newton iteration  1 : relative tolerance of the linear solver 0.747945
+Newton iteration  2 : ||r|| = 1.01158e+06, ||r||/||r_0|| = 0.360625
+Newton iteration  2 : relative tolerance of the linear solver 0.625053
+Newton iteration  3 : ||r|| = 489558, ||r||/||r_0|| = 0.174526
+Newton iteration  3 : relative tolerance of the linear solver 0.467505
+Newton iteration  4 : ||r|| = 99892.8, ||r||/||r_0|| = 0.0356116
+Newton iteration  4 : relative tolerance of the linear solver 0.292216
+Newton iteration  5 : ||r|| = 14894.8, ||r||/||r_0|| = 0.00530995
+Newton iteration  5 : relative tolerance of the linear solver 0.136612
+Newton iteration  6 : ||r|| = 1588.58, ||r||/||r_0|| = 0.000566325
+Newton iteration  6 : relative tolerance of the linear solver 0.0882885
+Newton iteration  7 : ||r|| = 118.434, ||r||/||r_0|| = 4.22213e-05
+Convergence order 1.15999
+
+Fixed Point iteration 0 : |res| = 9140.83
+Solution at time 7 : 1.0035 5977.17 6915.8 8.91241e+07
+[At end of temporal sequence: 7.000000]  memory footprint:  3.14954  GB
+Solving time step from  7  to  8
+Newton iteration  0 : ||r|| = 2.77245e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2.38289e+06, ||r||/||r_0|| = 0.85949
+Newton iteration  1 : relative tolerance of the linear solver 0.608667
+Newton iteration  2 : ||r|| = 948694, ||r||/||r_0|| = 0.342187
+Newton iteration  2 : relative tolerance of the linear solver 0.447836
+Newton iteration  3 : ||r|| = 176376, ||r||/||r_0|| = 0.0636175
+Newton iteration  3 : relative tolerance of the linear solver 0.272583
+Newton iteration  4 : ||r|| = 48845.2, ||r||/||r_0|| = 0.0176181
+Newton iteration  4 : relative tolerance of the linear solver 0.122073
+Newton iteration  5 : ||r|| = 5048.71, ||r||/||r_0|| = 0.00182103
+Newton iteration  5 : relative tolerance of the linear solver 0.0274569
+Newton iteration  6 : ||r|| = 108.894, ||r||/||r_0|| = 3.92771e-05
+Convergence order 1.69045
+
+Fixed Point iteration 0 : |res| = 20977.2
+Newton iteration  0 : ||r|| = 230.934, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 1691.91
+Solution at time 8 : 1.004 -1039.73 -1334.74 8.97842e+07
+[At end of temporal sequence: 8.000000]  memory footprint:  3.14979  GB
+Solving time step from  8  to  9
+Newton iteration  0 : ||r|| = 2.7406e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2.21686e+06, ||r||/||r_0|| = 0.808894
+Newton iteration  1 : relative tolerance of the linear solver 0.565941
+Newton iteration  2 : ||r|| = 879701, ||r||/||r_0|| = 0.320988
+Newton iteration  2 : relative tolerance of the linear solver 0.398085
+Newton iteration  3 : ||r|| = 167643, ||r||/||r_0|| = 0.0611702
+Newton iteration  3 : relative tolerance of the linear solver 0.225292
+Newton iteration  4 : ||r|| = 30707.6, ||r||/||r_0|| = 0.0112047
+Newton iteration  4 : relative tolerance of the linear solver 0.00446241
+Newton iteration  5 : ||r|| = 172.996, ||r||/||r_0|| = 6.31235e-05
+Convergence order 3.05127
+
+Fixed Point iteration 0 : |res| = 61625.2
+Newton iteration  0 : ||r|| = 633.163, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.216421
+Newton iteration  1 : ||r|| = 263.259, ||r||/||r_0|| = 0.415784
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 7179.3
+Solution at time 9 : 1.0045 -2243.54 -6819.74 9.0361e+07
+[At end of temporal sequence: 9.000000]  memory footprint:  3.14979  GB
+Solving time step from  9  to  10
+Newton iteration  0 : ||r|| = 2.71037e+06, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.1
+Newton iteration  1 : ||r|| = 2.08713e+06, ||r||/||r_0|| = 0.770055
+Newton iteration  1 : relative tolerance of the linear solver 0.532253
+Newton iteration  2 : ||r|| = 828349, ||r||/||r_0|| = 0.305623
+Newton iteration  2 : relative tolerance of the linear solver 0.360454
+Newton iteration  3 : ||r|| = 167208, ||r||/||r_0|| = 0.0616918
+Newton iteration  3 : relative tolerance of the linear solver 0.191853
+Newton iteration  4 : ||r|| = 28928, ||r||/||r_0|| = 0.0106731
+Newton iteration  4 : relative tolerance of the linear solver 0.00468468
+Newton iteration  5 : ||r|| = 172.004, ||r||/||r_0|| = 6.34613e-05
+Convergence order 2.92121
+
+Fixed Point iteration 0 : |res| = 66110.3
+Newton iteration  0 : ||r|| = 729.756, ||r||/||r_0|| = 1
+Newton iteration  0 : relative tolerance of the linear solver 0.185704
+Newton iteration  1 : ||r|| = 305.784, ||r||/||r_0|| = 0.419022
+Newton iteration  1 : relative tolerance of the linear solver 0.443184
+Newton iteration  2 : ||r|| = 74.8371, ||r||/||r_0|| = 0.102551
+Convergence order 1.6182
+
+Fixed Point iteration 1 : |res| = 8481.92
+Solution at time 10 : 1.005 -1155.54 -8402.83 9.08739e+07
+[At end of temporal sequence: 10.000000]  memory footprint:  3.14992  GB
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |          33.959304 |          33.959715 |          33.961352 |        100.000000% |          0.004821% |
+ | |--> Mesh::Constructor                          |                  1 |           0.212860 |           0.213164 |           0.213306 |          0.628085% |          0.066640% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.158609 |           0.159567 |           0.160448 |          0.472442% |          0.551554% |
+ | |--> FED::Constructor                           |                  1 |           0.000634 |           0.000754 |           0.001067 |          0.003142% |         41.555826% |
+ | |--> PeriodicNonLinEvPB::constructor_with_bct   |                  1 |           0.002386 |           0.002399 |           0.002411 |          0.007099% |          0.479333% |
+ |    |--> PeriodicNonLinEvPB::set_bc              |                  1 |           0.002385 |           0.002399 |           0.002410 |          0.007096% |          0.470297% |
+ | |--> common::print_mesh_information             |                  1 |           0.000023 |           0.000034 |           0.000067 |          0.000197% |         95.985936% |
+ | |--> set_mgis_stuff                             |                  1 |           0.001134 |           0.001187 |           0.001223 |          0.003602% |          3.041582% |
+ | |--> set_linear_solver                          |                  1 |           0.000124 |           0.000156 |           0.000207 |          0.000611% |         32.975818% |
+ |    |--> NLEPIB::updateLinearSolver              |                  1 |           0.000001 |           0.000001 |           0.000001 |          0.000003% |         34.332834% |
+ | |--> NLEP::solve                                |                 60 |          33.738536 |          33.738744 |          33.739801 |         99.347638% |          0.003134% |
+ |    |--> NLEPIB::setup                           |                 60 |           0.001113 |           0.001725 |           0.002011 |          0.005922% |         16.577372% |
+ |    |--> NLEPIB::solve                           |                 60 |          33.736505 |          33.736874 |          33.738545 |         99.343938% |          0.004953% |
+ |       |--> NS::Mult                             |                 60 |          33.736335 |          33.736702 |          33.738331 |         99.343309% |          0.004830% |
+ |          |--> NS::processNewUnknownsEstimate    |                 60 |           5.612416 |           5.612561 |           5.612622 |         16.526497% |          0.001081% |
+ |          |--> NS::computeResidual               |                 60 |           0.023350 |           0.023407 |           0.023479 |          0.069134% |          0.309011% |
+ |          |--> NS::Mult::WhileLoop               |                216 |          28.098767 |          28.099017 |          28.100519 |         82.742639% |          0.005345% |
+ |             |--> NS::computeNewtonCorrection    |                156 |          15.308954 |          15.313161 |          15.313781 |         45.091788% |          0.004046% |
+ |                |--> NS::getJacobian             |                156 |           3.200774 |           3.204346 |           3.205243 |          9.437913% |          0.027993% |
+ |                |--> NS::setLinearSolverOperator |                156 |           0.008205 |           0.008605 |           0.009180 |          0.027031% |          6.683724% |
+ |                |--> MFEM::Mult(r,c)             |                156 |          12.098523 |          12.099680 |          12.100436 |         35.630019% |          0.006245% |
+ |             |--> NS::processNewUnknownsEstimate |                156 |          12.699044 |          12.699285 |          12.699537 |         37.394085% |          0.001983% |
+ |             |--> NS::computeResidual            |                156 |           0.077241 |           0.077474 |           0.077730 |          0.228878% |          0.329873% |
+ | |--> NLEPIB::update                             |                 10 |           0.002961 |           0.003177 |           0.003269 |          0.009627% |          2.902479% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------|

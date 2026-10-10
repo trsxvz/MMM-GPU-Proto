@@ -67,6 +67,14 @@ struct NumericalParameters {
    * elastic operator, see the `FixedPoint` solver of mfem-mgis)
    */
   const char *non_linear_solver = "Newton";
+  /*!
+   * \brief relative tolerance of the linear solver of the non linear solver
+   * adapted to the decrease of the residual: `None`, `EisenstatWalker1` or
+   * `EisenstatWalker2` (see `AdaptiveLinearSolverTolerance` in mfem-mgis)
+   */
+  const char *adaptive_linear_solver_tolerance = "None";
+  //! \brief initial adaptive tolerance, the default one if negative
+  mfem_mgis::real adaptive_linear_solver_initial_tolerance = -1;
 };
 
 /*!
@@ -172,24 +180,51 @@ int main(int argc, char *argv[]) {
                                  {"UnknownsSize", mfem_mgis::size_type{3}},
                                  {"NumberOfUniformRefinements", p.refinement},
                                  {"Parallel", true}});
+  auto or_die = ctx.getFatalFailureHandler();
   auto problem_parameters = mfem_mgis::Parameters{};
+  // options of the non linear solver: adaptive tolerance of its linear
+  // solver, if required
+  auto non_linear_solver_options = mfem_mgis::Parameters{};
+  if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
+    auto adaptive_options = mfem_mgis::Parameters{};
+    if (p.adaptive_linear_solver_initial_tolerance > 0) {
+      adaptive_options.insert(ctx, "InitialTolerance",
+                              p.adaptive_linear_solver_initial_tolerance) |
+          or_die;
+    }
+    non_linear_solver_options.insert(
+        ctx, "AdaptiveLinearSolverTolerance",
+        mfem_mgis::Parameters{
+            {p.adaptive_linear_solver_tolerance, adaptive_options}}) |
+        or_die;
+  }
   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
     // the behaviour does not provide its prediction operator: the elastic
     // operator is given by an integration
     const auto tangent_linear_solver_options = mfem_mgis::Parameters{
         {"RelativeTolerance", p.linear_solver_tolerance},
         {"MaximumNumberOfIterations", 2000}};
-    const auto options = mfem_mgis::Parameters{
+    auto options = mfem_mgis::Parameters{
         {"Method", "NewtonK0"},
         {"ElasticOperatorComputation", "Integration"},
         {"ElasticOperatorUpdate", "Once"},
         {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
         {"TangentLinearSolver",
          mfem_mgis::Parameters{{"CGSolver", tangent_linear_solver_options}}}};
-    problem_parameters.insert(
-        mfem_mgis::throwing,
-        {{"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", options}}}});
-  } else if (std::string_view{p.non_linear_solver} != "Newton") {
+    for (const auto &[k, v] : non_linear_solver_options) {
+      options.insert(ctx, k, v) | or_die;
+    }
+    problem_parameters.insert(ctx, "NonLinearSolver",
+                              mfem_mgis::Parameters{{"FixedPoint", options}}) |
+        or_die;
+  } else if (std::string_view{p.non_linear_solver} == "Newton") {
+    if (!non_linear_solver_options.empty()) {
+      problem_parameters.insert(
+          ctx, "NonLinearSolver",
+          mfem_mgis::Parameters{{"Newton", non_linear_solver_options}}) |
+          or_die;
+    }
+  } else {
     mfem_mgis::Profiler::Utils::Message(
         "error: invalid non linear solver (expected Newton or NewtonK0)");
     std::exit(EXIT_FAILURE);
@@ -268,6 +303,14 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "preconditioner of the linear solver to be used");
   args.AddOption(&p.non_linear_solver, "", "--non-linear-solver",
                  "non linear solver: Newton (default) or NewtonK0");
+  args.AddOption(&p.adaptive_linear_solver_tolerance, "",
+                 "--adaptive-linear-solver-tolerance",
+                 "relative tolerance of the linear solver adapted to the "
+                 "decrease of the residual: None (default), "
+                 "EisenstatWalker1 or EisenstatWalker2");
+  args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
+                 "--adaptive-linear-solver-initial-tolerance",
+                 "initial adaptive tolerance, the default one if negative");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",

@@ -3486,4 +3486,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   de la poutre) : Chebyshev plus lent que Jacobi (chaque ordre ajoute une
   action sans matrice) ; NewtonK0 + Eisenstat-Walker 1 sans matrice à 3 %
   de la tangente assemblée (2,05 s contre 1,99 s).
+- Polycristal (mm-opera-hpc, options `--adaptive-linear-solver-tolerance`
+  et `--adaptive-linear-solver-initial-tolerance`), mesures
+  `results/L5-polycristal-2026-10-10-0502/README.md` : NewtonK0 avec
+  Eisenstat-Walker 1 est le meilleur sur le GPU (9,58 s contre 11,88 s pour
+  Newton, ×1,24) et sur 8 cœurs (23,46 s contre 29,60 s) ; la résolution
+  devient négligeable sur le GPU et la loi domine (7,1 s sur 9,6 s).
 
