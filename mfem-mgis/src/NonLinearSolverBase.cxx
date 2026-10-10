@@ -77,16 +77,18 @@ namespace mfem_mgis {
     if (isInvalid(osubparams)) {
       return false;
     }
+    // the options are read before being applied: a refused call leaves the
+    // solver unchanged
+    const auto odiscard =
+        get_if<bool>(ctx, params, "DiscardLinearSolverFailure",
+                     this->discardLinearSolverFailure);
+    if (isInvalid(odiscard)) {
+      return false;
+    }
     if (!mfem_mgis::setSolverParameters(ctx, *this, *osubparams)) {
       return false;
     }
-    if (contains(params, "DiscardLinearSolverFailure")) {
-      const auto ob = get<bool>(ctx, params, "DiscardLinearSolverFailure");
-      if (isInvalid(ob)) {
-        return false;
-      }
-      this->discardLinearSolverFailure = *ob;
-    }
+    this->discardLinearSolverFailure = *odiscard;
     return true;
   }  // end of setSolverParameters
 

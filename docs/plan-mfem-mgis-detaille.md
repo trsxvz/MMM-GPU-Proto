@@ -25,8 +25,10 @@ GPU égalité avec le lisseur de Chebyshev (`results/L5-*`). `NewtonK0` fait
 (méthode du solveur `FixedPoint`, tout solveur itératif de MFEM de la
 fabrique préconditionné par le solveur de K0) : sur le GPU, ×1,2 sur la
 poutre et ×1,06 sur le polycristal, sur 8 cœurs ×1,19 sur le
-polycristal, mêmes itérations que Newton. Restent en L5 : précision
-mixte, Newton inexact, vagues 2 et 3. Les choix
+polycristal, mêmes itérations que Newton. Newton inexact fait (option
+`AdaptiveLinearSolverTolerance`, Eisenstat-Walker) : avec NewtonK0, ×1,59
+contre Newton sur le GPU (poutre). Restent en L5 : précision mixte,
+recherche linéaire, lisseurs sans matrice, vagues 2 et 3. Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
@@ -696,7 +698,9 @@ par vagues, dans les fabriques de mfem-mgis.
   (avec les Krylov de hypre, la phase de construction du préconditionneur
   doit aussi être neutralisée) ; enveloppe `ElasticOperator` ;
 - solveur `FixedPoint` avec accélération d'Anderson ;
-- Newton inexact (Eisenstat-Walker) et recherche linéaire, écrits dans le
+- Newton inexact (Eisenstat-Walker, fait : option
+  `AdaptiveLinearSolverTolerance` du Newton et de `NewtonK0`) et recherche
+  linéaire, écrits dans le
   Newton de mfem-mgis (les crochets de `mfem::NewtonSolver` ne s'y
   appliquent pas) ;
 - lisseurs sans matrice : `OperatorJacobi`, `OperatorChebyshev`,

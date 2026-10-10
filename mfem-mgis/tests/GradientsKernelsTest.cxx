@@ -193,14 +193,14 @@ static void testCase(mfem_mgis::Context& ctx,
       mat.s1.thermodynamic_forces[i] = std::sin(real(i));
     }
     const auto& g = geometry[r];
-    auto f = mfem::Vector{};
-    f.UseDevice(true);
-    f.SetSize(g.nd * dim * g.ne);
-    f = real{0};
-    check(bi.addInnerForcesByKernels(ctx, f, geometry),
+    auto forces = mfem::Vector{};
+    forces.UseDevice(true);
+    forces.SetSize(g.nd * dim * g.ne);
+    forces = real{0};
+    check(bi.addInnerForcesByKernels(ctx, forces, geometry),
           name + ": computation of the inner forces by kernels (" +
               ctx.getErrorMessage() + ")");
-    const auto* const fv = f.HostRead();
+    const auto* const fv = forces.HostRead();
     // the kernels read the thermodynamic forces on the device: phase of
     // read-only accesses on the host (see `MaterialArrays`)
     mat.synchronizeOnHostForReading();

@@ -316,6 +316,53 @@ namespace mfem_mgis {
     return *ovalue;
   }  // end of extractFactoryArgument
 
+  std::optional<std::pair<std::string, Parameters>> getFactoryArgument(
+      Context& ctx, const Parameters& parameters, std::string_view n) noexcept {
+    const auto op = parameters.get(ctx, n);
+    if (isInvalid(op)) {
+      return {};
+    }
+    if (is<std::string>(*op)) {
+      const auto oname = get<std::string>(ctx, *op);
+      if (isInvalid(oname)) {
+        return {};
+      }
+      return std::pair<std::string, Parameters>{*oname, Parameters{}};
+    }
+    if (is<Parameters>(*op)) {
+      const auto oparams = get<Parameters>(ctx, *op);
+      if (isInvalid(oparams)) {
+        return {};
+      }
+      if (!contains(*oparams, "Name")) {
+        auto oa = extractFactoryArgument(ctx, *oparams);
+        if (isInvalid(oa)) {
+          return ctx.registerErrorMessage(
+              "invalid value of the parameter '" + std::string{n} +
+              "': expected a name, a dictionary with a unique entry "
+              "associating a name with options, or a dictionary with the "
+              "entries 'Name' and 'Options'");
+        }
+        return oa;
+      }
+      // `Name` and `Options`, as the preconditioners of the linear solvers
+      if (!checkParameters(ctx, *oparams,
+                           std::vector<std::string>{"Name", "Options"})) {
+        return {};
+      }
+      const auto oname = get<std::string>(ctx, *oparams, "Name");
+      const auto oopts =
+          get_if<Parameters>(ctx, *oparams, "Options", Parameters{});
+      if (isInvalid(oname) || isInvalid(oopts)) {
+        return {};
+      }
+      return std::pair<std::string, Parameters>{*oname, *oopts};
+    }
+    return ctx.registerErrorMessage(
+        "the parameter '" + std::string{n} +
+        "' must be a name or a dictionary associating a name with options");
+  }  // end of getFactoryArgument
+
   Parameters remove(const Parameters& parameters,
                     const std::vector<std::string>& names) noexcept {
     auto r = Parameters{};

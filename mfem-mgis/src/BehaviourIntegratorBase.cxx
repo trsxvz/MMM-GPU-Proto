@@ -872,7 +872,7 @@ namespace mfem_mgis {
 
   bool BehaviourIntegratorBase::integrateBatchOnDevice(
       const IntegrationType it) {
-    using StateArray = mfem_mgis::MaterialArrays::StateArray;
+    using StateArrayKind = mfem_mgis::MaterialArrays::StateArray;
     const auto orthotropic =
         this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
     const auto prediction =
@@ -900,7 +900,7 @@ namespace mfem_mgis {
       // arrays read by the behaviour (`Read`), which are not modified by it,
       // or read and written (`ReadWrite`)
       const auto relocateArray =
-          [&arrays](mgis::FieldView<real>& view, const StateArray a,
+          [&arrays](mgis::FieldView<real>& view, const StateArrayKind a,
                     const TimeStepStage s, const bool output) {
             const auto& array = arrays.getArray(a, s);
             auto* const p = output ? arrays.readWrite(a, s)
@@ -908,28 +908,28 @@ namespace mfem_mgis {
             view = relocate(view, p, array.Size());
           };
       for (const auto& [view, a] :
-           {std::pair{&v.s0.gradients, StateArray::GRADIENTS},
+           {std::pair{&v.s0.gradients, StateArrayKind::GRADIENTS},
             std::pair{&v.s0.thermodynamic_forces,
-                      StateArray::THERMODYNAMIC_FORCES},
+                      StateArrayKind::THERMODYNAMIC_FORCES},
             std::pair{&v.s0.internal_state_variables,
-                      StateArray::INTERNAL_STATE_VARIABLES},
-            std::pair{&v.s0.stored_energies, StateArray::STORED_ENERGIES},
+                      StateArrayKind::INTERNAL_STATE_VARIABLES},
+            std::pair{&v.s0.stored_energies, StateArrayKind::STORED_ENERGIES},
             std::pair{&v.s0.dissipated_energies,
-                      StateArray::DISSIPATED_ENERGIES}}) {
+                      StateArrayKind::DISSIPATED_ENERGIES}}) {
         relocateArray(*view, a, bts, false);
       }
       // the gradients at the end of the time step of an orthotropic behaviour
       // are rotated in place, as on the host
-      relocateArray(v.s1.gradients, StateArray::GRADIENTS, ets,
+      relocateArray(v.s1.gradients, StateArrayKind::GRADIENTS, ets,
                     orthotropic && !prediction);
       for (const auto& [view, a] :
            {std::pair{&v.s1.thermodynamic_forces,
-                      StateArray::THERMODYNAMIC_FORCES},
+                      StateArrayKind::THERMODYNAMIC_FORCES},
             std::pair{&v.s1.internal_state_variables,
-                      StateArray::INTERNAL_STATE_VARIABLES},
-            std::pair{&v.s1.stored_energies, StateArray::STORED_ENERGIES},
+                      StateArrayKind::INTERNAL_STATE_VARIABLES},
+            std::pair{&v.s1.stored_energies, StateArrayKind::STORED_ENERGIES},
             std::pair{&v.s1.dissipated_energies,
-                      StateArray::DISSIPATED_ENERGIES}}) {
+                      StateArrayKind::DISSIPATED_ENERGIES}}) {
         relocateArray(*view, a, ets, true);
       }
       if (tangent) {
@@ -1140,7 +1140,7 @@ namespace mfem_mgis {
   }  // end of cleanup
 
   void BehaviourIntegratorBase::copyStatesOnDevice(const bool u) {
-    using StateArray = mfem_mgis::MaterialArrays::StateArray;
+    using StateArrayKind = mfem_mgis::MaterialArrays::StateArray;
     auto& arrays = this->getArrays();
     // view of the arrays on the host, whose views of the states and of the
     // tangent operator blocks are replaced by views of the copies on the
@@ -1153,14 +1153,14 @@ namespace mfem_mgis {
       // beginning of the time step by an update, and conversely
       const auto output = (stage == bts) == u;
       for (const auto& [view, a] :
-           {std::pair{&(st->gradients), StateArray::GRADIENTS},
+           {std::pair{&(st->gradients), StateArrayKind::GRADIENTS},
             std::pair{&(st->thermodynamic_forces),
-                      StateArray::THERMODYNAMIC_FORCES},
+                      StateArrayKind::THERMODYNAMIC_FORCES},
             std::pair{&(st->internal_state_variables),
-                      StateArray::INTERNAL_STATE_VARIABLES},
-            std::pair{&(st->stored_energies), StateArray::STORED_ENERGIES},
+                      StateArrayKind::INTERNAL_STATE_VARIABLES},
+            std::pair{&(st->stored_energies), StateArrayKind::STORED_ENERGIES},
             std::pair{&(st->dissipated_energies),
-                      StateArray::DISSIPATED_ENERGIES}}) {
+                      StateArrayKind::DISSIPATED_ENERGIES}}) {
         const auto& array = arrays.getArray(a, stage);
         auto* const p =
             output ? arrays.write(a, stage) : const_cast<real*>(array.Read());
@@ -1202,9 +1202,9 @@ namespace mfem_mgis {
     // being invalid (see `MaterialArrays`). The tangent operator blocks, set
     // to zero, are set to zero on the host instead of being copied.
     for (const auto a :
-         {StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
-          StateArray::INTERNAL_STATE_VARIABLES, StateArray::STORED_ENERGIES,
-          StateArray::DISSIPATED_ENERGIES}) {
+         {StateArrayKind::GRADIENTS, StateArrayKind::THERMODYNAMIC_FORCES,
+          StateArrayKind::INTERNAL_STATE_VARIABLES, StateArrayKind::STORED_ENERGIES,
+          StateArrayKind::DISSIPATED_ENERGIES}) {
       for (const auto s : {bts, ets}) {
         this->synchronizeOnHost(a, s);
       }

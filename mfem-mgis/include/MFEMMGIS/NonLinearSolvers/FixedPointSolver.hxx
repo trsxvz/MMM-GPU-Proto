@@ -16,6 +16,7 @@
 #include "MFEMMGIS/LinearSolverHandler.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
+#include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
 
 namespace mfem_mgis {
 
@@ -83,7 +84,15 @@ namespace mfem_mgis {
    * operator: `GMRESSolver` or `BiCGSTABSolver` are suited to the other
    * ones (for instance non associated behaviours). The warnings of the
    * iterative solvers (for instance an operator which is not positive
-   * definite) are printed with a positive `VerbosityLevel`.
+   * definite) are printed if their `VerbosityLevel` is given (0: warnings
+   * and errors, 1: each iteration).
+   *
+   * Relative tolerance of the iterative solver of the tangent operator of
+   * the `NewtonK0` method adapted to the decrease of the residual (inexact
+   * Newton method, option `AdaptiveLinearSolverTolerance`, see
+   * `AdaptiveLinearSolverTolerance`): refused with the other methods. The
+   * tolerance given by `TangentLinearSolver` is restored at the end of each
+   * resolution.
    *
    * Linear solver of the elastic prediction of the problem (option
    * `PredictionLinearSolver`): `Problem` (default), the linear solver of
@@ -185,6 +194,8 @@ namespace mfem_mgis {
         generate_linear_solver;
     //! \brief method
     Method method = Method::ELASTIC_OPERATOR;
+    //! \brief relative tolerance of the solver of the tangent operator
+    AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
     //! \brief if true, the elastic operator is assembled once
     bool elastic_operator_assembled_once = false;
     /*!

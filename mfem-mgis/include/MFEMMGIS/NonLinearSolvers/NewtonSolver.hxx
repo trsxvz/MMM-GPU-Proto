@@ -13,6 +13,7 @@
 #include <functional>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
+#include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
 
 namespace mfem_mgis {
 
@@ -20,7 +21,15 @@ namespace mfem_mgis {
   template <bool parallel>
   struct NonLinearEvolutionProblemImplementation;
 
-  //! \brief custom implementation of the Newton Solver
+  /*!
+   * \brief custom implementation of the Newton Solver
+   *
+   * Options: the ones of the iterative solvers (`RelativeTolerance`,
+   * `AbsoluteTolerance`, `MaximumNumberOfIterations`, `VerbosityLevel`),
+   * `DiscardLinearSolverFailure` and `AdaptiveLinearSolverTolerance`
+   * (relative tolerance of the iterative linear solver adapted to the
+   * decrease of the residual, see `AdaptiveLinearSolverTolerance`).
+   */
   struct MFEM_MGIS_EXPORT NewtonSolver : public NonLinearSolverBase {
 #ifdef MFEM_USE_MPI
     /*!
@@ -40,6 +49,8 @@ namespace mfem_mgis {
      * \param[in, out] x: initial guess, then solution
      */
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
+    [[nodiscard]] bool setSolverParameters(Context&,
+                                           const Parameters&) noexcept override;
     //! \brief destructor
     ~NewtonSolver() override;
 
@@ -49,11 +60,17 @@ namespace mfem_mgis {
      * \param[out] c: opposite of the Newton correction
      * \param[in] r: residual
      * \param[in] u: current estimate of the unknowns
+     * \param[in, out] t: adaptive tolerance of the linear solver, if any,
+     * given the norm of the residual of the linear solve if required
      * \return true on success
      */
-    virtual bool computeNewtonCorrection(mfem::Vector& c,
-                                         const mfem::Vector& r,
-                                         const mfem::Vector& u) const noexcept;
+    virtual bool computeNewtonCorrection(
+        mfem::Vector& c,
+        const mfem::Vector& r,
+        const mfem::Vector& u,
+        AdaptiveLinearSolverToleranceUpdater* const t) const noexcept;
+    //! \brief relative tolerance of the linear solver
+    AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
   };  // end of struct NewtonSolver
 
 }  // end of namespace mfem_mgis

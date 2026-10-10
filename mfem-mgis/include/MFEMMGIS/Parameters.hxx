@@ -307,6 +307,19 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT std::pair<std::string, Parameters> extractFactoryArgument(
       attributes::Throwing throwing, const Parameters& parameters);
   /*!
+   * \return the name and the options of an object built by a factory, given
+   * by a parameter: a name, a dictionary with a unique entry associating
+   * the name with the options (see `extractFactoryArgument`), or a
+   * dictionary with the entries `Name` and `Options` (optional)
+   * \param[in, out] ctx: execution context
+   * \param[in] parameters: parameters
+   * \param[in] n: name of the parameter
+   */
+  MFEM_MGIS_EXPORT std::optional<std::pair<std::string, Parameters>>
+  getFactoryArgument(Context& ctx,
+                     const Parameters& parameters,
+                     std::string_view n) noexcept;
+  /*!
    * \brief remove the given parameters if they exist
    * \param[in] parameters: parameters
    * \param[in] names: list of parameters names to be removed

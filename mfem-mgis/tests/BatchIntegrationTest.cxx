@@ -211,11 +211,11 @@ static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
                            std::ranges::equal(m.s0.internal_state_variables,
                                               m.s1.internal_state_variables);
   check(same_states, name + ": different states after an update or a revert");
-  check(
-      std::ranges::all_of(m.K, [](const mfem_mgis::real v) { return v == 0; }),
-      name +
-          ": tangent operator blocks not null after an update or a "
-          "revert");
+  check(std::ranges::all_of(
+            m.K, [](const mfem_mgis::real v) noexcept { return v == 0; }),
+        name +
+            ": tangent operator blocks not null after an update or a "
+            "revert");
 }  // end of checkStatesAfterUpdateOrRevert
 
 /*!
@@ -413,14 +413,14 @@ static Results compute(mfem_mgis::Context& ctx,
     problem.addBoundaryCondition(
         ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
                  problem.getFiniteElementDiscretizationPointer(), "Xmax",
-                 [](const real t) { return -450e6 * t; })) |
+                 [](const real t) noexcept { return -450e6 * t; })) |
         or_die;
   } else {
     problem.addUniformDirichletBoundaryCondition(
         ctx, {{"Boundary", "Xmax"},
               {"Component", 0},
               {"LoadingEvolution",
-               [](const real t) {
+               [](const real t) noexcept {
                  // tension then compression
                  return t < 0.5 ? 2e-2 * t : 1e-2 - 3e-2 * (t - 0.5);
                }}}) |
@@ -487,9 +487,10 @@ static Results compute(mfem_mgis::Context& ctx,
       const auto* const pv = p.HostRead();
       // the prediction of the first time step is not null: the unknowns
       // are not reverted by the failed resolution
-      check((i != 0) || std::any_of(pv, pv + p.Size(),
-                                    [](const real v) { return v != 0; }),
-            name + ": null prediction");
+      check(
+          (i != 0) || std::any_of(pv, pv + p.Size(),
+                                  [](const real v) noexcept { return v != 0; }),
+          name + ": null prediction");
       r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
       problem.revert(ctx) | or_die;
       checkStatesAfterUpdateOrRevert(m, name);
@@ -523,11 +524,11 @@ static Results compute(mfem_mgis::Context& ctx,
     checkStatesAfterUpdateOrRevert(m, name);
     if (opts.write_after_update && (i == 0)) {
       // direct write in the state, valid on the host after an update
-      const auto o = mgis::behaviour::getVariableOffset(
+      const auto offset = mgis::behaviour::getVariableOffset(
           m.b.isvs, "EquivalentPlasticStrain", m.b.hypothesis);
       const auto stride = m.s0.internal_state_variables_stride;
       for (size_type p = 0; p != static_cast<size_type>(m.n); ++p) {
-        m.s0.internal_state_variables[p * stride + o] += 1e-2;
+        m.s0.internal_state_variables[p * stride + offset] += 1e-2;
       }
     }
     t += dt;
@@ -878,7 +879,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
   problem.addBoundaryCondition(
       ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
                problem.getFiniteElementDiscretizationPointer(), "Xmax",
-               [](const real t) { return -1e8 * t; })) |
+               [](const real t) noexcept { return -1e8 * t; })) |
       or_die;
   problem.setLinearSolver(
       ctx, "CGSolver",

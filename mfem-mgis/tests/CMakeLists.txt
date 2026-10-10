@@ -850,6 +850,18 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
+  # iterative linear solvers adapted to the decrease of the residual
+  add_test_executable(AdaptiveLinearSolverToleranceTest)
+  add_test(NAME AdaptiveLinearSolverToleranceTest
+           COMMAND AdaptiveLinearSolverToleranceTest)
+  if(MFEM_USE_MPI)
+    add_test(NAME AdaptiveLinearSolverToleranceTestP
+             COMMAND mpirun -n 2 ./AdaptiveLinearSolverToleranceTest)
+    set_tests_properties(AdaptiveLinearSolverToleranceTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+
   # FixedPointSolverTest executable: fixed point solver (methods,
   # accelerations, linear solvers of the elastic operator) compared to the
   # Newton solver

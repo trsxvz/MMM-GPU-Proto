@@ -82,7 +82,7 @@ namespace mfem_mgis {
    *   default), `Residuals` (`Unknowns`, by default, the fixed point
    *   residuals, or `Forces`, the residuals of the problem) and
    *   `Regularization` (relative regularization of the least squares
-   *   problem, 1e-12 by default);
+   *   problem, at least 1e-14, 1e-12 by default);
    * - `UAnderson` and `FAnderson`: Anderson's method on the fixed point
    *   residuals and on the residuals of the problem, accelerating every two
    *   iterations by default, as MTest (same options as `Anderson`, except

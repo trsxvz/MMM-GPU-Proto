@@ -60,6 +60,7 @@ list(APPEND MFEMMGIS_SOURCES
   Cast3MAccelerationAlgorithm.cxx
   SecantAccelerationAlgorithms.cxx
   FixedPointSolver.cxx
+  AdaptiveLinearSolverTolerance.cxx
   AnalyticalTests.cxx
   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx

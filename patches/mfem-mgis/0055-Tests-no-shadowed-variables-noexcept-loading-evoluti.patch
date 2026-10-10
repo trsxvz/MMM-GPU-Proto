@@ -1,0 +1,115 @@
+From 26ef89174a48569a6e257305f2bf26453d6b89a5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 04:13:24 +0200
+Subject: [PATCH] Tests: no shadowed variables, noexcept loading evolutions
+
+Warnings of BatchIntegrationTest and GradientsKernelsTest (-Wshadow,
+-Wnoexcept).
+---
+ tests/BatchIntegrationTest.cxx | 27 ++++++++++++++-------------
+ tests/GradientsKernelsTest.cxx | 12 ++++++------
+ 2 files changed, 20 insertions(+), 19 deletions(-)
+
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index dc2c86cf04..b50d57dd25 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -211,11 +211,11 @@ static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
+                            std::ranges::equal(m.s0.internal_state_variables,
+                                               m.s1.internal_state_variables);
+   check(same_states, name + ": different states after an update or a revert");
+-  check(
+-      std::ranges::all_of(m.K, [](const mfem_mgis::real v) { return v == 0; }),
+-      name +
+-          ": tangent operator blocks not null after an update or a "
+-          "revert");
++  check(std::ranges::all_of(
++            m.K, [](const mfem_mgis::real v) noexcept { return v == 0; }),
++        name +
++            ": tangent operator blocks not null after an update or a "
++            "revert");
+ }  // end of checkStatesAfterUpdateOrRevert
+ 
+ /*!
+@@ -413,14 +413,14 @@ static Results compute(mfem_mgis::Context& ctx,
+     problem.addBoundaryCondition(
+         ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
+                  problem.getFiniteElementDiscretizationPointer(), "Xmax",
+-                 [](const real t) { return -450e6 * t; })) |
++                 [](const real t) noexcept { return -450e6 * t; })) |
+         or_die;
+   } else {
+     problem.addUniformDirichletBoundaryCondition(
+         ctx, {{"Boundary", "Xmax"},
+               {"Component", 0},
+               {"LoadingEvolution",
+-               [](const real t) {
++               [](const real t) noexcept {
+                  // tension then compression
+                  return t < 0.5 ? 2e-2 * t : 1e-2 - 3e-2 * (t - 0.5);
+                }}}) |
+@@ -487,9 +487,10 @@ static Results compute(mfem_mgis::Context& ctx,
+       const auto* const pv = p.HostRead();
+       // the prediction of the first time step is not null: the unknowns
+       // are not reverted by the failed resolution
+-      check((i != 0) || std::any_of(pv, pv + p.Size(),
+-                                    [](const real v) { return v != 0; }),
+-            name + ": null prediction");
++      check(
++          (i != 0) || std::any_of(pv, pv + p.Size(),
++                                  [](const real v) noexcept { return v != 0; }),
++          name + ": null prediction");
+       r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
+       problem.revert(ctx) | or_die;
+       checkStatesAfterUpdateOrRevert(m, name);
+@@ -523,11 +524,11 @@ static Results compute(mfem_mgis::Context& ctx,
+     checkStatesAfterUpdateOrRevert(m, name);
+     if (opts.write_after_update && (i == 0)) {
+       // direct write in the state, valid on the host after an update
+-      const auto o = mgis::behaviour::getVariableOffset(
++      const auto offset = mgis::behaviour::getVariableOffset(
+           m.b.isvs, "EquivalentPlasticStrain", m.b.hypothesis);
+       const auto stride = m.s0.internal_state_variables_stride;
+       for (size_type p = 0; p != static_cast<size_type>(m.n); ++p) {
+-        m.s0.internal_state_variables[p * stride + o] += 1e-2;
++        m.s0.internal_state_variables[p * stride + offset] += 1e-2;
+       }
+     }
+     t += dt;
+@@ -878,7 +879,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+   problem.addBoundaryCondition(
+       ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
+                problem.getFiniteElementDiscretizationPointer(), "Xmax",
+-               [](const real t) { return -1e8 * t; })) |
++               [](const real t) noexcept { return -1e8 * t; })) |
+       or_die;
+   problem.setLinearSolver(
+       ctx, "CGSolver",
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 073ca27b59..61cda5e444 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -193,14 +193,14 @@ static void testCase(mfem_mgis::Context& ctx,
+       mat.s1.thermodynamic_forces[i] = std::sin(real(i));
+     }
+     const auto& g = geometry[r];
+-    auto f = mfem::Vector{};
+-    f.UseDevice(true);
+-    f.SetSize(g.nd * dim * g.ne);
+-    f = real{0};
+-    check(bi.addInnerForcesByKernels(ctx, f, geometry),
++    auto forces = mfem::Vector{};
++    forces.UseDevice(true);
++    forces.SetSize(g.nd * dim * g.ne);
++    forces = real{0};
++    check(bi.addInnerForcesByKernels(ctx, forces, geometry),
+           name + ": computation of the inner forces by kernels (" +
+               ctx.getErrorMessage() + ")");
+-    const auto* const fv = f.HostRead();
++    const auto* const fv = forces.HostRead();
+     // the kernels read the thermodynamic forces on the device: phase of
+     // read-only accesses on the host (see `MaterialArrays`)
+     mat.synchronizeOnHostForReading();
+-- 
+2.43.0
+

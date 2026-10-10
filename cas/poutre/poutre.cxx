@@ -64,6 +64,7 @@ int main(int argc, char** argv) {
   const char* non_linear_solver = "newton";
   const char* fixed_point_method = "elastic";
   const char* tangent_linear_solver = "CGSolver";
+  const char* adaptive_linear_solver_tolerance = "None";
   const char* acceleration = "anderson";
   const char* elastic_operator_linear_solver = "problem";
   const char* amg_options = "";
@@ -80,6 +81,7 @@ int main(int argc, char** argv) {
   auto displacement = real{0.5};
   auto relative_tolerance = real{1e-8};
   auto linear_tolerance = real{1e-10};
+  auto adaptive_initial_tolerance = real{-1};
   auto expected_norm = real{-1};
   auto norm_tolerance = real{1e-6};
   mfem::OptionsParser args(argc, argv);
@@ -137,6 +139,17 @@ int main(int argc, char** argv) {
                  "as Name=value separated by commas (see the HypreBoomerAMG "
                  "preconditioner of mfem-mgis), for instance "
                  "RelaxationType=8,StrengthThreshold=0.5.");
+  args.AddOption(&adaptive_linear_solver_tolerance, "-alst",
+                 "--adaptive-linear-solver-tolerance",
+                 "Relative tolerance of the iterative linear solver of the "
+                 "Newton methods (newton, newton-k0) adapted to the decrease "
+                 "of the residual: None (the tolerance -lt is kept), "
+                 "EisenstatWalker1 or EisenstatWalker2.");
+  args.AddOption(&adaptive_initial_tolerance, "-alsti",
+                 "--adaptive-linear-solver-initial-tolerance",
+                 "Initial tolerance of the adaptive tolerance of the linear "
+                 "solver (-alst), the default one of mfem-mgis if "
+                 "negative.");
   args.AddOption(&linear_tolerance, "-lt", "--linear-tolerance",
                  "Relative tolerance of the iterative linear solver.");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
@@ -348,12 +361,24 @@ int main(int argc, char** argv) {
       std::cerr << "invalid linear solver '" << ls << "'\n";
       abort(EXIT_FAILURE);
     }
-    problem.setSolverParameters(
-        ctx, {{"VerbosityLevel", 0},
-              {"RelativeTolerance", relative_tolerance},
-              {"AbsoluteTolerance", 0.},
-              {"MaximumNumberOfIterations", max_iterations}}) |
-        or_die;
+    auto solver_parameters =
+        Parameters{{"VerbosityLevel", 0},
+                   {"RelativeTolerance", relative_tolerance},
+                   {"AbsoluteTolerance", 0.},
+                   {"MaximumNumberOfIterations", max_iterations}};
+    if (std::string_view{adaptive_linear_solver_tolerance} != "None") {
+      auto adaptive_options = Parameters{};
+      if (adaptive_initial_tolerance > 0) {
+        adaptive_options.insert(ctx, "InitialTolerance",
+                                adaptive_initial_tolerance) |
+            or_die;
+      }
+      solver_parameters.insert(
+          ctx, "AdaptiveLinearSolverTolerance",
+          Parameters{{adaptive_linear_solver_tolerance, adaptive_options}}) |
+          or_die;
+    }
+    problem.setSolverParameters(ctx, solver_parameters) | or_die;
     // loop over the time steps
     const auto dt = real{1} / steps;
     auto t = real{0};

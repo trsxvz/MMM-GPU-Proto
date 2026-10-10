@@ -524,12 +524,16 @@ namespace mfem_mgis {
         return registerExceptionInErrorBacktrace(ctx);
       }
     } else {
+      // diagonal set to one at the essential degrees of freedom, as in
+      // parallel and with the kernels (the sequential bilinear forms of MFEM
+      // keep the diagonal of the stiffness by default): an iterative linear
+      // solver preconditioned by the elastic operator, whose diagonal is set
+      // to one, converges in one iteration
+      a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
       a.FormLinearSystem(edofs_list, *mdu, b, A, X, B);
     }
     // the essential degrees of freedom are excluded from the norm: the
-    // residual of the non linear solver is null for them, and their values in
-    // B depend on the diagonal policy (the diagonal of the stiffness in
-    // sequential, one in parallel and with the kernels)
+    // residual of the non linear solver is null for them
     const auto norm = [&B, &fespace, &essential_dofs] {
       auto r = B;
       auto* const rv = r.HostReadWrite();

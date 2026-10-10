@@ -6,7 +6,10 @@
  */
 
 #include <array>
+#include <string>
+#include <vector>
 #include <iomanip>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include "MFEMMGIS/Parameters.hxx"
@@ -52,8 +55,14 @@ namespace mfem_mgis {
                 "the Solver is not set (use setLinearSolver).");
     //
     this->iterations_information.clear();
-    auto add_to_iterations_information = [this](Parameters &iteration,
-                                                const bool ls_cv) {
+    // relative tolerance of the last linear solve, if adapted, and norm of
+    // its residual, if computed (see `AdaptiveLinearSolverTolerance`)
+    auto linear_solver_tolerance = std::optional<real>{};
+    auto linear_residual_norm = std::optional<real>{};
+    auto add_to_iterations_information = [this, &linear_solver_tolerance,
+                                          &linear_residual_norm](
+                                             Parameters& iteration,
+                                             const bool ls_cv) {
       auto linear_solver_iterations =
           getNumberOfIterationsAtConvergence(*(this->prec));
       if (isValid(linear_solver_iterations)) {
@@ -61,6 +70,12 @@ namespace mfem_mgis {
         ls.replaceOrInsert("NumberOfIterations",
                            linear_solver_iterations.value());
         ls.replaceOrInsert("HasConverged", ls_cv);
+        if (linear_solver_tolerance.has_value()) {
+          ls.replaceOrInsert("RelativeTolerance", *linear_solver_tolerance);
+        }
+        if (linear_residual_norm.has_value()) {
+          ls.replaceOrInsert("ResidualNorm", *linear_residual_norm);
+        }
         iteration.replaceOrInsert("LinearSolver", ls);
       }
       this->iterations_information.push_back(iteration);
@@ -85,6 +100,23 @@ namespace mfem_mgis {
 
     this->final_iter = size_type{};
     this->final_norm = std::numeric_limits<real>::max();
+
+    // relative tolerance of the linear solver adapted to the decrease of the
+    // residual, restored at the end of the resolution
+    auto adaptive_tolerance =
+        std::optional<AdaptiveLinearSolverToleranceUpdater>{};
+    if (this->adaptive_linear_solver_tolerance.isEnabled()) {
+      const auto created =
+          this->callAndHandleFailures([this, &adaptive_tolerance] {
+            adaptive_tolerance.emplace(this->adaptive_linear_solver_tolerance,
+                                       *(this->prec));
+            return true;
+          });
+      if (!created) {
+        this->converged = 0;
+        return;
+      }
+    }
 
     if (!this->processNewUnknownsEstimate(x)) {
       this->converged = 0;
@@ -129,7 +161,22 @@ namespace mfem_mgis {
         break;
       }
       //
-      if (!this->computeNewtonCorrection(c, r, x)) {
+      if (adaptive_tolerance.has_value()) {
+        linear_solver_tolerance =
+            adaptive_tolerance->update(it, norm, norm_goal);
+        if (shall_print) {
+          log << "Newton iteration " << std::setw(2) << it
+              << " : relative tolerance of the linear solver "
+              << *linear_solver_tolerance << '\n';
+        }
+      }
+      auto* const t =
+          adaptive_tolerance.has_value() ? &(*adaptive_tolerance) : nullptr;
+      const auto corrected = this->computeNewtonCorrection(c, r, x, t);
+      if (t != nullptr) {
+        linear_residual_norm = t->getLinearResidualNorm();
+      }
+      if (!corrected) {
         auto iteration = Parameters{};
         add_to_iterations_information(iteration,
                                       false);  // Reaching this line means the
@@ -205,10 +252,31 @@ namespace mfem_mgis {
     }
   }  // end of Mult
 
+  bool NewtonSolver::setSolverParameters(Context& ctx,
+                                         const Parameters& params) noexcept {
+    // the options are read before being applied
+    auto t = this->adaptive_linear_solver_tolerance;
+    if (contains(params, "AdaptiveLinearSolverTolerance")) {
+      const auto ot = AdaptiveLinearSolverTolerance::read(ctx, params);
+      if (isInvalid(ot)) {
+        return false;
+      }
+      t = *ot;
+    }
+    const auto others = remove(
+        params, std::vector<std::string>{"AdaptiveLinearSolverTolerance"});
+    if (!NonLinearSolverBase::setSolverParameters(ctx, others)) {
+      return false;
+    }
+    this->adaptive_linear_solver_tolerance = t;
+    return true;
+  }  // end of setSolverParameters
+
   bool NewtonSolver::computeNewtonCorrection(
-      mfem::Vector &c,
-      const mfem::Vector &r,
-      const mfem::Vector &u) const noexcept {
+      mfem::Vector& c,
+      const mfem::Vector& r,
+      const mfem::Vector& u,
+      AdaptiveLinearSolverToleranceUpdater* const t) const noexcept {
     auto profiler = this->ctx_ptr != nullptr
                         ? this->ctx_ptr->startNewProfiling(
                               "NS::computeNewtonCorrection",
@@ -223,8 +291,8 @@ namespace mfem_mgis {
     // The failures reported on all the processes, for instance by the
     // computations by kernels, make the computation of the correction fail
     // (see `callAndHandleFailures`).
-    const auto success = this->callAndHandleFailures([this, &c, &r, &u] {
-      auto &J = this->getJacobian(u);
+    const auto success = this->callAndHandleFailures([this, &c, &r, &u, t] {
+      auto& J = this->getJacobian(u);
       {
         auto profiler_setup = this->ctx_ptr != nullptr
                                   ? this->ctx_ptr->startNewProfiling(
@@ -239,6 +307,14 @@ namespace mfem_mgis {
                     "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
               : mgis::ProfilingSection{};
       this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
+      if ((t != nullptr) && (t->requiresLinearResidualNorm())) {
+        // norm of the residual of the linear solve, J c - r
+        auto lr = mfem::Vector(r.Size());
+        lr.UseDevice(true);
+        J.Mult(c, lr);
+        lr -= r;
+        t->setLinearResidualNorm(this->Norm(lr));
+      }
       return true;
     });
     if (!success) {

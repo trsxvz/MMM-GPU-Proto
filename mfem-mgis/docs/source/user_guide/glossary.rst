@@ -174,7 +174,8 @@ Flexible Generalized Minimal Residual (FGMRES)
 - Dependencies: None
 - Parameters: the ones of ``GMRESSolver``. Unlike GMRES, FGMRES allows a
   preconditioner which changes from one iteration to the next, for instance
-  an iterative solver with a tolerance.
+  with the ``NewtonK0`` method of the fixed point solver, when the linear
+  solver of the elastic operator is an iterative solver with a tolerance.
 
 **Example:**
 

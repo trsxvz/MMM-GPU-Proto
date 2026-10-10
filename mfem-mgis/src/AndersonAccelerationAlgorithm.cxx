@@ -209,7 +209,7 @@ namespace mfem_mgis::internals {
     // equations shall be above the rounding errors of its terms
     if (*oregularization < 1e-14) {
       return ctx.registerErrorMessage(
-          name + ": the regularization must be greater than 1e-14");
+          name + ": the regularization must be at least 1e-14");
     }
     if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
       return ctx.registerErrorMessage(name + ": invalid residuals '" +

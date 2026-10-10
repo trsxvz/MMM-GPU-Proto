@@ -44,7 +44,7 @@ plusieurs lignes.
 | Point fixe accéléré par Anderson | les deux | 9 | mfem-mgis, KINSOL |
 | Ajout : assemblage de la matrice tangente globale sur GPU (option c sur GPU), motif creux et matrice hypre réutilisés d'une itération à l'autre | les deux | 9 | mfem-mgis, hypre (IJ sur GPU), MFEM |
 | Ajout : choix de la règle d'intégration (8 points au lieu de 27 sur l'hexaèdre d'ordre 1) | les deux | 8 | mfem-mgis |
-| Newton inexact (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol` de MFEM) | les deux | 8 | à écrire dans le Newton de mfem-mgis (celui de MFEM n'est pas utilisé) |
+| Newton inexact (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol` de MFEM) | les deux | 8 | fait dans le Newton de mfem-mgis et la méthode `NewtonK0` (option `AdaptiveLinearSolverTolerance`) |
 | Lisseurs sans matrice Jacobi et Chebyshev sur la diagonale (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), indispensables à l'option a entièrement sans matrice | les deux | 8 | MFEM |
 | Ajout : Jacobi par blocs nodaux 3×3 sans matrice (diagonale par blocs de la tangente) | les deux | 7 | mfem-mgis, comme la mini-application `hooke` de MFEM |
 | Ajout : l1-Jacobi « en valeur absolue » sans matrice | les deux | 5 | MFEM 4.9, `miniapps/diag-smoothers` |

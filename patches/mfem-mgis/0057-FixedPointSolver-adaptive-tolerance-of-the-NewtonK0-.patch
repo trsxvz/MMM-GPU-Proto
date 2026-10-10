@@ -1,0 +1,505 @@
+From 517c0c0b08175b49cc915e28914be23b31c7a141 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 04:29:15 +0200
+Subject: [PATCH] FixedPointSolver: adaptive tolerance of the NewtonK0 method
+
+The option AdaptiveLinearSolverTolerance (Eisenstat and Walker) applies to
+the iterative solver of the tangent operator of the NewtonK0 method, whose
+tolerance given by TangentLinearSolver is restored at the end of each
+resolution; it is refused with the other methods. On the cube of the
+test, 36 iterations of the conjugate gradient instead of 118 to 135, 12
+Newton iterations instead of 8.
+
+The norm of the residual of the linear solves (first choice of Eisenstat
+and Walker) is added to the iterations information (ResidualNorm), in the
+Newton solver and in the fixed point solver, and checked by the test: the
+mutation which does not compute it is now detected, as the ones which do
+not set the tolerance, do not restore it or do not refuse it.
+---
+ .../AdaptiveLinearSolverTolerance.hxx         |   9 +-
+ .../NonLinearSolvers/FixedPointSolver.hxx     |  10 ++
+ src/AdaptiveLinearSolverTolerance.cxx         |   9 +-
+ src/FixedPointSolver.cxx                      | 126 +++++++++++++-----
+ src/NewtonSolver.cxx                          |  16 ++-
+ tests/FixedPointSolverTest.cxx                |  78 +++++++++--
+ 6 files changed, 200 insertions(+), 48 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+index 50a1a83293..00ace33434 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+@@ -116,6 +116,11 @@ namespace mfem_mgis {
+      * \param[in] n: norm
+      */
+     void setLinearResidualNorm(const real) noexcept;
++    /*!
++     * \return the norm of the residual of the last linear solve, if set
++     * since the last update of the tolerance
++     */
++    [[nodiscard]] std::optional<real> getLinearResidualNorm() const noexcept;
+     //! \brief destructor, restoring the initial tolerance
+     ~AdaptiveLinearSolverToleranceUpdater() noexcept;
+ 
+@@ -128,8 +133,8 @@ namespace mfem_mgis {
+     const real initial_tolerance;
+     //! \brief norm of the residual at the previous iteration
+     real previous_norm = 0;
+-    //! \brief norm of the residual of the previous linear solve
+-    real linear_residual_norm = 0;
++    //! \brief norm of the residual of the previous linear solve, if set
++    std::optional<real> linear_residual_norm;
+     //! \brief previous tolerance
+     real previous_tolerance = 0;
+   };  // end of struct AdaptiveLinearSolverToleranceUpdater
+diff --git a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+index db00846176..08eb8d6591 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+@@ -16,6 +16,7 @@
+ #include "MFEMMGIS/LinearSolverHandler.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
++#include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -86,6 +87,13 @@ namespace mfem_mgis {
+    * definite) are printed if their `VerbosityLevel` is given (0: warnings
+    * and errors, 1: each iteration).
+    *
++   * Relative tolerance of the iterative solver of the tangent operator of
++   * the `NewtonK0` method adapted to the decrease of the residual (inexact
++   * Newton method, option `AdaptiveLinearSolverTolerance`, see
++   * `AdaptiveLinearSolverTolerance`): refused with the other methods. The
++   * tolerance given by `TangentLinearSolver` is restored at the end of each
++   * resolution.
++   *
+    * Linear solver of the elastic prediction of the problem (option
+    * `PredictionLinearSolver`): `Problem` (default), the linear solver of
+    * the problem, or an iterative solver of MFEM preconditioned by the
+@@ -186,6 +194,8 @@ namespace mfem_mgis {
+         generate_linear_solver;
+     //! \brief method
+     Method method = Method::ELASTIC_OPERATOR;
++    //! \brief relative tolerance of the solver of the tangent operator
++    AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
+     //! \brief if true, the elastic operator is assembled once
+     bool elastic_operator_assembled_once = false;
+     /*!
+diff --git a/src/AdaptiveLinearSolverTolerance.cxx b/src/AdaptiveLinearSolverTolerance.cxx
+index b347cdccdb..abfd1b47c3 100644
+--- a/src/AdaptiveLinearSolverTolerance.cxx
++++ b/src/AdaptiveLinearSolverTolerance.cxx
+@@ -118,7 +118,8 @@ namespace mfem_mgis {
+     if ((i != 0) && (this->previous_norm > 0)) {
+       if (o.method ==
+           AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1) {
+-        eta = std::abs(norm - this->linear_residual_norm) / this->previous_norm;
++        eta = std::abs(norm - this->linear_residual_norm.value_or(real{0})) /
++              this->previous_norm;
+       } else {
+         eta = o.gamma * std::pow(norm / this->previous_norm, o.alpha);
+       }
+@@ -138,6 +139,7 @@ namespace mfem_mgis {
+     std::ignore = setRelativeTolerance(this->linear_solver, eta);
+     this->previous_norm = norm;
+     this->previous_tolerance = eta;
++    this->linear_residual_norm.reset();
+     return eta;
+   }  // end of update
+ 
+@@ -152,6 +154,11 @@ namespace mfem_mgis {
+     this->linear_residual_norm = n;
+   }  // end of setLinearResidualNorm
+ 
++  std::optional<real>
++  AdaptiveLinearSolverToleranceUpdater::getLinearResidualNorm() const noexcept {
++    return this->linear_residual_norm;
++  }  // end of getLinearResidualNorm
++
+   AdaptiveLinearSolverToleranceUpdater::
+       ~AdaptiveLinearSolverToleranceUpdater() noexcept {
+     std::ignore =
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index 4fe49eead7..05e2bffed3 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -128,13 +128,15 @@ namespace mfem_mgis {
+ 
+   bool FixedPointSolver::setSolverParameters(
+       Context& ctx, const Parameters& params) noexcept {
+-    const auto options = std::vector<std::string>{"Method",
+-                                                  "ElasticOperatorComputation",
+-                                                  "ElasticOperatorUpdate",
+-                                                  "ElasticOperatorLinearSolver",
+-                                                  "Acceleration",
+-                                                  "PredictionLinearSolver",
+-                                                  "TangentLinearSolver"};
++    const auto options =
++        std::vector<std::string>{"Method",
++                                 "ElasticOperatorComputation",
++                                 "ElasticOperatorUpdate",
++                                 "ElasticOperatorLinearSolver",
++                                 "Acceleration",
++                                 "PredictionLinearSolver",
++                                 "TangentLinearSolver",
++                                 "AdaptiveLinearSolverTolerance"};
+     auto others = Parameters{};
+     for (const auto& [k, v] : params) {
+       if (std::find(options.begin(), options.end(), k) == options.end()) {
+@@ -291,6 +293,21 @@ namespace mfem_mgis {
+       }
+       new_tangent = std::move(s);
+     }
++    auto new_adaptive_tolerance = this->adaptive_linear_solver_tolerance;
++    if (contains(params, "AdaptiveLinearSolverTolerance")) {
++      const auto ot = AdaptiveLinearSolverTolerance::read(ctx, params);
++      if (isInvalid(ot)) {
++        return false;
++      }
++      new_adaptive_tolerance = *ot;
++    }
++    if ((new_method != Method::NEWTON_K0) &&
++        (new_adaptive_tolerance.isEnabled())) {
++      return ctx.registerErrorMessage(
++          "FixedPointSolver: the adaptive tolerance of the linear solver "
++          "(option 'AdaptiveLinearSolverTolerance') is only used by the "
++          "'NewtonK0' method");
++    }
+     const auto has_linear_solver =
+         (!remove_linear_solver) &&
+         (new_linear_solver.has_value() ||
+@@ -334,6 +351,7 @@ namespace mfem_mgis {
+       this->elastic_operator.reset();
+     }
+     this->method = new_method;
++    this->adaptive_linear_solver_tolerance = new_adaptive_tolerance;
+     this->elastic_operator_by_integration = new_by_integration;
+     this->elastic_operator_assembled_once = new_once;
+     if (new_linear_solver.has_value()) {
+@@ -526,13 +544,24 @@ namespace mfem_mgis {
+             ? IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR
+             : IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
+     auto* solver_ptr = static_cast<mfem::Solver*>(nullptr);
++    // relative tolerance of the iterative solver of the tangent operator
++    // adapted to the decrease of the residual (`NewtonK0`), restored at the
++    // end of the resolution
++    auto adaptive_tolerance =
++        std::optional<AdaptiveLinearSolverToleranceUpdater>{};
+     const auto initialized = this->callAndHandleFailures([this, &x, it_type,
+-                                                          &solver_ptr] {
++                                                          &solver_ptr,
++                                                          &adaptive_tolerance] {
+       if (this->method != Method::MODIFIED_NEWTON) {
+         if (!(this->setElasticOperator(x) && this->integrate(x, it_type))) {
+           return false;
+         }
+         solver_ptr = &(this->getCorrectionSolver());
++        if ((this->method == Method::NEWTON_K0) &&
++            (this->adaptive_linear_solver_tolerance.isEnabled())) {
++          adaptive_tolerance.emplace(this->adaptive_linear_solver_tolerance,
++                                     *solver_ptr);
++        }
+         return true;
+       }
+       if (!this->integrate(
+@@ -587,9 +616,14 @@ namespace mfem_mgis {
+     // scale of the variations of the unknowns at convergence, estimated
+     // from the first correction (see `AccelerationAlgorithm::execute`)
+     auto unknowns_scale = real{};
++    // relative tolerance of the last linear solve, if adapted, and norm of
++    // its residual, if computed (see `AdaptiveLinearSolverTolerance`)
++    auto linear_solver_tolerance = std::optional<real>{};
++    auto linear_residual_norm = std::optional<real>{};
+     // information on an iteration (see `NewtonSolver`)
+-    auto add_iteration_information = [this, &solver](const real nr,
+-                                                     const bool ls_cv) {
++    auto add_iteration_information = [this, &solver, &linear_solver_tolerance,
++                                      &linear_residual_norm](const real nr,
++                                                             const bool ls_cv) {
+       auto iteration = Parameters{};
+       iteration.replaceOrInsert("Norm", nr);
+       const auto ls_iterations = getNumberOfIterationsAtConvergence(solver);
+@@ -597,6 +631,12 @@ namespace mfem_mgis {
+         auto ls = Parameters{};
+         ls.replaceOrInsert("NumberOfIterations", ls_iterations.value());
+         ls.replaceOrInsert("HasConverged", ls_cv);
++        if (linear_solver_tolerance.has_value()) {
++          ls.replaceOrInsert("RelativeTolerance", *linear_solver_tolerance);
++        }
++        if (linear_residual_norm.has_value()) {
++          ls.replaceOrInsert("ResidualNorm", *linear_residual_norm);
++        }
+         iteration.replaceOrInsert("LinearSolver", ls);
+       }
+       this->iterations_information.push_back(iteration);
+@@ -625,29 +665,51 @@ namespace mfem_mgis {
+         break;
+       }
+       // correction
+-      const auto solved = this->callAndHandleFailures([this, &solver, &r, &c,
+-                                                       &x] {
+-        if (this->method == Method::NEWTON_K0) {
+-          // the tangent operator is given to the conjugate gradient, whose
+-          // preconditioner is kept
+-          auto& J = this->getJacobian(x);
+-          auto profiler_setup = this->ctx_ptr != nullptr
+-                                    ? this->ctx_ptr->startNewProfiling(
+-                                          "NS::setLinearSolverOperator",
+-                                          this->ctx_ptr->isProfilingEnabled())
+-                                    : mgis::ProfilingSection{};
+-          solver.SetOperator(J);
++      if (adaptive_tolerance.has_value()) {
++        linear_solver_tolerance = adaptive_tolerance->update(it, norm, goal);
++        if (shall_print) {
++          log << "Fixed point iteration " << std::setw(2) << it
++              << " : relative tolerance of the linear solver "
++              << *linear_solver_tolerance << '\n';
+         }
+-        auto profiler_solve =
+-            this->ctx_ptr != nullptr
+-                ? this->ctx_ptr->startNewProfiling(
+-                      "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
+-                : mgis::ProfilingSection{};
+-        c = real{0};
+-        solver.Mult(r, c);
+-        clearHypreErrors();
+-        return true;
+-      });
++      }
++      const auto solved = this->callAndHandleFailures(
++          [this, &solver, &r, &c, &x, &adaptive_tolerance] {
++            auto* J = static_cast<mfem::Operator*>(nullptr);
++            if (this->method == Method::NEWTON_K0) {
++              // the tangent operator is given to the iterative solver, whose
++              // preconditioner is kept
++              J = &(this->getJacobian(x));
++              auto profiler_setup =
++                  this->ctx_ptr != nullptr
++                      ? this->ctx_ptr->startNewProfiling(
++                            "NS::setLinearSolverOperator",
++                            this->ctx_ptr->isProfilingEnabled())
++                      : mgis::ProfilingSection{};
++              solver.SetOperator(*J);
++            }
++            auto profiler_solve = this->ctx_ptr != nullptr
++                                      ? this->ctx_ptr->startNewProfiling(
++                                            "MFEM::Mult(r,c)",
++                                            this->ctx_ptr->isProfilingEnabled())
++                                      : mgis::ProfilingSection{};
++            c = real{0};
++            solver.Mult(r, c);
++            clearHypreErrors();
++            if ((J != nullptr) && (adaptive_tolerance.has_value()) &&
++                (adaptive_tolerance->requiresLinearResidualNorm())) {
++              // norm of the residual of the linear solve, J c - r
++              auto lr = mfem::Vector(r.Size());
++              lr.UseDevice(true);
++              J->Mult(c, lr);
++              lr -= r;
++              adaptive_tolerance->setLinearResidualNorm(this->Norm(lr));
++            }
++            return true;
++          });
++      if (adaptive_tolerance.has_value()) {
++        linear_residual_norm = adaptive_tolerance->getLinearResidualNorm();
++      }
+       if (!solved) {
+         break;
+       }
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index cf130840e8..129b904064 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -55,9 +55,12 @@ namespace mfem_mgis {
+                 "the Solver is not set (use setLinearSolver).");
+     //
+     this->iterations_information.clear();
+-    // relative tolerance of the last linear solve, if adapted
++    // relative tolerance of the last linear solve, if adapted, and norm of
++    // its residual, if computed (see `AdaptiveLinearSolverTolerance`)
+     auto linear_solver_tolerance = std::optional<real>{};
+-    auto add_to_iterations_information = [this, &linear_solver_tolerance](
++    auto linear_residual_norm = std::optional<real>{};
++    auto add_to_iterations_information = [this, &linear_solver_tolerance,
++                                          &linear_residual_norm](
+                                              Parameters& iteration,
+                                              const bool ls_cv) {
+       auto linear_solver_iterations =
+@@ -70,6 +73,9 @@ namespace mfem_mgis {
+         if (linear_solver_tolerance.has_value()) {
+           ls.replaceOrInsert("RelativeTolerance", *linear_solver_tolerance);
+         }
++        if (linear_residual_norm.has_value()) {
++          ls.replaceOrInsert("ResidualNorm", *linear_residual_norm);
++        }
+         iteration.replaceOrInsert("LinearSolver", ls);
+       }
+       this->iterations_information.push_back(iteration);
+@@ -166,7 +172,11 @@ namespace mfem_mgis {
+       }
+       auto* const t =
+           adaptive_tolerance.has_value() ? &(*adaptive_tolerance) : nullptr;
+-      if (!this->computeNewtonCorrection(c, r, x, t)) {
++      const auto corrected = this->computeNewtonCorrection(c, r, x, t);
++      if (t != nullptr) {
++        linear_residual_norm = t->getLinearResidualNorm();
++      }
++      if (!corrected) {
+         auto iteration = Parameters{};
+         add_to_iterations_information(iteration,
+                                       false);  // Reaching this line means the
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 015f5c9818..d8dc14b2c2 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -68,6 +68,11 @@ struct Results {
+   std::vector<mfem_mgis::size_type> iterations_per_step;
+   //! \brief total number of iterations of the iterative linear solvers
+   mfem_mgis::size_type linear_iterations = 0;
++  /*!
++   * \brief norms of the residuals of the linear solves, if computed (first
++   * choice of Eisenstat and Walker)
++   */
++  std::vector<mfem_mgis::real> linear_residual_norms;
+   //! \brief norms of the residual during the last time step
+   std::vector<mfem_mgis::real> norms;
+ };
+@@ -268,6 +273,10 @@ static Results compute(mfem_mgis::Context& ctx,
+             get<Parameters>(throwing, p, "LinearSolver");
+         r.linear_iterations += static_cast<size_type>(
+             get<int>(throwing, ls_information, "NumberOfIterations"));
++        if (contains(ls_information, "ResidualNorm")) {
++          r.linear_residual_norms.push_back(
++              get<double>(throwing, ls_information, "ResidualNorm"));
++        }
+       }
+     }
+     problem.update(ctx) | or_die;
+@@ -297,6 +306,31 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+   return m == 0 ? d : d / m;
+ }  // end of getRelativeDifference
+ 
++/*!
++ * \brief checks the norms of the residuals of the linear solves: given,
++ * positive and finite with the first choice of Eisenstat and Walker, not
++ * given otherwise
++ * \param[in] r: results
++ * \param[in] first_choice: if true, the first choice of Eisenstat and Walker
++ * is used
++ * \param[in] name: name of the computation
++ */
++static void checkLinearResidualNorms(const Results& r,
++                                     const bool first_choice,
++                                     const std::string& name) {
++  if (!first_choice) {
++    check(r.linear_residual_norms.empty(),
++          name + ": norms of the residuals of the linear solves given");
++    return;
++  }
++  check((!r.linear_residual_norms.empty()) &&
++            std::ranges::all_of(r.linear_residual_norms,
++                                [](const mfem_mgis::real v) noexcept {
++                                  return std::isfinite(v) && (v > 0);
++                                }),
++        name + ": norms of the residuals of the linear solves");
++}  // end of checkLinearResidualNorms
++
+ //! \return the parameters of the fixed point solver
+ static mfem_mgis::Parameters makeFixedPointSolver(
+     const mfem_mgis::Parameters& options) {
+@@ -508,6 +542,15 @@ int main(int argc, char** argv) {
+         {"ElasticOperatorLinearSolver", direct_solver}},
+        true,
+        {.changes = {{"ElasticOperatorLinearSolver", "None"}}}});
++  // NewtonK0 with a relative tolerance of the conjugate gradient adapted to
++  // the decrease of the residual (Eisenstat and Walker): fewer iterations of
++  // the conjugate gradient (checked below)
++  for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
++    auto options = newton_k0("CGSolver");
++    options.insert(throwing, {{"AdaptiveLinearSolverTolerance", m}});
++    cases.push_back(
++        {std::string{"NewtonK0, conjugate gradient, "} + m, options, true});
++  }
+   // NewtonK0 with the prediction by the elastic operator, the linear solver
+   // of the elastic operator (a counting linear solver) being replaced before
+   // the third time step: the preconditioners of the tangent operator and of
+@@ -634,11 +677,13 @@ int main(int argc, char** argv) {
+   // iteration, compared to two cycles per iteration (a setting of BoomerAMG
+   // which must survive the setup of the elastic operator)
+   auto amg_iterations = size_type{};
+-  // numbers of iterations of the iterative solvers of the tangent operator
+-  // of the `NewtonK0` method: the stationary iterations, converging as the
+-  // fixed point on the elastic operator, make many more iterations than
+-  // the conjugate gradient
+-  auto tangent_linear_iterations = std::map<std::string, size_type>{};
++  // numbers of iterations of the linear solvers of the cases. For the
++  // iterative solvers of the tangent operator of the `NewtonK0` method, the
++  // stationary iterations, converging as the fixed point on the elastic
++  // operator, make many more iterations than the conjugate gradient, and the
++  // adaptive tolerance reduces the number of iterations of the conjugate
++  // gradient
++  auto linear_iterations = std::map<std::string, size_type>{};
+   for (const auto& c : cases) {
+     const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options),
+                            c.computation);
+@@ -653,9 +698,8 @@ int main(int argc, char** argv) {
+                 " with two cycles, " + std::to_string(amg_iterations) +
+                 " with one cycle)");
+     }
+-    if (c.newton_iterations_from == 0) {
+-      tangent_linear_iterations[c.name] = r.linear_iterations;
+-    }
++    linear_iterations[c.name] = r.linear_iterations;
++    checkLinearResidualNorms(r, c.name.ends_with("EisenstatWalker1"), c.name);
+     check(CountingLinearSolver::resolutions_without_instance == 0,
+           c.name + ": resolutions by a destroyed linear solver");
+     CountingLinearSolver::resolutions_without_instance = 0;
+@@ -695,14 +739,22 @@ int main(int argc, char** argv) {
+     }
+   }
+   {
+-    const auto cg = tangent_linear_iterations.at(
++    const auto cg = linear_iterations.at(
+         "Newton, conjugate gradient preconditioned by the elastic operator");
+-    const auto sli = tangent_linear_iterations.at(
++    const auto sli = linear_iterations.at(
+         "Newton, SLISolver preconditioned by the elastic operator");
+     check((cg > 0) && (sli > 2 * cg),
+           "iterations of the iterative solvers of the tangent operator (" +
+               std::to_string(cg) + " for the conjugate gradient, " +
+               std::to_string(sli) + " for the stationary iterations)");
++    for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
++      const auto n = linear_iterations.at(
++          std::string{"NewtonK0, conjugate gradient, "} + m);
++      check(n < cg, std::string{"NewtonK0, conjugate gradient, "} + m +
++                        ": iterations of the conjugate gradient (" +
++                        std::to_string(n) + ", " + std::to_string(cg) +
++                        " with a constant tolerance)");
++    }
+   }
+   // Newton's method with the conjugate gradient of MFEM as linear solver,
+   // whose relative tolerance is adapted to the decrease of the residual
+@@ -732,6 +784,8 @@ int main(int argc, char** argv) {
+                 << du << '\n';
+       check(r.status, name + ": resolution failed");
+       check(du < 1e-8, name + ": solution");
++      checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
++                               name);
+       check(r.linear_iterations < constant.linear_iterations,
+             name + ": number of iterations of the linear solver");
+     }
+@@ -854,6 +908,10 @@ int main(int argc, char** argv) {
+         Parameters{{"Anderson", Parameters{{"Regularization", 1e-20}}}}}},
+       "a regularization of Anderson's method below the rounding "
+       "errors");
++  checkRefusal(mesh, {{"AdaptiveLinearSolverTolerance", "EisenstatWalker2"}},
++               "an adaptive tolerance of the linear solver with the fixed "
++               "point on the elastic operator",
++               "only used by the 'NewtonK0' method");
+   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
+                "an invalid update of the elastic operator");
+   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
+-- 
+2.43.0
+

@@ -3447,3 +3447,29 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   options changées entre les pas, prédiction à gradients constants ; six
   mutations détectées (`scratch/nuit-2026-10-10/mutations-K0/`). Option
   `-tls` de la poutre (solveur itératif de NewtonK0).
+
+### 2026-10-10 (nuit), Newton inexact, relecture K0b
+
+- Relecture de 9355256a9f (`scratch/nuit-2026-10-10/relecture-K0b.md`) :
+  rien au-dessus de la sévérité 2. Corrigé dans 82087f9f83 : prédiction
+  séquentielle sans noyaux avec la diagonale à un aux ddl imposés (un
+  solveur itératif préconditionné par K0 la résout en une itération :
+  GMRES faisait 2 21 itérations de point fixe, 2 2 maintenant), options de
+  base appliquées seulement si toutes sont valides, messages, tests
+  (remplacement du solveur de K0 entre deux pas avec un solveur qui compte
+  les appels après sa destruction, solveur et tolérance par défaut de
+  NewtonK0, prédiction par GMRES) ; toutes les mutations détectées.
+- mfem-mgis 72f2e6e29b et 517c0c0b08 : Newton inexact, option
+  `AdaptiveLinearSolverTolerance` du Newton et de la méthode `NewtonK0`
+  (choix 1 et 2 d'Eisenstat et Walker, réglages de MFEM, garde de Kelley
+  contre la sur-résolution, tolérance du solveur linéaire restaurée après
+  chaque résolution, norme du résidu linéaire dans les informations
+  d'itération) ; test unitaire `AdaptiveLinearSolverToleranceTest`.
+- Mesures (`results/L5-poutre-2026-10-10-0429/README.md`, script
+  `cas/mesures-L5-ew.sh`, options `-alst` et `-alsti` de la poutre) : sur
+  le GPU, NewtonK0 avec Eisenstat-Walker 1 et une tolérance initiale de
+  0,1 prend 1,96 s contre 3,12 s pour Newton (×1,59) et 2,57 s pour
+  NewtonK0 à tolérance fixe ; sur 8 cœurs, 9,46 s, au niveau du meilleur
+  point fixe. Avec Newton classique, Eisenstat-Walker ne paie pas (chaque
+  itération de plus reconstruit BoomerAMG).
+

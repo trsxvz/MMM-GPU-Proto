@@ -113,6 +113,23 @@ namespace mfem_mgis {
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<int>
   getNumberOfIterationsAtConvergence(const LinearSolver& ls) noexcept;
+  /*!
+   * \return the relative tolerance of an iterative linear solver (iterative
+   * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not
+   * iterative
+   * \param[in] ls: linear solver
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> getRelativeTolerance(
+      const LinearSolver& ls) noexcept;
+  /*!
+   * \brief sets the relative tolerance of an iterative linear solver
+   * (iterative solvers of MFEM, Krylov solvers of hypre)
+   * \return false if the solver is not iterative
+   * \param[in, out] ls: linear solver
+   * \param[in] tol: relative tolerance
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool setRelativeTolerance(
+      LinearSolver& ls, const real tol) noexcept;
 
 }  // end of namespace mfem_mgis
 

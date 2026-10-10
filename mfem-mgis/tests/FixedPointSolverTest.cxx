@@ -16,7 +16,10 @@
  * without assembly. The options may be changed between two time steps.
  * With the `--parallel` option, the elastic operator is also solved by one
  * cycle of BoomerAMG per iteration, or by the conjugate gradient of hypre
- * preconditioned by BoomerAMG.
+ * preconditioned by BoomerAMG. Newton's method with a relative tolerance of
+ * the linear solver adapted to the decrease of the residual (Eisenstat and
+ * Walker) gives the same solution with fewer iterations of the linear
+ * solver.
  * \date   10/10/2026
  */
 
@@ -65,26 +68,45 @@ struct Results {
   std::vector<mfem_mgis::size_type> iterations_per_step;
   //! \brief total number of iterations of the iterative linear solvers
   mfem_mgis::size_type linear_iterations = 0;
+  /*!
+   * \brief norms of the residuals of the linear solves, if computed (first
+   * choice of Eisenstat and Walker)
+   */
+  std::vector<mfem_mgis::real> linear_residual_norms;
   //! \brief norms of the residual during the last time step
   std::vector<mfem_mgis::real> norms;
 };
 
 /*!
  * \brief linear solver counting its resolutions, used to check which linear
- * solver makes the predictions
+ * solver makes the predictions, and that a destroyed instance is not used
  */
 struct CountingLinearSolver final : mfem::Solver {
   //! \brief number of resolutions
   static inline int count = 0;
+  //! \brief number of living instances
+  static inline int instances = 0;
+  //! \brief number of resolutions requested when no instance is alive
+  static inline int resolutions_without_instance = 0;
   //! \param[in] s: linear solver
   explicit CountingLinearSolver(std::unique_ptr<mfem::Solver> s)
-      : solver(std::move(s)) {}
+      : solver(std::move(s)) {
+    ++instances;
+  }
+  //! \brief destructor
+  ~CountingLinearSolver() override { --instances; }
   void SetOperator(const mfem::Operator& op) override {
     this->height = op.Height();
     this->width = op.Width();
     this->solver->SetOperator(op);
   }
   void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+    if (instances == 0) {
+      // call of a destroyed instance: its members are not used
+      ++resolutions_without_instance;
+      y = mfem_mgis::real{0};
+      return;
+    }
     ++count;
     this->solver->Mult(x, y);
   }
@@ -143,10 +165,16 @@ struct ComputationOptions {
    * sequential if null
    */
   const char* linear_solver = nullptr;
+  //! \brief options of the linear solver of the problem
+  mfem_mgis::Parameters linear_solver_options = {};
   //! \brief if true, the tangent operator is applied without assembly
   bool matrix_free = false;
-  //! \brief options of the non linear solver changed after the first step
+  //! \brief options of the non linear solver changed before a time step
   mfem_mgis::Parameters changes = {};
+  //! \brief index of the time step before which the options are changed
+  int changes_step = 1;
+  //! \brief number of time steps
+  int number_of_steps = 2;
 };
 
 /*!
@@ -207,7 +235,7 @@ static Results compute(mfem_mgis::Context& ctx,
   const auto* const ls = (opts.linear_solver != nullptr)
                              ? opts.linear_solver
                              : (parallel ? "MUMPSSolver" : "UMFPackSolver");
-  problem.setLinearSolver(ctx, ls, {}) | or_die;
+  problem.setLinearSolver(ctx, ls, opts.linear_solver_options) | or_die;
   if (opts.prediction.has_value()) {
     problem.setPredictionPolicy(
         {.strategy = *(opts.prediction),
@@ -219,11 +247,11 @@ static Results compute(mfem_mgis::Context& ctx,
                                     {"MaximumNumberOfIterations", 1000}}) |
       or_die;
   auto r = Results{};
-  constexpr int nsteps = 2;
+  const auto nsteps = opts.number_of_steps;
   const auto dt = real{1} / nsteps;
   auto t = real{0};
   for (int i = 0; i != nsteps; ++i) {
-    if ((i == 1) && (!opts.changes.empty())) {
+    if ((i == opts.changes_step) && (!opts.changes.empty())) {
       problem.setSolverParameters(ctx, opts.changes) | or_die;
     }
     auto c = Context{};
@@ -245,6 +273,10 @@ static Results compute(mfem_mgis::Context& ctx,
             get<Parameters>(throwing, p, "LinearSolver");
         r.linear_iterations += static_cast<size_type>(
             get<int>(throwing, ls_information, "NumberOfIterations"));
+        if (contains(ls_information, "ResidualNorm")) {
+          r.linear_residual_norms.push_back(
+              get<double>(throwing, ls_information, "ResidualNorm"));
+        }
       }
     }
     problem.update(ctx) | or_die;
@@ -274,6 +306,31 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
   return m == 0 ? d : d / m;
 }  // end of getRelativeDifference
 
+/*!
+ * \brief checks the norms of the residuals of the linear solves: given,
+ * positive and finite with the first choice of Eisenstat and Walker, not
+ * given otherwise
+ * \param[in] r: results
+ * \param[in] first_choice: if true, the first choice of Eisenstat and Walker
+ * is used
+ * \param[in] name: name of the computation
+ */
+static void checkLinearResidualNorms(const Results& r,
+                                     const bool first_choice,
+                                     const std::string& name) {
+  if (!first_choice) {
+    check(r.linear_residual_norms.empty(),
+          name + ": norms of the residuals of the linear solves given");
+    return;
+  }
+  check((!r.linear_residual_norms.empty()) &&
+            std::ranges::all_of(r.linear_residual_norms,
+                                [](const mfem_mgis::real v) noexcept {
+                                  return std::isfinite(v) && (v > 0);
+                                }),
+        name + ": norms of the residuals of the linear solves");
+}  // end of checkLinearResidualNorms
+
 //! \return the parameters of the fixed point solver
 static mfem_mgis::Parameters makeFixedPointSolver(
     const mfem_mgis::Parameters& options) {
@@ -285,10 +342,12 @@ static mfem_mgis::Parameters makeFixedPointSolver(
  * \param[in] mesh: mesh
  * \param[in] options: options of the fixed point solver
  * \param[in] name: name of the check
+ * \param[in] message: if not null, part of the expected error message
  */
 static void checkRefusal(const char* const mesh,
                          const mfem_mgis::Parameters& options,
-                         const std::string& name) {
+                         const std::string& name,
+                         const char* const message = nullptr) {
   using namespace mfem_mgis;
   auto ctx = Context{};
   const auto o = construct<NonLinearEvolutionProblem>(
@@ -300,6 +359,12 @@ static void checkRefusal(const char* const mesh,
                       {"NonLinearSolver", makeFixedPointSolver(options)},
                       {"Parallel", parallel}});
   check(isInvalid(o), name + " is accepted");
+  if (message != nullptr) {
+    // reading the error message clears it
+    const auto e = ctx.getErrorMessage();
+    check(e.find(message) != std::string::npos,
+          name + ": unexpected error message (" + e + ")");
+  }
 }  // end of checkRefusal
 
 int main(int argc, char** argv) {
@@ -323,10 +388,24 @@ int main(int argc, char** argv) {
   check(reference.status, "Newton: resolution failed");
   std::cout << "Newton: " << reference.iterations << " iterations\n";
   constexpr auto bots = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION;
-  const auto reference_with_prediction =
-      compute(ctx, mesh, library, Parameters{}, {.prediction = bots});
-  check(reference_with_prediction.status,
-        "Newton with prediction: resolution failed");
+  // results of the Newton solver with the prediction and the number of time
+  // steps of a computation
+  auto newton_references =
+      std::map<std::pair<std::optional<PredictionStrategy>, int>, Results>{};
+  auto getNewtonReference = [&ctx, mesh, library, &newton_references](
+                                const ComputationOptions& o) -> const Results& {
+    const auto key = std::pair{o.prediction, o.number_of_steps};
+    auto p = newton_references.find(key);
+    if (p == newton_references.end()) {
+      const auto r = compute(
+          ctx, mesh, library, Parameters{},
+          {.prediction = o.prediction, .number_of_steps = o.number_of_steps});
+      check(r.status, "Newton: resolution failed");
+      p = newton_references.emplace(key, r).first;
+    }
+    return p->second;
+  };
+  declareCountingLinearSolver();
   // direct solver, used as linear solver of the elastic operator
   const auto* const direct_solver = parallel ? "MUMPSSolver" : "UMFPackSolver";
   // fixed point on the elastic operator, solved by the linear solver of the
@@ -463,6 +542,55 @@ int main(int argc, char** argv) {
         {"ElasticOperatorLinearSolver", direct_solver}},
        true,
        {.changes = {{"ElasticOperatorLinearSolver", "None"}}}});
+  // NewtonK0 with a relative tolerance of the conjugate gradient adapted to
+  // the decrease of the residual (Eisenstat and Walker): fewer iterations of
+  // the conjugate gradient (checked below)
+  for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+    auto options = newton_k0("CGSolver");
+    options.insert(throwing, {{"AdaptiveLinearSolverTolerance", m}});
+    cases.push_back(
+        {std::string{"NewtonK0, conjugate gradient, "} + m, options, true});
+  }
+  // NewtonK0 with the prediction by the elastic operator, the linear solver
+  // of the elastic operator (a counting linear solver) being replaced before
+  // the third time step: the preconditioners of the tangent operator and of
+  // the predictions apply the new one, the destroyed one is not called. The
+  // conjugate gradient makes the predictions of the second time step (the
+  // first one precedes the elastic operator) and of the fourth one (the
+  // elastic operator is computed again at the third one).
+  {
+    auto options = newton_k0("CGSolver");
+    options.replaceOrInsert("ElasticOperatorLinearSolver",
+                            "CountingLinearSolver");
+    options.insert(throwing, {{"PredictionLinearSolver", "ElasticOperator"}});
+    cases.push_back(
+        {"NewtonK0, then another linear solver of the elastic operator",
+         options,
+         true,
+         {.prediction = bots,
+          .changes = {{"ElasticOperatorLinearSolver",
+                       parallel ? "HypreBoomerAMG" : direct_solver}},
+          .changes_step = 2,
+          .number_of_steps = 4},
+         0});
+  }
+  // NewtonK0 with the default iterative solver of the tangent operator (the
+  // conjugate gradient, relative tolerance 1e-4)
+  cases.push_back({"NewtonK0, default iterative solver of the tangent operator",
+                   {{"Method", "NewtonK0"},
+                    {"ElasticOperatorUpdate", "Once"},
+                    {"ElasticOperatorLinearSolver", direct_solver}},
+                   true});
+  // prediction by GMRES preconditioned by the linear solver of the elastic
+  // operator: one iteration of GMRES, the elastic operator being the one of
+  // the prediction
+  cases.push_back({"fixed point, Anderson, prediction by GMRESSolver",
+                   {{"Acceleration", "Anderson"},
+                    {"ElasticOperatorUpdate", "Once"},
+                    {"ElasticOperatorLinearSolver", direct_solver},
+                    {"PredictionLinearSolver", "GMRESSolver"}},
+                   true,
+                   {.prediction = bots}});
   // elastic prediction, by the linear solver of the problem or by the
   // conjugate gradient preconditioned by the linear solver of the elastic
   // operator
@@ -528,6 +656,8 @@ int main(int argc, char** argv) {
   // the observed ones, to detect a wrong acceleration which still converges
   const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
       {"fixed point, Anderson", 43},
+      {"NewtonK0, default iterative solver of the tangent operator", 12},
+      {"fixed point, Anderson, prediction by GMRESSolver", 4},
       {"fixed point, Cast3M", 65},
       {"modified Newton", 70},
       {"modified Newton, Anderson", 38},
@@ -547,11 +677,13 @@ int main(int argc, char** argv) {
   // iteration, compared to two cycles per iteration (a setting of BoomerAMG
   // which must survive the setup of the elastic operator)
   auto amg_iterations = size_type{};
-  // numbers of iterations of the iterative solvers of the tangent operator
-  // of the `NewtonK0` method: the stationary iterations, converging as the
-  // fixed point on the elastic operator, make many more iterations than
-  // the conjugate gradient
-  auto tangent_linear_iterations = std::map<std::string, size_type>{};
+  // numbers of iterations of the linear solvers of the cases. For the
+  // iterative solvers of the tangent operator of the `NewtonK0` method, the
+  // stationary iterations, converging as the fixed point on the elastic
+  // operator, make many more iterations than the conjugate gradient, and the
+  // adaptive tolerance reduces the number of iterations of the conjugate
+  // gradient
+  auto linear_iterations = std::map<std::string, size_type>{};
   for (const auto& c : cases) {
     const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options),
                            c.computation);
@@ -566,10 +698,13 @@ int main(int argc, char** argv) {
                 " with two cycles, " + std::to_string(amg_iterations) +
                 " with one cycle)");
     }
-    if (c.newton_iterations_from == 0) {
-      tangent_linear_iterations[c.name] = r.linear_iterations;
-    }
-    const auto du = getRelativeDifference(reference.u, r.u);
+    linear_iterations[c.name] = r.linear_iterations;
+    checkLinearResidualNorms(r, c.name.ends_with("EisenstatWalker1"), c.name);
+    check(CountingLinearSolver::resolutions_without_instance == 0,
+          c.name + ": resolutions by a destroyed linear solver");
+    CountingLinearSolver::resolutions_without_instance = 0;
+    const auto& newton = getNewtonReference(c.computation);
+    const auto du = getRelativeDifference(newton.u, r.u);
     std::cout << c.name << ": " << r.iterations << " iterations ("
               << r.linear_iterations
               << " of the linear solver), relative difference to Newton " << du
@@ -586,9 +721,6 @@ int main(int argc, char** argv) {
       check(r.iterations < none.iterations, c.name + ": number of iterations");
     }
     if (c.newton_iterations_from.has_value()) {
-      const auto& newton = c.computation.prediction.has_value()
-                               ? reference_with_prediction
-                               : reference;
       // numbers of iterations from the given time step
       auto count = [&c](const Results& results) {
         const auto& n = results.iterations_per_step;
@@ -607,35 +739,88 @@ int main(int argc, char** argv) {
     }
   }
   {
-    const auto cg = tangent_linear_iterations.at(
+    const auto cg = linear_iterations.at(
         "Newton, conjugate gradient preconditioned by the elastic operator");
-    const auto sli = tangent_linear_iterations.at(
+    const auto sli = linear_iterations.at(
         "Newton, SLISolver preconditioned by the elastic operator");
     check((cg > 0) && (sli > 2 * cg),
           "iterations of the iterative solvers of the tangent operator (" +
               std::to_string(cg) + " for the conjugate gradient, " +
               std::to_string(sli) + " for the stationary iterations)");
+    for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+      const auto n = linear_iterations.at(
+          std::string{"NewtonK0, conjugate gradient, "} + m);
+      check(n < cg, std::string{"NewtonK0, conjugate gradient, "} + m +
+                        ": iterations of the conjugate gradient (" +
+                        std::to_string(n) + ", " + std::to_string(cg) +
+                        " with a constant tolerance)");
+    }
+  }
+  // Newton's method with the conjugate gradient of MFEM as linear solver,
+  // whose relative tolerance is adapted to the decrease of the residual
+  // (Eisenstat and Walker): same solution, fewer iterations of the
+  // conjugate gradient than with a constant tolerance
+  {
+    const auto cg = ComputationOptions{
+        .linear_solver = "CGSolver",
+        .linear_solver_options = {{"RelativeTolerance", 1e-12},
+                                  {"AbsoluteTolerance", 0.},
+                                  {"MaximumNumberOfIterations", 10000}}};
+    const auto constant = compute(ctx, mesh, library, Parameters{}, cg);
+    check(constant.status, "Newton, conjugate gradient: resolution failed");
+    for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+      const auto name = std::string{"Newton, conjugate gradient, "} + m;
+      const auto r = compute(
+          ctx, mesh, library,
+          Parameters{
+              {"Newton", Parameters{{"AdaptiveLinearSolverTolerance", m}}}},
+          cg);
+      const auto du = getRelativeDifference(reference.u, r.u);
+      std::cout << name << ": " << r.iterations << " iterations ("
+                << r.linear_iterations << " of the linear solver, "
+                << constant.linear_iterations
+                << " with a constant tolerance), relative difference to "
+                   "Newton "
+                << du << '\n';
+      check(r.status, name + ": resolution failed");
+      check(du < 1e-8, name + ": solution");
+      checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
+                               name);
+      check(r.linear_iterations < constant.linear_iterations,
+            name + ": number of iterations of the linear solver");
+    }
+    // the adaptive tolerance requires an iterative linear solver
+    const auto direct = compute(
+        ctx, mesh, library,
+        Parameters{{"Newton", Parameters{{"AdaptiveLinearSolverTolerance",
+                                          "EisenstatWalker2"}}}});
+    check(!direct.status,
+          "Newton, adaptive tolerance with a direct solver: accepted");
   }
   // linear solver of the predictions: with the conjugate gradient
   // preconditioned by the linear solver of the elastic operator, the linear
   // solver of the problem only makes the first prediction (the elastic
   // operator does not exist yet). The predictions at constant gradients
   // are always made by the linear solver of the problem.
-  declareCountingLinearSolver();
   constexpr auto cgip =
       PredictionStrategy::CONSTANT_GRADIENTS_INTEGRATION_PREDICTION;
-  for (const auto& [pls, strategy, expected] :
-       {std::tuple{"Problem", bots, 2}, std::tuple{"ElasticOperator", bots, 1},
-        std::tuple{"ElasticOperator", cgip, 2}}) {
+  for (const auto& [method, pls, strategy, expected] :
+       {std::tuple{"ElasticOperator", "Problem", bots, 2},
+        std::tuple{"ElasticOperator", "ElasticOperator", bots, 1},
+        std::tuple{"ElasticOperator", "ElasticOperator", cgip, 2},
+        std::tuple{"NewtonK0", "ElasticOperator", bots, 1}}) {
     CountingLinearSolver::count = 0;
-    const auto r = compute(
-        ctx, mesh, library,
-        makeFixedPointSolver({{"Acceleration", "Anderson"},
+    auto options = Parameters{{"Method", method},
                               {"ElasticOperatorUpdate", "Once"},
                               {"ElasticOperatorLinearSolver", direct_solver},
-                              {"PredictionLinearSolver", std::string{pls}}}),
+                              {"PredictionLinearSolver", std::string{pls}}};
+    if (std::string_view{method} == "ElasticOperator") {
+      options.insert(throwing, {{"Acceleration", "Anderson"}});
+    }
+    const auto r = compute(
+        ctx, mesh, library, makeFixedPointSolver(options),
         {.prediction = strategy, .linear_solver = "CountingLinearSolver"});
-    const auto name = std::string{"predictions "} +
+    const auto name = std::string{method} + ", predictions " +
                       (strategy == cgip ? "at constant gradients " : "") +
                       "by the linear solver '" + pls + "'";
     check(r.status && (getRelativeDifference(reference.u, r.u) < 1e-8),
@@ -699,12 +884,14 @@ int main(int argc, char** argv) {
                  "operator");
     options.replaceOrInsert(
         "TangentLinearSolver",
-        Parameters{{"CGSolver",
-                    Parameters{{"Preconditioner",
-                                Parameters{{"Name", "HypreBoomerAMG"}}}}}});
+        Parameters{
+            {"CGSolver",
+             Parameters{{"Preconditioner",
+                         Parameters{{"Name", "OperatorJacobiSmoother"}}}}}});
     checkRefusal(mesh, options,
                  "a preconditioner of the iterative solver of the tangent "
-                 "operator");
+                 "operator",
+                 "option 'Preconditioner' not allowed");
   }
   checkRefusal(
       mesh, {{"Acceleration", Parameters{{"None", Parameters{{"Depth", 4}}}}}},
@@ -721,6 +908,10 @@ int main(int argc, char** argv) {
         Parameters{{"Anderson", Parameters{{"Regularization", 1e-20}}}}}},
       "a regularization of Anderson's method below the rounding "
       "errors");
+  checkRefusal(mesh, {{"AdaptiveLinearSolverTolerance", "EisenstatWalker2"}},
+               "an adaptive tolerance of the linear solver with the fixed "
+               "point on the elastic operator",
+               "only used by the 'NewtonK0' method");
   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
                "an invalid update of the elastic operator");
   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
