@@ -23,8 +23,8 @@ namespace mfem {
 namespace mfem_mgis::batch {
 
   /*!
-   * \brief jacobians of the element transformations of a mesh without nodes
-   * and their determinants (see `computeElementsGeometry`)
+   * \brief jacobians of the element transformations and their determinants
+   * at the integration points (see `computeElementsGeometry`)
    */
   struct MFEM_MGIS_EXPORT ElementsJacobians {
     /*!
@@ -41,25 +41,17 @@ namespace mfem_mgis::batch {
    * integration rule: gradients of the shape functions on the reference
    * element (`mfem::DofToQuad`, owned by the finite element) and jacobians
    * of the element transformations
+   *
+   * The data are computed once: they are not updated if the mesh is
+   * modified (refinement, displacement of the nodes or of the vertices).
    */
   struct MFEM_MGIS_EXPORT ElementsGeometry {
     //! \brief integration rule
     const mfem::IntegrationRule* rule = nullptr;
     //! \brief values and gradients of the shape functions at the points
     const mfem::DofToQuad* maps = nullptr;
-    /*!
-     * \brief jacobians at the points (`nq x dim x dim x ne`, layout of
-     * `mfem::GeometricFactors::J`): owned by the geometric factors of the
-     * mesh if it has nodes, by `owned_jacobians` otherwise
-     */
-    const mfem::Vector* jacobians = nullptr;
-    //! \brief determinants of the jacobians (`nq x ne`), as `jacobians`
-    const mfem::Vector* determinants = nullptr;
-    /*!
-     * \brief jacobians and their determinants computed from the vertices of
-     * a mesh without nodes (see `computeElementsGeometry`)
-     */
-    std::shared_ptr<const ElementsJacobians> owned_jacobians;
+    //! \brief jacobians of the element transformations
+    std::shared_ptr<const ElementsJacobians> jacobians;
     //! \brief weights of the integration points (in the memory of MFEM)
     mfem::Vector weights;
     //! \brief number of degrees of freedom per element and per component
@@ -88,10 +80,15 @@ namespace mfem_mgis::batch {
    *   the computations which follow would use them, which makes the
    *   computations element by element about 50% slower;
    * - computing the jacobians from a copy of the vertices in a finite
-   *   element space of order one costs about 1.8 s on the host for 1.6
-   *   million tetrahedra (construction of the finite element space and
-   *   projection of the coordinates), against a few milliseconds for the
-   *   kernel on the GPU.
+   *   element space of order one costs between 0.7 s and 2.1 s for 1.6
+   *   million tetrahedra, depending on the mesh and on the device
+   *   (construction of the finite element space and projection of the
+   *   coordinates on the host), against about 10 ms for the kernel on the
+   *   GPU and 0.3 s on the host.
+   *
+   * For a mesh with nodes, the jacobians are the geometric factors of MFEM,
+   * computed for this geometric data (the geometric factors of the mesh
+   * are destroyed if its nodes are modified).
    *
    * \return true on success
    * \param[in, out] ctx: execution context

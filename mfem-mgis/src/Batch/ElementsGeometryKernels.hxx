@@ -19,8 +19,9 @@ namespace mfem_mgis::batch::internals {
    */
   struct JacobiansKernelArguments {
     /*!
-     * \brief vertices of the elements (`node + nd * element`), in the order
-     * of the degrees of freedom of the finite element of the transformation
+     * \brief vertices of the elements (`vertex + vertices_per_element *
+     * element`), in the order of the degrees of freedom of the finite element
+     * of the transformation
      */
     const int* element_vertices = nullptr;
     /*!
@@ -30,8 +31,8 @@ namespace mfem_mgis::batch::internals {
     const real* vertices = nullptr;
     /*!
      * \brief gradients of the shape functions of the finite element of the
-     * transformation on the reference element (`nq x dim x nd`, layout of
-     * `mfem::DofToQuad` in the `FULL` mode)
+     * transformation on the reference element (`nq x dim x
+     * vertices_per_element`, layout of `mfem::DofToQuad` in the `FULL` mode)
      */
     const real* shape_functions_gradients = nullptr;
     /*!
@@ -46,7 +47,7 @@ namespace mfem_mgis::batch::internals {
     //! \brief number of vertices
     int number_of_vertices = 0;
     //! \brief number of vertices per element
-    int nd = 0;
+    int vertices_per_element = 0;
     //! \brief number of integration points per element
     int nq = 0;
     //! \brief dimension of the space (1, 2 or 3)

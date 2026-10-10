@@ -270,8 +270,8 @@ namespace mfem_mgis::batch {
     }
     error = true;
     if ((d.rule == nullptr) || (qs.getUniformIntegrationRule() != d.rule) ||
-        (g.rule != d.rule) || (g.jacobians == nullptr) ||
-        (g.determinants == nullptr) || (g.nq != d.nq) || (g.ne != d.ne)) {
+        (g.rule != d.rule) || (g.jacobians == nullptr) || (g.nq != d.nq) ||
+        (g.ne != d.ne)) {
       return ctx.registerErrorMessage(
           name +
           ": the elements of the material do not use the integration rule "
@@ -302,8 +302,8 @@ namespace mfem_mgis::batch {
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.derivatives = d.values.Read(use_device);
-    a.jacobians = g.jacobians->Read(use_device);
-    a.determinants = g.determinants->Read(use_device);
+    a.jacobians = g.jacobians->J.Read(use_device);
+    a.determinants = g.jacobians->detJ.Read(use_device);
     error = false;
     return true;
   }  // end of getGradientsKernelArguments

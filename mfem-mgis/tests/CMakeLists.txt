@@ -1037,13 +1037,19 @@ endif()
 
 # ElementsGeometryTest executable: jacobians of the element transformations
 # used by the kernels of the batch path, computed by a kernel for the meshes
-# without nodes (not compiled with HIP), on the host, on the debug device
-# and on the GPU
+# without nodes (not compiled with HIP), on the host, on the debug device,
+# on the GPU and on two processes
 if(NOT MFEM_USE_HIP STREQUAL "YES")
   add_test_executable(ElementsGeometryTest)
   add_test(NAME ElementsGeometryTest COMMAND ElementsGeometryTest)
   add_test(NAME ElementsGeometryTest-debug
            COMMAND ElementsGeometryTest --device debug)
+  if(MFEM_USE_MPI)
+    add_test(NAME ElementsGeometryTestP
+             COMMAND mpirun -n 2 ./ElementsGeometryTest)
+    set_tests_properties(ElementsGeometryTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
   if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
     add_test(NAME ElementsGeometryTest-cuda
              COMMAND ElementsGeometryTest --device cuda)

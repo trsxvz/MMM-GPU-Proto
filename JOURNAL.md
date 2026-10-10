@@ -3552,3 +3552,13 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   thermiques reconnues par leur structure et non par les noms du
   glossaire ; contrôles de la copie de la température. Dix mutations
   détectées.
+- mfem-mgis e56f87ddd9 : corrections de la relecture G. G1 (sévérité 3) :
+  l'élément fini des transformations de MFEM est un objet global dont le
+  cache de `GetDofToQuad` est indexé par l'adresse de la règle ; deux
+  règles allouées successivement à la même adresse donnaient des
+  jacobiens faux. Les gradients des fonctions de forme sont maintenant
+  calculés pour chaque règle. Jacobiens toujours possédés par la géométrie
+  (y compris pour un maillage avec nœuds). Test : éléments retournés
+  (déterminants négatifs), maillages parallèles raffinés de façon non
+  conforme (variante sur deux processus), règles à la même adresse,
+  refus. Huit mutations détectées.

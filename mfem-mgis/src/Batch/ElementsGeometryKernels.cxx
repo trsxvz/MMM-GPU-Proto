@@ -17,7 +17,7 @@ namespace mfem_mgis::batch::internals {
     const auto n = a.number_of_elements * a.nq;
     mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
       const auto nq = static_cast<std::size_t>(a.nq);
-      const auto nd = static_cast<std::size_t>(a.nd);
+      const auto nd = static_cast<std::size_t>(a.vertices_per_element);
       const auto nv = static_cast<std::size_t>(a.number_of_vertices);
       const auto dim = static_cast<std::size_t>(a.dim);
       const auto e = static_cast<std::size_t>(i) / nq;
