@@ -777,6 +777,9 @@ void generateSourceFile(std::ostream &os,
                         const BehaviourIntegratorDescription &d) {
   const auto [b, B] = d.generator(os, "", false);
   writeFileDescription(os, d.name, "implements");
+  if (d.requires_unknown_value_as_external_state_variable) {
+    os << "#include <cstddef>\n";
+  }
   os << "#include <algorithm>\n"
      << "#include \"MGIS/Behaviour/Behaviour.hxx\"\n"
      << "#include \"MFEMMGIS/" << d.name << ".hxx\"\n\n"
@@ -918,6 +921,17 @@ void generateSourceFile(std::ostream &os,
        << "void " << d.name
        << "::setExternalStateVariablesFromUnknownsValues(\n"
        << "std::span<const real> values) {\n"
+       << "if (this->uesv == nullptr) {\n"
+       << "raise(\n"
+       << "\"setExternalStateVariablesFromUnknownsValues: external state \"\n"
+       << "\"variable '" << n << "' not set up\");\n"
+       << "}\n"
+       << "if (values.size() != static_cast<std::size_t>(this->n)) {\n"
+       << "raise(\n"
+       << "\"setExternalStateVariablesFromUnknownsValues: the number of "
+       << "values \"\n"
+       << "\"does not match the number of integration points\");\n"
+       << "}\n"
        << "std::copy(values.begin(), values.end(), this->uesv);\n"
        << "}  // end of setExternalStateVariablesFromUnknownsValues\n\n";
   }

@@ -5,6 +5,7 @@
  * class
  */
 
+#include <cstddef>
 #include <algorithm>
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
@@ -117,6 +118,16 @@ namespace mfem_mgis {
   OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
       setExternalStateVariablesFromUnknownsValues(
           std::span<const real> values) {
+    if (this->uesv == nullptr) {
+      raise(
+          "setExternalStateVariablesFromUnknownsValues: external state "
+          "variable 'Temperature' not set up");
+    }
+    if (values.size() != static_cast<std::size_t>(this->n)) {
+      raise(
+          "setExternalStateVariablesFromUnknownsValues: the number of values "
+          "does not match the number of integration points");
+    }
     std::copy(values.begin(), values.end(), this->uesv);
   }  // end of setExternalStateVariablesFromUnknownsValues
 

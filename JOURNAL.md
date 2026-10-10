@@ -3539,4 +3539,16 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   r4 : NewtonK0 + Eisenstat-Walker 1 de 2,14 s à 1,90 s sur le GPU
   (`results/L5-poutre-2026-10-10-0610/README.md`) ; polycristal inchangé
   (`results/L5-polycristal-2026-10-10-0612/README.md`). Relecture
-  indépendante en cours.
+  indépendante faite (`scratch/nuit-2026-10-10/relecture-G.md`, rien
+  au-dessus de la sévérité 3).
+- mfem-mgis fbac8c024a : corrections de la relecture H de la thermique
+  par noyaux. Le test ne voyait que la composante x (solution
+  unidimensionnelle) : troisième température imposée sur y = 1. Nouveaux
+  cas : contraintes planes, loi anisotrope tournée (3D, déformations et
+  contraintes planes), deux matériaux. La loi anisotrope de test a une
+  conductivité non symétrique : la transposition du bloc dérivée du flux
+  par rapport au gradient, que ni ce test ni BatchIntegrationTest ne
+  voyaient (tangentes toutes symétriques), est maintenant détectée. Lois
+  thermiques reconnues par leur structure et non par les noms du
+  glossaire ; contrôles de la copie de la température. Dix mutations
+  détectées.

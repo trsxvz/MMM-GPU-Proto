@@ -1,0 +1,61 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour OrthotropicStationaryNonLinearHeatTransfer;
+@Date 10/10/2026;
+@Description {
+  Stationary non linear heat transfer with an anisotropic conductivity
+  given in the material frame: j = -k(T) M grad(T), where k(T) is the
+  conductivity of the isotropic behaviour StationaryNonLinearHeatTransfer
+  and M(i, i) = i + 1. M also has a skew-symmetric part, M(0, 1) = -M(1, 0)
+  = S, so that the derivative of the heat flux with respect to the
+  temperature gradient is not symmetric: the tests detect its
+  transposition. In the global frame, this derivative and the derivative
+  with respect to the temperature are full.
+}
+@OrthotropicBehaviour;
+@ModellingHypotheses {".+"};
+
+@Gradient TemperatureGradient gT;
+gT.setGlossaryName("TemperatureGradient");
+
+@Flux HeatFlux j;
+j.setGlossaryName("HeatFlux");
+
+@AdditionalTangentOperatorBlock dj_ddT;
+
+@Parameter real A = 0.0375;
+@Parameter real B = 2.165e-4;
+@Parameter real S = 0.5;
+
+@LocalVariable tmatrix<N, N, real> M;
+
+@InitLocalVariables {
+  M = tmatrix<N, N, real>(real(0));
+  for (unsigned short i = 0; i != N; ++i) {
+    M(i, i) = real(i + 1);
+  }
+  if constexpr (N > 1) {
+    M(0, 1) = S;
+    M(1, 0) = -S;
+  }
+}
+
+@PredictionOperator {
+  static_cast<void>(smt);  // removing compiler warning
+  const auto k = 1 / (A + B * T);
+  dj_ddgT = -k * M;
+  dj_ddT = B * k * k * (M * gT);
+}
+
+@Integrator {
+  const auto T_ = T + dT;
+  const auto k = 1 / (A + B * T_);
+  j = -k * (M * (gT + dgT));
+}  // end of @Integrator
+
+@TangentOperator {
+  static_cast<void>(smt);  // removing compiler warning
+  const auto T_ = T + dT;
+  const auto k = 1 / (A + B * T_);
+  dj_ddgT = -k * M;
+  dj_ddT = B * k * k * (M * (gT + dgT));
+}  // end of @TangentOperator

@@ -69,6 +69,7 @@ if(MFEM_MGIS_HAVE_TFEL)
     MicromorphicDamageI_SpectralSplit
     MicromorphicDamageII
     StationaryNonLinearHeatTransfer
+    OrthotropicStationaryNonLinearHeatTransfer
     UO2Shrinkage_RAPHAEL2008
     FailingIsotropicLinearElasticity
     OrthotropicSaintVenantKirchhoffElasticity)
@@ -766,7 +767,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                      FailingIsotropicLinearElasticity
                      OrthotropicElasticity
                      OrthotropicSaintVenantKirchhoffElasticity
-                     StationaryNonLinearHeatTransfer)
+                     StationaryNonLinearHeatTransfer
+                     OrthotropicStationaryNonLinearHeatTransfer)
     list(APPEND batch_integration_test_behaviours
          "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
   endforeach()
@@ -857,23 +859,27 @@ if(MFEM_MGIS_HAVE_TFEL)
   add_test_executable(HeatTransferKernelsTest)
   set(heat_transfer_kernels_test_arguments
       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+      --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
       --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
       --library $<TARGET_FILE:BehaviourTest>)
-  add_test(NAME HeatTransferKernelsTest
-           COMMAND HeatTransferKernelsTest
-                   ${heat_transfer_kernels_test_arguments}
-                   ${batch_integration_test_libraries})
-  add_test(NAME HeatTransferKernelsTest-debug
-           COMMAND HeatTransferKernelsTest --device debug
-                   ${heat_transfer_kernels_test_arguments}
-                   ${batch_integration_test_libraries})
-  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
-    add_test(NAME HeatTransferKernelsTest-cuda
-             COMMAND HeatTransferKernelsTest --device cuda
+  # the sequential computations use UMFPack
+  if(MFEM_USE_SUITESPARSE)
+    add_test(NAME HeatTransferKernelsTest
+             COMMAND HeatTransferKernelsTest
                      ${heat_transfer_kernels_test_arguments}
-                     ${batch_integration_test_cuda_library})
-    set_tests_properties(HeatTransferKernelsTest-cuda
-                         PROPERTIES RESOURCE_LOCK gpu)
+                     ${batch_integration_test_libraries})
+    add_test(NAME HeatTransferKernelsTest-debug
+             COMMAND HeatTransferKernelsTest --device debug
+                     ${heat_transfer_kernels_test_arguments}
+                     ${batch_integration_test_libraries})
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME HeatTransferKernelsTest-cuda
+               COMMAND HeatTransferKernelsTest --device cuda
+                       ${heat_transfer_kernels_test_arguments}
+                       ${batch_integration_test_cuda_library})
+      set_tests_properties(HeatTransferKernelsTest-cuda
+                           PROPERTIES RESOURCE_LOCK gpu)
+    endif()
   endif()
   if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
     add_test(NAME HeatTransferKernelsTestP

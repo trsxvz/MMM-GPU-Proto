@@ -2,6 +2,7 @@
 @Behaviour StationaryNonLinearHeatTransfer;
 @Author Thomas Helfer;
 @Date 15/02/2019;
+@ModellingHypotheses {".+"};
 
 @Gradient TemperatureGradient gT;
 gT.setGlossaryName("TemperatureGradient");

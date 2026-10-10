@@ -23,23 +23,27 @@ namespace mfem_mgis::batch {
 
   /*!
    * \return true if the behaviour is a stationary non linear heat transfer
-   * behaviour: temperature gradient, heat flux, derivatives of the heat flux
-   * with respect to the temperature gradient and to the temperature
+   * behaviour, recognised by its structure, whatever the names of its
+   * variables, as the heat transfer behaviour integrators: one gradient
+   * (the temperature gradient) and one thermodynamic force (the heat
+   * flux), both vectors, derivatives of the heat flux with respect to the
+   * temperature gradient and to the temperature
    * \param[in] b: behaviour
    */
   [[nodiscard]] static bool isHeatTransferBehaviour(
       const Behaviour& b) noexcept {
+    using Variable = mgis::behaviour::Variable;
     if ((b.btype != Behaviour::GENERALBEHAVIOUR) ||
         (b.gradients.size() != 1u) || (b.thermodynamic_forces.size() != 1u) ||
         (b.to_blocks.size() != 2u)) {
       return false;
     }
-    const auto& g = b.gradients[0].name;
-    const auto& f = b.thermodynamic_forces[0].name;
-    return (g == "TemperatureGradient") && (f == "HeatFlux") &&
-           (b.to_blocks[0].first.name == f) &&
-           (b.to_blocks[0].second.name == g) &&
-           (b.to_blocks[1].first.name == f) &&
+    const auto& g = b.gradients[0];
+    const auto& f = b.thermodynamic_forces[0];
+    return (g.type == Variable::VECTOR) && (f.type == Variable::VECTOR) &&
+           (b.to_blocks[0].first.name == f.name) &&
+           (b.to_blocks[0].second.name == g.name) &&
+           (b.to_blocks[1].first.name == f.name) &&
            (b.to_blocks[1].second.name == "Temperature");
   }  // end of isHeatTransferBehaviour
 
