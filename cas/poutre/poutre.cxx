@@ -5,6 +5,7 @@
  * measurement campaign) or by its fixed point solver.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
@@ -24,6 +25,35 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 
+/*!
+ * \return the options of BoomerAMG given as `Name=value` separated by
+ * commas, integers or reals (with a dot or an exponent), the verbosity
+ * level being null
+ * \param[in] o: options
+ */
+static mfem_mgis::Parameters parseBoomerAMGOptions(const std::string& o) {
+  auto params = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
+  auto start = std::string::size_type{};
+  while (start < o.size()) {
+    const auto end = std::min(o.find(',', start), o.size());
+    const auto option = o.substr(start, end - start);
+    const auto equal = option.find('=');
+    if (equal == std::string::npos) {
+      std::cerr << "invalid option of BoomerAMG '" << option << "'\n";
+      std::exit(EXIT_FAILURE);
+    }
+    const auto name = option.substr(0, equal);
+    const auto value = option.substr(equal + 1);
+    if (value.find_first_of(".eE") != std::string::npos) {
+      params.replaceOrInsert(name, std::stod(value));
+    } else {
+      params.replaceOrInsert(name, std::stoi(value));
+    }
+    start = end + 1;
+  }
+  return params;
+}  // end of parseBoomerAMGOptions
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -35,6 +65,7 @@ int main(int argc, char** argv) {
   const char* fixed_point_method = "elastic";
   const char* acceleration = "anderson";
   const char* elastic_operator_linear_solver = "problem";
+  const char* amg_options = "";
   auto anderson_depth = 4;
   auto elastic_operator_once = false;
   auto parallel = true;
@@ -85,6 +116,11 @@ int main(int argc, char** argv) {
   args.AddOption(&elastic_operator_once, "-k0", "--elastic-operator-once",
                  "-no-k0", "--no-elastic-operator-once",
                  "Elastic operator of the fixed point solver assembled once.");
+  args.AddOption(&amg_options, "-amgo", "--amg-options",
+                 "Options of all the BoomerAMG preconditioners and solvers, "
+                 "as Name=value separated by commas (see the HypreBoomerAMG "
+                 "preconditioner of mfem-mgis), for instance "
+                 "RelaxationType=8,StrengthThreshold=0.5.");
   args.AddOption(&linear_tolerance, "-lt", "--linear-tolerance",
                  "Relative tolerance of the iterative linear solver.");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
@@ -119,6 +155,7 @@ int main(int argc, char** argv) {
   }
   auto ctx = Context{};
   auto or_die = ctx.getFatalFailureHandler();
+  const auto amg = parseBoomerAMGOptions(amg_options);
   ctx.enableProfiling(profiling);
   auto success = true;
   {
@@ -158,7 +195,8 @@ int main(int argc, char** argv) {
       }
       const auto els = std::string{elastic_operator_linear_solver};
       if (els == "amg") {
-        options.insert(ctx, "ElasticOperatorLinearSolver", "HypreBoomerAMG") |
+        options.insert(ctx, "ElasticOperatorLinearSolver",
+                       Parameters{{"HypreBoomerAMG", amg}}) |
             or_die;
       } else if (els == "pcg-amg") {
         options.insert(
@@ -168,7 +206,8 @@ int main(int argc, char** argv) {
                  Parameters{{"Tolerance", linear_tolerance},
                             {"MaximumNumberOfIterations", 2000},
                             {"Preconditioner",
-                             Parameters{{"Name", "HypreBoomerAMG"}}}}}}) |
+                             Parameters{{"Name", "HypreBoomerAMG"},
+                                        {"Options", amg}}}}}}) |
             or_die;
       } else if (els == "mumps") {
         options.insert(ctx, "ElasticOperatorLinearSolver",
@@ -232,8 +271,7 @@ int main(int argc, char** argv) {
            {"Tolerance", linear_tolerance},
            {"MaximumNumberOfIterations", 2000},
            {"Preconditioner",
-            Parameters{{"Name", "HypreBoomerAMG"},
-                       {"Options", Parameters{{"VerbosityLevel", 0}}}}}}) |
+            Parameters{{"Name", "HypreBoomerAMG"}, {"Options", amg}}}}) |
           or_die;
     } else if (ls == "cg-amg") {
       // conjugate gradient of MFEM, BoomerAMG built on the assembled tangent
@@ -253,9 +291,7 @@ int main(int argc, char** argv) {
                  Parameters{{"UpdatePeriod", update_period},
                             {"Preconditioner",
                              Parameters{{"Name", "HypreBoomerAMG"},
-                                        {"Options",
-                                         Parameters{
-                                             {"VerbosityLevel", 0}}}}}}}}}}) |
+                                        {"Options", amg}}}}}}}}) |
           or_die;
     } else if (ls == "cg-jacobi") {
       // conjugate gradient of MFEM with a Jacobi preconditioner: usable with

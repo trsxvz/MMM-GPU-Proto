@@ -1,0 +1,390 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Fixed point iteration  0 : ||r|| = 11.5549, ||r||/||r_0|| = 8.8506e-09
+Fixed point iteration  0 : ||r|| = 11.5549, ||r||/||r_0|| = 8.85061e-09
+Fixed point iteration  0 : ||r|| = 2380.91, ||r||/||r_0|| = 1.82369e-06
+Fixed point iteration  1 : ||r|| = 413.157, ||r||/||r_0|| = 3.16463e-07
+Fixed point iteration  2 : ||r|| = 65.0913, ||r||/||r_0|| = 4.98575e-08
+Fixed point iteration  3 : ||r|| = 74.3675, ||r||/||r_0|| = 5.69628e-08
+Fixed point iteration  4 : ||r|| = 23.1879, ||r||/||r_0|| = 1.77611e-08
+Fixed point iteration  5 : ||r|| = 9.45783, ||r||/||r_0|| = 7.24436e-09
+Fixed point iteration  0 : ||r|| = 194214, ||r||/||r_0|| = 0.000148761
+Fixed point iteration  1 : ||r|| = 79988.8, ||r||/||r_0|| = 6.12685e-05
+Fixed point iteration  2 : ||r|| = 82740.1, ||r||/||r_0|| = 6.33759e-05
+Fixed point iteration  3 : ||r|| = 24731, ||r||/||r_0|| = 1.89431e-05
+Fixed point iteration  4 : ||r|| = 14705.5, ||r||/||r_0|| = 1.12639e-05
+Fixed point iteration  5 : ||r|| = 10516.1, ||r||/||r_0|| = 8.05494e-06
+Fixed point iteration  6 : ||r|| = 4308.83, ||r||/||r_0|| = 3.30041e-06
+Fixed point iteration  7 : ||r|| = 4620.65, ||r||/||r_0|| = 3.53925e-06
+Fixed point iteration  8 : ||r|| = 3835.93, ||r||/||r_0|| = 2.93818e-06
+Fixed point iteration  9 : ||r|| = 1929.9, ||r||/||r_0|| = 1.47823e-06
+Fixed point iteration 10 : ||r|| = 1807.57, ||r||/||r_0|| = 1.38453e-06
+Fixed point iteration 11 : ||r|| = 775.926, ||r||/||r_0|| = 5.94331e-07
+Fixed point iteration 12 : ||r|| = 1020.95, ||r||/||r_0|| = 7.82007e-07
+Fixed point iteration 13 : ||r|| = 1161.88, ||r||/||r_0|| = 8.89954e-07
+Fixed point iteration 14 : ||r|| = 1092.17, ||r||/||r_0|| = 8.36559e-07
+Fixed point iteration 15 : ||r|| = 947.357, ||r||/||r_0|| = 7.25641e-07
+Fixed point iteration 16 : ||r|| = 1311.25, ||r||/||r_0|| = 1.00437e-06
+Fixed point iteration 17 : ||r|| = 630.248, ||r||/||r_0|| = 4.82747e-07
+Fixed point iteration 18 : ||r|| = 361.789, ||r||/||r_0|| = 2.77117e-07
+Fixed point iteration 19 : ||r|| = 202.09, ||r||/||r_0|| = 1.54794e-07
+Fixed point iteration 20 : ||r|| = 133.228, ||r||/||r_0|| = 1.02047e-07
+Fixed point iteration 21 : ||r|| = 86.0144, ||r||/||r_0|| = 6.58839e-08
+Fixed point iteration 22 : ||r|| = 54.9179, ||r||/||r_0|| = 4.20651e-08
+Fixed point iteration 23 : ||r|| = 31.928, ||r||/||r_0|| = 2.44557e-08
+Fixed point iteration 24 : ||r|| = 49.1999, ||r||/||r_0|| = 3.76853e-08
+Fixed point iteration 25 : ||r|| = 39.0848, ||r||/||r_0|| = 2.99376e-08
+Fixed point iteration 26 : ||r|| = 28.2057, ||r||/||r_0|| = 2.16046e-08
+Fixed point iteration 27 : ||r|| = 19.7778, ||r||/||r_0|| = 1.51491e-08
+Fixed point iteration 28 : ||r|| = 13.3216, ||r||/||r_0|| = 1.02038e-08
+Fixed point iteration 29 : ||r|| = 4.88985, ||r||/||r_0|| = 3.74545e-09
+Fixed point iteration  0 : ||r|| = 1.98229e+06, ||r||/||r_0|| = 0.00151836
+Fixed point iteration  1 : ||r|| = 415582, ||r||/||r_0|| = 0.00031832
+Fixed point iteration  2 : ||r|| = 766550, ||r||/||r_0|| = 0.000587149
+Fixed point iteration  3 : ||r|| = 813144, ||r||/||r_0|| = 0.000622839
+Fixed point iteration  4 : ||r|| = 352974, ||r||/||r_0|| = 0.000270365
+Fixed point iteration  5 : ||r|| = 480900, ||r||/||r_0|| = 0.000368352
+Fixed point iteration  6 : ||r|| = 202195, ||r||/||r_0|| = 0.000154874
+Fixed point iteration  7 : ||r|| = 114739, ||r||/||r_0|| = 8.78856e-05
+Fixed point iteration  8 : ||r|| = 119481, ||r||/||r_0|| = 9.15179e-05
+Fixed point iteration  9 : ||r|| = 66121.7, ||r||/||r_0|| = 5.06468e-05
+Fixed point iteration 10 : ||r|| = 62793.5, ||r||/||r_0|| = 4.80975e-05
+Fixed point iteration 11 : ||r|| = 32177.7, ||r||/||r_0|| = 2.4647e-05
+Fixed point iteration 12 : ||r|| = 14587.3, ||r||/||r_0|| = 1.11734e-05
+Fixed point iteration 13 : ||r|| = 12550.6, ||r||/||r_0|| = 9.61331e-06
+Fixed point iteration 14 : ||r|| = 13113.6, ||r||/||r_0|| = 1.00445e-05
+Fixed point iteration 15 : ||r|| = 11520.9, ||r||/||r_0|| = 8.82458e-06
+Fixed point iteration 16 : ||r|| = 10151.7, ||r||/||r_0|| = 7.77586e-06
+Fixed point iteration 17 : ||r|| = 12527.2, ||r||/||r_0|| = 9.59539e-06
+Fixed point iteration 18 : ||r|| = 13866.1, ||r||/||r_0|| = 1.06209e-05
+Fixed point iteration 19 : ||r|| = 10473.7, ||r||/||r_0|| = 8.02248e-06
+Fixed point iteration 20 : ||r|| = 7443.59, ||r||/||r_0|| = 5.70152e-06
+Fixed point iteration 21 : ||r|| = 4903.21, ||r||/||r_0|| = 3.75568e-06
+Fixed point iteration 22 : ||r|| = 2851.42, ||r||/||r_0|| = 2.18408e-06
+Fixed point iteration 23 : ||r|| = 1041.25, ||r||/||r_0|| = 7.9756e-07
+Fixed point iteration 24 : ||r|| = 1573.11, ||r||/||r_0|| = 1.20495e-06
+Fixed point iteration 25 : ||r|| = 2222.33, ||r||/||r_0|| = 1.70222e-06
+Fixed point iteration 26 : ||r|| = 2197.13, ||r||/||r_0|| = 1.68292e-06
+Fixed point iteration 27 : ||r|| = 954.767, ||r||/||r_0|| = 7.31317e-07
+Fixed point iteration 28 : ||r|| = 452.407, ||r||/||r_0|| = 3.46528e-07
+Fixed point iteration 29 : ||r|| = 223.142, ||r||/||r_0|| = 1.70919e-07
+Fixed point iteration 30 : ||r|| = 146.88, ||r||/||r_0|| = 1.12505e-07
+Fixed point iteration 31 : ||r|| = 186.897, ||r||/||r_0|| = 1.43156e-07
+Fixed point iteration 32 : ||r|| = 170.665, ||r||/||r_0|| = 1.30723e-07
+Fixed point iteration 33 : ||r|| = 84.8563, ||r||/||r_0|| = 6.49968e-08
+Fixed point iteration 34 : ||r|| = 87.4846, ||r||/||r_0|| = 6.701e-08
+Fixed point iteration 35 : ||r|| = 78.3775, ||r||/||r_0|| = 6.00343e-08
+Fixed point iteration 36 : ||r|| = 80.1019, ||r||/||r_0|| = 6.13552e-08
+Fixed point iteration 37 : ||r|| = 87.5589, ||r||/||r_0|| = 6.70669e-08
+Fixed point iteration 38 : ||r|| = 58.6466, ||r||/||r_0|| = 4.49212e-08
+Fixed point iteration 39 : ||r|| = 32.6378, ||r||/||r_0|| = 2.49994e-08
+Fixed point iteration 40 : ||r|| = 26.4925, ||r||/||r_0|| = 2.02923e-08
+Fixed point iteration 41 : ||r|| = 14.0136, ||r||/||r_0|| = 1.07339e-08
+Fixed point iteration 42 : ||r|| = 8.04069, ||r||/||r_0|| = 6.15887e-09
+Fixed point iteration  0 : ||r|| = 3.30477e+06, ||r||/||r_0|| = 0.00253133
+Fixed point iteration  1 : ||r|| = 688822, ||r||/||r_0|| = 0.000527612
+Fixed point iteration  2 : ||r|| = 1.26003e+06, ||r||/||r_0|| = 0.000965141
+Fixed point iteration  3 : ||r|| = 1.44696e+06, ||r||/||r_0|| = 0.00110832
+Fixed point iteration  4 : ||r|| = 661852, ||r||/||r_0|| = 0.000506955
+Fixed point iteration  5 : ||r|| = 780148, ||r||/||r_0|| = 0.000597565
+Fixed point iteration  6 : ||r|| = 498434, ||r||/||r_0|| = 0.000381783
+Fixed point iteration  7 : ||r|| = 237387, ||r||/||r_0|| = 0.00018183
+Fixed point iteration  8 : ||r|| = 290983, ||r||/||r_0|| = 0.000222882
+Fixed point iteration  9 : ||r|| = 193869, ||r||/||r_0|| = 0.000148497
+Fixed point iteration 10 : ||r|| = 63199.9, ||r||/||r_0|| = 4.84088e-05
+Fixed point iteration 11 : ||r|| = 43914.8, ||r||/||r_0|| = 3.36372e-05
+Fixed point iteration 12 : ||r|| = 25134.5, ||r||/||r_0|| = 1.92521e-05
+Fixed point iteration 13 : ||r|| = 18783.3, ||r||/||r_0|| = 1.43873e-05
+Fixed point iteration 14 : ||r|| = 14799.2, ||r||/||r_0|| = 1.13357e-05
+Fixed point iteration 15 : ||r|| = 21660.2, ||r||/||r_0|| = 1.65909e-05
+Fixed point iteration 16 : ||r|| = 21628.4, ||r||/||r_0|| = 1.65665e-05
+Fixed point iteration 17 : ||r|| = 16549.8, ||r||/||r_0|| = 1.26766e-05
+Fixed point iteration 18 : ||r|| = 18266, ||r||/||r_0|| = 1.39911e-05
+Fixed point iteration 19 : ||r|| = 16339.2, ||r||/||r_0|| = 1.25153e-05
+Fixed point iteration 20 : ||r|| = 7699.83, ||r||/||r_0|| = 5.89779e-06
+Fixed point iteration 21 : ||r|| = 6611.19, ||r||/||r_0|| = 5.06393e-06
+Fixed point iteration 22 : ||r|| = 6210.54, ||r||/||r_0|| = 4.75705e-06
+Fixed point iteration 23 : ||r|| = 4204.54, ||r||/||r_0|| = 3.22052e-06
+Fixed point iteration 24 : ||r|| = 4227.59, ||r||/||r_0|| = 3.23818e-06
+Fixed point iteration 25 : ||r|| = 3708.21, ||r||/||r_0|| = 2.84035e-06
+Fixed point iteration 26 : ||r|| = 2807.63, ||r||/||r_0|| = 2.15055e-06
+Fixed point iteration 27 : ||r|| = 2602.75, ||r||/||r_0|| = 1.99361e-06
+Fixed point iteration 28 : ||r|| = 1843.38, ||r||/||r_0|| = 1.41196e-06
+Fixed point iteration 29 : ||r|| = 1251.36, ||r||/||r_0|| = 9.585e-07
+Fixed point iteration 30 : ||r|| = 826.346, ||r||/||r_0|| = 6.32951e-07
+Fixed point iteration 31 : ||r|| = 414.083, ||r||/||r_0|| = 3.17173e-07
+Fixed point iteration 32 : ||r|| = 288.6, ||r||/||r_0|| = 2.21057e-07
+Fixed point iteration 33 : ||r|| = 544.4, ||r||/||r_0|| = 4.16991e-07
+Fixed point iteration 34 : ||r|| = 420.358, ||r||/||r_0|| = 3.21979e-07
+Fixed point iteration 35 : ||r|| = 255.545, ||r||/||r_0|| = 1.95738e-07
+Fixed point iteration 36 : ||r|| = 270.366, ||r||/||r_0|| = 2.07091e-07
+Fixed point iteration 37 : ||r|| = 142.65, ||r||/||r_0|| = 1.09265e-07
+Fixed point iteration 38 : ||r|| = 152.934, ||r||/||r_0|| = 1.17142e-07
+Fixed point iteration 39 : ||r|| = 103.593, ||r||/||r_0|| = 7.93486e-08
+Fixed point iteration 40 : ||r|| = 49.9906, ||r||/||r_0|| = 3.8291e-08
+Fixed point iteration 41 : ||r|| = 46.7588, ||r||/||r_0|| = 3.58156e-08
+Fixed point iteration 42 : ||r|| = 26.6408, ||r||/||r_0|| = 2.04059e-08
+Fixed point iteration 43 : ||r|| = 22.7257, ||r||/||r_0|| = 1.74071e-08
+Fixed point iteration 44 : ||r|| = 13.9609, ||r||/||r_0|| = 1.06936e-08
+Fixed point iteration 45 : ||r|| = 8.40152, ||r||/||r_0|| = 6.43526e-09
+Fixed point iteration  0 : ||r|| = 3.62989e+06, ||r||/||r_0|| = 0.00278037
+Fixed point iteration  1 : ||r|| = 764063, ||r||/||r_0|| = 0.000585245
+Fixed point iteration  2 : ||r|| = 1.3506e+06, ||r||/||r_0|| = 0.00103451
+Fixed point iteration  3 : ||r|| = 1.46838e+06, ||r||/||r_0|| = 0.00112472
+Fixed point iteration  4 : ||r|| = 857457, ||r||/||r_0|| = 0.000656781
+Fixed point iteration  5 : ||r|| = 760894, ||r||/||r_0|| = 0.000582817
+Fixed point iteration  6 : ||r|| = 663966, ||r||/||r_0|| = 0.000508574
+Fixed point iteration  7 : ||r|| = 387825, ||r||/||r_0|| = 0.00029706
+Fixed point iteration  8 : ||r|| = 200340, ||r||/||r_0|| = 0.000153453
+Fixed point iteration  9 : ||r|| = 195979, ||r||/||r_0|| = 0.000150113
+Fixed point iteration 10 : ||r|| = 88691, ||r||/||r_0|| = 6.79341e-05
+Fixed point iteration 11 : ||r|| = 49868.5, ||r||/||r_0|| = 3.81975e-05
+Fixed point iteration 12 : ||r|| = 40203.5, ||r||/||r_0|| = 3.07944e-05
+Fixed point iteration 13 : ||r|| = 35441.3, ||r||/||r_0|| = 2.71467e-05
+Fixed point iteration 14 : ||r|| = 33987.6, ||r||/||r_0|| = 2.60333e-05
+Fixed point iteration 15 : ||r|| = 31010.3, ||r||/||r_0|| = 2.37528e-05
+Fixed point iteration 16 : ||r|| = 31193.1, ||r||/||r_0|| = 2.38928e-05
+Fixed point iteration 17 : ||r|| = 23667.6, ||r||/||r_0|| = 1.81286e-05
+Fixed point iteration 18 : ||r|| = 20883.5, ||r||/||r_0|| = 1.5996e-05
+Fixed point iteration 19 : ||r|| = 15791, ||r||/||r_0|| = 1.20954e-05
+Fixed point iteration 20 : ||r|| = 12116.5, ||r||/||r_0|| = 9.28083e-06
+Fixed point iteration 21 : ||r|| = 7939.12, ||r||/||r_0|| = 6.08107e-06
+Fixed point iteration 22 : ||r|| = 4035.22, ||r||/||r_0|| = 3.09083e-06
+Fixed point iteration 23 : ||r|| = 7593.52, ||r||/||r_0|| = 5.81636e-06
+Fixed point iteration 24 : ||r|| = 10434, ||r||/||r_0|| = 7.99205e-06
+Fixed point iteration 25 : ||r|| = 10373.4, ||r||/||r_0|| = 7.94563e-06
+Fixed point iteration 26 : ||r|| = 4992.02, ||r||/||r_0|| = 3.82371e-06
+Fixed point iteration 27 : ||r|| = 6085.32, ||r||/||r_0|| = 4.66113e-06
+Fixed point iteration 28 : ||r|| = 4596.43, ||r||/||r_0|| = 3.5207e-06
+Fixed point iteration 29 : ||r|| = 2179.03, ||r||/||r_0|| = 1.66906e-06
+Fixed point iteration 30 : ||r|| = 968.753, ||r||/||r_0|| = 7.4203e-07
+Fixed point iteration 31 : ||r|| = 596.627, ||r||/||r_0|| = 4.56994e-07
+Fixed point iteration 32 : ||r|| = 1000.17, ||r||/||r_0|| = 7.66092e-07
+Fixed point iteration 33 : ||r|| = 585.18, ||r||/||r_0|| = 4.48226e-07
+Fixed point iteration 34 : ||r|| = 593.162, ||r||/||r_0|| = 4.5434e-07
+Fixed point iteration 35 : ||r|| = 827.916, ||r||/||r_0|| = 6.34153e-07
+Fixed point iteration 36 : ||r|| = 429.313, ||r||/||r_0|| = 3.28838e-07
+Fixed point iteration 37 : ||r|| = 255.293, ||r||/||r_0|| = 1.95545e-07
+Fixed point iteration 38 : ||r|| = 277.324, ||r||/||r_0|| = 2.1242e-07
+Fixed point iteration 39 : ||r|| = 206.86, ||r||/||r_0|| = 1.58447e-07
+Fixed point iteration 40 : ||r|| = 133.839, ||r||/||r_0|| = 1.02516e-07
+Fixed point iteration 41 : ||r|| = 208.442, ||r||/||r_0|| = 1.59659e-07
+Fixed point iteration 42 : ||r|| = 215.43, ||r||/||r_0|| = 1.65011e-07
+Fixed point iteration 43 : ||r|| = 138.358, ||r||/||r_0|| = 1.05977e-07
+Fixed point iteration 44 : ||r|| = 134.49, ||r||/||r_0|| = 1.03015e-07
+Fixed point iteration 45 : ||r|| = 153.791, ||r||/||r_0|| = 1.17798e-07
+Fixed point iteration 46 : ||r|| = 82.8267, ||r||/||r_0|| = 6.34423e-08
+Fixed point iteration 47 : ||r|| = 53.1318, ||r||/||r_0|| = 4.06971e-08
+Fixed point iteration 48 : ||r|| = 70.6213, ||r||/||r_0|| = 5.40933e-08
+Fixed point iteration 49 : ||r|| = 51.4948, ||r||/||r_0|| = 3.94432e-08
+Fixed point iteration 50 : ||r|| = 18.8511, ||r||/||r_0|| = 1.44393e-08
+Fixed point iteration 51 : ||r|| = 12.7664, ||r||/||r_0|| = 9.77856e-09
+Fixed point iteration  0 : ||r|| = 3.77174e+06, ||r||/||r_0|| = 0.00288902
+Fixed point iteration  1 : ||r|| = 800127, ||r||/||r_0|| = 0.000612868
+Fixed point iteration  2 : ||r|| = 1.3701e+06, ||r||/||r_0|| = 0.00104945
+Fixed point iteration  3 : ||r|| = 1.44924e+06, ||r||/||r_0|| = 0.00111006
+Fixed point iteration  4 : ||r|| = 930100, ||r||/||r_0|| = 0.000712423
+Fixed point iteration  5 : ||r|| = 844145, ||r||/||r_0|| = 0.000646585
+Fixed point iteration  6 : ||r|| = 715265, ||r||/||r_0|| = 0.000547867
+Fixed point iteration  7 : ||r|| = 387340, ||r||/||r_0|| = 0.000296689
+Fixed point iteration  8 : ||r|| = 196540, ||r||/||r_0|| = 0.000150543
+Fixed point iteration  9 : ||r|| = 132572, ||r||/||r_0|| = 0.000101546
+Fixed point iteration 10 : ||r|| = 66443.3, ||r||/||r_0|| = 5.08932e-05
+Fixed point iteration 11 : ||r|| = 62072.5, ||r||/||r_0|| = 4.75452e-05
+Fixed point iteration 12 : ||r|| = 73654.3, ||r||/||r_0|| = 5.64165e-05
+Fixed point iteration 13 : ||r|| = 54010.7, ||r||/||r_0|| = 4.13703e-05
+Fixed point iteration 14 : ||r|| = 35111, ||r||/||r_0|| = 2.68938e-05
+Fixed point iteration 15 : ||r|| = 18264.7, ||r||/||r_0|| = 1.39901e-05
+Fixed point iteration 16 : ||r|| = 23697.6, ||r||/||r_0|| = 1.81515e-05
+Fixed point iteration 17 : ||r|| = 19690.8, ||r||/||r_0|| = 1.50824e-05
+Fixed point iteration 18 : ||r|| = 23402.8, ||r||/||r_0|| = 1.79257e-05
+Fixed point iteration 19 : ||r|| = 26673.1, ||r||/||r_0|| = 2.04307e-05
+Fixed point iteration 20 : ||r|| = 27968.1, ||r||/||r_0|| = 2.14225e-05
+Fixed point iteration 21 : ||r|| = 25184.6, ||r||/||r_0|| = 1.92905e-05
+Fixed point iteration 22 : ||r|| = 16382.4, ||r||/||r_0|| = 1.25483e-05
+Fixed point iteration 23 : ||r|| = 10825.5, ||r||/||r_0|| = 8.29192e-06
+Fixed point iteration 24 : ||r|| = 11270.2, ||r||/||r_0|| = 8.63255e-06
+Fixed point iteration 25 : ||r|| = 12040.4, ||r||/||r_0|| = 9.22253e-06
+Fixed point iteration 26 : ||r|| = 10092, ||r||/||r_0|| = 7.73011e-06
+Fixed point iteration 27 : ||r|| = 7746.28, ||r||/||r_0|| = 5.93337e-06
+Fixed point iteration 28 : ||r|| = 6573.91, ||r||/||r_0|| = 5.03538e-06
+Fixed point iteration 29 : ||r|| = 6180.62, ||r||/||r_0|| = 4.73413e-06
+Fixed point iteration 30 : ||r|| = 5620.85, ||r||/||r_0|| = 4.30537e-06
+Fixed point iteration 31 : ||r|| = 4113.54, ||r||/||r_0|| = 3.15082e-06
+Fixed point iteration 32 : ||r|| = 2694.1, ||r||/||r_0|| = 2.06359e-06
+Fixed point iteration 33 : ||r|| = 1383.82, ||r||/||r_0|| = 1.05995e-06
+Fixed point iteration 34 : ||r|| = 1328.54, ||r||/||r_0|| = 1.01762e-06
+Fixed point iteration 35 : ||r|| = 1153.29, ||r||/||r_0|| = 8.83381e-07
+Fixed point iteration 36 : ||r|| = 488.092, ||r||/||r_0|| = 3.73861e-07
+Fixed point iteration 37 : ||r|| = 510.325, ||r||/||r_0|| = 3.9089e-07
+Fixed point iteration 38 : ||r|| = 630.906, ||r||/||r_0|| = 4.83251e-07
+Fixed point iteration 39 : ||r|| = 419.153, ||r||/||r_0|| = 3.21056e-07
+Fixed point iteration 40 : ||r|| = 255.093, ||r||/||r_0|| = 1.95392e-07
+Fixed point iteration 41 : ||r|| = 294.074, ||r||/||r_0|| = 2.2525e-07
+Fixed point iteration 42 : ||r|| = 312.273, ||r||/||r_0|| = 2.3919e-07
+Fixed point iteration 43 : ||r|| = 436.289, ||r||/||r_0|| = 3.34181e-07
+Fixed point iteration 44 : ||r|| = 357.08, ||r||/||r_0|| = 2.7351e-07
+Fixed point iteration 45 : ||r|| = 173.857, ||r||/||r_0|| = 1.33168e-07
+Fixed point iteration 46 : ||r|| = 93.9835, ||r||/||r_0|| = 7.19879e-08
+Fixed point iteration 47 : ||r|| = 72.2241, ||r||/||r_0|| = 5.5321e-08
+Fixed point iteration 48 : ||r|| = 52.8712, ||r||/||r_0|| = 4.04974e-08
+Fixed point iteration 49 : ||r|| = 33.8294, ||r||/||r_0|| = 2.59121e-08
+Fixed point iteration 50 : ||r|| = 21.4684, ||r||/||r_0|| = 1.6444e-08
+Fixed point iteration 51 : ||r|| = 16.7201, ||r||/||r_0|| = 1.2807e-08
+Fixed point iteration 52 : ||r|| = 6.84633, ||r||/||r_0|| = 5.24404e-09
+Fixed point iteration  0 : ||r|| = 3.85043e+06, ||r||/||r_0|| = 0.00294929
+Fixed point iteration  1 : ||r|| = 801521, ||r||/||r_0|| = 0.000613936
+Fixed point iteration  2 : ||r|| = 1.3328e+06, ||r||/||r_0|| = 0.00102087
+Fixed point iteration  3 : ||r|| = 1.40077e+06, ||r||/||r_0|| = 0.00107294
+Fixed point iteration  4 : ||r|| = 962069, ||r||/||r_0|| = 0.00073691
+Fixed point iteration  5 : ||r|| = 778087, ||r||/||r_0|| = 0.000595986
+Fixed point iteration  6 : ||r|| = 717236, ||r||/||r_0|| = 0.000549377
+Fixed point iteration  7 : ||r|| = 437535, ||r||/||r_0|| = 0.000335136
+Fixed point iteration  8 : ||r|| = 259663, ||r||/||r_0|| = 0.000198893
+Fixed point iteration  9 : ||r|| = 176235, ||r||/||r_0|| = 0.00013499
+Fixed point iteration 10 : ||r|| = 122334, ||r||/||r_0|| = 9.37036e-05
+Fixed point iteration 11 : ||r|| = 128019, ||r||/||r_0|| = 9.80583e-05
+Fixed point iteration 12 : ||r|| = 108153, ||r||/||r_0|| = 8.28415e-05
+Fixed point iteration 13 : ||r|| = 55621.9, ||r||/||r_0|| = 4.26044e-05
+Fixed point iteration 14 : ||r|| = 27935.7, ||r||/||r_0|| = 2.13977e-05
+Fixed point iteration 15 : ||r|| = 22706.9, ||r||/||r_0|| = 1.73927e-05
+Fixed point iteration 16 : ||r|| = 29873.5, ||r||/||r_0|| = 2.2882e-05
+Fixed point iteration 17 : ||r|| = 26219.2, ||r||/||r_0|| = 2.00829e-05
+Fixed point iteration 18 : ||r|| = 32684, ||r||/||r_0|| = 2.50348e-05
+Fixed point iteration 19 : ||r|| = 27795.3, ||r||/||r_0|| = 2.12902e-05
+Fixed point iteration 20 : ||r|| = 22485.5, ||r||/||r_0|| = 1.72231e-05
+Fixed point iteration 21 : ||r|| = 21952.1, ||r||/||r_0|| = 1.68145e-05
+Fixed point iteration 22 : ||r|| = 24668.9, ||r||/||r_0|| = 1.88955e-05
+Fixed point iteration 23 : ||r|| = 21015.3, ||r||/||r_0|| = 1.6097e-05
+Fixed point iteration 24 : ||r|| = 8113.03, ||r||/||r_0|| = 6.21429e-06
+Fixed point iteration 25 : ||r|| = 6082.38, ||r||/||r_0|| = 4.65888e-06
+Fixed point iteration 26 : ||r|| = 7338.33, ||r||/||r_0|| = 5.62089e-06
+Fixed point iteration 27 : ||r|| = 8298.2, ||r||/||r_0|| = 6.35612e-06
+Fixed point iteration 28 : ||r|| = 5051.18, ||r||/||r_0|| = 3.86902e-06
+Fixed point iteration 29 : ||r|| = 7055.34, ||r||/||r_0|| = 5.40413e-06
+Fixed point iteration 30 : ||r|| = 4580.53, ||r||/||r_0|| = 3.50852e-06
+Fixed point iteration 31 : ||r|| = 2244.53, ||r||/||r_0|| = 1.71923e-06
+Fixed point iteration 32 : ||r|| = 2707.76, ||r||/||r_0|| = 2.07405e-06
+Fixed point iteration 33 : ||r|| = 1725.66, ||r||/||r_0|| = 1.32179e-06
+Fixed point iteration 34 : ||r|| = 759.834, ||r||/||r_0|| = 5.82005e-07
+Fixed point iteration 35 : ||r|| = 419.729, ||r||/||r_0|| = 3.21497e-07
+Fixed point iteration 36 : ||r|| = 307.577, ||r||/||r_0|| = 2.35593e-07
+Fixed point iteration 37 : ||r|| = 298.352, ||r||/||r_0|| = 2.28526e-07
+Fixed point iteration 38 : ||r|| = 454.885, ||r||/||r_0|| = 3.48425e-07
+Fixed point iteration 39 : ||r|| = 449.277, ||r||/||r_0|| = 3.4413e-07
+Fixed point iteration 40 : ||r|| = 185.151, ||r||/||r_0|| = 1.41819e-07
+Fixed point iteration 41 : ||r|| = 285.096, ||r||/||r_0|| = 2.18373e-07
+Fixed point iteration 42 : ||r|| = 338.826, ||r||/||r_0|| = 2.59528e-07
+Fixed point iteration 43 : ||r|| = 388.719, ||r||/||r_0|| = 2.97745e-07
+Fixed point iteration 44 : ||r|| = 334.023, ||r||/||r_0|| = 2.5585e-07
+Fixed point iteration 45 : ||r|| = 237.795, ||r||/||r_0|| = 1.82143e-07
+Fixed point iteration 46 : ||r|| = 164.612, ||r||/||r_0|| = 1.26087e-07
+Fixed point iteration 47 : ||r|| = 111.815, ||r||/||r_0|| = 8.56465e-08
+Fixed point iteration 48 : ||r|| = 60.8597, ||r||/||r_0|| = 4.66163e-08
+Fixed point iteration 49 : ||r|| = 60.7314, ||r||/||r_0|| = 4.65181e-08
+Fixed point iteration 50 : ||r|| = 134.522, ||r||/||r_0|| = 1.03039e-07
+Fixed point iteration 51 : ||r|| = 95.2353, ||r||/||r_0|| = 7.29468e-08
+Fixed point iteration 52 : ||r|| = 39.6655, ||r||/||r_0|| = 3.03823e-08
+Fixed point iteration 53 : ||r|| = 25.1482, ||r||/||r_0|| = 1.92626e-08
+Fixed point iteration 54 : ||r|| = 32.6432, ||r||/||r_0|| = 2.50035e-08
+Fixed point iteration 55 : ||r|| = 30.0436, ||r||/||r_0|| = 2.30123e-08
+Fixed point iteration 56 : ||r|| = 17.4474, ||r||/||r_0|| = 1.33641e-08
+Fixed point iteration 57 : ||r|| = 9.97561, ||r||/||r_0|| = 7.64096e-09
+Fixed point iteration  0 : ||r|| = 3.89321e+06, ||r||/||r_0|| = 0.00298206
+Fixed point iteration  1 : ||r|| = 805834, ||r||/||r_0|| = 0.000617239
+Fixed point iteration  2 : ||r|| = 1.28558e+06, ||r||/||r_0|| = 0.000984708
+Fixed point iteration  3 : ||r|| = 1.34509e+06, ||r||/||r_0|| = 0.00103029
+Fixed point iteration  4 : ||r|| = 952825, ||r||/||r_0|| = 0.00072983
+Fixed point iteration  5 : ||r|| = 802038, ||r||/||r_0|| = 0.000614332
+Fixed point iteration  6 : ||r|| = 662399, ||r||/||r_0|| = 0.000507374
+Fixed point iteration  7 : ||r|| = 423491, ||r||/||r_0|| = 0.000324379
+Fixed point iteration  8 : ||r|| = 285374, ||r||/||r_0|| = 0.000218586
+Fixed point iteration  9 : ||r|| = 223267, ||r||/||r_0|| = 0.000171014
+Fixed point iteration 10 : ||r|| = 174610, ||r||/||r_0|| = 0.000133745
+Fixed point iteration 11 : ||r|| = 154003, ||r||/||r_0|| = 0.000117961
+Fixed point iteration 12 : ||r|| = 92325, ||r||/||r_0|| = 7.07176e-05
+Fixed point iteration 13 : ||r|| = 48688.1, ||r||/||r_0|| = 3.72933e-05
+Fixed point iteration 14 : ||r|| = 39959.3, ||r||/||r_0|| = 3.06074e-05
+Fixed point iteration 15 : ||r|| = 35236.2, ||r||/||r_0|| = 2.69897e-05
+Fixed point iteration 16 : ||r|| = 20097.5, ||r||/||r_0|| = 1.53939e-05
+Fixed point iteration 17 : ||r|| = 22890.1, ||r||/||r_0|| = 1.7533e-05
+Fixed point iteration 18 : ||r|| = 24468.4, ||r||/||r_0|| = 1.87419e-05
+Fixed point iteration 19 : ||r|| = 21097.4, ||r||/||r_0|| = 1.61598e-05
+Fixed point iteration 20 : ||r|| = 25424.5, ||r||/||r_0|| = 1.94742e-05
+Fixed point iteration 21 : ||r|| = 24203.2, ||r||/||r_0|| = 1.85388e-05
+Fixed point iteration 22 : ||r|| = 19989.7, ||r||/||r_0|| = 1.53114e-05
+Fixed point iteration 23 : ||r|| = 12660.2, ||r||/||r_0|| = 9.69723e-06
+Fixed point iteration 24 : ||r|| = 12685, ||r||/||r_0|| = 9.71626e-06
+Fixed point iteration 25 : ||r|| = 6746.92, ||r||/||r_0|| = 5.1679e-06
+Fixed point iteration 26 : ||r|| = 5744.09, ||r||/||r_0|| = 4.39977e-06
+Fixed point iteration 27 : ||r|| = 6529.02, ||r||/||r_0|| = 5.00099e-06
+Fixed point iteration 28 : ||r|| = 4563.7, ||r||/||r_0|| = 3.49563e-06
+Fixed point iteration 29 : ||r|| = 5426.9, ||r||/||r_0|| = 4.15681e-06
+Fixed point iteration 30 : ||r|| = 4683.13, ||r||/||r_0|| = 3.58711e-06
+Fixed point iteration 31 : ||r|| = 3418.68, ||r||/||r_0|| = 2.61858e-06
+Fixed point iteration 32 : ||r|| = 1857.07, ||r||/||r_0|| = 1.42245e-06
+Fixed point iteration 33 : ||r|| = 2960.86, ||r||/||r_0|| = 2.26791e-06
+Fixed point iteration 34 : ||r|| = 1327.97, ||r||/||r_0|| = 1.01718e-06
+Fixed point iteration 35 : ||r|| = 441.459, ||r||/||r_0|| = 3.38142e-07
+Fixed point iteration 36 : ||r|| = 252.835, ||r||/||r_0|| = 1.93662e-07
+Fixed point iteration 37 : ||r|| = 206.194, ||r||/||r_0|| = 1.57937e-07
+Fixed point iteration 38 : ||r|| = 267.423, ||r||/||r_0|| = 2.04836e-07
+Fixed point iteration 39 : ||r|| = 322.881, ||r||/||r_0|| = 2.47315e-07
+Fixed point iteration 40 : ||r|| = 271.323, ||r||/||r_0|| = 2.07823e-07
+Fixed point iteration 41 : ||r|| = 238.559, ||r||/||r_0|| = 1.82728e-07
+Fixed point iteration 42 : ||r|| = 215.764, ||r||/||r_0|| = 1.65268e-07
+Fixed point iteration 43 : ||r|| = 272.028, ||r||/||r_0|| = 2.08364e-07
+Fixed point iteration 44 : ||r|| = 267.192, ||r||/||r_0|| = 2.04659e-07
+Fixed point iteration 45 : ||r|| = 89.2876, ||r||/||r_0|| = 6.83911e-08
+Fixed point iteration 46 : ||r|| = 146.13, ||r||/||r_0|| = 1.1193e-07
+Fixed point iteration 47 : ||r|| = 88.1084, ||r||/||r_0|| = 6.74879e-08
+Fixed point iteration 48 : ||r|| = 52.5524, ||r||/||r_0|| = 4.02533e-08
+Fixed point iteration 49 : ||r|| = 60.8554, ||r||/||r_0|| = 4.66131e-08
+Fixed point iteration 50 : ||r|| = 70.3895, ||r||/||r_0|| = 5.39158e-08
+Fixed point iteration 51 : ||r|| = 38.2563, ||r||/||r_0|| = 2.9303e-08
+Fixed point iteration 52 : ||r|| = 24.3605, ||r||/||r_0|| = 1.86593e-08
+Fixed point iteration 53 : ||r|| = 35.0512, ||r||/||r_0|| = 2.6848e-08
+Fixed point iteration 54 : ||r|| = 28.9094, ||r||/||r_0|| = 2.21436e-08
+Fixed point iteration 55 : ||r|| = 20.8394, ||r||/||r_0|| = 1.59622e-08
+Fixed point iteration 56 : ||r|| = 16.3054, ||r||/||r_0|| = 1.24893e-08
+Fixed point iteration 57 : ||r|| = 15.8275, ||r||/||r_0|| = 1.21233e-08
+Fixed point iteration 58 : ||r|| = 17.0218, ||r||/||r_0|| = 1.30381e-08
+Fixed point iteration 59 : ||r|| = 17.2308, ||r||/||r_0|| = 1.31981e-08
+Fixed point iteration 60 : ||r|| = 10.8869, ||r||/||r_0|| = 8.33897e-09
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704658 | iterations per step: 0 0 5 29 42 45 51 52 57 60 | total 341
+time 13.291 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                    |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                    |                  1 |          13.325436 |          13.326749 |          13.334695 |        100.000000% |          0.059620% |
+ | |--> Mesh::Constructor                    |                  1 |           0.023541 |           0.025287 |           0.030677 |          0.230054% |         21.313240% |
+ |    |--> Mesh::LoadMesh                    |                  1 |           0.000199 |           0.000218 |           0.000229 |          0.001715% |          4.696529% |
+ |    |--> Mesh::Run_ParUniformRefinement    |                  3 |           0.021525 |           0.023106 |           0.028299 |          0.212223% |         22.478102% |
+ | |--> FED::Constructor                     |                  1 |           0.004536 |           0.009963 |           0.011696 |          0.087713% |         17.401623% |
+ | |--> NLEPIB::updateLinearSolver           |                  1 |           0.000001 |           0.000001 |           0.000003 |          0.000026% |        152.252252% |
+ | |--> NLEP::solve                          |                 10 |          13.254610 |          13.255048 |          13.256511 |         99.413681% |          0.011037% |
+ |    |--> NLEPIB::setup                     |                 10 |           0.000459 |           0.000959 |           0.002394 |          0.017956% |        149.673728% |
+ |    |--> NLEPIB::solve                     |                 10 |          13.253974 |          13.254060 |          13.254416 |         99.397974% |          0.002689% |
+ |       |--> NLEPIB::computePrediction      |                 10 |           6.160286 |           6.161416 |           6.164132 |         46.226273% |          0.044092% |
+ |       |--> FPS::Mult                      |                 10 |           7.089786 |           7.092513 |           7.093707 |         53.197368% |          0.016825% |
+ |          |--> FPS::integrate              |                352 |           1.320380 |           1.340703 |           1.351265 |         10.133456% |          0.787855% |
+ |          |--> NS::getJacobian             |                  1 |           0.105580 |           0.105708 |           0.105968 |          0.794682% |          0.246725% |
+ |          |--> NS::setLinearSolverOperator |                  1 |           0.000014 |           0.000016 |           0.000017 |          0.000130% |         11.351785% |
+ |          |--> NS::computeResidual         |                351 |           1.247993 |           1.250270 |           1.253791 |          9.402475% |          0.281633% |
+ |          |--> MFEM::Mult(r,c)             |                341 |           3.640390 |           3.841430 |           3.994050 |         29.952314% |          3.972978% |
+ |          |--> FPS::accelerate             |                341 |           0.389522 |           0.520607 |           0.714875 |          5.361018% |         37.315854% |
+ | |--> NLEPIB::update                       |                 10 |           0.033685 |           0.035317 |           0.035807 |          0.268526% |          1.386861% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------|
