@@ -7,6 +7,7 @@
 
 #include <span>
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <utility>
 #include <variant>
@@ -1196,9 +1197,24 @@ namespace mfem_mgis {
                           : "BehaviourIntegratorBase::revert: "} +
             ctx.getErrorMessage());
     }
-    // the copies of the arrays on the host are valid after an update or a
-    // revert, as on the host
-    this->synchronizeOnHostForReading();
+    // as after an update or a revert on the host, the copies of the arrays
+    // on the host are valid and may be modified, their copies on the device
+    // being invalid (see `MaterialArrays`). The tangent operator blocks, set
+    // to zero, are set to zero on the host instead of being copied.
+    for (const auto a :
+         {StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
+          StateArray::INTERNAL_STATE_VARIABLES, StateArray::STORED_ENERGIES,
+          StateArray::DISSIPATED_ENERGIES}) {
+      for (const auto s : {bts, ets}) {
+        this->synchronizeOnHost(a, s);
+      }
+    }
+    const auto nK = static_cast<std::size_t>(
+        this->getArrays().getTangentOperatorBlocks().Size());
+    if (nK != 0) {
+      auto* const K = this->getArrays().writeTangentOperatorBlocks(false);
+      std::fill(K, K + nK, real{0});
+    }
   }  // end of copyStatesOnDevice
 
   void BehaviourIntegratorBase::revert() {

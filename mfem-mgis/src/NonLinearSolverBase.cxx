@@ -178,6 +178,18 @@ namespace mfem_mgis {
     return true;
   }  // end of processNewUnknownsEstimate
 
+  bool NonLinearSolverBase::isTrueOnAllProcesses(const bool b) const noexcept {
+#ifdef MFEM_USE_MPI
+    if (this->GetComm() != MPI_COMM_NULL) {
+      auto r = b;
+      MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_CXX_BOOL, MPI_LAND,
+                    this->GetComm());
+      return r;
+    }
+#endif /* MFEM_USE_MPI */
+    return b;
+  }  // end of isTrueOnAllProcesses
+
   bool NonLinearSolverBase::shallPrint() const noexcept {
     if (this->print_level >= 0) {
 #ifdef MFEM_USE_MPI

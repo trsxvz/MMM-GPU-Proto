@@ -3324,3 +3324,36 @@ corrigés ; nouveaux constats C3 (écriture directe après `update` ignorée
 sur le périphérique), C7 (exception sur un seul processus : blocage), C4
 et C5 (matrice du préconditionneur `AssembledOperator`), C9 (tests), C8
 (copie de K). Corrections en cours.
+
+### 2026-10-10 (nuit), corrections de la relecture de 1bbcb877d8
+
+mfem-mgis bae47cb272 :
+
+- C3 : `update` et `revert` d'une loi intégrée sur le périphérique se
+  terminent par la synchronisation des tableaux d'état sur l'hôte (copies
+  du périphérique invalidées), comme sur l'hôte : une écriture directe
+  dans l'état après `update` est prise en compte. C8 : les blocs de K,
+  nuls, sont mis à zéro sur l'hôte au lieu d'être recopiés.
+- C7 : un échec de l'assemblage de la tangente ou de la mise en place du
+  solveur linéaire sur un processus est rendu collectif avant la
+  résolution ; pendant la résolution, seuls les échecs signalés sur tous
+  les processus (`CollectiveFailure`, levée par
+  `raiseOnFailureOnAnyProcess`) sont rattrapés en parallèle.
+- C4 et C5 : le préconditionneur `AssembledOperator` connaît le nombre
+  d'assemblages de la tangente (compteur partagé par le problème et ses
+  fournisseurs) : il se remet en place si sa matrice a été réassemblée
+  par un autre appel, et garde une mise en place valide pour la
+  résolution de la prédiction au lieu de remettre la période à zéro.
+  Poutre r3, 4 processus, 10 pas, 25 itérations de Newton : 25, 13 et 7
+  mises en place de BoomerAMG pour une période de 1, 2 et 4 (avant : une
+  de plus par pas, quelle que soit la période).
+- Tests : écriture directe après `update` (détecte C3 par mutation sur
+  `debug`) ; diagonale de l'opérateur sans matrice vérifiée aussi avec le
+  préconditionneur assemblé, et cas sans prédiction (détecte C4 par
+  mutation : arrêt dans `MPI_Comm_size` à 2 processus).
+- Suites : 141/141, GPU 7/7, noyaux forcés 131/141 (10 refus attendus),
+  cas 19/19.
+- Restent (sévérité 1) : C11 (en séquentiel, AssembledOperator n'enveloppe
+  que Jacobi), C12 (préconditionneur gardé après un échec de Newton), C14
+  (une réduction MPI par application de l'opérateur sans matrice), tests
+  de F4, F5, F6.

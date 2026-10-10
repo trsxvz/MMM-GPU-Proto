@@ -108,6 +108,13 @@ struct ComputationOptions {
    */
   bool thermal = false;
   /*!
+   * \brief if true, the equivalent plastic strain at the beginning of the
+   * second time step is modified by a direct write in the state of the
+   * material after the update of the first time step (with the
+   * `IsotropicLinearHardeningPlasticity` behaviour)
+   */
+  bool write_after_update = false;
+  /*!
    * \brief if true, the gradients of the integration by batches are computed
    * by kernels (parameter `GradientsComputation`)
    */
@@ -498,7 +505,10 @@ static Results compute(mfem_mgis::Context& ctx,
       return r;
     }
     r.iterations.push_back(o.iterations);
-    if (opts.matrix_free && !opts.assembled_preconditioner) {
+    // with the assembled preconditioner, the assembly of the tangent operator
+    // by this check invalidates the operator on which the preconditioner is
+    // set up: the preconditioner is set up again at the next iteration
+    if (opts.matrix_free) {
 #ifdef MFEM_USE_MPI
       if (parallel) {
         checkMatrixFreeDiagonal<true>(problem, name);
@@ -511,6 +521,15 @@ static Results compute(mfem_mgis::Context& ctx,
     }
     problem.update(ctx) | or_die;
     checkStatesAfterUpdateOrRevert(m, name);
+    if (opts.write_after_update && (i == 0)) {
+      // direct write in the state, valid on the host after an update
+      const auto o = mgis::behaviour::getVariableOffset(
+          m.b.isvs, "EquivalentPlasticStrain", m.b.hypothesis);
+      const auto stride = m.s0.internal_state_variables_stride;
+      for (size_type p = 0; p != static_cast<size_type>(m.n); ++p) {
+        m.s0.internal_state_variables[p * stride + o] += 1e-2;
+      }
+    }
     t += dt;
   }
   const auto& u = problem.getUnknowns(ets);
@@ -1090,6 +1109,15 @@ int main(int argc, char** argv) {
                       .matrix_free = true,
                       .second_material_library = library},
                      ", matrix free, two materials"});
+    // without prediction, the preconditioner is kept between time steps:
+    // its assembled operator, assembled again by the check of the diagonal
+    // (see `checkMatrixFreeDiagonal`), must be set up again
+    cases.push_back({"IsotropicLinearHardeningPlasticity",
+                     {.gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .matrix_free = true,
+                      .assembled_preconditioner = true},
+                     ", matrix free, assembled preconditioner"});
     for (const auto& [b, opts, name] : cases) {
       const auto* const m = getMesh(opts);
       auto reference = opts;
@@ -1143,6 +1171,16 @@ int main(int argc, char** argv) {
     cases.push_back({"IsotropicLinearHardeningThermoPlasticity",
                      {.thermal = true},
                      ", temperature"});
+    // direct write in the state after an update
+    cases.push_back({"IsotropicLinearHardeningPlasticity",
+                     {.write_after_update = true},
+                     ", write after update"});
+    cases.push_back({"IsotropicLinearHardeningPlasticity",
+                     {.write_after_update = true,
+                      .gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .tangent_operator_kernels = true},
+                     ", write after update, kernels"});
     cases.push_back({"IsotropicLinearHardeningThermoPlasticity",
                      {.prediction = true,
                       .thermal = true,

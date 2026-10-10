@@ -10,7 +10,6 @@
 #ifdef MFEM_USE_MPI
 #include "mfem/fem/pfespace.hpp"
 #endif /* MFEM_USE_MPI */
-#include "MGIS/Raise.hxx"
 #include "MFEMMGIS/MPI.hxx"
 
 namespace mfem_mgis {
@@ -38,9 +37,13 @@ namespace mfem_mgis {
       return;
     }
     if (!success) {
-      raise(std::string{what} + ": " + ctx.getErrorMessage());
+      throw(
+          CollectiveFailure(std::string{what} + ": " + ctx.getErrorMessage()));
     }
-    raise(std::string{what} + ": failure on another process");
+    throw(
+        CollectiveFailure(std::string{what} + ": failure on another process"));
   }  // end of raiseOnFailureOnAnyProcess
+
+  CollectiveFailure::~CollectiveFailure() noexcept = default;
 
 }  // end of namespace mfem_mgis

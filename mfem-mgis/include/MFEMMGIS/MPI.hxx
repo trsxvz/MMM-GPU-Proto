@@ -9,6 +9,7 @@
 #define LIB_MFEM_MGIS_MPI_HXX
 
 #include <cstdint>
+#include <stdexcept>
 #include <string_view>
 #include <concepts>
 #include "MFEMMGIS/Config.hxx"
@@ -104,8 +105,20 @@ namespace mfem_mgis {
   [[nodiscard]] bool isValidOnAllProcesses(const MeshDiscretization& m,
                                            const T& v) noexcept;
   /*!
-   * \brief raises an exception on all the processes if a computation failed
-   * on one of them, before the collective operations following it
+   * \brief exception thrown on all the processes when a computation failed
+   * on one of them (see `raiseOnFailureOnAnyProcess`): the processes can
+   * handle it and continue together, unlike an exception thrown by a single
+   * process
+   */
+  struct MFEM_MGIS_EXPORT CollectiveFailure : std::runtime_error {
+    using std::runtime_error::runtime_error;
+    //! \brief destructor
+    ~CollectiveFailure() noexcept override;
+  };
+  /*!
+   * \brief throws a `CollectiveFailure` exception on all the processes if a
+   * computation failed on one of them, before the collective operations
+   * following it
    *
    * \param[in] m: mesh discretization
    * \param[in, out] ctx: execution context of the computation

@@ -1,0 +1,706 @@
+From bae47cb2729d1cced219b1684009ec86d472bc1b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 02:26:46 +0200
+Subject: [PATCH] Fix the findings of the review of the update on the device
+ and of AssembledOperator
+
+- update and revert of a behaviour integrated on the device end with the
+  synchronization of the state arrays on the host (copies on the device
+  invalidated), as on the host: a direct write in the state after an
+  update is taken into account; the tangent operator blocks are set to
+  zero on the host instead of being copied;
+- Newton correction: a failure of the assembly of the tangent operator or
+  of the setup of the linear solver on a process is made collective
+  before the resolution; during the resolution, only the failures reported
+  on all the processes (CollectiveFailure, thrown by
+  raiseOnFailureOnAnyProcess) are caught in parallel;
+- AssembledOperator: the number of assemblies of the assembled tangent
+  operator, shared by the problem and its providers, tells the
+  preconditioner whether the operator on which it is set up is still
+  valid: it is set up again otherwise (the operator was assembled again by
+  another call); an operator which is not a provider, such as the matrix
+  of the prediction, keeps a valid setup instead of resetting the period;
+- BatchIntegrationTest: direct write in the state after an update; the
+  diagonal of the matrix-free operator is also checked with the assembled
+  preconditioner, and a case without prediction keeps the preconditioner
+  between time steps;
+- comments updated.
+---
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  | 13 ++--
+ include/MFEMMGIS/MPI.hxx                      | 17 ++++-
+ include/MFEMMGIS/Material.hxx                 |  3 +-
+ include/MFEMMGIS/MaterialArrays.hxx           |  4 +-
+ .../MFEMMGIS/MatrixFreeTangentOperator.hxx    | 22 +++++-
+ ...nearEvolutionProblemImplementationBase.hxx | 12 ++-
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  |  6 ++
+ src/BehaviourIntegratorBase.cxx               | 22 +++++-
+ src/LinearSolverFactory.cxx                   | 52 +++++++++++--
+ src/MPI.cxx                                   |  9 ++-
+ src/MatrixFreeTangentOperator.cxx             | 11 ++-
+ src/MultiMaterialNonLinearIntegrator.cxx      |  6 +-
+ src/NewtonSolver.cxx                          | 73 +++++++++++++------
+ ...onLinearEvolutionProblemImplementation.cxx |  2 +
+ ...nearEvolutionProblemImplementationBase.cxx |  3 +-
+ src/NonLinearSolverBase.cxx                   | 12 +++
+ tests/BatchIntegrationTest.cxx                | 40 +++++++++-
+ 17 files changed, 250 insertions(+), 57 deletions(-)
+
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index 3a9160d48e..2cfcd7520f 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -36,14 +36,14 @@ namespace mfem_mgis {
+     /*!
+      * \brief revert the state of the material; for a behaviour integrated on
+      * the device (see `integratesBatchesOnDevice`), the arrays are copied
+-     * on the device, then synchronized on the host for reading (see
++     * on the device, then synchronized on the host (see
+      * `copyStatesOnDevice`)
+      */
+     void revert() override;
+     /*!
+      * \brief update the state of the material; for a behaviour integrated on
+      * the device (see `integratesBatchesOnDevice`), the arrays are copied
+-     * on the device, then synchronized on the host for reading (see
++     * on the device, then synchronized on the host (see
+      * `copyStatesOnDevice`)
+      */
+     void update() override;
+@@ -374,9 +374,12 @@ namespace mfem_mgis {
+      * density, stored on the host, are updated on the host as by
+      * `Material::updateMaterialStates` (see
+      * `mgis::behaviour::updateInputValues`). The arrays are then
+-     * synchronized on the host for reading, so that their copies on the host
+-     * are valid after an update or a revert, as for a behaviour integrated on
+-     * the host, while their copies on the device stay valid.
++     * synchronized on the host (see `Material::synchronizeOnHost`): as for a
++     * behaviour integrated on the host, their copies on the host are valid
++     * and may be modified directly after an update or a revert, their copies
++     * on the device being copied again at the next integration. The tangent
++     * operator blocks, set to zero, are set to zero on the host without
++     * copy.
+      * \param[in] u: if true, update, otherwise revert
+      */
+     void copyStatesOnDevice(const bool);
+diff --git a/include/MFEMMGIS/MPI.hxx b/include/MFEMMGIS/MPI.hxx
+index 8f5ea27c59..2968cb5ac2 100644
+--- a/include/MFEMMGIS/MPI.hxx
++++ b/include/MFEMMGIS/MPI.hxx
+@@ -9,6 +9,7 @@
+ #define LIB_MFEM_MGIS_MPI_HXX
+ 
+ #include <cstdint>
++#include <stdexcept>
+ #include <string_view>
+ #include <concepts>
+ #include "MFEMMGIS/Config.hxx"
+@@ -104,8 +105,20 @@ namespace mfem_mgis {
+   [[nodiscard]] bool isValidOnAllProcesses(const MeshDiscretization& m,
+                                            const T& v) noexcept;
+   /*!
+-   * \brief raises an exception on all the processes if a computation failed
+-   * on one of them, before the collective operations following it
++   * \brief exception thrown on all the processes when a computation failed
++   * on one of them (see `raiseOnFailureOnAnyProcess`): the processes can
++   * handle it and continue together, unlike an exception thrown by a single
++   * process
++   */
++  struct MFEM_MGIS_EXPORT CollectiveFailure : std::runtime_error {
++    using std::runtime_error::runtime_error;
++    //! \brief destructor
++    ~CollectiveFailure() noexcept override;
++  };
++  /*!
++   * \brief throws a `CollectiveFailure` exception on all the processes if a
++   * computation failed on one of them, before the collective operations
++   * following it
+    *
+    * \param[in] m: mesh discretization
+    * \param[in, out] ctx: execution context of the computation
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index ba1a2d4776..67b00013c7 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -106,7 +106,8 @@ namespace mfem_mgis {
+      * a time step and the end of the resolution, the copies on the host of
+      * its arrays are outdated, and a direct access to its states must be
+      * preceded by a synchronization. Its update and its revert are made on
+-     * the device and end with `synchronizeOnHostForReading`.
++     * the device and end with a synchronization on the host, as for a
++     * behaviour integrated on the host.
+      *
+      * \note the arrays of a material used by another one as external
+      * storage (material properties or external state variables given with
+diff --git a/include/MFEMMGIS/MaterialArrays.hxx b/include/MFEMMGIS/MaterialArrays.hxx
+index 4dd65f5e3b..244794abc6 100644
+--- a/include/MFEMMGIS/MaterialArrays.hxx
++++ b/include/MFEMMGIS/MaterialArrays.hxx
+@@ -59,8 +59,8 @@ namespace mfem_mgis {
+    *   `Read`, `Write` or `ReadWrite`, which copy the arrays to the device
+    *   if needed;
+    * - the update and the revert of a behaviour integrated on the device are
+-   *   made on the device, then the arrays are synchronized on the host for
+-   *   reading (see `BehaviourIntegratorBase::update`).
++   *   made on the device, then the arrays are synchronized on the host (see
++   *   `BehaviourIntegratorBase::update`).
+    *
+    * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
+    * device of MFEM, the copies are made between the memory of the host and
+diff --git a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+index 3686ac1d3c..e9ee97fda0 100644
+--- a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
++++ b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+@@ -7,6 +7,7 @@
+ #ifndef LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
+ #define LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX
+ 
++#include <memory>
+ #include <functional>
+ #include "mfem/linalg/operator.hpp"
+ #include "mfem/linalg/vector.hpp"
+@@ -76,9 +77,19 @@ namespace mfem_mgis {
+   struct MFEM_MGIS_EXPORT AssembledOperatorProvider {
+     /*!
+      * \return the assembled operator, assembled at each call. It stays valid
+-     * until the next call.
++     * until the next assembly, by this provider or by another one of the
++     * same problem: see `getAssembledOperatorRevision`.
+      */
+     [[nodiscard]] virtual mfem::Operator& getAssembledOperator() const = 0;
++    /*!
++     * \return the number of assemblies of the assembled operator of the
++     * problem, shared by all its providers and incremented at each assembly:
++     * an assembled operator stays valid as long as this number keeps the
++     * value it had just after its assembly. The counter outlives the
++     * providers.
++     */
++    [[nodiscard]] virtual std::shared_ptr<const size_type>
++    getAssembledOperatorRevision() const = 0;
+     //! \brief destructor
+     virtual ~AssembledOperatorProvider();
+   };  // end of struct AssembledOperatorProvider
+@@ -97,17 +108,24 @@ namespace mfem_mgis {
+      * \param[in] essential_dofs: essential true degrees of freedom
+      * \param[in] f: function assembling the tangent operator, the essential
+      * degrees of freedom being eliminated
++     * \param[in] r: number of assemblies of the assembled tangent operator
++     * (see `getAssembledOperatorRevision`), incremented by `f`
+      */
+     ConstrainedMatrixFreeTangentOperator(MatrixFreeTangentOperator&,
+                                          const mfem::Array<int>&,
+-                                         std::function<mfem::Operator&()>);
++                                         std::function<mfem::Operator&()>,
++                                         std::shared_ptr<const size_type>);
+     [[nodiscard]] mfem::Operator& getAssembledOperator() const override;
++    [[nodiscard]] std::shared_ptr<const size_type>
++    getAssembledOperatorRevision() const override;
+     //! \brief destructor
+     ~ConstrainedMatrixFreeTangentOperator() override;
+ 
+    private:
+     //! \brief function assembling the tangent operator
+     std::function<mfem::Operator&()> assemble;
++    //! \brief number of assemblies of the assembled tangent operator
++    std::shared_ptr<const size_type> revision;
+   };  // end of struct ConstrainedMatrixFreeTangentOperator
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 6937c1a8b9..d4e5a9bec2 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -107,7 +107,9 @@ namespace mfem_mgis {
+      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
+      * `Kernels` (computed for all the elements by kernels from the tangent
+      * operator blocks, on the device if a device is enabled, and assembled
+-     * by kernels in the sparse matrix of the tangent operator), or
++     * by kernels in the sparse matrix of the tangent operator if the non
++     * linear form only contains the integrator of mfem-mgis, by the
++     * assembly of MFEM otherwise), or
+      * `MatrixFree` (the tangent operator is applied without assembly by
+      * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
+      * freedom being constrained by `mfem::ConstrainedOperator`: the linear
+@@ -385,6 +387,14 @@ namespace mfem_mgis {
+      * element space), kept between the evaluations of the residual
+      */
+     mutable mfem::Vector inner_forces_by_kernels;
++    /*!
++     * \brief number of assemblies of the tangent operator by kernels
++     * (`assembleTangentOperatorByKernels`), shared with the operators which
++     * give an assembled version of themselves (see
++     * `AssembledOperatorProvider::getAssembledOperatorRevision`)
++     */
++    const std::shared_ptr<size_type> assembled_tangent_operator_revision =
++        std::make_shared<size_type>(0);
+     /*!
+      * \brief local matrix of the operator of the prediction, assembled by
+      * kernels (see `TangentOperatorComputation`), created at the first
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+index ea4d188b1f..2ec1a95f31 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+@@ -89,6 +89,12 @@ namespace mfem_mgis {
+      * context is high enough (`verboseLevel3`)
+      */
+     [[nodiscard]] bool shallPrint() const noexcept;
++    /*!
++     * \return if the given value is true on all the processes using the
++     * communicator of the solver (a single process in sequential)
++     * \param[in] b: value on the current process
++     */
++    [[nodiscard]] bool isTrueOnAllProcesses(const bool) const noexcept;
+     //! \return the log stream of the execution context, if any
+     [[nodiscard]] std::ostream &getLogStream() const noexcept;
+     /*!
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index a4c29f7633..14d40c6354 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <span>
+ #include <algorithm>
++#include <cstddef>
+ #include <limits>
+ #include <utility>
+ #include <variant>
+@@ -1196,9 +1197,24 @@ namespace mfem_mgis {
+                           : "BehaviourIntegratorBase::revert: "} +
+             ctx.getErrorMessage());
+     }
+-    // the copies of the arrays on the host are valid after an update or a
+-    // revert, as on the host
+-    this->synchronizeOnHostForReading();
++    // as after an update or a revert on the host, the copies of the arrays
++    // on the host are valid and may be modified, their copies on the device
++    // being invalid (see `MaterialArrays`). The tangent operator blocks, set
++    // to zero, are set to zero on the host instead of being copied.
++    for (const auto a :
++         {StateArray::GRADIENTS, StateArray::THERMODYNAMIC_FORCES,
++          StateArray::INTERNAL_STATE_VARIABLES, StateArray::STORED_ENERGIES,
++          StateArray::DISSIPATED_ENERGIES}) {
++      for (const auto s : {bts, ets}) {
++        this->synchronizeOnHost(a, s);
++      }
++    }
++    const auto nK = static_cast<std::size_t>(
++        this->getArrays().getTangentOperatorBlocks().Size());
++    if (nK != 0) {
++      auto* const K = this->getArrays().writeTangentOperatorBlocks(false);
++      std::fill(K, K + nK, real{0});
++    }
+   }  // end of copyStatesOnDevice
+ 
+   void BehaviourIntegratorBase::revert() {
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index a0f8d9ab99..7c1600a7e0 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -5,6 +5,8 @@
+  * \date   24/03/2021
+  */
+ 
++#include <memory>
++#include <optional>
+ #include <utility>
+ #include "mfem/linalg/solvers.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+@@ -280,9 +282,19 @@ namespace mfem_mgis {
+     /*!
+      * \brief preconditioner built on the assembled version of an operator
+      * applied without assembly (see `AssembledOperatorProvider`), set up
+-     * every `period` calls to `SetOperator`, and kept between them. An
+-     * operator which can't give an assembled version (for instance an
+-     * assembled matrix) is given directly to the preconditioner.
++     * every `period` calls to `SetOperator`, and kept between them.
++     *
++     * The preconditioner is also set up again when the assembled operator
++     * on which it was set up is no longer valid, i.e. when the operator has
++     * been assembled again in between (see
++     * `AssembledOperatorProvider::getAssembledOperatorRevision`).
++     *
++     * An operator which can't give an assembled version (for instance the
++     * matrix of the prediction) keeps the preconditioner set up on a valid
++     * assembled operator, if any: it is still a preconditioner of a close
++     * operator. Otherwise, the preconditioner is set up on this operator,
++     * and set up again at the next call (this operator may be destroyed
++     * after its resolution).
+      */
+     struct AssembledOperatorPreconditioner final : mfem::Solver {
+       /*!
+@@ -298,14 +310,22 @@ namespace mfem_mgis {
+         const auto* const provider =
+             dynamic_cast<const AssembledOperatorProvider*>(&op);
+         if (provider == nullptr) {
++          if (this->isSetUpOnAValidAssembledOperator()) {
++            return;
++          }
+           this->preconditioner->SetOperator(op);
+-          // the next operator applied without assembly sets the
+-          // preconditioner up again
+-          this->count = 0;
++          this->revision.reset();
++          this->setup_revision.reset();
+           return;
+         }
+-        if (this->count % this->period == 0) {
++        const auto r = provider->getAssembledOperatorRevision();
++        const auto valid =
++            (r == this->revision) && this->isSetUpOnAValidAssembledOperator();
++        if ((!valid) || (this->count % this->period == 0)) {
+           this->preconditioner->SetOperator(provider->getAssembledOperator());
++          this->revision = r;
++          this->setup_revision = *r;
++          this->count = 0;
+         }
+         ++(this->count);
+       }
+@@ -314,12 +334,28 @@ namespace mfem_mgis {
+       }
+ 
+      private:
++      /*!
++       * \return if the preconditioner is set up on an assembled operator which
++       * has not been assembled again since
++       */
++      [[nodiscard]] bool isSetUpOnAValidAssembledOperator() const noexcept {
++        return (this->revision != nullptr) &&
++               (this->setup_revision.has_value()) &&
++               (*(this->revision) == *(this->setup_revision));
++      }
+       //! \brief preconditioner
+       std::unique_ptr<mfem::Solver> preconditioner;
+       //! \brief period of the updates
+       const int period;
+-      //! \brief number of calls to `SetOperator` since the last update
++      //! \brief number of calls to `SetOperator` since the last setup
+       int count = 0;
++      //! \brief number of assemblies of the assembled operator
++      std::shared_ptr<const size_type> revision;
++      /*!
++       * \brief number of assemblies of the assembled operator when the
++       * preconditioner was set up on it, if it was
++       */
++      std::optional<size_type> setup_revision;
+     };
+ 
+   }  // end of namespace
+diff --git a/src/MPI.cxx b/src/MPI.cxx
+index 8861a4f305..f025036042 100644
+--- a/src/MPI.cxx
++++ b/src/MPI.cxx
+@@ -10,7 +10,6 @@
+ #ifdef MFEM_USE_MPI
+ #include "mfem/fem/pfespace.hpp"
+ #endif /* MFEM_USE_MPI */
+-#include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+ 
+ namespace mfem_mgis {
+@@ -38,9 +37,13 @@ namespace mfem_mgis {
+       return;
+     }
+     if (!success) {
+-      raise(std::string{what} + ": " + ctx.getErrorMessage());
++      throw(
++          CollectiveFailure(std::string{what} + ": " + ctx.getErrorMessage()));
+     }
+-    raise(std::string{what} + ": failure on another process");
++    throw(
++        CollectiveFailure(std::string{what} + ": failure on another process"));
+   }  // end of raiseOnFailureOnAnyProcess
+ 
++  CollectiveFailure::~CollectiveFailure() noexcept = default;
++
+ }  // end of namespace mfem_mgis
+diff --git a/src/MatrixFreeTangentOperator.cxx b/src/MatrixFreeTangentOperator.cxx
+index 9ba7ab99bf..55c54c7118 100644
+--- a/src/MatrixFreeTangentOperator.cxx
++++ b/src/MatrixFreeTangentOperator.cxx
+@@ -78,10 +78,12 @@ namespace mfem_mgis {
+   ConstrainedMatrixFreeTangentOperator::ConstrainedMatrixFreeTangentOperator(
+       MatrixFreeTangentOperator& op,
+       const mfem::Array<int>& essential_dofs,
+-      std::function<mfem::Operator&()> f)
++      std::function<mfem::Operator&()> f,
++      std::shared_ptr<const size_type> r)
+       : mfem::ConstrainedOperator(
+             &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
+-        assemble(std::move(f)) {
++        assemble(std::move(f)),
++        revision(std::move(r)) {
+   }  // end of ConstrainedMatrixFreeTangentOperator
+ 
+   mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
+@@ -89,6 +91,11 @@ namespace mfem_mgis {
+     return this->assemble();
+   }  // end of getAssembledOperator
+ 
++  std::shared_ptr<const size_type>
++  ConstrainedMatrixFreeTangentOperator::getAssembledOperatorRevision() const {
++    return this->revision;
++  }  // end of getAssembledOperatorRevision
++
+   ConstrainedMatrixFreeTangentOperator::
+       ~ConstrainedMatrixFreeTangentOperator() = default;
+ 
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index d0a0cedca4..c3d62c9537 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -953,7 +953,8 @@ namespace mfem_mgis {
+   }  // end of synchronizeOnHostForReading
+ 
+   void MultiMaterialNonLinearIntegrator::revert() {
+-    // the materials synchronize their arrays (`Material::revertMaterialStates`)
++    // the copies of the arrays of the materials on the host are valid after
++    // the revert (see `BehaviourIntegratorBase::revert`)
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         bi->revert();
+@@ -962,7 +963,8 @@ namespace mfem_mgis {
+   }  // end of revert
+ 
+   void MultiMaterialNonLinearIntegrator::update() {
+-    // the materials synchronize their arrays (`Material::updateMaterialStates`)
++    // the copies of the arrays of the materials on the host are valid after
++    // the update (see `BehaviourIntegratorBase::update`)
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         bi->update();
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index 061f98c6d9..b91da35766 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -13,6 +13,7 @@
+ #include "MGIS/Raise.hxx"
+ #include "MGIS/ErrorBacktrace.hxx"
+ #include "MGIS/Profiling.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/Profiler.hxx"
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -217,36 +218,60 @@ namespace mfem_mgis {
+                 "the Operator is not set (use SetOperator).");
+     MFEM_ASSERT(this->prec != nullptr,
+                 "the Solver is not set (use setLinearSolver).");
++    // reports an exception in the execution context of the resolution, if
++    // any (see `setContext`)
++    auto report = [this] {
++      if (this->ctx_ptr != nullptr) {
++        std::ignore = mgis::registerExceptionInErrorBacktrace(*(this->ctx_ptr));
++      } else {
++        getErrorStream() << "computation of the Newton correction failed\n";
++      }
++    };
+     // the assembly of the tangent operator and the setup of the linear solver
+-    // (and of its preconditioner) are timed separately. An exception thrown
+-    // by the computations by kernels is thrown on all the processes: the
+-    // computation of the correction fails on all of them.
++    // (and of its preconditioner) are timed separately. A failure of one of
++    // them on a process is made collective before the resolution, which
++    // involves collective operations.
++    auto success = true;
+     try {
+       auto &J = this->getJacobian(u);
+-      {
+-        auto profiler_setup = this->ctx_ptr != nullptr
+-                                  ? this->ctx_ptr->startNewProfiling(
+-                                        "NS::setLinearSolverOperator",
+-                                        this->ctx_ptr->isProfilingEnabled())
+-                                  : mgis::ProfilingSection{};
+-        this->prec->SetOperator(J);
+-      }
+-      {
+-        auto profiler_mfem =
+-            this->ctx_ptr != nullptr
+-                ? this->ctx_ptr->startNewProfiling(
+-                      "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
+-                : mgis::ProfilingSection{};
+-        this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
++      auto profiler_setup = this->ctx_ptr != nullptr
++                                ? this->ctx_ptr->startNewProfiling(
++                                      "NS::setLinearSolverOperator",
++                                      this->ctx_ptr->isProfilingEnabled())
++                                : mgis::ProfilingSection{};
++      this->prec->SetOperator(J);
++    } catch (...) {
++      report();
++      success = false;
++    }
++    if (!this->isTrueOnAllProcesses(success)) {
++      if ((success) && (this->ctx_ptr != nullptr)) {
++        std::ignore = this->ctx_ptr->registerErrorMessage(
++            "computation of the Newton correction failed on another process");
+       }
++      return false;
++    }
++    // resolution: the computations by kernels report their failures on all
++    // the processes (`CollectiveFailure`). In parallel, any other exception,
++    // thrown by a single process, can't be handled without blocking the
++    // other processes: it reaches `std::terminate`.
++    try {
++      auto profiler_mfem =
++          this->ctx_ptr != nullptr
++              ? this->ctx_ptr->startNewProfiling(
++                    "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
++              : mgis::ProfilingSection{};
++      this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
++    } catch (CollectiveFailure &) {
++      report();
++      return false;
+     } catch (...) {
+-      // the error is reported in the execution context of the resolution,
+-      // if any (see `setContext`)
+-      if (this->ctx_ptr != nullptr) {
+-        std::ignore = mgis::registerExceptionInErrorBacktrace(*(this->ctx_ptr));
+-      } else {
+-        getErrorStream() << "computation of the Newton correction failed\n";
++#ifdef MFEM_USE_MPI
++      if (this->GetComm() != MPI_COMM_NULL) {
++        throw;
+       }
++#endif /* MFEM_USE_MPI */
++      report();
+       return false;
+     }
+     clearHypreErrors();
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 8b57bb7075..343e71233d 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -729,6 +729,7 @@ namespace mfem_mgis {
+     // the stiffness matrices are assembled by kernels in the local matrix,
+     // then the global matrix is built as by
+     // `mfem::ParNonlinearForm::GetGradient`
++    ++(*(this->assembled_tangent_operator_revision));
+     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace(), this->Grad);
+@@ -1073,6 +1074,7 @@ namespace mfem_mgis {
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<
+       false>::assembleTangentOperatorByKernels() const {
++    ++(*(this->assembled_tangent_operator_revision));
+     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace(), this->Grad);
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 2b66082569..7c9a921786 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -730,7 +730,8 @@ namespace mfem_mgis {
+       dofs = essential_dofs;
+       this->constrained_tangent_operator =
+           std::make_unique<ConstrainedMatrixFreeTangentOperator>(
+-              *(this->tangent_operator), dofs, std::move(f));
++              *(this->tangent_operator), dofs, std::move(f),
++              this->assembled_tangent_operator_revision);
+     }
+     return *(this->constrained_tangent_operator);
+   }  // end of getMatrixFreeTangentOperator
+diff --git a/src/NonLinearSolverBase.cxx b/src/NonLinearSolverBase.cxx
+index 24fbbcd29a..927879b1a3 100644
+--- a/src/NonLinearSolverBase.cxx
++++ b/src/NonLinearSolverBase.cxx
+@@ -178,6 +178,18 @@ namespace mfem_mgis {
+     return true;
+   }  // end of processNewUnknownsEstimate
+ 
++  bool NonLinearSolverBase::isTrueOnAllProcesses(const bool b) const noexcept {
++#ifdef MFEM_USE_MPI
++    if (this->GetComm() != MPI_COMM_NULL) {
++      auto r = b;
++      MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_CXX_BOOL, MPI_LAND,
++                    this->GetComm());
++      return r;
++    }
++#endif /* MFEM_USE_MPI */
++    return b;
++  }  // end of isTrueOnAllProcesses
++
+   bool NonLinearSolverBase::shallPrint() const noexcept {
+     if (this->print_level >= 0) {
+ #ifdef MFEM_USE_MPI
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index d0643dc3e3..dc2c86cf04 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -107,6 +107,13 @@ struct ComputationOptions {
+    * states (thermal strain of the behaviours with a thermal expansion)
+    */
+   bool thermal = false;
++  /*!
++   * \brief if true, the equivalent plastic strain at the beginning of the
++   * second time step is modified by a direct write in the state of the
++   * material after the update of the first time step (with the
++   * `IsotropicLinearHardeningPlasticity` behaviour)
++   */
++  bool write_after_update = false;
+   /*!
+    * \brief if true, the gradients of the integration by batches are computed
+    * by kernels (parameter `GradientsComputation`)
+@@ -498,7 +505,10 @@ static Results compute(mfem_mgis::Context& ctx,
+       return r;
+     }
+     r.iterations.push_back(o.iterations);
+-    if (opts.matrix_free && !opts.assembled_preconditioner) {
++    // with the assembled preconditioner, the assembly of the tangent operator
++    // by this check invalidates the operator on which the preconditioner is
++    // set up: the preconditioner is set up again at the next iteration
++    if (opts.matrix_free) {
+ #ifdef MFEM_USE_MPI
+       if (parallel) {
+         checkMatrixFreeDiagonal<true>(problem, name);
+@@ -511,6 +521,15 @@ static Results compute(mfem_mgis::Context& ctx,
+     }
+     problem.update(ctx) | or_die;
+     checkStatesAfterUpdateOrRevert(m, name);
++    if (opts.write_after_update && (i == 0)) {
++      // direct write in the state, valid on the host after an update
++      const auto o = mgis::behaviour::getVariableOffset(
++          m.b.isvs, "EquivalentPlasticStrain", m.b.hypothesis);
++      const auto stride = m.s0.internal_state_variables_stride;
++      for (size_type p = 0; p != static_cast<size_type>(m.n); ++p) {
++        m.s0.internal_state_variables[p * stride + o] += 1e-2;
++      }
++    }
+     t += dt;
+   }
+   const auto& u = problem.getUnknowns(ets);
+@@ -1090,6 +1109,15 @@ int main(int argc, char** argv) {
+                       .matrix_free = true,
+                       .second_material_library = library},
+                      ", matrix free, two materials"});
++    // without prediction, the preconditioner is kept between time steps:
++    // its assembled operator, assembled again by the check of the diagonal
++    // (see `checkMatrixFreeDiagonal`), must be set up again
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true,
++                      .assembled_preconditioner = true},
++                     ", matrix free, assembled preconditioner"});
+     for (const auto& [b, opts, name] : cases) {
+       const auto* const m = getMesh(opts);
+       auto reference = opts;
+@@ -1143,6 +1171,16 @@ int main(int argc, char** argv) {
+     cases.push_back({"IsotropicLinearHardeningThermoPlasticity",
+                      {.thermal = true},
+                      ", temperature"});
++    // direct write in the state after an update
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.write_after_update = true},
++                     ", write after update"});
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.write_after_update = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true},
++                     ", write after update, kernels"});
+     cases.push_back({"IsotropicLinearHardeningThermoPlasticity",
+                      {.prediction = true,
+                       .thermal = true,
+-- 
+2.43.0
+

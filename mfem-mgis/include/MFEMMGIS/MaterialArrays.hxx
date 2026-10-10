@@ -59,8 +59,8 @@ namespace mfem_mgis {
    *   `Read`, `Write` or `ReadWrite`, which copy the arrays to the device
    *   if needed;
    * - the update and the revert of a behaviour integrated on the device are
-   *   made on the device, then the arrays are synchronized on the host for
-   *   reading (see `BehaviourIntegratorBase::update`).
+   *   made on the device, then the arrays are synchronized on the host (see
+   *   `BehaviourIntegratorBase::update`).
    *
    * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
    * device of MFEM, the copies are made between the memory of the host and

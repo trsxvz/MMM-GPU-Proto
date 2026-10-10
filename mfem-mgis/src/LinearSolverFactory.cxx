@@ -5,6 +5,8 @@
  * \date   24/03/2021
  */
 
+#include <memory>
+#include <optional>
 #include <utility>
 #include "mfem/linalg/solvers.hpp"
 #include "mfem/linalg/sparsemat.hpp"
@@ -280,9 +282,19 @@ namespace mfem_mgis {
     /*!
      * \brief preconditioner built on the assembled version of an operator
      * applied without assembly (see `AssembledOperatorProvider`), set up
-     * every `period` calls to `SetOperator`, and kept between them. An
-     * operator which can't give an assembled version (for instance an
-     * assembled matrix) is given directly to the preconditioner.
+     * every `period` calls to `SetOperator`, and kept between them.
+     *
+     * The preconditioner is also set up again when the assembled operator
+     * on which it was set up is no longer valid, i.e. when the operator has
+     * been assembled again in between (see
+     * `AssembledOperatorProvider::getAssembledOperatorRevision`).
+     *
+     * An operator which can't give an assembled version (for instance the
+     * matrix of the prediction) keeps the preconditioner set up on a valid
+     * assembled operator, if any: it is still a preconditioner of a close
+     * operator. Otherwise, the preconditioner is set up on this operator,
+     * and set up again at the next call (this operator may be destroyed
+     * after its resolution).
      */
     struct AssembledOperatorPreconditioner final : mfem::Solver {
       /*!
@@ -298,14 +310,22 @@ namespace mfem_mgis {
         const auto* const provider =
             dynamic_cast<const AssembledOperatorProvider*>(&op);
         if (provider == nullptr) {
+          if (this->isSetUpOnAValidAssembledOperator()) {
+            return;
+          }
           this->preconditioner->SetOperator(op);
-          // the next operator applied without assembly sets the
-          // preconditioner up again
-          this->count = 0;
+          this->revision.reset();
+          this->setup_revision.reset();
           return;
         }
-        if (this->count % this->period == 0) {
+        const auto r = provider->getAssembledOperatorRevision();
+        const auto valid =
+            (r == this->revision) && this->isSetUpOnAValidAssembledOperator();
+        if ((!valid) || (this->count % this->period == 0)) {
           this->preconditioner->SetOperator(provider->getAssembledOperator());
+          this->revision = r;
+          this->setup_revision = *r;
+          this->count = 0;
         }
         ++(this->count);
       }
@@ -314,12 +334,28 @@ namespace mfem_mgis {
       }
 
      private:
+      /*!
+       * \return if the preconditioner is set up on an assembled operator which
+       * has not been assembled again since
+       */
+      [[nodiscard]] bool isSetUpOnAValidAssembledOperator() const noexcept {
+        return (this->revision != nullptr) &&
+               (this->setup_revision.has_value()) &&
+               (*(this->revision) == *(this->setup_revision));
+      }
       //! \brief preconditioner
       std::unique_ptr<mfem::Solver> preconditioner;
       //! \brief period of the updates
       const int period;
-      //! \brief number of calls to `SetOperator` since the last update
+      //! \brief number of calls to `SetOperator` since the last setup
       int count = 0;
+      //! \brief number of assemblies of the assembled operator
+      std::shared_ptr<const size_type> revision;
+      /*!
+       * \brief number of assemblies of the assembled operator when the
+       * preconditioner was set up on it, if it was
+       */
+      std::optional<size_type> setup_revision;
     };
 
   }  // end of namespace

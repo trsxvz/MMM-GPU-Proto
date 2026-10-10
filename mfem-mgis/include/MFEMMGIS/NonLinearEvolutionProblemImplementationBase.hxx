@@ -107,7 +107,9 @@ namespace mfem_mgis {
      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
      * `Kernels` (computed for all the elements by kernels from the tangent
      * operator blocks, on the device if a device is enabled, and assembled
-     * by kernels in the sparse matrix of the tangent operator), or
+     * by kernels in the sparse matrix of the tangent operator if the non
+     * linear form only contains the integrator of mfem-mgis, by the
+     * assembly of MFEM otherwise), or
      * `MatrixFree` (the tangent operator is applied without assembly by
      * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
      * freedom being constrained by `mfem::ConstrainedOperator`: the linear
@@ -385,6 +387,14 @@ namespace mfem_mgis {
      * element space), kept between the evaluations of the residual
      */
     mutable mfem::Vector inner_forces_by_kernels;
+    /*!
+     * \brief number of assemblies of the tangent operator by kernels
+     * (`assembleTangentOperatorByKernels`), shared with the operators which
+     * give an assembled version of themselves (see
+     * `AssembledOperatorProvider::getAssembledOperatorRevision`)
+     */
+    const std::shared_ptr<size_type> assembled_tangent_operator_revision =
+        std::make_shared<size_type>(0);
     /*!
      * \brief local matrix of the operator of the prediction, assembled by
      * kernels (see `TangentOperatorComputation`), created at the first

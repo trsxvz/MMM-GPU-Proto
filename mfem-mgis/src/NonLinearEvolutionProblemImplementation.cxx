@@ -729,6 +729,7 @@ namespace mfem_mgis {
     // the stiffness matrices are assembled by kernels in the local matrix,
     // then the global matrix is built as by
     // `mfem::ParNonlinearForm::GetGradient`
+    ++(*(this->assembled_tangent_operator_revision));
     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
                                      *(this->mgis_integrator),
                                      this->getFiniteElementSpace(), this->Grad);
@@ -1073,6 +1074,7 @@ namespace mfem_mgis {
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<
       false>::assembleTangentOperatorByKernels() const {
+    ++(*(this->assembled_tangent_operator_revision));
     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
                                      *(this->mgis_integrator),
                                      this->getFiniteElementSpace(), this->Grad);

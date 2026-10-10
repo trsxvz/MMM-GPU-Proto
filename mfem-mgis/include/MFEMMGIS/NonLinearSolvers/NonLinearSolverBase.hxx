@@ -89,6 +89,12 @@ namespace mfem_mgis {
      * context is high enough (`verboseLevel3`)
      */
     [[nodiscard]] bool shallPrint() const noexcept;
+    /*!
+     * \return if the given value is true on all the processes using the
+     * communicator of the solver (a single process in sequential)
+     * \param[in] b: value on the current process
+     */
+    [[nodiscard]] bool isTrueOnAllProcesses(const bool) const noexcept;
     //! \return the log stream of the execution context, if any
     [[nodiscard]] std::ostream &getLogStream() const noexcept;
     /*!

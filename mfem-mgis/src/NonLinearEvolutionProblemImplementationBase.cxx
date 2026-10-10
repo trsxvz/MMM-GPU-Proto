@@ -730,7 +730,8 @@ namespace mfem_mgis {
       dofs = essential_dofs;
       this->constrained_tangent_operator =
           std::make_unique<ConstrainedMatrixFreeTangentOperator>(
-              *(this->tangent_operator), dofs, std::move(f));
+              *(this->tangent_operator), dofs, std::move(f),
+              this->assembled_tangent_operator_revision);
     }
     return *(this->constrained_tangent_operator);
   }  // end of getMatrixFreeTangentOperator

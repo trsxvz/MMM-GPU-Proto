@@ -36,14 +36,14 @@ namespace mfem_mgis {
     /*!
      * \brief revert the state of the material; for a behaviour integrated on
      * the device (see `integratesBatchesOnDevice`), the arrays are copied
-     * on the device, then synchronized on the host for reading (see
+     * on the device, then synchronized on the host (see
      * `copyStatesOnDevice`)
      */
     void revert() override;
     /*!
      * \brief update the state of the material; for a behaviour integrated on
      * the device (see `integratesBatchesOnDevice`), the arrays are copied
-     * on the device, then synchronized on the host for reading (see
+     * on the device, then synchronized on the host (see
      * `copyStatesOnDevice`)
      */
     void update() override;
@@ -374,9 +374,12 @@ namespace mfem_mgis {
      * density, stored on the host, are updated on the host as by
      * `Material::updateMaterialStates` (see
      * `mgis::behaviour::updateInputValues`). The arrays are then
-     * synchronized on the host for reading, so that their copies on the host
-     * are valid after an update or a revert, as for a behaviour integrated on
-     * the host, while their copies on the device stay valid.
+     * synchronized on the host (see `Material::synchronizeOnHost`): as for a
+     * behaviour integrated on the host, their copies on the host are valid
+     * and may be modified directly after an update or a revert, their copies
+     * on the device being copied again at the next integration. The tangent
+     * operator blocks, set to zero, are set to zero on the host without
+     * copy.
      * \param[in] u: if true, update, otherwise revert
      */
     void copyStatesOnDevice(const bool);

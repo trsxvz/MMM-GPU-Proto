@@ -106,7 +106,8 @@ namespace mfem_mgis {
      * a time step and the end of the resolution, the copies on the host of
      * its arrays are outdated, and a direct access to its states must be
      * preceded by a synchronization. Its update and its revert are made on
-     * the device and end with `synchronizeOnHostForReading`.
+     * the device and end with a synchronization on the host, as for a
+     * behaviour integrated on the host.
      *
      * \note the arrays of a material used by another one as external
      * storage (material properties or external state variables given with

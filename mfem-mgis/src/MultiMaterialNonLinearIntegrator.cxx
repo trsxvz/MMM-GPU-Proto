@@ -953,7 +953,8 @@ namespace mfem_mgis {
   }  // end of synchronizeOnHostForReading
 
   void MultiMaterialNonLinearIntegrator::revert() {
-    // the materials synchronize their arrays (`Material::revertMaterialStates`)
+    // the copies of the arrays of the materials on the host are valid after
+    // the revert (see `BehaviourIntegratorBase::revert`)
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         bi->revert();
@@ -962,7 +963,8 @@ namespace mfem_mgis {
   }  // end of revert
 
   void MultiMaterialNonLinearIntegrator::update() {
-    // the materials synchronize their arrays (`Material::updateMaterialStates`)
+    // the copies of the arrays of the materials on the host are valid after
+    // the update (see `BehaviourIntegratorBase::update`)
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         bi->update();

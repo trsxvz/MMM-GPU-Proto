@@ -78,16 +78,23 @@ namespace mfem_mgis {
   ConstrainedMatrixFreeTangentOperator::ConstrainedMatrixFreeTangentOperator(
       MatrixFreeTangentOperator& op,
       const mfem::Array<int>& essential_dofs,
-      std::function<mfem::Operator&()> f)
+      std::function<mfem::Operator&()> f,
+      std::shared_ptr<const size_type> r)
       : mfem::ConstrainedOperator(
             &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
-        assemble(std::move(f)) {
+        assemble(std::move(f)),
+        revision(std::move(r)) {
   }  // end of ConstrainedMatrixFreeTangentOperator
 
   mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
       const {
     return this->assemble();
   }  // end of getAssembledOperator
+
+  std::shared_ptr<const size_type>
+  ConstrainedMatrixFreeTangentOperator::getAssembledOperatorRevision() const {
+    return this->revision;
+  }  // end of getAssembledOperatorRevision
 
   ConstrainedMatrixFreeTangentOperator::
       ~ConstrainedMatrixFreeTangentOperator() = default;
