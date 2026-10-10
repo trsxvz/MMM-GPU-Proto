@@ -65,6 +65,41 @@ namespace mfem_mgis::internals {
     const std::vector<Setting> settings;
   };  // end of struct ConfiguredHypreBoomerAMG
 
+#if MFEM_HYPRE_VERSION >= 21900
+
+  /*!
+   * \brief incomplete factorisation of hypre whose settings are applied
+   * again after each new operator: `mfem::HypreILU::SetOperator` creates a
+   * new preconditioner of hypre with the default options of MFEM (a level
+   * of fill of one), which lost the settings given by the user
+   */
+  struct ConfiguredHypreILU final : public mfem::HypreILU {
+    //! \brief a setting of the preconditioner
+    using Setting = std::function<void(mfem::HypreILU&)>;
+    //! \param[in] s: settings
+    explicit ConfiguredHypreILU(std::vector<Setting> s)
+        : settings(std::move(s)) {
+      this->applySettings();
+    }
+    //! \brief set the operator, then the settings
+    void SetOperator(const mfem::Operator& op) override {
+      mfem::HypreILU::SetOperator(op);
+      this->applySettings();
+    }
+
+   private:
+    //! \brief apply the settings
+    void applySettings() {
+      for (const auto& setting : this->settings) {
+        setting(*this);
+      }
+    }
+    //! \brief settings
+    const std::vector<Setting> settings;
+  };  // end of struct ConfiguredHypreILU
+
+#endif /* MFEM_HYPRE_VERSION >= 21900 */
+
 }  // end of namespace mfem_mgis::internals
 
 #endif /* MFEM_USE_MPI */
@@ -115,16 +150,20 @@ namespace mfem_mgis {
     }
     auto elasticity = false;
     if (*ostrategy == "Elasticity") {
-      if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
-        elasticity = true;
-      } else if (fespace.GetMyRank() == 0) {
-        // the elasticity version of BoomerAMG requires Ordering::byVDIM
+      // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
+      // is not supported by hypre when it computes on a GPU
+      const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
+      elasticity = by_vdim && (!isHypreUsingGPU());
+      if ((!elasticity) && (fespace.GetMyRank() == 0)) {
         warning(ctx.log(),
-                "setLinearSolverParameters: strategy 'Elasticity' of "
-                "preconditioner HypreBoomerAMG requires unknowns ordered "
-                "by vector dimension (i.e. the parameter "
-                "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
-                "using strategy 'System' instead");
+                by_vdim ? "setLinearSolverParameters: strategy 'Elasticity' "
+                          "of preconditioner HypreBoomerAMG is not supported "
+                          "by hypre on a GPU, using strategy 'System' instead"
+                        : "setLinearSolverParameters: strategy 'Elasticity' "
+                          "of preconditioner HypreBoomerAMG requires unknowns "
+                          "ordered by vector dimension (i.e. the parameter "
+                          "'FiniteElementSpaceOrdering' must be set to "
+                          "'byVDIM'), using strategy 'System' instead");
       }
     } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
       return ctx.registerErrorMessage(
@@ -228,23 +267,41 @@ namespace mfem_mgis {
                                                   "HypreILULevelOfFill"})) {
       return {};
     }
-    const auto verbose = contains(opts, Problem::SolverVerbosityLevel);
-    const auto levelOfFill = contains(opts, "HypreILULevelOfFill");
-    auto ilu = std::make_unique<mfem::HypreILU>();
-    if (verbose) {
+    using Setting = internals::ConfiguredHypreILU::Setting;
+    auto settings = std::vector<Setting>{};
+    if (contains(opts, Problem::SolverVerbosityLevel)) {
       const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
       if (isInvalid(olvl)) {
         return {};
       }
-      ilu->SetPrintLevel(*olvl);
+      settings.push_back(
+          [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
     }
-    if (levelOfFill) {
+    // the incomplete factorisations with a level of fill greater than zero
+    // make the triangular solves of hypre fail when hypre computes on a GPU
+    // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
+    // 3.0.2 and CUDA 13): the level of fill is then zero by default, one
+    // being the default of MFEM
+    auto level_of_fill = std::optional<int>{};
+    if (contains(opts, "HypreILULevelOfFill")) {
       const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
       if (isInvalid(olvl)) {
         return {};
       }
-      HYPRE_ILUSetLevelOfFill(*ilu, *olvl);
+      if ((*olvl > 0) && (isHypreUsingGPU())) {
+        return ctx.registerErrorMessage(
+            "setHypreILUPreconditioner: a level of fill greater than zero "
+            "is not supported when hypre computes on a GPU");
+      }
+      level_of_fill = *olvl;
+    } else if (isHypreUsingGPU()) {
+      level_of_fill = 0;
     }
+    if (level_of_fill.has_value()) {
+      settings.push_back(
+          [v = *level_of_fill](mfem::HypreILU& ilu) { ilu.SetLevelOfFill(v); });
+    }
+    auto ilu = std::make_unique<internals::ConfiguredHypreILU>(settings);
     return ilu;
 #else  /*  HYPRE_OLD_VERSION */
     return ctx.registerErrorMessage(

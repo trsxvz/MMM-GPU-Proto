@@ -1,0 +1,771 @@
+From 3410a92b3bbe0e027a8b28983138fdb2893a589e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 10:31:36 +0200
+Subject: [PATCH] Whole test suite on the GPU: MFEM_MGIS_DEVICE and fixes of
+ the GPU path
+
+The MFEM device may be given by the environment variable MFEM_MGIS_DEVICE,
+used by `initialize` when the option --device is not given: the whole
+test suite can be run on a GPU (`MFEM_MGIS_DEVICE=cuda ctest -j 1`, with or
+without the variables forcing the computations by kernels). The first run
+revealed defects of the GPU path:
+
+- ParaviewExportResults referenced the unknowns (`MakeTRef`): without
+  prolongation, the true vector of MFEM only wraps the memory of the host,
+  and `SetFromTrueVector` copied the stale values of the host over the
+  unknowns computed on the device. The export now copies the unknowns in
+  its own grid function (`SetFromTrueDofs`) and writes the values of the
+  host. The solutions of TwoLayerCube, UniaxialTensileTest and the
+  micromorphic tests were wrong on the GPU after a post-processing.
+- computeL2ErrorAgainstAnalyticalSolution and GridFunctionInterpolator
+  read on the host values computed on the device: they are now
+  synchronised.
+- The `Elasticity` strategy of BoomerAMG, not supported by hypre on a GPU
+  (abort of MFEM), falls back to the `System` strategy with a warning.
+- HypreILU: `mfem::HypreILU::SetOperator` creates a new preconditioner of
+  hypre with the default options of MFEM (level of fill of one): the
+  option `HypreILULevelOfFill` was lost from the second operator on, also
+  on the CPU. The preconditioner now applies its settings again after each
+  operator. The factorisations with a level of fill greater than zero make
+  hypre crash on a GPU (hypre 3.0.2, CUDA 13): the level of fill is zero
+  by default there, and greater levels are refused with a message.
+- `isHypreUsingGPU`, whose result, contrary to the inline
+  `mfem::HypreUsingGPU`, does not depend on the headers of hypre included
+  by the caller.
+
+Tests: HypreILUTest (level of fill kept after a new operator, ILU(0) by
+default and greater levels refused on a GPU; the loss of the settings is
+detected by mutation). Tests made portable to a device: reads on the host
+after synchronisation (OperatorSmoothersTest, GridFunctionInterpolatorTest),
+problem destroyed before the release of the device
+(PartialQuadratureFunctionTest), ILU(0) on a GPU (TwoLayerCube,
+UniaxialTensileTest, unit tests utilities), numbers of iterations of
+hypre and of the accelerations of the fixed point compared with margins on
+a GPU, where the sums are not deterministic (HypreBoomerAMGTest,
+FixedPointSolverTest).
+
+Results on a RTX 5080: the whole suite passes on the GPU, with the default
+computations and with all the computations forced to the kernels (145/147,
+the two failures being the tests which require no device, DeviceForallTest-
+cpu and DeviceOptionTest-none); 157/157 on the CPU.
+---
+ include/MFEMMGIS/Config.hxx                |  12 +-
+ include/MFEMMGIS/ParaviewExportResults.hxx |   9 ++
+ include/MFEMMGIS/ParaviewExportResults.ixx |  27 ++---
+ src/AnalyticalTests.cxx                    |  10 +-
+ src/Config.cxx                             |  17 +++
+ src/GridFunctionInterpolator.cxx           |   3 +
+ src/LinearSolverFactory.cxx                |  89 +++++++++++---
+ tests/CMakeLists.txt                       |   4 +
+ tests/FixedPointSolverTest.cxx             |  13 +-
+ tests/GridFunctionInterpolatorTest.cxx     |  12 +-
+ tests/HypreBoomerAMGTest.cxx               |  24 +++-
+ tests/HypreILUTest.cxx                     | 135 +++++++++++++++++++++
+ tests/OperatorSmoothersTest.cxx            |  21 +++-
+ tests/PartialQuadratureFunctionTest.cxx    |   4 +
+ tests/TwoLayerCube.cxx                     |   6 +-
+ tests/UniaxialTensileTest.cxx              |   6 +-
+ tests/UnitTestingUtilities.hxx             |   6 +-
+ 17 files changed, 346 insertions(+), 52 deletions(-)
+ create mode 100644 tests/HypreILUTest.cxx
+
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 73bcd9eb5c..f3b60ce3d1 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -136,7 +136,9 @@ namespace mfem_mgis {
+    * `mgis::setProfilingSynchronization`). An application which uses
+    * this option must neither create its own `mfem::Device` (MFEM refuses a
+    * second configuration of the device) nor declare its own `--device`,
+-   * `-dev` options.
++   * `-dev` options. Without this option, the configuration may be given by
++   * the environment variable `MFEM_MGIS_DEVICE`, ignored if the device is
++   * already configured (to run a whole test suite on a GPU, for instance).
+    */
+   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
+   /*!
+@@ -213,6 +215,14 @@ namespace mfem_mgis {
+    * \param[in, out] parser: options parser
+    */
+   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
++  /*!
++   * \return true if hypre computes on a GPU (hypre built with the support of
++   * GPUs, its memory being located on the device), false otherwise and
++   * without MPI. Contrary to `mfem::HypreUsingGPU`, whose inline definition
++   * depends on the headers of hypre included before it, the result does not
++   * depend on the includes of the caller.
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
+ 
+   //! \return the output stream
+   MFEM_MGIS_EXPORT std::ostream& getOutputStream();
+diff --git a/include/MFEMMGIS/ParaviewExportResults.hxx b/include/MFEMMGIS/ParaviewExportResults.hxx
+index 86d493311b..21154babed 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.hxx
++++ b/include/MFEMMGIS/ParaviewExportResults.hxx
+@@ -62,6 +62,15 @@ namespace mfem_mgis {
+     mfem::ParaViewDataCollection exporter;
+     //! \brief exported grid function
+     mfem_mgis::GridFunction<parallel> result;
++    /*!
++     * \brief exported unknowns (true degrees of freedom), copied in `result`
++     * at each export: the unknowns at the end of the time step, or at the
++     * beginning of the time step for the initial export. A reference to the
++     * unknowns (`mfem::GridFunction::MakeTRef`) would let MFEM copy the values
++     * of the host over the ones of the device when the unknowns are computed
++     * on a device.
++     */
++    const mfem::Vector* unknowns = nullptr;
+     //! \brief number of records
+     size_type cycle;
+     /*!
+diff --git a/include/MFEMMGIS/ParaviewExportResults.ixx b/include/MFEMMGIS/ParaviewExportResults.ixx
+index fe7d8534c4..bd0494ee87 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.ixx
++++ b/include/MFEMMGIS/ParaviewExportResults.ixx
+@@ -75,8 +75,8 @@ namespace mfem_mgis {
+     //
+     auto or_raise = ctx.getThrowingFailureHandler();
+     //
+-    auto& u1 = pb.getUnknowns(ets);
+-    this->result.MakeTRef(&pb.getFiniteElementSpace(), u1, 0);
++    this->result.SetSpace(&pb.getFiniteElementSpace());
++    this->unknowns = &(pb.getUnknowns(ets));
+ 
+     /** Default, the mesh is the entire mesh */
+     Mesh<parallel>& pmesh = pb.getMesh();
+@@ -190,14 +190,12 @@ namespace mfem_mgis {
+     if (!this->shallExecuteInitialPostProcessing) {
+       return true;
+     }
+-    // the exported grid function is associated with the unknowns at the end of
+-    // the time step (see the constructor). It is temporarily associated with
+-    // the unknowns at the beginning of the time step for this export.
+-    auto& fespace = p.getFiniteElementSpace();
+-    this->result.MakeTRef(&fespace, p.getUnknowns(bts), 0);
++    // the unknowns at the end of the time step are exported (see the
++    // constructor), and the ones at the beginning of the time step for this
++    // export
++    this->unknowns = &(p.getUnknowns(bts));
+     auto success = this->execute(ctx, p, t, real{});
+-    // restore the association with the unknowns at the end of the time step
+-    this->result.MakeTRef(&fespace, p.getUnknowns(ets), 0);
++    this->unknowns = &(p.getUnknowns(ets));
+     return success;
+   }  // end of executeInitialPostProcessing
+ 
+@@ -210,20 +208,21 @@ namespace mfem_mgis {
+     CatchTimeSection(ctx, "ParaviewExportResults::Execute");
+     this->exporter.SetCycle(this->cycle);
+     this->exporter.SetTime(t + dt);
+-    // SetFromTrueVector needed here in MFEM for at least two rationales:
++    // SetFromTrueDofs needed here in MFEM for at least two rationales:
+     //    - it applies prolongation matrix (Non-Conforming mesh, BCs, AMR ...)
+     //      to set the values of some unkwown dofs deduced from known dofs
+     //    - exchange data between processes in order to retrieve information
+     //      needed to perform the previous prolongation step
++    // The exporter writes the values of the host, made valid there.
++    this->result.SetFromTrueDofs(*(this->unknowns));
+     if (submesh.get() != nullptr) {
+       /** Transfer data from global mesh to submesh */
+-      this->result.SetFromTrueVector();
+       this->submesh.get()->Transfer(this->result, this->result_sm.get()[0]);
+-      this->exporter.Save();
++      static_cast<void>(this->result_sm->HostRead());
+     } else {
+-      this->result.SetFromTrueVector();
+-      this->exporter.Save();
++      static_cast<void>(this->result.HostRead());
+     }
++    this->exporter.Save();
+     ++(this->cycle);
+     return true;
+   }  // end of execute
+diff --git a/src/AnalyticalTests.cxx b/src/AnalyticalTests.cxx
+index 2f217ad4cf..33436f2ba7 100644
+--- a/src/AnalyticalTests.cxx
++++ b/src/AnalyticalTests.cxx
+@@ -21,10 +21,12 @@ namespace mfem_mgis {
+     auto &problem = p.template getImplementation<parallel>();
+     mfem_mgis::GridFunction<parallel> x(&problem.getFiniteElementSpace());
+     const auto dim = problem.getFiniteElementSpace().GetVDim();
+-    // recover the solution as a grid function
+-    auto &u1 = problem.getUnknowns(ets);
+-    x.MakeTRef(&problem.getFiniteElementSpace(), u1, 0);
+-    x.SetFromTrueVector();
++    // recover the solution as a grid function. The error is computed on the
++    // host: the values are made valid there (the unknowns may have been
++    // computed on the device, a reference to them would give stale values)
++    const auto &u1 = problem.getUnknowns(ets);
++    x.SetFromTrueDofs(u1);
++    static_cast<void>(x.HostRead());
+     // comparison to analytical solution
+     mfem::VectorFunctionCoefficient sol_coef(dim, f);
+     return x.ComputeL2Error(sol_coef);
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 9c7c005017..e8abc9594f 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -5,6 +5,7 @@
+  * \date   14/02/2021
+  */
+ 
++#include <cstdlib>
+ #include <cstring>
+ #include <memory>
+ #include <string_view>
+@@ -195,6 +196,14 @@ namespace mfem_mgis {
+       }
+ #endif /* MFEM_USE_PETSC */
+     }
++    // without the option, the configuration of the device may be given by
++    // the environment, for instance to run a whole test suite on a GPU
++    if (device_configuration == nullptr) {
++      const auto* const e = std::getenv("MFEM_MGIS_DEVICE");
++      if ((e != nullptr) && (*e != '\0') && (!mfem::Device::IsConfigured())) {
++        device_configuration = e;
++      }
++    }
+     // the device is configured after the initialization of hypre and
+     // before the one of PETSc, which uses the GPU of the device, as in the
+     // parallel examples of MFEM
+@@ -319,6 +328,14 @@ namespace mfem_mgis {
+     Finalizer::get().abort(error);
+   }  // end of abort
+ 
++  bool isHypreUsingGPU() noexcept {
++#ifdef MFEM_USE_MPI
++    return mfem::HypreUsingGPU();
++#else  /* MFEM_USE_MPI */
++    return false;
++#endif /* MFEM_USE_MPI */
++  }  // end of isHypreUsingGPU
++
+   void declareDefaultOptions(mfem::OptionsParser& parser) {
+     // the device is created by `initialize`: the option is only declared
+     // here, so that the parser accepts it
+diff --git a/src/GridFunctionInterpolator.cxx b/src/GridFunctionInterpolator.cxx
+index 420d5494d3..ee4d520e98 100644
+--- a/src/GridFunctionInterpolator.cxx
++++ b/src/GridFunctionInterpolator.cxx
+@@ -109,6 +109,9 @@ namespace mfem_mgis::internals {
+     auto interpolated_values = mfem::Vector(
+         data, static_cast<size_type>(npoints * fespace->GetVDim()));
+     finder->Interpolate(f, interpolated_values);
++    // the values may be computed on a device: they are copied in the memory
++    // of the host wrapped by the vector (`data`)
++    static_cast<void>(interpolated_values.HostRead());
+     if (fespace->GetOrdering() == mfem::Ordering::byNODES) {
+       for (size_type i = 0; i != npoints; ++i) {
+         for (size_type j = 0; j != fespace->GetVDim(); ++j) {
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index cd064a7b52..7267c0a881 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -65,6 +65,41 @@ namespace mfem_mgis::internals {
+     const std::vector<Setting> settings;
+   };  // end of struct ConfiguredHypreBoomerAMG
+ 
++#if MFEM_HYPRE_VERSION >= 21900
++
++  /*!
++   * \brief incomplete factorisation of hypre whose settings are applied
++   * again after each new operator: `mfem::HypreILU::SetOperator` creates a
++   * new preconditioner of hypre with the default options of MFEM (a level
++   * of fill of one), which lost the settings given by the user
++   */
++  struct ConfiguredHypreILU final : public mfem::HypreILU {
++    //! \brief a setting of the preconditioner
++    using Setting = std::function<void(mfem::HypreILU&)>;
++    //! \param[in] s: settings
++    explicit ConfiguredHypreILU(std::vector<Setting> s)
++        : settings(std::move(s)) {
++      this->applySettings();
++    }
++    //! \brief set the operator, then the settings
++    void SetOperator(const mfem::Operator& op) override {
++      mfem::HypreILU::SetOperator(op);
++      this->applySettings();
++    }
++
++   private:
++    //! \brief apply the settings
++    void applySettings() {
++      for (const auto& setting : this->settings) {
++        setting(*this);
++      }
++    }
++    //! \brief settings
++    const std::vector<Setting> settings;
++  };  // end of struct ConfiguredHypreILU
++
++#endif /* MFEM_HYPRE_VERSION >= 21900 */
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* MFEM_USE_MPI */
+@@ -115,16 +150,20 @@ namespace mfem_mgis {
+     }
+     auto elasticity = false;
+     if (*ostrategy == "Elasticity") {
+-      if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
+-        elasticity = true;
+-      } else if (fespace.GetMyRank() == 0) {
+-        // the elasticity version of BoomerAMG requires Ordering::byVDIM
++      // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
++      // is not supported by hypre when it computes on a GPU
++      const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
++      elasticity = by_vdim && (!isHypreUsingGPU());
++      if ((!elasticity) && (fespace.GetMyRank() == 0)) {
+         warning(ctx.log(),
+-                "setLinearSolverParameters: strategy 'Elasticity' of "
+-                "preconditioner HypreBoomerAMG requires unknowns ordered "
+-                "by vector dimension (i.e. the parameter "
+-                "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
+-                "using strategy 'System' instead");
++                by_vdim ? "setLinearSolverParameters: strategy 'Elasticity' "
++                          "of preconditioner HypreBoomerAMG is not supported "
++                          "by hypre on a GPU, using strategy 'System' instead"
++                        : "setLinearSolverParameters: strategy 'Elasticity' "
++                          "of preconditioner HypreBoomerAMG requires unknowns "
++                          "ordered by vector dimension (i.e. the parameter "
++                          "'FiniteElementSpaceOrdering' must be set to "
++                          "'byVDIM'), using strategy 'System' instead");
+       }
+     } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
+       return ctx.registerErrorMessage(
+@@ -228,23 +267,41 @@ namespace mfem_mgis {
+                                                   "HypreILULevelOfFill"})) {
+       return {};
+     }
+-    const auto verbose = contains(opts, Problem::SolverVerbosityLevel);
+-    const auto levelOfFill = contains(opts, "HypreILULevelOfFill");
+-    auto ilu = std::make_unique<mfem::HypreILU>();
+-    if (verbose) {
++    using Setting = internals::ConfiguredHypreILU::Setting;
++    auto settings = std::vector<Setting>{};
++    if (contains(opts, Problem::SolverVerbosityLevel)) {
+       const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
+       if (isInvalid(olvl)) {
+         return {};
+       }
+-      ilu->SetPrintLevel(*olvl);
++      settings.push_back(
++          [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
+     }
+-    if (levelOfFill) {
++    // the incomplete factorisations with a level of fill greater than zero
++    // make the triangular solves of hypre fail when hypre computes on a GPU
++    // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
++    // 3.0.2 and CUDA 13): the level of fill is then zero by default, one
++    // being the default of MFEM
++    auto level_of_fill = std::optional<int>{};
++    if (contains(opts, "HypreILULevelOfFill")) {
+       const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
+       if (isInvalid(olvl)) {
+         return {};
+       }
+-      HYPRE_ILUSetLevelOfFill(*ilu, *olvl);
++      if ((*olvl > 0) && (isHypreUsingGPU())) {
++        return ctx.registerErrorMessage(
++            "setHypreILUPreconditioner: a level of fill greater than zero "
++            "is not supported when hypre computes on a GPU");
++      }
++      level_of_fill = *olvl;
++    } else if (isHypreUsingGPU()) {
++      level_of_fill = 0;
++    }
++    if (level_of_fill.has_value()) {
++      settings.push_back(
++          [v = *level_of_fill](mfem::HypreILU& ilu) { ilu.SetLevelOfFill(v); });
+     }
++    auto ilu = std::make_unique<internals::ConfiguredHypreILU>(settings);
+     return ilu;
+ #else  /*  HYPRE_OLD_VERSION */
+     return ctx.registerErrorMessage(
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 75acda105b..ce5a4dc153 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1035,6 +1035,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+   if(MFEM_USE_MPI)
+     add_test_executable(HypreBoomerAMGTest)
+     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
++    # HypreILUTest executable: level of fill of the incomplete factorisation
++    # of hypre kept after a new operator, ILU(0) when hypre computes on a GPU
++    add_test_executable(HypreILUTest)
++    add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
+   endif(MFEM_USE_MPI)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index a0abad2b5b..0042b97452 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -37,6 +37,7 @@
+ #include <vector>
+ #include <iostream>
+ #include <algorithm>
++#include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+@@ -813,9 +814,17 @@ int main(int argc, char** argv) {
+     check(du < 1e-8, c.name + ": solution");
+     if (const auto p = maximum_numbers_of_iterations.find(c.name);
+         p != maximum_numbers_of_iterations.end()) {
+-      check(r.iterations <= p->second,
++      // on a GPU, the sums computed by atomic operations (assembly of the
++      // tangent operator, setup of BoomerAMG by hypre) are not deterministic,
++      // and the accelerations amplify these differences (up to 45% more
++      // iterations observed with Crossed2Deltabis): the bounds are increased
++      // by 50%
++      const auto gpu = mfem::Device::Allows(mfem::Backend::CUDA_MASK |
++                                            mfem::Backend::HIP_MASK);
++      const auto bound = gpu ? (3 * p->second) / 2 : p->second;
++      check(r.iterations <= bound,
+             c.name + ": number of iterations (" + std::to_string(r.iterations) +
+-                ", at most " + std::to_string(p->second) + " expected)");
++                ", at most " + std::to_string(bound) + " expected)");
+     }
+     if (c.accelerated) {
+       check(r.iterations < none.iterations, c.name + ": number of iterations");
+diff --git a/tests/GridFunctionInterpolatorTest.cxx b/tests/GridFunctionInterpolatorTest.cxx
+index 5edb3d62e7..d7933240cb 100644
+--- a/tests/GridFunctionInterpolatorTest.cxx
++++ b/tests/GridFunctionInterpolatorTest.cxx
+@@ -84,14 +84,18 @@ struct GridFunctionInterpolatorTest final : public tfel::tests::TestCase {
+     pts[5] = 0.4;
+     finder.FindPoints(pts, mfem::Ordering::byVDIM);
+     //
+-    const auto codes = finder.GetCode();
+-    TFEL_TESTS_ASSERT(codes.Size() == 3);
++    // the results of MFEM may be computed on a device: they are read on the
++    // host after their synchronisation
++    const auto& codes_array = finder.GetCode();
++    TFEL_TESTS_ASSERT(codes_array.Size() == 3);
++    const auto* const codes = codes_array.HostRead();
+     TFEL_TESTS_CHECK(codes[0] != 2);
+     TFEL_TESTS_CHECK(codes[1] != 2);
+     TFEL_TESTS_CHECK(codes[2] == 2);
+     //
+-    auto x_values = mfem::Vector(4);
+-    finder.Interpolate(*ox, x_values);
++    auto x_values_vector = mfem::Vector(4);
++    finder.Interpolate(*ox, x_values_vector);
++    const auto* const x_values = x_values_vector.HostRead();
+     if (fespace.GetOrdering() == mfem::Ordering::byNODES) {
+       for (size_type i = 0; i != 2; ++i) {
+         TFEL_TESTS_CHECK(std::abs(x_values[i] - pts[2 * i]) < 1e-14);
+diff --git a/tests/HypreBoomerAMGTest.cxx b/tests/HypreBoomerAMGTest.cxx
+index 6ab5f20686..b75796f77a 100644
+--- a/tests/HypreBoomerAMGTest.cxx
++++ b/tests/HypreBoomerAMGTest.cxx
+@@ -41,6 +41,10 @@ static int solve(mfem_mgis::FiniteElementSpace<true>& fespace,
+     std::cerr << ctx.getErrorMessage() << std::endl;
+     return -1;
+   }
++  // the second resolution, after a new call to SetOperator, must give the
++  // same number of iterations (the options must be kept). On a GPU, the
++  // setup of BoomerAMG by hypre is not deterministic: a difference of 5% is
++  // accepted.
+   auto n = -1;
+   for (int i = 0; i != 2; ++i) {
+     auto X = mfem::Vector(B.Size());
+@@ -48,7 +52,11 @@ static int solve(mfem_mgis::FiniteElementSpace<true>& fespace,
+     h.linear_solver->SetOperator(A);
+     h.linear_solver->Mult(B, X);
+     const auto oit = getNumberOfIterationsAtConvergence(*(h.linear_solver));
+-    if ((!oit.has_value()) || ((i == 1) && (*oit != n))) {
++    if (!oit.has_value()) {
++      return -1;
++    }
++    const auto tolerance = mfem_mgis::isHypreUsingGPU() ? n / 20 + 1 : 0;
++    if ((i == 1) && (std::abs(*oit - n) > tolerance)) {
+       return -1;
+     }
+     n = *oit;
+@@ -143,7 +151,17 @@ int main(int argc, char** argv) {
+   // used, its number of iterations differs from the one of the `System`
+   // strategy
+   const auto r2 = getNumbersOfIterations(pmesh, mfem::Ordering::byVDIM);
+-  const auto success = check(r1) && (r1.elasticity == r1.system) && check(r2) &&
+-                       (r2.elasticity != r2.system);
++  // on a GPU, the `Elasticity` strategy, not supported by hypre, falls back
++  // to the `System` strategy, and the setup of BoomerAMG is not
++  // deterministic (numbers of iterations close to 5%)
++  const auto gpu = mfem_mgis::isHypreUsingGPU();
++  const auto close = [](const int a, const int b) {
++    return std::abs(a - b) <= b / 20 + 1;
++  };
++  const auto success =
++      check(r1) &&
++      (gpu ? close(r1.elasticity, r1.system) : (r1.elasticity == r1.system)) &&
++      check(r2) &&
++      (gpu ? close(r2.elasticity, r2.system) : (r2.elasticity != r2.system));
+   return success ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+diff --git a/tests/HypreILUTest.cxx b/tests/HypreILUTest.cxx
+new file mode 100644
+index 0000000000..e58850079c
+--- /dev/null
++++ b/tests/HypreILUTest.cxx
+@@ -0,0 +1,135 @@
++/*!
++ * \file   tests/HypreILUTest.cxx
++ * \brief  Test of the incomplete factorisation of hypre (preconditioner
++ * `HypreILU` of the factory of linear solvers): its level of fill is kept
++ * after a new operator (`mfem::HypreILU::SetOperator` restores the default
++ * options of MFEM, a level of fill of one), and, when hypre computes on a
++ * GPU, where the factorisations with a level of fill greater than zero
++ * fail, the level of fill is zero by default and a greater level is refused.
++ * \date   10/10/2026
++ */
++
++#include <cstdlib>
++#include <iostream>
++#include "mfem/mesh/pmesh.hpp"
++#include "mfem/fem/pbilinearform.hpp"
++#include "mfem/fem/plinearform.hpp"
++#include "mfem/fem/pgridfunc.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \return the numbers of iterations of two resolutions by the flexible
++ * GMRES of hypre preconditioned by its incomplete factorisation, the
++ * operator being given again before the second one, or an empty vector if
++ * the solver is refused
++ * \param[in] fespace: finite element space
++ * \param[in] A: matrix
++ * \param[in] B: right hand side
++ * \param[in] ilu: options of the incomplete factorisation
++ */
++static std::vector<int> solve(mfem_mgis::FiniteElementSpace<true>& fespace,
++                              mfem::HypreParMatrix& A,
++                              const mfem::Vector& B,
++                              const mfem_mgis::Parameters& ilu) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto& factory = LinearSolverFactory<true>::getFactory();
++  auto h = factory.generate(
++      ctx, "HypreFGMRES", fespace,
++      Parameters{{"Tolerance", 1e-12},
++                 {"MaximumNumberOfIterations", 1000},
++                 {"VerbosityLevel", 0},
++                 {"Preconditioner",
++                  Parameters{{"Name", "HypreILU"}, {"Options", ilu}}}});
++  if (isInvalid(h)) {
++    if (fespace.GetMyRank() == 0) {
++      std::cout << "refused: " << ctx.getErrorMessage() << '\n';
++    }
++    return {};
++  }
++  auto n = std::vector<int>{};
++  for (int i = 0; i != 2; ++i) {
++    auto X = mfem::Vector(B.Size());
++    X = 0.0;
++    h.linear_solver->SetOperator(A);
++    h.linear_solver->Mult(B, X);
++    const auto oit = getNumberOfIterationsAtConvergence(*(h.linear_solver));
++    n.push_back(oit.has_value() ? *oit : -1);
++  }
++  return n;
++}  // end of solve
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  // Laplacian on a cube, homogeneous Dirichlet conditions
++  auto smesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
++  auto pmesh = Mesh<true>(MPI_COMM_WORLD, smesh);
++  auto fec = mfem::H1_FECollection(1, 3);
++  auto fespace = FiniteElementSpace<true>(&pmesh, &fec);
++  auto boundaries = mfem::Array<int>(pmesh.bdr_attributes.Max());
++  boundaries = 1;
++  auto ess_tdofs = mfem::Array<int>{};
++  fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
++  auto one = mfem::ConstantCoefficient(1.);
++  auto a = BilinearForm<true>(&fespace);
++  a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
++  a.Assemble();
++  auto b = LinearForm<true>(&fespace);
++  b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++  b.Assemble();
++  auto x = GridFunction<true>(&fespace);
++  x = 0.0;
++  auto A = mfem::HypreParMatrix{};
++  auto B = mfem::Vector{};
++  auto X = mfem::Vector{};
++  a.FormLinearSystem(ess_tdofs, x, b, A, X, B);
++  const auto verbose = fespace.GetMyRank() == 0;
++  auto print = [verbose](const char* const name, const std::vector<int>& n) {
++    if (verbose) {
++      std::cout << name << ':';
++      for (const auto i : n) {
++        std::cout << ' ' << i;
++      }
++      std::cout << '\n';
++    }
++  };
++  const auto n0 = solve(fespace, A, B, {{"HypreILULevelOfFill", 0}});
++  print("level of fill 0", n0);
++  const auto nd = solve(fespace, A, B, {});
++  print("default level of fill", nd);
++  // the level of fill is kept after a new operator
++  check((n0.size() == 2) && (n0[0] > 0) && (n0[1] == n0[0]),
++        "level of fill 0: numbers of iterations");
++  check((nd.size() == 2) && (nd[0] > 0) && (nd[1] == nd[0]),
++        "default level of fill: numbers of iterations");
++  const auto n2 = solve(fespace, A, B, {{"HypreILULevelOfFill", 2}});
++  print("level of fill 2", n2);
++  if (isHypreUsingGPU()) {
++    // ILU(0) by default, greater levels of fill refused
++    check(nd == n0, "the default level of fill is not zero on a GPU");
++    check(n2.empty(), "a level of fill of 2 is not refused on a GPU");
++  } else {
++    check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
++          "level of fill 2: numbers of iterations");
++    check((n2.size() == 2) && (n2[0] < n0[0]),
++          "the level of fill 2 does not reduce the number of iterations");
++  }
++  if (verbose) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/OperatorSmoothersTest.cxx b/tests/OperatorSmoothersTest.cxx
+index 773d79c3a1..3862c2d0e3 100644
+--- a/tests/OperatorSmoothersTest.cxx
++++ b/tests/OperatorSmoothersTest.cxx
+@@ -77,14 +77,20 @@ struct ScaledOperator final : mfem::Operator {
+    */
+   ScaledOperator(const mfem::Operator& a, const mfem::Vector& s)
+       : mfem::Operator(a.Height(), a.Width()), op(a), scaling(s) {}
++  // the values are scaled on the host, where they are made valid (the
++  // vectors may be used on a device)
+   void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+     auto sx = mfem::Vector(x.Size());
++    const auto* const px = x.HostRead();
++    const auto* const ps = this->scaling.HostRead();
++    auto* const psx = sx.HostWrite();
+     for (int i = 0; i != x.Size(); ++i) {
+-      sx[i] = this->scaling[i] * x[i];
++      psx[i] = ps[i] * px[i];
+     }
+     this->op.Mult(sx, y);
++    auto* const py = y.HostReadWrite();
+     for (int i = 0; i != y.Size(); ++i) {
+-      y[i] *= this->scaling[i];
++      py[i] *= ps[i];
+     }
+   }
+   void AssembleDiagonal(mfem::Vector& d) const override {
+@@ -94,8 +100,10 @@ struct ScaledOperator final : mfem::Operator {
+     } else {
+       this->op.AssembleDiagonal(d);
+     }
++    const auto* const ps = this->scaling.HostRead();
++    auto* const pd = d.HostReadWrite();
+     for (int i = 0; i != d.Size(); ++i) {
+-      d[i] *= this->scaling[i] * this->scaling[i];
++      pd[i] *= ps[i] * ps[i];
+     }
+   }
+ 
+@@ -190,9 +198,12 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   // diagonal scaling from 1 to 10, and the scaled right hand side
+   auto scaling = mfem::Vector(B.Size());
+   auto SB = mfem::Vector(B.Size());
++  const auto* const pB = B.HostRead();
++  auto* const ps = scaling.HostWrite();
++  auto* const pSB = SB.HostWrite();
+   for (int i = 0; i != B.Size(); ++i) {
+-    scaling[i] = 1 + 9 * ((7 * i) % 11) / 10.;
+-    SB[i] = scaling[i] * B[i];
++    ps[i] = 1 + 9 * ((7 * i) % 11) / 10.;
++    pSB[i] = ps[i] * pB[i];
+   }
+   const auto scaled = ScaledOperator{wrapped, scaling};
+   auto iterations = std::vector<int>{};
+diff --git a/tests/PartialQuadratureFunctionTest.cxx b/tests/PartialQuadratureFunctionTest.cxx
+index c175027f56..f0a23e66c7 100644
+--- a/tests/PartialQuadratureFunctionTest.cxx
++++ b/tests/PartialQuadratureFunctionTest.cxx
+@@ -37,6 +37,10 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
+     this->test1<true>();
+     this->test1<false>();
+     this->test2();
++    // the problem is destroyed before the finalization of MFEM (this test
++    // case is a static object, destroyed at the exit of the program, after
++    // the release of the device)
++    this->problem.reset();
+     return this->result;
+   }
+ 
+diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
+index 8d431df22f..eaf6627b19 100644
+--- a/tests/TwoLayerCube.cxx
++++ b/tests/TwoLayerCube.cxx
+@@ -103,7 +103,11 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
+     const std::string_view s) noexcept {
+   const auto ilu = mfem_mgis::Parameters{
+       {"Name", "HypreILU"},
+-      {"Options", mfem_mgis::Parameters{{"HypreILULevelOfFill", 1}}}};
++      {"Options",
++       mfem_mgis::Parameters{
++           // ILU(0) when hypre computes on a GPU, the only level of fill
++           // supported there
++           {"HypreILULevelOfFill", mfem_mgis::isHypreUsingGPU() ? 0 : 1}}}};
+   const auto diagscale = mfem_mgis::Parameters{
+       {"Name", "HypreDiagScale"},
+       {"Options", mfem_mgis::Parameters{{"VerbosityLevel", 0}}}};
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index d392468be1..2b82ad1ab5 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -114,7 +114,11 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+     const std::string_view s) noexcept {
+   const auto ilu = mfem_mgis::Parameters{
+       {"Name", "HypreILU"},
+-      {"Options", mfem_mgis::Parameters{{"HypreILULevelOfFill", 1}}}};
++      {"Options",
++       mfem_mgis::Parameters{
++           // ILU(0) when hypre computes on a GPU, the only level of fill
++           // supported there
++           {"HypreILULevelOfFill", mfem_mgis::isHypreUsingGPU() ? 0 : 1}}}};
+   const auto diagscale = mfem_mgis::Parameters{
+       {"Name", "HypreDiagScale"},
+       {"Options", mfem_mgis::Parameters{{"VerbosityLevel", 0}}}};
+diff --git a/tests/UnitTestingUtilities.hxx b/tests/UnitTestingUtilities.hxx
+index f5903898b2..ac9f743b97 100644
+--- a/tests/UnitTestingUtilities.hxx
++++ b/tests/UnitTestingUtilities.hxx
+@@ -125,7 +125,11 @@ namespace mfem_mgis::unit_tests {
+     const auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
+     const auto ilu = mfem_mgis::Parameters{
+         {"Name", "HypreILU"},
+-        {"Options", mfem_mgis::Parameters{{"HypreILULevelOfFill", 1}}}};
++        {"Options",
++         mfem_mgis::Parameters{
++             // ILU(0) when hypre computes on a GPU, the only level of fill
++             // supported there
++             {"HypreILULevelOfFill", mfem_mgis::isHypreUsingGPU() ? 0 : 1}}}};
+     const auto diagscale =
+         mfem_mgis::Parameters{{"Name", "HypreDiagScale"}, {"Options", options}};
+     const auto parasail =
+-- 
+2.43.0
+

@@ -136,7 +136,9 @@ namespace mfem_mgis {
    * `mgis::setProfilingSynchronization`). An application which uses
    * this option must neither create its own `mfem::Device` (MFEM refuses a
    * second configuration of the device) nor declare its own `--device`,
-   * `-dev` options.
+   * `-dev` options. Without this option, the configuration may be given by
+   * the environment variable `MFEM_MGIS_DEVICE`, ignored if the device is
+   * already configured (to run a whole test suite on a GPU, for instance).
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!
@@ -213,6 +215,14 @@ namespace mfem_mgis {
    * \param[in, out] parser: options parser
    */
   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
+  /*!
+   * \return true if hypre computes on a GPU (hypre built with the support of
+   * GPUs, its memory being located on the device), false otherwise and
+   * without MPI. Contrary to `mfem::HypreUsingGPU`, whose inline definition
+   * depends on the headers of hypre included before it, the result does not
+   * depend on the includes of the caller.
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
 
   //! \return the output stream
   MFEM_MGIS_EXPORT std::ostream& getOutputStream();

@@ -133,6 +133,29 @@ Le test CUDA demande l'option CMake `enable-generic-parallel-cuda-tests`.
 Les bibliothèques de lots des tests sont construites par les fonctions de
 `mgis/cmake/modules/generic-parallel.cmake`.
 
+## mfem-mgis
+
+mfem-mgis est construit dans `build/mfem-mgis`. Sa suite (157 tests) se
+lance de trois façons, qui doivent toutes passer :
+
+- telle quelle : `ctest -j 6 -E "cuda|gpu|GPU"`, puis les variantes sur le
+  GPU une par une, `ctest -j 1 -R "cuda|gpu|GPU"` ;
+- avec tous les calculs forcés aux noyaux du chemin par lots, par les
+  variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
+  `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
+  `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` et
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (157/157) ;
+- sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
+  l'option `--device cuda` de chaque test), avec ou sans les variables
+  précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`) :
+  des tests simultanés se partagent le GPU et échouent. Seuls
+  `DeviceForallTest-cpu` et `DeviceOptionTest-none`, qui exigent
+  l'absence de périphérique, échouent alors (145/147).
+
+La factorisation incomplète de hypre de niveau 1 ou plus plante sur le GPU
+(reproducteur `reproducers/hypre-ilu-gpu`) : mfem-mgis y prend le niveau 0
+par défaut et refuse les niveaux supérieurs.
+
 ## Défauts de compilateurs
 
 Les défauts rencontrés sont contournés de façon ciblée, avec un

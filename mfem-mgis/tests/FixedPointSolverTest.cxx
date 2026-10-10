@@ -37,6 +37,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
@@ -813,9 +814,17 @@ int main(int argc, char** argv) {
     check(du < 1e-8, c.name + ": solution");
     if (const auto p = maximum_numbers_of_iterations.find(c.name);
         p != maximum_numbers_of_iterations.end()) {
-      check(r.iterations <= p->second,
+      // on a GPU, the sums computed by atomic operations (assembly of the
+      // tangent operator, setup of BoomerAMG by hypre) are not deterministic,
+      // and the accelerations amplify these differences (up to 45% more
+      // iterations observed with Crossed2Deltabis): the bounds are increased
+      // by 50%
+      const auto gpu = mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                            mfem::Backend::HIP_MASK);
+      const auto bound = gpu ? (3 * p->second) / 2 : p->second;
+      check(r.iterations <= bound,
             c.name + ": number of iterations (" + std::to_string(r.iterations) +
-                ", at most " + std::to_string(p->second) + " expected)");
+                ", at most " + std::to_string(bound) + " expected)");
     }
     if (c.accelerated) {
       check(r.iterations < none.iterations, c.name + ": number of iterations");

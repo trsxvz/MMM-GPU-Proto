@@ -1,0 +1,171 @@
+From a066c82baa8888422c8b5a24da20adcbda5e0bce Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 10:31:36 +0200
+Subject: [PATCH] Kernels: review (dead check, documentation, saturated
+ micromorphic damage)
+
+- The check of the finite element of the cached values of the shape
+  functions could never fail (the cache belongs to the finite element):
+  removed. Only a different number of points reveals a destroyed rule.
+- The documentation of GradientsComputation lists all the supported
+  behaviours and no longer names the quadrature interpolator of MFEM.
+- The comment of the tests on the debug device states that, without
+  device, the stiffness matrices are computed by the version for the host,
+  the kernel being then only run by the variants on the GPU in the Debug
+  and Coverage builds.
+- MicromorphicKernelsTest imposes a micromorphic damage up to 2.5, so that
+  the damage is bounded by one near the boundary (a value greater than 2
+  is required with the material properties of the test), and checks it,
+  on all the processes.
+---
+ ...nearEvolutionProblemImplementationBase.hxx | 19 +++++++-----
+ src/Batch/ElementsGeometry.cxx                |  3 +-
+ src/Batch/Gradients.cxx                       |  3 +-
+ tests/CMakeLists.txt                          |  9 ++++--
+ tests/MicromorphicKernelsTest.cxx             | 31 ++++++++++++++-----
+ 5 files changed, 43 insertions(+), 22 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index d4e5a9bec2..feac52186e 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -79,14 +79,17 @@ namespace mfem_mgis {
+      * \brief name of the parameter selecting the computation of the
+      * gradients in the integration by batches: `ElementByElement` (default:
+      * the behaviour integrators compute the gradients element by element)
+-     * or `Kernels` (the derivatives of the unknowns are computed for all the
+-     * elements by the quadrature interpolator of MFEM, then each behaviour
+-     * integrator computes its gradients by a kernel, on the device if a
+-     * device is enabled). `Kernels` requires `BehaviourIntegration` set to
+-     * `Batch`, and is supported for the standard mechanical behaviours in
+-     * 3D, plane strain and plane stress, without FBar, on meshes with one
+-     * geometry. The default value is given by the environment variable
+-     * `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
++     * or `Kernels` (the derivatives and, if required, the values of the
++     * unknowns are computed for all the elements by a kernel, then each
++     * behaviour integrator computes its gradients by a kernel, on the device
++     * if a device is enabled). `Kernels` requires `BehaviourIntegration` set
++     * to `Batch`, and is supported, in 3D, plane strain and plane stress,
++     * for the standard mechanical behaviours (small and finite strain,
++     * without FBar nor regularisation), the stationary non linear heat
++     * transfer behaviours, the transient term of the heat equation and the
++     * micromorphic damage behaviours, on meshes with one geometry (NURBS
++     * meshes excepted). The default value is given by the environment
++     * variable `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
+      */
+     static const char* const GradientsComputation;
+     /*!
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index f72254e73a..d239ad42d1 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -237,8 +237,7 @@ namespace mfem_mgis::batch {
+       // cached by the finite element for the address of the integration
+       // rule: a different number of points reveals a rule destroyed and
+       // replaced by another at the same address
+-      if ((g.maps->FE != fe) || (g.maps->nqpt != g.nq) ||
+-          (g.maps->ndof != g.nd)) {
++      if ((g.maps->nqpt != g.nq) || (g.maps->ndof != g.nd)) {
+         return ctx.registerErrorMessage(
+             "computeElementsGeometry: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 0632b347ba..72b000b159 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -229,8 +229,7 @@ namespace mfem_mgis::batch {
+       // finite element for the address of the integration rule: a different
+       // number of points reveals a rule destroyed and replaced by another at
+       // the same address
+-      if ((maps.FE != fe) || (maps.nqpt != d.nq) ||
+-          (maps.ndof != fe->GetDof())) {
++      if ((maps.nqpt != d.nq) || (maps.ndof != fe->GetDof())) {
+         return ctx.registerErrorMessage(
+             "computeUnknownsDerivatives: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index ce5a4dc153..3485120749 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -826,9 +826,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
+                    ${batch_integration_test_libraries})
+   # the variants of the longest tests on the debug device of MFEM, which
+-  # take one or two minutes in an optimised build, are only registered in
+-  # the optimised builds: they would take much longer in the Debug and
+-  # Coverage builds, whose variants on the host cover the same code
++  # take up to one minute and a half in an optimised build, are only
++  # registered in the optimised builds: they would take much longer in the
++  # Debug and Coverage builds. Without device, the stiffness matrices and
++  # their diagonals are computed by the version of the kernel for the host
++  # (one iteration per element): in these builds, the kernel itself (one
++  # thread per pair of nodes) is only run by the variants on the GPU.
+   set(long_debug_device_tests ON)
+   if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
+      (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
+diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
+index 498ce2248e..3fd8c63e00 100644
+--- a/tests/MicromorphicKernelsTest.cxx
++++ b/tests/MicromorphicKernelsTest.cxx
+@@ -20,6 +20,7 @@
+ #include <vector>
+ #include <cstdlib>
+ #include <iomanip>
++#include <limits>
+ #include <iostream>
+ #include <algorithm>
+ #include <string_view>
+@@ -163,7 +164,9 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+       std::string_view{c.hypothesis} == "Tridimensional";
+   // micromorphic damage imposed on x = 0, boundary 5 of the cube and 2 of
+   // the unit square, increasing with time (the elastic prediction is made
+-  // from the increments of the imposed values)
++  // from the increments of the imposed values), up to 2.5: the damage is
++  // bounded by one near this boundary (a micromorphic damage greater than 2
++  // is required with the material properties of this test)
+   auto problem =
+       construct<NonLinearEvolutionProblem>(
+           ctx,
+@@ -227,7 +230,7 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+       ctx, {{"Boundary", "Xmin"},
+             {"Component", 0},
+             {"LoadingEvolution",
+-             [](const real t) noexcept { return real{0.2} * t; }}}) |
++             [](const real t) noexcept { return real{2.5} * t; }}}) |
+       or_die;
+   if (opts.matrix_free) {
+     // the derivative of the dual force with respect to the gradient of the
+@@ -449,11 +452,25 @@ int main(int argc, char** argv) {
+                   << '\n';
+         continue;
+       }
+-      // the damage must evolve
+-      const auto [dmin, dmax] =
+-          std::minmax_element(reference.damage.begin(), reference.damage.end());
+-      check((dmin != reference.damage.end()) && (*dmax - *dmin > 1e-2),
+-            suffix + ": uniform damage");
++      // the damage must evolve, and be bounded by one at some points (on
++      // all the processes)
++      auto dmin = std::numeric_limits<real>::max();
++      auto dmax = std::numeric_limits<real>::lowest();
++      for (const auto d : reference.damage) {
++        dmin = std::min(dmin, d);
++        dmax = std::max(dmax, d);
++      }
++#ifdef MFEM_USE_MPI
++      if (parallel) {
++        MPI_Allreduce(MPI_IN_PLACE, &dmin, 1, MPI_DOUBLE, MPI_MIN,
++                      MPI_COMM_WORLD);
++        MPI_Allreduce(MPI_IN_PLACE, &dmax, 1, MPI_DOUBLE, MPI_MAX,
++                      MPI_COMM_WORLD);
++      }
++#endif /* MFEM_USE_MPI */
++      check(dmax - dmin > 1e-2, suffix + ": uniform damage");
++      check(dmax > 1 - 1e-12,
++            suffix + ": the damage is not bounded by one at any point");
+       for (const auto& [lname, l] : libraries) {
+         auto c = getCases(mesh, square_mesh, l)[i];
+         // integration by batches with the computations element by element
+-- 
+2.43.0
+

@@ -41,6 +41,10 @@ static int solve(mfem_mgis::FiniteElementSpace<true>& fespace,
     std::cerr << ctx.getErrorMessage() << std::endl;
     return -1;
   }
+  // the second resolution, after a new call to SetOperator, must give the
+  // same number of iterations (the options must be kept). On a GPU, the
+  // setup of BoomerAMG by hypre is not deterministic: a difference of 5% is
+  // accepted.
   auto n = -1;
   for (int i = 0; i != 2; ++i) {
     auto X = mfem::Vector(B.Size());
@@ -48,7 +52,11 @@ static int solve(mfem_mgis::FiniteElementSpace<true>& fespace,
     h.linear_solver->SetOperator(A);
     h.linear_solver->Mult(B, X);
     const auto oit = getNumberOfIterationsAtConvergence(*(h.linear_solver));
-    if ((!oit.has_value()) || ((i == 1) && (*oit != n))) {
+    if (!oit.has_value()) {
+      return -1;
+    }
+    const auto tolerance = mfem_mgis::isHypreUsingGPU() ? n / 20 + 1 : 0;
+    if ((i == 1) && (std::abs(*oit - n) > tolerance)) {
       return -1;
     }
     n = *oit;
@@ -143,7 +151,17 @@ int main(int argc, char** argv) {
   // used, its number of iterations differs from the one of the `System`
   // strategy
   const auto r2 = getNumbersOfIterations(pmesh, mfem::Ordering::byVDIM);
-  const auto success = check(r1) && (r1.elasticity == r1.system) && check(r2) &&
-                       (r2.elasticity != r2.system);
+  // on a GPU, the `Elasticity` strategy, not supported by hypre, falls back
+  // to the `System` strategy, and the setup of BoomerAMG is not
+  // deterministic (numbers of iterations close to 5%)
+  const auto gpu = mfem_mgis::isHypreUsingGPU();
+  const auto close = [](const int a, const int b) {
+    return std::abs(a - b) <= b / 20 + 1;
+  };
+  const auto success =
+      check(r1) &&
+      (gpu ? close(r1.elasticity, r1.system) : (r1.elasticity == r1.system)) &&
+      check(r2) &&
+      (gpu ? close(r2.elasticity, r2.system) : (r2.elasticity != r2.system));
   return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -826,9 +826,12 @@ if(MFEM_MGIS_HAVE_TFEL)
            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
                    ${batch_integration_test_libraries})
   # the variants of the longest tests on the debug device of MFEM, which
-  # take one or two minutes in an optimised build, are only registered in
-  # the optimised builds: they would take much longer in the Debug and
-  # Coverage builds, whose variants on the host cover the same code
+  # take up to one minute and a half in an optimised build, are only
+  # registered in the optimised builds: they would take much longer in the
+  # Debug and Coverage builds. Without device, the stiffness matrices and
+  # their diagonals are computed by the version of the kernel for the host
+  # (one iteration per element): in these builds, the kernel itself (one
+  # thread per pair of nodes) is only run by the variants on the GPU.
   set(long_debug_device_tests ON)
   if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
      (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
@@ -1035,6 +1038,10 @@ if(MFEM_MGIS_HAVE_TFEL)
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)
     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
+    # HypreILUTest executable: level of fill of the incomplete factorisation
+    # of hypre kept after a new operator, ILU(0) when hypre computes on a GPU
+    add_test_executable(HypreILUTest)
+    add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)

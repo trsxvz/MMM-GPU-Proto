@@ -3614,4 +3614,20 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   thermique et micromorphe (avant la mise à jour des matériaux, sinon la
   vérification était vide). Maillages NURBS refusés. Variantes debug
   longues seulement en construction optimisée. Trois mutations détectées.
+- Relecture M de 9b93bc8c36 et 4c61469c33 (`scratch/nuit-2026-10-10/relecture-M.md`) :
+  aucun résultat faux, résultats point par point identiques confirmés ;
+  corrections dans a066c82baa (contrôle mort retiré, documentation,
+  endommagement saturé dans MicromorphicKernelsTest).
+- mfem-mgis 3410a92b3b : **toute la suite sur le GPU**. Variable
+  `MFEM_MGIS_DEVICE`. La première passe a révélé des défauts du chemin
+  GPU : l'export ParaView écrasait les inconnues calculées sur le GPU par
+  les valeurs périmées de l'hôte (référence `MakeTRef`), erreur L2 et
+  interpolation GSLIB lues sans synchronisation, stratégie `Elasticity` de
+  BoomerAMG refusée par hypre sur GPU (repli sur `System`), niveau de
+  remplissage de `HypreILU` perdu au deuxième opérateur (aussi sur CPU) et
+  ILU(1) qui plante dans hypre sur GPU (reproducteur
+  `reproducers/hypre-ilu-gpu`, ILU(0) par défaut sur GPU). Tests rendus
+  portables. Résultat : 145/147 sur le GPU (les deux tests qui exigent
+  l'absence de périphérique), avec et sans les noyaux forcés ; 157/157 sur
+  CPU. Procédure dans `docs/validation.md`.
 

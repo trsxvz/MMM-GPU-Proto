@@ -20,6 +20,7 @@
 #include <vector>
 #include <cstdlib>
 #include <iomanip>
+#include <limits>
 #include <iostream>
 #include <algorithm>
 #include <string_view>
@@ -163,7 +164,9 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
       std::string_view{c.hypothesis} == "Tridimensional";
   // micromorphic damage imposed on x = 0, boundary 5 of the cube and 2 of
   // the unit square, increasing with time (the elastic prediction is made
-  // from the increments of the imposed values)
+  // from the increments of the imposed values), up to 2.5: the damage is
+  // bounded by one near this boundary (a micromorphic damage greater than 2
+  // is required with the material properties of this test)
   auto problem =
       construct<NonLinearEvolutionProblem>(
           ctx,
@@ -227,7 +230,7 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
       ctx, {{"Boundary", "Xmin"},
             {"Component", 0},
             {"LoadingEvolution",
-             [](const real t) noexcept { return real{0.2} * t; }}}) |
+             [](const real t) noexcept { return real{2.5} * t; }}}) |
       or_die;
   if (opts.matrix_free) {
     // the derivative of the dual force with respect to the gradient of the
@@ -449,11 +452,25 @@ int main(int argc, char** argv) {
                   << '\n';
         continue;
       }
-      // the damage must evolve
-      const auto [dmin, dmax] =
-          std::minmax_element(reference.damage.begin(), reference.damage.end());
-      check((dmin != reference.damage.end()) && (*dmax - *dmin > 1e-2),
-            suffix + ": uniform damage");
+      // the damage must evolve, and be bounded by one at some points (on
+      // all the processes)
+      auto dmin = std::numeric_limits<real>::max();
+      auto dmax = std::numeric_limits<real>::lowest();
+      for (const auto d : reference.damage) {
+        dmin = std::min(dmin, d);
+        dmax = std::max(dmax, d);
+      }
+#ifdef MFEM_USE_MPI
+      if (parallel) {
+        MPI_Allreduce(MPI_IN_PLACE, &dmin, 1, MPI_DOUBLE, MPI_MIN,
+                      MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &dmax, 1, MPI_DOUBLE, MPI_MAX,
+                      MPI_COMM_WORLD);
+      }
+#endif /* MFEM_USE_MPI */
+      check(dmax - dmin > 1e-2, suffix + ": uniform damage");
+      check(dmax > 1 - 1e-12,
+            suffix + ": the damage is not bounded by one at any point");
       for (const auto& [lname, l] : libraries) {
         auto c = getCases(mesh, square_mesh, l)[i];
         // integration by batches with the computations element by element

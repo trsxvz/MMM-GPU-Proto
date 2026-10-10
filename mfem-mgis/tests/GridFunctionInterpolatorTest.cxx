@@ -84,14 +84,18 @@ struct GridFunctionInterpolatorTest final : public tfel::tests::TestCase {
     pts[5] = 0.4;
     finder.FindPoints(pts, mfem::Ordering::byVDIM);
     //
-    const auto codes = finder.GetCode();
-    TFEL_TESTS_ASSERT(codes.Size() == 3);
+    // the results of MFEM may be computed on a device: they are read on the
+    // host after their synchronisation
+    const auto& codes_array = finder.GetCode();
+    TFEL_TESTS_ASSERT(codes_array.Size() == 3);
+    const auto* const codes = codes_array.HostRead();
     TFEL_TESTS_CHECK(codes[0] != 2);
     TFEL_TESTS_CHECK(codes[1] != 2);
     TFEL_TESTS_CHECK(codes[2] == 2);
     //
-    auto x_values = mfem::Vector(4);
-    finder.Interpolate(*ox, x_values);
+    auto x_values_vector = mfem::Vector(4);
+    finder.Interpolate(*ox, x_values_vector);
+    const auto* const x_values = x_values_vector.HostRead();
     if (fespace.GetOrdering() == mfem::Ordering::byNODES) {
       for (size_type i = 0; i != 2; ++i) {
         TFEL_TESTS_CHECK(std::abs(x_values[i] - pts[2 * i]) < 1e-14);

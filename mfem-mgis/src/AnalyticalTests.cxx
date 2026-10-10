@@ -21,10 +21,12 @@ namespace mfem_mgis {
     auto &problem = p.template getImplementation<parallel>();
     mfem_mgis::GridFunction<parallel> x(&problem.getFiniteElementSpace());
     const auto dim = problem.getFiniteElementSpace().GetVDim();
-    // recover the solution as a grid function
-    auto &u1 = problem.getUnknowns(ets);
-    x.MakeTRef(&problem.getFiniteElementSpace(), u1, 0);
-    x.SetFromTrueVector();
+    // recover the solution as a grid function. The error is computed on the
+    // host: the values are made valid there (the unknowns may have been
+    // computed on the device, a reference to them would give stale values)
+    const auto &u1 = problem.getUnknowns(ets);
+    x.SetFromTrueDofs(u1);
+    static_cast<void>(x.HostRead());
     // comparison to analytical solution
     mfem::VectorFunctionCoefficient sol_coef(dim, f);
     return x.ComputeL2Error(sol_coef);

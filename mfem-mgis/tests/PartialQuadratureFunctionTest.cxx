@@ -37,6 +37,10 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
     this->test1<true>();
     this->test1<false>();
     this->test2();
+    // the problem is destroyed before the finalization of MFEM (this test
+    // case is a static object, destroyed at the exit of the program, after
+    // the release of the device)
+    this->problem.reset();
     return this->result;
   }
 

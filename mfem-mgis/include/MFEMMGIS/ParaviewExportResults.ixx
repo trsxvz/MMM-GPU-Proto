@@ -75,8 +75,8 @@ namespace mfem_mgis {
     //
     auto or_raise = ctx.getThrowingFailureHandler();
     //
-    auto& u1 = pb.getUnknowns(ets);
-    this->result.MakeTRef(&pb.getFiniteElementSpace(), u1, 0);
+    this->result.SetSpace(&pb.getFiniteElementSpace());
+    this->unknowns = &(pb.getUnknowns(ets));
 
     /** Default, the mesh is the entire mesh */
     Mesh<parallel>& pmesh = pb.getMesh();
@@ -190,14 +190,12 @@ namespace mfem_mgis {
     if (!this->shallExecuteInitialPostProcessing) {
       return true;
     }
-    // the exported grid function is associated with the unknowns at the end of
-    // the time step (see the constructor). It is temporarily associated with
-    // the unknowns at the beginning of the time step for this export.
-    auto& fespace = p.getFiniteElementSpace();
-    this->result.MakeTRef(&fespace, p.getUnknowns(bts), 0);
+    // the unknowns at the end of the time step are exported (see the
+    // constructor), and the ones at the beginning of the time step for this
+    // export
+    this->unknowns = &(p.getUnknowns(bts));
     auto success = this->execute(ctx, p, t, real{});
-    // restore the association with the unknowns at the end of the time step
-    this->result.MakeTRef(&fespace, p.getUnknowns(ets), 0);
+    this->unknowns = &(p.getUnknowns(ets));
     return success;
   }  // end of executeInitialPostProcessing
 
@@ -210,20 +208,21 @@ namespace mfem_mgis {
     CatchTimeSection(ctx, "ParaviewExportResults::Execute");
     this->exporter.SetCycle(this->cycle);
     this->exporter.SetTime(t + dt);
-    // SetFromTrueVector needed here in MFEM for at least two rationales:
+    // SetFromTrueDofs needed here in MFEM for at least two rationales:
     //    - it applies prolongation matrix (Non-Conforming mesh, BCs, AMR ...)
     //      to set the values of some unkwown dofs deduced from known dofs
     //    - exchange data between processes in order to retrieve information
     //      needed to perform the previous prolongation step
+    // The exporter writes the values of the host, made valid there.
+    this->result.SetFromTrueDofs(*(this->unknowns));
     if (submesh.get() != nullptr) {
       /** Transfer data from global mesh to submesh */
-      this->result.SetFromTrueVector();
       this->submesh.get()->Transfer(this->result, this->result_sm.get()[0]);
-      this->exporter.Save();
+      static_cast<void>(this->result_sm->HostRead());
     } else {
-      this->result.SetFromTrueVector();
-      this->exporter.Save();
+      static_cast<void>(this->result.HostRead());
     }
+    this->exporter.Save();
     ++(this->cycle);
     return true;
   }  // end of execute

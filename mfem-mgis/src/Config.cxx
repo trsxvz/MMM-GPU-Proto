@@ -5,6 +5,7 @@
  * \date   14/02/2021
  */
 
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string_view>
@@ -195,6 +196,14 @@ namespace mfem_mgis {
       }
 #endif /* MFEM_USE_PETSC */
     }
+    // without the option, the configuration of the device may be given by
+    // the environment, for instance to run a whole test suite on a GPU
+    if (device_configuration == nullptr) {
+      const auto* const e = std::getenv("MFEM_MGIS_DEVICE");
+      if ((e != nullptr) && (*e != '\0') && (!mfem::Device::IsConfigured())) {
+        device_configuration = e;
+      }
+    }
     // the device is configured after the initialization of hypre and
     // before the one of PETSc, which uses the GPU of the device, as in the
     // parallel examples of MFEM
@@ -318,6 +327,14 @@ namespace mfem_mgis {
     mfem_mgis::getErrorStream() << msg << '\n';
     Finalizer::get().abort(error);
   }  // end of abort
+
+  bool isHypreUsingGPU() noexcept {
+#ifdef MFEM_USE_MPI
+    return mfem::HypreUsingGPU();
+#else  /* MFEM_USE_MPI */
+    return false;
+#endif /* MFEM_USE_MPI */
+  }  // end of isHypreUsingGPU
 
   void declareDefaultOptions(mfem::OptionsParser& parser) {
     // the device is created by `initialize`: the option is only declared

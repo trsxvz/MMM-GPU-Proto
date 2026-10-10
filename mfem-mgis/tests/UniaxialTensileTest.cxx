@@ -114,7 +114,11 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
     const std::string_view s) noexcept {
   const auto ilu = mfem_mgis::Parameters{
       {"Name", "HypreILU"},
-      {"Options", mfem_mgis::Parameters{{"HypreILULevelOfFill", 1}}}};
+      {"Options",
+       mfem_mgis::Parameters{
+           // ILU(0) when hypre computes on a GPU, the only level of fill
+           // supported there
+           {"HypreILULevelOfFill", mfem_mgis::isHypreUsingGPU() ? 0 : 1}}}};
   const auto diagscale = mfem_mgis::Parameters{
       {"Name", "HypreDiagScale"},
       {"Options", mfem_mgis::Parameters{{"VerbosityLevel", 0}}}};

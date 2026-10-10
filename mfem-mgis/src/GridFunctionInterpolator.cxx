@@ -109,6 +109,9 @@ namespace mfem_mgis::internals {
     auto interpolated_values = mfem::Vector(
         data, static_cast<size_type>(npoints * fespace->GetVDim()));
     finder->Interpolate(f, interpolated_values);
+    // the values may be computed on a device: they are copied in the memory
+    // of the host wrapped by the vector (`data`)
+    static_cast<void>(interpolated_values.HostRead());
     if (fespace->GetOrdering() == mfem::Ordering::byNODES) {
       for (size_type i = 0; i != npoints; ++i) {
         for (size_type j = 0; j != fespace->GetVDim(); ++j) {

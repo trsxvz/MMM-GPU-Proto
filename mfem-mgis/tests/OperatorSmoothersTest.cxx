@@ -77,14 +77,20 @@ struct ScaledOperator final : mfem::Operator {
    */
   ScaledOperator(const mfem::Operator& a, const mfem::Vector& s)
       : mfem::Operator(a.Height(), a.Width()), op(a), scaling(s) {}
+  // the values are scaled on the host, where they are made valid (the
+  // vectors may be used on a device)
   void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
     auto sx = mfem::Vector(x.Size());
+    const auto* const px = x.HostRead();
+    const auto* const ps = this->scaling.HostRead();
+    auto* const psx = sx.HostWrite();
     for (int i = 0; i != x.Size(); ++i) {
-      sx[i] = this->scaling[i] * x[i];
+      psx[i] = ps[i] * px[i];
     }
     this->op.Mult(sx, y);
+    auto* const py = y.HostReadWrite();
     for (int i = 0; i != y.Size(); ++i) {
-      y[i] *= this->scaling[i];
+      py[i] *= ps[i];
     }
   }
   void AssembleDiagonal(mfem::Vector& d) const override {
@@ -94,8 +100,10 @@ struct ScaledOperator final : mfem::Operator {
     } else {
       this->op.AssembleDiagonal(d);
     }
+    const auto* const ps = this->scaling.HostRead();
+    auto* const pd = d.HostReadWrite();
     for (int i = 0; i != d.Size(); ++i) {
-      d[i] *= this->scaling[i] * this->scaling[i];
+      pd[i] *= ps[i] * ps[i];
     }
   }
 
@@ -190,9 +198,12 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
   // diagonal scaling from 1 to 10, and the scaled right hand side
   auto scaling = mfem::Vector(B.Size());
   auto SB = mfem::Vector(B.Size());
+  const auto* const pB = B.HostRead();
+  auto* const ps = scaling.HostWrite();
+  auto* const pSB = SB.HostWrite();
   for (int i = 0; i != B.Size(); ++i) {
-    scaling[i] = 1 + 9 * ((7 * i) % 11) / 10.;
-    SB[i] = scaling[i] * B[i];
+    ps[i] = 1 + 9 * ((7 * i) % 11) / 10.;
+    pSB[i] = ps[i] * pB[i];
   }
   const auto scaled = ScaledOperator{wrapped, scaling};
   auto iterations = std::vector<int>{};

@@ -62,6 +62,15 @@ namespace mfem_mgis {
     mfem::ParaViewDataCollection exporter;
     //! \brief exported grid function
     mfem_mgis::GridFunction<parallel> result;
+    /*!
+     * \brief exported unknowns (true degrees of freedom), copied in `result`
+     * at each export: the unknowns at the end of the time step, or at the
+     * beginning of the time step for the initial export. A reference to the
+     * unknowns (`mfem::GridFunction::MakeTRef`) would let MFEM copy the values
+     * of the host over the ones of the device when the unknowns are computed
+     * on a device.
+     */
+    const mfem::Vector* unknowns = nullptr;
     //! \brief number of records
     size_type cycle;
     /*!

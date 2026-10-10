@@ -79,14 +79,17 @@ namespace mfem_mgis {
      * \brief name of the parameter selecting the computation of the
      * gradients in the integration by batches: `ElementByElement` (default:
      * the behaviour integrators compute the gradients element by element)
-     * or `Kernels` (the derivatives of the unknowns are computed for all the
-     * elements by the quadrature interpolator of MFEM, then each behaviour
-     * integrator computes its gradients by a kernel, on the device if a
-     * device is enabled). `Kernels` requires `BehaviourIntegration` set to
-     * `Batch`, and is supported for the standard mechanical behaviours in
-     * 3D, plane strain and plane stress, without FBar, on meshes with one
-     * geometry. The default value is given by the environment variable
-     * `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
+     * or `Kernels` (the derivatives and, if required, the values of the
+     * unknowns are computed for all the elements by a kernel, then each
+     * behaviour integrator computes its gradients by a kernel, on the device
+     * if a device is enabled). `Kernels` requires `BehaviourIntegration` set
+     * to `Batch`, and is supported, in 3D, plane strain and plane stress,
+     * for the standard mechanical behaviours (small and finite strain,
+     * without FBar nor regularisation), the stationary non linear heat
+     * transfer behaviours, the transient term of the heat equation and the
+     * micromorphic damage behaviours, on meshes with one geometry (NURBS
+     * meshes excepted). The default value is given by the environment
+     * variable `MFEM_MGIS_GRADIENTS_COMPUTATION`, if defined.
      */
     static const char* const GradientsComputation;
     /*!
