@@ -45,7 +45,8 @@ Répartition sur le GPU (secondes, nombre d'appels) :
   (×1,5, à comparer au ×1,8 du prototype du 04/10). Le point fixe évite
   l'assemblage de la tangente et la construction de BoomerAMG à chaque
   itération ; une itération (loi, résidu, un cycle d'AMG, Anderson) coûte
-  environ 20 ms contre 450 ms pour une itération de Newton.
+  environ 21 ms contre 560 ms pour une itération de Newton (temps hors
+  prédiction divisés par le nombre d'itérations).
 - **Sur le GPU, égalité** (3,44 s contre 3,43 s), et seulement avec le
   lisseur de Chebyshev : avec les réglages par défaut de hypre sur GPU
   (l1-Jacobi, grossissement PMIS), un cycle de BoomerAMG est bien plus
