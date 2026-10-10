@@ -28,7 +28,9 @@ namespace mfem_mgis::batch::internals {
     /*!
      * \brief values of the shape functions on the reference element
      * (`nq x nd`), used by the derivatives of the thermodynamic forces with
-     * respect to the unknowns (heat transfer behaviours)
+     * respect to the unknowns (stationary heat transfer behaviours) and by
+     * the gradients which are the values of the unknowns (transient term of
+     * the heat equation)
      */
     const real* shape_functions = nullptr;
     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)

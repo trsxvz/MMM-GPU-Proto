@@ -892,8 +892,10 @@ Ordre proposé :
    variable externe doit vivre sur le GPU). Stationnaire fait (gradient de
    température, flux, bloc dérivée du flux par rapport à la température,
    valeurs des fonctions de forme, température aux points recopiée dans la
-   variable externe sur l'hôte) ; reste la transitoire, et la variable
-   externe gardée sur le GPU ;
+   variable externe sur l'hôte). Transitoire faite (gradient = température
+   au point, opérateur B = valeur de la fonction de forme, intégrateur
+   `TransientHeatTransfer` déclaré aussi en 2D) ; reste la variable externe
+   gardée sur le GPU ;
 4. lois orthotropes : matrices de rotation par point en tableau, rotations
    de MGIS sur vues (plus de pointeurs de fonction) ;
 5. propriétés matériau et variables externes sous toutes leurs formes,

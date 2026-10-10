@@ -119,15 +119,30 @@ namespace mfem_mgis::batch {
      * \brief temperature gradient in 2D (plane strain and plane stress):
      * `(dT/dx, dT/dy)` (see `TEMPERATURE_GRADIENT_3D`)
      */
-    TEMPERATURE_GRADIENT_2D
+    TEMPERATURE_GRADIENT_2D,
+    /*!
+     * \brief temperature in 3D (transient term of the heat equation): the
+     * gradient of the behaviour is the value of the unknowns (temperature)
+     * at the integration point, computed from the values of the shape
+     * functions, and the tangent operator block is the derivative of the
+     * thermodynamic force (rate of the enthalpy) with respect to the
+     * temperature
+     */
+    TEMPERATURE_3D,
+    /*!
+     * \brief temperature in 2D (plane strain and plane stress), see
+     * `TEMPERATURE_3D`
+     */
+    TEMPERATURE_2D
   };
 
   /*!
    * \return the kind of the gradients of a behaviour computed by the
    * kernels, if supported: small strain and finite strain (deformation
-   * gradient) mechanical behaviours and stationary non linear heat transfer
-   * behaviours (temperature gradient, heat flux) in 3D, plane strain and
-   * plane stress
+   * gradient) mechanical behaviours, stationary non linear heat transfer
+   * behaviours (temperature gradient, heat flux) and behaviours of the
+   * transient term of the heat equation (temperature, rate of the enthalpy)
+   * in 3D, plane strain and plane stress
    * \param[in] b: behaviour
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<GradientsKind> getGradientsKind(
@@ -164,9 +179,31 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] int getUnknownsSize(
       const GradientsKind) noexcept;
   /*!
+   * \return true if the gradients of the given kind are the values of the
+   * unknowns at the integration points, computed from the values of the
+   * shape functions (temperature of the transient term of the heat
+   * equation), false if they are computed from the derivatives of the
+   * unknowns
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsUnknownsValues(
+      const GradientsKind) noexcept;
+  /*!
    * \return true if the values of the unknowns at the integration points
-   * are required by the given kind of gradients: the temperature of the heat
-   * transfer behaviours, an external state variable of the behaviour
+   * are an external state variable of the behaviours of the given kind of
+   * gradients (temperature of the stationary heat transfer behaviours),
+   * whose derivative with respect to the unknowns follows the derivatives of
+   * the thermodynamic forces with respect to the gradients in the tangent
+   * operator blocks
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool areUnknownsValuesExternalStateVariables(
+      const GradientsKind) noexcept;
+  /*!
+   * \return true if the values of the unknowns at the integration points
+   * are required by the given kind of gradients: the gradients themselves
+   * (see `areGradientsUnknownsValues`) or an external state variable of the
+   * behaviour (see `areUnknownsValuesExternalStateVariables`)
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(

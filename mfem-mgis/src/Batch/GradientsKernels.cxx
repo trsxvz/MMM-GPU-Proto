@@ -23,10 +23,13 @@ namespace mfem_mgis::batch::internals {
    * the derivative of the `i`-th component of the unknowns with respect to
    * the `j`-th coordinate, `V` being the number of components of the
    * unknowns
+   * \param[in] u: values of the unknowns at the point (only used if the
+   * gradients are these values)
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE inline void computeGradientsAtPoint(real* const g,
-                                                       const real* const du) {
+                                                       const real* const du,
+                                                       const real* const u) {
     constexpr auto icste = getInverseOfSquareRootOfTwo();
     constexpr auto V = getUnknownsSize<K>();
     auto d = [du](const int i, const int j) { return du[i + V * j]; };
@@ -58,11 +61,13 @@ namespace mfem_mgis::batch::internals {
       g[2] = 0;
       g[3] = d(0, 1);
       g[4] = d(1, 0);
-    } else {
-      static_assert(isTemperatureGradient<K>());
+    } else if constexpr (isTemperatureGradient<K>()) {
       for (int c = 0; c != getDimension<K>(); ++c) {
         g[c] = d(0, c);
       }
+    } else {
+      static_assert(isTemperature<K>());
+      g[0] = u[0];
     }
   }  // end of computeGradientsAtPoint
 
@@ -101,8 +106,13 @@ namespace mfem_mgis::batch::internals {
           }
         }
       }
+      // values of the unknowns at the point
+      const auto* const u =
+          isTemperature<K>()
+              ? a.unknowns_values + static_cast<std::size_t>(V) * (sq + nq * e)
+              : nullptr;
       real g[9];
-      computeGradientsAtPoint<K>(g, du);
+      computeGradientsAtPoint<K>(g, du, u);
       const auto np = static_cast<std::size_t>(a.number_of_points);
       const auto gs = static_cast<std::size_t>(a.gradients_size);
       for (std::size_t c = 0; c != gs; ++c) {
@@ -192,6 +202,12 @@ namespace mfem_mgis::batch::internals {
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
         launchGradientsKernel<GradientsKind::TEMPERATURE_GRADIENT_2D>(
             a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_3D:
+        launchGradientsKernel<GradientsKind::TEMPERATURE_3D>(a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_2D:
+        launchGradientsKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
         break;
     }
   }  // end of launchGradientsKernel

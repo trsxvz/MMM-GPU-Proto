@@ -20,12 +20,15 @@ namespace mfem_mgis::batch::internals {
    * \tparam K: kind of the gradients
    * \param[in, out] f: inner forces of the node
    * \param[in] dN: derivatives of the shape function of the node
+   * \param[in] Nv: value of the shape function of the node (transient term
+   * of the heat equation)
    * \param[in] s: thermodynamic force (accessor)
    * \param[in] w: weight of the point
    */
   template <GradientsKind K, typename Accessor>
   MFEM_HOST_DEVICE inline void addInnerForces(real* const f,
                                               const real* const dN,
+                                              const real Nv,
                                               const Accessor& s,
                                               const real w) {
     constexpr auto icste = getInverseOfSquareRootOfTwo();
@@ -43,12 +46,15 @@ namespace mfem_mgis::batch::internals {
     } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
       f[0] += w * (dN[0] * s(0) + dN[1] * s(3));
       f[1] += w * (dN[0] * s(4) + dN[1] * s(1));
-    } else {
+    } else if constexpr (isTemperatureGradient<K>()) {
       // heat flux
-      static_assert(isTemperatureGradient<K>());
       for (int c = 0; c != getDimension<K>(); ++c) {
         f[0] += w * dN[c] * s(c);
       }
+    } else {
+      // rate of the enthalpy
+      static_assert(isTemperature<K>());
+      f[0] += w * Nv * s(0);
     }
   }  // end of addInnerForces
 
@@ -84,8 +90,10 @@ namespace mfem_mgis::batch::internals {
               real dN[N];
               computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
                                             nq, node, iJ);
+              const auto Nv =
+                  getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
               real f[V] = {};
-              addInnerForces<K>(f, dN, s, w);
+              addInnerForces<K>(f, dN, Nv, s, w);
               for (std::size_t c = 0; c != V; ++c) {
                 fe[node + nd * c] += f[c];
               }
@@ -119,6 +127,12 @@ namespace mfem_mgis::batch::internals {
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
         launchInnerForcesKernel<GradientsKind::TEMPERATURE_GRADIENT_2D>(
             a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_3D:
+        launchInnerForcesKernel<GradientsKind::TEMPERATURE_3D>(a, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_2D:
+        launchInnerForcesKernel<GradientsKind::TEMPERATURE_2D>(a, use_device);
         break;
     }
   }  // end of launchInnerForcesKernel

@@ -24,6 +24,13 @@ namespace mfem_mgis::batch::internals {
      * coordinates (see `UnknownsDerivatives`)
      */
     const real* derivatives = nullptr;
+    /*!
+     * \brief values of the unknowns at the points of all the elements
+     * (layout of `UnknownsDerivatives::point_values`), required if the
+     * gradients are the values of the unknowns (see
+     * `areGradientsUnknownsValues`)
+     */
+    const real* unknowns_values = nullptr;
     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
     const real* jacobians = nullptr;
     //! \brief determinants of the jacobians (`nq x ne`)

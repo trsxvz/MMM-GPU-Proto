@@ -47,6 +47,29 @@ namespace mfem_mgis::batch {
            (b.to_blocks[1].second.name == "Temperature");
   }  // end of isHeatTransferBehaviour
 
+  /*!
+   * \return true if the behaviour describes the transient term of the heat
+   * equation, recognised by its structure as the behaviour integrator
+   * `TransientHeatTransfer`: one scalar gradient (the temperature at the
+   * integration point) and one scalar thermodynamic force (the rate of the
+   * enthalpy), and the derivative of the force with respect to the gradient
+   * \param[in] b: behaviour
+   */
+  [[nodiscard]] static bool isHeatStorageBehaviour(
+      const Behaviour& b) noexcept {
+    using Variable = mgis::behaviour::Variable;
+    if ((b.btype != Behaviour::GENERALBEHAVIOUR) ||
+        (b.gradients.size() != 1u) || (b.thermodynamic_forces.size() != 1u) ||
+        (b.to_blocks.size() != 1u)) {
+      return false;
+    }
+    const auto& g = b.gradients[0];
+    const auto& f = b.thermodynamic_forces[0];
+    return (g.type == Variable::SCALAR) && (f.type == Variable::SCALAR) &&
+           (b.to_blocks[0].first.name == f.name) &&
+           (b.to_blocks[0].second.name == g.name);
+  }  // end of isHeatStorageBehaviour
+
   std::optional<GradientsKind> getGradientsKind(const Behaviour& b) noexcept {
     const auto h = b.hypothesis;
     const auto tridimensional = h == Hypothesis::TRIDIMENSIONAL;
@@ -76,6 +99,14 @@ namespace mfem_mgis::batch {
       }
       if (bidimensional) {
         return GradientsKind::TEMPERATURE_GRADIENT_2D;
+      }
+    }
+    if (isHeatStorageBehaviour(b)) {
+      if (tridimensional) {
+        return GradientsKind::TEMPERATURE_3D;
+      }
+      if (bidimensional) {
+        return GradientsKind::TEMPERATURE_2D;
       }
     }
     return {};
@@ -206,26 +237,40 @@ namespace mfem_mgis::batch {
       case GradientsKind::TEMPERATURE_GRADIENT_3D:
         return 3;
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
+        return 2;
+      case GradientsKind::TEMPERATURE_3D:
+      case GradientsKind::TEMPERATURE_2D:
         break;
     }
-    return 2;
+    return 1;
   }  // end of getGradientsSize
 
-  bool requiresUnknownsValues(const GradientsKind k) noexcept {
+  bool areGradientsUnknownsValues(const GradientsKind k) noexcept {
+    return (k == GradientsKind::TEMPERATURE_3D) ||
+           (k == GradientsKind::TEMPERATURE_2D);
+  }  // end of areGradientsUnknownsValues
+
+  bool areUnknownsValuesExternalStateVariables(const GradientsKind k) noexcept {
     return (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
            (k == GradientsKind::TEMPERATURE_GRADIENT_2D);
+  }  // end of areUnknownsValuesExternalStateVariables
+
+  bool requiresUnknownsValues(const GradientsKind k) noexcept {
+    return areGradientsUnknownsValues(k) ||
+           areUnknownsValuesExternalStateVariables(k);
   }  // end of requiresUnknownsValues
 
   size_type getTangentOperatorBlocksSize(const GradientsKind k) noexcept {
     const auto n = getGradientsSize(k);
     // derivatives of the heat flux with respect to the temperature
-    return requiresUnknownsValues(k) ? n * n + n : n * n;
+    return areUnknownsValuesExternalStateVariables(k) ? n * n + n : n * n;
   }  // end of getTangentOperatorBlocksSize
 
   int getSpaceDimension(const GradientsKind k) noexcept {
     return ((k == GradientsKind::SMALL_STRAIN_3D) ||
             (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
-            (k == GradientsKind::TEMPERATURE_GRADIENT_3D))
+            (k == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+            (k == GradientsKind::TEMPERATURE_3D))
                ? 3
                : 2;
   }  // end of getSpaceDimension
@@ -302,6 +347,14 @@ namespace mfem_mgis::batch {
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.derivatives = d.values.Read(use_device);
+    if (areGradientsUnknownsValues(k)) {
+      if (!d.has_point_values) {
+        return ctx.registerErrorMessage(
+            name +
+            ": the values of the unknowns at the points are not computed");
+      }
+      a.unknowns_values = d.point_values.Read(use_device);
+    }
     a.jacobians = g.jacobians->J.Read(use_device);
     a.determinants = g.jacobians->detJ.Read(use_device);
     error = false;

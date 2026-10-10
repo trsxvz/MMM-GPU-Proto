@@ -225,41 +225,44 @@ namespace mfem_mgis {
   bool StandardBehaviourIntegratorCRTPBase<Child>::supportsKernels()
       const noexcept {
     using Traits = BehaviourIntegratorTraits<Child>;
-    // the kernels compute the gradients of the standard mechanical and heat
-    // transfer behaviours from the derivatives of the unknowns; the values of
-    // the unknowns at the integration points (temperature) are computed for
-    // the behaviours which update their external state variables from them
-    if constexpr (Traits::gradientsComputationRequiresShapeFunctions) {
+    // the kernels compute the gradients of the standard mechanical and
+    // stationary heat transfer behaviours from the derivatives of the
+    // unknowns, and the ones of the transient term of the heat equation from
+    // the values of the shape functions (temperature at the point); the
+    // values of the unknowns at the integration points (temperature) are
+    // also computed for the behaviours which update their external state
+    // variables from them. The kind of the gradients of the behaviour must
+    // match the computations of the behaviour integrator.
+    if (!batch::areGradientsKernelsAvailable()) {
       return false;
-    } else {
-      if (!batch::areGradientsKernelsAvailable()) {
-        return false;
-      }
-      const auto k = batch::getGradientsKind(this->b);
-      if ((!k.has_value()) ||
-          (batch::requiresUnknownsValues(*k) !=
-           Traits::updateExternalStateVariablesFromUnknownsValues)) {
-        return false;
-      }
-      // the kernels compute the inner forces and the stiffness matrices from
-      // the thermodynamic forces and the tangent operator blocks only: the
-      // behaviour integrators whose residual or jacobian also depend on the
-      // unknowns (regularisations, such as Faltus2026) are refused
-      if ((this->requiresCurrentSolutionForResidualAssembly()) ||
-          (this->requiresCurrentSolutionForJacobianAssembly())) {
-        return false;
-      }
-      // all the elements must use the same integration rule
-      return (this->quadrature_space->getNumberOfElements() == 0) ||
-             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
     }
+    const auto k = batch::getGradientsKind(this->b);
+    if ((!k.has_value()) ||
+        (batch::areGradientsUnknownsValues(*k) !=
+         Traits::gradientsComputationRequiresShapeFunctions) ||
+        (batch::areUnknownsValuesExternalStateVariables(*k) !=
+         Traits::updateExternalStateVariablesFromUnknownsValues)) {
+      return false;
+    }
+    // the kernels compute the inner forces and the stiffness matrices from
+    // the thermodynamic forces and the tangent operator blocks only: the
+    // behaviour integrators whose residual or jacobian also depend on the
+    // unknowns (regularisations, such as Faltus2026) are refused
+    if ((this->requiresCurrentSolutionForResidualAssembly()) ||
+        (this->requiresCurrentSolutionForJacobianAssembly())) {
+      return false;
+    }
+    // all the elements must use the same integration rule
+    return (this->quadrature_space->getNumberOfElements() == 0) ||
+           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
   }  // end of supportsKernels
 
   template <typename Child>
   bool StandardBehaviourIntegratorCRTPBase<
       Child>::requiresUnknownsValuesForKernels() const noexcept {
     using Traits = BehaviourIntegratorTraits<Child>;
-    return Traits::updateExternalStateVariablesFromUnknownsValues;
+    return Traits::updateExternalStateVariablesFromUnknownsValues ||
+           Traits::gradientsComputationRequiresShapeFunctions;
   }  // end of requiresUnknownsValuesForKernels
 
   template <typename Child>

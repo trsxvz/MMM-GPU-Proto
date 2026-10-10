@@ -8,6 +8,7 @@
  * \date   09/10/2026
  */
 
+#include <vector>
 #include <cstddef>
 #include "mfem/general/backends.hpp"
 #include "mfem/general/forall.hpp"
@@ -93,6 +94,12 @@ namespace mfem_mgis::batch::internals {
   struct SparseMatrixAssembly {
     //! \brief assembled matrix
     SparseMatrixOutput o;
+    /*!
+     * \brief if true, the values are added atomically (kernel). Otherwise,
+     * the blocks are added by a single thread (see
+     * `computeStiffnessMatricesOnHost`).
+     */
+    bool atomic = true;
     //! \brief see `ElementMatricesStorage::add`
     template <int N>
     MFEM_HOST_DEVICE void add(const std::size_t e,
@@ -112,10 +119,12 @@ namespace mfem_mgis::batch::internals {
         for (std::size_t d = 0; d != N; ++d) {
           const auto p =
               findColumn(this->o.J, this->o.I[row], end, dofs[nb + nd * d]);
-          if (p != end) {
+          if (p == end) {
+            ::AtomicAdd(this->o.missing[0], 1);
+          } else if (this->atomic) {
             ::AtomicAdd(this->o.values[p], m[c][d]);
           } else {
-            ::AtomicAdd(this->o.missing[0], 1);
+            this->o.values[p] += m[c][d];
           }
         }
       }
@@ -171,11 +180,99 @@ namespace mfem_mgis::batch::internals {
   }  // end of addUnknownsBlock
 
   /*!
+   * \brief host version of `launchStiffnessMatricesKernel`: one iteration
+   * per element, the physical derivatives of the shape functions, the
+   * operators `B` and the products `K B` of the nodes being computed once
+   * per point instead of once per pair of nodes. The operations on each
+   * block are made in the same order as by the kernel: the results are
+   * identical.
+   * \tparam K: kind of the gradients
+   * \tparam Output: destination of the blocks
+   * \tparam diagonal: if true, only the pairs of a node with itself are
+   * computed
+   */
+  template <GradientsKind K, typename Output, bool diagonal>
+  static void computeStiffnessMatricesOnHost(
+      const StiffnessMatricesKernelArguments& a, const Output& o) {
+    constexpr auto N = getDimension<K>();
+    constexpr auto V = getUnknownsSize<K>();
+    //! \brief operator `B` of a node at a point, and its product by `K`
+    struct NodeOperators {
+      real B[9][3];
+      real KB[9][3];
+    };
+    const auto nd = static_cast<std::size_t>(a.nd);
+    const auto nq = static_cast<std::size_t>(a.nq);
+    const auto gs = static_cast<std::size_t>(a.gradients_size);
+    const auto cs = a.component_stride;
+    auto operators = std::vector<NodeOperators>(nq * nd);
+    auto weights = std::vector<real>(nq);
+    auto tangent_operators = std::vector<const real*>(nq);
+    for (int k = 0; k != a.number_of_elements; ++k) {
+      const auto e = static_cast<std::size_t>(a.elements[k]);
+      for (std::size_t q = 0; q != nq; ++q) {
+        const auto detJ = a.determinants[q + nq * e];
+        real iJ[N * N];
+        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+        const auto o2 =
+            static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
+        const auto* const t = a.tangent_operator + o2 * a.point_stride;
+        weights[q] = a.weights[q] * detJ;
+        tangent_operators[q] = t;
+        for (std::size_t node = 0; node != nd; ++node) {
+          auto& op = operators[q * nd + node];
+          real dN[N];
+          computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q, nq,
+                                        node, iJ);
+          computeB<K>(op.B, dN,
+                      getShapeFunctionValue<K>(a.shape_functions, q, nq, node));
+          for (std::size_t d = 0; d != V; ++d) {
+            for (std::size_t r1 = 0; r1 != gs; ++r1) {
+              op.KB[r1][d] = 0;
+              for (std::size_t r2 = 0; r2 != gs; ++r2) {
+                op.KB[r1][d] +=
+                    t[static_cast<long long>(r1 * gs + r2) * cs] * op.B[r2][d];
+              }
+            }
+          }
+        }
+      }
+      const auto npairs = diagonal ? nd : nd * nd;
+      for (std::size_t r = 0; r != npairs; ++r) {
+        const auto na = diagonal ? r : r % nd;
+        const auto nb = diagonal ? r : r / nd;
+        real m[V][V] = {};
+        for (std::size_t q = 0; q != nq; ++q) {
+          const auto& Ba = operators[q * nd + na].B;
+          const auto& KB = operators[q * nd + nb].KB;
+          const auto w = weights[q];
+          for (std::size_t d = 0; d != V; ++d) {
+            for (std::size_t c = 0; c != V; ++c) {
+              auto v = real{0};
+              for (std::size_t r1 = 0; r1 != gs; ++r1) {
+                v += Ba[r1][c] * KB[r1][d];
+              }
+              m[c][d] += w * v;
+            }
+          }
+          if constexpr (hasUnknownsBlock<K>()) {
+            addUnknownsBlock<K>(m, Ba, tangent_operators[q], cs,
+                                a.shape_functions[q + nq * nb], w);
+          }
+        }
+        o.template add<V>(e, nd, na, nb, m);
+      }
+    }
+  }  // end of computeStiffnessMatricesOnHost
+
+  /*!
    * \brief launches the kernel adding the stiffness matrices of the
    * elements of a material: one thread per pair of nodes of an element,
    * computing the `V x V` block `Σ B_aᵀ K B_b w det J` (plus the
    * contribution of the derivatives with respect to the unknowns, see
-   * `addUnknownsBlock`), `V` being the number of components of the unknowns
+   * `addUnknownsBlock`), `V` being the number of components of the unknowns.
+   * On the host, one iteration per element (see
+   * `computeStiffnessMatricesOnHost`).
    * \tparam K: kind of the gradients
    * \tparam Output: destination of the blocks
    * \tparam diagonal: if true, only the pairs of a node with itself are
@@ -186,6 +283,10 @@ namespace mfem_mgis::batch::internals {
       const StiffnessMatricesKernelArguments& a,
       const Output o,
       const bool use_device) {
+    if (!use_device) {
+      computeStiffnessMatricesOnHost<K, Output, diagonal>(a, o);
+      return;
+    }
     const auto npairs = diagonal ? a.nd : a.nd * a.nd;
     const auto n = a.number_of_elements * npairs;
     mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
@@ -214,8 +315,10 @@ namespace mfem_mgis::batch::internals {
                                       nb, iJ);
         real Ba[9][3];
         real Bb[9][3];
-        computeB<K>(Ba, dNa);
-        computeB<K>(Bb, dNb);
+        computeB<K>(Ba, dNa,
+                    getShapeFunctionValue<K>(a.shape_functions, q, nq, na));
+        computeB<K>(Bb, dNb,
+                    getShapeFunctionValue<K>(a.shape_functions, q, nq, nb));
         const auto o2 =
             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
         const auto* const t = a.tangent_operator + o2 * a.point_stride;
@@ -283,6 +386,14 @@ namespace mfem_mgis::batch::internals {
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_GRADIENT_2D,
                                       Output, diagonal>(a, o, use_device);
         break;
+      case GradientsKind::TEMPERATURE_3D:
+        launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_3D, Output,
+                                      diagonal>(a, o, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_2D:
+        launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_2D, Output,
+                                      diagonal>(a, o, use_device);
+        break;
     }
   }  // end of dispatch
 
@@ -296,7 +407,9 @@ namespace mfem_mgis::batch::internals {
                                      const StiffnessMatricesKernelArguments& a,
                                      const SparseMatrixOutput& o,
                                      const bool use_device) {
-    dispatch(k, a, SparseMatrixAssembly{o}, use_device);
+    // the blocks are added by a single thread on the host
+    dispatch(k, a, SparseMatrixAssembly{.o = o, .atomic = use_device},
+             use_device);
   }  // end of launchStiffnessMatricesKernel
 
   void launchStiffnessMatricesDiagonalsKernel(
@@ -346,7 +459,9 @@ namespace mfem_mgis::batch::internals {
               computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
                                             nq, node, iJ);
               real B[9][3];
-              computeB<K>(B, dN);
+              computeB<K>(
+                  B, dN,
+                  getShapeFunctionValue<K>(a.shape_functions, q, nq, node));
               for (std::size_t r = 0; r != gs; ++r) {
                 for (std::size_t c = 0; c != V; ++c) {
                   dg[r] += B[r][c] * xe[node + nd * c];
@@ -384,7 +499,9 @@ namespace mfem_mgis::batch::internals {
               computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
                                             nq, node, iJ);
               real B[9][3];
-              computeB<K>(B, dN);
+              computeB<K>(
+                  B, dN,
+                  getShapeFunctionValue<K>(a.shape_functions, q, nq, node));
               for (std::size_t c = 0; c != V; ++c) {
                 auto v = real{0};
                 for (std::size_t r = 0; r != gs; ++r) {
@@ -427,6 +544,14 @@ namespace mfem_mgis::batch::internals {
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
         launchTangentOperatorActionKernel<
             GradientsKind::TEMPERATURE_GRADIENT_2D>(a, x, y, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_3D:
+        launchTangentOperatorActionKernel<GradientsKind::TEMPERATURE_3D>(
+            a, x, y, use_device);
+        break;
+      case GradientsKind::TEMPERATURE_2D:
+        launchTangentOperatorActionKernel<GradientsKind::TEMPERATURE_2D>(
+            a, x, y, use_device);
         break;
     }
   }  // end of launchTangentOperatorActionKernel

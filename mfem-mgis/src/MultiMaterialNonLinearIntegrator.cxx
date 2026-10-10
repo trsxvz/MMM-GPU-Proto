@@ -387,10 +387,11 @@ namespace mfem_mgis {
               "the behaviour integrator of material '" +
               std::to_string(m) +
               "' can't be computed by kernels (supported: standard "
-              "mechanical behaviours, small or finite strain, and stationary "
-              "non linear heat transfer behaviours, in 3D, plane strain and "
-              "plane stress, without FBar nor regularization, all the "
-              "elements of the material using the same integration rule)");
+              "mechanical behaviours, small or finite strain, stationary non "
+              "linear heat transfer behaviours and transient term of the "
+              "heat equation, in 3D, plane strain and plane stress, without "
+              "FBar nor regularization, all the elements of the material "
+              "using the same integration rule)");
         }
       }
     }

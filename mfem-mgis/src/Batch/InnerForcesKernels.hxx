@@ -24,6 +24,11 @@ namespace mfem_mgis::batch::internals {
      * (`nq x dim x nd`)
      */
     const real* shape_functions_gradients = nullptr;
+    /*!
+     * \brief values of the shape functions on the reference element (`nq x
+     * nd`), used if the gradients are the values of the unknowns
+     */
+    const real* shape_functions = nullptr;
     //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
     const real* jacobians = nullptr;
     //! \brief determinants of the jacobians (`nq x ne`)

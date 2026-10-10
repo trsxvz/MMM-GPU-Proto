@@ -80,6 +80,7 @@ namespace mfem_mgis::batch {
       a.elements = elements.Read(use_device);
       a.offsets = offsets.Read(use_device);
       a.shape_functions_gradients = g.maps->G.Read(use_device);
+      a.shape_functions = g.maps->B.Read(use_device);
       a.jacobians = g.jacobians->J.Read(use_device);
       a.determinants = g.jacobians->detJ.Read(use_device);
       a.weights = g.weights.Read(use_device);

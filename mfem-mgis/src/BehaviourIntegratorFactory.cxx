@@ -38,12 +38,39 @@
 namespace mfem_mgis {
 
   /*!
-   * \brief declare behaviour integrators valid for all modelling hypotheses
+   * \brief declare behaviour integrators valid for all modelling hypotheses:
+   * the transient term of the heat equation. The weights of its integration
+   * points are the ones of the cartesian hypotheses (3D, plane strain and
+   * plane stress, the only ones whose factories are built).
    *
    * \tparam H: modelling hypothesis
+   * \param[in, out] f: factory
    */
   template <Hypothesis H>
-  static void fillWithDefaultBehaviourIntegrators(BehaviourIntegratorFactory&) {
+  static void fillWithDefaultBehaviourIntegrators(
+      BehaviourIntegratorFactory& f) {
+    auto generator =
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params)
+        -> std::unique_ptr<AbstractBehaviourIntegrator> {
+      if (!params.empty()) {
+        return ctx.registerErrorMessage("no parameter expected");
+      }
+      if (b->btype != Behaviour::GENERALBEHAVIOUR) {
+        return ctx.registerErrorMessage("invalid behaviour type");
+      }
+      try {
+        return std::make_unique<TransientHeatTransferBehaviourIntegrator>(
+            fed, m, std::move(b));
+      } catch (...) {
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+      }
+      return {};
+    };
+    auto ctx = Context{};
+    auto or_die = ctx.getFatalFailureHandler();
+    f.addGenerator(ctx, "TransientHeatTransfer", generator) | or_die;
   }  // end of fillWithDefaultBehaviourIntegrators
 
   [[nodiscard]] static std::unique_ptr<AbstractBehaviourIntegrator>
@@ -144,17 +171,6 @@ namespace mfem_mgis {
           }
           return std::make_unique<
               OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
-              fed, m, std::move(b));
-        });
-    f.addGenerator(
-        may_abort, "TransientHeatTransfer",
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
-            -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          if (b->btype != Behaviour::GENERALBEHAVIOUR) {
-            raise("invalid behaviour type");
-          }
-          return std::make_unique<TransientHeatTransferBehaviourIntegrator>(
               fed, m, std::move(b));
         });
     f.addGenerator(may_abort, "MicromorphicDamage",  //

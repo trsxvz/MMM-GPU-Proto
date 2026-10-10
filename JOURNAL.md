@@ -3562,3 +3562,22 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (déterminants négatifs), maillages parallèles raffinés de façon non
   conforme (variante sur deux processus), règles à la même adresse,
   refus. Huit mutations détectées.
+- Relecture HG2 des corrections H et G (`scratch/nuit-2026-10-10/relecture-HG2.md`) :
+  rien au-dessus de la sévérité 2, à traiter (comparaison des
+  températures aux points qui ne compare rien, cache par adresse de règle
+  restant pour les maillages avec nœuds et la DofToQuad des inconnues).
+- mfem-mgis 62908a890d : matrices de rigidité par noyaux, une itération
+  par élément sur l'hôte (inverse du jacobien, opérateurs B et produits
+  K B une fois par point) ; thermique r5 sur 8 processus : noyau de 100 à
+  66 ms par tangente, la recherche des colonnes de la matrice creuse
+  domine maintenant (40 ms contre 12 ms de calcul), PtAP de hypre 37 ms.
+- mfem-mgis a394212d92 : terme transitoire de la thermique par noyaux
+  (genres `TEMPERATURE_3D/2D`, gradient = température au point, opérateur
+  B = valeur de la fonction de forme). `TransientHeatTransfer` n'était ni
+  testé ni déclaré en 2D : loi de test HeatStorage, intégrateur déclaré en
+  déformations et contraintes planes, cas transitoires dans
+  HeatTransferKernelsTest (écarts au point par point au plus 2e-15, six
+  mutations détectées). Question pour Tristan : la règle de
+  `TransientHeatTransfer` est d'ordre 2 OrderGrad, soit un seul point pour
+  les tétraèdres d'ordre un, ce qui sous-intègre le terme de masse.
+

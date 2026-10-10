@@ -1,0 +1,38 @@
+@DSL DefaultGenericBehaviour;
+@Behaviour HeatStorage;
+@Date 10/10/2026;
+@Description {
+  Transient term of the heat equation (TransientHeatTransfer behaviour
+  integrator): rate of the enthalpy per unit of volume, r = C dT / dt,
+  where the volumetric heat capacity C = C0 + C1 T depends on the
+  temperature at the end of the time step. The gradient is the temperature
+  at the integration point.
+}
+@ModellingHypotheses {".+"};
+
+@Gradient real Tp;
+Tp.setEntryName("TemperatureAtIntegrationPoint");
+
+@ThermodynamicForce real r;
+r.setEntryName("EnthalpyRate");
+
+@TangentOperatorBlock ∂r∕∂ΔTp;
+
+@Parameter real C0 = 5;
+@Parameter real C1 = 1e-2;
+
+@PredictionOperator {
+  static_cast<void>(smt);  // removing compiler warning
+  ∂r∕∂ΔTp = (C0 + C1 * Tp) / Δt;
+}  // end of @PredictionOperator
+
+@Integrator {
+  const auto C = C0 + C1 * (Tp + ΔTp);
+  r = C * ΔTp / Δt;
+}  // end of @Integrator
+
+@TangentOperator {
+  static_cast<void>(smt);  // removing compiler warning
+  const auto C = C0 + C1 * (Tp + ΔTp);
+  ∂r∕∂ΔTp = (C + C1 * ΔTp) / Δt;
+}  // end of @TangentOperator

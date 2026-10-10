@@ -27,12 +27,23 @@ namespace mfem_mgis::batch::internals {
            (K == GradientsKind::TEMPERATURE_GRADIENT_2D);
   }  // end of isTemperatureGradient
 
+  /*!
+   * \return true for the gradients of the transient term of the heat
+   * equation: the temperature at the integration point
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr bool isTemperature() {
+    return (K == GradientsKind::TEMPERATURE_3D) ||
+           (K == GradientsKind::TEMPERATURE_2D);
+  }  // end of isTemperature
+
   //! \return the dimension of the space for the given kind of gradients
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getDimension() {
     return ((K == GradientsKind::SMALL_STRAIN_3D) ||
             (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
-            (K == GradientsKind::TEMPERATURE_GRADIENT_3D))
+            (K == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
+            (K == GradientsKind::TEMPERATURE_3D))
                ? 3
                : 2;
   }  // end of getDimension
@@ -44,7 +55,9 @@ namespace mfem_mgis::batch::internals {
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getUnknownsSize() {
-    return isTemperatureGradient<K>() ? 1 : getDimension<K>();
+    return (isTemperatureGradient<K>() || isTemperature<K>())
+               ? 1
+               : getDimension<K>();
   }  // end of getUnknownsSize
 
   //! \return the number of components of the gradients of the given kind
@@ -58,9 +71,11 @@ namespace mfem_mgis::batch::internals {
       return 9;
     } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
       return 5;
-    } else {
-      static_assert(isTemperatureGradient<K>());
+    } else if constexpr (isTemperatureGradient<K>()) {
       return getDimension<K>();
+    } else {
+      static_assert(isTemperature<K>());
+      return 1;
     }
   }  // end of getGradientsSize
 
@@ -149,13 +164,18 @@ namespace mfem_mgis::batch::internals {
    * unknowns at the node
    * \tparam K: kind of the gradients
    * \param[out] B: block of the operator (9 x 3 values at most). For the
-   * heat transfer behaviours, `B[c][0]` is the derivative of the shape
-   * function with respect to the `c`-th coordinate.
+   * stationary heat transfer behaviours, `B[c][0]` is the derivative of the
+   * shape function with respect to the `c`-th coordinate. For the transient
+   * term of the heat equation, `B[0][0]` is the value of the shape function.
    * \param[in] dN: derivatives of the shape function of the node in the
    * physical frame
+   * \param[in] Nv: value of the shape function of the node (only used for
+   * the transient term of the heat equation)
    */
   template <GradientsKind K>
-  MFEM_HOST_DEVICE inline void computeB(real (&B)[9][3], const real* const dN) {
+  MFEM_HOST_DEVICE inline void computeB(real (&B)[9][3],
+                                        const real* const dN,
+                                        const real Nv) {
     constexpr auto icste = getInverseOfSquareRootOfTwo();
     for (auto& row : B) {
       for (auto& v : row) {
@@ -192,13 +212,38 @@ namespace mfem_mgis::batch::internals {
       B[1][1] = dN[1];
       B[3][0] = dN[1];
       B[4][1] = dN[0];
-    } else {
-      static_assert(isTemperatureGradient<K>());
+    } else if constexpr (isTemperatureGradient<K>()) {
       for (int c = 0; c != getDimension<K>(); ++c) {
         B[c][0] = dN[c];
       }
+    } else {
+      static_assert(isTemperature<K>());
+      B[0][0] = Nv;
     }
   }  // end of computeB
+
+  /*!
+   * \return the value of the shape function of a node at a point if the
+   * operator `B` of the given kind of gradients depends on it (transient
+   * term of the heat equation), zero otherwise
+   * \tparam K: kind of the gradients
+   * \param[in] N: values of the shape functions on the reference element
+   * (`nq x nd`, layout of `mfem::DofToQuad` in the `FULL` mode)
+   * \param[in] q: point
+   * \param[in] nq: number of points
+   * \param[in] node: node
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE inline real getShapeFunctionValue(const real* const N,
+                                                     const std::size_t q,
+                                                     const std::size_t nq,
+                                                     const std::size_t node) {
+    if constexpr (isTemperature<K>()) {
+      return N[q + nq * node];
+    } else {
+      return real{0};
+    }
+  }  // end of getShapeFunctionValue
 
 }  // end of namespace mfem_mgis::batch::internals
 

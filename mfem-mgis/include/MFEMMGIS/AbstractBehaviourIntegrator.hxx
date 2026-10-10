@@ -153,8 +153,10 @@ namespace mfem_mgis {
      * \return true if the computation of the gradients by kernels requires
      * the values of the unknowns at the integration points (see
      * `batch::UnknownsDerivatives::point_values`), for instance the
-     * temperature of the heat transfer behaviours, an external state variable
-     * of the behaviour. The default implementation returns false.
+     * temperature of the stationary heat transfer behaviours, an external
+     * state variable of the behaviour, or the temperature of the transient
+     * term of the heat equation, the gradient of the behaviour. The default
+     * implementation returns false.
      */
     [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
         const noexcept;

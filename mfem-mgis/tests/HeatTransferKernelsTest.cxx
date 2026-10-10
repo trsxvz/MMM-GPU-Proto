@@ -60,6 +60,12 @@ struct Case {
   const char* mesh = "";
   //! \brief behaviours of the materials (one or two)
   std::vector<MaterialDescription> materials;
+  /*!
+   * \brief if true, the transient term of the heat equation is added to each
+   * material (behaviour integrator `TransientHeatTransfer`, behaviour
+   * `HeatStorage`)
+   */
+  bool transient = false;
 };
 
 //! \brief options of a computation
@@ -183,6 +189,21 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
     if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
       setMaterialAxes(m, tridimensional, static_cast<int>(i));
     }
+    if (c.transient) {
+      problem.addBehaviourIntegrator(ctx, "TransientHeatTransfer", name,
+                                     d.library, "HeatStorage") |
+          or_die;
+      // the gradient is the temperature at the integration points; the
+      // external state variable `Temperature`, declared by all the
+      // behaviours, is not used by `HeatStorage`
+      auto& mt = problem.getMaterial(ctx, name, 1) | or_die;
+      for (auto* s : {&mt.s0, &mt.s1}) {
+        std::fill(s->gradients.begin(), s->gradients.end(), 293.15);
+        mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                  293.15) |
+            or_die;
+      }
+    }
   }
   problem.addUniformDirichletBoundaryCondition(
       ctx, {{"Boundary", "Xmin"},
@@ -246,7 +267,8 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   const auto& u = problem.getUnknowns(ets);
   r.u.assign(u.HostRead(), u.HostRead() + u.Size());
   for (std::size_t i = 0; i != c.materials.size(); ++i) {
-    auto& m = problem.getMaterial(ctx, "M" + std::to_string(i + 1), 0) | or_die;
+    const auto name = "M" + std::to_string(i + 1);
+    auto& m = problem.getMaterial(ctx, name, 0) | or_die;
     m.synchronizeOnHostForReading();
     r.flux.insert(r.flux.end(), m.s1.thermodynamic_forces.begin(),
                   m.s1.thermodynamic_forces.end());
@@ -254,6 +276,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
     // step
     const auto& T1 = temperatures[2 * i + 1];
     r.temperature.insert(r.temperature.end(), T1.begin(), T1.end());
+    if (c.transient) {
+      // rate of the enthalpy
+      auto& mt = problem.getMaterial(ctx, name, 1) | or_die;
+      mt.synchronizeOnHostForReading();
+      r.flux.insert(r.flux.end(), mt.s1.thermodynamic_forces.begin(),
+                    mt.s1.thermodynamic_forces.end());
+    }
   }
   r.status = true;
   return r;
@@ -334,6 +363,17 @@ static std::vector<Case> getCases(const char* const cube,
                        .hypothesis = h,
                        .mesh = two_materials,
                        .materials = {isotropic, orthotropic}});
+      cases.push_back({.name = std::string{n} + ", transient",
+                       .hypothesis = h,
+                       .mesh = two_materials,
+                       .materials = {isotropic, orthotropic},
+                       .transient = true});
+    } else {
+      cases.push_back({.name = std::string{n} + ", transient",
+                       .hypothesis = h,
+                       .mesh = mesh,
+                       .materials = {orthotropic},
+                       .transient = true});
     }
   }
   return cases;
@@ -385,6 +425,23 @@ int main(int argc, char** argv) {
   }
   const auto references =
       getCases(mesh, two_materials_mesh, square_mesh, library);
+  // the transient term changes the temperature
+  for (std::size_t i = 0; i != references.size(); ++i) {
+    if (!references[i].transient) {
+      continue;
+    }
+    auto stationary = references[i];
+    stationary.transient = false;
+    const auto a = compute(stationary, {});
+    const auto b = compute(references[i], {});
+    if (a.status && b.status) {
+      const auto d = getRelativeDifference(a.u, b.u);
+      std::cout << references[i].name
+                << ": relative difference with the stationary computation " << d
+                << '\n';
+      check(d > 1e-2, references[i].name + ": no effect of the transient term");
+    }
+  }
   for (const auto prediction : {false, true}) {
     for (std::size_t i = 0; i != references.size(); ++i) {
       const auto reference = compute(references[i], {.prediction = prediction});
