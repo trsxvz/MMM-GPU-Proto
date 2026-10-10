@@ -44,13 +44,24 @@ namespace mfem_mgis {
    * - `ModifiedNewton`: `S` is the inverse of the consistent tangent
    *   operator at the first iteration of each resolution, given to the
    *   linear solver of the problem.
+   * - `NewtonK0`: Newton's method, the consistent tangent operator being
+   *   inverted by the conjugate gradient of MFEM preconditioned by the linear
+   *   solver of the elastic operator (option `ElasticOperatorLinearSolver`,
+   *   required), whose setup is kept: for instance BoomerAMG built once on
+   *   `K0` instead of a new setup at each iteration. The options of the
+   *   conjugate gradient are given by `TangentLinearSolver`
+   *   (`RelativeTolerance`, 1e-4 by default, and
+   *   `MaximumNumberOfIterations`, 1000 by default). The tangent operator may
+   *   be applied without assembly (`TangentOperatorComputation` set to
+   *   `MatrixFree`).
    *
    * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, a linear
    * solver of the factory of the problems, for instance `HypreBoomerAMG`
    * for one cycle of BoomerAMG per iteration in a parallel computation):
    * owned by
    * the solver, so that its setup is kept between resolutions with
-   * `ElasticOperatorUpdate` set to `Once`. If not given, the linear solver
+   * `ElasticOperatorUpdate` set to `Once`. The value `None` removes it. If
+   * not given, the linear solver
    * of the problem is used, and set up with `K0` at each resolution (the
    * prediction of the problem gives it its own operator).
    *
@@ -66,8 +77,17 @@ namespace mfem_mgis {
    * preconditioned by the linear solver of the elastic operator, whose
    * setup is kept, with the options `RelativeTolerance` (1e-8 by default)
    * and `MaximumNumberOfIterations` (1000 by default). The latter is used
-   * by the predictions which follow the first resolution, with the
-   * `ElasticOperator` method and a linear solver of the elastic operator.
+   * by the elastic predictions made at the beginning of the time steps which
+   * follow the first resolution, with the `ElasticOperator` and `NewtonK0`
+   * methods and a linear solver of the elastic operator; otherwise, the
+   * linear solver of the problem is used. Like the linear solver of the
+   * elastic operator, this option is given by a name, by a dictionary
+   * associating a name with its options, or by a dictionary with the
+   * entries `Name` and `Options`. The linear solver of the elastic operator
+   * shall be a fixed linear operator (a direct solver, a fixed number of
+   * cycles of BoomerAMG...) when it preconditions a conjugate gradient
+   * (`PredictionLinearSolver`, `NewtonK0`): an iterative solver with a
+   * tolerance makes the preconditioner vary.
    *
    * The other options are the ones of the iterative solvers
    * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
@@ -79,7 +99,7 @@ namespace mfem_mgis {
    */
   struct MFEM_MGIS_EXPORT FixedPointSolver final : NonLinearSolverBase {
     //! \brief methods
-    enum struct Method { ELASTIC_OPERATOR, MODIFIED_NEWTON };
+    enum struct Method { ELASTIC_OPERATOR, MODIFIED_NEWTON, NEWTON_K0 };
 #ifdef MFEM_USE_MPI
     /*!
      * \brief constructor
@@ -119,6 +139,18 @@ namespace mfem_mgis {
     [[nodiscard]] bool setElasticOperator(const mfem::Vector&) const;
     //! \return the linear solver giving the corrections
     [[nodiscard]] mfem::Solver& getCorrectionSolver() const;
+    /*!
+     * \brief creates the conjugate gradient of MFEM preconditioned by the
+     * linear solver of the elastic operator, whose setup is kept
+     * \param[out] cg: conjugate gradient
+     * \param[out] p: preconditioner
+     * \param[in] tol: relative tolerance
+     * \param[in] n: maximum number of iterations
+     */
+    void makeConjugateGradient(std::unique_ptr<mfem::IterativeSolver>&,
+                               std::unique_ptr<mfem::Solver>&,
+                               const real,
+                               const int) const;
     //! \brief integration of the behaviours
     std::function<bool(const mfem::Vector&, const IntegrationType)>
         integrate_behaviours;
@@ -150,6 +182,15 @@ namespace mfem_mgis {
     real prediction_relative_tolerance = 1e-8;
     //! \brief maximum number of iterations of the elastic predictions
     int prediction_maximum_number_of_iterations = 1000;
+    //! \brief relative tolerance of the linear solver of the tangent operator
+    real tangent_relative_tolerance = 1e-4;
+    //! \brief maximum number of iterations of the linear solver of the
+    //! tangent operator
+    int tangent_maximum_number_of_iterations = 1000;
+    //! \brief linear solver of the tangent operator (`NewtonK0`)
+    mutable std::unique_ptr<mfem::IterativeSolver> tangent_linear_solver;
+    //! \brief preconditioner of the linear solver of the tangent operator
+    mutable std::unique_ptr<mfem::Solver> tangent_preconditioner;
     //! \brief linear solver of the elastic predictions
     std::unique_ptr<mfem::IterativeSolver> prediction_linear_solver;
     /*!

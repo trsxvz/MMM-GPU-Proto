@@ -3402,3 +3402,23 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   validées avant d'être appliquées, actions appelées une fois, garde NaN,
   informations du solveur linéaire, bornes des nombres d'itérations dans
   le test (un Cast3M faux est détecté), variantes noyaux et `debug`.
+
+### 2026-10-10 (nuit), NewtonK0, forces intérieures, relecture courte
+
+- mfem-mgis 3e414bc352 : forces intérieures par un fil par élément (81 µs
+  au lieu de 217 µs par appel sur le GPU).
+- mfem-mgis 1ef05104d1 : sections de profilage de la prédiction
+  (`PRED::integrate`, `forms`, `assemble`, `solve`) ; les mises en place
+  ponctuelles (géométrie 214 ms, motif) faussaient les moyennes par appel.
+- mfem-mgis 30beae4764 : méthode `NewtonK0` du point fixe (Newton,
+  gradient conjugué préconditionné par BoomerAMG de K0 construit une
+  fois) ; corrections de la relecture courte de 846551e0cb et 1d5adf1a32
+  (`scratch/nuit-2026-10-10/relecture-L5-suite.md`) : solveur de prédiction
+  du point fixe limité à la prédiction élastique en début de pas (N1),
+  message puis `MPI_Abort` pour une exception non collective (N4), K0 et
+  son solveur remplacés sans état intermédiaire (N2), test du solveur de
+  prédiction par un solveur linéaire qui compte ses résolutions (mutation
+  détectée).
+- Mesures (`results/L5-poutre-2026-10-10-0250/README.md`) : sur le GPU,
+  NewtonK0 2,6 s contre 3,16 s pour Newton (stable) ; sur 8 cœurs, point
+  fixe accéléré 9,5 s, NewtonK0 11,6 s, Newton 13,5 s.

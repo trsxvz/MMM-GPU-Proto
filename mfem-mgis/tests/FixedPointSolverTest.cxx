@@ -18,6 +18,8 @@
 #include <cmath>
 #include <map>
 #include <cstdlib>
+#include <memory>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -26,6 +28,7 @@
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 
@@ -54,6 +57,68 @@ struct Results {
 };
 
 /*!
+ * \brief linear solver counting its resolutions, used to check which linear
+ * solver makes the predictions
+ */
+struct CountingLinearSolver final : mfem::Solver {
+  //! \brief number of resolutions
+  static inline int count = 0;
+  //! \param[in] s: linear solver
+  explicit CountingLinearSolver(std::unique_ptr<mfem::Solver> s)
+      : solver(std::move(s)) {}
+  void SetOperator(const mfem::Operator& op) override {
+    this->height = op.Height();
+    this->width = op.Width();
+    this->solver->SetOperator(op);
+  }
+  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+    ++count;
+    this->solver->Mult(x, y);
+  }
+
+ private:
+  //! \brief linear solver
+  std::unique_ptr<mfem::Solver> solver;
+};
+
+/*!
+ * \brief declares the `CountingLinearSolver`, wrapping MUMPS in parallel
+ * and UMFPack in sequential
+ */
+static void declareCountingLinearSolver() {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  if (parallel) {
+#ifdef MFEM_USE_MPI
+    LinearSolverFactory<true>::getFactory().add(
+        ctx, "CountingLinearSolver",
+        [](Context& c, FiniteElementSpace<true>& fes,
+           const Parameters& opts) -> LinearSolverHandler {
+          auto h = LinearSolverFactory<true>::getFactory().generate(
+              c, "MUMPSSolver", fes, opts);
+          return {std::make_unique<CountingLinearSolver>(
+                      std::move(h.linear_solver)),
+                  {}};
+        }) |
+        or_die;
+#endif /* MFEM_USE_MPI */
+  } else {
+    LinearSolverFactory<false>::getFactory().add(
+        ctx, "CountingLinearSolver",
+        [](Context& c, FiniteElementSpace<false>& fes,
+           const Parameters& opts) -> LinearSolverHandler {
+          auto h = LinearSolverFactory<false>::getFactory().generate(
+              c, "UMFPackSolver", fes, opts);
+          return {std::make_unique<CountingLinearSolver>(
+                      std::move(h.linear_solver)),
+                  {}};
+        }) |
+        or_die;
+  }
+}  // end of declareCountingLinearSolver
+
+/*!
  * \return the results of the computation
  * \param[in, out] ctx: execution context
  * \param[in] mesh: mesh of a cube
@@ -62,12 +127,15 @@ struct Results {
  * solver being used if empty
  * \param[in] prediction: if true, an elastic prediction is made at the
  * beginning of each time step
+ * \param[in] linear_solver: linear solver of the problem, MUMPS in parallel
+ * and UMFPack in sequential if null
  */
 static Results compute(mfem_mgis::Context& ctx,
                        const char* const mesh,
                        const char* const library,
                        const mfem_mgis::Parameters& solver,
-                       const bool prediction = false) {
+                       const bool prediction = false,
+                       const char* const linear_solver = nullptr) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
   auto params = Parameters{
@@ -104,8 +172,10 @@ static Results compute(mfem_mgis::Context& ctx,
             {"Component", 0},
             {"LoadingEvolution", [](const real t) { return 1e-2 * t; }}}) |
       or_die;
-  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
-      or_die;
+  const auto* const ls = (linear_solver != nullptr)
+                             ? linear_solver
+                             : (parallel ? "MUMPSSolver" : "UMFPackSolver");
+  problem.setLinearSolver(ctx, ls, {}) | or_die;
   if (prediction) {
     problem.setPredictionPolicy(
         {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION,
@@ -231,8 +301,8 @@ int main(int argc, char** argv) {
     Parameters options;
     // if true, the number of iterations must be lower than without
     // acceleration
-    bool accelerated;  // if true, an elastic prediction is made at the
-                       // beginning of each time
+    bool accelerated;
+    // if true, an elastic prediction is made at the beginning of each time
     // step
     bool prediction = false;
   };
@@ -256,6 +326,26 @@ int main(int argc, char** argv) {
       {"modified Newton, Anderson",
        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
        true}};
+  // Newton's method, the tangent operator being inverted by the conjugate
+  // gradient preconditioned by the linear solver of the elastic operator
+  cases.push_back(
+      {"Newton, conjugate gradient preconditioned by the elastic operator",
+       {{"Method", "NewtonK0"},
+        {"ElasticOperatorUpdate", "Once"},
+        {"ElasticOperatorLinearSolver",
+         parallel ? "MUMPSSolver" : "UMFPackSolver"},
+        {"TangentLinearSolver", Parameters{{"RelativeTolerance", 1e-12}}}},
+       true});
+  if (parallel) {
+    cases.push_back(
+        {"Newton, conjugate gradient preconditioned by BoomerAMG "
+         "built on the elastic operator",
+         {{"Method", "NewtonK0"},
+          {"ElasticOperatorUpdate", "Once"},
+          {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
+          {"TangentLinearSolver", Parameters{{"RelativeTolerance", 1e-12}}}},
+         true});
+  }
   // elastic prediction, by the linear solver of the problem or by the
   // conjugate gradient preconditioned by the linear solver of the elastic
   // operator
@@ -322,6 +412,10 @@ int main(int argc, char** argv) {
   // the observed ones, to detect a wrong acceleration which still converges
   const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
       {"fixed point, Anderson", 43},
+      {"Newton, conjugate gradient preconditioned by the elastic operator", 10},
+      {"Newton, conjugate gradient preconditioned by BoomerAMG built on the "
+       "elastic operator",
+       10},
       {"fixed point, Cast3M", 65},
       {"modified Newton", 70},
       {"modified Newton, Anderson", 38},
@@ -370,6 +464,31 @@ int main(int argc, char** argv) {
       check(r.iterations < none.iterations, c.name + ": number of iterations");
     }
   }
+  // linear solver of the predictions: with the conjugate gradient
+  // preconditioned by the linear solver of the elastic operator, the linear
+  // solver of the problem only makes the first prediction (the elastic
+  // operator does not exist yet)
+  declareCountingLinearSolver();
+  for (const auto* const pls : {"Problem", "ElasticOperator"}) {
+    CountingLinearSolver::count = 0;
+    const auto r = compute(
+        ctx, mesh, library,
+        makeFixedPointSolver({{"Acceleration", "Anderson"},
+                              {"ElasticOperatorUpdate", "Once"},
+                              {"ElasticOperatorLinearSolver",
+                               parallel ? "MUMPSSolver" : "UMFPackSolver"},
+                              {"PredictionLinearSolver", std::string{pls}}}),
+        true, "CountingLinearSolver");
+    const auto expected = std::string_view{pls} == "Problem" ? 2 : 1;
+    check(r.status && (getRelativeDifference(reference.u, r.u) < 1e-8),
+          std::string{"predictions by the linear solver '"} + pls +
+              "': solution");
+    check(CountingLinearSolver::count == expected,
+          std::string{"predictions by the linear solver '"} + pls +
+              "': " + std::to_string(CountingLinearSolver::count) +
+              " resolutions by the linear solver of the problem, " +
+              std::to_string(expected) + " expected");
+  }
   // invalid options
   checkRefusal(mesh, {{"Method", "Secant"}}, "an invalid method");
   checkRefusal(mesh, {{"Acceleration", "Unknown"}}, "an invalid acceleration");
@@ -394,6 +513,21 @@ int main(int argc, char** argv) {
       {{"Acceleration",
         Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
       "invalid residuals of Anderson's method");
+  checkRefusal(mesh,
+               {{"Method", "ModifiedNewton"},
+                {"ElasticOperatorLinearSolver",
+                 parallel ? "MUMPSSolver" : "UMFPackSolver"}},
+               "a linear solver of the elastic operator with the modified "
+               "Newton method");
+  checkRefusal(mesh, {{"Method", "NewtonK0"}},
+               "the NewtonK0 method without linear solver of the elastic "
+               "operator");
+  checkRefusal(mesh,
+               {{"Method", "NewtonK0"},
+                {"ElasticOperatorLinearSolver",
+                 parallel ? "MUMPSSolver" : "UMFPackSolver"},
+                {"Acceleration", "Anderson"}},
+               "an accelerated NewtonK0 method");
   checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
                "an invalid linear solver of the predictions");
   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},

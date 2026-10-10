@@ -1,0 +1,769 @@
+From 30beae4764c7d0cbad651449f20fb8be8d04063a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 03:28:48 +0200
+Subject: [PATCH] NewtonK0 method of the fixed point solver; findings of the
+ short review
+
+- FixedPointSolver, method NewtonK0: Newton's method, the consistent
+  tangent operator (assembled or applied without assembly) being inverted
+  by the conjugate gradient of MFEM preconditioned by the linear solver of
+  the elastic operator, whose setup is kept (for instance BoomerAMG built
+  once on K0); options of the conjugate gradient in TangentLinearSolver;
+  the linear solver of the elastic operator is required and the method
+  can't be accelerated;
+- the elastic predictions use the linear solver provided by the non linear
+  solver only for the BEGINNING_OF_TIME_STEP_PREDICTION strategy (the
+  other strategies use the consistent tangent operator);
+- in parallel, a non collective exception is reported on the standard
+  error stream with the rank of the process, then MPI_Abort is called
+  (the error stream of mfem-mgis is disabled on the other processes);
+- the linear solver of the elastic operator is set up before the previous
+  elastic operator is replaced, the elastic operator being computed again
+  after a failure; `None` removes the linear solver of the elastic
+  operator; Anderson's method is not applied for non finite coefficients;
+- documentation of PredictionLinearSolver;
+- FixedPointSolverTest: NewtonK0 (same iterations as Newton), predictions
+  made by the linear solver given by the fixed point solver (counted by a
+  linear solver of the test), refusals of the new combinations.
+---
+ .../NonLinearSolvers/FixedPointSolver.hxx     |  49 ++++-
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  |   2 +-
+ src/AndersonAccelerationAlgorithm.cxx         |   7 +
+ src/FixedPointSolver.cxx                      | 178 ++++++++++++++----
+ ...onLinearEvolutionProblemImplementation.cxx |  22 ++-
+ src/NonLinearSolverBase.cxx                   |  14 +-
+ tests/FixedPointSolverTest.cxx                | 144 +++++++++++++-
+ 7 files changed, 353 insertions(+), 63 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+index f4b25f14c6..117adb0021 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+@@ -44,13 +44,24 @@ namespace mfem_mgis {
+    * - `ModifiedNewton`: `S` is the inverse of the consistent tangent
+    *   operator at the first iteration of each resolution, given to the
+    *   linear solver of the problem.
++   * - `NewtonK0`: Newton's method, the consistent tangent operator being
++   *   inverted by the conjugate gradient of MFEM preconditioned by the linear
++   *   solver of the elastic operator (option `ElasticOperatorLinearSolver`,
++   *   required), whose setup is kept: for instance BoomerAMG built once on
++   *   `K0` instead of a new setup at each iteration. The options of the
++   *   conjugate gradient are given by `TangentLinearSolver`
++   *   (`RelativeTolerance`, 1e-4 by default, and
++   *   `MaximumNumberOfIterations`, 1000 by default). The tangent operator may
++   *   be applied without assembly (`TangentOperatorComputation` set to
++   *   `MatrixFree`).
+    *
+    * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, a linear
+    * solver of the factory of the problems, for instance `HypreBoomerAMG`
+    * for one cycle of BoomerAMG per iteration in a parallel computation):
+    * owned by
+    * the solver, so that its setup is kept between resolutions with
+-   * `ElasticOperatorUpdate` set to `Once`. If not given, the linear solver
++   * `ElasticOperatorUpdate` set to `Once`. The value `None` removes it. If
++   * not given, the linear solver
+    * of the problem is used, and set up with `K0` at each resolution (the
+    * prediction of the problem gives it its own operator).
+    *
+@@ -66,8 +77,17 @@ namespace mfem_mgis {
+    * preconditioned by the linear solver of the elastic operator, whose
+    * setup is kept, with the options `RelativeTolerance` (1e-8 by default)
+    * and `MaximumNumberOfIterations` (1000 by default). The latter is used
+-   * by the predictions which follow the first resolution, with the
+-   * `ElasticOperator` method and a linear solver of the elastic operator.
++   * by the elastic predictions made at the beginning of the time steps which
++   * follow the first resolution, with the `ElasticOperator` and `NewtonK0`
++   * methods and a linear solver of the elastic operator; otherwise, the
++   * linear solver of the problem is used. Like the linear solver of the
++   * elastic operator, this option is given by a name, by a dictionary
++   * associating a name with its options, or by a dictionary with the
++   * entries `Name` and `Options`. The linear solver of the elastic operator
++   * shall be a fixed linear operator (a direct solver, a fixed number of
++   * cycles of BoomerAMG...) when it preconditions a conjugate gradient
++   * (`PredictionLinearSolver`, `NewtonK0`): an iterative solver with a
++   * tolerance makes the preconditioner vary.
+    *
+    * The other options are the ones of the iterative solvers
+    * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
+@@ -79,7 +99,7 @@ namespace mfem_mgis {
+    */
+   struct MFEM_MGIS_EXPORT FixedPointSolver final : NonLinearSolverBase {
+     //! \brief methods
+-    enum struct Method { ELASTIC_OPERATOR, MODIFIED_NEWTON };
++    enum struct Method { ELASTIC_OPERATOR, MODIFIED_NEWTON, NEWTON_K0 };
+ #ifdef MFEM_USE_MPI
+     /*!
+      * \brief constructor
+@@ -119,6 +139,18 @@ namespace mfem_mgis {
+     [[nodiscard]] bool setElasticOperator(const mfem::Vector&) const;
+     //! \return the linear solver giving the corrections
+     [[nodiscard]] mfem::Solver& getCorrectionSolver() const;
++    /*!
++     * \brief creates the conjugate gradient of MFEM preconditioned by the
++     * linear solver of the elastic operator, whose setup is kept
++     * \param[out] cg: conjugate gradient
++     * \param[out] p: preconditioner
++     * \param[in] tol: relative tolerance
++     * \param[in] n: maximum number of iterations
++     */
++    void makeConjugateGradient(std::unique_ptr<mfem::IterativeSolver>&,
++                               std::unique_ptr<mfem::Solver>&,
++                               const real,
++                               const int) const;
+     //! \brief integration of the behaviours
+     std::function<bool(const mfem::Vector&, const IntegrationType)>
+         integrate_behaviours;
+@@ -150,6 +182,15 @@ namespace mfem_mgis {
+     real prediction_relative_tolerance = 1e-8;
+     //! \brief maximum number of iterations of the elastic predictions
+     int prediction_maximum_number_of_iterations = 1000;
++    //! \brief relative tolerance of the linear solver of the tangent operator
++    real tangent_relative_tolerance = 1e-4;
++    //! \brief maximum number of iterations of the linear solver of the
++    //! tangent operator
++    int tangent_maximum_number_of_iterations = 1000;
++    //! \brief linear solver of the tangent operator (`NewtonK0`)
++    mutable std::unique_ptr<mfem::IterativeSolver> tangent_linear_solver;
++    //! \brief preconditioner of the linear solver of the tangent operator
++    mutable std::unique_ptr<mfem::Solver> tangent_preconditioner;
+     //! \brief linear solver of the elastic predictions
+     std::unique_ptr<mfem::IterativeSolver> prediction_linear_solver;
+     /*!
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+index 1a9d8cfef7..274e8b59f1 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+@@ -98,7 +98,7 @@ namespace mfem_mgis {
+      * fails. In a parallel computation, any other exception, possibly thrown
+      * by a single process, can't be handled without blocking the other
+      * processes in their collective operations: its message is printed on the
+-     * error stream and the program is stopped (`std::terminate`).
++     * standard error stream and the computation is stopped (`MPI_Abort`).
+      * \return the result of the computation, false on failure
+      * \param[in] f: computation
+      */
+diff --git a/src/AndersonAccelerationAlgorithm.cxx b/src/AndersonAccelerationAlgorithm.cxx
+index be979f8930..433221c3be 100644
+--- a/src/AndersonAccelerationAlgorithm.cxx
++++ b/src/AndersonAccelerationAlgorithm.cxx
+@@ -5,6 +5,7 @@
+  * \date   10/10/2026
+  */
+ 
++#include <cmath>
+ #include <vector>
+ #include <utility>
+ #include <string>
+@@ -116,6 +117,12 @@ namespace mfem_mgis::internals {
+       auto gamma = mfem::Vector(m);
+       auto inverse = mfem::DenseMatrixInverse(A);
+       inverse.Mult(b, gamma);
++      for (int l = 0; l != m; ++l) {
++        if (!std::isfinite(gamma(l))) {
++          // singular least squares problem: no acceleration
++          return;
++        }
++      }
+       for (int l = 0; l != m; ++l) {
+         x.Add(-gamma(l), this->dg[this->slot(l)]);
+       }
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index eee47ca0e2..bd3b491755 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -184,7 +184,8 @@ namespace mfem_mgis {
+                                                   "ElasticOperatorUpdate",
+                                                   "ElasticOperatorLinearSolver",
+                                                   "Acceleration",
+-                                                  "PredictionLinearSolver"};
++                                                  "PredictionLinearSolver",
++                                                  "TangentLinearSolver"};
+     auto others = Parameters{};
+     for (const auto& [k, v] : params) {
+       if (std::find(options.begin(), options.end(), k) == options.end()) {
+@@ -220,12 +221,14 @@ namespace mfem_mgis {
+     auto new_acceleration = std::unique_ptr<AccelerationAlgorithm>{};
+     auto new_prediction = std::optional<std::tuple<bool, real, int>>{};
+     if (contains(params, "Method")) {
+-      const auto om = read("Method", {"ElasticOperator", "ModifiedNewton"});
++      const auto om =
++          read("Method", {"ElasticOperator", "ModifiedNewton", "NewtonK0"});
+       if (isInvalid(om)) {
+         return false;
+       }
+-      new_method = (*om == "ElasticOperator") ? Method::ELASTIC_OPERATOR
+-                                              : Method::MODIFIED_NEWTON;
++      new_method = (*om == "ElasticOperator")  ? Method::ELASTIC_OPERATOR
++                   : (*om == "ModifiedNewton") ? Method::MODIFIED_NEWTON
++                                               : Method::NEWTON_K0;
+     }
+     if (contains(params, "ElasticOperatorComputation")) {
+       const auto oc =
+@@ -242,12 +245,22 @@ namespace mfem_mgis {
+       }
+       new_once = *ou == "Once";
+     }
++    auto remove_linear_solver = false;
+     if (contains(params, "ElasticOperatorLinearSolver")) {
+       const auto oa =
+           getFactoryArgument(ctx, params, "ElasticOperatorLinearSolver");
+       if (isInvalid(oa)) {
+         return false;
+       }
++      remove_linear_solver = oa->first == "None";
++    }
++    if ((!remove_linear_solver) &&
++        (contains(params, "ElasticOperatorLinearSolver"))) {
++      const auto oa =
++          getFactoryArgument(ctx, params, "ElasticOperatorLinearSolver");
++      if (isInvalid(oa)) {
++        return false;
++      }
+       try {
+         auto ls = this->generate_linear_solver(ctx, oa->first, oa->second);
+         if (isInvalid(ls)) {
+@@ -295,9 +308,40 @@ namespace mfem_mgis {
+       }
+       new_prediction = std::tuple{n == "ElasticOperator", *otol, *omax};
+     }
++    auto new_tangent = std::optional<std::pair<real, int>>{};
++    if (contains(params, "TangentLinearSolver")) {
++      const auto oopts = get<Parameters>(ctx, params, "TangentLinearSolver");
++      if (isInvalid(oopts)) {
++        return false;
++      }
++      if (!checkParameters(
++              ctx, *oopts,
++              std::vector<std::string>{"RelativeTolerance",
++                                       "MaximumNumberOfIterations"})) {
++        return false;
++      }
++      const auto otol = get_if<double>(ctx, *oopts, "RelativeTolerance", 1e-4);
++      const auto omax =
++          get_if<int>(ctx, *oopts, "MaximumNumberOfIterations", 1000);
++      if (isInvalid(otol) || isInvalid(omax)) {
++        return false;
++      }
++      new_tangent = std::pair{*otol, *omax};
++    }
+     const auto has_linear_solver =
+-        new_linear_solver.has_value() ||
+-        (this->elastic_operator_linear_solver.linear_solver != nullptr);
++        (!remove_linear_solver) &&
++        (new_linear_solver.has_value() ||
++         (this->elastic_operator_linear_solver.linear_solver != nullptr));
++    if ((new_method == Method::NEWTON_K0) && (!has_linear_solver)) {
++      return ctx.registerErrorMessage(
++          "FixedPointSolver: the 'NewtonK0' method requires a linear solver "
++          "of the elastic operator (option 'ElasticOperatorLinearSolver')");
++    }
++    if ((new_method == Method::NEWTON_K0) &&
++        ((new_acceleration != nullptr) || (this->acceleration != nullptr))) {
++      return ctx.registerErrorMessage(
++          "FixedPointSolver: the 'NewtonK0' method can't be accelerated");
++    }
+     if ((new_method == Method::MODIFIED_NEWTON) && has_linear_solver) {
+       return ctx.registerErrorMessage(
+           "FixedPointSolver: the linear solver of the elastic operator "
+@@ -311,7 +355,7 @@ namespace mfem_mgis {
+     // linear solver changed
+     if ((new_method != this->method) ||
+         (new_by_integration != this->elastic_operator_by_integration) ||
+-        (new_linear_solver.has_value())) {
++        (new_linear_solver.has_value()) || (remove_linear_solver)) {
+       this->elastic_operator.reset();
+       this->prediction_linear_solver.reset();
+       this->prediction_preconditioner.reset();
+@@ -322,9 +366,22 @@ namespace mfem_mgis {
+     if (new_linear_solver.has_value()) {
+       this->elastic_operator_linear_solver = std::move(*new_linear_solver);
+     }
++    if (remove_linear_solver) {
++      this->elastic_operator_linear_solver = LinearSolverHandler{};
++    }
+     if (new_acceleration != nullptr) {
+       this->acceleration = std::move(new_acceleration);
+     }
++    if (new_tangent.has_value()) {
++      std::tie(this->tangent_relative_tolerance,
++               this->tangent_maximum_number_of_iterations) = *new_tangent;
++      this->tangent_linear_solver.reset();
++      this->tangent_preconditioner.reset();
++    }
++    if ((new_linear_solver.has_value()) || (remove_linear_solver)) {
++      this->tangent_linear_solver.reset();
++      this->tangent_preconditioner.reset();
++    }
+     if (new_prediction.has_value()) {
+       std::tie(this->prediction_by_elastic_operator,
+                this->prediction_relative_tolerance,
+@@ -335,33 +392,42 @@ namespace mfem_mgis {
+     return true;
+   }  // end of setSolverParameters
+ 
++  void FixedPointSolver::makeConjugateGradient(
++      std::unique_ptr<mfem::IterativeSolver>& cg,
++      std::unique_ptr<mfem::Solver>& p,
++      const real tol,
++      const int n) const {
++#ifdef MFEM_USE_MPI
++    if (this->GetComm() != MPI_COMM_NULL) {
++      cg = std::make_unique<mfem::CGSolver>(this->GetComm());
++    }
++#endif /* MFEM_USE_MPI */
++    if (cg == nullptr) {
++      cg = std::make_unique<mfem::CGSolver>();
++    }
++    cg->iterative_mode = false;
++    cg->SetRelTol(tol);
++    cg->SetAbsTol(real{0});
++    cg->SetMaxIter(n);
++    cg->SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
++    p = std::make_unique<KeptLinearSolver>(
++        *(this->elastic_operator_linear_solver.linear_solver));
++    cg->SetPreconditioner(*p);
++  }  // end of makeConjugateGradient
++
+   LinearSolver* FixedPointSolver::getElasticPredictionLinearSolver() noexcept {
+-    auto* const s = this->elastic_operator_linear_solver.linear_solver.get();
+     if ((!this->prediction_by_elastic_operator) ||
+-        (this->method != Method::ELASTIC_OPERATOR) || (s == nullptr) ||
++        (this->method == Method::MODIFIED_NEWTON) ||
++        (this->elastic_operator_linear_solver.linear_solver == nullptr) ||
+         (this->elastic_operator == nullptr)) {
+       return nullptr;
+     }
+     if (this->prediction_linear_solver == nullptr) {
+       try {
+-#ifdef MFEM_USE_MPI
+-        if (this->GetComm() != MPI_COMM_NULL) {
+-          this->prediction_linear_solver =
+-              std::make_unique<mfem::CGSolver>(this->GetComm());
+-        }
+-#endif /* MFEM_USE_MPI */
+-        if (this->prediction_linear_solver == nullptr) {
+-          this->prediction_linear_solver = std::make_unique<mfem::CGSolver>();
+-        }
+-        auto& cg = *(this->prediction_linear_solver);
+-        cg.iterative_mode = false;
+-        cg.SetRelTol(this->prediction_relative_tolerance);
+-        cg.SetAbsTol(real{0});
+-        cg.SetMaxIter(this->prediction_maximum_number_of_iterations);
+-        cg.SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
+-        this->prediction_preconditioner =
+-            std::make_unique<KeptLinearSolver>(*s);
+-        cg.SetPreconditioner(*(this->prediction_preconditioner));
++        this->makeConjugateGradient(
++            this->prediction_linear_solver, this->prediction_preconditioner,
++            this->prediction_relative_tolerance,
++            this->prediction_maximum_number_of_iterations);
+       } catch (...) {
+         this->prediction_linear_solver.reset();
+         this->prediction_preconditioner.reset();
+@@ -404,17 +470,24 @@ namespace mfem_mgis {
+         return false;
+       }
+       // the operator given by the problem is modified by the next
+-      // assemblies: it is copied
+-      this->elastic_operator = copyAssembledOperator(this->getJacobian(u));
++      // assemblies: it is copied. The linear solver is set up on the new
++      // operator before the previous one is destroyed; on failure, the
++      // elastic operator is computed again at the next resolution.
++      auto K0 = copyAssembledOperator(this->getJacobian(u));
+       if (this->elastic_operator_linear_solver.linear_solver != nullptr) {
+         auto profiler = this->ctx_ptr != nullptr
+                             ? this->ctx_ptr->startNewProfiling(
+                                   "NS::setLinearSolverOperator",
+                                   this->ctx_ptr->isProfilingEnabled())
+                             : mgis::ProfilingSection{};
+-        this->elastic_operator_linear_solver.linear_solver->SetOperator(
+-            *(this->elastic_operator));
++        try {
++          this->elastic_operator_linear_solver.linear_solver->SetOperator(*K0);
++        } catch (...) {
++          this->elastic_operator.reset();
++          throw;
++        }
+       }
++      this->elastic_operator = std::move(K0);
+     }
+     if (this->elastic_operator_linear_solver.linear_solver == nullptr) {
+       // the prediction of the problem gives its own operator to its linear
+@@ -430,6 +503,15 @@ namespace mfem_mgis {
+   }  // end of setElasticOperator
+ 
+   mfem::Solver& FixedPointSolver::getCorrectionSolver() const {
++    if (this->method == Method::NEWTON_K0) {
++      if (this->tangent_linear_solver == nullptr) {
++        this->makeConjugateGradient(this->tangent_linear_solver,
++                                    this->tangent_preconditioner,
++                                    this->tangent_relative_tolerance,
++                                    this->tangent_maximum_number_of_iterations);
++      }
++      return *(this->tangent_linear_solver);
++    }
+     if ((this->method == Method::ELASTIC_OPERATOR) &&
+         (this->elastic_operator_linear_solver.linear_solver != nullptr)) {
+       return *(this->elastic_operator_linear_solver.linear_solver);
+@@ -455,11 +537,15 @@ namespace mfem_mgis {
+     // operator of the corrections and first integration. The failures of
+     // the assembly and of the setup of the linear solvers are handled as by
+     // the Newton solver (see `callAndHandleFailures`)
+-    const auto initialized = this->callAndHandleFailures([this, &x] {
+-      if (this->method == Method::ELASTIC_OPERATOR) {
+-        return this->setElasticOperator(x) &&
+-               this->integrate(
+-                   x, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
++    // integration type at each new estimate: the tangent operator is only
++    // required by the `NewtonK0` method
++    const auto it_type =
++        (this->method == Method::NEWTON_K0)
++            ? IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR
++            : IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
++    const auto initialized = this->callAndHandleFailures([this, &x, it_type] {
++      if (this->method != Method::MODIFIED_NEWTON) {
++        return this->setElasticOperator(x) && this->integrate(x, it_type);
+       }
+       if (!this->integrate(
+               x, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR)) {
+@@ -550,7 +636,19 @@ namespace mfem_mgis {
+         break;
+       }
+       // correction
+-      const auto solved = this->callAndHandleFailures([this, &solver, &r, &c] {
++      const auto solved = this->callAndHandleFailures([this, &solver, &r, &c,
++                                                       &x] {
++        if (this->method == Method::NEWTON_K0) {
++          // the tangent operator is given to the conjugate gradient, whose
++          // preconditioner is kept
++          auto& J = this->getJacobian(x);
++          auto profiler_setup = this->ctx_ptr != nullptr
++                                    ? this->ctx_ptr->startNewProfiling(
++                                          "NS::setLinearSolverOperator",
++                                          this->ctx_ptr->isProfilingEnabled())
++                                    : mgis::ProfilingSection{};
++          solver.SetOperator(J);
++        }
+         auto profiler_solve =
+             this->ctx_ptr != nullptr
+                 ? this->ctx_ptr->startNewProfiling(
+@@ -583,8 +681,7 @@ namespace mfem_mgis {
+       }
+       // integration at the new estimate: on failure, the estimate is moved
+       // towards the previous one
+-      auto integrated =
+-          this->integrate(xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
++      auto integrated = this->integrate(xn, it_type);
+       for (int i = 0; (!integrated) && (i != 10); ++i) {
+         if (shall_print) {
+           log << "Fixed point iteration " << std::setw(2) << it
+@@ -593,8 +690,7 @@ namespace mfem_mgis {
+         }
+         xn += x;
+         xn *= real{1} / 2;
+-        integrated = this->integrate(
+-            xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
++        integrated = this->integrate(xn, it_type);
+       }
+       if (!integrated) {
+         break;
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 08601e8ff3..968f4332aa 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -702,10 +702,13 @@ namespace mfem_mgis {
+                             .inner_forces = &(this->inner_forces_by_kernels)};
+     }
+     // the non linear solver may provide the linear solver of an elastic
+-    // prediction
+-    auto* const ls = ((this->solver.get() != nullptr) &&
+-                      (this->getPredictionPolicy().prediction_operator ==
+-                       PredictionOperator::ELASTIC))
++    // prediction at the beginning of the time step
++    const auto& policy = this->getPredictionPolicy();
++    const auto elastic_prediction =
++        (policy.strategy ==
++         PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) &&
++        (policy.prediction_operator == PredictionOperator::ELASTIC);
++    auto* const ls = ((this->solver.get() != nullptr) && elastic_prediction)
+                          ? this->solver->getElasticPredictionLinearSolver()
+                          : nullptr;
+     const auto oresult = ::mfem_mgis::computePrediction<true>(
+@@ -1061,10 +1064,13 @@ namespace mfem_mgis {
+                             .inner_forces = &(this->inner_forces_by_kernels)};
+     }
+     // the non linear solver may provide the linear solver of an elastic
+-    // prediction
+-    auto* const ls = ((this->solver.get() != nullptr) &&
+-                      (this->getPredictionPolicy().prediction_operator ==
+-                       PredictionOperator::ELASTIC))
++    // prediction at the beginning of the time step
++    const auto& policy = this->getPredictionPolicy();
++    const auto elastic_prediction =
++        (policy.strategy ==
++         PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) &&
++        (policy.prediction_operator == PredictionOperator::ELASTIC);
++    auto* const ls = ((this->solver.get() != nullptr) && elastic_prediction)
+                          ? this->solver->getElasticPredictionLinearSolver()
+                          : nullptr;
+     const auto oresult = ::mfem_mgis::computePrediction<false>(
+diff --git a/src/NonLinearSolverBase.cxx b/src/NonLinearSolverBase.cxx
+index 0eaadc03fe..3dbbc32bdf 100644
+--- a/src/NonLinearSolverBase.cxx
++++ b/src/NonLinearSolverBase.cxx
+@@ -6,6 +6,8 @@
+  */
+ 
+ #include <array>
++#include <iostream>
++#include <cstdlib>
+ #include <functional>
+ #include <exception>
+ #include <tuple>
+@@ -203,12 +205,16 @@ namespace mfem_mgis {
+     } catch (...) {
+ #ifdef MFEM_USE_MPI
+       if (this->GetComm() != MPI_COMM_NULL) {
++        // the error stream of mfem-mgis may be disabled on this process
+         auto ctx = Context{};
+         std::ignore = registerExceptionInErrorBacktrace(ctx);
+-        getErrorStream() << "exception thrown during a parallel resolution, "
+-                            "which can't be handled on all the processes: "
+-                         << ctx.getErrorMessage() << '\n';
+-        std::terminate();
++        auto rank = int{};
++        MPI_Comm_rank(this->GetComm(), &rank);
++        std::cerr << "process " << rank
++                  << ": exception thrown during a parallel resolution, which "
++                     "can't be handled on all the processes: "
++                  << ctx.getErrorMessage() << std::endl;
++        MPI_Abort(this->GetComm(), EXIT_FAILURE);
+       }
+ #endif /* MFEM_USE_MPI */
+       report();
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index fdc279e292..a7c9db393a 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -18,6 +18,8 @@
+ #include <cmath>
+ #include <map>
+ #include <cstdlib>
++#include <memory>
++#include <utility>
+ #include <string>
+ #include <string_view>
+ #include <vector>
+@@ -26,6 +28,7 @@
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ 
+@@ -53,6 +56,68 @@ struct Results {
+   std::vector<mfem_mgis::real> norms;
+ };
+ 
++/*!
++ * \brief linear solver counting its resolutions, used to check which linear
++ * solver makes the predictions
++ */
++struct CountingLinearSolver final : mfem::Solver {
++  //! \brief number of resolutions
++  static inline int count = 0;
++  //! \param[in] s: linear solver
++  explicit CountingLinearSolver(std::unique_ptr<mfem::Solver> s)
++      : solver(std::move(s)) {}
++  void SetOperator(const mfem::Operator& op) override {
++    this->height = op.Height();
++    this->width = op.Width();
++    this->solver->SetOperator(op);
++  }
++  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++    ++count;
++    this->solver->Mult(x, y);
++  }
++
++ private:
++  //! \brief linear solver
++  std::unique_ptr<mfem::Solver> solver;
++};
++
++/*!
++ * \brief declares the `CountingLinearSolver`, wrapping MUMPS in parallel
++ * and UMFPack in sequential
++ */
++static void declareCountingLinearSolver() {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  if (parallel) {
++#ifdef MFEM_USE_MPI
++    LinearSolverFactory<true>::getFactory().add(
++        ctx, "CountingLinearSolver",
++        [](Context& c, FiniteElementSpace<true>& fes,
++           const Parameters& opts) -> LinearSolverHandler {
++          auto h = LinearSolverFactory<true>::getFactory().generate(
++              c, "MUMPSSolver", fes, opts);
++          return {std::make_unique<CountingLinearSolver>(
++                      std::move(h.linear_solver)),
++                  {}};
++        }) |
++        or_die;
++#endif /* MFEM_USE_MPI */
++  } else {
++    LinearSolverFactory<false>::getFactory().add(
++        ctx, "CountingLinearSolver",
++        [](Context& c, FiniteElementSpace<false>& fes,
++           const Parameters& opts) -> LinearSolverHandler {
++          auto h = LinearSolverFactory<false>::getFactory().generate(
++              c, "UMFPackSolver", fes, opts);
++          return {std::make_unique<CountingLinearSolver>(
++                      std::move(h.linear_solver)),
++                  {}};
++        }) |
++        or_die;
++  }
++}  // end of declareCountingLinearSolver
++
+ /*!
+  * \return the results of the computation
+  * \param[in, out] ctx: execution context
+@@ -62,12 +127,15 @@ struct Results {
+  * solver being used if empty
+  * \param[in] prediction: if true, an elastic prediction is made at the
+  * beginning of each time step
++ * \param[in] linear_solver: linear solver of the problem, MUMPS in parallel
++ * and UMFPack in sequential if null
+  */
+ static Results compute(mfem_mgis::Context& ctx,
+                        const char* const mesh,
+                        const char* const library,
+                        const mfem_mgis::Parameters& solver,
+-                       const bool prediction = false) {
++                       const bool prediction = false,
++                       const char* const linear_solver = nullptr) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
+   auto params = Parameters{
+@@ -104,8 +172,10 @@ static Results compute(mfem_mgis::Context& ctx,
+             {"Component", 0},
+             {"LoadingEvolution", [](const real t) { return 1e-2 * t; }}}) |
+       or_die;
+-  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
+-      or_die;
++  const auto* const ls = (linear_solver != nullptr)
++                             ? linear_solver
++                             : (parallel ? "MUMPSSolver" : "UMFPackSolver");
++  problem.setLinearSolver(ctx, ls, {}) | or_die;
+   if (prediction) {
+     problem.setPredictionPolicy(
+         {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION,
+@@ -231,8 +301,8 @@ int main(int argc, char** argv) {
+     Parameters options;
+     // if true, the number of iterations must be lower than without
+     // acceleration
+-    bool accelerated;  // if true, an elastic prediction is made at the
+-                       // beginning of each time
++    bool accelerated;
++    // if true, an elastic prediction is made at the beginning of each time
+     // step
+     bool prediction = false;
+   };
+@@ -256,6 +326,26 @@ int main(int argc, char** argv) {
+       {"modified Newton, Anderson",
+        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
+        true}};
++  // Newton's method, the tangent operator being inverted by the conjugate
++  // gradient preconditioned by the linear solver of the elastic operator
++  cases.push_back(
++      {"Newton, conjugate gradient preconditioned by the elastic operator",
++       {{"Method", "NewtonK0"},
++        {"ElasticOperatorUpdate", "Once"},
++        {"ElasticOperatorLinearSolver",
++         parallel ? "MUMPSSolver" : "UMFPackSolver"},
++        {"TangentLinearSolver", Parameters{{"RelativeTolerance", 1e-12}}}},
++       true});
++  if (parallel) {
++    cases.push_back(
++        {"Newton, conjugate gradient preconditioned by BoomerAMG "
++         "built on the elastic operator",
++         {{"Method", "NewtonK0"},
++          {"ElasticOperatorUpdate", "Once"},
++          {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
++          {"TangentLinearSolver", Parameters{{"RelativeTolerance", 1e-12}}}},
++         true});
++  }
+   // elastic prediction, by the linear solver of the problem or by the
+   // conjugate gradient preconditioned by the linear solver of the elastic
+   // operator
+@@ -322,6 +412,10 @@ int main(int argc, char** argv) {
+   // the observed ones, to detect a wrong acceleration which still converges
+   const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
+       {"fixed point, Anderson", 43},
++      {"Newton, conjugate gradient preconditioned by the elastic operator", 10},
++      {"Newton, conjugate gradient preconditioned by BoomerAMG built on the "
++       "elastic operator",
++       10},
+       {"fixed point, Cast3M", 65},
+       {"modified Newton", 70},
+       {"modified Newton, Anderson", 38},
+@@ -370,6 +464,31 @@ int main(int argc, char** argv) {
+       check(r.iterations < none.iterations, c.name + ": number of iterations");
+     }
+   }
++  // linear solver of the predictions: with the conjugate gradient
++  // preconditioned by the linear solver of the elastic operator, the linear
++  // solver of the problem only makes the first prediction (the elastic
++  // operator does not exist yet)
++  declareCountingLinearSolver();
++  for (const auto* const pls : {"Problem", "ElasticOperator"}) {
++    CountingLinearSolver::count = 0;
++    const auto r = compute(
++        ctx, mesh, library,
++        makeFixedPointSolver({{"Acceleration", "Anderson"},
++                              {"ElasticOperatorUpdate", "Once"},
++                              {"ElasticOperatorLinearSolver",
++                               parallel ? "MUMPSSolver" : "UMFPackSolver"},
++                              {"PredictionLinearSolver", std::string{pls}}}),
++        true, "CountingLinearSolver");
++    const auto expected = std::string_view{pls} == "Problem" ? 2 : 1;
++    check(r.status && (getRelativeDifference(reference.u, r.u) < 1e-8),
++          std::string{"predictions by the linear solver '"} + pls +
++              "': solution");
++    check(CountingLinearSolver::count == expected,
++          std::string{"predictions by the linear solver '"} + pls +
++              "': " + std::to_string(CountingLinearSolver::count) +
++              " resolutions by the linear solver of the problem, " +
++              std::to_string(expected) + " expected");
++  }
+   // invalid options
+   checkRefusal(mesh, {{"Method", "Secant"}}, "an invalid method");
+   checkRefusal(mesh, {{"Acceleration", "Unknown"}}, "an invalid acceleration");
+@@ -394,6 +513,21 @@ int main(int argc, char** argv) {
+       {{"Acceleration",
+         Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
+       "invalid residuals of Anderson's method");
++  checkRefusal(mesh,
++               {{"Method", "ModifiedNewton"},
++                {"ElasticOperatorLinearSolver",
++                 parallel ? "MUMPSSolver" : "UMFPackSolver"}},
++               "a linear solver of the elastic operator with the modified "
++               "Newton method");
++  checkRefusal(mesh, {{"Method", "NewtonK0"}},
++               "the NewtonK0 method without linear solver of the elastic "
++               "operator");
++  checkRefusal(mesh,
++               {{"Method", "NewtonK0"},
++                {"ElasticOperatorLinearSolver",
++                 parallel ? "MUMPSSolver" : "UMFPackSolver"},
++                {"Acceleration", "Anderson"}},
++               "an accelerated NewtonK0 method");
+   checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
+                "an invalid linear solver of the predictions");
+   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
+-- 
+2.43.0
+

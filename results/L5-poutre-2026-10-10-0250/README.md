@@ -103,3 +103,33 @@ reste nettement plus rapide.
 - Réglages de BoomerAMG essayés en plus de Chebyshev (grossissement
   agressif, seuil 0,5, interpolation 18, niveaux limités) : aucun gain
   au-delà de la dispersion des nombres d'itérations.
+
+## Suite : méthode NewtonK0 (mfem-mgis 30beae4764)
+
+Newton avec la tangente cohérente, résolue par le gradient conjugué de
+MFEM préconditionné par BoomerAMG construit une fois sur K0
+(`Method=NewtonK0`, `-fpm newton-k0 -els amg -k0 -pk0`, tolérance du
+gradient conjugué 1e-4), aucune construction de BoomerAMG pendant le
+calcul après le premier pas. Machine calme (charge 3).
+
+| Cas | GPU | CPU, 8 processus |
+|---|---|---|
+| Newton (PCG + BoomerAMG reconstruit à chaque itération) | 3,16 s (32 it.) | 13,49 s (29 it.) |
+| NewtonK0 | **2,58 à 2,66 s** (31 à 32 it.) | 11,56 s (29 it.) |
+| point fixe, Anderson 8, un cycle d'AMG, prédiction par K0 | 2,88 à 3,32 s | **9,51 s** (518 it.) |
+
+Trois exécutions de NewtonK0 sur le GPU : 2,604 s, 2,579 s, 2,655 s,
+mêmes nombres d'itérations que Newton : contrairement au point fixe, le
+résultat est stable.
+
+- **Sur le GPU, NewtonK0 est le meilleur solveur mesuré** (×1,22 contre
+  Newton) : la construction de BoomerAMG à chaque itération de Newton
+  coûtait plus que les itérations supplémentaires du gradient conjugué
+  avec l'AMG de K0.
+- **Sur CPU, le point fixe accéléré reste le meilleur** (×1,42 contre
+  Newton), NewtonK0 entre les deux (×1,17).
+- Avec la tangente sans matrice (`TangentOperatorComputation=MatrixFree`),
+  NewtonK0 n'assemble plus rien pendant les itérations (3,10 s sur le
+  GPU) : c'est le premier bon préconditionneur du chemin sans matrice,
+  encore plus lent que la tangente assemblée sur ces tétraèdres d'ordre 1
+  (voir `results/L4-poutre-2026-10-10-0123/`).

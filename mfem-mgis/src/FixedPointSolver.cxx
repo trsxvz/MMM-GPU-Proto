@@ -184,7 +184,8 @@ namespace mfem_mgis {
                                                   "ElasticOperatorUpdate",
                                                   "ElasticOperatorLinearSolver",
                                                   "Acceleration",
-                                                  "PredictionLinearSolver"};
+                                                  "PredictionLinearSolver",
+                                                  "TangentLinearSolver"};
     auto others = Parameters{};
     for (const auto& [k, v] : params) {
       if (std::find(options.begin(), options.end(), k) == options.end()) {
@@ -220,12 +221,14 @@ namespace mfem_mgis {
     auto new_acceleration = std::unique_ptr<AccelerationAlgorithm>{};
     auto new_prediction = std::optional<std::tuple<bool, real, int>>{};
     if (contains(params, "Method")) {
-      const auto om = read("Method", {"ElasticOperator", "ModifiedNewton"});
+      const auto om =
+          read("Method", {"ElasticOperator", "ModifiedNewton", "NewtonK0"});
       if (isInvalid(om)) {
         return false;
       }
-      new_method = (*om == "ElasticOperator") ? Method::ELASTIC_OPERATOR
-                                              : Method::MODIFIED_NEWTON;
+      new_method = (*om == "ElasticOperator")  ? Method::ELASTIC_OPERATOR
+                   : (*om == "ModifiedNewton") ? Method::MODIFIED_NEWTON
+                                               : Method::NEWTON_K0;
     }
     if (contains(params, "ElasticOperatorComputation")) {
       const auto oc =
@@ -242,7 +245,17 @@ namespace mfem_mgis {
       }
       new_once = *ou == "Once";
     }
+    auto remove_linear_solver = false;
     if (contains(params, "ElasticOperatorLinearSolver")) {
+      const auto oa =
+          getFactoryArgument(ctx, params, "ElasticOperatorLinearSolver");
+      if (isInvalid(oa)) {
+        return false;
+      }
+      remove_linear_solver = oa->first == "None";
+    }
+    if ((!remove_linear_solver) &&
+        (contains(params, "ElasticOperatorLinearSolver"))) {
       const auto oa =
           getFactoryArgument(ctx, params, "ElasticOperatorLinearSolver");
       if (isInvalid(oa)) {
@@ -295,9 +308,40 @@ namespace mfem_mgis {
       }
       new_prediction = std::tuple{n == "ElasticOperator", *otol, *omax};
     }
+    auto new_tangent = std::optional<std::pair<real, int>>{};
+    if (contains(params, "TangentLinearSolver")) {
+      const auto oopts = get<Parameters>(ctx, params, "TangentLinearSolver");
+      if (isInvalid(oopts)) {
+        return false;
+      }
+      if (!checkParameters(
+              ctx, *oopts,
+              std::vector<std::string>{"RelativeTolerance",
+                                       "MaximumNumberOfIterations"})) {
+        return false;
+      }
+      const auto otol = get_if<double>(ctx, *oopts, "RelativeTolerance", 1e-4);
+      const auto omax =
+          get_if<int>(ctx, *oopts, "MaximumNumberOfIterations", 1000);
+      if (isInvalid(otol) || isInvalid(omax)) {
+        return false;
+      }
+      new_tangent = std::pair{*otol, *omax};
+    }
     const auto has_linear_solver =
-        new_linear_solver.has_value() ||
-        (this->elastic_operator_linear_solver.linear_solver != nullptr);
+        (!remove_linear_solver) &&
+        (new_linear_solver.has_value() ||
+         (this->elastic_operator_linear_solver.linear_solver != nullptr));
+    if ((new_method == Method::NEWTON_K0) && (!has_linear_solver)) {
+      return ctx.registerErrorMessage(
+          "FixedPointSolver: the 'NewtonK0' method requires a linear solver "
+          "of the elastic operator (option 'ElasticOperatorLinearSolver')");
+    }
+    if ((new_method == Method::NEWTON_K0) &&
+        ((new_acceleration != nullptr) || (this->acceleration != nullptr))) {
+      return ctx.registerErrorMessage(
+          "FixedPointSolver: the 'NewtonK0' method can't be accelerated");
+    }
     if ((new_method == Method::MODIFIED_NEWTON) && has_linear_solver) {
       return ctx.registerErrorMessage(
           "FixedPointSolver: the linear solver of the elastic operator "
@@ -311,7 +355,7 @@ namespace mfem_mgis {
     // linear solver changed
     if ((new_method != this->method) ||
         (new_by_integration != this->elastic_operator_by_integration) ||
-        (new_linear_solver.has_value())) {
+        (new_linear_solver.has_value()) || (remove_linear_solver)) {
       this->elastic_operator.reset();
       this->prediction_linear_solver.reset();
       this->prediction_preconditioner.reset();
@@ -322,8 +366,21 @@ namespace mfem_mgis {
     if (new_linear_solver.has_value()) {
       this->elastic_operator_linear_solver = std::move(*new_linear_solver);
     }
+    if (remove_linear_solver) {
+      this->elastic_operator_linear_solver = LinearSolverHandler{};
+    }
     if (new_acceleration != nullptr) {
       this->acceleration = std::move(new_acceleration);
+    }
+    if (new_tangent.has_value()) {
+      std::tie(this->tangent_relative_tolerance,
+               this->tangent_maximum_number_of_iterations) = *new_tangent;
+      this->tangent_linear_solver.reset();
+      this->tangent_preconditioner.reset();
+    }
+    if ((new_linear_solver.has_value()) || (remove_linear_solver)) {
+      this->tangent_linear_solver.reset();
+      this->tangent_preconditioner.reset();
     }
     if (new_prediction.has_value()) {
       std::tie(this->prediction_by_elastic_operator,
@@ -335,33 +392,42 @@ namespace mfem_mgis {
     return true;
   }  // end of setSolverParameters
 
+  void FixedPointSolver::makeConjugateGradient(
+      std::unique_ptr<mfem::IterativeSolver>& cg,
+      std::unique_ptr<mfem::Solver>& p,
+      const real tol,
+      const int n) const {
+#ifdef MFEM_USE_MPI
+    if (this->GetComm() != MPI_COMM_NULL) {
+      cg = std::make_unique<mfem::CGSolver>(this->GetComm());
+    }
+#endif /* MFEM_USE_MPI */
+    if (cg == nullptr) {
+      cg = std::make_unique<mfem::CGSolver>();
+    }
+    cg->iterative_mode = false;
+    cg->SetRelTol(tol);
+    cg->SetAbsTol(real{0});
+    cg->SetMaxIter(n);
+    cg->SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
+    p = std::make_unique<KeptLinearSolver>(
+        *(this->elastic_operator_linear_solver.linear_solver));
+    cg->SetPreconditioner(*p);
+  }  // end of makeConjugateGradient
+
   LinearSolver* FixedPointSolver::getElasticPredictionLinearSolver() noexcept {
-    auto* const s = this->elastic_operator_linear_solver.linear_solver.get();
     if ((!this->prediction_by_elastic_operator) ||
-        (this->method != Method::ELASTIC_OPERATOR) || (s == nullptr) ||
+        (this->method == Method::MODIFIED_NEWTON) ||
+        (this->elastic_operator_linear_solver.linear_solver == nullptr) ||
         (this->elastic_operator == nullptr)) {
       return nullptr;
     }
     if (this->prediction_linear_solver == nullptr) {
       try {
-#ifdef MFEM_USE_MPI
-        if (this->GetComm() != MPI_COMM_NULL) {
-          this->prediction_linear_solver =
-              std::make_unique<mfem::CGSolver>(this->GetComm());
-        }
-#endif /* MFEM_USE_MPI */
-        if (this->prediction_linear_solver == nullptr) {
-          this->prediction_linear_solver = std::make_unique<mfem::CGSolver>();
-        }
-        auto& cg = *(this->prediction_linear_solver);
-        cg.iterative_mode = false;
-        cg.SetRelTol(this->prediction_relative_tolerance);
-        cg.SetAbsTol(real{0});
-        cg.SetMaxIter(this->prediction_maximum_number_of_iterations);
-        cg.SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
-        this->prediction_preconditioner =
-            std::make_unique<KeptLinearSolver>(*s);
-        cg.SetPreconditioner(*(this->prediction_preconditioner));
+        this->makeConjugateGradient(
+            this->prediction_linear_solver, this->prediction_preconditioner,
+            this->prediction_relative_tolerance,
+            this->prediction_maximum_number_of_iterations);
       } catch (...) {
         this->prediction_linear_solver.reset();
         this->prediction_preconditioner.reset();
@@ -404,17 +470,24 @@ namespace mfem_mgis {
         return false;
       }
       // the operator given by the problem is modified by the next
-      // assemblies: it is copied
-      this->elastic_operator = copyAssembledOperator(this->getJacobian(u));
+      // assemblies: it is copied. The linear solver is set up on the new
+      // operator before the previous one is destroyed; on failure, the
+      // elastic operator is computed again at the next resolution.
+      auto K0 = copyAssembledOperator(this->getJacobian(u));
       if (this->elastic_operator_linear_solver.linear_solver != nullptr) {
         auto profiler = this->ctx_ptr != nullptr
                             ? this->ctx_ptr->startNewProfiling(
                                   "NS::setLinearSolverOperator",
                                   this->ctx_ptr->isProfilingEnabled())
                             : mgis::ProfilingSection{};
-        this->elastic_operator_linear_solver.linear_solver->SetOperator(
-            *(this->elastic_operator));
+        try {
+          this->elastic_operator_linear_solver.linear_solver->SetOperator(*K0);
+        } catch (...) {
+          this->elastic_operator.reset();
+          throw;
+        }
       }
+      this->elastic_operator = std::move(K0);
     }
     if (this->elastic_operator_linear_solver.linear_solver == nullptr) {
       // the prediction of the problem gives its own operator to its linear
@@ -430,6 +503,15 @@ namespace mfem_mgis {
   }  // end of setElasticOperator
 
   mfem::Solver& FixedPointSolver::getCorrectionSolver() const {
+    if (this->method == Method::NEWTON_K0) {
+      if (this->tangent_linear_solver == nullptr) {
+        this->makeConjugateGradient(this->tangent_linear_solver,
+                                    this->tangent_preconditioner,
+                                    this->tangent_relative_tolerance,
+                                    this->tangent_maximum_number_of_iterations);
+      }
+      return *(this->tangent_linear_solver);
+    }
     if ((this->method == Method::ELASTIC_OPERATOR) &&
         (this->elastic_operator_linear_solver.linear_solver != nullptr)) {
       return *(this->elastic_operator_linear_solver.linear_solver);
@@ -455,11 +537,15 @@ namespace mfem_mgis {
     // operator of the corrections and first integration. The failures of
     // the assembly and of the setup of the linear solvers are handled as by
     // the Newton solver (see `callAndHandleFailures`)
-    const auto initialized = this->callAndHandleFailures([this, &x] {
-      if (this->method == Method::ELASTIC_OPERATOR) {
-        return this->setElasticOperator(x) &&
-               this->integrate(
-                   x, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
+    // integration type at each new estimate: the tangent operator is only
+    // required by the `NewtonK0` method
+    const auto it_type =
+        (this->method == Method::NEWTON_K0)
+            ? IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR
+            : IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR;
+    const auto initialized = this->callAndHandleFailures([this, &x, it_type] {
+      if (this->method != Method::MODIFIED_NEWTON) {
+        return this->setElasticOperator(x) && this->integrate(x, it_type);
       }
       if (!this->integrate(
               x, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR)) {
@@ -550,7 +636,19 @@ namespace mfem_mgis {
         break;
       }
       // correction
-      const auto solved = this->callAndHandleFailures([this, &solver, &r, &c] {
+      const auto solved = this->callAndHandleFailures([this, &solver, &r, &c,
+                                                       &x] {
+        if (this->method == Method::NEWTON_K0) {
+          // the tangent operator is given to the conjugate gradient, whose
+          // preconditioner is kept
+          auto& J = this->getJacobian(x);
+          auto profiler_setup = this->ctx_ptr != nullptr
+                                    ? this->ctx_ptr->startNewProfiling(
+                                          "NS::setLinearSolverOperator",
+                                          this->ctx_ptr->isProfilingEnabled())
+                                    : mgis::ProfilingSection{};
+          solver.SetOperator(J);
+        }
         auto profiler_solve =
             this->ctx_ptr != nullptr
                 ? this->ctx_ptr->startNewProfiling(
@@ -583,8 +681,7 @@ namespace mfem_mgis {
       }
       // integration at the new estimate: on failure, the estimate is moved
       // towards the previous one
-      auto integrated =
-          this->integrate(xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
+      auto integrated = this->integrate(xn, it_type);
       for (int i = 0; (!integrated) && (i != 10); ++i) {
         if (shall_print) {
           log << "Fixed point iteration " << std::setw(2) << it
@@ -593,8 +690,7 @@ namespace mfem_mgis {
         }
         xn += x;
         xn *= real{1} / 2;
-        integrated = this->integrate(
-            xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
+        integrated = this->integrate(xn, it_type);
       }
       if (!integrated) {
         break;

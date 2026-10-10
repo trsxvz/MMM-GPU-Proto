@@ -98,7 +98,7 @@ namespace mfem_mgis {
      * fails. In a parallel computation, any other exception, possibly thrown
      * by a single process, can't be handled without blocking the other
      * processes in their collective operations: its message is printed on the
-     * error stream and the program is stopped (`std::terminate`).
+     * standard error stream and the computation is stopped (`MPI_Abort`).
      * \return the result of the computation, false on failure
      * \param[in] f: computation
      */

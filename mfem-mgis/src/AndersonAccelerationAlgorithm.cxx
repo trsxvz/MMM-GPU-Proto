@@ -5,6 +5,7 @@
  * \date   10/10/2026
  */
 
+#include <cmath>
 #include <vector>
 #include <utility>
 #include <string>
@@ -116,6 +117,12 @@ namespace mfem_mgis::internals {
       auto gamma = mfem::Vector(m);
       auto inverse = mfem::DenseMatrixInverse(A);
       inverse.Mult(b, gamma);
+      for (int l = 0; l != m; ++l) {
+        if (!std::isfinite(gamma(l))) {
+          // singular least squares problem: no acceleration
+          return;
+        }
+      }
       for (int l = 0; l != m; ++l) {
         x.Add(-gamma(l), this->dg[this->slot(l)]);
       }

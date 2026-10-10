@@ -102,7 +102,10 @@ int main(int argc, char** argv) {
                  "Non linear solver: newton or fixed-point.");
   args.AddOption(&fixed_point_method, "-fpm", "--fixed-point-method",
                  "Method of the fixed point solver: elastic (fixed point on "
-                 "the elastic operator) or modified-newton.");
+                 "the elastic operator), modified-newton or newton-k0 "
+                 "(Newton, conjugate gradient preconditioned by the linear "
+                 "solver of the elastic operator, -els, with the tolerance of "
+                 "the linear solver, -lt; no acceleration).");
   args.AddOption(&acceleration, "-acc", "--acceleration",
                  "Acceleration of the fixed point solver: none, anderson or "
                  "cast3m.");
@@ -182,14 +185,26 @@ int main(int argc, char** argv) {
     }
     const auto nls = std::string{non_linear_solver};
     if (nls == "fixed-point") {
+      const auto fpm = std::string_view{fixed_point_method};
+      if ((fpm != "elastic") && (fpm != "modified-newton") &&
+          (fpm != "newton-k0")) {
+        std::cerr << "invalid method of the fixed point solver '" << fpm
+                  << "'\n";
+        abort(EXIT_FAILURE);
+      }
       auto options = Parameters{
-          {"Method", std::string_view{fixed_point_method} == "elastic"
-                         ? "ElasticOperator"
-                         : "ModifiedNewton"},
+          {"Method", fpm == "elastic"           ? "ElasticOperator"
+                     : fpm == "modified-newton" ? "ModifiedNewton"
+                                                : "NewtonK0"},
           {"ElasticOperatorUpdate",
            elastic_operator_once ? "Once" : "EachResolution"}};
       const auto a = std::string{acceleration};
-      if (a == "anderson") {
+      if (fpm == "newton-k0") {
+        options.insert(ctx, "TangentLinearSolver",
+                       Parameters{{"RelativeTolerance", linear_tolerance},
+                                  {"MaximumNumberOfIterations", 2000}}) |
+            or_die;
+      } else if (a == "anderson") {
         options.insert(ctx, "Acceleration",
                        Parameters{{"Anderson",
                                    Parameters{{"Depth", anderson_depth}}}}) |

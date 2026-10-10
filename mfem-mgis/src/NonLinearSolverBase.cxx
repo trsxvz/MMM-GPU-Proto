@@ -6,6 +6,8 @@
  */
 
 #include <array>
+#include <iostream>
+#include <cstdlib>
 #include <functional>
 #include <exception>
 #include <tuple>
@@ -203,12 +205,16 @@ namespace mfem_mgis {
     } catch (...) {
 #ifdef MFEM_USE_MPI
       if (this->GetComm() != MPI_COMM_NULL) {
+        // the error stream of mfem-mgis may be disabled on this process
         auto ctx = Context{};
         std::ignore = registerExceptionInErrorBacktrace(ctx);
-        getErrorStream() << "exception thrown during a parallel resolution, "
-                            "which can't be handled on all the processes: "
-                         << ctx.getErrorMessage() << '\n';
-        std::terminate();
+        auto rank = int{};
+        MPI_Comm_rank(this->GetComm(), &rank);
+        std::cerr << "process " << rank
+                  << ": exception thrown during a parallel resolution, which "
+                     "can't be handled on all the processes: "
+                  << ctx.getErrorMessage() << std::endl;
+        MPI_Abort(this->GetComm(), EXIT_FAILURE);
       }
 #endif /* MFEM_USE_MPI */
       report();

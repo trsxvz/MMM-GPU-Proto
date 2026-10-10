@@ -702,10 +702,13 @@ namespace mfem_mgis {
                             .inner_forces = &(this->inner_forces_by_kernels)};
     }
     // the non linear solver may provide the linear solver of an elastic
-    // prediction
-    auto* const ls = ((this->solver.get() != nullptr) &&
-                      (this->getPredictionPolicy().prediction_operator ==
-                       PredictionOperator::ELASTIC))
+    // prediction at the beginning of the time step
+    const auto& policy = this->getPredictionPolicy();
+    const auto elastic_prediction =
+        (policy.strategy ==
+         PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) &&
+        (policy.prediction_operator == PredictionOperator::ELASTIC);
+    auto* const ls = ((this->solver.get() != nullptr) && elastic_prediction)
                          ? this->solver->getElasticPredictionLinearSolver()
                          : nullptr;
     const auto oresult = ::mfem_mgis::computePrediction<true>(
@@ -1061,10 +1064,13 @@ namespace mfem_mgis {
                             .inner_forces = &(this->inner_forces_by_kernels)};
     }
     // the non linear solver may provide the linear solver of an elastic
-    // prediction
-    auto* const ls = ((this->solver.get() != nullptr) &&
-                      (this->getPredictionPolicy().prediction_operator ==
-                       PredictionOperator::ELASTIC))
+    // prediction at the beginning of the time step
+    const auto& policy = this->getPredictionPolicy();
+    const auto elastic_prediction =
+        (policy.strategy ==
+         PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) &&
+        (policy.prediction_operator == PredictionOperator::ELASTIC);
+    auto* const ls = ((this->solver.get() != nullptr) && elastic_prediction)
                          ? this->solver->getElasticPredictionLinearSolver()
                          : nullptr;
     const auto oresult = ::mfem_mgis::computePrediction<false>(
