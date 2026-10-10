@@ -3605,4 +3605,13 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   thermique de mfem-mgis (résidu ∫ grad N . j avec j = -k grad T) : le
   test validait l'équation de la chaleur rétrograde ; à corriger, avec un
   contrôle physique du retard du transitoire.
+- mfem-mgis 4c61469c33 : corrections de la relecture T. HeatStorage rend
+  r = -C dT/dt (convention de signe de la thermique de mfem-mgis,
+  documentée dans TransientHeatTransfer avec l'initialisation des
+  gradients de s0) ; contrôle physique indépendant du chemin : la
+  température transitoire est en retard sur la stationnaire (16 à 37 K en
+  moyenne). Diagonale de la tangente sans matrice vérifiée dans les tests
+  thermique et micromorphe (avant la mise à jour des matériaux, sinon la
+  vérification était vide). Maillages NURBS refusés. Variantes debug
+  longues seulement en construction optimisée. Trois mutations détectées.
 

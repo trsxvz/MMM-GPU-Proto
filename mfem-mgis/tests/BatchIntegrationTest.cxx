@@ -612,11 +612,11 @@ struct NoBatchIntegrationBehaviourIntegrator final
   NoBatchIntegrationBehaviourIntegrator(
       const mfem_mgis::FiniteElementDiscretization& fed,
       const mfem_mgis::size_type m,
-      std::unique_ptr<const mfem_mgis::Behaviour> b)
+      std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
       : mfem_mgis::BehaviourIntegratorBase(
             std::make_shared<mfem_mgis::PartialQuadratureSpace>(
                 fed, m, selectIntegrationRule),
-            std::move(b)) {}
+            std::move(behaviour)) {}
   static const mfem::IntegrationRule& selectIntegrationRule(
       const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
     return mfem::IntRules.Get(e.GetGeomType(), 2);

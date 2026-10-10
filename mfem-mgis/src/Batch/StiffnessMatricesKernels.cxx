@@ -1,10 +1,9 @@
 /*!
  * \file   src/Batch/StiffnessMatricesKernels.cxx
  * \brief  This file implements the kernels computing the stiffness matrices
- * of the elements of the standard mechanical and heat transfer behaviour
- * integrators. It
- * contains kernels of MFEM: it is compiled as CUDA code when MFEM is
- * compiled with CUDA.
+ * of the elements of the standard behaviour integrators (mechanics, heat
+ * transfer, micromorphic damage). It contains kernels of MFEM: it is
+ * compiled as CUDA code when MFEM is compiled with CUDA.
  * \date   09/10/2026
  */
 
@@ -180,9 +179,9 @@ namespace mfem_mgis::batch::internals {
   }  // end of addUnknownsBlock
 
   /*!
-   * \brief host version of `launchStiffnessMatricesKernel`: one iteration
-   * per element, the physical derivatives of the shape functions, the
-   * operators `B` and the products `K B` of the nodes being computed once
+   * \brief version of `launchStiffnessMatricesKernel` used without device:
+   * one iteration per element, the physical derivatives of the shape functions,
+   * the operators `B` and the products `K B` of the nodes being computed once
    * per point instead of once per pair of nodes. The operations on each
    * block are made in the same order as by the kernel: the results are
    * identical.
@@ -271,8 +270,9 @@ namespace mfem_mgis::batch::internals {
    * computing the `V x V` block `Σ B_aᵀ K B_b w det J` (plus the
    * contribution of the derivatives with respect to the unknowns, see
    * `addUnknownsBlock`), `V` being the number of components of the unknowns.
-   * On the host, one iteration per element (see
-   * `computeStiffnessMatricesOnHost`).
+   * Without device, one iteration per element (see
+   * `computeStiffnessMatricesOnHost`); the devices of MFEM computing on the
+   * host (`omp`, `debug`) use the kernel.
    * \tparam K: kind of the gradients
    * \tparam Output: destination of the blocks
    * \tparam diagonal: if true, only the pairs of a node with itself are

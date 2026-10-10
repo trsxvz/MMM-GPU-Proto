@@ -7,14 +7,20 @@
  * computing the jacobians from the vertices) of all the geometries, with
  * distorted and mirrored elements (negative determinants), for parallel
  * meshes refined non conformingly, for two integration rules allocated
- * successively at the same address, and for a curved mesh (geometric
- * factors of MFEM). Meshes mixing several geometries and surface meshes
- * are refused.
+ * successively at the same address, for curved meshes (kernel computing
+ * the jacobians from the nodes, ordered by nodes or by components, of
+ * order 2 or 3, discontinuous for a periodic mesh) with a rule whose
+ * points are not ordered as a tensor product, and the jacobians are kept
+ * when the nodes of the mesh are modified. The values of the shape
+ * functions of a destroyed rule, cached by the finite element, are
+ * detected. Meshes mixing several geometries, surface meshes and NURBS
+ * meshes are refused.
  * \date   10/10/2026
  */
 
 #include <new>
 #include <array>
+#include <sstream>
 #include <cmath>
 #include <memory>
 #include <tuple>
@@ -313,6 +319,42 @@ static void checkStaleShapeFunctions(mfem::Mesh& mesh,
 }  // end of checkStaleShapeFunctions
 
 /*!
+ * \brief checks that the jacobians computed for a curved mesh are kept when
+ * its nodes are modified (the geometric factors of the mesh are then
+ * destroyed by MFEM)
+ * \param[in] mesh: mesh with nodes
+ * \param[in] name: name of the check
+ */
+static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
+  using namespace mfem_mgis;
+  auto fec = mfem::H1_FECollection(1, mesh.Dimension());
+  auto fes = makeFiniteElementSpace(mesh, fec);
+  const auto& ir = mfem::IntRules.Get(mesh.GetElementBaseGeometry(0), 2);
+  auto ctx = Context{};
+  auto g = batch::ElementsGeometry{};
+  if (!batch::computeElementsGeometry(ctx, g, *fes, ir)) {
+    check(false, name + ": " + ctx.getErrorMessage());
+    return;
+  }
+  const auto* const J = g.jacobians->J.HostRead();
+  const auto before = std::vector<real>(J, J + g.jacobians->J.Size());
+  // the factors of the mesh are computed, then destroyed
+  static_cast<void>(
+      mesh.GetGeometricFactors(ir, mfem::GeometricFactors::JACOBIANS));
+  transformNodes(mesh, [](auto* const x, const int n, const int dim,
+                          const int ps, const int cs) {
+    for (int i = 0; i != n; ++i) {
+      for (int c = 0; c != dim; ++c) {
+        x[i * ps + c * cs] *= 2;
+      }
+    }
+  });
+  const auto* const J2 = g.jacobians->J.HostRead();
+  check(std::equal(before.begin(), before.end(), J2),
+        name + ": jacobians modified by the modification of the mesh");
+}  // end of checkJacobiansLifetime
+
+/*!
  * \brief checks that the meshes which are not supported are refused
  */
 static void checkRefusals() {
@@ -350,6 +392,23 @@ static void checkRefusals() {
   surface.AddQuad(0, 1, 2, 3);
   surface.FinalizeMesh();
   refused(surface, "surface mesh in the three-dimensional space");
+  // a NURBS mesh: the unit square of MFEM (data/square-nurbs.mesh)
+  auto nurbs_stream = std::istringstream{
+      "MFEM NURBS mesh v1.0\n"
+      "dimension\n2\n"
+      "elements\n1\n1 3 0 1 2 3\n"
+      "boundary\n4\n1 1 0 1\n1 1 2 3\n1 1 3 0\n1 1 1 2\n"
+      "edges\n4\n0 0 1\n0 3 2\n1 0 3\n1 1 2\n"
+      "vertices\n4\n"
+      "knotvectors\n2\n1 2 0 0 1 1\n1 2 0 0 1 1\n"
+      "weights\n1\n1\n1\n1\n"
+      "FiniteElementSpace\n"
+      "FiniteElementCollection: NURBS1\n"
+      "VDim: 2\n"
+      "Ordering: 1\n"
+      "0 0\n1 0\n1 1\n0 1\n"};
+  auto nurbs = mfem::Mesh(nurbs_stream);
+  refused(nurbs, "NURBS mesh");
 }  // end of checkRefusals
 
 int main(int argc, char** argv) {
@@ -466,6 +525,7 @@ int main(int argc, char** argv) {
     }
     transformNodes(mesh, mirror);
     compare(mesh, 1, "mirrored " + name, -1);
+    checkJacobiansLifetime(mesh, name);
   }
   checkRefusals();
   if (verbose) {

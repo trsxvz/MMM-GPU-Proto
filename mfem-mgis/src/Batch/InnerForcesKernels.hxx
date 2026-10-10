@@ -1,7 +1,8 @@
 /*!
  * \file   src/Batch/InnerForcesKernels.hxx
  * \brief  This file declares the kernels computing the inner forces of the
- * standard mechanical behaviour integrators (internal header)
+ * standard behaviour integrators (mechanics, heat transfer, micromorphic
+ * damage) (internal header)
  * \date   09/10/2026
  */
 

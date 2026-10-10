@@ -48,7 +48,11 @@ namespace mfem_mgis::batch {
   struct MFEM_MGIS_EXPORT ElementsGeometry {
     //! \brief integration rule
     const mfem::IntegrationRule* rule = nullptr;
-    //! \brief values and gradients of the shape functions at the points
+    /*!
+     * \brief values and gradients of the shape functions of the unknowns at
+     * the points, cached by their finite element for the address of the
+     * integration rule (see `computeElementsGeometry`)
+     */
     const mfem::DofToQuad* maps = nullptr;
     //! \brief jacobians of the element transformations
     std::shared_ptr<const ElementsJacobians> jacobians;
@@ -96,7 +100,8 @@ namespace mfem_mgis::batch {
    * The values and gradients of the shape functions of the unknowns
    * (`maps`) are the ones cached by the finite element of the unknowns: the
    * integration rule must not be destroyed while the finite element space
-   * exists.
+   * exists (a rule replaced by another one with a different number of
+   * points at the same address is detected). NURBS meshes are refused.
    *
    * \return true on success
    * \param[in, out] ctx: execution context

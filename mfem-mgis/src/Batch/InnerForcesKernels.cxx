@@ -1,8 +1,9 @@
 /*!
  * \file   src/Batch/InnerForcesKernels.cxx
  * \brief  This file implements the kernels computing the inner forces of
- * the standard mechanical and heat transfer behaviour integrators. It contains
- * kernels of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+ * the standard behaviour integrators (mechanics, heat transfer, micromorphic
+ * damage). It contains kernels of MFEM: it is compiled as CUDA code when
+ * MFEM is compiled with CUDA.
  * \date   09/10/2026
  */
 

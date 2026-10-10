@@ -1,0 +1,797 @@
+From 4c61469c3393c40052102bc2f56b99266600ce78 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 08:54:45 +0200
+Subject: [PATCH] Heat transfer and geometry: review (sign of the transient
+ term, NURBS)
+
+- The test behaviour HeatStorage returned the rate of the enthalpy,
+  r = C dT/dt, as the documentation of TransientHeatTransfer says. With the
+  stationary heat transfer behaviour integrators of mfem-mgis, whose
+  residual is the integral of grad(N) . j with j = -k grad(T), this solves
+  the backward heat equation: the comparisons of HeatTransferKernelsTest
+  compared computations of this wrong model. HeatStorage now returns
+  r = -C dT/dt, and the documentation of TransientHeatTransfer states the
+  sign convention and that the gradients of the state at the beginning of
+  the first time step must be initialised with the initial temperature.
+  HeatTransferKernelsTest checks that the transient temperature lags
+  behind the stationary one (by 16 to 37 K on average), a check that does
+  not depend on the computation path.
+- HeatTransferKernelsTest and MicromorphicKernelsTest check the diagonal of
+  the tangent operator applied without assembly against the assembled one,
+  after the resolution of the last time step and before the update of the
+  materials (a doubled diagonal was not detected).
+- computeElementsGeometry refuses the NURBS meshes, whose element
+  transformations are not given by the degrees of freedom of the nodes
+  (jacobians wrong by up to 96%), and checks that the cached values of the
+  shape functions belong to the finite element of the unknowns.
+  ElementsGeometryTest checks the refusal of a NURBS mesh and that the
+  jacobians are kept when the nodes of the mesh are modified.
+- Documentation: the traits of the behaviour integrators commit them to
+  the standard computations reproduced by the kernels (or to override
+  supportsKernels); the version of the stiffness matrices kernel used
+  without device; the recognition of the behaviours by their structure;
+  the descriptions of the files and of the tests.
+- The variants of BatchIntegrationTest, HeatTransferKernelsTest and
+  MicromorphicKernelsTest on the debug device of MFEM are only registered
+  in the optimised builds (they take one or two minutes in Release).
+
+Mutations detected: sign of the transient term (lag), doubled diagonal,
+acceptance of NURBS meshes.
+---
+ include/MFEMMGIS/Batch/ElementsGeometry.hxx   |   9 +-
+ .../MFEMMGIS/BehaviourIntegratorTraits.hxx    |  10 ++
+ ...ansientHeatTransferBehaviourIntegrator.hxx |  16 +++
+ src/Batch/ElementsGeometry.cxx                |   9 +-
+ src/Batch/Gradients.cxx                       |  27 +++--
+ src/Batch/InnerForcesKernels.cxx              |   5 +-
+ src/Batch/InnerForcesKernels.hxx              |   3 +-
+ src/Batch/StiffnessMatricesKernels.cxx        |  18 +--
+ src/Batch/StiffnessMatricesKernels.hxx        |   4 +-
+ tests/BatchIntegrationTest.cxx                |   4 +-
+ tests/CMakeLists.txt                          |  35 ++++--
+ tests/ElementsGeometryTest.cxx                |  66 ++++++++++-
+ tests/HeatStorage.mfront                      |  17 +--
+ tests/HeatTransferKernelsTest.cxx             | 108 +++++++++++++++---
+ tests/MicromorphicKernelsTest.cxx             |  63 +++++++++-
+ 15 files changed, 325 insertions(+), 69 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/ElementsGeometry.hxx b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+index 02977028e1..2b2d9ddf6f 100644
+--- a/include/MFEMMGIS/Batch/ElementsGeometry.hxx
++++ b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+@@ -48,7 +48,11 @@ namespace mfem_mgis::batch {
+   struct MFEM_MGIS_EXPORT ElementsGeometry {
+     //! \brief integration rule
+     const mfem::IntegrationRule* rule = nullptr;
+-    //! \brief values and gradients of the shape functions at the points
++    /*!
++     * \brief values and gradients of the shape functions of the unknowns at
++     * the points, cached by their finite element for the address of the
++     * integration rule (see `computeElementsGeometry`)
++     */
+     const mfem::DofToQuad* maps = nullptr;
+     //! \brief jacobians of the element transformations
+     std::shared_ptr<const ElementsJacobians> jacobians;
+@@ -96,7 +100,8 @@ namespace mfem_mgis::batch {
+    * The values and gradients of the shape functions of the unknowns
+    * (`maps`) are the ones cached by the finite element of the unknowns: the
+    * integration rule must not be destroyed while the finite element space
+-   * exists.
++   * exists (a rule replaced by another one with a different number of
++   * points at the same address is detected). NURBS meshes are refused.
+    *
+    * \return true on success
+    * \param[in, out] ctx: execution context
+diff --git a/include/MFEMMGIS/BehaviourIntegratorTraits.hxx b/include/MFEMMGIS/BehaviourIntegratorTraits.hxx
+index 572f7f7cd5..34afc2519a 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorTraits.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorTraits.hxx
+@@ -16,6 +16,16 @@ namespace mfem_mgis {
+    * \brief a traits class aimed at specializing the
+    * `StandardBehaviourIntegratorCRTPBase` and
+    * `FBarBehaviourIntegratorCRTPBase` classes.
++   *
++   * \note The computations by kernels of the batch path
++   * (`StandardBehaviourIntegratorCRTPBase::supportsKernels`) are chosen from
++   * these traits and from the structure of the behaviour (see
++   * `batch::getGradientsKind`): they assume the standard computations of
++   * the gradients, of the inner forces and of the stiffness matrices for
++   * each kind of gradients, and the weights of the integration points of
++   * the cartesian hypotheses. A behaviour integrator whose computations
++   * differ (axisymmetrical weights, other gradients...) must override
++   * `supportsKernels`.
+    */
+   template <typename BehaviourIntegrator>
+   struct BehaviourIntegratorTraits {
+diff --git a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+index 02768e2c3b..f8802840ad 100644
+--- a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+@@ -58,6 +58,22 @@ namespace mfem_mgis {
+    * \note Most of the time, the derivative
+    * \f$\frac{\partial h}{\partial T}\f$
+    * is computed by the product of the mass density by the specific heat.
++   *
++   * \note The inner forces are the integral of \f$N\,s\f$, \f$s\f$ being
++   * the thermodynamic force of the behaviour. With the stationary heat
++   * transfer behaviour integrators of mfem-mgis, whose inner forces are the
++   * integral of \f$\nabla N\,.\,\vec{j}\f$ with \f$\vec{j}=-k\,\nabla
++   * T\f$, the behaviour must return the opposite of the rate of the
++   * enthalpy, \f$s=-\frac{\partial h}{\partial T}\,\dot{T}\f$, and its
++   * tangent operator the opposite of
++   * \f$\frac{1}{\Delta\,t}\frac{\partial h}{\partial T}\f$: the sum is
++   * the weak form of the heat equation.
++   *
++   * \note The gradient of the behaviour is the temperature at the
++   * integration point. Its value at the beginning of the first time step
++   * (the gradients of the state `s0` of the material) is not computed from
++   * the unknowns: it must be initialised with the initial temperature, as
++   * the gradients at the end of the time step (state `s1`).
+    */
+   struct MFEM_MGIS_EXPORT TransientHeatTransferBehaviourIntegrator final
+       : StandardBehaviourIntegratorCRTPBase<
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index 00d63038de..f72254e73a 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -217,6 +217,12 @@ namespace mfem_mgis::batch {
+             "computeElementsGeometry: the dimension of the space must be the "
+             "dimension of the mesh");
+       }
++      // the transformations of the elements of a NURBS mesh are not given by
++      // the degrees of freedom of the elements of the nodes
++      if (mesh.NURBSext != nullptr) {
++        return ctx.registerErrorMessage(
++            "computeElementsGeometry: NURBS meshes are not supported");
++      }
+       g.rule = &ir;
+       g.dim = mesh.Dimension();
+       g.nq = ir.GetNPoints();
+@@ -231,7 +237,8 @@ namespace mfem_mgis::batch {
+       // cached by the finite element for the address of the integration
+       // rule: a different number of points reveals a rule destroyed and
+       // replaced by another at the same address
+-      if ((g.maps->nqpt != g.nq) || (g.maps->ndof != g.nd)) {
++      if ((g.maps->FE != fe) || (g.maps->nqpt != g.nq) ||
++          (g.maps->ndof != g.nd)) {
+         return ctx.registerErrorMessage(
+             "computeElementsGeometry: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 1eb72e0df4..0632b347ba 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -24,10 +24,12 @@ namespace mfem_mgis::batch {
+   /*!
+    * \return true if the behaviour is a stationary non linear heat transfer
+    * behaviour, recognised by its structure, whatever the names of its
+-   * variables, as the heat transfer behaviour integrators: one gradient
+-   * (the temperature gradient) and one thermodynamic force (the heat
+-   * flux), both vectors, derivatives of the heat flux with respect to the
+-   * temperature gradient and to the temperature
++   * variables: one gradient (the temperature gradient) and one
++   * thermodynamic force (the heat flux), both vectors, derivatives of the
++   * heat flux with respect to the temperature gradient and to the
++   * temperature. The heat transfer behaviour integrators only check the
++   * sizes of the variables: the behaviours that they accept and that are
++   * not recognised here are refused by the kernels.
+    * \param[in] b: behaviour
+    */
+   [[nodiscard]] static bool isHeatTransferBehaviour(
+@@ -49,10 +51,11 @@ namespace mfem_mgis::batch {
+ 
+   /*!
+    * \return true if the behaviour describes the transient term of the heat
+-   * equation, recognised by its structure as the behaviour integrator
+-   * `TransientHeatTransfer`: one scalar gradient (the temperature at the
+-   * integration point) and one scalar thermodynamic force (the rate of the
+-   * enthalpy), and the derivative of the force with respect to the gradient
++   * equation, recognised by its structure: one scalar gradient (the
++   * temperature at the integration point) and one scalar thermodynamic force
++   * (the opposite of the rate of the enthalpy), and the derivative of the
++   * force with respect to the gradient (the behaviour integrator
++   * `TransientHeatTransfer` only checks the sizes and the symmetry)
+    * \param[in] b: behaviour
+    */
+   [[nodiscard]] static bool isHeatStorageBehaviour(
+@@ -72,8 +75,9 @@ namespace mfem_mgis::batch {
+ 
+   /*!
+    * \return true if the behaviour is a micromorphic damage behaviour,
+-   * recognised by its structure as the behaviour integrator
+-   * `MicromorphicDamage`: a scalar gradient (the micromorphic damage) and a
++   * recognised by its structure (the behaviour integrators
++   * `MicromorphicDamage` only check the sizes and the symmetry): a scalar
++   * gradient (the micromorphic damage) and a
+    * vector gradient (its gradient), their scalar and vector dual forces, and
+    * the derivatives of each force with respect to the associated gradient
+    * \param[in] b: behaviour
+@@ -225,7 +229,8 @@ namespace mfem_mgis::batch {
+       // finite element for the address of the integration rule: a different
+       // number of points reveals a rule destroyed and replaced by another at
+       // the same address
+-      if ((maps.nqpt != d.nq) || (maps.ndof != fe->GetDof())) {
++      if ((maps.FE != fe) || (maps.nqpt != d.nq) ||
++          (maps.ndof != fe->GetDof())) {
+         return ctx.registerErrorMessage(
+             "computeUnknownsDerivatives: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
+index c1e85f2441..3bb498e1c6 100644
+--- a/src/Batch/InnerForcesKernels.cxx
++++ b/src/Batch/InnerForcesKernels.cxx
+@@ -1,8 +1,9 @@
+ /*!
+  * \file   src/Batch/InnerForcesKernels.cxx
+  * \brief  This file implements the kernels computing the inner forces of
+- * the standard mechanical and heat transfer behaviour integrators. It contains
+- * kernels of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
++ * the standard behaviour integrators (mechanics, heat transfer, micromorphic
++ * damage). It contains kernels of MFEM: it is compiled as CUDA code when
++ * MFEM is compiled with CUDA.
+  * \date   09/10/2026
+  */
+ 
+diff --git a/src/Batch/InnerForcesKernels.hxx b/src/Batch/InnerForcesKernels.hxx
+index ea21c37a04..50ec0c660a 100644
+--- a/src/Batch/InnerForcesKernels.hxx
++++ b/src/Batch/InnerForcesKernels.hxx
+@@ -1,7 +1,8 @@
+ /*!
+  * \file   src/Batch/InnerForcesKernels.hxx
+  * \brief  This file declares the kernels computing the inner forces of the
+- * standard mechanical behaviour integrators (internal header)
++ * standard behaviour integrators (mechanics, heat transfer, micromorphic
++ * damage) (internal header)
+  * \date   09/10/2026
+  */
+ 
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index ff50db163b..15ae871206 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -1,10 +1,9 @@
+ /*!
+  * \file   src/Batch/StiffnessMatricesKernels.cxx
+  * \brief  This file implements the kernels computing the stiffness matrices
+- * of the elements of the standard mechanical and heat transfer behaviour
+- * integrators. It
+- * contains kernels of MFEM: it is compiled as CUDA code when MFEM is
+- * compiled with CUDA.
++ * of the elements of the standard behaviour integrators (mechanics, heat
++ * transfer, micromorphic damage). It contains kernels of MFEM: it is
++ * compiled as CUDA code when MFEM is compiled with CUDA.
+  * \date   09/10/2026
+  */
+ 
+@@ -180,9 +179,9 @@ namespace mfem_mgis::batch::internals {
+   }  // end of addUnknownsBlock
+ 
+   /*!
+-   * \brief host version of `launchStiffnessMatricesKernel`: one iteration
+-   * per element, the physical derivatives of the shape functions, the
+-   * operators `B` and the products `K B` of the nodes being computed once
++   * \brief version of `launchStiffnessMatricesKernel` used without device:
++   * one iteration per element, the physical derivatives of the shape functions,
++   * the operators `B` and the products `K B` of the nodes being computed once
+    * per point instead of once per pair of nodes. The operations on each
+    * block are made in the same order as by the kernel: the results are
+    * identical.
+@@ -271,8 +270,9 @@ namespace mfem_mgis::batch::internals {
+    * computing the `V x V` block `Σ B_aᵀ K B_b w det J` (plus the
+    * contribution of the derivatives with respect to the unknowns, see
+    * `addUnknownsBlock`), `V` being the number of components of the unknowns.
+-   * On the host, one iteration per element (see
+-   * `computeStiffnessMatricesOnHost`).
++   * Without device, one iteration per element (see
++   * `computeStiffnessMatricesOnHost`); the devices of MFEM computing on the
++   * host (`omp`, `debug`) use the kernel.
+    * \tparam K: kind of the gradients
+    * \tparam Output: destination of the blocks
+    * \tparam diagonal: if true, only the pairs of a node with itself are
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index 65e180e1a2..7428068803 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -1,8 +1,8 @@
+ /*!
+  * \file   src/Batch/StiffnessMatricesKernels.hxx
+  * \brief  This file declares the kernels computing the stiffness matrices
+- * of the elements of the standard mechanical behaviour integrators
+- * (internal header)
++ * of the elements of the standard behaviour integrators (mechanics, heat
++ * transfer, micromorphic damage) (internal header)
+  * \date   09/10/2026
+  */
+ 
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 9229a89c8f..a88481b2e3 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -612,11 +612,11 @@ struct NoBatchIntegrationBehaviourIntegrator final
+   NoBatchIntegrationBehaviourIntegrator(
+       const mfem_mgis::FiniteElementDiscretization& fed,
+       const mfem_mgis::size_type m,
+-      std::unique_ptr<const mfem_mgis::Behaviour> b)
++      std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
+       : mfem_mgis::BehaviourIntegratorBase(
+             std::make_shared<mfem_mgis::PartialQuadratureSpace>(
+                 fed, m, selectIntegrationRule),
+-            std::move(b)) {}
++            std::move(behaviour)) {}
+   static const mfem::IntegrationRule& selectIntegrationRule(
+       const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
+     return mfem::IntRules.Get(e.GetGeomType(), 2);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c59467fd48..75acda105b 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -825,14 +825,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+   add_test(NAME BatchIntegrationTest
+            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
+                    ${batch_integration_test_libraries})
++  # the variants of the longest tests on the debug device of MFEM, which
++  # take one or two minutes in an optimised build, are only registered in
++  # the optimised builds: they would take much longer in the Debug and
++  # Coverage builds, whose variants on the host cover the same code
++  set(long_debug_device_tests ON)
++  if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
++     (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
++    set(long_debug_device_tests OFF)
++  endif()
+   # computations by kernels on the debug device of MFEM and on the GPU; on
+   # the debug device, the behaviours generated by the generic-parallel
+   # interface on the host are integrated on the copies of the arrays on the
+   # device, which are in the memory of the host
+-  add_test(NAME BatchIntegrationTest-debug
+-           COMMAND BatchIntegrationTest --device debug
+-                   ${batch_integration_test_arguments}
+-                   ${batch_integration_test_libraries})
++  if(long_debug_device_tests)
++    add_test(NAME BatchIntegrationTest-debug
++             COMMAND BatchIntegrationTest --device debug
++                     ${batch_integration_test_arguments}
++                     ${batch_integration_test_libraries})
++  endif()
+   if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+     add_test(NAME BatchIntegrationTest-cuda
+              COMMAND BatchIntegrationTest --device cuda
+@@ -875,9 +886,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+                      ${batch_integration_test_libraries})
+     # the debug device checks the memory accesses of the kernels: the
+     # behaviours generated by the generic interface are enough
+-    add_test(NAME HeatTransferKernelsTest-debug
+-             COMMAND HeatTransferKernelsTest --device debug
+-                     ${heat_transfer_kernels_test_arguments})
++    if(long_debug_device_tests)
++      add_test(NAME HeatTransferKernelsTest-debug
++               COMMAND HeatTransferKernelsTest --device debug
++                       ${heat_transfer_kernels_test_arguments})
++    endif()
+     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+       add_test(NAME HeatTransferKernelsTest-cuda
+                COMMAND HeatTransferKernelsTest --device cuda
+@@ -911,9 +924,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+                      ${batch_integration_test_libraries})
+     # the debug device checks the memory accesses of the kernels: the
+     # behaviours generated by the generic interface are enough
+-    add_test(NAME MicromorphicKernelsTest-debug
+-             COMMAND MicromorphicKernelsTest --device debug
+-                     ${micromorphic_kernels_test_arguments})
++    if(long_debug_device_tests)
++      add_test(NAME MicromorphicKernelsTest-debug
++               COMMAND MicromorphicKernelsTest --device debug
++                       ${micromorphic_kernels_test_arguments})
++    endif()
+     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+       add_test(NAME MicromorphicKernelsTest-cuda
+                COMMAND MicromorphicKernelsTest --device cuda
+diff --git a/tests/ElementsGeometryTest.cxx b/tests/ElementsGeometryTest.cxx
+index e3c2fbea96..5b1533730e 100644
+--- a/tests/ElementsGeometryTest.cxx
++++ b/tests/ElementsGeometryTest.cxx
+@@ -7,14 +7,20 @@
+  * computing the jacobians from the vertices) of all the geometries, with
+  * distorted and mirrored elements (negative determinants), for parallel
+  * meshes refined non conformingly, for two integration rules allocated
+- * successively at the same address, and for a curved mesh (geometric
+- * factors of MFEM). Meshes mixing several geometries and surface meshes
+- * are refused.
++ * successively at the same address, for curved meshes (kernel computing
++ * the jacobians from the nodes, ordered by nodes or by components, of
++ * order 2 or 3, discontinuous for a periodic mesh) with a rule whose
++ * points are not ordered as a tensor product, and the jacobians are kept
++ * when the nodes of the mesh are modified. The values of the shape
++ * functions of a destroyed rule, cached by the finite element, are
++ * detected. Meshes mixing several geometries, surface meshes and NURBS
++ * meshes are refused.
+  * \date   10/10/2026
+  */
+ 
+ #include <new>
+ #include <array>
++#include <sstream>
+ #include <cmath>
+ #include <memory>
+ #include <tuple>
+@@ -312,6 +318,42 @@ static void checkStaleShapeFunctions(mfem::Mesh& mesh,
+   }
+ }  // end of checkStaleShapeFunctions
+ 
++/*!
++ * \brief checks that the jacobians computed for a curved mesh are kept when
++ * its nodes are modified (the geometric factors of the mesh are then
++ * destroyed by MFEM)
++ * \param[in] mesh: mesh with nodes
++ * \param[in] name: name of the check
++ */
++static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
++  using namespace mfem_mgis;
++  auto fec = mfem::H1_FECollection(1, mesh.Dimension());
++  auto fes = makeFiniteElementSpace(mesh, fec);
++  const auto& ir = mfem::IntRules.Get(mesh.GetElementBaseGeometry(0), 2);
++  auto ctx = Context{};
++  auto g = batch::ElementsGeometry{};
++  if (!batch::computeElementsGeometry(ctx, g, *fes, ir)) {
++    check(false, name + ": " + ctx.getErrorMessage());
++    return;
++  }
++  const auto* const J = g.jacobians->J.HostRead();
++  const auto before = std::vector<real>(J, J + g.jacobians->J.Size());
++  // the factors of the mesh are computed, then destroyed
++  static_cast<void>(
++      mesh.GetGeometricFactors(ir, mfem::GeometricFactors::JACOBIANS));
++  transformNodes(mesh, [](auto* const x, const int n, const int dim,
++                          const int ps, const int cs) {
++    for (int i = 0; i != n; ++i) {
++      for (int c = 0; c != dim; ++c) {
++        x[i * ps + c * cs] *= 2;
++      }
++    }
++  });
++  const auto* const J2 = g.jacobians->J.HostRead();
++  check(std::equal(before.begin(), before.end(), J2),
++        name + ": jacobians modified by the modification of the mesh");
++}  // end of checkJacobiansLifetime
++
+ /*!
+  * \brief checks that the meshes which are not supported are refused
+  */
+@@ -350,6 +392,23 @@ static void checkRefusals() {
+   surface.AddQuad(0, 1, 2, 3);
+   surface.FinalizeMesh();
+   refused(surface, "surface mesh in the three-dimensional space");
++  // a NURBS mesh: the unit square of MFEM (data/square-nurbs.mesh)
++  auto nurbs_stream = std::istringstream{
++      "MFEM NURBS mesh v1.0\n"
++      "dimension\n2\n"
++      "elements\n1\n1 3 0 1 2 3\n"
++      "boundary\n4\n1 1 0 1\n1 1 2 3\n1 1 3 0\n1 1 1 2\n"
++      "edges\n4\n0 0 1\n0 3 2\n1 0 3\n1 1 2\n"
++      "vertices\n4\n"
++      "knotvectors\n2\n1 2 0 0 1 1\n1 2 0 0 1 1\n"
++      "weights\n1\n1\n1\n1\n"
++      "FiniteElementSpace\n"
++      "FiniteElementCollection: NURBS1\n"
++      "VDim: 2\n"
++      "Ordering: 1\n"
++      "0 0\n1 0\n1 1\n0 1\n"};
++  auto nurbs = mfem::Mesh(nurbs_stream);
++  refused(nurbs, "NURBS mesh");
+ }  // end of checkRefusals
+ 
+ int main(int argc, char** argv) {
+@@ -466,6 +525,7 @@ int main(int argc, char** argv) {
+     }
+     transformNodes(mesh, mirror);
+     compare(mesh, 1, "mirrored " + name, -1);
++    checkJacobiansLifetime(mesh, name);
+   }
+   checkRefusals();
+   if (verbose) {
+diff --git a/tests/HeatStorage.mfront b/tests/HeatStorage.mfront
+index 0de49d6e54..d846b79246 100644
+--- a/tests/HeatStorage.mfront
++++ b/tests/HeatStorage.mfront
+@@ -3,10 +3,13 @@
+ @Date 10/10/2026;
+ @Description {
+   Transient term of the heat equation (TransientHeatTransfer behaviour
+-  integrator): rate of the enthalpy per unit of volume, r = C dT / dt,
+-  where the volumetric heat capacity C = C0 + C1 T depends on the
+-  temperature at the end of the time step. The gradient is the temperature
+-  at the integration point.
++  integrator), r = -C dT / dt, where the volumetric heat capacity
++  C = C0 + C1 T depends on the temperature at the end of the time step.
++  The gradient is the temperature at the integration point. The sign
++  follows the convention of the stationary heat transfer behaviour
++  integrators of mfem-mgis, whose residual is the integral of grad(N) . j
++  with j = -k grad(T): the weak form of the heat equation is then the
++  integral of grad(N) . j - N C dT / dt.
+ }
+ @ModellingHypotheses {".+"};
+ 
+@@ -23,16 +26,16 @@ r.setEntryName("EnthalpyRate");
+ 
+ @PredictionOperator {
+   static_cast<void>(smt);  // removing compiler warning
+-  ∂r∕∂ΔTp = (C0 + C1 * Tp) / Δt;
++  ∂r∕∂ΔTp = -(C0 + C1 * Tp) / Δt;
+ }  // end of @PredictionOperator
+ 
+ @Integrator {
+   const auto C = C0 + C1 * (Tp + ΔTp);
+-  r = C * ΔTp / Δt;
++  r = -C * ΔTp / Δt;
+ }  // end of @Integrator
+ 
+ @TangentOperator {
+   static_cast<void>(smt);  // removing compiler warning
+   const auto C = C0 + C1 * (Tp + ΔTp);
+-  ∂r∕∂ΔTp = (C + C1 * ΔTp) / Δt;
++  ∂r∕∂ΔTp = -(C + C1 * ΔTp) / Δt;
+ }  // end of @TangentOperator
+diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
+index 6498889292..59d9085cd4 100644
+--- a/tests/HeatTransferKernelsTest.cxx
++++ b/tests/HeatTransferKernelsTest.cxx
+@@ -1,16 +1,20 @@
+ /*!
+  * \file   HeatTransferKernelsTest.cxx
+- * \brief  Test of the computations by kernels of the stationary non linear
+- * heat transfer behaviours (temperature gradient, heat flux, temperature as
+- * external state variable computed from the unknowns): the integration by
+- * batches with the gradients, the inner forces and the tangent operator
+- * computed by kernels (assembled, or applied without assembly), with or
+- * without elastic prediction, gives the results of the integration point by
+- * point, in 3D, in plane strain and in plane stress, for an isotropic and a
+- * rotated orthotropic behaviour, and for two materials, with temperatures
+- * imposed on three sides (the temperature depends on all the coordinates),
+- * for the behaviours generated by the generic interface and, if given, by
+- * the generic-parallel interface.
++ * \brief  Test of the computations by kernels of the heat transfer
++ * behaviours: stationary non linear heat transfer (temperature gradient,
++ * heat flux, temperature as external state variable computed from the
++ * unknowns) and transient term of the heat equation (temperature at the
++ * integration points, opposite of the rate of the enthalpy). The
++ * integration by batches with the gradients, the inner forces and the
++ * tangent operator computed by kernels (assembled, or applied without
++ * assembly, whose diagonal is checked), with or without elastic
++ * prediction, gives the results of the integration point by point, in 3D,
++ * in plane strain and in plane stress, for an isotropic and a rotated
++ * anisotropic behaviour whose conductivity is not symmetric, and for two
++ * materials, with temperatures imposed on several sides (the temperature
++ * depends on all the coordinates), for the behaviours generated by the
++ * generic interface and, if given, by the generic-parallel interface. The
++ * transient temperature lags behind the stationary one.
+  * \date   10/10/2026
+  */
+ 
+@@ -24,11 +28,14 @@
+ #include <iostream>
+ #include <algorithm>
+ #include "mfem/general/optparser.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/RotationMatrix.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -123,6 +130,48 @@ static void setMaterialAxes(mfem_mgis::Material& m,
+   }
+ }  // end of setMaterialAxes
+ 
++/*!
++ * \brief checks the diagonal of the tangent operator applied without
++ * assembly (computed by kernels), the essential degrees of freedom being
++ * constrained, against the diagonal of its assembled version
++ * \param[in, out] problem: non linear evolution problem, after a resolution
++ * and before the update of the materials
++ * \param[in] name: name of the computation
++ */
++template <bool parallel_computation>
++static void checkMatrixFreeDiagonal(
++    mfem_mgis::NonLinearEvolutionProblem& problem, const std::string& name) {
++  using namespace mfem_mgis;
++  auto& p = problem.getImplementation<parallel_computation>();
++  const auto& op = p.GetGradient(problem.getUnknowns(ets));
++  const auto* const provider =
++      dynamic_cast<const AssembledOperatorProvider*>(&op);
++  if (provider == nullptr) {
++    check(false, name + ": no assembled version of the tangent operator");
++    return;
++  }
++  auto d = mfem::Vector(op.Height());
++  op.AssembleDiagonal(d);
++  const auto& a = provider->getAssembledOperator();
++  auto da = mfem::Vector(op.Height());
++  if (const auto* const sm = dynamic_cast<const mfem::SparseMatrix*>(&a);
++      sm != nullptr) {
++    sm->GetDiag(da);
++  } else {
++    a.AssembleDiagonal(da);
++  }
++  const auto* const pd = d.HostRead();
++  const auto* const pa = da.HostRead();
++  auto diff = real{0};
++  auto m = real{0};
++  for (int i = 0; i != d.Size(); ++i) {
++    diff = std::max(diff, std::abs(pd[i] - pa[i]));
++    m = std::max(m, std::abs(pa[i]));
++  }
++  check((d.Size() > 0) && (diff <= 1e-12 * m),
++        name + ": diagonal of the tangent operator applied without assembly");
++}  // end of checkMatrixFreeDiagonal
++
+ /*!
+  * \return the results of the computation
+  * \param[in] c: problem
+@@ -273,6 +322,19 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+       return r;
+     }
+     r.iterations.push_back(static_cast<int>(o.iterations));
++    // diagonal of the tangent operator applied without assembly, after the
++    // resolution of the last time step, before the update of the materials
++    if ((opts.matrix_free) && (i + 1 == nsteps)) {
++#ifdef MFEM_USE_MPI
++      if (parallel) {
++        checkMatrixFreeDiagonal<true>(problem, c.name);
++      } else {
++        checkMatrixFreeDiagonal<false>(problem, c.name);
++      }
++#else  /* MFEM_USE_MPI */
++      checkMatrixFreeDiagonal<false>(problem, c.name);
++#endif /* MFEM_USE_MPI */
++    }
+     problem.update(ctx) | or_die;
+     t += dt;
+   }
+@@ -441,7 +503,11 @@ int main(int argc, char** argv) {
+   }
+   const auto references =
+       getCases(mesh, two_materials_mesh, square_mesh, library);
+-  // the transient term changes the temperature
++  // the transient term changes the temperature: the imposed temperatures
++  // increase with time, and the temperature of the transient computation,
++  // which diffuses from the boundaries, lags behind the one of the
++  // stationary computation (the opposite would reveal a wrong sign of the
++  // transient term, which would give the backward heat equation)
+   for (std::size_t i = 0; i != references.size(); ++i) {
+     if (!references[i].transient) {
+       continue;
+@@ -450,12 +516,20 @@ int main(int argc, char** argv) {
+     stationary.transient = false;
+     const auto a = compute(stationary, {});
+     const auto b = compute(references[i], {});
+-    if (a.status && b.status) {
+-      const auto d = getRelativeDifference(a.u, b.u);
++    check(a.status && b.status,
++          references[i].name + ": stationary or transient computation failed");
++    if (a.status && b.status && (a.u.size() == b.u.size())) {
++      auto lag = real{0};
++      for (std::size_t j = 0; j != a.u.size(); ++j) {
++        lag += (a.u[j] - b.u[j]) / static_cast<real>(a.u.size());
++      }
+       std::cout << references[i].name
+-                << ": relative difference with the stationary computation " << d
+-                << '\n';
+-      check(d > 1e-2, references[i].name + ": no effect of the transient term");
++                << ": mean lag of the temperature behind the stationary "
++                   "computation "
++                << lag << " K\n";
++      check(lag > 1, references[i].name +
++                         ": the temperature does not lag behind the "
++                         "stationary computation");
+     }
+   }
+   for (const auto prediction : {false, true}) {
+diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
+index 708029463c..498ce2248e 100644
+--- a/tests/MicromorphicKernelsTest.cxx
++++ b/tests/MicromorphicKernelsTest.cxx
+@@ -4,8 +4,9 @@
+  * behaviours (micromorphic damage and its gradient, the micromorphic damage
+  * being the unknown): the integration by batches with the gradients, the
+  * inner forces and the tangent operator computed by kernels (assembled, or
+- * applied without assembly), with or without elastic prediction, gives the
+- * results of the integration point by point, in 3D, in plane strain and in
++ * applied without assembly, whose diagonal is checked), with or without
++ * elastic prediction, gives the results of the integration point by point,
++ * in 3D, in plane strain and in
+  * plane stress, for an isotropic behaviour and a rotated anisotropic one
+  * whose tangent operator is not symmetric, for the behaviours generated by
+  * the generic interface and, if given, by the generic-parallel interface.
+@@ -23,6 +24,7 @@
+ #include <algorithm>
+ #include <string_view>
+ #include "mfem/general/optparser.hpp"
++#include "mfem/linalg/sparsemat.hpp"
+ #include "MGIS/Behaviour/Variable.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+@@ -30,6 +32,8 @@
+ #include "MFEMMGIS/RotationMatrix.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -102,6 +106,48 @@ static void setMaterialAxes(mfem_mgis::Material& m, const bool tridimensional) {
+   }
+ }  // end of setMaterialAxes
+ 
++/*!
++ * \brief checks the diagonal of the tangent operator applied without
++ * assembly (computed by kernels), the essential degrees of freedom being
++ * constrained, against the diagonal of its assembled version
++ * \param[in, out] problem: non linear evolution problem, after a resolution
++ * and before the update of the materials
++ * \param[in] name: name of the computation
++ */
++template <bool parallel_computation>
++static void checkMatrixFreeDiagonal(
++    mfem_mgis::NonLinearEvolutionProblem& problem, const std::string& name) {
++  using namespace mfem_mgis;
++  auto& p = problem.getImplementation<parallel_computation>();
++  const auto& op = p.GetGradient(problem.getUnknowns(ets));
++  const auto* const provider =
++      dynamic_cast<const AssembledOperatorProvider*>(&op);
++  if (provider == nullptr) {
++    check(false, name + ": no assembled version of the tangent operator");
++    return;
++  }
++  auto d = mfem::Vector(op.Height());
++  op.AssembleDiagonal(d);
++  const auto& a = provider->getAssembledOperator();
++  auto da = mfem::Vector(op.Height());
++  if (const auto* const sm = dynamic_cast<const mfem::SparseMatrix*>(&a);
++      sm != nullptr) {
++    sm->GetDiag(da);
++  } else {
++    a.AssembleDiagonal(da);
++  }
++  const auto* const pd = d.HostRead();
++  const auto* const pa = da.HostRead();
++  auto diff = real{0};
++  auto m = real{0};
++  for (int i = 0; i != d.Size(); ++i) {
++    diff = std::max(diff, std::abs(pd[i] - pa[i]));
++    m = std::max(m, std::abs(pa[i]));
++  }
++  check((d.Size() > 0) && (diff <= 1e-12 * m),
++        name + ": diagonal of the tangent operator applied without assembly");
++}  // end of checkMatrixFreeDiagonal
++
+ /*!
+  * \return the results of the computation
+  * \param[in] c: problem
+@@ -233,6 +279,19 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+       return r;
+     }
+     r.iterations.push_back(static_cast<int>(o.iterations));
++    // diagonal of the tangent operator applied without assembly, after the
++    // resolution of the last time step, before the update of the materials
++    if ((opts.matrix_free) && (i + 1 == nsteps)) {
++#ifdef MFEM_USE_MPI
++      if (parallel) {
++        checkMatrixFreeDiagonal<true>(problem, c.name);
++      } else {
++        checkMatrixFreeDiagonal<false>(problem, c.name);
++      }
++#else  /* MFEM_USE_MPI */
++      checkMatrixFreeDiagonal<false>(problem, c.name);
++#endif /* MFEM_USE_MPI */
++    }
+     problem.update(ctx) | or_die;
+     t += dt;
+   }
+-- 
+2.43.0
+

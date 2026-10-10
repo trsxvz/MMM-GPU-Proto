@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/StiffnessMatricesKernels.hxx
  * \brief  This file declares the kernels computing the stiffness matrices
- * of the elements of the standard mechanical behaviour integrators
- * (internal header)
+ * of the elements of the standard behaviour integrators (mechanics, heat
+ * transfer, micromorphic damage) (internal header)
  * \date   09/10/2026
  */
 

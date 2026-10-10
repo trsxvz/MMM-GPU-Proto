@@ -58,6 +58,22 @@ namespace mfem_mgis {
    * \note Most of the time, the derivative
    * \f$\frac{\partial h}{\partial T}\f$
    * is computed by the product of the mass density by the specific heat.
+   *
+   * \note The inner forces are the integral of \f$N\,s\f$, \f$s\f$ being
+   * the thermodynamic force of the behaviour. With the stationary heat
+   * transfer behaviour integrators of mfem-mgis, whose inner forces are the
+   * integral of \f$\nabla N\,.\,\vec{j}\f$ with \f$\vec{j}=-k\,\nabla
+   * T\f$, the behaviour must return the opposite of the rate of the
+   * enthalpy, \f$s=-\frac{\partial h}{\partial T}\,\dot{T}\f$, and its
+   * tangent operator the opposite of
+   * \f$\frac{1}{\Delta\,t}\frac{\partial h}{\partial T}\f$: the sum is
+   * the weak form of the heat equation.
+   *
+   * \note The gradient of the behaviour is the temperature at the
+   * integration point. Its value at the beginning of the first time step
+   * (the gradients of the state `s0` of the material) is not computed from
+   * the unknowns: it must be initialised with the initial temperature, as
+   * the gradients at the end of the time step (state `s1`).
    */
   struct MFEM_MGIS_EXPORT TransientHeatTransferBehaviourIntegrator final
       : StandardBehaviourIntegratorCRTPBase<

@@ -24,10 +24,12 @@ namespace mfem_mgis::batch {
   /*!
    * \return true if the behaviour is a stationary non linear heat transfer
    * behaviour, recognised by its structure, whatever the names of its
-   * variables, as the heat transfer behaviour integrators: one gradient
-   * (the temperature gradient) and one thermodynamic force (the heat
-   * flux), both vectors, derivatives of the heat flux with respect to the
-   * temperature gradient and to the temperature
+   * variables: one gradient (the temperature gradient) and one
+   * thermodynamic force (the heat flux), both vectors, derivatives of the
+   * heat flux with respect to the temperature gradient and to the
+   * temperature. The heat transfer behaviour integrators only check the
+   * sizes of the variables: the behaviours that they accept and that are
+   * not recognised here are refused by the kernels.
    * \param[in] b: behaviour
    */
   [[nodiscard]] static bool isHeatTransferBehaviour(
@@ -49,10 +51,11 @@ namespace mfem_mgis::batch {
 
   /*!
    * \return true if the behaviour describes the transient term of the heat
-   * equation, recognised by its structure as the behaviour integrator
-   * `TransientHeatTransfer`: one scalar gradient (the temperature at the
-   * integration point) and one scalar thermodynamic force (the rate of the
-   * enthalpy), and the derivative of the force with respect to the gradient
+   * equation, recognised by its structure: one scalar gradient (the
+   * temperature at the integration point) and one scalar thermodynamic force
+   * (the opposite of the rate of the enthalpy), and the derivative of the
+   * force with respect to the gradient (the behaviour integrator
+   * `TransientHeatTransfer` only checks the sizes and the symmetry)
    * \param[in] b: behaviour
    */
   [[nodiscard]] static bool isHeatStorageBehaviour(
@@ -72,8 +75,9 @@ namespace mfem_mgis::batch {
 
   /*!
    * \return true if the behaviour is a micromorphic damage behaviour,
-   * recognised by its structure as the behaviour integrator
-   * `MicromorphicDamage`: a scalar gradient (the micromorphic damage) and a
+   * recognised by its structure (the behaviour integrators
+   * `MicromorphicDamage` only check the sizes and the symmetry): a scalar
+   * gradient (the micromorphic damage) and a
    * vector gradient (its gradient), their scalar and vector dual forces, and
    * the derivatives of each force with respect to the associated gradient
    * \param[in] b: behaviour
@@ -225,7 +229,8 @@ namespace mfem_mgis::batch {
       // finite element for the address of the integration rule: a different
       // number of points reveals a rule destroyed and replaced by another at
       // the same address
-      if ((maps.nqpt != d.nq) || (maps.ndof != fe->GetDof())) {
+      if ((maps.FE != fe) || (maps.nqpt != d.nq) ||
+          (maps.ndof != fe->GetDof())) {
         return ctx.registerErrorMessage(
             "computeUnknownsDerivatives: the values of the shape functions "
             "cached by the finite element do not match the integration rule");

@@ -217,6 +217,12 @@ namespace mfem_mgis::batch {
             "computeElementsGeometry: the dimension of the space must be the "
             "dimension of the mesh");
       }
+      // the transformations of the elements of a NURBS mesh are not given by
+      // the degrees of freedom of the elements of the nodes
+      if (mesh.NURBSext != nullptr) {
+        return ctx.registerErrorMessage(
+            "computeElementsGeometry: NURBS meshes are not supported");
+      }
       g.rule = &ir;
       g.dim = mesh.Dimension();
       g.nq = ir.GetNPoints();
@@ -231,7 +237,8 @@ namespace mfem_mgis::batch {
       // cached by the finite element for the address of the integration
       // rule: a different number of points reveals a rule destroyed and
       // replaced by another at the same address
-      if ((g.maps->nqpt != g.nq) || (g.maps->ndof != g.nd)) {
+      if ((g.maps->FE != fe) || (g.maps->nqpt != g.nq) ||
+          (g.maps->ndof != g.nd)) {
         return ctx.registerErrorMessage(
             "computeElementsGeometry: the values of the shape functions "
             "cached by the finite element do not match the integration rule");

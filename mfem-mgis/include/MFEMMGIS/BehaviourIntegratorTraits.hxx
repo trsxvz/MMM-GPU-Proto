@@ -16,6 +16,16 @@ namespace mfem_mgis {
    * \brief a traits class aimed at specializing the
    * `StandardBehaviourIntegratorCRTPBase` and
    * `FBarBehaviourIntegratorCRTPBase` classes.
+   *
+   * \note The computations by kernels of the batch path
+   * (`StandardBehaviourIntegratorCRTPBase::supportsKernels`) are chosen from
+   * these traits and from the structure of the behaviour (see
+   * `batch::getGradientsKind`): they assume the standard computations of
+   * the gradients, of the inner forces and of the stiffness matrices for
+   * each kind of gradients, and the weights of the integration points of
+   * the cartesian hypotheses. A behaviour integrator whose computations
+   * differ (axisymmetrical weights, other gradients...) must override
+   * `supportsKernels`.
    */
   template <typename BehaviourIntegrator>
   struct BehaviourIntegratorTraits {
