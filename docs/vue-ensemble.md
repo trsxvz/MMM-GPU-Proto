@@ -89,8 +89,8 @@ fonction de lot traite tous ces points en un appel.
 | MGIS : calcul asynchrone | fait, synchrone par défaut | [mgis.md](mgis.md#calcul-asynchrone) |
 | MGIS : vues, rangement composante par composante, fin de pas sur GPU | fait | [mgis.md](mgis.md#vues-et-rangements) |
 | Documentation de TFEL et de MGIS (pages web, Doxygen, commentaires) | à jour avec les changements | [tfel.md](tfel.md#documentation-dans-larbre-de-tfel), [mgis.md](mgis.md#documentation-dans-larbre-de-mgis) |
-| mfem-mgis | non modifié ; choix retenus, première étape (API de vues dans MGIS) faite, plan découpé en lots, solveurs choisis | [plan-mfem-mgis.md](plan-mfem-mgis.md), [plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md), [solveurs-gpu.md](solveurs-gpu.md) |
-| Performance des noyaux | non mesurée sérieusement | [plan-mfem-mgis.md](plan-mfem-mgis.md#performance) |
+| mfem-mgis | lots L0 à L4 et L6 (tranche GPU) faits ; L5 vague 1 en grande partie (point fixe, NewtonK0, Newton inexact, options de BoomerAMG, lisseurs sans matrice) ; L7 : thermique stationnaire par noyaux | [plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md), [solveurs-gpu.md](solveurs-gpu.md) |
+| Performance | poutre r4 sur une RTX 5080 : 1,96 s contre 13,6 s pour Newton sur 8 cœurs ; polycristal 9,6 s contre 29,6 s | `results/L4-*` à `results/L6-*`, [journal](../JOURNAL.md) |
 
 La validation est décrite dans [validation.md](validation.md). Le
 découpage en contributions pour les dépôts officiels est dans

@@ -29,9 +29,9 @@ GPU.
 |---|---|---|---|
 | TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
 | MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
-| mfem-mgis | master `a011d97d6f` | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
-| mfem-mgis-examples | master `8397eec` (dépôt `latug0/mfem-mgis-examples`) | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
-| mm-opera-hpc | main `8bd56eb` (dépôt `rprat-pro/mm-opera-hpc`) | rien pour l'instant | [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md) |
+| mfem-mgis | master `a011d97d6f` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, corrections ; 61 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
+| mfem-mgis-examples | master `8397eec` (dépôt `latug0/mfem-mgis-examples`) | option de profilage d'ex4, synchronisation du gonflement d'ex8 sur l'hôte ; 2 patchs | `patches/mfem-mgis-examples/` |
+| mm-opera-hpc | main `8bd56eb` (dépôt `rprat-pro/mm-opera-hpc`) | polycristal : choix du solveur non linéaire (Newton, NewtonK0) et de la tolérance adaptative, loi intégrée sur le GPU ; 9 patchs | [results/L5-polycristal-2026-10-10-0502/README.md](results/L5-polycristal-2026-10-10-0502/README.md) |
 
 ## Documentation
 
