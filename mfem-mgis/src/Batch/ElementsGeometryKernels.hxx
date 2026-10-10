@@ -1,7 +1,7 @@
 /*!
  * \file   src/Batch/ElementsGeometryKernels.hxx
  * \brief  This file declares the kernel computing the jacobians of the
- * element transformations of a mesh without nodes (internal header)
+ * element transformations (internal header)
  * \date   10/10/2026
  */
 
@@ -14,25 +14,29 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief arguments of the kernel computing the jacobians of the element
-   * transformations of a mesh without nodes from the coordinates of the
-   * vertices
+   * transformations from the coordinates of their nodes (the nodes of the
+   * mesh, or its vertices)
    */
   struct JacobiansKernelArguments {
     /*!
-     * \brief vertices of the elements (`vertex + vertices_per_element *
-     * element`), in the order of the degrees of freedom of the finite element
-     * of the transformation
+     * \brief nodes of the elements (`node + nodes_per_element * element`),
+     * in the order of the degrees of freedom of the finite element of the
+     * transformation
      */
-    const int* element_vertices = nullptr;
+    const int* element_nodes = nullptr;
     /*!
-     * \brief coordinates of the vertices (`vertex + nv * component`, layout
-     * of `mfem::Mesh::GetVertices`)
+     * \brief coordinates of the nodes: the component `c` of the node `n` is
+     * `coordinates[n * node_stride + c * component_stride]`
      */
-    const real* vertices = nullptr;
+    const real* coordinates = nullptr;
+    //! \brief stride between two nodes in the coordinates
+    int node_stride = 0;
+    //! \brief stride between two components in the coordinates
+    int component_stride = 0;
     /*!
      * \brief gradients of the shape functions of the finite element of the
      * transformation on the reference element (`nq x dim x
-     * vertices_per_element`, layout of `mfem::DofToQuad` in the `FULL` mode)
+     * nodes_per_element`, layout of `mfem::DofToQuad` in the `FULL` mode)
      */
     const real* shape_functions_gradients = nullptr;
     /*!
@@ -44,10 +48,8 @@ namespace mfem_mgis::batch::internals {
     real* determinants = nullptr;
     //! \brief number of elements
     int number_of_elements = 0;
-    //! \brief number of vertices
-    int number_of_vertices = 0;
-    //! \brief number of vertices per element
-    int vertices_per_element = 0;
+    //! \brief number of nodes per element
+    int nodes_per_element = 0;
     //! \brief number of integration points per element
     int nq = 0;
     //! \brief dimension of the space (1, 2 or 3)
@@ -56,8 +58,8 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel computing the jacobians of the element
-   * transformations of a mesh without nodes and their determinants: one
-   * thread per point of an element
+   * transformations and their determinants: one thread per point of an
+   * element
    * \param[in] a: arguments
    * \param[in] d: if true, the kernel runs on the device (if a device is
    * enabled), and the pointers of the arguments are located on the device

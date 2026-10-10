@@ -1,7 +1,7 @@
 /*!
  * \file   src/Batch/ElementsGeometryKernels.cxx
  * \brief  This file implements the kernel computing the jacobians of the
- * element transformations of a mesh without nodes. It contains kernels of
+ * element transformations. It contains kernels of
  * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
  * \date   10/10/2026
  */
@@ -17,12 +17,13 @@ namespace mfem_mgis::batch::internals {
     const auto n = a.number_of_elements * a.nq;
     mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
       const auto nq = static_cast<std::size_t>(a.nq);
-      const auto nd = static_cast<std::size_t>(a.vertices_per_element);
-      const auto nv = static_cast<std::size_t>(a.number_of_vertices);
+      const auto nd = static_cast<std::size_t>(a.nodes_per_element);
       const auto dim = static_cast<std::size_t>(a.dim);
+      const auto ns = static_cast<std::size_t>(a.node_stride);
+      const auto cs = static_cast<std::size_t>(a.component_stride);
       const auto e = static_cast<std::size_t>(i) / nq;
       const auto q = static_cast<std::size_t>(i) - e * nq;
-      const auto* const v = a.element_vertices + nd * e;
+      const auto* const nodes = a.element_nodes + nd * e;
       // `J[r + 3 * c]`: derivative of the `r`-th coordinate with respect to
       // the `c`-th reference coordinate
       real J[9] = {};
@@ -30,9 +31,10 @@ namespace mfem_mgis::batch::internals {
         const auto* const G = a.shape_functions_gradients + q + nq * c;
         for (std::size_t node = 0; node != nd; ++node) {
           const auto g = G[nq * dim * node];
-          const auto* const x = a.vertices + static_cast<std::size_t>(v[node]);
+          const auto* const x =
+              a.coordinates + static_cast<std::size_t>(nodes[node]) * ns;
           for (std::size_t r = 0; r != dim; ++r) {
-            J[r + 3 * c] += g * x[nv * r];
+            J[r + 3 * c] += g * x[cs * r];
           }
         }
       }

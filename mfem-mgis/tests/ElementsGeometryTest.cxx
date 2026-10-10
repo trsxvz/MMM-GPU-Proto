@@ -17,6 +17,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <tuple>
 #include <string>
 #include <vector>
 #include <cstdlib>
@@ -35,6 +36,7 @@
 #include "mfem/mesh/pmesh.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
 
 //! \brief number of failed checks
@@ -72,25 +74,64 @@ static std::unique_ptr<mfem::FiniteElementSpace> makeFiniteElementSpace(
  * \brief moves the vertices (or the nodes) of a mesh by a smooth
  * displacement, small compared to the size of the elements, so that the
  * elements are distorted but valid
- * \param[in] x: coordinates (`point + n * component`)
+ * \param[in] x: coordinates (`point * ps + component * cs`)
  * \param[in] n: number of points
  * \param[in] dim: dimension of the space
  * \param[in] h: size of the elements
+ * \param[in] ps: stride between two points
+ * \param[in] cs: stride between two components
  */
 static void distort(mfem_mgis::real* const x,
                     const int n,
                     const int dim,
-                    const mfem_mgis::real h) {
+                    const mfem_mgis::real h,
+                    const int ps,
+                    const int cs) {
   for (int i = 0; i != n; ++i) {
     auto s = mfem_mgis::real{0};
     for (int c = 0; c != dim; ++c) {
-      s += (c + 1) * x[i + n * c];
+      s += (c + 1) * x[i * ps + c * cs];
     }
     for (int c = 0; c != dim; ++c) {
-      x[i + n * c] += 0.08 * h * std::sin(7 * s + 2 * c);
+      x[i * ps + c * cs] += 0.08 * h * std::sin(7 * s + 2 * c);
     }
   }
 }  // end of distort
+
+/*!
+ * \brief applies a transformation to the nodes of a curved mesh
+ * \param[in, out] mesh: mesh with nodes
+ * \param[in] f: transformation of the coordinates `(x, n, dim, ps, cs)` (see
+ * `distort`)
+ */
+template <typename Transformation>
+static void transformNodes(mfem::Mesh& mesh, const Transformation& f) {
+  auto& nodes = *(mesh.GetNodes());
+  const auto& nfes = *(nodes.FESpace());
+  const auto n = nfes.GetNDofs();
+  const auto dim = nfes.GetVDim();
+  const auto by_nodes = nfes.GetOrdering() == mfem::Ordering::byNODES;
+  f(nodes.HostReadWrite(), n, dim, by_nodes ? 1 : dim, by_nodes ? n : 1);
+  mesh.NodesUpdated();
+}  // end of transformNodes
+
+//! \brief changes the sign of the first coordinate of the points
+static void mirror(
+    mfem_mgis::real* const x, const int n, const int, const int ps, const int) {
+  for (int i = 0; i != n; ++i) {
+    x[i * ps] = -x[i * ps];
+  }
+}  // end of mirror
+
+//! \return the integration rule with the points in the reverse order
+static mfem::IntegrationRule reverse(const mfem::IntegrationRule& ir) {
+  const auto n = ir.GetNPoints();
+  auto r = mfem::IntegrationRule(n);
+  for (int i = 0; i != n; ++i) {
+    r.IntPoint(i) = ir.IntPoint(n - 1 - i);
+  }
+  return r;
+}  // end of reverse
 
 /*!
  * \brief compares the geometric data of the elements for one integration
@@ -121,6 +162,8 @@ static void compare(mfem::Mesh& mesh,
   check((g.nq == ir.GetNPoints()) && (g.dim == dim) && (g.ne == mesh.GetNE()) &&
             (g.nd == fes.GetTypicalFE()->GetDof()),
         name + ": sizes");
+  check((g.maps != nullptr) && (g.maps->nqpt == g.nq) && (g.maps->ndof == g.nd),
+        name + ": shape functions of the unknowns");
   check(g.jacobians != nullptr, name + ": no jacobians");
   if (g.jacobians == nullptr) {
     return;
@@ -223,6 +266,53 @@ static void checkRulesAtTheSameAddress(mfem::Mesh& mesh,
 }  // end of checkRulesAtTheSameAddress
 
 /*!
+ * \brief checks that the geometric data are refused if the values of the
+ * shape functions cached by the finite element of the unknowns belong to a
+ * destroyed integration rule: two rules with different numbers of points
+ * allocated successively at the same address, for the same finite element
+ * space
+ * \param[in] mesh: mesh
+ * \param[in] name: name of the check
+ */
+static void checkStaleShapeFunctions(mfem::Mesh& mesh,
+                                     const std::string& name) {
+  using namespace mfem_mgis;
+  alignas(mfem::IntegrationRule) unsigned char
+      storage[sizeof(mfem::IntegrationRule)];
+  auto fec = mfem::H1_FECollection(1, mesh.Dimension());
+  auto fes = makeFiniteElementSpace(mesh, fec);
+  for (const auto iorder : {1, 4}) {
+    auto* const ir = new (storage) mfem::IntegrationRule(
+        mfem::IntRules.Get(mesh.GetElementBaseGeometry(0), iorder));
+    auto ctx = Context{};
+    auto g = batch::ElementsGeometry{};
+    const auto success = batch::computeElementsGeometry(ctx, g, *fes, *ir);
+    // derivatives of the unknowns, which also use the values of the shape
+    // functions cached by the finite element
+    auto u = mfem::Vector(fes->GetVSize());
+    u = 1;
+    auto d = batch::UnknownsDerivatives{};
+    auto ctx2 = Context{};
+    const auto success2 =
+        batch::computeUnknownsDerivatives(ctx2, d, *fes, u, *ir, true);
+    if (iorder == 1) {
+      check(success, name + ": " + ctx.getErrorMessage());
+      check(success2, name + ": " + ctx2.getErrorMessage());
+    } else {
+      check(!success, name + ": stale shape functions not detected");
+      check(!success2, name +
+                           ": stale shape functions not detected by "
+                           "computeUnknownsDerivatives");
+      if (verbose) {
+        std::cout << name << ": " << ctx.getErrorMessage() << '\n'
+                  << name << ": " << ctx2.getErrorMessage() << '\n';
+      }
+    }
+    ir->~IntegrationRule();
+  }
+}  // end of checkStaleShapeFunctions
+
+/*!
  * \brief checks that the meshes which are not supported are refused
  */
 static void checkRefusals() {
@@ -296,12 +386,16 @@ int main(int argc, char** argv) {
     // hexahedra, wedges and pyramids)
     auto vertices = mfem::Vector{};
     mesh.GetVertices(vertices);
-    distort(vertices.HostReadWrite(), mesh.GetNV(), mesh.SpaceDimension(), 0.5);
+    distort(vertices.HostReadWrite(), mesh.GetNV(), mesh.SpaceDimension(), 0.5,
+            1, mesh.GetNV());
     mesh.SetVertices(vertices);
     compare(mesh, 1, "distorted " + name, 1);
     // unknowns of order 2: the jacobians only depend on the vertices
     compare(mesh, 2, "distorted " + name, 1);
     checkRulesAtTheSameAddress(mesh, "distorted " + name);
+    if (name == "tetrahedra") {
+      checkStaleShapeFunctions(mesh, "distorted " + name);
+    }
 #ifdef MFEM_USE_MPI
     // parallel mesh, refined non conformingly (local elements and vertices)
     if ((name == "tetrahedra") || (name == "hexahedra")) {
@@ -325,13 +419,54 @@ int main(int argc, char** argv) {
     mesh.SetVertices(vertices);
     compare(mesh, 1, "mirrored distorted " + name, -1);
   }
-  // curved mesh: geometric factors of MFEM
-  auto curved = mfem::Mesh::MakeCartesian3D(2, 2, 2, Type::HEXAHEDRON);
-  curved.SetCurvature(2, false, -1, mfem::Ordering::byNODES);
-  auto& nodes = *(curved.GetNodes());
-  distort(nodes.HostReadWrite(), nodes.Size() / 3, 3, 0.5);
-  curved.NodesUpdated();
-  compare(curved, 1, "curved hexahedra", 1);
+  // curved meshes: nodes of order 2 or 3, ordered by nodes or by
+  // components, and a periodic mesh, whose nodes are discontinuous
+  auto curved = std::vector<std::pair<std::string, mfem::Mesh>>{};
+  for (const auto& [n, t, order, ordering] :
+       {std::tuple{"curved hexahedra", Type::HEXAHEDRON, 2,
+                   mfem::Ordering::byNODES},
+        std::tuple{"curved tetrahedra", Type::TETRAHEDRON, 3,
+                   mfem::Ordering::byVDIM}}) {
+    auto& mesh =
+        curved.emplace_back(n, mfem::Mesh::MakeCartesian3D(2, 2, 2, t)).second;
+    mesh.SetCurvature(order, false, -1, ordering);
+  }
+  {
+    auto& mesh = curved
+                     .emplace_back(
+                         "curved quadrangles",
+                         mfem::Mesh::MakeCartesian2D(3, 2, Type::QUADRILATERAL))
+                     .second;
+    mesh.SetCurvature(3, false, -1, mfem::Ordering::byVDIM);
+    auto square = mfem::Mesh::MakeCartesian2D(4, 3, Type::QUADRILATERAL);
+    const auto translations = std::vector<mfem::Vector>{mfem::Vector({1., 0.})};
+    curved.emplace_back(
+        "periodic quadrangles",
+        mfem::Mesh::MakePeriodic(
+            square, square.CreatePeriodicVertexMapping(translations)));
+  }
+  for (auto& [name, mesh] : curved) {
+    check(mesh.GetNodes() != nullptr, name + ": the mesh has no nodes");
+    transformNodes(mesh, [](auto* const x, const int n, const int dim,
+                            const int ps, const int cs) {
+      // smaller displacement than for the vertices: the nodes of order 3
+      // of an element are closer
+      distort(x, n, dim, 0.2, ps, cs);
+    });
+    compare(mesh, 1, name, 1);
+    checkRulesAtTheSameAddress(mesh, name);
+    // the geometric factors of MFEM assume tensor product rules for the
+    // quadrangles and the hexahedra
+    {
+      auto fec = mfem::H1_FECollection(1, mesh.Dimension());
+      auto fes = makeFiniteElementSpace(mesh, fec);
+      const auto ir =
+          reverse(mfem::IntRules.Get(mesh.GetElementBaseGeometry(0), 4));
+      compare(mesh, *fes, ir, name + ", points in the reverse order", 1);
+    }
+    transformNodes(mesh, mirror);
+    compare(mesh, 1, "mirrored " + name, -1);
+  }
   checkRefusals();
   if (verbose) {
     std::cout << (failures == 0 ? "success" : "failure") << '\n';

@@ -72,23 +72,31 @@ namespace mfem_mgis::batch {
    * \brief computes the geometric data of all the elements of the mesh for
    * an integration rule
    *
-   * For a mesh without nodes, the jacobians are computed by a kernel from
-   * the vertices of the elements and the finite element of the
-   * transformations of MFEM (`mfem::Mesh::GetTransformationFEforElementType`):
-   * - `mfem::Mesh::GetGeometricFactors` would give nodes to the mesh
-   *   (`mfem::Mesh::EnsureNodes`), and the element transformations of all
-   *   the computations which follow would use them, which makes the
-   *   computations element by element about 50% slower;
-   * - computing the jacobians from a copy of the vertices in a finite
-   *   element space of order one costs between 0.7 s and 2.1 s for 1.6
-   *   million tetrahedra, depending on the mesh and on the device
-   *   (construction of the finite element space and projection of the
-   *   coordinates on the host), against about 10 ms for the kernel on the
-   *   GPU and 0.3 s on the host.
+   * The jacobians are computed by a kernel from the coordinates of the
+   * nodes of the transformations of the elements, as by
+   * `mfem::Mesh::GetElementTransformation`: the nodes of the mesh if it has
+   * some, its vertices otherwise (with the finite element of the
+   * transformations of MFEM, `mfem::Mesh::GetTransformationFEforElementType`).
+   * The gradients of the shape functions of the transformations are
+   * computed for the integration rule, without the caches of the finite
+   * elements of MFEM, indexed by the address of the rule. The geometric
+   * factors of MFEM are not used:
+   * - for a mesh without nodes, `mfem::Mesh::GetGeometricFactors` would give
+   *   nodes to the mesh (`mfem::Mesh::EnsureNodes`), and the element
+   *   transformations of all the computations which follow would use them,
+   *   which makes the computations element by element about 50% slower;
+   *   computing them from a copy of the vertices in a finite element space
+   *   of order one costs 0.7 s on the host and 2.1 s with the GPU enabled
+   *   for 1.6 million tetrahedra (construction of the finite element space
+   *   and projection of the coordinates on the host), against about 10 ms
+   *   for the kernel on the GPU and 0.3 s on the host;
+   * - for the quadrangles and hexahedra, they assume a tensor product
+   *   integration rule.
    *
-   * For a mesh with nodes, the jacobians are the geometric factors of MFEM,
-   * computed for this geometric data (the geometric factors of the mesh
-   * are destroyed if its nodes are modified).
+   * The values and gradients of the shape functions of the unknowns
+   * (`maps`) are the ones cached by the finite element of the unknowns: the
+   * integration rule must not be destroyed while the finite element space
+   * exists.
    *
    * \return true on success
    * \param[in, out] ctx: execution context

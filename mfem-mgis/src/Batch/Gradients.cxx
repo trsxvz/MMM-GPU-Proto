@@ -187,6 +187,15 @@ namespace mfem_mgis::batch {
       r->Mult(u, d.element_values);
       const auto* const fe = fes.GetTypicalFE();
       const auto& maps = fe->GetDofToQuad(ir, mfem::DofToQuad::FULL);
+      // the values and gradients of the shape functions are cached by the
+      // finite element for the address of the integration rule: a different
+      // number of points reveals a rule destroyed and replaced by another at
+      // the same address
+      if ((maps.nqpt != d.nq) || (maps.ndof != fe->GetDof())) {
+        return ctx.registerErrorMessage(
+            "computeUnknownsDerivatives: the values of the shape functions "
+            "cached by the finite element do not match the integration rule");
+      }
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::UnknownsDerivativesKernelArguments{};
       a.number_of_elements = d.ne;

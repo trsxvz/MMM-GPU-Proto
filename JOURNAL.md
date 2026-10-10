@@ -3580,4 +3580,15 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   mutations détectées). Question pour Tristan : la règle de
   `TransientHeatTransfer` est d'ordre 2 OrderGrad, soit un seul point pour
   les tétraèdres d'ordre un, ce qui sous-intègre le terme de masse.
+- mfem-mgis 3e3cc5b0f2 : corrections de la relecture HG2. Jacobiens de
+  tous les maillages par le noyau, à partir des nœuds (tout ordre,
+  rangement par nœuds ou par composantes, nœuds discontinus des maillages
+  périodiques) ou des sommets ; les facteurs géométriques de MFEM ne
+  servent plus (cache par adresse de règle, règles supposées produit
+  tensoriel : 57 % d'erreur sinon). Contrôle des fonctions de forme mises
+  en cache par adresse de règle. Le test thermique comparait les
+  températures initiales (mode de stockage par copie) : mode externe et
+  température de référence non uniforme. Sept mutations détectées.
+  Polycristal inchangé (`results/L5-polycristal-2026-10-10-0752/README.md`,
+  tangente CPU de 2,01 à 1,60 s).
 

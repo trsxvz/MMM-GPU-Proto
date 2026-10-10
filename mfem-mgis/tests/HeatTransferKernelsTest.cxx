@@ -136,11 +136,15 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   const auto* const tangent = opts.matrix_free ? "MatrixFree" : kernels;
   const auto tridimensional =
       std::string_view{c.hypothesis} == "Tridimensional";
-  // boundaries: x = 0 (5), x = 1 (3) and y = 1 (4) of the cubes, x = 0 (2),
-  // x = 1 (4) and y = 1 (3) of the unit square
+  // boundaries: x = 0 (5), x = 1 (3), y = 1 (4) and z = 1 (6) of the cubes,
+  // x = 0 (2), x = 1 (4) and y = 1 (3) of the unit square
   const auto xmin = tridimensional ? 5 : 2;
   const auto xmax = tridimensional ? 3 : 4;
   const auto ymax = tridimensional ? 4 : 3;
+  auto boundaries = Parameters{{"Xmin", xmin}, {"Xmax", xmax}, {"Ymax", ymax}};
+  if (tridimensional) {
+    boundaries.insert(ctx, "Zmax", 6) | or_die;
+  }
   auto materials = Parameters{};
   for (std::size_t i = 0; i != c.materials.size(); ++i) {
     materials.insert(ctx, "M" + std::to_string(i + 1),
@@ -150,22 +154,20 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   auto problem =
       construct<NonLinearEvolutionProblem>(
           ctx,
-          Parameters{
-              {"MeshFileName", c.mesh},
-              {"FiniteElementFamily", "H1"},
-              {"FiniteElementOrder", 1},
-              {"UnknownsSize", 1},
-              // the unit square has 900 elements
-              {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
-              {"Materials", materials},
-              {"Boundaries",
-               Parameters{{"Xmin", xmin}, {"Xmax", xmax}, {"Ymax", ymax}}},
-              {"Hypothesis", c.hypothesis},
-              {"BehaviourIntegration", opts.integration},
-              {"GradientsComputation", kernels},
-              {"InnerForcesComputation", kernels},
-              {"TangentOperatorComputation", tangent},
-              {"Parallel", parallel}}) |
+          Parameters{{"MeshFileName", c.mesh},
+                     {"FiniteElementFamily", "H1"},
+                     {"FiniteElementOrder", 1},
+                     {"UnknownsSize", 1},
+                     // the unit square has 900 elements
+                     {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
+                     {"Materials", materials},
+                     {"Boundaries", boundaries},
+                     {"Hypothesis", c.hypothesis},
+                     {"BehaviourIntegration", opts.integration},
+                     {"GradientsComputation", kernels},
+                     {"InnerForcesComputation", kernels},
+                     {"TangentOperatorComputation", tangent},
+                     {"Parallel", parallel}}) |
       or_die;
   problem.getUnknowns(bts) = 293.15;
   problem.getUnknowns(ets) = 293.15;
@@ -182,8 +184,10 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
     auto& m = problem.getMaterial(ctx, name, 0) | or_die;
     for (auto* s : {&m.s0, &m.s1}) {
       auto& T = temperatures.emplace_back(m.n, 293.15);
-      mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
-                                                std::span<real>(T)) |
+      // the behaviour integrator writes the temperatures in the vector
+      mgis::behaviour::setExternalStateVariable(
+          ctx, *s, "Temperature", std::span<real>(T),
+          mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE) |
           or_die;
     }
     if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
@@ -222,6 +226,14 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
             {"LoadingEvolution",
              [](const real t) noexcept { return 293.15 + 1000 * t; }}}) |
       or_die;
+  if (tridimensional) {
+    problem.addUniformDirichletBoundaryCondition(
+        ctx, {{"Boundary", "Zmax"},
+              {"Component", 0},
+              {"LoadingEvolution",
+               [](const real t) noexcept { return 293.15 + 300 * t; }}}) |
+        or_die;
+  }
   if (opts.matrix_free) {
     // the tangent operator of the heat transfer behaviours is negative
     // definite (`j = -k grad(T)`), and the diagonal of the essential degrees
@@ -326,6 +338,10 @@ static void compare(const Results& a,
   check(du < 1e-10, name + ": temperature");
   check(dj < 1e-10, name + ": heat flux");
   check(dT < 1e-10, name + ": temperature at the integration points");
+  const auto [Tmin, Tmax] =
+      std::minmax_element(a.temperature.begin(), a.temperature.end());
+  check((Tmin != a.temperature.end()) && (*Tmax - *Tmin > 1),
+        name + ": uniform temperature at the integration points");
   check(a.iterations == b.iterations, name + ": numbers of iterations");
 }  // end of compare
 
@@ -362,7 +378,7 @@ static std::vector<Case> getCases(const char* const cube,
       cases.push_back({.name = std::string{n} + ", two materials",
                        .hypothesis = h,
                        .mesh = two_materials,
-                       .materials = {isotropic, orthotropic}});
+                       .materials = {orthotropic, orthotropic}});
       cases.push_back({.name = std::string{n} + ", transient",
                        .hypothesis = h,
                        .mesh = two_materials,

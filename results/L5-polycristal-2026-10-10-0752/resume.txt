@@ -1,0 +1,27 @@
+date : 2026-10-10 07:52:58
+cas : polycristal
+machine : 16 cœurs, 30 Go
+charge : 2.62 8.15 7.38
+mfem-mgis : 3e3cc5b0f2
+== polycristal-np8-newton : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+== polycristal-np8-newton-ew1 : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 1.509e-06
+== polycristal-np8-newton-k0 : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 1.099e-14
+== polycristal-np8-newton-k0-ew1 : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 3.504e-06
+== polycristal-np1-gpu-newton : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+== polycristal-np1-gpu-newton-ew1 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 9.608e-07
+== polycristal-np1-gpu-newton-k0 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 6.567e-15
+== polycristal-np1-gpu-newton-k0-ew1 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   70 valeurs, plus grande différence rapportée au maximum de son groupe : 1.270e-06
