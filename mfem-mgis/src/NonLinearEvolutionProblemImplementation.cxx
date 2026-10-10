@@ -7,6 +7,7 @@
  */
 
 #include <tuple>
+#include <optional>
 #include <algorithm>
 #include <string>
 #include "mfem/fem/datacollection.hpp"
@@ -25,6 +26,7 @@
 #endif /* MFEM_USE_MPI */
 
 #include "MGIS/Raise.hxx"
+#include "MGIS/Profiling.hxx"
 #include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
@@ -351,7 +353,9 @@ namespace mfem_mgis {
     auto& fed = p.getFiniteElementDiscretization();
     auto& fespace = fed.template getFiniteElementSpace<parallel>();
     const auto& u0 = p.getUnknowns(mfem_mgis::bts);
-    auto success = [&p, &u0, dt] {
+    // the phases of the prediction are timed separately (sections `PRED::`)
+    auto success = [&ctx, &p, &u0, dt] {
+      CatchTimeSection(ctx, "PRED::integrate");
       const auto policy = p.getPredictionPolicy();
       if (policy.strategy ==
           PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) {
@@ -382,6 +386,8 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage("integration failure");
     }
     //
+    auto profiler_forms = std::optional<mgis::ProfilingSection>{};
+    profiler_forms.emplace(ctx, "PRED::forms", ctx.isProfilingEnabled());
     auto u0_local = mfem_mgis::GridFunction<parallel>(&fespace);
     if constexpr (parallel) {
       u0_local.Distribute(u0);
@@ -457,7 +463,9 @@ namespace mfem_mgis {
       mdu->SetFromTrueDofs(mdu_values);
     }
     //
+    profiler_forms.reset();
     if (use_kernels) {
+      CatchTimeSection(ctx, "PRED::assemble");
       // as `FormLinearSystem` of MFEM, the elimination of the essential
       // degrees of freedom of the operator being made in place: B = Pᵀ b - K
       // X, X being null except at the essential degrees of freedom, then
@@ -534,9 +542,12 @@ namespace mfem_mgis {
         return std::sqrt(mfem::InnerProduct(r, r));
       }
     }();
-    ls.SetOperator(*op);
-    ls.Mult(B, X);
-    clearHypreErrors();
+    {
+      CatchTimeSection(ctx, "PRED::solve");
+      ls.SetOperator(*op);
+      ls.Mult(B, X);
+      clearHypreErrors();
+    }
     // check for convergence
     if ((!discardLinearSolverFailure) && (!hasConverged(ls))) {
       return ctx.registerErrorMessage("linear solver did not converge");
