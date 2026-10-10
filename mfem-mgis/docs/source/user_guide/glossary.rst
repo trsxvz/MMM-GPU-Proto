@@ -152,6 +152,8 @@ Generalized Minimal Residual (GMRES)
 +-------------------------------+--------------------------------------------------+
 | ``MaximumNumberOfIterations`` | Maximum number of Krylov iterations, >= 1. [int] |
 +-------------------------------+--------------------------------------------------+
+| ``KDim``                      | Define the Krylov dimension, >= 1. [int]         |
++-------------------------------+--------------------------------------------------+
 
 **Example:**
 
@@ -162,6 +164,27 @@ Generalized Minimal Residual (GMRES)
                            {"AbsoluteTolerance", 1e-12},
                            {"RelativeTolerance", 1e-12},
                            {"MaximumNumberOfIterations", 100000}}) |
+      or_die;
+
+
+Flexible Generalized Minimal Residual (FGMRES)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- Solver name: ``FGMRESSolver``
+- Dependencies: None
+- Parameters: the ones of ``GMRESSolver``. Unlike GMRES, FGMRES allows a
+  preconditioner which changes from one iteration to the next, for instance
+  an iterative solver with a tolerance.
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setLinearSolver(ctx, "FGMRESSolver",
+                          {{"VerbosityLevel", 1},
+                           {"RelativeTolerance", 1e-12},
+                           {"MaximumNumberOfIterations", 1000},
+                           {"KDim", 100}}) |
       or_die;
 
 

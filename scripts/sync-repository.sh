@@ -49,7 +49,9 @@ git -C "$repository" rev-list --objects "$tree" "${exclude[@]}" |
   cut -d' ' -f1 |
   git -C "$repository" pack-objects -q --stdout |
   git index-pack --stdin > /dev/null
-git rm -r -q --cached --ignore-unmatch "$repository"
+# the index entries are replaced, even if a previous synchronization was
+# not committed yet
+git rm -r -q --cached --ignore-unmatch -f "$repository"
 git read-tree --prefix="$repository/" "$tree"
 echo "$repository/ synchronized with" \
   "$(git -C "$repository" log -1 --format='%h %s')"

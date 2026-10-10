@@ -21,8 +21,12 @@ assemblée (`AssembledOperator`) ; L5 vague 1 en grande partie faite :
 solveur `FixedPoint` (méthodes `ElasticOperator` et `ModifiedNewton`,
 toutes les accélérations de MTest, prédiction par l'AMG de K0), options
 de BoomerAMG ; sur 8 cœurs le point fixe bat Newton (×1,5 à ×1,7), sur le
-GPU égalité avec le lisseur de Chebyshev (`results/L5-*`). Restent en L5 :
-`NewtonK0`, précision mixte, Newton inexact, vagues 2 et 3. Les choix
+GPU égalité avec le lisseur de Chebyshev (`results/L5-*`). `NewtonK0` fait
+(méthode du solveur `FixedPoint`, tout solveur itératif de MFEM de la
+fabrique préconditionné par le solveur de K0) : sur le GPU, ×1,2 sur la
+poutre et ×1,06 sur le polycristal, sur 8 cœurs ×1,19 sur le
+polycristal, mêmes itérations que Newton. Restent en L5 : précision
+mixte, Newton inexact, vagues 2 et 3. Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
@@ -761,10 +765,14 @@ comparées sur les mêmes cas.
   résidu, une résolution approchée avec `K0`, accélération ;
 - `ModifiedNewton` : tangente assemblée et préconditionnée (ou factorisée)
   à la première itération du pas seulement ;
-- `NewtonK0` (dans le Newton) : tangente cohérente, Krylov préconditionné
-  par l'AMG de `K0` construit une fois. Mêmes itérations que Newton, sans
-  construction d'AMG par itération ; c'est le vrai concurrent du point
-  fixe sur GPU.
+- `NewtonK0` (fait comme méthode du solveur `FixedPoint`) : tangente
+  cohérente, Krylov préconditionné par l'AMG de `K0` construit une fois.
+  Mêmes itérations que Newton, sans construction d'AMG par itération ;
+  c'est le vrai concurrent du point fixe sur GPU. Le Krylov est un
+  solveur itératif de MFEM de la fabrique (`CGSolver` par défaut,
+  `GMRESSolver`, `FGMRESSolver`, `BiCGSTABSolver`, `MINRESSolver`,
+  `SLISolver`) : le gradient conjugué suppose une tangente symétrique
+  définie positive.
 
 **Résolution avec `K0`** (paramètre `LinearSolver`) :
 

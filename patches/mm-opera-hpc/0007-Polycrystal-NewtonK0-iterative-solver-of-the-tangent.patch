@@ -1,0 +1,38 @@
+From 155202fdf4bb83beca62e525f1d4c7a2da3184f2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 03:54:07 +0200
+Subject: [PATCH] Polycrystal: NewtonK0, iterative solver of the tangent
+ operator given by its name
+
+The TangentLinearSolver option of the FixedPoint solver of mfem-mgis now
+names an iterative solver of the factory of the linear solvers (CGSolver).
+---
+ polycrystal/UniaxialPolycrystal.cxx | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 310bc9c..499385e 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -176,7 +176,7 @@ int main(int argc, char *argv[]) {
+   if (std::string_view{p.non_linear_solver} == "NewtonK0") {
+     // the behaviour does not provide its prediction operator: the elastic
+     // operator is given by an integration
+-    const auto tangent_linear_solver = mfem_mgis::Parameters{
++    const auto tangent_linear_solver_options = mfem_mgis::Parameters{
+         {"RelativeTolerance", p.linear_solver_tolerance},
+         {"MaximumNumberOfIterations", 2000}};
+     const auto options = mfem_mgis::Parameters{
+@@ -184,7 +184,8 @@ int main(int argc, char *argv[]) {
+         {"ElasticOperatorComputation", "Integration"},
+         {"ElasticOperatorUpdate", "Once"},
+         {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
+-        {"TangentLinearSolver", tangent_linear_solver}};
++        {"TangentLinearSolver",
++         mfem_mgis::Parameters{{"CGSolver", tangent_linear_solver_options}}}};
+     problem_parameters.insert(
+         mfem_mgis::throwing,
+         {{"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", options}}}});
+-- 
+2.43.0
+

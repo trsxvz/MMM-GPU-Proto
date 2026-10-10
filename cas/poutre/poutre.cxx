@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
   const char* behaviour_integration = "";
   const char* non_linear_solver = "newton";
   const char* fixed_point_method = "elastic";
+  const char* tangent_linear_solver = "CGSolver";
   const char* acceleration = "anderson";
   const char* elastic_operator_linear_solver = "problem";
   const char* amg_options = "";
@@ -103,9 +104,14 @@ int main(int argc, char** argv) {
   args.AddOption(&fixed_point_method, "-fpm", "--fixed-point-method",
                  "Method of the fixed point solver: elastic (fixed point on "
                  "the elastic operator), modified-newton or newton-k0 "
-                 "(Newton, conjugate gradient preconditioned by the linear "
-                 "solver of the elastic operator, -els, with the tolerance of "
-                 "the linear solver, -lt; no acceleration).");
+                 "(Newton, iterative solver of the tangent operator, -tls, "
+                 "preconditioned by the linear solver of the elastic "
+                 "operator, -els, with the tolerance of the linear solver, "
+                 "-lt; no acceleration).");
+  args.AddOption(&tangent_linear_solver, "-tls", "--tangent-linear-solver",
+                 "Iterative solver of MFEM of the tangent operator of the "
+                 "newton-k0 method: CGSolver, GMRESSolver, FGMRESSolver, "
+                 "BiCGSTABSolver, MINRESSolver or SLISolver.");
   args.AddOption(&acceleration, "-acc", "--acceleration",
                  "Acceleration of the fixed point solver: none, anderson or "
                  "cast3m.");
@@ -200,9 +206,11 @@ int main(int argc, char** argv) {
            elastic_operator_once ? "Once" : "EachResolution"}};
       const auto a = std::string{acceleration};
       if (fpm == "newton-k0") {
-        options.insert(ctx, "TangentLinearSolver",
-                       Parameters{{"RelativeTolerance", linear_tolerance},
-                                  {"MaximumNumberOfIterations", 2000}}) |
+        options.insert(
+            ctx, "TangentLinearSolver",
+            Parameters{{tangent_linear_solver,
+                        Parameters{{"RelativeTolerance", linear_tolerance},
+                                   {"MaximumNumberOfIterations", 2000}}}}) |
             or_die;
       } else if (a == "anderson") {
         options.insert(ctx, "Acceleration",

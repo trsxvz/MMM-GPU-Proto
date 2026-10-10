@@ -3422,3 +3422,28 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 - Mesures (`results/L5-poutre-2026-10-10-0250/README.md`) : sur le GPU,
   NewtonK0 2,6 s contre 3,16 s pour Newton (stable) ; sur 8 cœurs, point
   fixe accéléré 9,5 s, NewtonK0 11,6 s, Newton 13,5 s.
+
+### 2026-10-10 (nuit), NewtonK0 sur le polycristal, relecture K0
+
+- mfem-mgis 9249013150 : `PeriodicNonLinearEvolutionProblem` prend les
+  paramètres du problème (par exemple `NonLinearSolver`). mm-opera-hpc
+  6fdd03c puis 155202f : option `--non-linear-solver` du polycristal
+  (`Newton` ou `NewtonK0`, K0 obtenu par une intégration de la loi, qui ne
+  fournit pas d'opérateur de prédiction).
+- Mesures (`results/L5-polycristal-2026-10-10-0340/README.md`, script
+  `cas/mesures-L5-polycristal.sh`) : sur 8 cœurs, NewtonK0 24,9 s contre
+  29,6 s (×1,19, résolution -36 %) ; sur le GPU, 11,3 s contre 11,9 s
+  (×1,06), la loi domine. Mêmes itérations de Newton, contraintes égales à
+  2e-13 près.
+- Relecture courte de 30beae4764 (`scratch/nuit-2026-10-10/relecture-K0.md`,
+  36 configurations NewtonK0 en séquentiel et sur 2 processus, à 5e-11 de
+  Newton) : rien au-dessus de la sévérité 2. Corrigé dans 9355256a9f :
+  `TangentLinearSolver` et `PredictionLinearSolver` nomment un solveur
+  itératif de MFEM de la fabrique (gradient conjugué par défaut ; GMRES,
+  FGMRES, BiCGSTAB, MINRES, SLI), le gradient conjugué demande une tangente
+  symétrique définie positive (documenté) ; `None` pour `Acceleration` ;
+  `FGMRESSolver` dans la fabrique ; régularisation d'Anderson bornée à
+  1e-14 ; tests : chaque solveur itératif, tangente sans assemblage,
+  options changées entre les pas, prédiction à gradients constants ; six
+  mutations détectées (`scratch/nuit-2026-10-10/mutations-K0/`). Option
+  `-tls` de la poutre (solveur itératif de NewtonK0).

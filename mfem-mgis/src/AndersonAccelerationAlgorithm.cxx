@@ -205,9 +205,11 @@ namespace mfem_mgis::internals {
       return ctx.registerErrorMessage(name +
                                       ": the period must be strictly positive");
     }
-    if (*oregularization <= 0) {
+    // the smallest eigenvalue of the regularized matrix of the normal
+    // equations shall be above the rounding errors of its terms
+    if (*oregularization < 1e-14) {
       return ctx.registerErrorMessage(
-          name + ": the regularization must be strictly positive");
+          name + ": the regularization must be greater than 1e-14");
     }
     if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
       return ctx.registerErrorMessage(name + ": invalid residuals '" +

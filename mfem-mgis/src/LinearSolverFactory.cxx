@@ -1000,6 +1000,8 @@ namespace mfem_mgis {
                 buildIterativeSolverGenerator<parallel, mfem::CGSolver>()));
     check(f.add(ctx, "GMRESSolver",
                 buildIterativeSolverGenerator<parallel, mfem::GMRESSolver>()));
+    check(f.add(ctx, "FGMRESSolver",
+                buildIterativeSolverGenerator<parallel, mfem::FGMRESSolver>()));
     check(
         f.add(ctx, "BiCGSTABSolver",
               buildIterativeSolverGenerator<parallel, mfem::BiCGSTABSolver>()));

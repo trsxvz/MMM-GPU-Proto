@@ -113,12 +113,15 @@ namespace mfem_mgis {
      * \param[in] fed: finite element discretization
      * \param[in] corner1: one corner of the computation domain
      * \param[in] corner2: second corner of the computation domain
+     * \param[in] p: parameters of the non linear evolution problem (see
+     * `NonLinearEvolutionProblem`), for instance `NonLinearSolver`
      */
     PeriodicNonLinearEvolutionProblem(
         mgis::Context& ctx,
         std::shared_ptr<FiniteElementDiscretization> fed,
         const std::span<const real>& corner1,
-        const std::span<const real>& corner2);
+        const std::span<const real>& corner2,
+        const Parameters& p = Parameters());
 
     /*!
      * \brief constructor with profiling support
@@ -126,11 +129,14 @@ namespace mfem_mgis {
      * \param[in] fed: finite element discretization
      * \param[in] bct: impose the zero value on displacement field at xmin, or
      * ymin, or zmin
+     * \param[in] p: parameters of the non linear evolution problem (see
+     * `NonLinearEvolutionProblem`), for instance `NonLinearSolver`
      */
     PeriodicNonLinearEvolutionProblem(
         mgis::Context& ctx,
         std::shared_ptr<FiniteElementDiscretization> fed,
-        const mfem_mgis::BoundaryConditionType bct = mfem_mgis::FIX_XMIN);
+        const mfem_mgis::BoundaryConditionType bct = mfem_mgis::FIX_XMIN,
+        const Parameters& p = Parameters());
     //! \brief move constructor
     PeriodicNonLinearEvolutionProblem(
         PeriodicNonLinearEvolutionProblem&&) noexcept = default;

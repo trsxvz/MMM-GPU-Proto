@@ -61,6 +61,12 @@ struct NumericalParameters {
   const char *linear_solver_preconditioner = "HypreBoomerAMG";
   //! \brief default tolerance for the convergence of the linear solver
   mfem_mgis::real linear_solver_tolerance = mfem_mgis::real{1e-12};
+  /*!
+   * \brief non linear solver: `Newton`, or `NewtonK0` (Newton's method, the
+   * conjugate gradient being preconditioned by BoomerAMG built once on the
+   * elastic operator, see the `FixedPoint` solver of mfem-mgis)
+   */
+  const char *non_linear_solver = "Newton";
 };
 
 /*!
@@ -166,7 +172,30 @@ int main(int argc, char *argv[]) {
                                  {"UnknownsSize", mfem_mgis::size_type{3}},
                                  {"NumberOfUniformRefinements", p.refinement},
                                  {"Parallel", true}});
-  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(ctx, fed);
+  auto problem_parameters = mfem_mgis::Parameters{};
+  if (std::string_view{p.non_linear_solver} == "NewtonK0") {
+    // the behaviour does not provide its prediction operator: the elastic
+    // operator is given by an integration
+    const auto tangent_linear_solver_options = mfem_mgis::Parameters{
+        {"RelativeTolerance", p.linear_solver_tolerance},
+        {"MaximumNumberOfIterations", 2000}};
+    const auto options = mfem_mgis::Parameters{
+        {"Method", "NewtonK0"},
+        {"ElasticOperatorComputation", "Integration"},
+        {"ElasticOperatorUpdate", "Once"},
+        {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
+        {"TangentLinearSolver",
+         mfem_mgis::Parameters{{"CGSolver", tangent_linear_solver_options}}}};
+    problem_parameters.insert(
+        mfem_mgis::throwing,
+        {{"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", options}}}});
+  } else if (std::string_view{p.non_linear_solver} != "Newton") {
+    mfem_mgis::Profiler::Utils::Message(
+        "error: invalid non linear solver (expected Newton or NewtonK0)");
+    std::exit(EXIT_FAILURE);
+  }
+  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(
+      ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
   mm_opera_hpc::printMeshInformation(ctx, problem);
 
   // set problem
@@ -237,6 +266,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.linear_solver_preconditioner, "",
                  "--linear-solver-preconditioner",
                  "preconditioner of the linear solver to be used");
+  args.AddOption(&p.non_linear_solver, "", "--non-linear-solver",
+                 "non linear solver: Newton (default) or NewtonK0");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",

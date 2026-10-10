@@ -8,8 +8,8 @@
 # Arguments : cas (poutre ou polycristal), dossier de résultats (par défaut
 # results/<lot>-<cas>-<date>). Définit `run` (voir plus bas), `generic`,
 # `openmp` et `stlpar` (bibliothèques de la loi du cas), et les variables
-# `device`, `linear_solver`, `linear_tolerance` et `options` lues par
-# `run`.
+# `device`, `linear_solver`, `linear_tolerance`, `options` et `reference`
+# lues par `run`.
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -20,8 +20,8 @@
 # résultats, résumé dans resume.txt ; temps par phase :
 # cas/resume-profilage.py <dossier>/*.txt. Pour le polycristal, les
 # contraintes macroscopiques de chaque calcul sont comparées à celles du
-# calcul point par point sur le même nombre de processus
-# (cas/comparer-sorties.py).
+# calcul de référence, par défaut le calcul point par point sur le même
+# nombre de processus (cas/comparer-sorties.py).
 set -u
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$P/scripts/env.sh" > /dev/null
@@ -67,11 +67,16 @@ out=$(cd "$out" && pwd)
 } | tee -a "$out/resume.txt"
 # périphérique de MFEM des calculs (option --device), vide pour le CPU
 device=""
-# poutre : solveur linéaire (option -ls), sa tolérance (option -lt) et
-# options supplémentaires (par exemple `-pu 2`, voir cas/poutre/poutre.cxx)
+# poutre : solveur linéaire (option -ls), sa tolérance (option -lt) ;
+# options supplémentaires du cas (par exemple `-pu 2` pour la poutre, voir
+# cas/poutre/poutre.cxx, ou `--non-linear-solver NewtonK0` pour le
+# polycristal)
 linear_solver=pcg-amg
 linear_tolerance=1e-4
 options=""
+# polycristal : nom du calcul de référence des comparaisons (par défaut, le
+# calcul point par point sur le même nombre de processus)
+reference=""
 # usage : command_of bibliothèque nom
 # affiche la commande du cas
 command_of() {
@@ -86,7 +91,7 @@ command_of() {
       echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
         --duration 10 -l "$library" \
         --macroscopic-stress-output-file "$out/$name.res" \
-        ${device:+--device $device}
+        ${device:+--device $device} $options
       ;;
   esac
 }
@@ -113,12 +118,13 @@ run() {
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/resume.txt"
-  # comparaison au calcul point par point sur le même nombre de processus
-  # (la partition change les résultats du solveur itératif)
-  local reference=$out/$case_name-np$np-point-par-point.res
-  if [ -f "$out/$name.res" ] && [ -f "$reference" ] &&
-    [ "$out/$name.res" != "$reference" ]; then
-    python3 "$P/cas/comparer-sorties.py" "$reference" \
+  # comparaison au calcul de référence, par défaut le calcul point par
+  # point sur le même nombre de processus (la partition change les
+  # résultats du solveur itératif)
+  local reference_file=$out/${reference:-$case_name-np$np-point-par-point}.res
+  if [ -f "$out/$name.res" ] && [ -f "$reference_file" ] &&
+    [ "$out/$name.res" != "$reference_file" ]; then
+    python3 "$P/cas/comparer-sorties.py" "$reference_file" \
       "$out/$name.res" --rtol 1e-8 --groupes 0 1-3 4-6 | sed 's/^/   /' |
       tee -a "$out/resume.txt"
   fi
