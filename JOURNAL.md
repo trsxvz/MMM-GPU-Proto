@@ -3390,7 +3390,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 - mfem-mgis 846551e0cb : `getElasticPredictionLinearSolver` : le point fixe
   peut fournir le solveur de la prédiction élastique (gradient conjugué
   préconditionné par l'AMG de K0 déjà construite) ; gain modeste
-  (prédiction 1,52 s au lieu de 1,34 s sur le GPU), la prédiction reste
+  (prédiction 1,34 s au lieu de 1,52 s sur le GPU), la prédiction reste
   le poste principal du point fixe.
 - Relecture indépendante de a2602d117a, f3d8ed1e55, bae47cb272
   (`scratch/nuit-2026-10-10/relecture-L5.md`) : noyaux et point fixe

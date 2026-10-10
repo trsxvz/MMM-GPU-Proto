@@ -14,7 +14,15 @@ minimale de L6 faite (loi `cuda` intégrée sur les tableaux du GPU, fin de
 pas sur le GPU, validation par le périphérique `debug`, profil sans copie
 cachée), prédiction de L4 par noyaux faite. Sur un GPU : poutre r4 en
 3,3 s contre 17,5 s sur 8 cœurs, polycristal en 13,2 s contre 31,7 s
-(`results/L6-*`). Les choix
+(`results/L6-*`). Au 10/10/2026 : action de la tangente sans
+assemblage par un noyau fusionné et dérivées des inconnues par un noyau
+propre (`results/L4-*`), préconditionneur construit sur la tangente
+assemblée (`AssembledOperator`) ; L5 vague 1 en grande partie faite :
+solveur `FixedPoint` (méthodes `ElasticOperator` et `ModifiedNewton`,
+toutes les accélérations de MTest, prédiction par l'AMG de K0), options
+de BoomerAMG ; sur 8 cœurs le point fixe bat Newton (×1,5 à ×1,7), sur le
+GPU égalité avec le lisseur de Chebyshev (`results/L5-*`). Restent en L5 :
+`NewtonK0`, précision mixte, Newton inexact, vagues 2 et 3. Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
