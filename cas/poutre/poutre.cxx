@@ -68,6 +68,7 @@ int main(int argc, char** argv) {
   const char* amg_options = "";
   auto anderson_depth = 4;
   auto elastic_operator_once = false;
+  auto prediction_by_elastic_operator = false;
   auto parallel = true;
   auto refinements = 3;
   auto steps = 10;
@@ -116,6 +117,12 @@ int main(int argc, char** argv) {
   args.AddOption(&elastic_operator_once, "-k0", "--elastic-operator-once",
                  "-no-k0", "--no-elastic-operator-once",
                  "Elastic operator of the fixed point solver assembled once.");
+  args.AddOption(&prediction_by_elastic_operator, "-pk0",
+                 "--prediction-by-elastic-operator", "-no-pk0",
+                 "--no-prediction-by-elastic-operator",
+                 "Elastic predictions of the fixed point solver solved by the "
+                 "conjugate gradient preconditioned by the linear solver of "
+                 "the elastic operator (tolerance of the linear solver).");
   args.AddOption(&amg_options, "-amgo", "--amg-options",
                  "Options of all the BoomerAMG preconditioners and solvers, "
                  "as Name=value separated by commas (see the HypreBoomerAMG "
@@ -218,6 +225,14 @@ int main(int argc, char** argv) {
         std::cerr << "invalid linear solver of the elastic operator '" << els
                   << "'\n";
         abort(EXIT_FAILURE);
+      }
+      if (prediction_by_elastic_operator) {
+        options.insert(
+            ctx, "PredictionLinearSolver",
+            Parameters{
+                {"ElasticOperator",
+                 Parameters{{"RelativeTolerance", linear_tolerance}}}}) |
+            or_die;
       }
       parameters.insert(ctx, "NonLinearSolver",
                         Parameters{{"FixedPoint", options}}) |

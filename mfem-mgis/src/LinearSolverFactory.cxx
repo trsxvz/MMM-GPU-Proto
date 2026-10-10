@@ -6,6 +6,9 @@
  */
 
 #include <memory>
+#include <string>
+#include <vector>
+#include <functional>
 #include <optional>
 #include <utility>
 #include "mfem/linalg/solvers.hpp"
@@ -32,34 +35,35 @@
 namespace mfem_mgis::internals {
 
   /*!
-   * \brief BoomerAMG preconditioner for a system of equations
+   * \brief BoomerAMG preconditioner whose settings are applied again for each
+   * new operator.
    *
-   * For unknowns ordered by nodes, `HypreBoomerAMG::SetSystemsOptions` gives
-   * hypre the component of each unknown. This description depends on the size
-   * of the operator and is lost by `HypreBoomerAMG::SetOperator`, so the
-   * systems options are set again for each new operator.
+   * `HypreBoomerAMG::SetOperator` creates a new solver of hypre, which only
+   * keeps some options (`HypreBoomerAMG::ResetAMGPrecond`): the description
+   * of the systems (`SetSystemsOptions`, which depends on the size of the
+   * operator for unknowns ordered by nodes), the number of cycles per
+   * application, the type of cycle and the number of sweeps per cycle are
+   * lost. The settings are applied after each `SetOperator`, before the
+   * setup of hypre, made at the first application.
    */
-  struct SystemHypreBoomerAMG final : public mfem::HypreBoomerAMG {
-    /*!
-     * \brief constructor
-     * \param[in] s: finite element space
-     */
-    explicit SystemHypreBoomerAMG(const FiniteElementSpace<true>& s)
-        : number_of_components(s.GetVDim()),
-          ordered_by_nodes(s.GetOrdering() == mfem::Ordering::byNODES) {}
-    //! \brief set the operator and the systems options
+  struct ConfiguredHypreBoomerAMG final : public mfem::HypreBoomerAMG {
+    //! \brief a setting of the preconditioner
+    using Setting = std::function<void(mfem::HypreBoomerAMG&)>;
+    //! \param[in] s: settings
+    explicit ConfiguredHypreBoomerAMG(std::vector<Setting> s)
+        : settings(std::move(s)) {}
+    //! \brief set the operator, then the settings
     void SetOperator(const mfem::Operator& op) override {
       mfem::HypreBoomerAMG::SetOperator(op);
-      this->SetSystemsOptions(this->number_of_components,
-                              this->ordered_by_nodes);
+      for (const auto& setting : this->settings) {
+        setting(*this);
+      }
     }
 
    private:
-    //! \brief number of components of the unknowns
-    const int number_of_components;
-    //! \brief if the unknowns are ordered by nodes
-    const bool ordered_by_nodes;
-  };  // end of struct SystemHypreBoomerAMG
+    //! \brief settings
+    const std::vector<Setting> settings;
+  };  // end of struct ConfiguredHypreBoomerAMG
 
 }  // end of namespace mfem_mgis::internals
 
@@ -69,51 +73,127 @@ namespace mfem_mgis {
 
 #ifdef MFEM_USE_MPI
 
+  /*!
+   * \return the BoomerAMG preconditioner of hypre
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] opts: options:
+   * - `Strategy`: `System` (systems options, by default for vector unknowns),
+   *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
+   *   dimension, `System` being used otherwise) or `None`;
+   * - `VerbosityLevel`: print level of hypre;
+   * - options of hypre, whose values are the ones of hypre (see its
+   *   documentation): `StrengthThreshold`, `CoarseningType`,
+   *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
+   *   `RelaxationSweeps` (sweeps before and after the coarse levels),
+   *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
+   *   application, 1 by default) and `MaximumNumberOfLevels`.
+   */
   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
   setHypreBoomerAMGPreconditioner(Context& ctx,
                                   FiniteElementSpace<true>& fespace,
                                   const Parameters& opts) noexcept {
     using Problem = AbstractNonLinearEvolutionProblem;
-    auto amg = std::make_unique<mfem::HypreBoomerAMG>();
-    if (!checkParameters(ctx, opts,
-                         std::vector<std::string>{
-                             "Strategy", Problem::SolverVerbosityLevel})) {
+    using Setting = internals::ConfiguredHypreBoomerAMG::Setting;
+    const auto integer_options = std::vector<std::string>{
+        "CoarseningType", "AggressiveCoarseningLevels", "InterpolationType",
+        "RelaxationType", "RelaxationSweeps",           "CycleType",
+        "NumberOfCycles", "MaximumNumberOfLevels"};
+    auto allowed = integer_options;
+    allowed.insert(allowed.end(), {"Strategy", "StrengthThreshold",
+                                   Problem::SolverVerbosityLevel});
+    if (!checkParameters(ctx, opts, allowed)) {
       return {};
     }
-    if (contains(opts, "Strategy")) {
-      const auto ostrategy = get<std::string>(ctx, opts, "Strategy");
-      if (isInvalid(ostrategy)) {
+    auto settings = std::vector<Setting>{};
+    // strategy
+    const auto ostrategy = get_if<std::string>(
+        ctx, opts, "Strategy",
+        std::string{fespace.GetVDim() > 1 ? "System" : "None"});
+    if (isInvalid(ostrategy)) {
+      return {};
+    }
+    auto elasticity = false;
+    if (*ostrategy == "Elasticity") {
+      if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
+        elasticity = true;
+      } else if (fespace.GetMyRank() == 0) {
+        // the elasticity version of BoomerAMG requires Ordering::byVDIM
+        warning(ctx.log(),
+                "setLinearSolverParameters: strategy 'Elasticity' of "
+                "preconditioner HypreBoomerAMG requires unknowns ordered "
+                "by vector dimension (i.e. the parameter "
+                "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
+                "using strategy 'System' instead");
+      }
+    } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
+      return ctx.registerErrorMessage(
+          "setLinearSolverParameters: "
+          "invalid strategy '" +
+          *ostrategy + "' for preconditioner HypreBoomerAMG");
+    }
+    if ((!elasticity) && (*ostrategy != "None")) {
+      const auto n = fespace.GetVDim();
+      const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
+      settings.push_back([n, by_nodes](mfem::HypreBoomerAMG& amg) {
+        amg.SetSystemsOptions(n, by_nodes);
+      });
+    }
+    // options of hypre
+    if (contains(opts, "StrengthThreshold")) {
+      const auto ov = get<double>(ctx, opts, "StrengthThreshold");
+      if (isInvalid(ov)) {
         return {};
       }
-      if (*ostrategy == "Elasticity") {
-        if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
-          amg->SetElasticityOptions(&fespace);
-        } else {
-          // the elasticity version of BoomerAMG requires Ordering::byVDIM
-          if (fespace.GetMyRank() == 0) {
-            warning(ctx.log(),
-                    "setLinearSolverParameters: strategy 'Elasticity' of "
-                    "preconditioner HypreBoomerAMG requires unknowns ordered "
-                    "by vector dimension (i.e. the parameter "
-                    "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
-                    "using strategy 'System' instead");
-          }
-          amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
-        }
-      } else if (*ostrategy == "System") {
-        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
-      } else if (*ostrategy != "None") {
+      settings.push_back(
+          [v = *ov](mfem::HypreBoomerAMG& amg) { amg.SetStrengthThresh(v); });
+    }
+    for (const auto& o : integer_options) {
+      if (!contains(opts, o)) {
+        continue;
+      }
+      const auto ov = get<int>(ctx, opts, o);
+      if (isInvalid(ov)) {
+        return {};
+      }
+      const auto v = *ov;
+      if ((v < 0) || ((v == 0) && (o != "CoarseningType") &&
+                      (o != "AggressiveCoarseningLevels") &&
+                      (o != "InterpolationType") && (o != "RelaxationType"))) {
         return ctx.registerErrorMessage(
-            "setLinearSolverParameters: "
-            "invalid strategy '" +
-            *ostrategy + "' for preconditioner HypreBoomerAMG");
+            "setLinearSolverParameters: invalid "
+            "value for option '" +
+            o + "' of HypreBoomerAMG");
       }
-    } else {
-      // without the `Strategy` option, a system AMG is used for vector
-      // unknowns
-      if (fespace.GetVDim() > 1) {
-        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
+      if (o == "CoarseningType") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetCoarsening(v); });
+      } else if (o == "AggressiveCoarseningLevels") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetAggressiveCoarsening(v); });
+      } else if (o == "InterpolationType") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetInterpolation(v); });
+      } else if (o == "RelaxationType") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetRelaxType(v); });
+      } else if (o == "RelaxationSweeps") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleNumSweeps(v, v); });
+      } else if (o == "CycleType") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleType(v); });
+      } else if (o == "NumberOfCycles") {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxIter(v); });
+      } else {
+        settings.push_back(
+            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxLevels(v); });
       }
+    }
+    auto amg = std::make_unique<internals::ConfiguredHypreBoomerAMG>(settings);
+    if (elasticity) {
+      amg->SetElasticityOptions(&fespace);
     }
     if (contains(opts, Problem::SolverVerbosityLevel)) {
       const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);

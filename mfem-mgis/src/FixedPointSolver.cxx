@@ -55,6 +55,28 @@ namespace mfem_mgis {
         "nor a parallel matrix of hypre");
   }  // end of copyAssembledOperator
 
+  namespace {
+
+    /*!
+     * \brief preconditioner applying a linear solver whose setup is kept:
+     * the operators given to `SetOperator` are ignored
+     */
+    struct KeptLinearSolver final : mfem::Solver {
+      //! \param[in] s: linear solver
+      explicit KeptLinearSolver(mfem::Solver& s)
+          : mfem::Solver(s.Height(), s.Width()), solver(s) {}
+      void SetOperator(const mfem::Operator&) override {}
+      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+        this->solver.Mult(x, y);
+      }
+
+     private:
+      //! \brief linear solver
+      mfem::Solver& solver;
+    };
+
+  }  // end of namespace
+
   /*!
    * \return the name and the options of an object built by a factory, given
    * by its name or by a dictionary with a unique entry associating its name
@@ -140,9 +162,12 @@ namespace mfem_mgis {
 
   bool FixedPointSolver::setSolverParameters(
       Context& ctx, const Parameters& params) noexcept {
-    const auto options = std::vector<std::string>{
-        "Method", "ElasticOperatorComputation", "ElasticOperatorUpdate",
-        "ElasticOperatorLinearSolver", "Acceleration"};
+    const auto options = std::vector<std::string>{"Method",
+                                                  "ElasticOperatorComputation",
+                                                  "ElasticOperatorUpdate",
+                                                  "ElasticOperatorLinearSolver",
+                                                  "Acceleration",
+                                                  "PredictionLinearSolver"};
     auto others = Parameters{};
     for (const auto& [k, v] : params) {
       if (std::find(options.begin(), options.end(), k) == options.end()) {
@@ -222,8 +247,73 @@ namespace mfem_mgis {
       }
       this->acceleration = std::move(a);
     }
+    if (contains(params, "PredictionLinearSolver")) {
+      const auto oa = getFactoryArgument(ctx, params, "PredictionLinearSolver");
+      if (isInvalid(oa)) {
+        return false;
+      }
+      const auto& [n, opts] = *oa;
+      if ((n != "Problem") && (n != "ElasticOperator")) {
+        return ctx.registerErrorMessage(
+            "FixedPointSolver: invalid linear solver of the predictions '" + n +
+            "' (expected 'Problem' or 'ElasticOperator')");
+      }
+      if (!checkParameters(
+              ctx, opts,
+              std::vector<std::string>{"RelativeTolerance",
+                                       "MaximumNumberOfIterations"})) {
+        return false;
+      }
+      const auto otol = get_if<double>(ctx, opts, "RelativeTolerance", 1e-8);
+      const auto omax =
+          get_if<int>(ctx, opts, "MaximumNumberOfIterations", 1000);
+      if (isInvalid(otol) || isInvalid(omax)) {
+        return false;
+      }
+      this->prediction_by_elastic_operator = n == "ElasticOperator";
+      this->prediction_relative_tolerance = *otol;
+      this->prediction_maximum_number_of_iterations = *omax;
+      this->prediction_linear_solver.reset();
+      this->prediction_preconditioner.reset();
+    }
     return NonLinearSolverBase::setSolverParameters(ctx, others);
   }  // end of setSolverParameters
+
+  LinearSolver* FixedPointSolver::getElasticPredictionLinearSolver() noexcept {
+    auto* const s = this->elastic_operator_linear_solver.linear_solver.get();
+    if ((!this->prediction_by_elastic_operator) ||
+        (this->method != Method::ELASTIC_OPERATOR) || (s == nullptr) ||
+        (this->elastic_operator == nullptr)) {
+      return nullptr;
+    }
+    if (this->prediction_linear_solver == nullptr) {
+      try {
+#ifdef MFEM_USE_MPI
+        if (this->GetComm() != MPI_COMM_NULL) {
+          this->prediction_linear_solver =
+              std::make_unique<mfem::CGSolver>(this->GetComm());
+        }
+#endif /* MFEM_USE_MPI */
+        if (this->prediction_linear_solver == nullptr) {
+          this->prediction_linear_solver = std::make_unique<mfem::CGSolver>();
+        }
+        auto& cg = *(this->prediction_linear_solver);
+        cg.iterative_mode = false;
+        cg.SetRelTol(this->prediction_relative_tolerance);
+        cg.SetAbsTol(real{0});
+        cg.SetMaxIter(this->prediction_maximum_number_of_iterations);
+        cg.SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
+        this->prediction_preconditioner =
+            std::make_unique<KeptLinearSolver>(*s);
+        cg.SetPreconditioner(*(this->prediction_preconditioner));
+      } catch (...) {
+        this->prediction_linear_solver.reset();
+        this->prediction_preconditioner.reset();
+        return nullptr;
+      }
+    }
+    return this->prediction_linear_solver.get();
+  }  // end of getElasticPredictionLinearSolver
 
   bool FixedPointSolver::integrate(const mfem::Vector& u,
                                    const IntegrationType it) const {
@@ -234,6 +324,9 @@ namespace mfem_mgis {
             : mgis::ProfilingSection{};
     if (!this->integrate_behaviours(u, it)) {
       return false;
+    }
+    if (this->nue_actions.empty()) {
+      return true;
     }
     return this->processNewUnknownsEstimate(u);
   }  // end of integrate
@@ -325,6 +418,11 @@ namespace mfem_mgis {
       v->UseDevice(true);
     }
     auto update_residual = [this, &r](const mfem::Vector& u) {
+      auto profiler_residual =
+          this->ctx_ptr != nullptr
+              ? this->ctx_ptr->startNewProfiling(
+                    "NS::computeResidual", this->ctx_ptr->isProfilingEnabled())
+              : mgis::ProfilingSection{};
       this->computeResidual(r, u);
       return this->Norm(r);
     };

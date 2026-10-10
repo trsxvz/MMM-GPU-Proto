@@ -689,9 +689,16 @@ namespace mfem_mgis {
                             .matrix = &(this->prediction_matrix),
                             .inner_forces = &(this->inner_forces_by_kernels)};
     }
+    // the non linear solver may provide the linear solver of an elastic
+    // prediction
+    auto* const ls = ((this->solver.get() != nullptr) &&
+                      (this->getPredictionPolicy().prediction_operator ==
+                       PredictionOperator::ELASTIC))
+                         ? this->solver->getElasticPredictionLinearSolver()
+                         : nullptr;
     const auto oresult = ::mfem_mgis::computePrediction<true>(
-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
-        kernels);
+        ctx, *this, (ls != nullptr) ? *ls : *(this->linear_solver), t, dt,
+        discardLinearSolverFailure, kernels);
 #pragma message("required ?")
     this->solver->setLinearSolver(*(this->linear_solver));
     if (isInvalid(oresult)) {
@@ -1041,9 +1048,16 @@ namespace mfem_mgis {
                             .matrix = &(this->prediction_matrix),
                             .inner_forces = &(this->inner_forces_by_kernels)};
     }
+    // the non linear solver may provide the linear solver of an elastic
+    // prediction
+    auto* const ls = ((this->solver.get() != nullptr) &&
+                      (this->getPredictionPolicy().prediction_operator ==
+                       PredictionOperator::ELASTIC))
+                         ? this->solver->getElasticPredictionLinearSolver()
+                         : nullptr;
     const auto oresult = ::mfem_mgis::computePrediction<false>(
-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
-        kernels);
+        ctx, *this, (ls != nullptr) ? *ls : *(this->linear_solver), t, dt,
+        discardLinearSolverFailure, kernels);
     this->solver->setLinearSolver(*(this->linear_solver));
     if (isInvalid(oresult)) {
       return {};

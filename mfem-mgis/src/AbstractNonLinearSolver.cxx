@@ -23,6 +23,11 @@ namespace mfem_mgis {
       NonLinearEvolutionProblemImplementation<false> &) {
   }  // end of AbstractNonLinearSolver
 
+  LinearSolver*
+  AbstractNonLinearSolver::getElasticPredictionLinearSolver() noexcept {
+    return nullptr;
+  }  // end of getElasticPredictionLinearSolver
+
   AbstractNonLinearSolver::~AbstractNonLinearSolver() = default;
 
 }  // end of namespace mfem_mgis

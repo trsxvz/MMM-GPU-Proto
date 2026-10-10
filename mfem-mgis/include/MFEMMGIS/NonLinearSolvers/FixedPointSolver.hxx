@@ -56,6 +56,15 @@ namespace mfem_mgis {
    * Acceleration (option `Acceleration`, a name or a `Name` and `Options`,
    * see `AccelerationAlgorithmFactory`): none by default.
    *
+   * Linear solver of the elastic prediction of the problem (option
+   * `PredictionLinearSolver`): `Problem` (default), the linear solver of
+   * the problem, or `ElasticOperator`, the conjugate gradient of MFEM
+   * preconditioned by the linear solver of the elastic operator, whose
+   * setup is kept, with the options `RelativeTolerance` (1e-8 by default)
+   * and `MaximumNumberOfIterations` (1000 by default). The latter is used
+   * by the predictions which follow the first resolution, with the
+   * `ElasticOperator` method and a linear solver of the elastic operator.
+   *
    * The other options are the ones of the iterative solvers
    * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
    * `VerbosityLevel`) and `DiscardLinearSolverFailure`. When the
@@ -81,6 +90,8 @@ namespace mfem_mgis {
     [[nodiscard]] bool setSolverParameters(Context&,
                                            const Parameters&) noexcept override;
     void Mult(const mfem::Vector&, mfem::Vector&) const override;
+    [[nodiscard]] LinearSolver* getElasticPredictionLinearSolver() noexcept
+        override;
     //! \brief destructor
     ~FixedPointSolver() noexcept override;
 
@@ -125,6 +136,22 @@ namespace mfem_mgis {
     LinearSolverHandler elastic_operator_linear_solver;
     //! \brief elastic operator
     mutable std::unique_ptr<mfem::Operator> elastic_operator;
+    /*!
+     * \brief if true, the elastic predictions are solved by the conjugate
+     * gradient preconditioned by the linear solver of the elastic operator
+     */
+    bool prediction_by_elastic_operator = false;
+    //! \brief relative tolerance of the elastic predictions
+    real prediction_relative_tolerance = 1e-8;
+    //! \brief maximum number of iterations of the elastic predictions
+    int prediction_maximum_number_of_iterations = 1000;
+    //! \brief linear solver of the elastic predictions
+    std::unique_ptr<mfem::IterativeSolver> prediction_linear_solver;
+    /*!
+     * \brief preconditioner of the elastic predictions, applying the linear
+     * solver of the elastic operator
+     */
+    std::unique_ptr<mfem::Solver> prediction_preconditioner;
   };  // end of struct FixedPointSolver
 
 }  // end of namespace mfem_mgis

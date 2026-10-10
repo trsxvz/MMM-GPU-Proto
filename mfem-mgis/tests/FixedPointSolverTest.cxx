@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <iostream>
 #include <algorithm>
@@ -58,11 +59,14 @@ struct Results {
  * \param[in] library: behaviour library
  * \param[in] solver: value of the `NonLinearSolver` parameter, the Newton
  * solver being used if empty
+ * \param[in] prediction: if true, an elastic prediction is made at the
+ * beginning of each time step
  */
 static Results compute(mfem_mgis::Context& ctx,
                        const char* const mesh,
                        const char* const library,
-                       const mfem_mgis::Parameters& solver) {
+                       const mfem_mgis::Parameters& solver,
+                       const bool prediction = false) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
   auto params = Parameters{
@@ -101,6 +105,11 @@ static Results compute(mfem_mgis::Context& ctx,
       or_die;
   problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
       or_die;
+  if (prediction) {
+    problem.setPredictionPolicy(
+        {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION,
+         .prediction_operator = PredictionOperator::ELASTIC});
+  }
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                     {"RelativeTolerance", 1e-12},
                                     {"AbsoluteTolerance", 0.},
@@ -221,7 +230,10 @@ int main(int argc, char** argv) {
     Parameters options;
     // if true, the number of iterations must be lower than without
     // acceleration
-    bool accelerated;
+    bool accelerated;  // if true, an elastic prediction is made at the
+                       // beginning of each time
+    // step
+    bool prediction = false;
   };
   auto cases = std::vector<Case>{
       {"fixed point, Anderson",
@@ -243,6 +255,23 @@ int main(int argc, char** argv) {
       {"modified Newton, Anderson",
        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
        true}};
+  // elastic prediction, by the linear solver of the problem or by the
+  // conjugate gradient preconditioned by the linear solver of the elastic
+  // operator
+  for (const auto* const pls : {"Problem", "ElasticOperator"}) {
+    cases.push_back(
+        {std::string{"fixed point, Anderson, prediction by the linear solver "
+                     "of the "} +
+             (std::string_view{pls} == "Problem" ? "problem"
+                                                 : "elastic operator"),
+         {{"Acceleration", "Anderson"},
+          {"ElasticOperatorUpdate", "Once"},
+          {"ElasticOperatorLinearSolver",
+           parallel ? "MUMPSSolver" : "UMFPackSolver"},
+          {"PredictionLinearSolver", std::string{pls}}},
+         true,
+         true});
+  }
   // the other accelerations, ported from MTest: the solution only is
   // checked. Steffensen's method, applied component by component, diverges
   // on this problem (as expected for a coupled system): its declaration is
@@ -268,6 +297,17 @@ int main(int argc, char** argv) {
           {"ElasticOperatorLinearSolver", "HypreBoomerAMG"}},
          true});
     cases.push_back(
+        {"fixed point, Anderson, two cycles of BoomerAMG per iteration",
+         {{"Acceleration", "Anderson"},
+          {"ElasticOperatorUpdate", "Once"},
+          {"ElasticOperatorLinearSolver",
+           Parameters{
+               {"HypreBoomerAMG", Parameters{{"VerbosityLevel", 0},
+                                             {"NumberOfCycles", 2},
+                                             {"RelaxationSweeps", 1},
+                                             {"StrengthThreshold", 0.25}}}}}},
+         true});
+    cases.push_back(
         {"fixed point, Anderson, conjugate gradient and BoomerAMG",
          {{"Acceleration", "Anderson"},
           {"ElasticOperatorLinearSolver",
@@ -277,8 +317,24 @@ int main(int argc, char** argv) {
                                    Parameters{{"Name", "HypreBoomerAMG"}}}}}}}},
          true});
   }
+  // number of iterations of the fixed point with one cycle of BoomerAMG per
+  // iteration, compared to two cycles per iteration (a setting of BoomerAMG
+  // which must survive the setup of the elastic operator)
+  auto amg_iterations = size_type{};
   for (const auto& c : cases) {
-    const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options));
+    const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options),
+                           c.prediction);
+    if (c.name ==
+        "fixed point, Anderson, one cycle of BoomerAMG per iteration") {
+      amg_iterations = r.iterations;
+    }
+    if (c.name ==
+        "fixed point, Anderson, two cycles of BoomerAMG per iteration") {
+      check(r.iterations < amg_iterations,
+            c.name + ": number of iterations (" + std::to_string(r.iterations) +
+                " with two cycles, " + std::to_string(amg_iterations) +
+                " with one cycle)");
+    }
     const auto du = getRelativeDifference(reference.u, r.u);
     std::cout << c.name << ": " << r.iterations
               << " iterations, relative difference to Newton " << du << '\n';
@@ -312,6 +368,8 @@ int main(int argc, char** argv) {
       {{"Acceleration",
         Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
       "invalid residuals of Anderson's method");
+  checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
+               "an invalid linear solver of the predictions");
   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
                "an invalid update of the elastic operator");
   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},

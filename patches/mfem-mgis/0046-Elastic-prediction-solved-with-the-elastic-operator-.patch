@@ -1,0 +1,375 @@
+From 846551e0cbc56b3ae0f4474a708414b84b7024d4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 03:00:07 +0200
+Subject: [PATCH] Elastic prediction solved with the elastic operator of the
+ fixed point solver
+
+AbstractNonLinearSolver::getElasticPredictionLinearSolver lets a non linear
+solver provide the linear solver of the elastic predictions of the problem
+(null by default: the linear solver of the problem is used).
+FixedPointSolver provides, with the option PredictionLinearSolver set to
+ElasticOperator, the conjugate gradient of MFEM preconditioned by the
+linear solver of the elastic operator, whose setup is kept (for instance
+one cycle of BoomerAMG), instead of a new setup of the preconditioner of
+the problem at each time step.
+---
+ .../AbstractNonLinearSolver.hxx               |  9 ++
+ .../NonLinearSolvers/FixedPointSolver.hxx     | 27 ++++++
+ src/AbstractNonLinearSolver.cxx               |  5 +
+ src/FixedPointSolver.cxx                      | 96 ++++++++++++++++++-
+ ...onLinearEvolutionProblemImplementation.cxx | 22 ++++-
+ tests/FixedPointSolverTest.cxx                | 38 +++++++-
+ 6 files changed, 187 insertions(+), 10 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx
+index 3e25aba4fd..aef2eede6c 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx
+@@ -84,6 +84,15 @@ namespace mfem_mgis {
+     //! \return the information collected during the iterations
+     virtual std::vector<Parameter> getIterationsInformation()
+         const noexcept = 0;
++    /*!
++     * \return a linear solver for the elastic prediction made by the problem
++     * at the beginning of a time step (`PredictionOperator::ELASTIC`),
++     * provided by the non linear solver, or a null pointer, the linear
++     * solver of the problem being then used (default). The linear solver is
++     * given the operator of the prediction (`SetOperator`).
++     */
++    [[nodiscard]] virtual LinearSolver*
++    getElasticPredictionLinearSolver() noexcept;
+     //! \brief destructor
+     virtual ~AbstractNonLinearSolver() noexcept;
+   };  // end of AbstractNonLinearSolver
+diff --git a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+index 4ce480d87b..567400bcae 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+@@ -56,6 +56,15 @@ namespace mfem_mgis {
+    * Acceleration (option `Acceleration`, a name or a `Name` and `Options`,
+    * see `AccelerationAlgorithmFactory`): none by default.
+    *
++   * Linear solver of the elastic prediction of the problem (option
++   * `PredictionLinearSolver`): `Problem` (default), the linear solver of
++   * the problem, or `ElasticOperator`, the conjugate gradient of MFEM
++   * preconditioned by the linear solver of the elastic operator, whose
++   * setup is kept, with the options `RelativeTolerance` (1e-8 by default)
++   * and `MaximumNumberOfIterations` (1000 by default). The latter is used
++   * by the predictions which follow the first resolution, with the
++   * `ElasticOperator` method and a linear solver of the elastic operator.
++   *
+    * The other options are the ones of the iterative solvers
+    * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
+    * `VerbosityLevel`) and `DiscardLinearSolverFailure`. When the
+@@ -81,6 +90,8 @@ namespace mfem_mgis {
+     [[nodiscard]] bool setSolverParameters(Context&,
+                                            const Parameters&) noexcept override;
+     void Mult(const mfem::Vector&, mfem::Vector&) const override;
++    [[nodiscard]] LinearSolver* getElasticPredictionLinearSolver() noexcept
++        override;
+     //! \brief destructor
+     ~FixedPointSolver() noexcept override;
+ 
+@@ -125,6 +136,22 @@ namespace mfem_mgis {
+     LinearSolverHandler elastic_operator_linear_solver;
+     //! \brief elastic operator
+     mutable std::unique_ptr<mfem::Operator> elastic_operator;
++    /*!
++     * \brief if true, the elastic predictions are solved by the conjugate
++     * gradient preconditioned by the linear solver of the elastic operator
++     */
++    bool prediction_by_elastic_operator = false;
++    //! \brief relative tolerance of the elastic predictions
++    real prediction_relative_tolerance = 1e-8;
++    //! \brief maximum number of iterations of the elastic predictions
++    int prediction_maximum_number_of_iterations = 1000;
++    //! \brief linear solver of the elastic predictions
++    std::unique_ptr<mfem::IterativeSolver> prediction_linear_solver;
++    /*!
++     * \brief preconditioner of the elastic predictions, applying the linear
++     * solver of the elastic operator
++     */
++    std::unique_ptr<mfem::Solver> prediction_preconditioner;
+   };  // end of struct FixedPointSolver
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/AbstractNonLinearSolver.cxx b/src/AbstractNonLinearSolver.cxx
+index 041f8f9f4d..d7c079d793 100644
+--- a/src/AbstractNonLinearSolver.cxx
++++ b/src/AbstractNonLinearSolver.cxx
+@@ -23,6 +23,11 @@ namespace mfem_mgis {
+       NonLinearEvolutionProblemImplementation<false> &) {
+   }  // end of AbstractNonLinearSolver
+ 
++  LinearSolver*
++  AbstractNonLinearSolver::getElasticPredictionLinearSolver() noexcept {
++    return nullptr;
++  }  // end of getElasticPredictionLinearSolver
++
+   AbstractNonLinearSolver::~AbstractNonLinearSolver() = default;
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index af6206e77c..3961d92a3f 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -55,6 +55,28 @@ namespace mfem_mgis {
+         "nor a parallel matrix of hypre");
+   }  // end of copyAssembledOperator
+ 
++  namespace {
++
++    /*!
++     * \brief preconditioner applying a linear solver whose setup is kept:
++     * the operators given to `SetOperator` are ignored
++     */
++    struct KeptLinearSolver final : mfem::Solver {
++      //! \param[in] s: linear solver
++      explicit KeptLinearSolver(mfem::Solver& s)
++          : mfem::Solver(s.Height(), s.Width()), solver(s) {}
++      void SetOperator(const mfem::Operator&) override {}
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        this->solver.Mult(x, y);
++      }
++
++     private:
++      //! \brief linear solver
++      mfem::Solver& solver;
++    };
++
++  }  // end of namespace
++
+   /*!
+    * \return the name and the options of an object built by a factory, given
+    * by its name or by a dictionary with a unique entry associating its name
+@@ -140,9 +162,12 @@ namespace mfem_mgis {
+ 
+   bool FixedPointSolver::setSolverParameters(
+       Context& ctx, const Parameters& params) noexcept {
+-    const auto options = std::vector<std::string>{
+-        "Method", "ElasticOperatorComputation", "ElasticOperatorUpdate",
+-        "ElasticOperatorLinearSolver", "Acceleration"};
++    const auto options = std::vector<std::string>{"Method",
++                                                  "ElasticOperatorComputation",
++                                                  "ElasticOperatorUpdate",
++                                                  "ElasticOperatorLinearSolver",
++                                                  "Acceleration",
++                                                  "PredictionLinearSolver"};
+     auto others = Parameters{};
+     for (const auto& [k, v] : params) {
+       if (std::find(options.begin(), options.end(), k) == options.end()) {
+@@ -222,9 +247,74 @@ namespace mfem_mgis {
+       }
+       this->acceleration = std::move(a);
+     }
++    if (contains(params, "PredictionLinearSolver")) {
++      const auto oa = getFactoryArgument(ctx, params, "PredictionLinearSolver");
++      if (isInvalid(oa)) {
++        return false;
++      }
++      const auto& [n, opts] = *oa;
++      if ((n != "Problem") && (n != "ElasticOperator")) {
++        return ctx.registerErrorMessage(
++            "FixedPointSolver: invalid linear solver of the predictions '" + n +
++            "' (expected 'Problem' or 'ElasticOperator')");
++      }
++      if (!checkParameters(
++              ctx, opts,
++              std::vector<std::string>{"RelativeTolerance",
++                                       "MaximumNumberOfIterations"})) {
++        return false;
++      }
++      const auto otol = get_if<double>(ctx, opts, "RelativeTolerance", 1e-8);
++      const auto omax =
++          get_if<int>(ctx, opts, "MaximumNumberOfIterations", 1000);
++      if (isInvalid(otol) || isInvalid(omax)) {
++        return false;
++      }
++      this->prediction_by_elastic_operator = n == "ElasticOperator";
++      this->prediction_relative_tolerance = *otol;
++      this->prediction_maximum_number_of_iterations = *omax;
++      this->prediction_linear_solver.reset();
++      this->prediction_preconditioner.reset();
++    }
+     return NonLinearSolverBase::setSolverParameters(ctx, others);
+   }  // end of setSolverParameters
+ 
++  LinearSolver* FixedPointSolver::getElasticPredictionLinearSolver() noexcept {
++    auto* const s = this->elastic_operator_linear_solver.linear_solver.get();
++    if ((!this->prediction_by_elastic_operator) ||
++        (this->method != Method::ELASTIC_OPERATOR) || (s == nullptr) ||
++        (this->elastic_operator == nullptr)) {
++      return nullptr;
++    }
++    if (this->prediction_linear_solver == nullptr) {
++      try {
++#ifdef MFEM_USE_MPI
++        if (this->GetComm() != MPI_COMM_NULL) {
++          this->prediction_linear_solver =
++              std::make_unique<mfem::CGSolver>(this->GetComm());
++        }
++#endif /* MFEM_USE_MPI */
++        if (this->prediction_linear_solver == nullptr) {
++          this->prediction_linear_solver = std::make_unique<mfem::CGSolver>();
++        }
++        auto& cg = *(this->prediction_linear_solver);
++        cg.iterative_mode = false;
++        cg.SetRelTol(this->prediction_relative_tolerance);
++        cg.SetAbsTol(real{0});
++        cg.SetMaxIter(this->prediction_maximum_number_of_iterations);
++        cg.SetPrintLevel(mfem::IterativeSolver::PrintLevel().None());
++        this->prediction_preconditioner =
++            std::make_unique<KeptLinearSolver>(*s);
++        cg.SetPreconditioner(*(this->prediction_preconditioner));
++      } catch (...) {
++        this->prediction_linear_solver.reset();
++        this->prediction_preconditioner.reset();
++        return nullptr;
++      }
++    }
++    return this->prediction_linear_solver.get();
++  }  // end of getElasticPredictionLinearSolver
++
+   bool FixedPointSolver::integrate(const mfem::Vector& u,
+                                    const IntegrationType it) const {
+     auto profiler =
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 343e71233d..1584728b8d 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -689,9 +689,16 @@ namespace mfem_mgis {
+                             .matrix = &(this->prediction_matrix),
+                             .inner_forces = &(this->inner_forces_by_kernels)};
+     }
++    // the non linear solver may provide the linear solver of an elastic
++    // prediction
++    auto* const ls = ((this->solver.get() != nullptr) &&
++                      (this->getPredictionPolicy().prediction_operator ==
++                       PredictionOperator::ELASTIC))
++                         ? this->solver->getElasticPredictionLinearSolver()
++                         : nullptr;
+     const auto oresult = ::mfem_mgis::computePrediction<true>(
+-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
+-        kernels);
++        ctx, *this, (ls != nullptr) ? *ls : *(this->linear_solver), t, dt,
++        discardLinearSolverFailure, kernels);
+ #pragma message("required ?")
+     this->solver->setLinearSolver(*(this->linear_solver));
+     if (isInvalid(oresult)) {
+@@ -1041,9 +1048,16 @@ namespace mfem_mgis {
+                             .matrix = &(this->prediction_matrix),
+                             .inner_forces = &(this->inner_forces_by_kernels)};
+     }
++    // the non linear solver may provide the linear solver of an elastic
++    // prediction
++    auto* const ls = ((this->solver.get() != nullptr) &&
++                      (this->getPredictionPolicy().prediction_operator ==
++                       PredictionOperator::ELASTIC))
++                         ? this->solver->getElasticPredictionLinearSolver()
++                         : nullptr;
+     const auto oresult = ::mfem_mgis::computePrediction<false>(
+-        ctx, *this, *(this->linear_solver), t, dt, discardLinearSolverFailure,
+-        kernels);
++        ctx, *this, (ls != nullptr) ? *ls : *(this->linear_solver), t, dt,
++        discardLinearSolverFailure, kernels);
+     this->solver->setLinearSolver(*(this->linear_solver));
+     if (isInvalid(oresult)) {
+       return {};
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index c2b0d5daa0..b2d7f3b064 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -18,6 +18,7 @@
+ #include <cmath>
+ #include <cstdlib>
+ #include <string>
++#include <string_view>
+ #include <vector>
+ #include <iostream>
+ #include <algorithm>
+@@ -58,11 +59,14 @@ struct Results {
+  * \param[in] library: behaviour library
+  * \param[in] solver: value of the `NonLinearSolver` parameter, the Newton
+  * solver being used if empty
++ * \param[in] prediction: if true, an elastic prediction is made at the
++ * beginning of each time step
+  */
+ static Results compute(mfem_mgis::Context& ctx,
+                        const char* const mesh,
+                        const char* const library,
+-                       const mfem_mgis::Parameters& solver) {
++                       const mfem_mgis::Parameters& solver,
++                       const bool prediction = false) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
+   auto params = Parameters{
+@@ -101,6 +105,11 @@ static Results compute(mfem_mgis::Context& ctx,
+       or_die;
+   problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
+       or_die;
++  if (prediction) {
++    problem.setPredictionPolicy(
++        {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION,
++         .prediction_operator = PredictionOperator::ELASTIC});
++  }
+   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                     {"RelativeTolerance", 1e-12},
+                                     {"AbsoluteTolerance", 0.},
+@@ -221,7 +230,10 @@ int main(int argc, char** argv) {
+     Parameters options;
+     // if true, the number of iterations must be lower than without
+     // acceleration
+-    bool accelerated;
++    bool accelerated;  // if true, an elastic prediction is made at the
++                       // beginning of each time
++    // step
++    bool prediction = false;
+   };
+   auto cases = std::vector<Case>{
+       {"fixed point, Anderson",
+@@ -243,6 +255,23 @@ int main(int argc, char** argv) {
+       {"modified Newton, Anderson",
+        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
+        true}};
++  // elastic prediction, by the linear solver of the problem or by the
++  // conjugate gradient preconditioned by the linear solver of the elastic
++  // operator
++  for (const auto* const pls : {"Problem", "ElasticOperator"}) {
++    cases.push_back(
++        {std::string{"fixed point, Anderson, prediction by the linear solver "
++                     "of the "} +
++             (std::string_view{pls} == "Problem" ? "problem"
++                                                 : "elastic operator"),
++         {{"Acceleration", "Anderson"},
++          {"ElasticOperatorUpdate", "Once"},
++          {"ElasticOperatorLinearSolver",
++           parallel ? "MUMPSSolver" : "UMFPackSolver"},
++          {"PredictionLinearSolver", std::string{pls}}},
++         true,
++         true});
++  }
+   // the other accelerations, ported from MTest: the solution only is
+   // checked. Steffensen's method, applied component by component, diverges
+   // on this problem (as expected for a coupled system): its declaration is
+@@ -293,7 +322,8 @@ int main(int argc, char** argv) {
+   // which must survive the setup of the elastic operator)
+   auto amg_iterations = size_type{};
+   for (const auto& c : cases) {
+-    const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options));
++    const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options),
++                           c.prediction);
+     if (c.name ==
+         "fixed point, Anderson, one cycle of BoomerAMG per iteration") {
+       amg_iterations = r.iterations;
+@@ -338,6 +368,8 @@ int main(int argc, char** argv) {
+       {{"Acceleration",
+         Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
+       "invalid residuals of Anderson's method");
++  checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
++               "an invalid linear solver of the predictions");
+   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
+                "an invalid update of the elastic operator");
+   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
+-- 
+2.43.0
+

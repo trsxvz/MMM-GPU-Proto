@@ -84,6 +84,15 @@ namespace mfem_mgis {
     //! \return the information collected during the iterations
     virtual std::vector<Parameter> getIterationsInformation()
         const noexcept = 0;
+    /*!
+     * \return a linear solver for the elastic prediction made by the problem
+     * at the beginning of a time step (`PredictionOperator::ELASTIC`),
+     * provided by the non linear solver, or a null pointer, the linear
+     * solver of the problem being then used (default). The linear solver is
+     * given the operator of the prediction (`SetOperator`).
+     */
+    [[nodiscard]] virtual LinearSolver*
+    getElasticPredictionLinearSolver() noexcept;
     //! \brief destructor
     virtual ~AbstractNonLinearSolver() noexcept;
   };  // end of AbstractNonLinearSolver
