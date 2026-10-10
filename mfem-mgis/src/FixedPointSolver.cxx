@@ -306,7 +306,7 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "FixedPointSolver: the adaptive tolerance of the linear solver "
           "(option 'AdaptiveLinearSolverTolerance') is only used by the "
-          "'NewtonK0' method");
+          "'NewtonK0' method (set it to 'None' to change the method)");
     }
     const auto has_linear_solver =
         (!remove_linear_solver) &&

@@ -46,10 +46,14 @@ namespace mfem_mgis {
                                      "Gamma", "Alpha", "Threshold"})) {
       return {};
     }
-    const auto o0 =
-        get_if<double>(ctx, opts, "InitialTolerance", t.initial_tolerance);
     const auto omax =
         get_if<double>(ctx, opts, "MaximumTolerance", t.maximum_tolerance);
+    if (isInvalid(omax)) {
+      return {};
+    }
+    // the default initial tolerance is bounded by the maximum one
+    const auto o0 = get_if<double>(ctx, opts, "InitialTolerance",
+                                   std::min(t.initial_tolerance, *omax));
     const auto ogamma = get_if<double>(ctx, opts, "Gamma", t.gamma);
     const auto oalpha = get_if<double>(ctx, opts, "Alpha", t.alpha);
     const auto othreshold = get_if<double>(ctx, opts, "Threshold", t.threshold);
@@ -124,8 +128,12 @@ namespace mfem_mgis {
         eta = o.gamma * std::pow(norm / this->previous_norm, o.alpha);
       }
       // the tolerance does not decrease too fast
+      constexpr auto golden_ratio = real{1.618033988749895};
       const auto safeguard =
-          o.gamma * std::pow(this->previous_tolerance, o.alpha);
+          (o.method ==
+           AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1)
+              ? std::pow(this->previous_tolerance, golden_ratio)
+              : o.gamma * std::pow(this->previous_tolerance, o.alpha);
       if (safeguard > o.threshold) {
         eta = std::max(eta, safeguard);
       }

@@ -360,6 +360,84 @@ namespace mfem_mgis {
     };
 
     /*!
+     * \brief Chebyshev smoother of MFEM (`mfem::OperatorChebyshevSmoother`):
+     * polynomial of the given order in the operator scaled by the inverse of
+     * its diagonal, computed as for the Jacobi smoother (`JacobiSmoother`).
+     * The largest eigenvalue of the scaled operator is estimated by the power
+     * method at each call to `SetOperator`. Only products by the operator
+     * are used: usable with an operator applied without assembly (see
+     * `MatrixFreeTangentOperator`), whose essential degrees of freedom are
+     * eliminated with a diagonal set to one.
+     */
+    struct ChebyshevSmoother final : mfem::Solver {
+#ifdef MFEM_USE_MPI
+      /*!
+       * \param[in] o: order of the polynomial
+       * \param[in] n: number of iterations of the power method
+       * \param[in] c: communicator (`MPI_COMM_NULL` in sequential)
+       */
+      ChebyshevSmoother(const int o, const int n, MPI_Comm c)
+          : order(o), power_iterations(n), comm(c) {}
+#else  /* MFEM_USE_MPI */
+      /*!
+       * \param[in] o: order of the polynomial
+       * \param[in] n: number of iterations of the power method
+       */
+      ChebyshevSmoother(const int o, const int n)
+          : order(o), power_iterations(n) {}
+#endif /* MFEM_USE_MPI */
+      void SetOperator(const mfem::Operator& op) override {
+        this->height = op.Height();
+        this->width = op.Width();
+        this->diagonal.UseDevice(true);
+        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+            m != nullptr) {
+          m->GetDiag(this->diagonal);
+        } else {
+          this->diagonal.SetSize(op.Height());
+          op.AssembleDiagonal(this->diagonal);
+        }
+        // the smoother of MFEM estimates the largest eigenvalue at its
+        // construction and references the diagonal
+        this->smoother.reset();
+#ifdef MFEM_USE_MPI
+        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
+            op, this->diagonal, this->essential_dofs, this->order, this->comm,
+            this->power_iterations);
+#else  /* MFEM_USE_MPI */
+        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
+            op, this->diagonal, this->essential_dofs, this->order,
+            this->power_iterations);
+#endif /* MFEM_USE_MPI */
+      }
+      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+        if (this->smoother == nullptr) {
+          raise("ChebyshevSmoother::Mult: the operator is not set");
+        }
+        this->smoother->Mult(x, y);
+      }
+
+     private:
+      //! \brief order of the polynomial
+      const int order;
+      //! \brief number of iterations of the power method
+      const int power_iterations;
+#ifdef MFEM_USE_MPI
+      //! \brief communicator of the power method
+      MPI_Comm comm;
+#endif /* MFEM_USE_MPI */
+      //! \brief diagonal of the operator
+      mfem::Vector diagonal;
+      /*!
+       * \brief essential degrees of freedom, empty (the operator is
+       * constrained), referenced by the smoother of MFEM
+       */
+      const mfem::Array<int> essential_dofs;
+      //! \brief smoother of MFEM
+      std::unique_ptr<mfem::OperatorChebyshevSmoother> smoother;
+    };
+
+    /*!
      * \brief preconditioner built on the assembled version of an operator
      * applied without assembly (see `AssembledOperatorProvider`), set up
      * every `period` calls to `SetOperator`, and kept between them.
@@ -507,6 +585,45 @@ namespace mfem_mgis {
         return {};
       }
       return std::make_unique<JacobiSmoother>(*odamping);
+    } else if (*oname == "OperatorChebyshevSmoother") {
+      // Chebyshev smoother of MFEM: usable with an operator applied without
+      // assembly
+      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+      if (isInvalid(oparams)) {
+        return {};
+      }
+      if (!checkParameters(
+              ctx, *oparams,
+              std::vector<std::string>{"Order", "NumberOfPowerIterations"})) {
+        return {};
+      }
+      const auto oorder = get_if<int>(ctx, *oparams, "Order", 2);
+      const auto oiterations =
+          get_if<int>(ctx, *oparams, "NumberOfPowerIterations", 10);
+      if (isInvalid(oorder) || isInvalid(oiterations)) {
+        return {};
+      }
+      // orders implemented by MFEM
+      if ((*oorder < 1) || (*oorder > 5)) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverPreconditioner: the order of the Chebyshev "
+            "smoother must be between 1 and 5");
+      }
+      if (*oiterations < 1) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverPreconditioner: the number of iterations of the "
+            "power method of the Chebyshev smoother must be strictly "
+            "positive");
+      }
+#ifdef MFEM_USE_MPI
+      auto comm = MPI_Comm{MPI_COMM_NULL};
+      if constexpr (parallel) {
+        comm = fespace.GetComm();
+      }
+      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations, comm);
+#else  /* MFEM_USE_MPI */
+      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
+#endif /* MFEM_USE_MPI */
     } else if (*oname == "HypreBoomerAMG") {
       if constexpr (parallel) {
         const auto oparams =

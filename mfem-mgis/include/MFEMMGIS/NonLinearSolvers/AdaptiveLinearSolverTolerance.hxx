@@ -30,24 +30,32 @@ namespace mfem_mgis {
    * - choice 1 (`EisenstatWalker1`):
    *   `η_i = | ||F_i|| - ||F_{i-1} + J_{i-1} s_{i-1}|| | / ||F_{i-1}||`,
    *   which requires the norm of the residual of the previous linear solve
-   *   (one product by the tangent operator per iteration);
+   *   (one product by the tangent operator per iteration; after a reduction
+   *   of the correction, the residual of the complete linear solve is
+   *   used);
    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
    *
-   * Safeguards: the tolerance does not decrease faster than
-   * `γ η_{i-1}^α` when this value is above `Threshold` (as MFEM and PETSc,
-   * for both choices), it is bounded by `MaximumTolerance`, and it is not
-   * smaller than `0.5 τ / ||F_i||`, `τ` being the convergence criterion on
-   * the residual, which avoids oversolving the last linear system (Kelley,
-   * Iterative methods for linear and nonlinear equations, SIAM, 1995).
+   * Safeguards, as Eisenstat and Walker and PETSc: when the following value
+   * is above `Threshold`, the tolerance is not smaller than
+   * `η_{i-1}^((1+√5)/2)` (choice 1) or `γ η_{i-1}^α` (choice 2), so that it
+   * does not decrease too fast (MFEM uses the latter for both choices,
+   * which only differ for values of `Gamma` and `Alpha` other than the
+   * default ones); the tolerance is bounded by `MaximumTolerance`, and is
+   * not smaller than `0.5 τ / ||F_i||`, `τ` being the convergence criterion
+   * on the residual, which avoids oversolving the last linear system
+   * (Kelley, Iterative methods for linear and nonlinear equations, SIAM,
+   * 1995). The tolerance may thus be lower than the one given to the linear
+   * solver.
    *
    * Option `AdaptiveLinearSolverTolerance` of the `Newton` solver and of the
    * `NewtonK0` method of the `FixedPoint` solver: `None` (default, the
    * tolerance of the linear solver is kept), `EisenstatWalker1` or
    * `EisenstatWalker2`, given by a name, by a dictionary associating a name
    * with its options, or by a dictionary with the entries `Name` and
-   * `Options`. Options: `InitialTolerance` (0.5 by default),
-   * `MaximumTolerance` (0.9), `Gamma` (1), `Alpha` (the golden ratio) and
-   * `Threshold` (0.1), as in MFEM. The linear solver shall be an iterative
+   * `Options`. Options: `InitialTolerance` (0.5 by default, or the maximum
+   * tolerance if lower), `MaximumTolerance` (0.9), `Gamma` (1, choice 2),
+   * `Alpha` (the golden ratio, choice 2) and `Threshold` (0.1), as in MFEM.
+   * The linear solver shall be an iterative
    * solver of MFEM or a Krylov solver of hypre; its relative tolerance is
    * restored at the end of each resolution.
    */

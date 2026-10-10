@@ -67,14 +67,17 @@ sorties dans `tolerance-initiale/` (exécutées à la main, charge 3,7 à
 | Tolérance initiale | GPU | CPU, 8 processus |
 |---|---|---|
 | 0,5 (défaut) | 2,19 s (52 it.) | 10,91 s (51 it.) |
-| 0,1 | **1,96 à 2,02 s** (37 it.) | 9,66 s (38 it.) |
+| 0,1 | **1,96 à 2,02 s** (37 et 33 it.) | 9,66 s (38 it.) |
 | 0,01 | 1,96 s (37 it.) | **9,46 s** (38 it.) |
 | 0,001 | 2,07 s (36 it.) | |
 
 - Une tolérance initiale de 0,1 ou 0,01 rend aux pas élastiques leurs
   deux itérations : sur le GPU, 1,96 s, soit ×1,59 contre Newton (3,12 s) ;
   sur 8 cœurs, 9,46 s, au niveau du meilleur point fixe (9,5 s). Sur le
-  GPU, deux exécutions avec 0,1 donnent les mêmes itérations (1,96 s et
-  2,02 s).
+  GPU, deux exécutions avec 0,1 donnent 37 et 33 itérations (1,96 s et
+  2,02 s) : hypre sur le GPU n'est pas reproductible au bit, et la
+  tolérance adaptée dépend des résidus.
+- À tolérance fixe, les pas élastiques font une itération sur 8 processus
+  et deux sur le GPU.
 - La valeur par défaut (0,5, celle de MFEM) reste conservatrice ; le choix
   0,1 est un bon réglage pour ce cas, à confirmer sur le polycristal.

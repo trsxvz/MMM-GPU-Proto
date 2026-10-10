@@ -316,6 +316,19 @@ namespace mfem_mgis {
     return *ovalue;
   }  // end of extractFactoryArgument
 
+  /*!
+   * \return the error message of an invalid value of a parameter giving an
+   * object built by a factory
+   * \param[in] n: name of the parameter
+   */
+  [[nodiscard]] static std::string getInvalidFactoryArgumentMessage(
+      std::string_view n) {
+    return "invalid value of the parameter '" + std::string{n} +
+           "': expected a name, a dictionary with a unique entry associating "
+           "a name with options, or a dictionary with the entries 'Name' and "
+           "'Options'";
+  }  // end of getInvalidFactoryArgumentMessage
+
   std::optional<std::pair<std::string, Parameters>> getFactoryArgument(
       Context& ctx, const Parameters& parameters, std::string_view n) noexcept {
     const auto op = parameters.get(ctx, n);
@@ -337,11 +350,7 @@ namespace mfem_mgis {
       if (!contains(*oparams, "Name")) {
         auto oa = extractFactoryArgument(ctx, *oparams);
         if (isInvalid(oa)) {
-          return ctx.registerErrorMessage(
-              "invalid value of the parameter '" + std::string{n} +
-              "': expected a name, a dictionary with a unique entry "
-              "associating a name with options, or a dictionary with the "
-              "entries 'Name' and 'Options'");
+          return ctx.registerErrorMessage(getInvalidFactoryArgumentMessage(n));
         }
         return oa;
       }
@@ -358,9 +367,7 @@ namespace mfem_mgis {
       }
       return std::pair<std::string, Parameters>{*oname, *oopts};
     }
-    return ctx.registerErrorMessage(
-        "the parameter '" + std::string{n} +
-        "' must be a name or a dictionary associating a name with options");
+    return ctx.registerErrorMessage(getInvalidFactoryArgumentMessage(n));
   }  // end of getFactoryArgument
 
   Parameters remove(const Parameters& parameters,

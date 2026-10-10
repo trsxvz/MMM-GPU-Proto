@@ -1,0 +1,37 @@
+date : 2026-10-10 04:56:52
+cas : poutre
+machine : 16 cœurs, 30 Go
+charge : 1.74 3.54 3.68
+mfem-mgis : 4b72095ee0
+== poutre-np1-gpu-sans-matrice-cg-jacobi : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls newton | ls cg-jacobi | ||u|| 48.83704586 | iterations per step: 1 1 2 3 4 3 4 4 4 4 | total 30
+time 21.043 s
+== poutre-np1-gpu-sans-matrice-cg-chebyshev-2 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls newton | ls cg-chebyshev | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 23.128 s
+== poutre-np1-gpu-sans-matrice-cg-chebyshev-3 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls newton | ls cg-chebyshev | ||u|| 48.83704586 | iterations per step: 1 1 2 3 4 3 4 4 4 4 | total 30
+time 25.495 s
+== poutre-np1-gpu-sans-matrice-cg-chebyshev-4 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls newton | ls cg-chebyshev | ||u|| 48.83704586 | iterations per step: 1 1 2 3 4 3 4 4 4 4 | total 30
+time 28.223 s
+== poutre-np1-gpu-sans-matrice-cg-chebyshev-5 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls newton | ls cg-chebyshev | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 31.431 s
+== poutre-np1-gpu-sans-matrice-newton-k0 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 3.048 s
+== poutre-np1-gpu-sans-matrice-newton-k0-ew1 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704604 | iterations per step: 2 2 2 4 4 4 4 5 5 5 | total 37
+time 2.053 s
+== poutre-np1-gpu-assemblee-newton-k0-ew1 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704622 | iterations per step: 2 2 2 3 4 4 5 5 5 5 | total 37
+time 1.991 s

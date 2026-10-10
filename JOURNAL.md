@@ -3472,4 +3472,18 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   NewtonK0 à tolérance fixe ; sur 8 cœurs, 9,46 s, au niveau du meilleur
   point fixe. Avec Newton classique, Eisenstat-Walker ne paie pas (chaque
   itération de plus reconstruit BoomerAMG).
+- Relecture du Newton inexact (`scratch/nuit-2026-10-10/relecture-EW.md`) :
+  rien au-dessus de la sévérité 3 (couverture). Corrigé dans 4b72095ee0 :
+  garde du choix 1 d'Eisenstat et Walker comme dans l'article et PETSc,
+  tolérance initiale bornée par la maximale, tests qui recalculent la
+  suite des tolérances à partir des informations d'itération (dix
+  mutations détectées), section du glossaire.
+- mfem-mgis b4127a6c12 : lisseur de Chebyshev de MFEM
+  (`OperatorChebyshevSmoother`, ordres 1 à 5) dans la fabrique, test
+  `OperatorSmoothersTest` (Laplacien : 46 itérations de CG avec Jacobi, 27
+  et 17 avec Chebyshev d'ordre 2 et 4). Mesures sans matrice sur le GPU
+  (`results/L5-poutre-2026-10-10-0456/README.md`, option `-ls cg-chebyshev`
+  de la poutre) : Chebyshev plus lent que Jacobi (chaque ordre ajoute une
+  action sans matrice) ; NewtonK0 + Eisenstat-Walker 1 sans matrice à 3 %
+  de la tangente assemblée (2,05 s contre 1,99 s).
 

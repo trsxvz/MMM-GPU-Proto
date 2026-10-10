@@ -1,0 +1,544 @@
+From b4127a6c123a1034d3e286f131c610699395d495 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 04:44:36 +0200
+Subject: [PATCH] LinearSolverFactory: Chebyshev smoother of MFEM as
+ preconditioner
+
+OperatorChebyshevSmoother (options Order, 2 by default, and
+NumberOfPowerIterations, 10 by default): Chebyshev smoother of MFEM, whose
+diagonal is computed as for the Jacobi smoother (AssembleDiagonal, or
+GetDiag for a sparse matrix) and whose largest eigenvalue is estimated by
+the power method, on all the processes, each time the operator changes.
+It only uses products by the operator and its diagonal: usable with the
+tangent operator applied without assembly.
+
+Tests: OperatorSmoothersTest (Laplace equation on a square, sequential and
+2 processes: the conjugate gradient makes 46 iterations with the Jacobi
+smoother, 27 and 17 with the Chebyshev smoothers of order 2 and 4, the
+same numbers for the assembled operator and for an operator applied
+without assembly; mutations of the order and of the communicator
+detected), and a case of BatchIntegrationTest with the tangent operator
+applied without assembly preconditioned by the Chebyshev smoother.
+Glossary: Jacobi and Chebyshev smoothers.
+---
+ docs/source/user_guide/glossary.rst |  51 +++++-
+ src/LinearSolverFactory.cxx         | 111 +++++++++++++
+ tests/BatchIntegrationTest.cxx      |  17 ++
+ tests/CMakeLists.txt                |  12 ++
+ tests/OperatorSmoothersTest.cxx     | 234 ++++++++++++++++++++++++++++
+ 5 files changed, 424 insertions(+), 1 deletion(-)
+ create mode 100644 tests/OperatorSmoothersTest.cxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index bb485a7007..c1b1436192 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -416,7 +416,10 @@ Flexible GMRES (HypreFGMRES)
+ Setup Your Preconditioner
+ =========================
+ 
+-Currently, only preconditioners from ``hypre`` are integrated into ``MFEM-MGIS``.
++The preconditioners are the ones of ``hypre`` (in parallel), the Jacobi
++and Chebyshev smoothers of ``MFEM``, which only use products by the operator
++and its diagonal, and ``AssembledOperator``, which sets up a preconditioner on
++the assembled version of an operator applied without assembly.
+ 
+ Algebraic MultiGrid (AMG) 
+ -------------------------
+@@ -550,6 +553,52 @@ Jacobi (HypreDiagScale)
+     auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
+     auto diagscale = mfem_mgis::Parameters{{"Name","HypreDiagScale"}, {"Options",options}};
+ 
++Jacobi smoother (OperatorJacobiSmoother)
++----------------------------------------
++
++Jacobi smoother of ``MFEM``, whose diagonal is computed by the operator: it
++only uses products by the operator and its diagonal, and is thus usable with
++an operator applied without assembly (``TangentOperatorComputation`` set to
++``MatrixFree``), in sequential and in parallel.
++
++- Preconditioner name: ``OperatorJacobiSmoother``
++- Options:
++
+++-------------+-----------------------------------------+
++| Key         | Description                             |
+++=============+=========================================+
++| ``Damping`` | Damping factor, 1 by default. [double]  |
+++-------------+-----------------------------------------+
++
++Chebyshev smoother (OperatorChebyshevSmoother)
++----------------------------------------------
++
++Chebyshev smoother of ``MFEM``: polynomial of the operator scaled by the
++inverse of its diagonal, the largest eigenvalue of the scaled operator being
++estimated by the power method each time the operator changes. As the Jacobi
++smoother, it only uses products by the operator and its diagonal. The
++essential degrees of freedom shall be eliminated with a diagonal set to one.
++
++- Preconditioner name: ``OperatorChebyshevSmoother``
++- Options:
++
+++-----------------------------+------------------------------------------------+
++| Key                         | Description                                    |
+++=============================+================================================+
++| ``Order``                   | Order of the polynomial, 2 by default. [int]   |
+++-----------------------------+------------------------------------------------+
++| ``NumberOfPowerIterations`` | Iterations of the power method, 10 by default. |
++|                             | [int]                                          |
+++-----------------------------+------------------------------------------------+
++
++**Example:**
++
++.. code-block:: cpp
++
++    auto chebyshev = mfem_mgis::Parameters{
++        {"Name", "OperatorChebyshevSmoother"},
++        {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
++
+ Setup Your NonLinearProblem
+ ===========================
+ 
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index fbb8c65ceb..261c414006 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -359,6 +359,84 @@ namespace mfem_mgis {
+       std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
+     };
+ 
++    /*!
++     * \brief Chebyshev smoother of MFEM (`mfem::OperatorChebyshevSmoother`):
++     * polynomial of the given order in the operator scaled by the inverse of
++     * its diagonal, computed as for the Jacobi smoother (`JacobiSmoother`).
++     * The largest eigenvalue of the scaled operator is estimated by the power
++     * method at each call to `SetOperator`. Only products by the operator
++     * are used: usable with an operator applied without assembly (see
++     * `MatrixFreeTangentOperator`), whose essential degrees of freedom are
++     * eliminated with a diagonal set to one.
++     */
++    struct ChebyshevSmoother final : mfem::Solver {
++#ifdef MFEM_USE_MPI
++      /*!
++       * \param[in] o: order of the polynomial
++       * \param[in] n: number of iterations of the power method
++       * \param[in] c: communicator (`MPI_COMM_NULL` in sequential)
++       */
++      ChebyshevSmoother(const int o, const int n, MPI_Comm c)
++          : order(o), power_iterations(n), comm(c) {}
++#else  /* MFEM_USE_MPI */
++      /*!
++       * \param[in] o: order of the polynomial
++       * \param[in] n: number of iterations of the power method
++       */
++      ChebyshevSmoother(const int o, const int n)
++          : order(o), power_iterations(n) {}
++#endif /* MFEM_USE_MPI */
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        this->diagonal.UseDevice(true);
++        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++            m != nullptr) {
++          m->GetDiag(this->diagonal);
++        } else {
++          this->diagonal.SetSize(op.Height());
++          op.AssembleDiagonal(this->diagonal);
++        }
++        // the smoother of MFEM estimates the largest eigenvalue at its
++        // construction and references the diagonal
++        this->smoother.reset();
++#ifdef MFEM_USE_MPI
++        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
++            op, this->diagonal, this->essential_dofs, this->order, this->comm,
++            this->power_iterations);
++#else  /* MFEM_USE_MPI */
++        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
++            op, this->diagonal, this->essential_dofs, this->order,
++            this->power_iterations);
++#endif /* MFEM_USE_MPI */
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        if (this->smoother == nullptr) {
++          raise("ChebyshevSmoother::Mult: the operator is not set");
++        }
++        this->smoother->Mult(x, y);
++      }
++
++     private:
++      //! \brief order of the polynomial
++      const int order;
++      //! \brief number of iterations of the power method
++      const int power_iterations;
++#ifdef MFEM_USE_MPI
++      //! \brief communicator of the power method
++      MPI_Comm comm;
++#endif /* MFEM_USE_MPI */
++      //! \brief diagonal of the operator
++      mfem::Vector diagonal;
++      /*!
++       * \brief essential degrees of freedom, empty (the operator is
++       * constrained), referenced by the smoother of MFEM
++       */
++      const mfem::Array<int> essential_dofs;
++      //! \brief smoother of MFEM
++      std::unique_ptr<mfem::OperatorChebyshevSmoother> smoother;
++    };
++
+     /*!
+      * \brief preconditioner built on the assembled version of an operator
+      * applied without assembly (see `AssembledOperatorProvider`), set up
+@@ -507,6 +585,39 @@ namespace mfem_mgis {
+         return {};
+       }
+       return std::make_unique<JacobiSmoother>(*odamping);
++    } else if (*oname == "OperatorChebyshevSmoother") {
++      // Chebyshev smoother of MFEM: usable with an operator applied without
++      // assembly
++      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
++      if (isInvalid(oparams)) {
++        return {};
++      }
++      if (!checkParameters(
++              ctx, *oparams,
++              std::vector<std::string>{"Order", "NumberOfPowerIterations"})) {
++        return {};
++      }
++      const auto oorder = get_if<int>(ctx, *oparams, "Order", 2);
++      const auto oiterations =
++          get_if<int>(ctx, *oparams, "NumberOfPowerIterations", 10);
++      if (isInvalid(oorder) || isInvalid(oiterations)) {
++        return {};
++      }
++      if ((*oorder < 1) || (*oiterations < 1)) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: the order of the Chebyshev "
++            "smoother and the number of iterations of the power method must "
++            "be strictly positive");
++      }
++#ifdef MFEM_USE_MPI
++      auto comm = MPI_Comm{MPI_COMM_NULL};
++      if constexpr (parallel) {
++        comm = fespace.GetComm();
++      }
++      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations, comm);
++#else  /* MFEM_USE_MPI */
++      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
++#endif /* MFEM_USE_MPI */
+     } else if (*oname == "HypreBoomerAMG") {
+       if constexpr (parallel) {
+         const auto oparams =
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index b50d57dd25..98a0a13101 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -143,6 +143,12 @@ struct ComputationOptions {
+    * parallel, Jacobi in sequential
+    */
+   bool assembled_preconditioner = false;
++  /*!
++   * \brief if true, with the tangent operator applied without assembly, the
++   * preconditioner is the Chebyshev smoother of MFEM (order 3), Jacobi
++   * otherwise
++   */
++  bool chebyshev_preconditioner = false;
+   /*!
+    * \brief if not null, the mesh has two materials (1 and 2), the second one
+    * being an isotropic elastic material whose behaviour is taken from this
+@@ -445,6 +451,9 @@ static Results compute(mfem_mgis::Context& ctx,
+                                      : Parameters{{"Name",
+                                                    "OperatorJacobi"
+                                                    "Smoother"}}}}}}
++          : opts.chebyshev_preconditioner
++              ? Parameters{{"Name", "OperatorChebyshevSmoother"},
++                           {"Options", Parameters{{"Order", 3}}}}
+               : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+         or_die;
+   } else {
+@@ -1110,6 +1119,13 @@ int main(int argc, char** argv) {
+                       .matrix_free = true,
+                       .second_material_library = library},
+                      ", matrix free, two materials"});
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.prediction = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true,
++                      .chebyshev_preconditioner = true},
++                     ", matrix free, Chebyshev preconditioner"});
+     // without prediction, the preconditioner is kept between time steps:
+     // its assembled operator, assembled again by the check of the diagonal
+     // (see `checkMatrixFreeDiagonal`), must be set up again
+@@ -1127,6 +1143,7 @@ int main(int argc, char** argv) {
+       reference.tangent_operator_kernels = false;
+       reference.matrix_free = false;
+       reference.assembled_preconditioner = false;
++      reference.chebyshev_preconditioner = false;
+       compare(compute(ctx, m, library, b, "PointByPoint", reference),
+               compute(ctx, m, library, b, "Batch", opts),
+               b + " (kernels" + name + ")", 1e-10);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index e7f46cc05c..6a35dc0998 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -850,6 +850,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endif()
+ 
++  # OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
++  # only use products by the operator and its diagonal, as preconditioners
++  # of the conjugate gradient
++  add_test_executable(OperatorSmoothersTest)
++  add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
++  if(MFEM_USE_MPI)
++    add_test(NAME OperatorSmoothersTestP
++             COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
++    set_tests_properties(OperatorSmoothersTestP
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++
+   # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
+   # iterative linear solvers adapted to the decrease of the residual
+   add_test_executable(AdaptiveLinearSolverToleranceTest)
+diff --git a/tests/OperatorSmoothersTest.cxx b/tests/OperatorSmoothersTest.cxx
+new file mode 100644
+index 0000000000..a9e30b2627
+--- /dev/null
++++ b/tests/OperatorSmoothersTest.cxx
+@@ -0,0 +1,234 @@
++/*!
++ * \file   OperatorSmoothersTest.cxx
++ * \brief  Test of the smoothers of the factory of the linear solvers which
++ * only use products by the operator and its diagonal
++ * (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), as
++ * preconditioners of the conjugate gradient of MFEM: Laplace equation on a
++ * square, the essential degrees of freedom being eliminated with a diagonal
++ * set to one. Each smoother gives the solution, with the same number of
++ * iterations for the assembled operator and for an operator applied without
++ * assembly; the Chebyshev smoother reduces the number of iterations, the
++ * more so as its order is higher. With the `--parallel` option, the
++ * computations are parallel.
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <memory>
++#include <string>
++#include <cstdlib>
++#include <iostream>
++#include "mfem.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \brief operator applied by an assembled operator, but which is neither a
++ * sparse matrix nor a parallel matrix of hypre: the smoothers compute its
++ * diagonal by `AssembleDiagonal`, as for an operator applied without
++ * assembly
++ */
++struct WrappedOperator final : mfem::Operator {
++  //! \param[in] a: assembled operator
++  explicit WrappedOperator(const mfem::Operator& a)
++      : mfem::Operator(a.Height(), a.Width()), op(a) {}
++  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++    this->op.Mult(x, y);
++  }
++  void AssembleDiagonal(mfem::Vector& d) const override {
++    if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++        m != nullptr) {
++      m->GetDiag(d);
++    } else {
++      this->op.AssembleDiagonal(d);
++    }
++  }
++
++ private:
++  //! \brief assembled operator
++  const mfem::Operator& op;
++};
++
++//! \brief result of a resolution
++struct Resolution {
++  //! \brief if true, the resolution succeeded
++  bool converged = false;
++  //! \brief number of iterations
++  int iterations = 0;
++  //! \brief norm of the residual relative to the norm of the right hand side
++  double residual = 1;
++};
++
++/*!
++ * \return the resolution of a linear system by the conjugate gradient of the
++ * factory preconditioned by a smoother
++ * \param[in] fespace: finite element space
++ * \param[in] A: operator
++ * \param[in] B: right hand side
++ * \param[in] smoother: preconditioner
++ */
++template <bool is_parallel>
++static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                        const mfem::Operator& A,
++                        const mfem::Vector& B,
++                        const mfem_mgis::Parameters& smoother) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, "CGSolver", fespace,
++      Parameters{{"RelativeTolerance", 1e-10},
++                 {"AbsoluteTolerance", 0.},
++                 {"MaximumNumberOfIterations", 5000},
++                 {"Preconditioner", smoother}});
++  if (isInvalid(ls)) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    return {};
++  }
++  auto X = mfem::Vector(B.Size());
++  X = 0.;
++  ls.linear_solver->SetOperator(A);
++  ls.linear_solver->Mult(B, X);
++  auto r = mfem::Vector(B.Size());
++  A.Mult(X, r);
++  r -= B;
++  auto dot = [&fespace](const mfem::Vector& a, const mfem::Vector& b) {
++    if constexpr (is_parallel) {
++      return mfem::InnerProduct(fespace.GetComm(), a, b);
++    } else {
++      static_cast<void>(fespace);
++      return mfem::InnerProduct(a, b);
++    }
++  };
++  return {
++      .converged = hasConverged(*(ls.linear_solver)),
++      .iterations =
++          getNumberOfIterationsAtConvergence(*(ls.linear_solver)).value_or(0),
++      .residual = std::sqrt(dot(r, r) / dot(B, B))};
++}  // end of solve
++
++/*!
++ * \brief checks the smoothers on a linear system
++ * \param[in] fespace: finite element space
++ * \param[in] A: assembled operator, the essential degrees of freedom being
++ * eliminated with a diagonal set to one
++ * \param[in] B: right hand side
++ */
++template <bool is_parallel>
++static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                           const mfem::Operator& A,
++                           const mfem::Vector& B) {
++  using namespace mfem_mgis;
++  const auto wrapped = WrappedOperator{A};
++  auto iterations = std::vector<int>{};
++  for (const auto& [name, smoother] :
++       {std::pair{std::string{"Jacobi"},
++                  Parameters{{"Name", "OperatorJacobiSmoother"}}},
++        std::pair{std::string{"Chebyshev of order 2"},
++                  Parameters{{"Name", "OperatorChebyshevSmoother"},
++                             {"Options", Parameters{{"Order", 2}}}}},
++        std::pair{std::string{"Chebyshev of order 4"},
++                  Parameters{{"Name", "OperatorChebyshevSmoother"},
++                             {"Options", Parameters{{"Order", 4}}}}}}) {
++    const auto ra = solve<is_parallel>(fespace, A, B, smoother);
++    const auto rw = solve<is_parallel>(fespace, wrapped, B, smoother);
++    std::cout << name << ": " << ra.iterations << " iterations (assembled), "
++              << rw.iterations << " (applied without assembly), residuals "
++              << ra.residual << ", " << rw.residual << '\n';
++    for (const auto& [r, kind] :
++         {std::pair{ra, "assembled operator"},
++          std::pair{rw, "operator applied without assembly"}}) {
++      check(r.converged && (r.residual < 1e-9),
++            name + ", " + kind + ": resolution");
++    }
++    check(std::abs(ra.iterations - rw.iterations) <= 1,
++          name + ": different numbers of iterations");
++    iterations.push_back(ra.iterations);
++  }
++  check((iterations.size() == 3) && (iterations[1] < iterations[0]) &&
++            (iterations[2] < iterations[1]),
++        "the Chebyshev smoother does not reduce the number of iterations");
++  // invalid options
++  auto ctx = Context{};
++  const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, "CGSolver", fespace,
++      Parameters{{"Preconditioner",
++                  Parameters{{"Name", "OperatorChebyshevSmoother"},
++                             {"Options", Parameters{{"Order", 0}}}}}});
++  check(isInvalid(ls), "a null order of the Chebyshev smoother is accepted");
++}  // end of checkSmoothers
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  auto mesh = mfem::Mesh::MakeCartesian2D(32, 32, mfem::Element::QUADRILATERAL);
++  auto fec = mfem::H1_FECollection(1, 2);
++  auto ess_bdr = mfem::Array<int>(mesh.bdr_attributes.Max());
++  ess_bdr = 1;
++  auto one = mfem::ConstantCoefficient(1.);
++  if (parallel) {
++#ifdef MFEM_USE_MPI
++    auto pmesh = mfem::ParMesh(MPI_COMM_WORLD, mesh);
++    auto fespace = mfem::ParFiniteElementSpace(&pmesh, &fec);
++    auto ess_tdofs = mfem::Array<int>{};
++    fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
++    auto a = mfem::ParBilinearForm(&fespace);
++    a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
++    a.Assemble();
++    auto b = mfem::ParLinearForm(&fespace);
++    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++    b.Assemble();
++    auto x = mfem::ParGridFunction(&fespace);
++    x = 0.;
++    auto A = mfem::HypreParMatrix{};
++    auto B = mfem::Vector{};
++    auto X = mfem::Vector{};
++    a.FormLinearSystem(ess_tdofs, x, b, A, X, B);
++    checkSmoothers<true>(fespace, A, B);
++#else  /* MFEM_USE_MPI */
++    std::cerr << "parallel computations are not supported\n";
++    return EXIT_FAILURE;
++#endif /* MFEM_USE_MPI */
++  } else {
++    auto fespace = mfem::FiniteElementSpace(&mesh, &fec);
++    auto ess_tdofs = mfem::Array<int>{};
++    fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
++    auto a = mfem::BilinearForm(&fespace);
++    a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
++    a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
++    a.Assemble();
++    auto b = mfem::LinearForm(&fespace);
++    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++    b.Assemble();
++    auto x = mfem::GridFunction(&fespace);
++    x = 0.;
++    auto A = mfem::SparseMatrix{};
++    auto B = mfem::Vector{};
++    auto X = mfem::Vector{};
++    a.FormLinearSystem(ess_tdofs, x, b, A, X, B);
++    checkSmoothers<false>(fespace, A, B);
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

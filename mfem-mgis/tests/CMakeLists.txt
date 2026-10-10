@@ -850,6 +850,18 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # OperatorSmoothersTest executable: Jacobi and Chebyshev smoothers, which
+  # only use products by the operator and its diagonal, as preconditioners
+  # of the conjugate gradient
+  add_test_executable(OperatorSmoothersTest)
+  add_test(NAME OperatorSmoothersTest COMMAND OperatorSmoothersTest)
+  if(MFEM_USE_MPI)
+    add_test(NAME OperatorSmoothersTestP
+             COMMAND mpirun -n 2 ./OperatorSmoothersTest --parallel)
+    set_tests_properties(OperatorSmoothersTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+
   # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
   # iterative linear solvers adapted to the decrease of the residual
   add_test_executable(AdaptiveLinearSolverToleranceTest)

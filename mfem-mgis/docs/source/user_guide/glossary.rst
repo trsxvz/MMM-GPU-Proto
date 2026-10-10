@@ -416,7 +416,10 @@ Flexible GMRES (HypreFGMRES)
 Setup Your Preconditioner
 =========================
 
-Currently, only preconditioners from ``hypre`` are integrated into ``MFEM-MGIS``.
+The preconditioners are the ones of ``hypre`` (in parallel), the Jacobi
+and Chebyshev smoothers of ``MFEM``, which only use products by the operator
+and its diagonal, and ``AssembledOperator``, which sets up a preconditioner on
+the assembled version of an operator applied without assembly.
 
 Algebraic MultiGrid (AMG) 
 -------------------------
@@ -549,6 +552,97 @@ Jacobi (HypreDiagScale)
 
     auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
     auto diagscale = mfem_mgis::Parameters{{"Name","HypreDiagScale"}, {"Options",options}};
+
+Jacobi smoother (OperatorJacobiSmoother)
+----------------------------------------
+
+Jacobi smoother of ``MFEM``, whose diagonal is computed by the operator: it
+only uses products by the operator and its diagonal, and is thus usable with
+an operator applied without assembly (``TangentOperatorComputation`` set to
+``MatrixFree``), in sequential and in parallel.
+
+- Preconditioner name: ``OperatorJacobiSmoother``
+- Options:
+
++-------------+-----------------------------------------+
+| Key         | Description                             |
++=============+=========================================+
+| ``Damping`` | Damping factor, 1 by default. [double]  |
++-------------+-----------------------------------------+
+
+Chebyshev smoother (OperatorChebyshevSmoother)
+----------------------------------------------
+
+Chebyshev smoother of ``MFEM``: polynomial of the operator scaled by the
+inverse of its diagonal, the largest eigenvalue of the scaled operator being
+estimated by the power method each time the operator changes. As the Jacobi
+smoother, it only uses products by the operator and its diagonal. The
+essential degrees of freedom shall be eliminated with a diagonal set to one.
+
+- Preconditioner name: ``OperatorChebyshevSmoother``
+- Options:
+
++-----------------------------+------------------------------------------------+
+| Key                         | Description                                    |
++=============================+================================================+
+| ``Order``                   | Order of the polynomial, from 1 to 5, 2 by     |
+|                             | default. [int]                                 |
++-----------------------------+------------------------------------------------+
+| ``NumberOfPowerIterations`` | Iterations of the power method, 10 by default. |
+|                             | [int]                                          |
++-----------------------------+------------------------------------------------+
+
+**Example:**
+
+.. code-block:: cpp
+
+    auto chebyshev = mfem_mgis::Parameters{
+        {"Name", "OperatorChebyshevSmoother"},
+        {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
+
+Inexact Newton method (AdaptiveLinearSolverTolerance)
+-----------------------------------------------------
+
+The relative tolerance of the iterative linear solver of the Newton solver,
+and of the ``NewtonK0`` method of the ``FixedPoint`` solver, may be adapted
+to the decrease of the residual (Eisenstat and Walker, 1996), as
+``mfem::NewtonSolver::SetAdaptiveLinRtol``: loose at the first iterations,
+tighter near the solution. The linear solver shall be an iterative solver of
+``MFEM`` or a Krylov solver of ``hypre``; its relative tolerance is restored
+at the end of each resolution (the predictions keep it).
+
+- Option name: ``AdaptiveLinearSolverTolerance``, with the value ``None``
+  (default), ``EisenstatWalker1`` or ``EisenstatWalker2``, possibly with
+  options.
+- Options:
+
++----------------------+---------------------------------------------------+
+| Key                  | Description                                       |
++======================+===================================================+
+| ``InitialTolerance`` | Tolerance of the first linear solve, 0.5 by       |
+|                      | default (or the maximum tolerance if lower).      |
++----------------------+---------------------------------------------------+
+| ``MaximumTolerance`` | Maximum tolerance, 0.9 by default.                |
++----------------------+---------------------------------------------------+
+| ``Gamma``            | Factor of the second choice, 1 by default.        |
++----------------------+---------------------------------------------------+
+| ``Alpha``            | Exponent of the second choice, the golden ratio   |
+|                      | by default.                                       |
++----------------------+---------------------------------------------------+
+| ``Threshold``        | Threshold of the safeguard, 0.1 by default.       |
++----------------------+---------------------------------------------------+
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setSolverParameters(
+      ctx, {{"RelativeTolerance", 1e-8},
+            {"AdaptiveLinearSolverTolerance",
+             mfem_mgis::Parameters{
+                 {"EisenstatWalker1",
+                  mfem_mgis::Parameters{{"InitialTolerance", 0.1}}}}}}) |
+      or_die;
 
 Setup Your NonLinearProblem
 ===========================

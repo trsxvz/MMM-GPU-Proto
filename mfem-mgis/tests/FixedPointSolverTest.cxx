@@ -43,6 +43,7 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -75,38 +76,35 @@ struct Results {
   std::vector<mfem_mgis::real> linear_residual_norms;
   //! \brief norms of the residual during the last time step
   std::vector<mfem_mgis::real> norms;
+  //! \brief information on an iteration
+  struct Iteration {
+    //! \brief norm of the residual at the end of the iteration
+    mfem_mgis::real norm = 0;
+    //! \brief relative tolerance of the linear solver, if adapted
+    std::optional<mfem_mgis::real> tolerance;
+    //! \brief norm of the residual of the linear solve, if computed
+    std::optional<mfem_mgis::real> linear_residual_norm;
+  };
+  //! \brief information on the iterations of each time step
+  std::vector<std::vector<Iteration>> iterations_information;
 };
 
 /*!
  * \brief linear solver counting its resolutions, used to check which linear
- * solver makes the predictions, and that a destroyed instance is not used
+ * solver makes the predictions
  */
 struct CountingLinearSolver final : mfem::Solver {
   //! \brief number of resolutions
   static inline int count = 0;
-  //! \brief number of living instances
-  static inline int instances = 0;
-  //! \brief number of resolutions requested when no instance is alive
-  static inline int resolutions_without_instance = 0;
   //! \param[in] s: linear solver
   explicit CountingLinearSolver(std::unique_ptr<mfem::Solver> s)
-      : solver(std::move(s)) {
-    ++instances;
-  }
-  //! \brief destructor
-  ~CountingLinearSolver() override { --instances; }
+      : solver(std::move(s)) {}
   void SetOperator(const mfem::Operator& op) override {
     this->height = op.Height();
     this->width = op.Width();
     this->solver->SetOperator(op);
   }
   void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
-    if (instances == 0) {
-      // call of a destroyed instance: its members are not used
-      ++resolutions_without_instance;
-      y = mfem_mgis::real{0};
-      return;
-    }
     ++count;
     this->solver->Mult(x, y);
   }
@@ -175,6 +173,8 @@ struct ComputationOptions {
   int changes_step = 1;
   //! \brief number of time steps
   int number_of_steps = 2;
+  //! \brief parameters of the non linear solver replacing the default ones
+  mfem_mgis::Parameters solver_parameters = {};
 };
 
 /*!
@@ -241,11 +241,14 @@ static Results compute(mfem_mgis::Context& ctx,
         {.strategy = *(opts.prediction),
          .prediction_operator = PredictionOperator::ELASTIC});
   }
-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                    {"RelativeTolerance", 1e-12},
-                                    {"AbsoluteTolerance", 0.},
-                                    {"MaximumNumberOfIterations", 1000}}) |
-      or_die;
+  auto solver_parameters = Parameters{{"VerbosityLevel", 0},
+                                      {"RelativeTolerance", 1e-12},
+                                      {"AbsoluteTolerance", 0.},
+                                      {"MaximumNumberOfIterations", 1000}};
+  for (const auto& [k, v] : opts.solver_parameters) {
+    solver_parameters.replaceOrInsert(k, v);
+  }
+  problem.setSolverParameters(ctx, solver_parameters) | or_die;
   auto r = Results{};
   const auto nsteps = opts.number_of_steps;
   const auto dt = real{1} / nsteps;
@@ -263,10 +266,13 @@ static Results compute(mfem_mgis::Context& ctx,
     r.iterations += o.iterations;
     r.iterations_per_step.push_back(o.iterations);
     r.norms.clear();
+    auto& step = r.iterations_information.emplace_back();
     for (const auto& information : o.iterations_information) {
       const auto& p = get<Parameters>(throwing, information);
+      auto& iteration = step.emplace_back();
       if (contains(p, "Norm")) {
         r.norms.push_back(get<double>(throwing, p, "Norm"));
+        iteration.norm = r.norms.back();
       }
       if (contains(p, "LinearSolver")) {
         const auto& ls_information =
@@ -276,6 +282,11 @@ static Results compute(mfem_mgis::Context& ctx,
         if (contains(ls_information, "ResidualNorm")) {
           r.linear_residual_norms.push_back(
               get<double>(throwing, ls_information, "ResidualNorm"));
+          iteration.linear_residual_norm = r.linear_residual_norms.back();
+        }
+        if (contains(ls_information, "RelativeTolerance")) {
+          iteration.tolerance =
+              get<double>(throwing, ls_information, "RelativeTolerance");
         }
       }
     }
@@ -330,6 +341,68 @@ static void checkLinearResidualNorms(const Results& r,
                                 }),
         name + ": norms of the residuals of the linear solves");
 }  // end of checkLinearResidualNorms
+
+/*!
+ * \brief checks the relative tolerances of the linear solves adapted to the
+ * decrease of the residual: the tolerance of the iteration `k >= 2` of each
+ * time step is computed again from the norms of the residual of the
+ * iterations `k - 1` and `k - 2`, the norm of the residual of the linear
+ * solve and the tolerance of the iteration `k - 1` (formulas of Eisenstat
+ * and Walker, safeguards); the norm of the residual of a linear solve is
+ * lower than the norm of the residual of the non linear problem
+ * \param[in] r: results
+ * \param[in] t: adaptive tolerance
+ * \param[in] goal: absolute convergence criterion of the non linear solver
+ * \param[in] name: name of the computation
+ */
+static void checkAdaptiveTolerances(
+    const Results& r,
+    const mfem_mgis::AdaptiveLinearSolverTolerance& t,
+    const mfem_mgis::real goal,
+    const std::string& name) {
+  using Method = mfem_mgis::AdaptiveLinearSolverTolerance::Method;
+  const auto golden_ratio = (1 + std::sqrt(5.)) / 2;
+  const auto first_choice = t.method == Method::EISENSTAT_WALKER_1;
+  auto n = 0;
+  for (const auto& step : r.iterations_information) {
+    for (std::size_t k = 1; k < step.size(); ++k) {
+      // norm of the residual before the linear solve of the iteration k
+      const auto fk = step[k - 1].norm;
+      if (step[k].linear_residual_norm.has_value()) {
+        check(*(step[k].linear_residual_norm) < fk,
+              name +
+                  ": norm of the residual of a linear solve above the one "
+                  "of the non linear problem");
+      }
+      if ((k < 2) || (!step[k].tolerance.has_value()) ||
+          (!step[k - 1].tolerance.has_value())) {
+        continue;
+      }
+      const auto fkm1 = step[k - 2].norm;
+      const auto previous = *(step[k - 1].tolerance);
+      auto eta = 0.;
+      auto safeguard = 0.;
+      if (first_choice) {
+        eta =
+            std::abs(fk - step[k - 1].linear_residual_norm.value_or(-1)) / fkm1;
+        safeguard = std::pow(previous, golden_ratio);
+      } else {
+        eta = t.gamma * std::pow(fk / fkm1, t.alpha);
+        safeguard = t.gamma * std::pow(previous, t.alpha);
+      }
+      if (safeguard > t.threshold) {
+        eta = std::max(eta, safeguard);
+      }
+      eta = std::min(std::max(eta, goal / (2 * fk)), t.maximum_tolerance);
+      const auto v = *(step[k].tolerance);
+      check(std::abs(v - eta) <= 1e-12 * eta,
+            name + ": relative tolerance of a linear solve (" +
+                std::to_string(v) + " instead of " + std::to_string(eta) + ")");
+      ++n;
+    }
+  }
+  check(n > 0, name + ": no relative tolerance checked");
+}  // end of checkAdaptiveTolerances
 
 //! \return the parameters of the fixed point solver
 static mfem_mgis::Parameters makeFixedPointSolver(
@@ -406,6 +479,24 @@ int main(int argc, char** argv) {
     return p->second;
   };
   declareCountingLinearSolver();
+  // absolute convergence criterion of the computations with an adaptive
+  // tolerance of the linear solver, about 1e-12 times the initial residual,
+  // so that the tolerances can be computed again (see
+  // `checkAdaptiveTolerances`)
+  constexpr auto adaptive_goal = 1e-3;
+  const auto adaptive_solver_parameters = Parameters{
+      {"RelativeTolerance", 0.}, {"AbsoluteTolerance", adaptive_goal}};
+  // adaptive tolerance of a method, with its default options
+  auto getAdaptiveTolerance = [](const std::string& m) {
+    auto c = Context{};
+    const auto ot = AdaptiveLinearSolverTolerance::read(
+        c, Parameters{{"AdaptiveLinearSolverTolerance", m}});
+    if (!ot.has_value()) {
+      std::cerr << c.getErrorMessage() << '\n';
+      std::exit(EXIT_FAILURE);
+    }
+    return *ot;
+  };
   // direct solver, used as linear solver of the elastic operator
   const auto* const direct_solver = parallel ? "MUMPSSolver" : "UMFPackSolver";
   // fixed point on the elastic operator, solved by the linear solver of the
@@ -548,20 +639,21 @@ int main(int argc, char** argv) {
   for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
     auto options = newton_k0("CGSolver");
     options.insert(throwing, {{"AdaptiveLinearSolverTolerance", m}});
-    cases.push_back(
-        {std::string{"NewtonK0, conjugate gradient, "} + m, options, true});
+    cases.push_back({std::string{"NewtonK0, conjugate gradient, "} + m,
+                     options,
+                     true,
+                     {.solver_parameters = adaptive_solver_parameters}});
   }
   // NewtonK0 with the prediction by the elastic operator, the linear solver
-  // of the elastic operator (a counting linear solver) being replaced before
-  // the third time step: the preconditioners of the tangent operator and of
-  // the predictions apply the new one, the destroyed one is not called. The
-  // conjugate gradient makes the predictions of the second time step (the
-  // first one precedes the elastic operator) and of the fourth one (the
-  // elastic operator is computed again at the third one).
+  // of the elastic operator being replaced before the third time step: the
+  // preconditioners of the tangent operator and of the predictions apply
+  // the new one. The conjugate gradient makes the predictions of the second
+  // time step (the first one precedes the elastic operator) and of the
+  // fourth one (the elastic operator is computed again at the third one).
+  // A call of the replaced, destroyed, linear solver would be an undefined
+  // behaviour: in practice, the test crashes (checked by mutation).
   {
     auto options = newton_k0("CGSolver");
-    options.replaceOrInsert("ElasticOperatorLinearSolver",
-                            "CountingLinearSolver");
     options.insert(throwing, {{"PredictionLinearSolver", "ElasticOperator"}});
     cases.push_back(
         {"NewtonK0, then another linear solver of the elastic operator",
@@ -700,9 +792,12 @@ int main(int argc, char** argv) {
     }
     linear_iterations[c.name] = r.linear_iterations;
     checkLinearResidualNorms(r, c.name.ends_with("EisenstatWalker1"), c.name);
-    check(CountingLinearSolver::resolutions_without_instance == 0,
-          c.name + ": resolutions by a destroyed linear solver");
-    CountingLinearSolver::resolutions_without_instance = 0;
+    for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+      if (c.name.ends_with(m)) {
+        checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal,
+                                c.name);
+      }
+    }
     const auto& newton = getNewtonReference(c.computation);
     const auto du = getRelativeDifference(newton.u, r.u);
     std::cout << c.name << ": " << r.iterations << " iterations ("
@@ -770,11 +865,13 @@ int main(int argc, char** argv) {
     check(constant.status, "Newton, conjugate gradient: resolution failed");
     for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
       const auto name = std::string{"Newton, conjugate gradient, "} + m;
+      auto cg_adaptive = cg;
+      cg_adaptive.solver_parameters = adaptive_solver_parameters;
       const auto r = compute(
           ctx, mesh, library,
           Parameters{
               {"Newton", Parameters{{"AdaptiveLinearSolverTolerance", m}}}},
-          cg);
+          cg_adaptive);
       const auto du = getRelativeDifference(reference.u, r.u);
       std::cout << name << ": " << r.iterations << " iterations ("
                 << r.linear_iterations << " of the linear solver, "
@@ -786,6 +883,7 @@ int main(int argc, char** argv) {
       check(du < 1e-8, name + ": solution");
       checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
                                name);
+      checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal, name);
       check(r.linear_iterations < constant.linear_iterations,
             name + ": number of iterations of the linear solver");
     }

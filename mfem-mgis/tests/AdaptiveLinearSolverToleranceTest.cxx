@@ -145,6 +145,30 @@ static void checkFirstChoice() {
   }
   check(areClose(*getRelativeTolerance(s), 1e-9),
         "first choice: initial tolerance not restored");
+  // three iterations with the safeguard of the first choice, η^((1+√5)/2)
+  // (Eisenstat and Walker), which does not depend on gamma
+  const auto ot2 = AdaptiveLinearSolverTolerance::read(
+      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
+                       Parameters{{"EisenstatWalker1",
+                                   Parameters{{"InitialTolerance", 0.5},
+                                              {"Gamma", 0.5}}}}}});
+  check(ot2.has_value(), "first choice: options refused");
+  if (!ot2.has_value()) {
+    return;
+  }
+  const auto golden_ratio = (1 + std::sqrt(5.)) / 2;
+  auto u = AdaptiveLinearSolverToleranceUpdater{*ot2, s};
+  check(areClose(u.update(0, 1, 1e-12), 0.5),
+        "first choice: initial tolerance");
+  // |0.1 - 0.06| / 1 = 0.04, below the safeguard 0.5^φ
+  u.setLinearResidualNorm(0.06);
+  const auto eta1 = std::pow(0.5, golden_ratio);
+  check(areClose(u.update(1, 0.1, 1e-12), eta1),
+        "first choice: safeguard of the second iteration");
+  // |0.01 - 0.02| / 0.1 = 0.1, below the safeguard eta1^φ
+  u.setLinearResidualNorm(0.02);
+  check(areClose(u.update(2, 0.01, 1e-12), std::pow(eta1, golden_ratio)),
+        "first choice: safeguard of the third iteration");
 }  // end of checkFirstChoice
 
 //! \brief a direct solver is refused
@@ -169,27 +193,45 @@ static void checkDirectSolver() {
 //! \brief invalid options are refused
 static void checkRefusals() {
   using namespace mfem_mgis;
-  auto check_refusal = [](const Parameter& value, const std::string& name) {
+  // refusal of a value, with part of the expected error message
+  auto check_refusal = [](const Parameter& value, const std::string& name,
+                          const char* const message) {
     auto ctx = Context{};
     const auto ot = AdaptiveLinearSolverTolerance::read(
         ctx, Parameters{{"AdaptiveLinearSolverTolerance", value}});
     check(!ot.has_value(), name + " is accepted");
+    // reading the error message clears it
+    const auto e = ctx.getErrorMessage();
+    check(e.find(message) != std::string::npos,
+          name + ": unexpected error message (" + e + ")");
   };
-  check_refusal("Unknown", "an unknown method");
+  check_refusal("Unknown", "an unknown method", "invalid method");
   check_refusal(Parameters{{"None", Parameters{{"Gamma", 0.5}}}},
-                "an option of 'None'");
+                "an option of 'None'", "no option expected");
+  check_refusal(Parameters{{"RelativeTolerance", 1e-4},
+                           {"MaximumNumberOfIterations", 10}},
+                "a dictionary of options without name",
+                "invalid value of the parameter");
   auto ew2 = [](const char* const k, const double v) {
     return Parameters{{"EisenstatWalker2", Parameters{{k, v}}}};
   };
-  check_refusal(ew2("MaximumTolerance", 1), "a maximum tolerance of 1");
+  check_refusal(ew2("MaximumTolerance", 1), "a maximum tolerance of 1",
+                "maximum tolerance");
   check_refusal(ew2("InitialTolerance", 0.95),
-                "an initial tolerance above the maximum one");
-  check_refusal(ew2("Gamma", 0), "a null gamma");
-  check_refusal(ew2("Alpha", 1), "an alpha of 1");
-  check_refusal(ew2("Alpha", 2.5), "an alpha above 2");
-  check_refusal(ew2("Threshold", 1), "a threshold of 1");
-  check_refusal(ew2("Unknown", 1), "an unknown option");
+                "an initial tolerance above the maximum one",
+                "initial tolerance");
+  check_refusal(ew2("Gamma", 0), "a null gamma", "gamma");
+  check_refusal(ew2("Alpha", 1), "an alpha of 1", "alpha");
+  check_refusal(ew2("Alpha", 2.5), "an alpha above 2", "alpha");
+  check_refusal(ew2("Threshold", 1), "a threshold of 1", "threshold");
+  check_refusal(ew2("Unknown", 1), "an unknown option", "Unknown");
   auto ctx = Context{};
+  // the default initial tolerance is bounded by the maximum one
+  const auto omax = AdaptiveLinearSolverTolerance::read(
+      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
+                       ew2("MaximumTolerance", 0.3)}});
+  check(omax.has_value() && areClose(omax->initial_tolerance, 0.3),
+        "default initial tolerance above a maximum tolerance of 0.3");
   const auto ot = AdaptiveLinearSolverTolerance::read(
       ctx, Parameters{{"AdaptiveLinearSolverTolerance", "None"}});
   check(ot.has_value() && (!ot->isEnabled()), "'None' refused or enabled");

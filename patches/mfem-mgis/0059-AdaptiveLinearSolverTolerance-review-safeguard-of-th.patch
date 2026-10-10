@@ -1,0 +1,679 @@
+From 4b72095ee0fbaede7078a498b6ef0b42baf294b8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 04:55:11 +0200
+Subject: [PATCH] AdaptiveLinearSolverTolerance: review (safeguard of the first
+ choice, tests)
+
+- Safeguard of the first choice of Eisenstat and Walker: eta^((1+sqrt(5))/2),
+  independent of Gamma and Alpha, as in their paper and in PETSc (MFEM uses
+  gamma eta^alpha for both choices; the values only differ with other
+  values of Gamma and Alpha than the default ones).
+- The default initial tolerance is bounded by the maximum one: a maximum
+  tolerance below 0.5 may be given alone.
+- Documentation: the tolerance may be lower than the one of the linear
+  solver; residual of the complete linear solve after a reduction of the
+  correction; glossary section on the option. Error messages of the
+  factory arguments harmonized; the refusal of the adaptive tolerance by
+  the fixed point solver says how to change the method.
+- Chebyshev smoother: orders from 1 to 5 (MFEM aborts otherwise).
+- Tests: the relative tolerances of the iterations of the Newton solver and
+  of NewtonK0 are computed again by the test from the iterations
+  information (absolute convergence criterion), and the norm of the
+  residual of each linear solve must be lower than the norm of the residual
+  of the non linear problem; three iterations of the first choice with an
+  active safeguard; error messages of the refusals. The ten mutations of
+  the review (sign and value of the linear residual, frozen tolerance, no
+  bound against oversolving, safeguard of the first choice) are detected.
+  The counter of the resolutions by a destroyed linear solver, which could
+  not count (a call of a destroyed solver crashes), is removed.
+---
+ docs/source/user_guide/glossary.rst           |  47 ++++-
+ .../AdaptiveLinearSolverTolerance.hxx         |  28 +--
+ src/AdaptiveLinearSolverTolerance.cxx         |  14 +-
+ src/FixedPointSolver.cxx                      |   2 +-
+ src/LinearSolverFactory.cxx                   |  12 +-
+ src/Parameters.cxx                            |  23 ++-
+ tests/AdaptiveLinearSolverToleranceTest.cxx   |  62 +++++--
+ tests/FixedPointSolverTest.cxx                | 168 ++++++++++++++----
+ tests/OperatorSmoothersTest.cxx               |  17 +-
+ 9 files changed, 295 insertions(+), 78 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index c1b1436192..808bdbb3e3 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -585,7 +585,8 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
+ +-----------------------------+------------------------------------------------+
+ | Key                         | Description                                    |
+ +=============================+================================================+
+-| ``Order``                   | Order of the polynomial, 2 by default. [int]   |
++| ``Order``                   | Order of the polynomial, from 1 to 5, 2 by     |
++|                             | default. [int]                                 |
+ +-----------------------------+------------------------------------------------+
+ | ``NumberOfPowerIterations`` | Iterations of the power method, 10 by default. |
+ |                             | [int]                                          |
+@@ -599,6 +600,50 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
+         {"Name", "OperatorChebyshevSmoother"},
+         {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
+ 
++Inexact Newton method (AdaptiveLinearSolverTolerance)
++-----------------------------------------------------
++
++The relative tolerance of the iterative linear solver of the Newton solver,
++and of the ``NewtonK0`` method of the ``FixedPoint`` solver, may be adapted
++to the decrease of the residual (Eisenstat and Walker, 1996), as
++``mfem::NewtonSolver::SetAdaptiveLinRtol``: loose at the first iterations,
++tighter near the solution. The linear solver shall be an iterative solver of
++``MFEM`` or a Krylov solver of ``hypre``; its relative tolerance is restored
++at the end of each resolution (the predictions keep it).
++
++- Option name: ``AdaptiveLinearSolverTolerance``, with the value ``None``
++  (default), ``EisenstatWalker1`` or ``EisenstatWalker2``, possibly with
++  options.
++- Options:
++
+++----------------------+---------------------------------------------------+
++| Key                  | Description                                       |
+++======================+===================================================+
++| ``InitialTolerance`` | Tolerance of the first linear solve, 0.5 by       |
++|                      | default (or the maximum tolerance if lower).      |
+++----------------------+---------------------------------------------------+
++| ``MaximumTolerance`` | Maximum tolerance, 0.9 by default.                |
+++----------------------+---------------------------------------------------+
++| ``Gamma``            | Factor of the second choice, 1 by default.        |
+++----------------------+---------------------------------------------------+
++| ``Alpha``            | Exponent of the second choice, the golden ratio   |
++|                      | by default.                                       |
+++----------------------+---------------------------------------------------+
++| ``Threshold``        | Threshold of the safeguard, 0.1 by default.       |
+++----------------------+---------------------------------------------------+
++
++**Example:**
++
++.. code-block:: cpp
++
++  problem.setSolverParameters(
++      ctx, {{"RelativeTolerance", 1e-8},
++            {"AdaptiveLinearSolverTolerance",
++             mfem_mgis::Parameters{
++                 {"EisenstatWalker1",
++                  mfem_mgis::Parameters{{"InitialTolerance", 0.1}}}}}}) |
++      or_die;
++
+ Setup Your NonLinearProblem
+ ===========================
+ 
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+index 00ace33434..ce01d2891c 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx
+@@ -30,24 +30,32 @@ namespace mfem_mgis {
+    * - choice 1 (`EisenstatWalker1`):
+    *   `η_i = | ||F_i|| - ||F_{i-1} + J_{i-1} s_{i-1}|| | / ||F_{i-1}||`,
+    *   which requires the norm of the residual of the previous linear solve
+-   *   (one product by the tangent operator per iteration);
++   *   (one product by the tangent operator per iteration; after a reduction
++   *   of the correction, the residual of the complete linear solve is
++   *   used);
+    * - choice 2 (`EisenstatWalker2`): `η_i = γ (||F_i|| / ||F_{i-1}||)^α`.
+    *
+-   * Safeguards: the tolerance does not decrease faster than
+-   * `γ η_{i-1}^α` when this value is above `Threshold` (as MFEM and PETSc,
+-   * for both choices), it is bounded by `MaximumTolerance`, and it is not
+-   * smaller than `0.5 τ / ||F_i||`, `τ` being the convergence criterion on
+-   * the residual, which avoids oversolving the last linear system (Kelley,
+-   * Iterative methods for linear and nonlinear equations, SIAM, 1995).
++   * Safeguards, as Eisenstat and Walker and PETSc: when the following value
++   * is above `Threshold`, the tolerance is not smaller than
++   * `η_{i-1}^((1+√5)/2)` (choice 1) or `γ η_{i-1}^α` (choice 2), so that it
++   * does not decrease too fast (MFEM uses the latter for both choices,
++   * which only differ for values of `Gamma` and `Alpha` other than the
++   * default ones); the tolerance is bounded by `MaximumTolerance`, and is
++   * not smaller than `0.5 τ / ||F_i||`, `τ` being the convergence criterion
++   * on the residual, which avoids oversolving the last linear system
++   * (Kelley, Iterative methods for linear and nonlinear equations, SIAM,
++   * 1995). The tolerance may thus be lower than the one given to the linear
++   * solver.
+    *
+    * Option `AdaptiveLinearSolverTolerance` of the `Newton` solver and of the
+    * `NewtonK0` method of the `FixedPoint` solver: `None` (default, the
+    * tolerance of the linear solver is kept), `EisenstatWalker1` or
+    * `EisenstatWalker2`, given by a name, by a dictionary associating a name
+    * with its options, or by a dictionary with the entries `Name` and
+-   * `Options`. Options: `InitialTolerance` (0.5 by default),
+-   * `MaximumTolerance` (0.9), `Gamma` (1), `Alpha` (the golden ratio) and
+-   * `Threshold` (0.1), as in MFEM. The linear solver shall be an iterative
++   * `Options`. Options: `InitialTolerance` (0.5 by default, or the maximum
++   * tolerance if lower), `MaximumTolerance` (0.9), `Gamma` (1, choice 2),
++   * `Alpha` (the golden ratio, choice 2) and `Threshold` (0.1), as in MFEM.
++   * The linear solver shall be an iterative
+    * solver of MFEM or a Krylov solver of hypre; its relative tolerance is
+    * restored at the end of each resolution.
+    */
+diff --git a/src/AdaptiveLinearSolverTolerance.cxx b/src/AdaptiveLinearSolverTolerance.cxx
+index abfd1b47c3..f5e515edfe 100644
+--- a/src/AdaptiveLinearSolverTolerance.cxx
++++ b/src/AdaptiveLinearSolverTolerance.cxx
+@@ -46,10 +46,14 @@ namespace mfem_mgis {
+                                      "Gamma", "Alpha", "Threshold"})) {
+       return {};
+     }
+-    const auto o0 =
+-        get_if<double>(ctx, opts, "InitialTolerance", t.initial_tolerance);
+     const auto omax =
+         get_if<double>(ctx, opts, "MaximumTolerance", t.maximum_tolerance);
++    if (isInvalid(omax)) {
++      return {};
++    }
++    // the default initial tolerance is bounded by the maximum one
++    const auto o0 = get_if<double>(ctx, opts, "InitialTolerance",
++                                   std::min(t.initial_tolerance, *omax));
+     const auto ogamma = get_if<double>(ctx, opts, "Gamma", t.gamma);
+     const auto oalpha = get_if<double>(ctx, opts, "Alpha", t.alpha);
+     const auto othreshold = get_if<double>(ctx, opts, "Threshold", t.threshold);
+@@ -124,8 +128,12 @@ namespace mfem_mgis {
+         eta = o.gamma * std::pow(norm / this->previous_norm, o.alpha);
+       }
+       // the tolerance does not decrease too fast
++      constexpr auto golden_ratio = real{1.618033988749895};
+       const auto safeguard =
+-          o.gamma * std::pow(this->previous_tolerance, o.alpha);
++          (o.method ==
++           AdaptiveLinearSolverTolerance::Method::EISENSTAT_WALKER_1)
++              ? std::pow(this->previous_tolerance, golden_ratio)
++              : o.gamma * std::pow(this->previous_tolerance, o.alpha);
+       if (safeguard > o.threshold) {
+         eta = std::max(eta, safeguard);
+       }
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index 05e2bffed3..425ac617f2 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -306,7 +306,7 @@ namespace mfem_mgis {
+       return ctx.registerErrorMessage(
+           "FixedPointSolver: the adaptive tolerance of the linear solver "
+           "(option 'AdaptiveLinearSolverTolerance') is only used by the "
+-          "'NewtonK0' method");
++          "'NewtonK0' method (set it to 'None' to change the method)");
+     }
+     const auto has_linear_solver =
+         (!remove_linear_solver) &&
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 261c414006..cd064a7b52 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -603,11 +603,17 @@ namespace mfem_mgis {
+       if (isInvalid(oorder) || isInvalid(oiterations)) {
+         return {};
+       }
+-      if ((*oorder < 1) || (*oiterations < 1)) {
++      // orders implemented by MFEM
++      if ((*oorder < 1) || (*oorder > 5)) {
+         return ctx.registerErrorMessage(
+             "setLinearSolverPreconditioner: the order of the Chebyshev "
+-            "smoother and the number of iterations of the power method must "
+-            "be strictly positive");
++            "smoother must be between 1 and 5");
++      }
++      if (*oiterations < 1) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: the number of iterations of the "
++            "power method of the Chebyshev smoother must be strictly "
++            "positive");
+       }
+ #ifdef MFEM_USE_MPI
+       auto comm = MPI_Comm{MPI_COMM_NULL};
+diff --git a/src/Parameters.cxx b/src/Parameters.cxx
+index 7fef8aabde..6165387d2c 100644
+--- a/src/Parameters.cxx
++++ b/src/Parameters.cxx
+@@ -316,6 +316,19 @@ namespace mfem_mgis {
+     return *ovalue;
+   }  // end of extractFactoryArgument
+ 
++  /*!
++   * \return the error message of an invalid value of a parameter giving an
++   * object built by a factory
++   * \param[in] n: name of the parameter
++   */
++  [[nodiscard]] static std::string getInvalidFactoryArgumentMessage(
++      std::string_view n) {
++    return "invalid value of the parameter '" + std::string{n} +
++           "': expected a name, a dictionary with a unique entry associating "
++           "a name with options, or a dictionary with the entries 'Name' and "
++           "'Options'";
++  }  // end of getInvalidFactoryArgumentMessage
++
+   std::optional<std::pair<std::string, Parameters>> getFactoryArgument(
+       Context& ctx, const Parameters& parameters, std::string_view n) noexcept {
+     const auto op = parameters.get(ctx, n);
+@@ -337,11 +350,7 @@ namespace mfem_mgis {
+       if (!contains(*oparams, "Name")) {
+         auto oa = extractFactoryArgument(ctx, *oparams);
+         if (isInvalid(oa)) {
+-          return ctx.registerErrorMessage(
+-              "invalid value of the parameter '" + std::string{n} +
+-              "': expected a name, a dictionary with a unique entry "
+-              "associating a name with options, or a dictionary with the "
+-              "entries 'Name' and 'Options'");
++          return ctx.registerErrorMessage(getInvalidFactoryArgumentMessage(n));
+         }
+         return oa;
+       }
+@@ -358,9 +367,7 @@ namespace mfem_mgis {
+       }
+       return std::pair<std::string, Parameters>{*oname, *oopts};
+     }
+-    return ctx.registerErrorMessage(
+-        "the parameter '" + std::string{n} +
+-        "' must be a name or a dictionary associating a name with options");
++    return ctx.registerErrorMessage(getInvalidFactoryArgumentMessage(n));
+   }  // end of getFactoryArgument
+ 
+   Parameters remove(const Parameters& parameters,
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index 1eec8e10dc..19b07fbc61 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -145,6 +145,30 @@ static void checkFirstChoice() {
+   }
+   check(areClose(*getRelativeTolerance(s), 1e-9),
+         "first choice: initial tolerance not restored");
++  // three iterations with the safeguard of the first choice, η^((1+√5)/2)
++  // (Eisenstat and Walker), which does not depend on gamma
++  const auto ot2 = AdaptiveLinearSolverTolerance::read(
++      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
++                       Parameters{{"EisenstatWalker1",
++                                   Parameters{{"InitialTolerance", 0.5},
++                                              {"Gamma", 0.5}}}}}});
++  check(ot2.has_value(), "first choice: options refused");
++  if (!ot2.has_value()) {
++    return;
++  }
++  const auto golden_ratio = (1 + std::sqrt(5.)) / 2;
++  auto u = AdaptiveLinearSolverToleranceUpdater{*ot2, s};
++  check(areClose(u.update(0, 1, 1e-12), 0.5),
++        "first choice: initial tolerance");
++  // |0.1 - 0.06| / 1 = 0.04, below the safeguard 0.5^φ
++  u.setLinearResidualNorm(0.06);
++  const auto eta1 = std::pow(0.5, golden_ratio);
++  check(areClose(u.update(1, 0.1, 1e-12), eta1),
++        "first choice: safeguard of the second iteration");
++  // |0.01 - 0.02| / 0.1 = 0.1, below the safeguard eta1^φ
++  u.setLinearResidualNorm(0.02);
++  check(areClose(u.update(2, 0.01, 1e-12), std::pow(eta1, golden_ratio)),
++        "first choice: safeguard of the third iteration");
+ }  // end of checkFirstChoice
+ 
+ //! \brief a direct solver is refused
+@@ -169,27 +193,45 @@ static void checkDirectSolver() {
+ //! \brief invalid options are refused
+ static void checkRefusals() {
+   using namespace mfem_mgis;
+-  auto check_refusal = [](const Parameter& value, const std::string& name) {
++  // refusal of a value, with part of the expected error message
++  auto check_refusal = [](const Parameter& value, const std::string& name,
++                          const char* const message) {
+     auto ctx = Context{};
+     const auto ot = AdaptiveLinearSolverTolerance::read(
+         ctx, Parameters{{"AdaptiveLinearSolverTolerance", value}});
+     check(!ot.has_value(), name + " is accepted");
++    // reading the error message clears it
++    const auto e = ctx.getErrorMessage();
++    check(e.find(message) != std::string::npos,
++          name + ": unexpected error message (" + e + ")");
+   };
+-  check_refusal("Unknown", "an unknown method");
++  check_refusal("Unknown", "an unknown method", "invalid method");
+   check_refusal(Parameters{{"None", Parameters{{"Gamma", 0.5}}}},
+-                "an option of 'None'");
++                "an option of 'None'", "no option expected");
++  check_refusal(Parameters{{"RelativeTolerance", 1e-4},
++                           {"MaximumNumberOfIterations", 10}},
++                "a dictionary of options without name",
++                "invalid value of the parameter");
+   auto ew2 = [](const char* const k, const double v) {
+     return Parameters{{"EisenstatWalker2", Parameters{{k, v}}}};
+   };
+-  check_refusal(ew2("MaximumTolerance", 1), "a maximum tolerance of 1");
++  check_refusal(ew2("MaximumTolerance", 1), "a maximum tolerance of 1",
++                "maximum tolerance");
+   check_refusal(ew2("InitialTolerance", 0.95),
+-                "an initial tolerance above the maximum one");
+-  check_refusal(ew2("Gamma", 0), "a null gamma");
+-  check_refusal(ew2("Alpha", 1), "an alpha of 1");
+-  check_refusal(ew2("Alpha", 2.5), "an alpha above 2");
+-  check_refusal(ew2("Threshold", 1), "a threshold of 1");
+-  check_refusal(ew2("Unknown", 1), "an unknown option");
++                "an initial tolerance above the maximum one",
++                "initial tolerance");
++  check_refusal(ew2("Gamma", 0), "a null gamma", "gamma");
++  check_refusal(ew2("Alpha", 1), "an alpha of 1", "alpha");
++  check_refusal(ew2("Alpha", 2.5), "an alpha above 2", "alpha");
++  check_refusal(ew2("Threshold", 1), "a threshold of 1", "threshold");
++  check_refusal(ew2("Unknown", 1), "an unknown option", "Unknown");
+   auto ctx = Context{};
++  // the default initial tolerance is bounded by the maximum one
++  const auto omax = AdaptiveLinearSolverTolerance::read(
++      ctx, Parameters{{"AdaptiveLinearSolverTolerance",
++                       ew2("MaximumTolerance", 0.3)}});
++  check(omax.has_value() && areClose(omax->initial_tolerance, 0.3),
++        "default initial tolerance above a maximum tolerance of 0.3");
+   const auto ot = AdaptiveLinearSolverTolerance::read(
+       ctx, Parameters{{"AdaptiveLinearSolverTolerance", "None"}});
+   check(ot.has_value() && (!ot->isEnabled()), "'None' refused or enabled");
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index d8dc14b2c2..831da08bc1 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -43,6 +43,7 @@
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -75,38 +76,35 @@ struct Results {
+   std::vector<mfem_mgis::real> linear_residual_norms;
+   //! \brief norms of the residual during the last time step
+   std::vector<mfem_mgis::real> norms;
++  //! \brief information on an iteration
++  struct Iteration {
++    //! \brief norm of the residual at the end of the iteration
++    mfem_mgis::real norm = 0;
++    //! \brief relative tolerance of the linear solver, if adapted
++    std::optional<mfem_mgis::real> tolerance;
++    //! \brief norm of the residual of the linear solve, if computed
++    std::optional<mfem_mgis::real> linear_residual_norm;
++  };
++  //! \brief information on the iterations of each time step
++  std::vector<std::vector<Iteration>> iterations_information;
+ };
+ 
+ /*!
+  * \brief linear solver counting its resolutions, used to check which linear
+- * solver makes the predictions, and that a destroyed instance is not used
++ * solver makes the predictions
+  */
+ struct CountingLinearSolver final : mfem::Solver {
+   //! \brief number of resolutions
+   static inline int count = 0;
+-  //! \brief number of living instances
+-  static inline int instances = 0;
+-  //! \brief number of resolutions requested when no instance is alive
+-  static inline int resolutions_without_instance = 0;
+   //! \param[in] s: linear solver
+   explicit CountingLinearSolver(std::unique_ptr<mfem::Solver> s)
+-      : solver(std::move(s)) {
+-    ++instances;
+-  }
+-  //! \brief destructor
+-  ~CountingLinearSolver() override { --instances; }
++      : solver(std::move(s)) {}
+   void SetOperator(const mfem::Operator& op) override {
+     this->height = op.Height();
+     this->width = op.Width();
+     this->solver->SetOperator(op);
+   }
+   void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+-    if (instances == 0) {
+-      // call of a destroyed instance: its members are not used
+-      ++resolutions_without_instance;
+-      y = mfem_mgis::real{0};
+-      return;
+-    }
+     ++count;
+     this->solver->Mult(x, y);
+   }
+@@ -175,6 +173,8 @@ struct ComputationOptions {
+   int changes_step = 1;
+   //! \brief number of time steps
+   int number_of_steps = 2;
++  //! \brief parameters of the non linear solver replacing the default ones
++  mfem_mgis::Parameters solver_parameters = {};
+ };
+ 
+ /*!
+@@ -241,11 +241,14 @@ static Results compute(mfem_mgis::Context& ctx,
+         {.strategy = *(opts.prediction),
+          .prediction_operator = PredictionOperator::ELASTIC});
+   }
+-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                    {"RelativeTolerance", 1e-12},
+-                                    {"AbsoluteTolerance", 0.},
+-                                    {"MaximumNumberOfIterations", 1000}}) |
+-      or_die;
++  auto solver_parameters = Parameters{{"VerbosityLevel", 0},
++                                      {"RelativeTolerance", 1e-12},
++                                      {"AbsoluteTolerance", 0.},
++                                      {"MaximumNumberOfIterations", 1000}};
++  for (const auto& [k, v] : opts.solver_parameters) {
++    solver_parameters.replaceOrInsert(k, v);
++  }
++  problem.setSolverParameters(ctx, solver_parameters) | or_die;
+   auto r = Results{};
+   const auto nsteps = opts.number_of_steps;
+   const auto dt = real{1} / nsteps;
+@@ -263,10 +266,13 @@ static Results compute(mfem_mgis::Context& ctx,
+     r.iterations += o.iterations;
+     r.iterations_per_step.push_back(o.iterations);
+     r.norms.clear();
++    auto& step = r.iterations_information.emplace_back();
+     for (const auto& information : o.iterations_information) {
+       const auto& p = get<Parameters>(throwing, information);
++      auto& iteration = step.emplace_back();
+       if (contains(p, "Norm")) {
+         r.norms.push_back(get<double>(throwing, p, "Norm"));
++        iteration.norm = r.norms.back();
+       }
+       if (contains(p, "LinearSolver")) {
+         const auto& ls_information =
+@@ -276,6 +282,11 @@ static Results compute(mfem_mgis::Context& ctx,
+         if (contains(ls_information, "ResidualNorm")) {
+           r.linear_residual_norms.push_back(
+               get<double>(throwing, ls_information, "ResidualNorm"));
++          iteration.linear_residual_norm = r.linear_residual_norms.back();
++        }
++        if (contains(ls_information, "RelativeTolerance")) {
++          iteration.tolerance =
++              get<double>(throwing, ls_information, "RelativeTolerance");
+         }
+       }
+     }
+@@ -331,6 +342,68 @@ static void checkLinearResidualNorms(const Results& r,
+         name + ": norms of the residuals of the linear solves");
+ }  // end of checkLinearResidualNorms
+ 
++/*!
++ * \brief checks the relative tolerances of the linear solves adapted to the
++ * decrease of the residual: the tolerance of the iteration `k >= 2` of each
++ * time step is computed again from the norms of the residual of the
++ * iterations `k - 1` and `k - 2`, the norm of the residual of the linear
++ * solve and the tolerance of the iteration `k - 1` (formulas of Eisenstat
++ * and Walker, safeguards); the norm of the residual of a linear solve is
++ * lower than the norm of the residual of the non linear problem
++ * \param[in] r: results
++ * \param[in] t: adaptive tolerance
++ * \param[in] goal: absolute convergence criterion of the non linear solver
++ * \param[in] name: name of the computation
++ */
++static void checkAdaptiveTolerances(
++    const Results& r,
++    const mfem_mgis::AdaptiveLinearSolverTolerance& t,
++    const mfem_mgis::real goal,
++    const std::string& name) {
++  using Method = mfem_mgis::AdaptiveLinearSolverTolerance::Method;
++  const auto golden_ratio = (1 + std::sqrt(5.)) / 2;
++  const auto first_choice = t.method == Method::EISENSTAT_WALKER_1;
++  auto n = 0;
++  for (const auto& step : r.iterations_information) {
++    for (std::size_t k = 1; k < step.size(); ++k) {
++      // norm of the residual before the linear solve of the iteration k
++      const auto fk = step[k - 1].norm;
++      if (step[k].linear_residual_norm.has_value()) {
++        check(*(step[k].linear_residual_norm) < fk,
++              name +
++                  ": norm of the residual of a linear solve above the one "
++                  "of the non linear problem");
++      }
++      if ((k < 2) || (!step[k].tolerance.has_value()) ||
++          (!step[k - 1].tolerance.has_value())) {
++        continue;
++      }
++      const auto fkm1 = step[k - 2].norm;
++      const auto previous = *(step[k - 1].tolerance);
++      auto eta = 0.;
++      auto safeguard = 0.;
++      if (first_choice) {
++        eta =
++            std::abs(fk - step[k - 1].linear_residual_norm.value_or(-1)) / fkm1;
++        safeguard = std::pow(previous, golden_ratio);
++      } else {
++        eta = t.gamma * std::pow(fk / fkm1, t.alpha);
++        safeguard = t.gamma * std::pow(previous, t.alpha);
++      }
++      if (safeguard > t.threshold) {
++        eta = std::max(eta, safeguard);
++      }
++      eta = std::min(std::max(eta, goal / (2 * fk)), t.maximum_tolerance);
++      const auto v = *(step[k].tolerance);
++      check(std::abs(v - eta) <= 1e-12 * eta,
++            name + ": relative tolerance of a linear solve (" +
++                std::to_string(v) + " instead of " + std::to_string(eta) + ")");
++      ++n;
++    }
++  }
++  check(n > 0, name + ": no relative tolerance checked");
++}  // end of checkAdaptiveTolerances
++
+ //! \return the parameters of the fixed point solver
+ static mfem_mgis::Parameters makeFixedPointSolver(
+     const mfem_mgis::Parameters& options) {
+@@ -406,6 +479,24 @@ int main(int argc, char** argv) {
+     return p->second;
+   };
+   declareCountingLinearSolver();
++  // absolute convergence criterion of the computations with an adaptive
++  // tolerance of the linear solver, about 1e-12 times the initial residual,
++  // so that the tolerances can be computed again (see
++  // `checkAdaptiveTolerances`)
++  constexpr auto adaptive_goal = 1e-3;
++  const auto adaptive_solver_parameters = Parameters{
++      {"RelativeTolerance", 0.}, {"AbsoluteTolerance", adaptive_goal}};
++  // adaptive tolerance of a method, with its default options
++  auto getAdaptiveTolerance = [](const std::string& m) {
++    auto c = Context{};
++    const auto ot = AdaptiveLinearSolverTolerance::read(
++        c, Parameters{{"AdaptiveLinearSolverTolerance", m}});
++    if (!ot.has_value()) {
++      std::cerr << c.getErrorMessage() << '\n';
++      std::exit(EXIT_FAILURE);
++    }
++    return *ot;
++  };
+   // direct solver, used as linear solver of the elastic operator
+   const auto* const direct_solver = parallel ? "MUMPSSolver" : "UMFPackSolver";
+   // fixed point on the elastic operator, solved by the linear solver of the
+@@ -548,20 +639,21 @@ int main(int argc, char** argv) {
+   for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+     auto options = newton_k0("CGSolver");
+     options.insert(throwing, {{"AdaptiveLinearSolverTolerance", m}});
+-    cases.push_back(
+-        {std::string{"NewtonK0, conjugate gradient, "} + m, options, true});
++    cases.push_back({std::string{"NewtonK0, conjugate gradient, "} + m,
++                     options,
++                     true,
++                     {.solver_parameters = adaptive_solver_parameters}});
+   }
+   // NewtonK0 with the prediction by the elastic operator, the linear solver
+-  // of the elastic operator (a counting linear solver) being replaced before
+-  // the third time step: the preconditioners of the tangent operator and of
+-  // the predictions apply the new one, the destroyed one is not called. The
+-  // conjugate gradient makes the predictions of the second time step (the
+-  // first one precedes the elastic operator) and of the fourth one (the
+-  // elastic operator is computed again at the third one).
++  // of the elastic operator being replaced before the third time step: the
++  // preconditioners of the tangent operator and of the predictions apply
++  // the new one. The conjugate gradient makes the predictions of the second
++  // time step (the first one precedes the elastic operator) and of the
++  // fourth one (the elastic operator is computed again at the third one).
++  // A call of the replaced, destroyed, linear solver would be an undefined
++  // behaviour: in practice, the test crashes (checked by mutation).
+   {
+     auto options = newton_k0("CGSolver");
+-    options.replaceOrInsert("ElasticOperatorLinearSolver",
+-                            "CountingLinearSolver");
+     options.insert(throwing, {{"PredictionLinearSolver", "ElasticOperator"}});
+     cases.push_back(
+         {"NewtonK0, then another linear solver of the elastic operator",
+@@ -700,9 +792,12 @@ int main(int argc, char** argv) {
+     }
+     linear_iterations[c.name] = r.linear_iterations;
+     checkLinearResidualNorms(r, c.name.ends_with("EisenstatWalker1"), c.name);
+-    check(CountingLinearSolver::resolutions_without_instance == 0,
+-          c.name + ": resolutions by a destroyed linear solver");
+-    CountingLinearSolver::resolutions_without_instance = 0;
++    for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
++      if (c.name.ends_with(m)) {
++        checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal,
++                                c.name);
++      }
++    }
+     const auto& newton = getNewtonReference(c.computation);
+     const auto du = getRelativeDifference(newton.u, r.u);
+     std::cout << c.name << ": " << r.iterations << " iterations ("
+@@ -770,11 +865,13 @@ int main(int argc, char** argv) {
+     check(constant.status, "Newton, conjugate gradient: resolution failed");
+     for (const auto* const m : {"EisenstatWalker1", "EisenstatWalker2"}) {
+       const auto name = std::string{"Newton, conjugate gradient, "} + m;
++      auto cg_adaptive = cg;
++      cg_adaptive.solver_parameters = adaptive_solver_parameters;
+       const auto r = compute(
+           ctx, mesh, library,
+           Parameters{
+               {"Newton", Parameters{{"AdaptiveLinearSolverTolerance", m}}}},
+-          cg);
++          cg_adaptive);
+       const auto du = getRelativeDifference(reference.u, r.u);
+       std::cout << name << ": " << r.iterations << " iterations ("
+                 << r.linear_iterations << " of the linear solver, "
+@@ -786,6 +883,7 @@ int main(int argc, char** argv) {
+       check(du < 1e-8, name + ": solution");
+       checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
+                                name);
++      checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal, name);
+       check(r.linear_iterations < constant.linear_iterations,
+             name + ": number of iterations of the linear solver");
+     }
+diff --git a/tests/OperatorSmoothersTest.cxx b/tests/OperatorSmoothersTest.cxx
+index a9e30b2627..8fd89190dd 100644
+--- a/tests/OperatorSmoothersTest.cxx
++++ b/tests/OperatorSmoothersTest.cxx
+@@ -162,13 +162,16 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+             (iterations[2] < iterations[1]),
+         "the Chebyshev smoother does not reduce the number of iterations");
+   // invalid options
+-  auto ctx = Context{};
+-  const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+-      ctx, "CGSolver", fespace,
+-      Parameters{{"Preconditioner",
+-                  Parameters{{"Name", "OperatorChebyshevSmoother"},
+-                             {"Options", Parameters{{"Order", 0}}}}}});
+-  check(isInvalid(ls), "a null order of the Chebyshev smoother is accepted");
++  for (const auto order : {0, 6}) {
++    auto ctx = Context{};
++    const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++        ctx, "CGSolver", fespace,
++        Parameters{{"Preconditioner",
++                    Parameters{{"Name", "OperatorChebyshevSmoother"},
++                               {"Options", Parameters{{"Order", order}}}}}});
++    check(isInvalid(ls), "an order " + std::to_string(order) +
++                             " of the Chebyshev smoother is accepted");
++  }
+ }  // end of checkSmoothers
+ 
+ int main(int argc, char** argv) {
+-- 
+2.43.0
+
