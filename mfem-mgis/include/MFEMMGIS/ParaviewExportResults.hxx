@@ -66,9 +66,10 @@ namespace mfem_mgis {
      * \brief exported unknowns (true degrees of freedom), copied in `result`
      * at each export: the unknowns at the end of the time step, or at the
      * beginning of the time step for the initial export. A reference to the
-     * unknowns (`mfem::GridFunction::MakeTRef`) would let MFEM copy the values
-     * of the host over the ones of the device when the unknowns are computed
-     * on a device.
+     * unknowns (`mfem::GridFunction::MakeTRef`) would be an alias whose
+     * validity flags are the ones of the unknowns when it is made: with or
+     * without prolongation, MFEM would copy stale values of the host over
+     * the unknowns computed on a device.
      */
     const mfem::Vector* unknowns = nullptr;
     //! \brief number of records

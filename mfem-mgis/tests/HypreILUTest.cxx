@@ -1,11 +1,13 @@
 /*!
  * \file   tests/HypreILUTest.cxx
  * \brief  Test of the incomplete factorisation of hypre (preconditioner
- * `HypreILU` of the factory of linear solvers): its level of fill is kept
- * after a new operator (`mfem::HypreILU::SetOperator` restores the default
- * options of MFEM, a level of fill of one), and, when hypre computes on a
- * GPU, where the factorisations with a level of fill greater than zero
- * fail, the level of fill is zero by default and a greater level is refused.
+ * `HypreILU` of the factory of linear solvers): its options are kept after
+ * a new operator (`mfem::HypreILU::SetOperator` restores the default
+ * options of MFEM, an ILU(1) factorisation), the default level of fill is
+ * the one of MFEM, and, when hypre computes on a GPU, where the ILU(k)
+ * factorisations with a level of fill greater than zero fail, the level of
+ * fill is zero by default and a greater level is refused. The ILUT
+ * factorisation is available everywhere.
  * \date   10/10/2026
  */
 
@@ -123,11 +125,32 @@ int main(int argc, char** argv) {
     check(nd == n0, "the default level of fill is not zero on a GPU");
     check(n2.empty(), "a level of fill of 2 is not refused on a GPU");
   } else {
+    // ILU(1) by default
+    check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
+          "the default level of fill is not the one of MFEM");
     check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
           "level of fill 2: numbers of iterations");
     check((n2.size() == 2) && (n2[0] < n0[0]),
           "the level of fill 2 does not reduce the number of iterations");
   }
+  // ILUT factorisation, on the host and on a GPU
+  const auto nt = solve(fespace, A, B, {{"HypreILUType", 1}});
+  print("ILUT", nt);
+  check((nt.size() == 2) && (nt[0] > 0) && (nt[1] == nt[0]),
+        "ILUT: numbers of iterations");
+  if (isHypreUsingGPU() && (fespace.GetNRanks() == 1)) {
+    // the factorisation ILUT, which gives as many iterations as the default
+    // ILU(1) on the host, gives fewer iterations than ILU(0) on one process
+    check((nt.size() == 2) && (n0.size() == 2) && (nt[0] < n0[0]),
+          "ILUT: the factorisation does not reduce the number of iterations "
+          "on a GPU");
+  }
+  // invalid options
+  check(solve(fespace, A, B, {{"HypreILUType", 1}, {"HypreILULevelOfFill", 0}})
+            .empty(),
+        "a level of fill is accepted for an ILUT factorisation");
+  check(solve(fespace, A, B, {{"HypreILUType", 2}}).empty(),
+        "an invalid type of factorisation is accepted");
   if (verbose) {
     std::cout << (failures == 0 ? "success" : "failure") << '\n';
   }

@@ -751,7 +751,10 @@ int main(int argc, char** argv) {
          true});
   }
   // maximum numbers of iterations of the accelerations, about 15 % above
-  // the observed ones, to detect a wrong acceleration which still converges
+  // the observed ones, to detect a wrong acceleration which still converges.
+  // The number of iterations of `Crossed2Deltabis` depends on the roundings
+  // up to a factor two (from 240 to 562 iterations in parallel on the host,
+  // with or without `OMP_NUM_THREADS=1`): it is not bounded
   const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
       {"fixed point, Anderson", 43},
       {"NewtonK0, default iterative solver of the tangent operator", 12},
@@ -768,7 +771,6 @@ int main(int argc, char** argv) {
       {"fixed point, IronsTuck", 56},
       {"fixed point, CrossedDelta2", 161},
       {"fixed point, Crossed2Delta", 81},
-      {"fixed point, Crossed2Deltabis", 431},
       {"fixed point, AlternateDelta2", 69},
       {"fixed point, Alternate2Delta", 53}};
   // number of iterations of the fixed point with one cycle of BoomerAMG per
@@ -815,13 +817,12 @@ int main(int argc, char** argv) {
     if (const auto p = maximum_numbers_of_iterations.find(c.name);
         p != maximum_numbers_of_iterations.end()) {
       // on a GPU, the sums computed by atomic operations (assembly of the
-      // tangent operator, setup of BoomerAMG by hypre) are not deterministic,
-      // and the accelerations amplify these differences (up to 45% more
-      // iterations observed with Crossed2Deltabis): the bounds are increased
-      // by 50%
+      // tangent operator, setup of BoomerAMG by hypre) are not deterministic:
+      // the numbers of iterations of the bounded cases differ by at most one
+      // iteration from the ones on the host, two are tolerated
       const auto gpu = mfem::Device::Allows(mfem::Backend::CUDA_MASK |
                                             mfem::Backend::HIP_MASK);
-      const auto bound = gpu ? (3 * p->second) / 2 : p->second;
+      const auto bound = gpu ? p->second + 2 : p->second;
       check(r.iterations <= bound,
             c.name + ": number of iterations (" + std::to_string(r.iterations) +
                 ", at most " + std::to_string(bound) + " expected)");

@@ -4,11 +4,14 @@
 //
 // usage: ilu <device> <mode> <level of fill>
 // - device: cpu or cuda;
-// - mode: 0 for mfem::HypreILU, which creates a new preconditioner of hypre
-//   with the default options of MFEM (level of fill of one) at each new
-//   operator, 1 for a preconditioner kept from one operator to the other
-//   (setup again by hypre), whose level of fill is kept;
-// - level of fill (mode 1 only).
+// - mode: 0 for mfem::HypreILU with its default options (level of fill of
+//   one), 2 for mfem::HypreILU whose level of fill is given once, before
+//   the first operator: mfem::HypreILU creates a new preconditioner of
+//   hypre with the default options of MFEM at each new operator, the level
+//   given is lost after the first resolution; 1 for a preconditioner kept
+//   from one operator to the other (setup again by hypre), whose level of
+//   fill is kept;
+// - level of fill (modes 1 and 2).
 #include <cstdlib>
 #include <iostream>
 #include "mfem/general/communication.hpp"
@@ -40,7 +43,9 @@ int main(int argc, char** argv) {
   mfem::Mpi::Init(argc, argv);
   mfem::Hypre::Init();
   mfem::Device device(argc > 1 ? argv[1] : "cpu");
-  const int kept = argc > 2 ? std::atoi(argv[2]) : 0;
+  const int mode = argc > 2 ? std::atoi(argv[2]) : 0;
+  const int kept = mode == 1;
+  const int fill = argc > 3 ? std::atoi(argv[3]) : 0;
   auto smesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
   auto pmesh = mfem::ParMesh(MPI_COMM_WORLD, smesh);
   auto fec = mfem::H1_FECollection(1, 3);
@@ -63,7 +68,10 @@ int main(int argc, char** argv) {
   auto X = mfem::Vector{};
   a.FormLinearSystem(ess, x, b, A, X, B);
   auto mfem_ilu = mfem::HypreILU();
-  auto kept_ilu = KeptILU(argc > 3 ? std::atoi(argv[3]) : 0);
+  if (mode == 2) {
+    mfem_ilu.SetLevelOfFill(fill);
+  }
+  auto kept_ilu = KeptILU(fill);
   mfem::HypreSolver& prec = kept ? static_cast<mfem::HypreSolver&>(kept_ilu) : mfem_ilu;
   auto solver = mfem::HypreFGMRES(MPI_COMM_WORLD);
   solver.SetTol(1e-12);
@@ -76,7 +84,7 @@ int main(int argc, char** argv) {
     int n = 0;
     solver.GetNumIterations(n);
     if (mfem::Mpi::Root()) {
-      std::cout << (kept ? "kept" : "mfem") << " resolution " << i << ": " << n << " iterations\n";
+      std::cout << (kept ? "kept" : (mode == 2 ? "mfem, level given once" : "mfem")) << " resolution " << i << ": " << n << " iterations\n";
     }
   }
   return EXIT_SUCCESS;

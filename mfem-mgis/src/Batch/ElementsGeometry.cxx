@@ -237,7 +237,9 @@ namespace mfem_mgis::batch {
       // cached by the finite element for the address of the integration
       // rule: a different number of points reveals a rule destroyed and
       // replaced by another at the same address
-      if ((g.maps->nqpt != g.nq) || (g.maps->ndof != g.nd)) {
+      // (the number of degrees of freedom is the one of the element, which
+      // creates the cache)
+      if (g.maps->nqpt != g.nq) {
         return ctx.registerErrorMessage(
             "computeElementsGeometry: the values of the shape functions "
             "cached by the finite element do not match the integration rule");

@@ -831,7 +831,9 @@ if(MFEM_MGIS_HAVE_TFEL)
   # Debug and Coverage builds. Without device, the stiffness matrices and
   # their diagonals are computed by the version of the kernel for the host
   # (one iteration per element): in these builds, the kernel itself (one
-  # thread per pair of nodes) is only run by the variants on the GPU.
+  # thread per pair of nodes) is run by the short variants on the debug
+  # device (GradientsKernelsTest-debug, FixedPointSolverTest-kernels-debug)
+  # and by the variants on the GPU.
   set(long_debug_device_tests ON)
   if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
      (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
@@ -1038,9 +1040,12 @@ if(MFEM_MGIS_HAVE_TFEL)
   if(MFEM_USE_MPI)
     add_test_executable(HypreBoomerAMGTest)
     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
-    # HypreILUTest executable: level of fill of the incomplete factorisation
-    # of hypre kept after a new operator, ILU(0) when hypre computes on a GPU
+    # HypreILUTest executable: options of the incomplete factorisation of
+    # hypre kept after a new operator, ILU(0) when hypre computes on a GPU.
+    # The levels of fill change the numbers of iterations more on one
+    # process than on two (block Jacobi factorisations)
     add_test_executable(HypreILUTest)
+    add_test(NAME HypreILUTest COMMAND HypreILUTest)
     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
   endif(MFEM_USE_MPI)
 

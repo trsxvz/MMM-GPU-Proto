@@ -488,7 +488,19 @@ Incomplete LU factorization (HypreILU)
 +-------------------------+------------------------------------------------+
 | Key                     | Description                                    |
 +=========================+================================================+
-| ``HypreILULevelOfFill`` | [int] TODO                                     |
+| ``HypreILUType``        | [int] Type of the factorisation of hypre:      |
+|                         | ILU(k) (0, the default, 10, 20, 30, 40), ILUT  |
+|                         | (1, 11, 21, 31, 41) or modified ILU(0) (50),   |
+|                         | with a block Jacobi (0, 1), GMRES on the Schur |
+|                         | complement (10, 11, 40, 41), Newton-Schulz-    |
+|                         | Hotelling (20, 21), restricted additive        |
+|                         | Schwarz (30, 31) or RAP (50) global method.    |
++-------------------------+------------------------------------------------+
+| ``HypreILULevelOfFill`` | [int] Level of fill of the ILU(k)              |
+|                         | factorisations (not allowed for the ILUT       |
+|                         | ones). One by default (default of MFEM), zero  |
+|                         | when hypre computes on a GPU, where a greater  |
+|                         | level is refused (failure of hypre 3.2.0).     |
 +-------------------------+------------------------------------------------+
 | ``VerbosityLevel``      | Define the verbosity of the solver. [int: 0,1] |
 +-------------------------+------------------------------------------------+

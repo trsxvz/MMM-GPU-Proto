@@ -135,8 +135,9 @@ Les bibliothèques de lots des tests sont construites par les fonctions de
 
 ## mfem-mgis
 
-mfem-mgis est construit dans `build/mfem-mgis`. Sa suite (157 tests) se
-lance de trois façons, qui doivent toutes passer :
+mfem-mgis est construit dans `build/mfem-mgis`. Sa suite (168 tests, dont
+10 variantes sur le GPU) se lance de trois façons, qui doivent toutes
+passer :
 
 - telle quelle : `ctest -j 6 -E "cuda|gpu|GPU"`, puis les variantes sur le
   GPU une par une, `ctest -j 1 -R "cuda|gpu|GPU"` ;
@@ -144,17 +145,22 @@ lance de trois façons, qui doivent toutes passer :
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
   `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` et
-  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (157/157) ;
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (158/158 hors variantes
+  GPU) ;
 - sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
   l'option `--device cuda` de chaque test), avec ou sans les variables
   précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`) :
   des tests simultanés se partagent le GPU et échouent. Seuls
   `DeviceForallTest-cpu` et `DeviceOptionTest-none`, qui exigent
-  l'absence de périphérique, échouent alors (145/147).
+  l'absence de périphérique, échouent alors (146/148).
+  `FixedPointSolverTest-kernels-cpu`, qui garde son option `--device cpu`,
+  et `UnitTestParameters`, qui n'initialise pas mfem-mgis, ne passent alors
+  pas par le GPU.
 
-La factorisation incomplète de hypre de niveau 1 ou plus plante sur le GPU
-(reproducteur `reproducers/hypre-ilu-gpu`) : mfem-mgis y prend le niveau 0
-par défaut et refuse les niveaux supérieurs.
+La factorisation incomplète ILU(k) de hypre 3.2.0 de niveau 1 ou plus
+plante sur le GPU (reproducteur `reproducers/hypre-ilu-gpu`) : mfem-mgis y
+prend le niveau 0 par défaut et refuse les niveaux supérieurs. La
+factorisation ILUT (`HypreILUType` 1) y fonctionne.
 
 ## Défauts de compilateurs
 

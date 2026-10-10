@@ -3636,3 +3636,56 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   sur 8 cœurs (-18 %, avec un seuil de 0,5) et 1,71 s sur le GPU (-5 à
   -8 %) ; le Jacobi simple de hypre fait échouer le gradient conjugué.
 
+- Relecture D de 3410a92b3b et a066c82baa
+  (`scratch/nuit-2026-10-10/relecture-D.md`) : aucun résultat faux
+  introduit. Un défaut antérieur de gravité 5 (D6) : la projection L2 et la
+  régularisation par gradient implicite d'une fonction à plusieurs
+  composantes donnaient des zéros sur le GPU (recopie des composantes par
+  l'opérateur `[]`, qui lit l'hôte sans le rendre valide), invisible car
+  les tests exportaient le résultat sans le vérifier.
+- mfem-mgis 5246498277 : correction de D6 (`HostRead`, `HostReadWrite`).
+  L2ProjectionTest compare la projection de fonctions linéaires à une et
+  trois composantes, exacte, à leur interpolée : le test échouait sur le
+  GPU avant la correction (écart égal à la plus grande valeur) et passe
+  maintenant sur CPU et GPU, en séquentiel et en parallèle.
+- mfem-mgis 080c20d1e3 : autres constats de la relecture D.
+  - Option `HypreILUType` de `HypreILU` : ILUT fonctionne sur le GPU (7
+    itérations contre 10 pour ILU(0) sur un processus), le refus des
+    niveaux de remplissage supérieurs à 0 le cite ; un niveau est refusé
+    pour ILUT. La version de hypre est 3.2.0 (le message de 3410a92b3b
+    dit 3.0.2 à tort).
+  - HypreILUTest : variante à un processus (10, 7 et 5 itérations pour
+    les niveaux 0, 1 et 2, contre 18, 17 et 17 sur deux), niveau par
+    défaut vérifié sur CPU, ILUT vérifié ; deux mutations détectées
+    (niveau 0 par défaut sur CPU, type non transmis à hypre).
+  - FixedPointSolverTest : Crossed2Deltabis n'est plus borné (240 à 562
+    itérations selon les arrondis, même sur CPU) ; la marge des autres
+    cas sur GPU passe de 50 % à deux itérations (ils diffèrent d'une
+    itération au plus du CPU) ; trois passes GPU vertes.
+  - Contrôle `ndof` du cache des fonctions de forme retiré (il ne pouvait
+    pas échouer). Documentation : `isHypreUsingGPU`, `MFEM_DEVICE` (prend
+    le pas sur `MFEM_MGIS_DEVICE`), mécanisme de `MakeTRef` (alias aux
+    drapeaux de validité figés, avec ou sans prolongement : le message de
+    3410a92b3b le restreint à tort au cas sans prolongement), noyau par
+    paires exécuté aussi sur le périphérique debug en Debug et Coverage.
+- Reproducteur `reproducers/hypre-ilu-gpu` : mode 2, niveau 0 donné une
+  fois à `mfem::HypreILU` : CPU 18 puis 17, 17 itérations (niveau perdu au
+  nouvel opérateur), GPU 18 puis erreur de segmentation.
+- AmgX dans la fabrique de solveurs linéaires de mfem-mgis
+  (préconditionneur et solveur `AmgX`, cycles du multigrille d'AmgX,
+  configuration par chaîne ou par fichier ; solveur `AmgXPCG`, gradient
+  conjugué d'AmgX avec tolérances relative et absolue, convergence jugée
+  sur le nombre d'itérations comme pour hypre) : branche locale
+  `amgx-wip` (2755f98996), non poussée. L'AmgX de l'environnement
+  (commit 91a8413e, CUDA 13.0.2, sm_120) plante dans la mise en place du
+  multigrille classique, même avec son propre exemple `amgx_capi` :
+  « invalid device function » dans `cub::DeviceFor::Bulk` appelé par
+  `thrust::sequence` (produit de Galerkin, csr_multiply.cu). Le
+  multigrille par agrégation fonctionne (Poisson 20³ : 22 itérations,
+  18 ms). Cause localisée : deux objets de libamgx.a définissent
+  `DeviceFor::Bulk` pour ce noyau ; celui de amg.cu.o (appel depuis
+  `Matrix::colorMatrix`, fonction virtuelle inline d'un modèle de classe)
+  a le stub hôte du noyau, interne avec le défaut
+  `-static-global-template-stub=true` de CUDA 13, mais son cubin ne
+  contient pas le noyau. Essai : AmgX reconstruit avec
+  `-static-global-template-stub=false` (build/amgx-stub).

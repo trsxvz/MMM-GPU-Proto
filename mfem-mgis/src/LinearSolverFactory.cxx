@@ -5,12 +5,14 @@
  * \date   24/03/2021
  */
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
 #include <functional>
 #include <optional>
 #include <utility>
+#include <algorithm>
 #include "mfem/linalg/solvers.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/linalg/petsc.hpp"
@@ -262,9 +264,10 @@ namespace mfem_mgis {
                             const Parameters& opts) {
 #if MFEM_HYPRE_VERSION >= 21900
     using Problem = AbstractNonLinearEvolutionProblem;
-    if (!checkParameters(ctx, opts,
-                         std::vector<std::string>{Problem::SolverVerbosityLevel,
-                                                  "HypreILULevelOfFill"})) {
+    if (!checkParameters(
+            ctx, opts,
+            std::vector<std::string>{Problem::SolverVerbosityLevel,
+                                     "HypreILUType", "HypreILULevelOfFill"})) {
       return {};
     }
     using Setting = internals::ConfiguredHypreILU::Setting;
@@ -277,24 +280,50 @@ namespace mfem_mgis {
       settings.push_back(
           [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
     }
-    // the incomplete factorisations with a level of fill greater than zero
-    // make the triangular solves of hypre fail when hypre computes on a GPU
+    // type of the factorisation of hypre (`HYPRE_ILUSetType`): ILU(k)
+    // (0, the default, 10, 20, 30, 40), ILUT (1, 11, 21, 31, 41), modified
+    // ILU(0) (50), with a block Jacobi (0, 1), GMRES on the Schur complement
+    // (10, 11, 40, 41), Newton-Schulz-Hotelling (20, 21), restricted additive
+    // Schwarz (30, 31) or RAP (50) global method
+    const auto otype = get_if<int>(ctx, opts, "HypreILUType", 0);
+    if (isInvalid(otype)) {
+      return {};
+    }
+    const auto types = std::array{0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50};
+    if (std::find(types.begin(), types.end(), *otype) == types.end()) {
+      return ctx.registerErrorMessage(
+          "setHypreILUPreconditioner: invalid type of factorisation " +
+          std::to_string(*otype));
+    }
+    const auto ilut = (*otype % 10) == 1;
+    if (contains(opts, "HypreILUType")) {
+      settings.push_back([v = *otype](mfem::HypreILU& ilu) { ilu.SetType(v); });
+    }
+    // the ILU(k) factorisations with a level of fill greater than zero make
+    // the triangular solves of hypre fail when hypre computes on a GPU
     // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
-    // 3.0.2 and CUDA 13): the level of fill is then zero by default, one
-    // being the default of MFEM
+    // 3.2.0 and CUDA 13, see reproducers/hypre-ilu-gpu in the prototype),
+    // the ILUT factorisations do not: the level of fill is then zero by
+    // default, one being the default of MFEM
     auto level_of_fill = std::optional<int>{};
     if (contains(opts, "HypreILULevelOfFill")) {
       const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
       if (isInvalid(olvl)) {
         return {};
       }
+      if (ilut) {
+        return ctx.registerErrorMessage(
+            "setHypreILUPreconditioner: no level of fill for an ILUT "
+            "factorisation");
+      }
       if ((*olvl > 0) && (isHypreUsingGPU())) {
         return ctx.registerErrorMessage(
             "setHypreILUPreconditioner: a level of fill greater than zero "
-            "is not supported when hypre computes on a GPU");
+            "is not supported when hypre computes on a GPU (the ILUT "
+            "factorisation, HypreILUType 1, is)");
       }
       level_of_fill = *olvl;
-    } else if (isHypreUsingGPU()) {
+    } else if ((!ilut) && (isHypreUsingGPU())) {
       level_of_fill = 0;
     }
     if (level_of_fill.has_value()) {

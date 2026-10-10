@@ -590,10 +590,12 @@ namespace mfem_mgis {
         }
       }
       a.RecoverFEMSolution(X, b, *x);
-      // copy solution to r.result, if needed
+      // copy solution to r.result, if needed. The copy is done on the host,
+      // where the solution, which may have been computed on the device, is
+      // made valid, as the components already copied
       if (rfespace.GetVDim() != 1) {
-        auto& dest = *(r.result);
-        const auto& src = *(x);
+        auto* const dest = r.result->HostReadWrite();
+        const auto* const src = x->HostRead();
         const auto bynodes =
             (rfespace.GetOrdering() == mfem::Ordering::byNODES);
         if (bynodes) {

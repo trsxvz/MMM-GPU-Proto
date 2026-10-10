@@ -23,7 +23,9 @@ namespace mfem_mgis {
     const auto dim = problem.getFiniteElementSpace().GetVDim();
     // recover the solution as a grid function. The error is computed on the
     // host: the values are made valid there (the unknowns may have been
-    // computed on the device, a reference to them would give stale values)
+    // computed on the device; a reference to them, `MakeTRef`, would be an
+    // alias whose validity flags are the ones of the unknowns when it is
+    // made, giving stale values and copying them over the unknowns)
     const auto &u1 = problem.getUnknowns(ets);
     x.SetFromTrueDofs(u1);
     static_cast<void>(x.HostRead());

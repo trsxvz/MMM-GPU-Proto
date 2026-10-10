@@ -139,6 +139,12 @@ namespace mfem_mgis {
    * `-dev` options. Without this option, the configuration may be given by
    * the environment variable `MFEM_MGIS_DEVICE`, ignored if the device is
    * already configured (to run a whole test suite on a GPU, for instance).
+   * An invalid configuration makes MFEM abort (`Invalid backend name`).
+   * The variable `MFEM_DEVICE` of MFEM configures the device as soon as
+   * MFEM is loaded: it takes precedence over `MFEM_MGIS_DEVICE` and makes
+   * the option `--device` fail, and the device is then configured before
+   * hypre, without the choice of the GPUs by process nor the
+   * synchronisation of the profiling sections.
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!
@@ -218,9 +224,8 @@ namespace mfem_mgis {
   /*!
    * \return true if hypre computes on a GPU (hypre built with the support of
    * GPUs, its memory being located on the device), false otherwise and
-   * without MPI. Contrary to `mfem::HypreUsingGPU`, whose inline definition
-   * depends on the headers of hypre included before it, the result does not
-   * depend on the includes of the caller.
+   * without MPI. Contrary to `mfem::HypreUsingGPU`, which is only declared
+   * when MFEM is compiled with MPI, it can be called without guards.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
 

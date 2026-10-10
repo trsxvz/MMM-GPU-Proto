@@ -1,0 +1,377 @@
+From 080c20d1e31f9bc4c62b2512e64a9835a726bf65 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 11:07:32 +0200
+Subject: [PATCH] GPU fixes: review (ILUT, test margins, documentation)
+
+- HypreILU: option `HypreILUType` (type of the factorisation of hypre).
+  The ILUT factorisations work when hypre computes on a GPU, where the
+  ILU(k) factorisations with a level of fill greater than zero fail: the
+  refusal of these levels names ILUT, and a level of fill is refused for
+  an ILUT factorisation. The failure is reproduced with hypre 3.2.0, not
+  3.0.2 as written before.
+- HypreILUTest: variant on one process, where the levels of fill change
+  the numbers of iterations more than on two; the default level of fill
+  on the host (the one of MFEM) and ILUT are checked.
+- FixedPointSolverTest: the number of iterations of Crossed2Deltabis,
+  which depends on the roundings up to a factor two (from 240 to 562 on
+  the host), is no longer bounded; on a GPU, the other bounds are
+  increased by two iterations instead of 50%, their numbers of iterations
+  differing by at most one from the ones on the host.
+- The cached shape functions are only checked by their number of points,
+  their number of degrees of freedom being the one of the element.
+- Documentation: `isHypreUsingGPU` (only `MFEM_USE_MPI` guards
+  `mfem::HypreUsingGPU`), `MFEM_DEVICE` (takes precedence over
+  `MFEM_MGIS_DEVICE`), the stale references to the unknowns given by
+  `MakeTRef` (with or without prolongation), and the kernels run in the
+  Debug and Coverage builds.
+---
+ docs/source/user_guide/glossary.rst        | 14 ++++++-
+ include/MFEMMGIS/Config.hxx                | 11 +++--
+ include/MFEMMGIS/ParaviewExportResults.hxx |  7 ++--
+ src/AnalyticalTests.cxx                    |  4 +-
+ src/Batch/ElementsGeometry.cxx             |  4 +-
+ src/Batch/Gradients.cxx                    |  4 +-
+ src/LinearSolverFactory.cxx                | 47 +++++++++++++++++-----
+ tests/CMakeLists.txt                       | 11 +++--
+ tests/FixedPointSolverTest.cxx             | 15 +++----
+ tests/HypreILUTest.cxx                     | 33 ++++++++++++---
+ 10 files changed, 116 insertions(+), 34 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 4a9a0f3af3..85c2fd4add 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -488,7 +488,19 @@ Incomplete LU factorization (HypreILU)
+ +-------------------------+------------------------------------------------+
+ | Key                     | Description                                    |
+ +=========================+================================================+
+-| ``HypreILULevelOfFill`` | [int] TODO                                     |
++| ``HypreILUType``        | [int] Type of the factorisation of hypre:      |
++|                         | ILU(k) (0, the default, 10, 20, 30, 40), ILUT  |
++|                         | (1, 11, 21, 31, 41) or modified ILU(0) (50),   |
++|                         | with a block Jacobi (0, 1), GMRES on the Schur |
++|                         | complement (10, 11, 40, 41), Newton-Schulz-    |
++|                         | Hotelling (20, 21), restricted additive        |
++|                         | Schwarz (30, 31) or RAP (50) global method.    |
+++-------------------------+------------------------------------------------+
++| ``HypreILULevelOfFill`` | [int] Level of fill of the ILU(k)              |
++|                         | factorisations (not allowed for the ILUT       |
++|                         | ones). One by default (default of MFEM), zero  |
++|                         | when hypre computes on a GPU, where a greater  |
++|                         | level is refused (failure of hypre 3.2.0).     |
+ +-------------------------+------------------------------------------------+
+ | ``VerbosityLevel``      | Define the verbosity of the solver. [int: 0,1] |
+ +-------------------------+------------------------------------------------+
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index f3b60ce3d1..d4e56f7acb 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -139,6 +139,12 @@ namespace mfem_mgis {
+    * `-dev` options. Without this option, the configuration may be given by
+    * the environment variable `MFEM_MGIS_DEVICE`, ignored if the device is
+    * already configured (to run a whole test suite on a GPU, for instance).
++   * An invalid configuration makes MFEM abort (`Invalid backend name`).
++   * The variable `MFEM_DEVICE` of MFEM configures the device as soon as
++   * MFEM is loaded: it takes precedence over `MFEM_MGIS_DEVICE` and makes
++   * the option `--device` fail, and the device is then configured before
++   * hypre, without the choice of the GPUs by process nor the
++   * synchronisation of the profiling sections.
+    */
+   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
+   /*!
+@@ -218,9 +224,8 @@ namespace mfem_mgis {
+   /*!
+    * \return true if hypre computes on a GPU (hypre built with the support of
+    * GPUs, its memory being located on the device), false otherwise and
+-   * without MPI. Contrary to `mfem::HypreUsingGPU`, whose inline definition
+-   * depends on the headers of hypre included before it, the result does not
+-   * depend on the includes of the caller.
++   * without MPI. Contrary to `mfem::HypreUsingGPU`, which is only declared
++   * when MFEM is compiled with MPI, it can be called without guards.
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
+ 
+diff --git a/include/MFEMMGIS/ParaviewExportResults.hxx b/include/MFEMMGIS/ParaviewExportResults.hxx
+index 21154babed..c50e596a31 100644
+--- a/include/MFEMMGIS/ParaviewExportResults.hxx
++++ b/include/MFEMMGIS/ParaviewExportResults.hxx
+@@ -66,9 +66,10 @@ namespace mfem_mgis {
+      * \brief exported unknowns (true degrees of freedom), copied in `result`
+      * at each export: the unknowns at the end of the time step, or at the
+      * beginning of the time step for the initial export. A reference to the
+-     * unknowns (`mfem::GridFunction::MakeTRef`) would let MFEM copy the values
+-     * of the host over the ones of the device when the unknowns are computed
+-     * on a device.
++     * unknowns (`mfem::GridFunction::MakeTRef`) would be an alias whose
++     * validity flags are the ones of the unknowns when it is made: with or
++     * without prolongation, MFEM would copy stale values of the host over
++     * the unknowns computed on a device.
+      */
+     const mfem::Vector* unknowns = nullptr;
+     //! \brief number of records
+diff --git a/src/AnalyticalTests.cxx b/src/AnalyticalTests.cxx
+index 33436f2ba7..8f5cf4c47e 100644
+--- a/src/AnalyticalTests.cxx
++++ b/src/AnalyticalTests.cxx
+@@ -23,7 +23,9 @@ namespace mfem_mgis {
+     const auto dim = problem.getFiniteElementSpace().GetVDim();
+     // recover the solution as a grid function. The error is computed on the
+     // host: the values are made valid there (the unknowns may have been
+-    // computed on the device, a reference to them would give stale values)
++    // computed on the device; a reference to them, `MakeTRef`, would be an
++    // alias whose validity flags are the ones of the unknowns when it is
++    // made, giving stale values and copying them over the unknowns)
+     const auto &u1 = problem.getUnknowns(ets);
+     x.SetFromTrueDofs(u1);
+     static_cast<void>(x.HostRead());
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index d239ad42d1..58ab19df6b 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -237,7 +237,9 @@ namespace mfem_mgis::batch {
+       // cached by the finite element for the address of the integration
+       // rule: a different number of points reveals a rule destroyed and
+       // replaced by another at the same address
+-      if ((g.maps->nqpt != g.nq) || (g.maps->ndof != g.nd)) {
++      // (the number of degrees of freedom is the one of the element, which
++      // creates the cache)
++      if (g.maps->nqpt != g.nq) {
+         return ctx.registerErrorMessage(
+             "computeElementsGeometry: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 72b000b159..bfa0a25cf6 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -229,7 +229,9 @@ namespace mfem_mgis::batch {
+       // finite element for the address of the integration rule: a different
+       // number of points reveals a rule destroyed and replaced by another at
+       // the same address
+-      if ((maps.nqpt != d.nq) || (maps.ndof != fe->GetDof())) {
++      // (the number of degrees of freedom is the one of the element, which
++      // creates the cache)
++      if (maps.nqpt != d.nq) {
+         return ctx.registerErrorMessage(
+             "computeUnknownsDerivatives: the values of the shape functions "
+             "cached by the finite element do not match the integration rule");
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 7267c0a881..6320fc7b10 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -5,12 +5,14 @@
+  * \date   24/03/2021
+  */
+ 
++#include <array>
+ #include <memory>
+ #include <string>
+ #include <vector>
+ #include <functional>
+ #include <optional>
+ #include <utility>
++#include <algorithm>
+ #include "mfem/linalg/solvers.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/linalg/petsc.hpp"
+@@ -262,9 +264,10 @@ namespace mfem_mgis {
+                             const Parameters& opts) {
+ #if MFEM_HYPRE_VERSION >= 21900
+     using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(ctx, opts,
+-                         std::vector<std::string>{Problem::SolverVerbosityLevel,
+-                                                  "HypreILULevelOfFill"})) {
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{Problem::SolverVerbosityLevel,
++                                     "HypreILUType", "HypreILULevelOfFill"})) {
+       return {};
+     }
+     using Setting = internals::ConfiguredHypreILU::Setting;
+@@ -277,24 +280,50 @@ namespace mfem_mgis {
+       settings.push_back(
+           [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
+     }
+-    // the incomplete factorisations with a level of fill greater than zero
+-    // make the triangular solves of hypre fail when hypre computes on a GPU
++    // type of the factorisation of hypre (`HYPRE_ILUSetType`): ILU(k)
++    // (0, the default, 10, 20, 30, 40), ILUT (1, 11, 21, 31, 41), modified
++    // ILU(0) (50), with a block Jacobi (0, 1), GMRES on the Schur complement
++    // (10, 11, 40, 41), Newton-Schulz-Hotelling (20, 21), restricted additive
++    // Schwarz (30, 31) or RAP (50) global method
++    const auto otype = get_if<int>(ctx, opts, "HypreILUType", 0);
++    if (isInvalid(otype)) {
++      return {};
++    }
++    const auto types = std::array{0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50};
++    if (std::find(types.begin(), types.end(), *otype) == types.end()) {
++      return ctx.registerErrorMessage(
++          "setHypreILUPreconditioner: invalid type of factorisation " +
++          std::to_string(*otype));
++    }
++    const auto ilut = (*otype % 10) == 1;
++    if (contains(opts, "HypreILUType")) {
++      settings.push_back([v = *otype](mfem::HypreILU& ilu) { ilu.SetType(v); });
++    }
++    // the ILU(k) factorisations with a level of fill greater than zero make
++    // the triangular solves of hypre fail when hypre computes on a GPU
+     // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
+-    // 3.0.2 and CUDA 13): the level of fill is then zero by default, one
+-    // being the default of MFEM
++    // 3.2.0 and CUDA 13, see reproducers/hypre-ilu-gpu in the prototype),
++    // the ILUT factorisations do not: the level of fill is then zero by
++    // default, one being the default of MFEM
+     auto level_of_fill = std::optional<int>{};
+     if (contains(opts, "HypreILULevelOfFill")) {
+       const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
+       if (isInvalid(olvl)) {
+         return {};
+       }
++      if (ilut) {
++        return ctx.registerErrorMessage(
++            "setHypreILUPreconditioner: no level of fill for an ILUT "
++            "factorisation");
++      }
+       if ((*olvl > 0) && (isHypreUsingGPU())) {
+         return ctx.registerErrorMessage(
+             "setHypreILUPreconditioner: a level of fill greater than zero "
+-            "is not supported when hypre computes on a GPU");
++            "is not supported when hypre computes on a GPU (the ILUT "
++            "factorisation, HypreILUType 1, is)");
+       }
+       level_of_fill = *olvl;
+-    } else if (isHypreUsingGPU()) {
++    } else if ((!ilut) && (isHypreUsingGPU())) {
+       level_of_fill = 0;
+     }
+     if (level_of_fill.has_value()) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 3485120749..027d885c38 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -831,7 +831,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+   # Debug and Coverage builds. Without device, the stiffness matrices and
+   # their diagonals are computed by the version of the kernel for the host
+   # (one iteration per element): in these builds, the kernel itself (one
+-  # thread per pair of nodes) is only run by the variants on the GPU.
++  # thread per pair of nodes) is run by the short variants on the debug
++  # device (GradientsKernelsTest-debug, FixedPointSolverTest-kernels-debug)
++  # and by the variants on the GPU.
+   set(long_debug_device_tests ON)
+   if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
+      (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
+@@ -1038,9 +1040,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+   if(MFEM_USE_MPI)
+     add_test_executable(HypreBoomerAMGTest)
+     add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
+-    # HypreILUTest executable: level of fill of the incomplete factorisation
+-    # of hypre kept after a new operator, ILU(0) when hypre computes on a GPU
++    # HypreILUTest executable: options of the incomplete factorisation of
++    # hypre kept after a new operator, ILU(0) when hypre computes on a GPU.
++    # The levels of fill change the numbers of iterations more on one
++    # process than on two (block Jacobi factorisations)
+     add_test_executable(HypreILUTest)
++    add_test(NAME HypreILUTest COMMAND HypreILUTest)
+     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
+   endif(MFEM_USE_MPI)
+ 
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 0042b97452..d9aa0a59d1 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -751,7 +751,10 @@ int main(int argc, char** argv) {
+          true});
+   }
+   // maximum numbers of iterations of the accelerations, about 15 % above
+-  // the observed ones, to detect a wrong acceleration which still converges
++  // the observed ones, to detect a wrong acceleration which still converges.
++  // The number of iterations of `Crossed2Deltabis` depends on the roundings
++  // up to a factor two (from 240 to 562 iterations in parallel on the host,
++  // with or without `OMP_NUM_THREADS=1`): it is not bounded
+   const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
+       {"fixed point, Anderson", 43},
+       {"NewtonK0, default iterative solver of the tangent operator", 12},
+@@ -768,7 +771,6 @@ int main(int argc, char** argv) {
+       {"fixed point, IronsTuck", 56},
+       {"fixed point, CrossedDelta2", 161},
+       {"fixed point, Crossed2Delta", 81},
+-      {"fixed point, Crossed2Deltabis", 431},
+       {"fixed point, AlternateDelta2", 69},
+       {"fixed point, Alternate2Delta", 53}};
+   // number of iterations of the fixed point with one cycle of BoomerAMG per
+@@ -815,13 +817,12 @@ int main(int argc, char** argv) {
+     if (const auto p = maximum_numbers_of_iterations.find(c.name);
+         p != maximum_numbers_of_iterations.end()) {
+       // on a GPU, the sums computed by atomic operations (assembly of the
+-      // tangent operator, setup of BoomerAMG by hypre) are not deterministic,
+-      // and the accelerations amplify these differences (up to 45% more
+-      // iterations observed with Crossed2Deltabis): the bounds are increased
+-      // by 50%
++      // tangent operator, setup of BoomerAMG by hypre) are not deterministic:
++      // the numbers of iterations of the bounded cases differ by at most one
++      // iteration from the ones on the host, two are tolerated
+       const auto gpu = mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                             mfem::Backend::HIP_MASK);
+-      const auto bound = gpu ? (3 * p->second) / 2 : p->second;
++      const auto bound = gpu ? p->second + 2 : p->second;
+       check(r.iterations <= bound,
+             c.name + ": number of iterations (" + std::to_string(r.iterations) +
+                 ", at most " + std::to_string(bound) + " expected)");
+diff --git a/tests/HypreILUTest.cxx b/tests/HypreILUTest.cxx
+index e58850079c..a1890cdb1c 100644
+--- a/tests/HypreILUTest.cxx
++++ b/tests/HypreILUTest.cxx
+@@ -1,11 +1,13 @@
+ /*!
+  * \file   tests/HypreILUTest.cxx
+  * \brief  Test of the incomplete factorisation of hypre (preconditioner
+- * `HypreILU` of the factory of linear solvers): its level of fill is kept
+- * after a new operator (`mfem::HypreILU::SetOperator` restores the default
+- * options of MFEM, a level of fill of one), and, when hypre computes on a
+- * GPU, where the factorisations with a level of fill greater than zero
+- * fail, the level of fill is zero by default and a greater level is refused.
++ * `HypreILU` of the factory of linear solvers): its options are kept after
++ * a new operator (`mfem::HypreILU::SetOperator` restores the default
++ * options of MFEM, an ILU(1) factorisation), the default level of fill is
++ * the one of MFEM, and, when hypre computes on a GPU, where the ILU(k)
++ * factorisations with a level of fill greater than zero fail, the level of
++ * fill is zero by default and a greater level is refused. The ILUT
++ * factorisation is available everywhere.
+  * \date   10/10/2026
+  */
+ 
+@@ -123,11 +125,32 @@ int main(int argc, char** argv) {
+     check(nd == n0, "the default level of fill is not zero on a GPU");
+     check(n2.empty(), "a level of fill of 2 is not refused on a GPU");
+   } else {
++    // ILU(1) by default
++    check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
++          "the default level of fill is not the one of MFEM");
+     check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
+           "level of fill 2: numbers of iterations");
+     check((n2.size() == 2) && (n2[0] < n0[0]),
+           "the level of fill 2 does not reduce the number of iterations");
+   }
++  // ILUT factorisation, on the host and on a GPU
++  const auto nt = solve(fespace, A, B, {{"HypreILUType", 1}});
++  print("ILUT", nt);
++  check((nt.size() == 2) && (nt[0] > 0) && (nt[1] == nt[0]),
++        "ILUT: numbers of iterations");
++  if (isHypreUsingGPU() && (fespace.GetNRanks() == 1)) {
++    // the factorisation ILUT, which gives as many iterations as the default
++    // ILU(1) on the host, gives fewer iterations than ILU(0) on one process
++    check((nt.size() == 2) && (n0.size() == 2) && (nt[0] < n0[0]),
++          "ILUT: the factorisation does not reduce the number of iterations "
++          "on a GPU");
++  }
++  // invalid options
++  check(solve(fespace, A, B, {{"HypreILUType", 1}, {"HypreILULevelOfFill", 0}})
++            .empty(),
++        "a level of fill is accepted for an ILUT factorisation");
++  check(solve(fespace, A, B, {{"HypreILUType", 2}}).empty(),
++        "an invalid type of factorisation is accepted");
+   if (verbose) {
+     std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   }
+-- 
+2.43.0
+
