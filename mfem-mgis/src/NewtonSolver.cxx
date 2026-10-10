@@ -64,35 +64,8 @@ namespace mfem_mgis {
       }
       this->iterations_information.push_back(iteration);
     };
-    // log stream
-    auto &log = [this]() -> std::ostream & {
-      if (this->ctx_ptr == nullptr) {
-        return getDefaultLogStream();
-      }
-      return this->ctx_ptr->log();
-    }();
-    // boolean stating if messages shall be displayed
-    auto shall_print = [this]() -> bool {
-      if (this->print_level >= 0) {
-#ifdef MFEM_USE_MPI
-        // We must check that a communicator has been set.
-        // This is not the case in sequential computations
-        if (this->GetComm() != MPI_COMM_NULL) {
-          int rank = 0;
-          MPI_Comm_rank(this->GetComm(), &rank);
-          return rank == 0;
-        }
-        return true;
-#else  /* MFEM_USE_MPI */
-        return true;
-#endif /* MFEM_USE_MPI */
-      }
-      if (this->ctx_ptr != nullptr) {
-        return this->ctx_ptr->getVerbosityLevel() >=
-               VerbosityLevel::verboseLevel3;
-      }
-      return false;
-    }();
+    auto &log = this->getLogStream();
+    const auto shall_print = this->shallPrint();
 
     mfem::Vector r;  // residual vector
     mfem::Vector c;  // opposite of the Newton's correction

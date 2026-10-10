@@ -1,0 +1,981 @@
+From a2602d117a341dee260c5c6483b0e38a421b68fa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 01:47:22 +0200
+Subject: [PATCH] Kernels: derivatives of the unknowns and fused action of the
+ tangent operator
+
+- computeUnknownsDerivatives: the derivatives of the unknowns with respect
+  to the reference coordinates are computed by a kernel from the gradients
+  of the shape functions (mfem::DofToQuad), instead of the generic
+  non-tensor path of mfem::QuadratureInterpolator, which was the main cost
+  of the computations by kernels on simplices (beam on the GPU: 39 us
+  instead of 890 us per call). The support check of the kernels no longer
+  refers to the quadrature interpolator.
+- addTangentOperatorAction: the action of the tangent operator without
+  assembly is computed by one kernel per material and one thread per
+  element, from the increments of the unknowns given element by element:
+  increments of the gradients, of the thermodynamic forces and
+  contribution B^T K B x w det J, without intermediate arrays at the
+  points. It replaces computeGradientsIncrements,
+  multiplyByTangentOperatorBlocks and the inner forces kernel in the
+  action (beam on the GPU: 128 us per material instead of 350 us).
+  AbstractBehaviourIntegrator::addTangentOperatorActionByKernels takes the
+  increments of the unknowns element by element.
+---
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  12 +-
+ include/MFEMMGIS/Batch/Gradients.hxx          |  36 +----
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  23 ++-
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  |  11 --
+ .../MultiMaterialNonLinearIntegrator.hxx      |   6 +-
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |   2 +-
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  29 +---
+ src/AbstractBehaviourIntegrator.cxx           |   2 +-
+ src/Batch/Gradients.cxx                       | 145 ++++++------------
+ src/Batch/GradientsKernels.cxx                |  31 +++-
+ src/Batch/GradientsKernels.hxx                |  41 +++++
+ src/Batch/KernelsUtilities.hxx                |  15 ++
+ src/Batch/StiffnessMatrices.cxx               |  64 ++++----
+ src/Batch/StiffnessMatricesKernels.cxx        | 120 ++++++++++++---
+ src/Batch/StiffnessMatricesKernels.hxx        |  33 ++--
+ src/MultiMaterialNonLinearIntegrator.cxx      |  29 ++--
+ tests/GradientsKernelsTest.cxx                |   9 +-
+ 17 files changed, 329 insertions(+), 279 deletions(-)
+
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index 7300080603..09b727824b 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -213,21 +213,21 @@ namespace mfem_mgis {
+     /*!
+      * \brief add the action of the stiffness matrices of all the elements,
+      * computed by kernels from the tangent operator blocks without
+-     * assembling them, on the increments of the unknowns given by their
+-     * derivatives: `Σ Bᵀ K B dx w det J`, in the layout of the element
+-     * restriction of MFEM (see `addInnerForcesByKernels`)
++     * assembling them, on increments of the unknowns given element by
++     * element: `Σ Bᵀ K B x w det J`, in the layout of the element restriction
++     * of MFEM (see `addInnerForcesByKernels`)
+      * \return true on success
+      * \param[in, out] ctx: execution context
+      * \param[in, out] y: values element by element
+-     * \param[in] dx: derivatives of the increments of the unknowns, for each
+-     * integration rule
++     * \param[in] x: increments of the unknowns element by element (layout
++     * of the element restriction of MFEM)
+      * \param[in] g: geometric data
+      * \note the default implementation reports an error
+      */
+     [[nodiscard]] virtual bool addTangentOperatorActionByKernels(
+         Context&,
+         mfem::Vector&,
+-        const batch::UnknownsDerivativesSet&,
++        const mfem::Vector&,
+         const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief add the diagonals of the stiffness matrices of all the elements,
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index 187ec9ed24..c9fe8121bd 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -32,8 +32,8 @@ namespace mfem_mgis::batch {
+ 
+   /*!
+    * \brief derivatives of the unknowns at the integration points of all the
+-   * elements of the mesh, for one integration rule, computed by the
+-   * quadrature interpolator of MFEM (see `computeUnknownsDerivatives`)
++   * elements of the mesh, for one integration rule (see
++   * `computeUnknownsDerivatives`)
+    */
+   struct MFEM_MGIS_EXPORT UnknownsDerivatives {
+     //! \brief integration rule
+@@ -46,8 +46,7 @@ namespace mfem_mgis::batch {
+      * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
+      * on the device if a device is enabled. They are converted to physical
+      * derivatives by the kernels with the jacobians of the element
+-     * transformations (see `ElementsGeometry`), the physical derivatives of
+-     * the quadrature interpolator requiring nodes in the mesh.
++     * transformations (see `ElementsGeometry`).
+      */
+     mfem::Vector values;
+     //! \brief values of the unknowns element by element (workspace)
+@@ -132,13 +131,13 @@ namespace mfem_mgis::batch {
+    * \brief computes the derivatives of the unknowns at the points of an
+    * integration rule, for all the elements of the mesh: element
+    * restriction, then derivatives with respect to the reference coordinates
+-   * by the quadrature interpolator of MFEM, on the device if a device is
+-   * enabled
++   * by a kernel, from the gradients of the shape functions on the reference
++   * element (`mfem::DofToQuad`), on the device if a device is enabled
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[out] d: derivatives
+    * \param[in] fes: finite element space. Its elements must have the same
+-   * geometry and be supported by the quadrature interpolator of MFEM.
++   * geometry.
+    * \param[in] u: unknowns (local vector of the finite element space,
+    * after the prolongation for a parallel space)
+    * \param[in] ir: integration rule
+@@ -169,29 +168,6 @@ namespace mfem_mgis::batch {
+       const UnknownsDerivatives&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+-  /*!
+-   * \brief computes the increments of the gradients of a material at all its
+-   * integration points associated with increments of the unknowns given by
+-   * their derivatives, by a kernel: same operator `B` as `computeGradients`,
+-   * without the macroscopic gradients (nor the identity of the deformation
+-   * gradient), on the device if a device is enabled
+-   * \return true on success
+-   * \param[in, out] ctx: execution context
+-   * \param[out] v: increments of the gradients, stored point by point
+-   * (resized)
+-   * \param[in] qs: quadrature space of the material. All its elements must
+-   * use the integration rule of the derivatives.
+-   * \param[in] d: derivatives of the increments of the unknowns
+-   * \param[in] g: geometric data of the integration rule of the derivatives
+-   * \param[in] k: kind of the gradients
+-   */
+-  MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradientsIncrements(
+-      Context&,
+-      mfem::Vector&,
+-      const PartialQuadratureSpace&,
+-      const UnknownsDerivatives&,
+-      const ElementsGeometry&,
+-      const GradientsKind) noexcept;
+ 
+ }  // end of namespace mfem_mgis::batch
+ 
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index f3517fceae..237670575f 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -77,22 +77,29 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+   /*!
+-   * \brief computes the increments of the thermodynamic forces associated
+-   * with increments of the gradients, `ds = K dg`, at all the points of a
+-   * material, on the device if a device is enabled
++   * \brief adds the action of the stiffness matrices of the elements of a
++   * material, computed from the tangent operator blocks without assembling
++   * them, `Σ Bᵀ K B x w det J`, on values given element by element, by a
++   * kernel which computes the increments of the gradients and of the
++   * thermodynamic forces at the points of each element without storing
++   * them, on the device if a device is enabled. The values are given in the
++   * layout of the element restriction of MFEM (`node + nd * (component +
++   * dim * element)`, as `addInnerForces`), for all the elements of the mesh.
+    * \return true on success
+-   * \param[out] ds: increments of the thermodynamic forces, stored point by
+-   * point (resized)
++   * \param[in, out] y: action, element by element
++   * \param[in] qs: quadrature space of the material
+    * \param[in] K: tangent operator blocks in the global frame
+-   * \param[in] dg: increments of the gradients, stored point by point (see
+-   * `computeGradientsIncrements`)
++   * \param[in] x: values element by element
++   * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients
+    */
+-  MFEM_MGIS_EXPORT [[nodiscard]] bool multiplyByTangentOperatorBlocks(
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addTangentOperatorAction(
+       Context&,
+       mfem::Vector&,
++      const PartialQuadratureSpace&,
+       const mgis::FieldView<const real>&,
+       const mfem::Vector&,
++      const ElementsGeometry&,
+       const GradientsKind) noexcept;
+ 
+   /*!
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index f9171ebfb5..3a9160d48e 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -346,17 +346,6 @@ namespace mfem_mgis {
+        * `integrateBatch` (integration on the device)
+        */
+       std::vector<mfem::Vector> device_inputs;
+-      /*!
+-       * \brief increments of the gradients, stored point by point, used by
+-       * the computation of the action of the tangent operator by kernels
+-       */
+-      mfem::Vector gradients_increments;
+-      /*!
+-       * \brief increments of the thermodynamic forces, stored point by
+-       * point, used by the computation of the action of the tangent
+-       * operator by kernels
+-       */
+-      mfem::Vector thermodynamic_forces_increments;
+       //! \brief see `getRotatedThermodynamicForces`
+       mfem::Vector rotated_thermodynamic_forces;
+       /*!
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 06bb9e8b4f..e3c47a81c0 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -426,10 +426,10 @@ namespace mfem_mgis {
+      */
+     mfem::Array<int> element_dofs;
+     /*!
+-     * \brief derivatives of the increments of the unknowns, for each
+-     * integration rule (see `addTangentOperatorActionByKernels`)
++     * \brief increments of the unknowns element by element (see
++     * `addTangentOperatorActionByKernels`)
+      */
+-    batch::UnknownsDerivativesSet increments_derivatives;
++    mfem::Vector tangent_operator_element_arguments;
+     /*!
+      * \brief values element by element of the action or of the diagonal of
+      * the tangent operator
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index 57e2c4dd4f..ff489f0c28 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -63,7 +63,7 @@ namespace mfem_mgis {
+     [[nodiscard]] bool addTangentOperatorActionByKernels(
+         Context&,
+         mfem::Vector&,
+-        const batch::UnknownsDerivativesSet&,
++        const mfem::Vector&,
+         const batch::ElementsGeometrySet&) noexcept override;
+     [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
+         Context&,
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index f806b9971d..ada2546354 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -397,7 +397,7 @@ namespace mfem_mgis {
+   StandardBehaviourIntegratorCRTPBase<Child>::addTangentOperatorActionByKernels(
+       Context &ctx,
+       mfem::Vector &y,
+-      const batch::UnknownsDerivativesSet &dx,
++      const mfem::Vector &x,
+       const batch::ElementsGeometrySet &g) noexcept {
+     auto data = KernelsData{};
+     if (!this->getKernelsData(ctx, data, "addTangentOperatorActionByKernels",
+@@ -407,34 +407,11 @@ namespace mfem_mgis {
+     if (data.rule == nullptr) {
+       return true;
+     }
+-    const auto p = dx.find(data.rule);
+-    if (p == dx.end()) {
+-      return ctx.registerErrorMessage(
+-          "addTangentOperatorActionByKernels: the derivatives of the "
+-          "increments of the unknowns are not computed for the integration "
+-          "rule of the material");
+-    }
+     try {
+-      // increments of the gradients, then of the thermodynamic forces, whose
+-      // contributions are added as inner forces
+       const auto use_device = mfem::Device::IsEnabled();
+-      auto &dg = this->wks.gradients_increments;
+-      auto &ds = this->wks.thermodynamic_forces_increments;
+-      if ((!batch::computeGradientsIncrements(
+-              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
+-              data.kind)) ||
+-          (!batch::multiplyByTangentOperatorBlocks(
+-              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
+-              data.kind))) {
+-        return false;
+-      }
+-      const auto np = static_cast<size_type>(this->n);
+-      const auto gs = batch::getGradientsSize(data.kind);
+-      const auto s = std::span<const real>(ds.Read(use_device),
+-                                           static_cast<std::size_t>(ds.Size()));
+-      return batch::addInnerForces(
++      return batch::addTangentOperatorAction(
+           ctx, y, *(this->quadrature_space),
+-          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
++          this->readTangentOperatorBlocks(use_device), x, *(data.geometry),
+           data.kind);
+     } catch (std::exception &e) {
+       return ctx.registerErrorMessage(
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 6c656e0e15..e2df5fb5b5 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -74,7 +74,7 @@ namespace mfem_mgis {
+   bool AbstractBehaviourIntegrator::addTangentOperatorActionByKernels(
+       Context& ctx,
+       mfem::Vector&,
+-      const batch::UnknownsDerivativesSet&,
++      const mfem::Vector&,
+       const batch::ElementsGeometrySet&) noexcept {
+     return ctx.registerErrorMessage(
+         "AbstractBehaviourIntegrator::addTangentOperatorActionByKernels: the "
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index d16d87d825..d335501d5d 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -12,7 +12,6 @@
+ #include "mfem/general/device.hpp"
+ #include "mfem/fem/fespace.hpp"
+ #include "mfem/fem/restriction.hpp"
+-#include "mfem/fem/quadinterpolator.hpp"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+@@ -73,43 +72,20 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of resizeArray
+ 
+-  namespace {
+-
+-    //! \brief restores the options of a quadrature interpolator at its
+-    //! destruction
+-    struct QuadratureInterpolatorOptionsGuard {
+-      //! \param[in] q: quadrature interpolator
+-      explicit QuadratureInterpolatorOptionsGuard(
+-          const mfem::QuadratureInterpolator& q)
+-          : qi(q),
+-            layout(q.GetOutputLayout()),
+-            tensor_products(q.UsesTensorProducts()) {}
+-      QuadratureInterpolatorOptionsGuard(
+-          const QuadratureInterpolatorOptionsGuard&) = delete;
+-      QuadratureInterpolatorOptionsGuard& operator=(
+-          const QuadratureInterpolatorOptionsGuard&) = delete;
+-      //! \brief destructor
+-      ~QuadratureInterpolatorOptionsGuard() {
+-        this->qi.SetOutputLayout(this->layout);
+-        this->qi.DisableTensorProducts(!this->tensor_products);
+-      }
+-
+-     private:
+-      //! \brief quadrature interpolator
+-      const mfem::QuadratureInterpolator& qi;
+-      //! \brief output layout
+-      const mfem::QVectorLayout layout;
+-      //! \brief if true, the interpolator uses tensor products
+-      const bool tensor_products;
+-    };
+-
+-  }  // end of namespace
+-
+   bool computeUnknownsDerivatives(Context& ctx,
+                                   UnknownsDerivatives& d,
+                                   const mfem::FiniteElementSpace& fes,
+                                   const mfem::Vector& u,
+                                   const mfem::IntegrationRule& ir) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(d);
++    static_cast<void>(fes);
++    static_cast<void>(u);
++    static_cast<void>(ir);
++    return ctx.registerErrorMessage(
++        "computeUnknownsDerivatives: the kernels computing the gradients are "
++        "not compiled (MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto& mesh = *(fes.GetMesh());
+       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
+@@ -117,18 +93,6 @@ namespace mfem_mgis::batch {
+             "computeUnknownsDerivatives: meshes mixing several geometries "
+             "are not supported");
+       }
+-      const auto* const qi = fes.GetQuadratureInterpolator(ir);
+-      if (qi == nullptr) {
+-        return ctx.registerErrorMessage(
+-            "computeUnknownsDerivatives: the finite element space is not "
+-            "supported by the quadrature interpolator of MFEM");
+-      }
+-      const auto* const r =
+-          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+-      if (!resizeArray(ctx, d.element_values, r->Height())) {
+-        return false;
+-      }
+-      r->Mult(u, d.element_values);
+       d.rule = &ir;
+       d.vdim = fes.GetVDim();
+       d.dim = mesh.Dimension();
+@@ -139,12 +103,39 @@ namespace mfem_mgis::batch {
+       if (!resizeArray(ctx, d.values, size)) {
+         return false;
+       }
+-      // the interpolator is shared: its options are set before its use and
+-      // restored after, even if an exception is thrown
+-      const auto options = QuadratureInterpolatorOptionsGuard{*qi};
+-      qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
+-      qi->DisableTensorProducts();
+-      qi->Derivatives(d.element_values, d.values);
++      if (d.ne == 0) {
++        return true;
++      }
++      const auto* const r =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      if (!resizeArray(ctx, d.element_values, r->Height())) {
++        return false;
++      }
++      r->Mult(u, d.element_values);
++      const auto* const fe = fes.GetTypicalFE();
++      const auto& maps = fe->GetDofToQuad(ir, mfem::DofToQuad::FULL);
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::UnknownsDerivativesKernelArguments{};
++      a.number_of_elements = d.ne;
++      a.nd = fe->GetDof();
++      a.nq = d.nq;
++      a.vdim = d.vdim;
++      a.dim = d.dim;
++      if (std::int64_t{a.nd} * a.vdim * a.number_of_elements !=
++          std::int64_t{d.element_values.Size()}) {
++        return ctx.registerErrorMessage(
++            "computeUnknownsDerivatives: unexpected number of values element "
++            "by element");
++      }
++      if (std::int64_t{a.number_of_elements} * a.nq >
++          std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "computeUnknownsDerivatives: too many points for the kernel");
++      }
++      a.element_values = d.element_values.Read(use_device);
++      a.shape_functions_gradients = maps.G.Read(use_device);
++      a.derivatives = d.values.Write(use_device);
++      internals::launchUnknownsDerivativesKernel(a, use_device);
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+           std::string{"computeUnknownsDerivatives: "} + e.what());
+@@ -153,6 +144,7 @@ namespace mfem_mgis::batch {
+           "computeUnknownsDerivatives: unknown exception");
+     }
+     return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeUnknownsDerivatives
+ 
+   size_type getGradientsSize(const GradientsKind k) noexcept {
+@@ -300,55 +292,4 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeGradients
+ 
+-  bool computeGradientsIncrements(Context& ctx,
+-                                  mfem::Vector& v,
+-                                  const PartialQuadratureSpace& qs,
+-                                  const UnknownsDerivatives& d,
+-                                  const ElementsGeometry& g,
+-                                  const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(v);
+-    static_cast<void>(qs);
+-    static_cast<void>(d);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return ctx.registerErrorMessage(
+-        "computeGradientsIncrements: the kernels computing the gradients are "
+-        "not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-    try {
+-      const auto use_device = mfem::Device::IsEnabled();
+-      auto a = internals::GradientsKernelArguments{};
+-      auto error = false;
+-      if (!getGradientsKernelArguments(ctx, a, error,
+-                                       "computeGradientsIncrements", qs, d, g,
+-                                       k, use_device)) {
+-        if (!error) {
+-          v.SetSize(0);
+-        }
+-        return !error;
+-      }
+-      const auto size =
+-          std::int64_t{a.number_of_points} * std::int64_t{a.gradients_size};
+-      if (size > std::numeric_limits<int>::max()) {
+-        return ctx.registerErrorMessage(
+-            "computeGradientsIncrements: too many values for MFEM");
+-      }
+-      v.UseDevice(true);
+-      v.SetSize(static_cast<int>(size));
+-      // stored point by point, without macroscopic gradients
+-      a.point_by_point = true;
+-      a.gradients = v.Write(use_device);
+-      internals::launchGradientsKernel(k, a, use_device);
+-    } catch (std::exception& e) {
+-      return ctx.registerErrorMessage(
+-          std::string{"computeGradientsIncrements: "} + e.what());
+-    } catch (...) {
+-      return ctx.registerErrorMessage(
+-          "computeGradientsIncrements: unknown exception");
+-    }
+-    return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-  }  // end of computeGradientsIncrements
+-
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/GradientsKernels.cxx b/src/Batch/GradientsKernels.cxx
+index 2a23eceeea..59447d3bac 100644
+--- a/src/Batch/GradientsKernels.cxx
++++ b/src/Batch/GradientsKernels.cxx
+@@ -1,8 +1,8 @@
+ /*!
+  * \file   src/Batch/GradientsKernels.cxx
+- * \brief  This file implements the kernels computing the gradients of the
+- * behaviours. It contains kernels of MFEM: it is compiled as CUDA code when
+- * MFEM is compiled with CUDA.
++ * \brief  This file implements the kernels computing the derivatives of the
++ * unknowns and the gradients of the behaviours. It contains kernels of
++ * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+  * \date   09/10/2026
+  */
+ 
+@@ -110,6 +110,31 @@ namespace mfem_mgis::batch::internals {
+     });
+   }  // end of launchGradientsKernel
+ 
++  void launchUnknownsDerivativesKernel(
++      const UnknownsDerivativesKernelArguments& a, const bool use_device) {
++    const auto n = a.number_of_elements * a.nq;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      const auto nq = static_cast<std::size_t>(a.nq);
++      const auto nd = static_cast<std::size_t>(a.nd);
++      const auto vdim = static_cast<std::size_t>(a.vdim);
++      const auto dim = static_cast<std::size_t>(a.dim);
++      const auto e = static_cast<std::size_t>(i) / nq;
++      const auto q = static_cast<std::size_t>(i) - e * nq;
++      const auto* const ue = a.element_values + nd * vdim * e;
++      auto* const d = a.derivatives + vdim * dim * (q + nq * e);
++      for (std::size_t r = 0; r != dim; ++r) {
++        const auto* const G = a.shape_functions_gradients + q + nq * r;
++        for (std::size_t c = 0; c != vdim; ++c) {
++          auto v = real{0};
++          for (std::size_t node = 0; node != nd; ++node) {
++            v += G[nq * dim * node] * ue[node + nd * c];
++          }
++          d[c + vdim * r] = v;
++        }
++      }
++    });
++  }  // end of launchUnknownsDerivativesKernel
++
+   void launchGradientsKernel(const GradientsKind k,
+                              const GradientsKernelArguments& a,
+                              const bool use_device) {
+diff --git a/src/Batch/GradientsKernels.hxx b/src/Batch/GradientsKernels.hxx
+index 75fbdbd6f0..e265d4ea90 100644
+--- a/src/Batch/GradientsKernels.hxx
++++ b/src/Batch/GradientsKernels.hxx
+@@ -48,6 +48,47 @@ namespace mfem_mgis::batch::internals {
+     real macroscopic_gradients[9] = {};
+   };
+ 
++  /*!
++   * \brief arguments of the kernel computing the derivatives of the unknowns
++   * with respect to the reference coordinates (see `UnknownsDerivatives`)
++   */
++  struct UnknownsDerivativesKernelArguments {
++    /*!
++     * \brief values of the unknowns element by element, in the layout of the
++     * element restriction of MFEM (`node + nd * (component + vdim *
++     * element)`)
++     */
++    const real* element_values = nullptr;
++    /*!
++     * \brief gradients of the shape functions on the reference element
++     * (`nq x dim x nd`, layout of `mfem::DofToQuad` in the `FULL` mode)
++     */
++    const real* shape_functions_gradients = nullptr;
++    //! \brief derivatives (layout of `UnknownsDerivatives::values`)
++    real* derivatives = nullptr;
++    //! \brief number of elements
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief number of components of the unknowns
++    int vdim = 0;
++    //! \brief dimension of the space
++    int dim = 0;
++  };
++
++  /*!
++   * \brief launches the kernel computing the derivatives of the unknowns
++   * with respect to the reference coordinates at all the points of all the
++   * elements: one thread per point of an element
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device (if a device is
++   * enabled), and the pointers of the arguments are located on the device
++   */
++  void launchUnknownsDerivativesKernel(
++      const UnknownsDerivativesKernelArguments&, const bool);
++
+   /*!
+    * \brief launches the kernel computing the gradients of all the points of
+    * a material
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index d6c5d76c73..bf0c2dde8e 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -29,6 +29,21 @@ namespace mfem_mgis::batch::internals {
+                : 2;
+   }  // end of getDimension
+ 
++  //! \return the number of components of the gradients of the given kind
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE constexpr int getGradientsSize() {
++    if constexpr (K == GradientsKind::SMALL_STRAIN_3D) {
++      return 6;
++    } else if constexpr (K == GradientsKind::SMALL_STRAIN_2D) {
++      return 4;
++    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      return 9;
++    } else {
++      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
++      return 5;
++    }
++  }  // end of getGradientsSize
++
+   /*!
+    * \brief computes the inverse of a jacobian
+    * \tparam N: dimension
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index f3912126cb..16554b5ea8 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -205,51 +205,55 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatricesDiagonals
+ 
+-  bool multiplyByTangentOperatorBlocks(Context& ctx,
+-                                       mfem::Vector& ds,
+-                                       const mgis::FieldView<const real>& K,
+-                                       const mfem::Vector& dg,
+-                                       const GradientsKind k) noexcept {
++  bool addTangentOperatorAction(Context& ctx,
++                                mfem::Vector& y,
++                                const PartialQuadratureSpace& qs,
++                                const mgis::FieldView<const real>& K,
++                                const mfem::Vector& x,
++                                const ElementsGeometry& g,
++                                const GradientsKind k) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(ds);
++    static_cast<void>(y);
++    static_cast<void>(qs);
+     static_cast<void>(K);
+-    static_cast<void>(dg);
++    static_cast<void>(x);
++    static_cast<void>(g);
+     static_cast<void>(k);
+     return ctx.registerErrorMessage(
+-        "multiplyByTangentOperatorBlocks: the kernels are not compiled (MFEM "
+-        "compiled with HIP)");
++        "addTangentOperatorAction: the kernels computing the stiffness "
++        "matrices are not compiled (MFEM compiled with HIP)");
+ #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+-      const auto gs = static_cast<int>(getGradientsSize(k));
+-      const auto n = dg.Size() / gs;
+-      if ((n * gs != dg.Size()) ||
+-          (K.getNumberOfPoints() != static_cast<size_type>(n)) ||
+-          (K.getNumberOfComponents() != static_cast<size_type>(gs * gs))) {
+-        return ctx.registerErrorMessage(
+-            "multiplyByTangentOperatorBlocks: unexpected number of points or "
+-            "of components");
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::StiffnessMatricesKernelArguments{};
++      auto error = false;
++      // one thread per element: the check of the number of threads made for
++      // the diagonals (one thread per node) is sufficient
++      if (!getStiffnessMatricesKernelArguments(
++              ctx, a, error, qs, K, g, k, use_device,
++              "addTangentOperatorAction", true)) {
++        return !error;
+       }
+-      ds.UseDevice(true);
+-      ds.SetSize(dg.Size());
+-      if (n == 0) {
+-        return true;
++      const auto size =
++          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
++      if ((static_cast<std::int64_t>(x.Size()) != size) ||
++          (static_cast<std::int64_t>(y.Size()) != size)) {
++        return ctx.registerErrorMessage(
++            "addTangentOperatorAction: unexpected size of the values element "
++            "by element");
+       }
+-      const auto use_device = mfem::Device::IsEnabled();
+-      internals::launchTangentOperatorBlocksProductKernel(
+-          ds.Write(use_device), K.data(),
+-          static_cast<long long>(K.getPointStride()),
+-          static_cast<long long>(K.getComponentStride()), dg.Read(use_device),
+-          n, gs, use_device);
++      internals::launchTangentOperatorActionKernel(
++          k, a, x.Read(use_device), y.ReadWrite(use_device), use_device);
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+-          std::string{"multiplyByTangentOperatorBlocks: "} + e.what());
++          std::string{"addTangentOperatorAction: "} + e.what());
+     } catch (...) {
+       return ctx.registerErrorMessage(
+-          "multiplyByTangentOperatorBlocks: unknown exception");
++          "addTangentOperatorAction: unknown exception");
+     }
+     return true;
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-  }  // end of multiplyByTangentOperatorBlocks
++  }  // end of addTangentOperatorAction
+ 
+   bool computeElementsDegreesOfFreedom(
+       Context& ctx,
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index ea91906e35..67fbd7b90f 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -261,27 +261,105 @@ namespace mfem_mgis::batch::internals {
+                                             use_device);
+   }  // end of launchStiffnessMatricesDiagonalsKernel
+ 
+-  void launchTangentOperatorBlocksProductKernel(real* const ds,
+-                                                const real* const K,
+-                                                const long long ps,
+-                                                const long long cs,
+-                                                const real* const dg,
+-                                                const int n,
+-                                                const int gs,
+-                                                const bool use_device) {
+-    mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(int i) {
+-      const auto* const Ki = K + static_cast<long long>(i) * ps;
+-      const auto* const dgi = dg + static_cast<std::size_t>(i) * gs;
+-      auto* const dsi = ds + static_cast<std::size_t>(i) * gs;
+-      for (int r = 0; r != gs; ++r) {
+-        auto v = real{0};
+-        for (int c = 0; c != gs; ++c) {
+-          v += Ki[static_cast<long long>(r * gs + c) * cs] * dgi[c];
+-        }
+-        dsi[r] = v;
+-      }
+-    });
+-  }  // end of launchTangentOperatorBlocksProductKernel
++  /*!
++   * \brief launches the kernel adding the action of the stiffness matrices of
++   * the elements of a material on values given element by element (see
++   * `launchTangentOperatorActionKernel`): one thread per element, which
++   * computes, at each point, the increment of the gradients `B x`, the
++   * increment of the thermodynamic forces `K B x` and adds
++   * `Bᵀ K B x w det J` to the values of the element
++   * \tparam K: kind of the gradients
++   * \tparam N: dimension
++   */
++  template <GradientsKind K, int N>
++  static void launchTangentOperatorActionKernel(
++      const StiffnessMatricesKernelArguments& a,
++      const real* const x,
++      real* const y,
++      const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
++          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++          const auto nd = static_cast<std::size_t>(a.nd);
++          const auto nq = static_cast<std::size_t>(a.nq);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto* const xe = x + nd * N * e;
++          auto* const ye = y + nd * N * e;
++          for (std::size_t q = 0; q != nq; ++q) {
++            const auto detJ = a.determinants[q + nq * e];
++            real iJ[N * N];
++            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++            // increment of the gradients, B x
++            real dg[gs] = {};
++            for (std::size_t node = 0; node != nd; ++node) {
++              real dN[N];
++              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
++                                            nq, node, iJ);
++              real B[9][3];
++              computeB<K>(B, dN);
++              for (std::size_t r = 0; r != gs; ++r) {
++                for (std::size_t c = 0; c != N; ++c) {
++                  dg[r] += B[r][c] * xe[node + nd * c];
++                }
++              }
++            }
++            // increment of the thermodynamic forces, K B x
++            const auto o = static_cast<long long>(a.offsets[k]) +
++                           static_cast<long long>(q);
++            const auto* const t = a.tangent_operator + o * a.point_stride;
++            const auto cs = a.component_stride;
++            real ds[gs];
++            for (std::size_t r1 = 0; r1 != gs; ++r1) {
++              ds[r1] = 0;
++              for (std::size_t r2 = 0; r2 != gs; ++r2) {
++                ds[r1] += t[static_cast<long long>(r1 * gs + r2) * cs] * dg[r2];
++              }
++            }
++            // Bᵀ K B x w det J
++            const auto w = a.weights[q] * detJ;
++            for (std::size_t node = 0; node != nd; ++node) {
++              real dN[N];
++              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
++                                            nq, node, iJ);
++              real B[9][3];
++              computeB<K>(B, dN);
++              for (std::size_t c = 0; c != N; ++c) {
++                auto v = real{0};
++                for (std::size_t r = 0; r != gs; ++r) {
++                  v += B[r][c] * ds[r];
++                }
++                ye[node + nd * c] += w * v;
++              }
++            }
++          }
++        });
++  }  // end of launchTangentOperatorActionKernel
++
++  void launchTangentOperatorActionKernel(
++      const GradientsKind k,
++      const StiffnessMatricesKernelArguments& a,
++      const real* const x,
++      real* const y,
++      const bool use_device) {
++    switch (k) {
++      case GradientsKind::SMALL_STRAIN_3D:
++        launchTangentOperatorActionKernel<GradientsKind::SMALL_STRAIN_3D, 3>(
++            a, x, y, use_device);
++        break;
++      case GradientsKind::SMALL_STRAIN_2D:
++        launchTangentOperatorActionKernel<GradientsKind::SMALL_STRAIN_2D, 2>(
++            a, x, y, use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_3D:
++        launchTangentOperatorActionKernel<
++            GradientsKind::DEFORMATION_GRADIENT_3D, 3>(a, x, y, use_device);
++        break;
++      case GradientsKind::DEFORMATION_GRADIENT_2D:
++        launchTangentOperatorActionKernel<
++            GradientsKind::DEFORMATION_GRADIENT_2D, 2>(a, x, y, use_device);
++        break;
++    }
++  }  // end of launchTangentOperatorActionKernel
+ 
+   void zeroValues(real* const v, const int n, const bool use_device) {
+     mfem::forall_switch(use_device, n,
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index ebd51ae6fc..a0a14163a0 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -96,27 +96,22 @@ namespace mfem_mgis::batch::internals {
+       real* const,
+       const bool);
+   /*!
+-   * \brief launches the kernel computing `ds = K dg` at all the points of a
+-   * material
+-   * \param[out] ds: increments of the thermodynamic forces, point by point
+-   * \param[in] K: tangent operator blocks
+-   * \param[in] ps: stride between two points of the tangent operator blocks
+-   * \param[in] cs: stride between two components of the tangent operator
+-   * blocks
+-   * \param[in] dg: increments of the gradients, point by point
+-   * \param[in] n: number of points
+-   * \param[in] gs: number of components of the gradients and of the
+-   * thermodynamic forces
++   * \brief launches the kernel adding the action of the stiffness matrices of
++   * the elements of a material, `Σ Bᵀ K B x w det J`, on values given
++   * element by element, in the layout of the element restriction of MFEM
++   * (`node + nd * (component + dim * element)`)
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments (`matrices` is not used)
++   * \param[in] x: values element by element
++   * \param[in, out] y: action, element by element
+    * \param[in] use_device: if true, the kernel runs on the device
+    */
+-  void launchTangentOperatorBlocksProductKernel(real* const,
+-                                                const real* const,
+-                                                const long long,
+-                                                const long long,
+-                                                const real* const,
+-                                                const int,
+-                                                const int,
+-                                                const bool);
++  void launchTangentOperatorActionKernel(
++      const GradientsKind,
++      const StiffnessMatricesKernelArguments&,
++      const real* const,
++      real* const,
++      const bool);
+   /*!
+    * \brief sets values to zero
+    * \param[out] v: values
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 0e386d8c8e..d0a0cedca4 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -14,7 +14,6 @@
+ #include "MGIS/Raise.hxx"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/restriction.hpp"
+-#include "mfem/fem/quadinterpolator.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/mesh/pmesh.hpp"
+@@ -408,10 +407,17 @@ namespace mfem_mgis {
+             "the computations by kernels require the dimension of the space "
+             "to be the dimension of the mesh");
+       }
+-      if (!mfem::QuadratureInterpolator::SupportsFESpace(fes)) {
++      // the kernels use the gradients of the shape functions on the
++      // reference element (`mfem::DofToQuad`) and the element restriction of
++      // MFEM
++      const auto* const fe = (fes.GetNE() != 0) ? fes.GetTypicalFE() : nullptr;
++      if ((fes.IsVariableOrder()) || (mesh.NURBSext != nullptr) ||
++          ((fe != nullptr) &&
++           (fe->GetMapType() != mfem::FiniteElement::MapType::VALUE))) {
+         return ctx.registerErrorMessage(
+-            "the finite element space is not supported by the quadrature "
+-            "interpolator of MFEM, used by the computations by kernels");
++            "the computations by kernels require a finite element space of "
++            "uniform order whose shape functions are mapped by value (H1), on "
++            "a mesh which is not a NURBS mesh");
+       }
+       // all the elements must have a behaviour integrator (with the
+       // computations element by element, `AssembleElementVector` reports an
+@@ -588,23 +594,20 @@ namespace mfem_mgis {
+       return false;
+     }
+     try {
+-      for (const auto* const r : this->getIntegrationRules()) {
+-        if (!batch::computeUnknownsDerivatives(
+-                ctx, this->increments_derivatives[r], fes, x, *r)) {
+-          return false;
+-        }
+-      }
+       const auto* const restriction =
+           fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      auto& xe = this->tangent_operator_element_arguments;
++      xe.UseDevice(true);
++      xe.SetSize(restriction->Height());
++      restriction->Mult(x, xe);
+       auto& ye = this->tangent_operator_element_values;
+       ye.UseDevice(true);
+       ye.SetSize(restriction->Height());
+       ye = real{0};
+       for (auto& bis : this->behaviour_integrators) {
+         for (auto& bi : bis) {
+-          if (!bi->addTangentOperatorActionByKernels(
+-                  ctx, ye, this->increments_derivatives,
+-                  this->elements_geometry)) {
++          if (!bi->addTangentOperatorActionByKernels(ctx, ye, xe,
++                                                     this->elements_geometry)) {
+             return false;
+           }
+         }
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index c5557d01c3..073ca27b59 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -323,14 +323,13 @@ static void testCase(mfem_mgis::Context& ctx,
+           xv[i] = std::sin(0.7 * real(i)) + 0.1 * std::cos(real(i));
+         }
+       }
+-      auto dx = batch::UnknownsDerivativesSet{};
+-      check(batch::computeUnknownsDerivatives(ctx, dx[r], fes, x, *r),
+-            name + ": derivatives of the increments of the unknowns (" +
+-                ctx.getErrorMessage() + ")");
++      auto xe = mfem::Vector(restriction->Height());
++      xe.UseDevice(true);
++      restriction->Mult(x, xe);
+       auto ye = mfem::Vector(restriction->Height());
+       ye.UseDevice(true);
+       ye = real{0};
+-      check(bi.addTangentOperatorActionByKernels(ctx, ye, dx, geometry),
++      check(bi.addTangentOperatorActionByKernels(ctx, ye, xe, geometry),
+             name + ": action of the tangent operator (" +
+                 ctx.getErrorMessage() + ")");
+       auto y = mfem::Vector(fes.GetVSize());
+-- 
+2.43.0
+

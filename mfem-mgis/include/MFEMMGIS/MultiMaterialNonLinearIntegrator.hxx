@@ -426,10 +426,10 @@ namespace mfem_mgis {
      */
     mfem::Array<int> element_dofs;
     /*!
-     * \brief derivatives of the increments of the unknowns, for each
-     * integration rule (see `addTangentOperatorActionByKernels`)
+     * \brief increments of the unknowns element by element (see
+     * `addTangentOperatorActionByKernels`)
      */
-    batch::UnknownsDerivativesSet increments_derivatives;
+    mfem::Vector tangent_operator_element_arguments;
     /*!
      * \brief values element by element of the action or of the diagonal of
      * the tangent operator

@@ -63,7 +63,7 @@ namespace mfem_mgis {
     [[nodiscard]] bool addTangentOperatorActionByKernels(
         Context&,
         mfem::Vector&,
-        const batch::UnknownsDerivativesSet&,
+        const mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
     [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
         Context&,

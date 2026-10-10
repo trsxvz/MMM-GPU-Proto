@@ -55,6 +55,10 @@ list(APPEND MFEMMGIS_SOURCES
   NonLinearSolverBase.cxx
   NonLinearSolverFactory.cxx
   NewtonSolver.cxx
+  AccelerationAlgorithm.cxx
+  AndersonAccelerationAlgorithm.cxx
+  Cast3MAccelerationAlgorithm.cxx
+  FixedPointSolver.cxx
   AnalyticalTests.cxx
   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx

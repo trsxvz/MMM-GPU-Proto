@@ -14,7 +14,6 @@
 #include "MGIS/Raise.hxx"
 #include "mfem/fem/linearform.hpp"
 #include "mfem/fem/restriction.hpp"
-#include "mfem/fem/quadinterpolator.hpp"
 #include "mfem/fem/bilinearform.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/mesh/pmesh.hpp"
@@ -408,10 +407,17 @@ namespace mfem_mgis {
             "the computations by kernels require the dimension of the space "
             "to be the dimension of the mesh");
       }
-      if (!mfem::QuadratureInterpolator::SupportsFESpace(fes)) {
+      // the kernels use the gradients of the shape functions on the
+      // reference element (`mfem::DofToQuad`) and the element restriction of
+      // MFEM
+      const auto* const fe = (fes.GetNE() != 0) ? fes.GetTypicalFE() : nullptr;
+      if ((fes.IsVariableOrder()) || (mesh.NURBSext != nullptr) ||
+          ((fe != nullptr) &&
+           (fe->GetMapType() != mfem::FiniteElement::MapType::VALUE))) {
         return ctx.registerErrorMessage(
-            "the finite element space is not supported by the quadrature "
-            "interpolator of MFEM, used by the computations by kernels");
+            "the computations by kernels require a finite element space of "
+            "uniform order whose shape functions are mapped by value (H1), on "
+            "a mesh which is not a NURBS mesh");
       }
       // all the elements must have a behaviour integrator (with the
       // computations element by element, `AssembleElementVector` reports an
@@ -588,23 +594,20 @@ namespace mfem_mgis {
       return false;
     }
     try {
-      for (const auto* const r : this->getIntegrationRules()) {
-        if (!batch::computeUnknownsDerivatives(
-                ctx, this->increments_derivatives[r], fes, x, *r)) {
-          return false;
-        }
-      }
       const auto* const restriction =
           fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      auto& xe = this->tangent_operator_element_arguments;
+      xe.UseDevice(true);
+      xe.SetSize(restriction->Height());
+      restriction->Mult(x, xe);
       auto& ye = this->tangent_operator_element_values;
       ye.UseDevice(true);
       ye.SetSize(restriction->Height());
       ye = real{0};
       for (auto& bis : this->behaviour_integrators) {
         for (auto& bi : bis) {
-          if (!bi->addTangentOperatorActionByKernels(
-                  ctx, ye, this->increments_derivatives,
-                  this->elements_geometry)) {
+          if (!bi->addTangentOperatorActionByKernels(ctx, ye, xe,
+                                                     this->elements_geometry)) {
             return false;
           }
         }

@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/GradientsKernels.cxx
- * \brief  This file implements the kernels computing the gradients of the
- * behaviours. It contains kernels of MFEM: it is compiled as CUDA code when
- * MFEM is compiled with CUDA.
+ * \brief  This file implements the kernels computing the derivatives of the
+ * unknowns and the gradients of the behaviours. It contains kernels of
+ * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
  * \date   09/10/2026
  */
 
@@ -109,6 +109,31 @@ namespace mfem_mgis::batch::internals {
       }
     });
   }  // end of launchGradientsKernel
+
+  void launchUnknownsDerivativesKernel(
+      const UnknownsDerivativesKernelArguments& a, const bool use_device) {
+    const auto n = a.number_of_elements * a.nq;
+    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
+      const auto nq = static_cast<std::size_t>(a.nq);
+      const auto nd = static_cast<std::size_t>(a.nd);
+      const auto vdim = static_cast<std::size_t>(a.vdim);
+      const auto dim = static_cast<std::size_t>(a.dim);
+      const auto e = static_cast<std::size_t>(i) / nq;
+      const auto q = static_cast<std::size_t>(i) - e * nq;
+      const auto* const ue = a.element_values + nd * vdim * e;
+      auto* const d = a.derivatives + vdim * dim * (q + nq * e);
+      for (std::size_t r = 0; r != dim; ++r) {
+        const auto* const G = a.shape_functions_gradients + q + nq * r;
+        for (std::size_t c = 0; c != vdim; ++c) {
+          auto v = real{0};
+          for (std::size_t node = 0; node != nd; ++node) {
+            v += G[nq * dim * node] * ue[node + nd * c];
+          }
+          d[c + vdim * r] = v;
+        }
+      }
+    });
+  }  // end of launchUnknownsDerivativesKernel
 
   void launchGradientsKernel(const GradientsKind k,
                              const GradientsKernelArguments& a,

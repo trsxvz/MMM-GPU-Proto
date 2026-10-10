@@ -12,7 +12,6 @@
 #include "mfem/general/device.hpp"
 #include "mfem/fem/fespace.hpp"
 #include "mfem/fem/restriction.hpp"
-#include "mfem/fem/quadinterpolator.hpp"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
@@ -73,43 +72,20 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of resizeArray
 
-  namespace {
-
-    //! \brief restores the options of a quadrature interpolator at its
-    //! destruction
-    struct QuadratureInterpolatorOptionsGuard {
-      //! \param[in] q: quadrature interpolator
-      explicit QuadratureInterpolatorOptionsGuard(
-          const mfem::QuadratureInterpolator& q)
-          : qi(q),
-            layout(q.GetOutputLayout()),
-            tensor_products(q.UsesTensorProducts()) {}
-      QuadratureInterpolatorOptionsGuard(
-          const QuadratureInterpolatorOptionsGuard&) = delete;
-      QuadratureInterpolatorOptionsGuard& operator=(
-          const QuadratureInterpolatorOptionsGuard&) = delete;
-      //! \brief destructor
-      ~QuadratureInterpolatorOptionsGuard() {
-        this->qi.SetOutputLayout(this->layout);
-        this->qi.DisableTensorProducts(!this->tensor_products);
-      }
-
-     private:
-      //! \brief quadrature interpolator
-      const mfem::QuadratureInterpolator& qi;
-      //! \brief output layout
-      const mfem::QVectorLayout layout;
-      //! \brief if true, the interpolator uses tensor products
-      const bool tensor_products;
-    };
-
-  }  // end of namespace
-
   bool computeUnknownsDerivatives(Context& ctx,
                                   UnknownsDerivatives& d,
                                   const mfem::FiniteElementSpace& fes,
                                   const mfem::Vector& u,
                                   const mfem::IntegrationRule& ir) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(d);
+    static_cast<void>(fes);
+    static_cast<void>(u);
+    static_cast<void>(ir);
+    return ctx.registerErrorMessage(
+        "computeUnknownsDerivatives: the kernels computing the gradients are "
+        "not compiled (MFEM compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto& mesh = *(fes.GetMesh());
       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
@@ -117,18 +93,6 @@ namespace mfem_mgis::batch {
             "computeUnknownsDerivatives: meshes mixing several geometries "
             "are not supported");
       }
-      const auto* const qi = fes.GetQuadratureInterpolator(ir);
-      if (qi == nullptr) {
-        return ctx.registerErrorMessage(
-            "computeUnknownsDerivatives: the finite element space is not "
-            "supported by the quadrature interpolator of MFEM");
-      }
-      const auto* const r =
-          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
-      if (!resizeArray(ctx, d.element_values, r->Height())) {
-        return false;
-      }
-      r->Mult(u, d.element_values);
       d.rule = &ir;
       d.vdim = fes.GetVDim();
       d.dim = mesh.Dimension();
@@ -139,12 +103,39 @@ namespace mfem_mgis::batch {
       if (!resizeArray(ctx, d.values, size)) {
         return false;
       }
-      // the interpolator is shared: its options are set before its use and
-      // restored after, even if an exception is thrown
-      const auto options = QuadratureInterpolatorOptionsGuard{*qi};
-      qi->SetOutputLayout(mfem::QVectorLayout::byVDIM);
-      qi->DisableTensorProducts();
-      qi->Derivatives(d.element_values, d.values);
+      if (d.ne == 0) {
+        return true;
+      }
+      const auto* const r =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      if (!resizeArray(ctx, d.element_values, r->Height())) {
+        return false;
+      }
+      r->Mult(u, d.element_values);
+      const auto* const fe = fes.GetTypicalFE();
+      const auto& maps = fe->GetDofToQuad(ir, mfem::DofToQuad::FULL);
+      const auto use_device = mfem::Device::IsEnabled();
+      auto a = internals::UnknownsDerivativesKernelArguments{};
+      a.number_of_elements = d.ne;
+      a.nd = fe->GetDof();
+      a.nq = d.nq;
+      a.vdim = d.vdim;
+      a.dim = d.dim;
+      if (std::int64_t{a.nd} * a.vdim * a.number_of_elements !=
+          std::int64_t{d.element_values.Size()}) {
+        return ctx.registerErrorMessage(
+            "computeUnknownsDerivatives: unexpected number of values element "
+            "by element");
+      }
+      if (std::int64_t{a.number_of_elements} * a.nq >
+          std::numeric_limits<int>::max()) {
+        return ctx.registerErrorMessage(
+            "computeUnknownsDerivatives: too many points for the kernel");
+      }
+      a.element_values = d.element_values.Read(use_device);
+      a.shape_functions_gradients = maps.G.Read(use_device);
+      a.derivatives = d.values.Write(use_device);
+      internals::launchUnknownsDerivativesKernel(a, use_device);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
           std::string{"computeUnknownsDerivatives: "} + e.what());
@@ -153,6 +144,7 @@ namespace mfem_mgis::batch {
           "computeUnknownsDerivatives: unknown exception");
     }
     return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeUnknownsDerivatives
 
   size_type getGradientsSize(const GradientsKind k) noexcept {
@@ -299,56 +291,5 @@ namespace mfem_mgis::batch {
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeGradients
-
-  bool computeGradientsIncrements(Context& ctx,
-                                  mfem::Vector& v,
-                                  const PartialQuadratureSpace& qs,
-                                  const UnknownsDerivatives& d,
-                                  const ElementsGeometry& g,
-                                  const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(v);
-    static_cast<void>(qs);
-    static_cast<void>(d);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return ctx.registerErrorMessage(
-        "computeGradientsIncrements: the kernels computing the gradients are "
-        "not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-    try {
-      const auto use_device = mfem::Device::IsEnabled();
-      auto a = internals::GradientsKernelArguments{};
-      auto error = false;
-      if (!getGradientsKernelArguments(ctx, a, error,
-                                       "computeGradientsIncrements", qs, d, g,
-                                       k, use_device)) {
-        if (!error) {
-          v.SetSize(0);
-        }
-        return !error;
-      }
-      const auto size =
-          std::int64_t{a.number_of_points} * std::int64_t{a.gradients_size};
-      if (size > std::numeric_limits<int>::max()) {
-        return ctx.registerErrorMessage(
-            "computeGradientsIncrements: too many values for MFEM");
-      }
-      v.UseDevice(true);
-      v.SetSize(static_cast<int>(size));
-      // stored point by point, without macroscopic gradients
-      a.point_by_point = true;
-      a.gradients = v.Write(use_device);
-      internals::launchGradientsKernel(k, a, use_device);
-    } catch (std::exception& e) {
-      return ctx.registerErrorMessage(
-          std::string{"computeGradientsIncrements: "} + e.what());
-    } catch (...) {
-      return ctx.registerErrorMessage(
-          "computeGradientsIncrements: unknown exception");
-    }
-    return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-  }  // end of computeGradientsIncrements
 
 }  // end of namespace mfem_mgis::batch

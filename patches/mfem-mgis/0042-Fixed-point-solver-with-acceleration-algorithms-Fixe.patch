@@ -1,0 +1,1683 @@
+From f3d8ed1e556532019d2adfeb4f64ad3c384dc4ea Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 02:04:36 +0200
+Subject: [PATCH] Fixed point solver with acceleration algorithms (FixedPoint)
+
+New non linear solver `FixedPoint` (FixedPointSolver): iterations
+x_{i+1} = x_i - S r(x_i), with
+- `Method` = `ElasticOperator` (default): S approximates the inverse of the
+  elastic operator K0, assembled from the prediction operators (or the
+  elastic operators, `ElasticOperatorComputation` = `Integration`) of the
+  behaviours, at each resolution or once (`ElasticOperatorUpdate`), solved
+  by the linear solver of the problem or by an own linear solver
+  (`ElasticOperatorLinearSolver`), whose setup is kept; the behaviours are
+  integrated without tangent operator;
+- `Method` = `ModifiedNewton`: tangent operator of the first iteration;
+- `Acceleration`: algorithms of the AccelerationAlgorithmFactory, to which
+  algorithms can be added; `Anderson` (type II, normal equations updated
+  incrementally) and `Cast3M` (as MTest) are declared by default.
+The elastic operator given by an operator applied without assembly is its
+assembled version.
+
+`HypreBoomerAMG` is also declared as a linear solver (one cycle of
+BoomerAMG), for the fixed point on the elastic operator. The log stream
+and the printing condition of the Newton solver are moved to
+NonLinearSolverBase.
+
+FixedPointSolverTest: methods, accelerations and linear solvers of the
+elastic operator give the solution of the Newton solver; accelerations
+reduce the number of iterations; the rate of convergence without
+acceleration is bounded by 3 mu / (3 mu + H); invalid options are refused.
+---
+ include/CMakeLists.txt                        |   2 +
+ .../AccelerationAlgorithm.hxx                 | 116 +++++
+ .../NonLinearSolvers/FixedPointSolver.hxx     | 132 ++++++
+ .../NonLinearSolvers/NonLinearSolverBase.hxx  |  11 +-
+ src/AccelerationAlgorithm.cxx                 |  73 +++
+ src/AccelerationAlgorithms.hxx                |  35 ++
+ src/AndersonAccelerationAlgorithm.cxx         | 162 +++++++
+ src/CMakeLists.txt                            |   4 +
+ src/Cast3MAccelerationAlgorithm.cxx           | 125 ++++++
+ src/FixedPointSolver.cxx                      | 416 ++++++++++++++++++
+ src/LinearSolverFactory.cxx                   |  20 +
+ src/NewtonSolver.cxx                          |  31 +-
+ src/NonLinearSolverBase.cxx                   |  28 ++
+ src/NonLinearSolverFactory.cxx                |   5 +
+ tests/CMakeLists.txt                          |  17 +
+ tests/FixedPointSolverTest.cxx                | 289 ++++++++++++
+ 16 files changed, 1436 insertions(+), 30 deletions(-)
+ create mode 100644 include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+ create mode 100644 include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+ create mode 100644 src/AccelerationAlgorithm.cxx
+ create mode 100644 src/AccelerationAlgorithms.hxx
+ create mode 100644 src/AndersonAccelerationAlgorithm.cxx
+ create mode 100644 src/Cast3MAccelerationAlgorithm.cxx
+ create mode 100644 src/FixedPointSolver.cxx
+ create mode 100644 tests/FixedPointSolverTest.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index f39d69f8bb..6adb153c07 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -128,6 +128,8 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AbstractNonLinearSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverBase.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NewtonSolver.hxx)
++mfem_mgis_header(MFEMMGIS/NonLinearSolvers AccelerationAlgorithm.hxx)
++mfem_mgis_header(MFEMMGIS/NonLinearSolvers FixedPointSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/Utilities DataFileUtilities.hxx)
+ mfem_mgis_header(MFEMMGIS/Utilities Buffer.hxx)
+ mfem_mgis_header(MFEMMGIS/Utilities SolverUtilities.hxx)
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+new file mode 100644
+index 0000000000..d7dff555c9
+--- /dev/null
++++ b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+@@ -0,0 +1,116 @@
++/*!
++ * \file   MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
++ * \brief  This file declares the `AccelerationAlgorithm` class, the
++ * interface of the acceleration algorithms of the fixed point iterations
++ * (see `FixedPointSolver`), and their factory
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_ACCELERATIONALGORITHM_HXX
++#define LIB_MFEMMGIS_NONLINEARSOLVERS_ACCELERATIONALGORITHM_HXX
++
++#include <map>
++#include <memory>
++#include <string>
++#include <functional>
++#include <string_view>
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis {
++
++  // forward declaration
++  struct Parameters;
++
++  /*!
++   * \brief interface of the acceleration algorithms of the fixed point
++   * iterations `x_{i+1} = x_i - S r(x_i)`, `r` being the residual and `S` an
++   * approximation of the inverse of the tangent operator (for instance the
++   * inverse of the elastic operator).
++   *
++   * The algorithms follow the ones of MTest (TFEL): they are given, at each
++   * iteration, the new estimate `x_{i+1}`, the correction `x_{i+1} - x_i`
++   * and the residual `r(x_i)`, and may replace the new estimate by an
++   * accelerated one. They only use linear combinations and scalar products
++   * of vectors (`mfem::Vector`, on the device if the vectors are), the
++   * scalar products being reduced over all the processes by the function
++   * given to `initialize`.
++   */
++  struct MFEM_MGIS_EXPORT AccelerationAlgorithm {
++    //! \brief scalar product reduced over all the processes
++    using ScalarProduct =
++        std::function<real(const mfem::Vector&, const mfem::Vector&)>;
++    /*!
++     * \brief initializes the algorithm at the beginning of a resolution:
++     * the histories of the previous resolutions are discarded
++     * \param[in] n: number of unknowns of the current process
++     * \param[in] dot: scalar product
++     */
++    virtual void initialize(const size_type, ScalarProduct) = 0;
++    /*!
++     * \brief accelerates the fixed point iterations
++     * \param[in, out] x: new estimate `x_{i+1}`, replaced by the accelerated
++     * estimate if the algorithm applies at this iteration
++     * \param[in] dx: correction `x_{i+1} - x_i`
++     * \param[in] r: residual at the previous estimate `x_i`
++     * \param[in] r_eps: scale of the residual below which differences of
++     * residuals are considered null (the convergence criterion)
++     * \param[in] i: iteration number, starting at 1
++     */
++    virtual void execute(mfem::Vector&,
++                         const mfem::Vector&,
++                         const mfem::Vector&,
++                         const real,
++                         const size_type) = 0;
++    //! \brief destructor
++    virtual ~AccelerationAlgorithm();
++  };  // end of struct AccelerationAlgorithm
++
++  /*!
++   * \brief factory of the acceleration algorithms. The algorithms are
++   * selected by their names and set by their options:
++   *
++   * - `Anderson`: Anderson's method (type II) on the images of the fixed
++   *   point map, options `Depth` (number of previous iterations used, 4 by
++   *   default) and `Regularization` (relative regularization of the least
++   *   squares problem, 1e-12 by default);
++   * - `Cast3M`: port of the acceleration of Cast3M (as MTest), options
++   *   `Trigger` (first accelerated iteration, 4 by default) and `Period`
++   *   (number of iterations between two accelerations, 2 by default).
++   */
++  struct MFEM_MGIS_EXPORT AccelerationAlgorithmFactory {
++    //! \brief generator of an acceleration algorithm from its options
++    using Generator = std::function<std::unique_ptr<AccelerationAlgorithm>(
++        Context&, const Parameters&)>;
++    //! \return the unique instance of the factory
++    static AccelerationAlgorithmFactory& get() noexcept;
++    /*!
++     * \brief declares a new acceleration algorithm
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the algorithm
++     * \param[in] g: generator
++     */
++    [[nodiscard]] bool add(Context&, std::string_view, Generator) noexcept;
++    /*!
++     * \return the acceleration algorithm of the given name, set by the given
++     * options, or a null pointer on error
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the algorithm
++     * \param[in] opts: options
++     */
++    [[nodiscard]] std::unique_ptr<AccelerationAlgorithm> generate(
++        Context&, std::string_view, const Parameters&) const noexcept;
++
++   private:
++    //! \brief default constructor, declaring the default algorithms
++    AccelerationAlgorithmFactory() noexcept;
++    //! \brief destructor
++    ~AccelerationAlgorithmFactory() noexcept;
++    //! \brief generators
++    std::map<std::string, Generator, std::less<>> generators;
++  };  // end of struct AccelerationAlgorithmFactory
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEMMGIS_NONLINEARSOLVERS_ACCELERATIONALGORITHM_HXX */
+diff --git a/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+new file mode 100644
+index 0000000000..4ce480d87b
+--- /dev/null
++++ b/include/MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
+@@ -0,0 +1,132 @@
++/*!
++ * \file   MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx
++ * \brief  This file declares the `FixedPointSolver` class
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_NONLINEARSOLVERS_FIXEDPOINTSOLVER_HXX
++#define LIB_MFEM_MGIS_NONLINEARSOLVERS_FIXEDPOINTSOLVER_HXX
++
++#include <memory>
++#include <string_view>
++#include <functional>
++#include "mfem/linalg/operator.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/IntegrationType.hxx"
++#include "MFEMMGIS/LinearSolverHandler.hxx"
++#include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
++#include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
++
++namespace mfem_mgis {
++
++  // forward declaration
++  template <bool parallel>
++  struct NonLinearEvolutionProblemImplementation;
++
++  /*!
++   * \brief fixed point iterations `x_{i+1} = x_i - S r(x_i)`, `r` being the
++   * residual, possibly accelerated (see `AccelerationAlgorithm`), declared
++   * as `FixedPoint` in the factory of the non linear solvers.
++   *
++   * Methods (option `Method`):
++   *
++   * - `ElasticOperator` (default): `S` is an exact or approximate inverse of
++   *   the elastic operator `K0` (rigidity of the initial state, as in
++   *   Cast3M). `K0` is assembled from the elastic operators of the
++   *   behaviours (option `ElasticOperatorComputation`: `Prediction`, by
++   *   default, uses the prediction operator of the behaviours;
++   *   `Integration` integrates the behaviours and uses their elastic
++   *   operator, for the behaviours which do not provide the prediction
++   *   operator), at each resolution or at the first one only (option
++   *   `ElasticOperatorUpdate`: `EachResolution`, by default, or `Once`).
++   *   The behaviours are integrated without tangent operator at each
++   *   iteration.
++   * - `ModifiedNewton`: `S` is the inverse of the consistent tangent
++   *   operator at the first iteration of each resolution, given to the
++   *   linear solver of the problem.
++   *
++   * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, `Name` and
++   * `Options` as the linear solvers of the problems, for instance
++   * `HypreBoomerAMG` for one cycle of BoomerAMG per iteration): owned by
++   * the solver, so that its setup is kept between resolutions with
++   * `ElasticOperatorUpdate` set to `Once`. If not given, the linear solver
++   * of the problem is used, and set up with `K0` at each resolution (the
++   * prediction of the problem gives it its own operator).
++   *
++   * Acceleration (option `Acceleration`, a name or a `Name` and `Options`,
++   * see `AccelerationAlgorithmFactory`): none by default.
++   *
++   * The other options are the ones of the iterative solvers
++   * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
++   * `VerbosityLevel`) and `DiscardLinearSolverFailure`. When the
++   * integration of the behaviours fails at a new estimate, it is replaced
++   * by the middle of this estimate and of the previous one, ten times at
++   * most.
++   */
++  struct MFEM_MGIS_EXPORT FixedPointSolver final : NonLinearSolverBase {
++    //! \brief methods
++    enum struct Method { ELASTIC_OPERATOR, MODIFIED_NEWTON };
++#ifdef MFEM_USE_MPI
++    /*!
++     * \brief constructor
++     * \param[in] p: non linear evolution problem
++     */
++    FixedPointSolver(NonLinearEvolutionProblemImplementation<true>&);
++#endif /* MFEM_USE_MPI */
++    /*!
++     * \brief constructor
++     * \param[in] p: non linear evolution problem
++     */
++    FixedPointSolver(NonLinearEvolutionProblemImplementation<false>&);
++    [[nodiscard]] bool setSolverParameters(Context&,
++                                           const Parameters&) noexcept override;
++    void Mult(const mfem::Vector&, mfem::Vector&) const override;
++    //! \brief destructor
++    ~FixedPointSolver() noexcept override;
++
++   private:
++    /*!
++     * \brief integrates the behaviours at an estimate of the unknowns, then
++     * performs the actions associated with a new estimate
++     * \return true on success
++     * \param[in] u: estimate of the unknowns
++     * \param[in] it: integration type
++     */
++    [[nodiscard]] bool integrate(const mfem::Vector&,
++                                 const IntegrationType) const;
++    /*!
++     * \brief assembles the elastic operator at an estimate of the unknowns
++     * and sets up its linear solver, if required
++     * \return true on success
++     * \param[in] u: estimate of the unknowns
++     */
++    [[nodiscard]] bool setElasticOperator(const mfem::Vector&) const;
++    //! \return the linear solver giving the corrections
++    [[nodiscard]] mfem::Solver& getCorrectionSolver() const;
++    //! \brief integration of the behaviours
++    std::function<bool(const mfem::Vector&, const IntegrationType)>
++        integrate_behaviours;
++    //! \brief generator of the linear solver of the elastic operator
++    std::function<LinearSolverHandler(
++        Context&, std::string_view, const Parameters&)>
++        generate_linear_solver;
++    //! \brief method
++    Method method = Method::ELASTIC_OPERATOR;
++    //! \brief if true, the elastic operator is assembled once
++    bool elastic_operator_assembled_once = false;
++    /*!
++     * \brief if true, the elastic operator is computed by an integration of
++     * the behaviours, otherwise by their prediction operator
++     */
++    bool elastic_operator_by_integration = false;
++    //! \brief acceleration algorithm, if any
++    std::unique_ptr<AccelerationAlgorithm> acceleration;
++    //! \brief linear solver of the elastic operator, if any
++    LinearSolverHandler elastic_operator_linear_solver;
++    //! \brief elastic operator
++    mutable std::unique_ptr<mfem::Operator> elastic_operator;
++  };  // end of struct FixedPointSolver
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_NONLINEARSOLVERS_FIXEDPOINTSOLVER_HXX */
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+index 56c126f226..ea4d188b1f 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx
+@@ -8,6 +8,7 @@
+ #ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
+ #define LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
+ 
++#include <ostream>
+ #include "mfem/linalg/solvers.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
+@@ -81,7 +82,15 @@ namespace mfem_mgis {
+      * \param[in] u: new unknown estimate
+      * \return true on success
+      */
+-    virtual bool processNewUnknownsEstimate(const mfem::Vector &u) const;
++    virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
++    /*!
++     * \return if messages shall be displayed: on the first process, if the
++     * print level is positive or if the verbosity level of the execution
++     * context is high enough (`verboseLevel3`)
++     */
++    [[nodiscard]] bool shallPrint() const noexcept;
++    //! \return the log stream of the execution context, if any
++    [[nodiscard]] std::ostream &getLogStream() const noexcept;
+     /*!
+      * \brief actions performed when a new estimate of the unknowns is
+      * available
+diff --git a/src/AccelerationAlgorithm.cxx b/src/AccelerationAlgorithm.cxx
+new file mode 100644
+index 0000000000..b896bd5323
+--- /dev/null
++++ b/src/AccelerationAlgorithm.cxx
+@@ -0,0 +1,73 @@
++/*!
++ * \file   src/AccelerationAlgorithm.cxx
++ * \brief  This file implements the `AccelerationAlgorithm` and the
++ * `AccelerationAlgorithmFactory` classes
++ * \date   10/10/2026
++ */
++
++#include <string>
++#include <tuple>
++#include <utility>
++#include "MGIS/Raise.hxx"
++#include "MGIS/Contract.hxx"
++#include "MGIS/ErrorBacktrace.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "AccelerationAlgorithms.hxx"
++#include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
++
++namespace mfem_mgis {
++
++  AccelerationAlgorithm::~AccelerationAlgorithm() = default;
++
++  AccelerationAlgorithmFactory& AccelerationAlgorithmFactory::get() noexcept {
++    static AccelerationAlgorithmFactory f;
++    return f;
++  }  // end of get
++
++  AccelerationAlgorithmFactory::AccelerationAlgorithmFactory() noexcept {
++    auto ctx = Context{};
++    auto check = [&ctx](const bool b) {
++      if (!b) {
++        auto eh = mgis::ContractViolationHandler{};
++        eh.registerErrorMessage(ctx.getErrorMessage().c_str());
++      }
++    };
++    check(this->add(ctx, "Anderson",
++                    internals::makeAndersonAccelerationAlgorithm));
++    check(this->add(ctx, "Cast3M", internals::makeCast3MAccelerationAlgorithm));
++  }  // end of AccelerationAlgorithmFactory
++
++  bool AccelerationAlgorithmFactory::add(Context& ctx,
++                                         std::string_view n,
++                                         Generator g) noexcept {
++    if (!g) {
++      return ctx.registerErrorMessage("invalid generator");
++    }
++    if (this->generators.contains(n)) {
++      return ctx.registerErrorMessage("an acceleration algorithm named '" +
++                                      std::string{n} +
++                                      "' has already been declared");
++    }
++    this->generators.insert({std::string{n}, std::move(g)});
++    return true;
++  }  // end of add
++
++  std::unique_ptr<AccelerationAlgorithm> AccelerationAlgorithmFactory::generate(
++      Context& ctx, std::string_view n, const Parameters& opts) const noexcept {
++    const auto p = this->generators.find(n);
++    if (p == this->generators.end()) {
++      return ctx.registerErrorMessage("no acceleration algorithm named '" +
++                                      std::string{n} + "' declared");
++    }
++    try {
++      return p->second(ctx, opts);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    return {};
++  }  // end of generate
++
++  AccelerationAlgorithmFactory::~AccelerationAlgorithmFactory() noexcept =
++      default;
++
++}  // end of namespace mfem_mgis
+diff --git a/src/AccelerationAlgorithms.hxx b/src/AccelerationAlgorithms.hxx
+new file mode 100644
+index 0000000000..27d7d37e34
+--- /dev/null
++++ b/src/AccelerationAlgorithms.hxx
+@@ -0,0 +1,35 @@
++/*!
++ * \file   src/AccelerationAlgorithms.hxx
++ * \brief  This file declares the generators of the acceleration algorithms
++ * declared by default in the `AccelerationAlgorithmFactory` (internal
++ * header)
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_ACCELERATIONALGORITHMS_HXX
++#define LIB_MFEM_MGIS_SRC_ACCELERATIONALGORITHMS_HXX
++
++#include <memory>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \return Anderson's method (see `AccelerationAlgorithmFactory`)
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   */
++  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
++  makeAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
++  /*!
++   * \return the acceleration of Cast3M (see `AccelerationAlgorithmFactory`)
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   */
++  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
++  makeCast3MAccelerationAlgorithm(Context&, const Parameters&) noexcept;
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_ACCELERATIONALGORITHMS_HXX */
+diff --git a/src/AndersonAccelerationAlgorithm.cxx b/src/AndersonAccelerationAlgorithm.cxx
+new file mode 100644
+index 0000000000..4060ac3533
+--- /dev/null
++++ b/src/AndersonAccelerationAlgorithm.cxx
+@@ -0,0 +1,162 @@
++/*!
++ * \file   src/AndersonAccelerationAlgorithm.cxx
++ * \brief  This file implements Anderson's acceleration of the fixed point
++ * iterations
++ * \date   10/10/2026
++ */
++
++#include <vector>
++#include <utility>
++#include <string>
++#include <algorithm>
++#include "mfem/linalg/densemat.hpp"
++#include "MFEMMGIS/Parameters.hxx"
++#include "AccelerationAlgorithms.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief Anderson's method (type II): the new estimate is the combination
++   * of the images `g_k` of the last iterates by the fixed point map,
++   * `g_i - Σ γ_k Δg_k`, whose coefficients minimize the norm of the
++   * combination of the fixed point residuals `f_k = g_k - x_k`,
++   * `|| f_i - Σ γ_k Δf_k ||`, `Δ` being the differences between successive
++   * iterations. The least squares problem is solved by its normal
++   * equations, whose matrix (scalar products of the `Δf_k`) is updated
++   * incrementally: two scalar products per stored iteration and per
++   * iteration.
++   */
++  struct AndersonAccelerationAlgorithm final : AccelerationAlgorithm {
++    /*!
++     * \param[in] d: maximum number of differences used
++     * \param[in] r: relative regularization of the normal equations
++     */
++    AndersonAccelerationAlgorithm(const size_type d, const real r)
++        : depth(d), regularization(r), gram(static_cast<int>(d)) {
++      this->df.resize(d);
++      this->dg.resize(d);
++    }
++    void initialize(const size_type n, ScalarProduct p) override {
++      this->dot = std::move(p);
++      this->count = 0;
++      this->next = 0;
++      this->has_previous_iterate = false;
++      for (auto* const v : {&(this->f_previous), &(this->g_previous)}) {
++        v->UseDevice(true);
++        v->SetSize(static_cast<int>(n));
++      }
++      for (size_type k = 0; k != this->depth; ++k) {
++        for (auto* const v : {&(this->df[k]), &(this->dg[k])}) {
++          v->UseDevice(true);
++          v->SetSize(static_cast<int>(n));
++        }
++      }
++    }
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const size_type) override {
++      // `x` is the image of the previous iterate and `dx` the fixed point
++      // residual
++      if (this->has_previous_iterate) {
++        // the new differences overwrite the oldest ones when the history is
++        // full
++        const auto k = this->next;
++        subtract(dx, this->f_previous, this->df[k]);
++        subtract(x, this->g_previous, this->dg[k]);
++        this->next = (this->next + 1) % this->depth;
++        this->count = std::min(this->count + 1, this->depth);
++        for (size_type l = 0; l != this->count; ++l) {
++          const auto s = this->slot(l);
++          const auto v = this->dot(this->df[k], this->df[s]);
++          this->gram(static_cast<int>(k), static_cast<int>(s)) = v;
++          this->gram(static_cast<int>(s), static_cast<int>(k)) = v;
++        }
++      }
++      this->f_previous = dx;
++      this->g_previous = x;
++      this->has_previous_iterate = true;
++      if (this->count == 0) {
++        return;
++      }
++      const auto m = static_cast<int>(this->count);
++      auto A = mfem::DenseMatrix(m, m);
++      auto b = mfem::Vector(m);
++      auto dmax = real{0};
++      for (int i = 0; i != m; ++i) {
++        const auto si = static_cast<int>(this->slot(i));
++        for (int j = 0; j != m; ++j) {
++          A(i, j) = this->gram(si, static_cast<int>(this->slot(j)));
++        }
++        b(i) = this->dot(this->df[si], dx);
++        dmax = std::max(dmax, A(i, i));
++      }
++      if (dmax <= 0) {
++        return;
++      }
++      for (int i = 0; i != m; ++i) {
++        A(i, i) += this->regularization * dmax;
++      }
++      auto gamma = mfem::Vector(m);
++      auto inverse = mfem::DenseMatrixInverse(A);
++      inverse.Mult(b, gamma);
++      for (int i = 0; i != m; ++i) {
++        x.Add(-gamma(i), this->dg[this->slot(i)]);
++      }
++    }
++
++   private:
++    //! \return the slot of the `l`-th stored difference, the oldest first
++    [[nodiscard]] size_type slot(const size_type l) const noexcept {
++      return (this->next + this->depth - this->count + l) % this->depth;
++    }
++    //! \brief maximum number of differences used
++    const size_type depth;
++    //! \brief relative regularization of the normal equations
++    const real regularization;
++    //! \brief scalar products of the differences of the fixed point residuals
++    mfem::DenseMatrix gram;
++    //! \brief differences of the fixed point residuals
++    std::vector<mfem::Vector> df;
++    //! \brief differences of the images of the iterates
++    std::vector<mfem::Vector> dg;
++    //! \brief previous fixed point residual
++    mfem::Vector f_previous;
++    //! \brief previous image
++    mfem::Vector g_previous;
++    //! \brief scalar product
++    ScalarProduct dot;
++    //! \brief number of stored differences
++    size_type count = 0;
++    //! \brief slot of the next difference
++    size_type next = 0;
++    //! \brief if true, `f_previous` and `g_previous` are set
++    bool has_previous_iterate = false;
++  };  // end of struct AndersonAccelerationAlgorithm
++
++  std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
++      Context& ctx, const Parameters& opts) noexcept {
++    if (!checkParameters(ctx, opts,
++                         std::vector<std::string>{"Depth", "Regularization"})) {
++      return {};
++    }
++    const auto odepth = get_if<int>(ctx, opts, "Depth", 4);
++    const auto oregularization =
++        get_if<double>(ctx, opts, "Regularization", 1e-12);
++    if (isInvalid(odepth) || isInvalid(oregularization)) {
++      return {};
++    }
++    if (*odepth <= 0) {
++      return ctx.registerErrorMessage(
++          "Anderson: the depth must be strictly positive");
++    }
++    if (*oregularization < 0) {
++      return ctx.registerErrorMessage(
++          "Anderson: the regularization must be positive");
++    }
++    return std::make_unique<AndersonAccelerationAlgorithm>(
++        static_cast<size_type>(*odepth), *oregularization);
++  }  // end of makeAndersonAccelerationAlgorithm
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 2ea84d8f3a..ccbcc533d1 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -55,6 +55,10 @@ list(APPEND MFEMMGIS_SOURCES
+   NonLinearSolverBase.cxx
+   NonLinearSolverFactory.cxx
+   NewtonSolver.cxx
++  AccelerationAlgorithm.cxx
++  AndersonAccelerationAlgorithm.cxx
++  Cast3MAccelerationAlgorithm.cxx
++  FixedPointSolver.cxx
+   AnalyticalTests.cxx
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+diff --git a/src/Cast3MAccelerationAlgorithm.cxx b/src/Cast3MAccelerationAlgorithm.cxx
+new file mode 100644
+index 0000000000..298f384498
+--- /dev/null
++++ b/src/Cast3MAccelerationAlgorithm.cxx
+@@ -0,0 +1,125 @@
++/*!
++ * \file   src/Cast3MAccelerationAlgorithm.cxx
++ * \brief  This file implements the acceleration of the fixed point
++ * iterations of Cast3M
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <limits>
++#include <utility>
++#include <string>
++#include <vector>
++#include "MFEMMGIS/Parameters.hxx"
++#include "AccelerationAlgorithms.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief acceleration of Cast3M, as `mtest::CastemAccelerationAlgorithm`:
++   * every `period` iterations from the `trigger`-th one, the new estimate is
++   * the combination of the last three estimates whose combination of the
++   * associated residuals has the smallest norm (or of the last two estimates
++   * if the last residuals are almost colinear)
++   */
++  struct Cast3MAccelerationAlgorithm final : AccelerationAlgorithm {
++    /*!
++     * \param[in] t: first accelerated iteration
++     * \param[in] p: number of iterations between two accelerations
++     */
++    Cast3MAccelerationAlgorithm(const size_type t, const size_type p)
++        : trigger(t), period(p) {}
++    void initialize(const size_type n, ScalarProduct p) override {
++      this->dot = std::move(p);
++      for (auto* const v : {&(this->u0), &(this->u1), &(this->u2), &(this->r0),
++                            &(this->r1), &(this->r2), &(this->n0), &(this->n1),
++                            &(this->tmp0), &(this->tmp1)}) {
++        v->UseDevice(true);
++        v->SetSize(static_cast<int>(n));
++        *v = real{0};
++      }
++    }
++    void execute(mfem::Vector& x,
++                 const mfem::Vector&,
++                 const mfem::Vector& r,
++                 const real r_eps,
++                 const size_type i) override {
++      const auto eps = 100 * r_eps * std::numeric_limits<real>::epsilon();
++      std::swap(this->u0, this->u1);
++      std::swap(this->u1, this->u2);
++      std::swap(this->r0, this->r1);
++      std::swap(this->r1, this->r2);
++      this->u2 = x;
++      this->r2 = r;
++      if ((i < this->trigger) || ((i - this->trigger) % this->period != 0)) {
++        return;
++      }
++      subtract(this->r1, this->r0, this->tmp0);
++      subtract(this->r2, this->r0, this->tmp1);
++      const auto nr0 = std::sqrt(this->dot(this->tmp0, this->tmp0));
++      if (nr0 <= eps) {
++        return;
++      }
++      this->n0 = this->tmp0;
++      this->n0 /= nr0;
++      const auto ntmp1 = this->dot(this->tmp1, this->n0);
++      this->tmp1.Add(-ntmp1, this->n0);
++      const auto nr1 = std::sqrt(this->dot(this->tmp1, this->tmp1));
++      if (nr1 > std::abs(ntmp1) / 10) {
++        this->n1 = this->tmp1;
++        this->n1 /= nr1;
++        const auto p0 = -this->dot(this->r0, this->n0);
++        const auto p1 = -this->dot(this->r0, this->n1);
++        // the combination (1 - c1 - c2) r0 + c1 r1 + c2 r2 is the projection
++        // of the null vector on the plane of the residuals: the same
++        // combination is applied to the estimates
++        const auto c2 = p1 / nr1;
++        const auto c1 = (p0 - ntmp1 * c2) / nr0;
++        add(1 - c2 - c1, this->u0, c1, this->u1, x);
++        x.Add(c2, this->u2);
++      } else {
++        // the last residuals are almost colinear
++        const auto c0 = -this->dot(this->r0, this->n0) / nr0;
++        add(1 - c0, this->u0, c0, this->u1, x);
++      }
++    }
++
++   private:
++    //! \brief first accelerated iteration
++    const size_type trigger;
++    //! \brief number of iterations between two accelerations
++    const size_type period;
++    //! \brief scalar product
++    ScalarProduct dot;
++    //! \brief last three estimates
++    mfem::Vector u0, u1, u2;
++    //! \brief residuals associated with the last three estimates
++    mfem::Vector r0, r1, r2;
++    //! \brief workspace
++    mfem::Vector n0, n1, tmp0, tmp1;
++  };  // end of struct Cast3MAccelerationAlgorithm
++
++  std::unique_ptr<AccelerationAlgorithm> makeCast3MAccelerationAlgorithm(
++      Context& ctx, const Parameters& opts) noexcept {
++    if (!checkParameters(ctx, opts,
++                         std::vector<std::string>{"Trigger", "Period"})) {
++      return {};
++    }
++    const auto otrigger = get_if<int>(ctx, opts, "Trigger", 4);
++    const auto operiod = get_if<int>(ctx, opts, "Period", 2);
++    if (isInvalid(otrigger) || isInvalid(operiod)) {
++      return {};
++    }
++    if (*otrigger < 3) {
++      return ctx.registerErrorMessage(
++          "Cast3M: the trigger must be greater than or equal to 3");
++    }
++    if (*operiod <= 0) {
++      return ctx.registerErrorMessage(
++          "Cast3M: the period must be strictly positive");
++    }
++    return std::make_unique<Cast3MAccelerationAlgorithm>(
++        static_cast<size_type>(*otrigger), static_cast<size_type>(*operiod));
++  }  // end of makeCast3MAccelerationAlgorithm
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+new file mode 100644
+index 0000000000..3bf93a00fb
+--- /dev/null
++++ b/src/FixedPointSolver.cxx
+@@ -0,0 +1,416 @@
++/*!
++ * \file   src/FixedPointSolver.cxx
++ * \brief  This file implements the `FixedPointSolver` class
++ * \date   10/10/2026
++ */
++
++#include <limits>
++#include <string>
++#include <vector>
++#include <iomanip>
++#include <utility>
++#include <optional>
++#include <algorithm>
++#include "mfem/linalg/sparsemat.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/linalg/hypre.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MGIS/Raise.hxx"
++#include "MGIS/Profiling.hxx"
++#include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \return a copy of an assembled operator, or of the assembled version of
++   * an operator applied without assembly (see `AssembledOperatorProvider`)
++   * \param[in] op: operator
++   */
++  [[nodiscard]] static std::unique_ptr<mfem::Operator> copyAssembledOperator(
++      const mfem::Operator& op) {
++    const auto* a = &op;
++    if (const auto* const p = dynamic_cast<const AssembledOperatorProvider*>(a);
++        p != nullptr) {
++      a = &(p->getAssembledOperator());
++    }
++    if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(a);
++        m != nullptr) {
++      return std::make_unique<mfem::SparseMatrix>(*m);
++    }
++#ifdef MFEM_USE_MPI
++    if (const auto* const m = dynamic_cast<const mfem::HypreParMatrix*>(a);
++        m != nullptr) {
++      return std::make_unique<mfem::HypreParMatrix>(*m);
++    }
++#endif /* MFEM_USE_MPI */
++    raise(
++        "FixedPointSolver: the elastic operator is neither a sparse matrix "
++        "nor a parallel matrix of hypre");
++  }  // end of copyAssembledOperator
++
++  /*!
++   * \return the name and the options of an object built by a factory, given
++   * by its name or by a dictionary with a unique entry associating its name
++   * with its options (see `extractFactoryArgument`)
++   * \param[in, out] ctx: execution context
++   * \param[in] params: parameters
++   * \param[in] n: name of the parameter
++   */
++  [[nodiscard]] static std::optional<std::pair<std::string, Parameters>>
++  getFactoryArgument(Context& ctx,
++                     const Parameters& params,
++                     const char* const n) noexcept {
++    const auto op = params.get(ctx, n);
++    if (isInvalid(op)) {
++      return {};
++    }
++    if (is<std::string>(*op)) {
++      const auto oname = get<std::string>(ctx, *op);
++      if (isInvalid(oname)) {
++        return {};
++      }
++      return std::pair<std::string, Parameters>{*oname, Parameters{}};
++    }
++    if (is<Parameters>(*op)) {
++      const auto oparams = get<Parameters>(ctx, *op);
++      if (isInvalid(oparams)) {
++        return {};
++      }
++      return extractFactoryArgument(ctx, *oparams);
++    }
++    return ctx.registerErrorMessage(
++        "FixedPointSolver: the option '" + std::string{n} +
++        "' must be a name or a dictionary associating a name with options");
++  }  // end of getFactoryArgument
++
++  /*!
++   * \brief builds the functions of the fixed point solver which depend on
++   * the type of the problem
++   * \param[out] integrate: integration of the behaviours
++   * \param[out] generate: generator of linear solvers
++   * \param[in] p: non linear evolution problem
++   */
++  template <bool parallel>
++  static void initializeFixedPointSolverFunctions(
++      std::function<bool(const mfem::Vector&, const IntegrationType)>&
++          integrate,
++      std::function<LinearSolverHandler(
++          Context&, std::string_view, const Parameters&)>& generate,
++      NonLinearEvolutionProblemImplementation<parallel>& p) {
++    integrate = [&p](const mfem::Vector& u, const IntegrationType it) {
++      return p.integrate(u, it, {});
++    };
++    generate = [&p](Context& ctx, std::string_view n,
++                    const Parameters& opts) -> LinearSolverHandler {
++      auto& fespace = p.getFiniteElementDiscretization()
++                          .template getFiniteElementSpace<parallel>();
++      return LinearSolverFactory<parallel>::getFactory().generate(
++          ctx, n, fespace, opts);
++    };
++  }  // end of initializeFixedPointSolverFunctions
++
++#ifdef MFEM_USE_MPI
++
++  FixedPointSolver::FixedPointSolver(
++      NonLinearEvolutionProblemImplementation<true>& p)
++      : NonLinearSolverBase(p) {
++    // the behaviours are integrated by this class, with the required
++    // integration type
++    this->nue_actions.clear();
++    initializeFixedPointSolverFunctions(this->integrate_behaviours,
++                                        this->generate_linear_solver, p);
++  }  // end of FixedPointSolver
++
++#endif /* MFEM_USE_MPI */
++
++  FixedPointSolver::FixedPointSolver(
++      NonLinearEvolutionProblemImplementation<false>& p)
++      : NonLinearSolverBase(p) {
++    this->nue_actions.clear();
++    initializeFixedPointSolverFunctions(this->integrate_behaviours,
++                                        this->generate_linear_solver, p);
++  }  // end of FixedPointSolver
++
++  bool FixedPointSolver::setSolverParameters(
++      Context& ctx, const Parameters& params) noexcept {
++    const auto options = std::vector<std::string>{
++        "Method", "ElasticOperatorComputation", "ElasticOperatorUpdate",
++        "ElasticOperatorLinearSolver", "Acceleration"};
++    auto others = Parameters{};
++    for (const auto& [k, v] : params) {
++      if (std::find(options.begin(), options.end(), k) == options.end()) {
++        if (!others.insert(ctx, k, v)) {
++          return false;
++        }
++      }
++    }
++    // reads a value among the allowed ones
++    auto read = [&ctx, &params](const char* const n,
++                                const std::vector<std::string>& values)
++        -> std::optional<std::string> {
++      const auto ov = get<std::string>(ctx, params, n);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      if (std::find(values.begin(), values.end(), *ov) == values.end()) {
++        auto msg = "FixedPointSolver: invalid value '" + *ov +
++                   "' for option '" + std::string{n} + "' (expected";
++        for (const auto& value : values) {
++          msg += " '" + value + "'";
++        }
++        return ctx.registerErrorMessage(msg + ")");
++      }
++      return *ov;
++    };
++    if (contains(params, "Method")) {
++      const auto om = read("Method", {"ElasticOperator", "ModifiedNewton"});
++      if (isInvalid(om)) {
++        return false;
++      }
++      this->method = (*om == "ElasticOperator") ? Method::ELASTIC_OPERATOR
++                                                : Method::MODIFIED_NEWTON;
++    }
++    if (contains(params, "ElasticOperatorComputation")) {
++      const auto oc =
++          read("ElasticOperatorComputation", {"Prediction", "Integration"});
++      if (isInvalid(oc)) {
++        return false;
++      }
++      this->elastic_operator_by_integration = *oc == "Integration";
++    }
++    if (contains(params, "ElasticOperatorUpdate")) {
++      const auto ou = read("ElasticOperatorUpdate", {"EachResolution", "Once"});
++      if (isInvalid(ou)) {
++        return false;
++      }
++      this->elastic_operator_assembled_once = *ou == "Once";
++    }
++    if (contains(params, "ElasticOperatorLinearSolver")) {
++      const auto oa =
++          getFactoryArgument(ctx, params, "ElasticOperatorLinearSolver");
++      if (isInvalid(oa)) {
++        return false;
++      }
++      try {
++        auto s = this->generate_linear_solver(ctx, oa->first, oa->second);
++        if (isInvalid(s)) {
++          return false;
++        }
++        s.linear_solver->iterative_mode = false;
++        this->elastic_operator_linear_solver = std::move(s);
++        this->elastic_operator.reset();
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
++    }
++    if (contains(params, "Acceleration")) {
++      const auto oa = getFactoryArgument(ctx, params, "Acceleration");
++      if (isInvalid(oa)) {
++        return false;
++      }
++      auto a = AccelerationAlgorithmFactory::get().generate(ctx, oa->first,
++                                                            oa->second);
++      if (a == nullptr) {
++        return false;
++      }
++      this->acceleration = std::move(a);
++    }
++    return NonLinearSolverBase::setSolverParameters(ctx, others);
++  }  // end of setSolverParameters
++
++  bool FixedPointSolver::integrate(const mfem::Vector& u,
++                                   const IntegrationType it) const {
++    auto profiler =
++        this->ctx_ptr != nullptr
++            ? this->ctx_ptr->startNewProfiling(
++                  "FPS::integrate", this->ctx_ptr->isProfilingEnabled())
++            : mgis::ProfilingSection{};
++    if (!this->integrate_behaviours(u, it)) {
++      return false;
++    }
++    return this->processNewUnknownsEstimate(u);
++  }  // end of integrate
++
++  bool FixedPointSolver::setElasticOperator(const mfem::Vector& u) const {
++    if ((this->elastic_operator == nullptr) ||
++        (!this->elastic_operator_assembled_once)) {
++      const auto it = this->elastic_operator_by_integration
++                          ? IntegrationType::INTEGRATION_ELASTIC_OPERATOR
++                          : IntegrationType::PREDICTION_ELASTIC_OPERATOR;
++      if (!this->integrate(u, it)) {
++        return false;
++      }
++      // the operator given by the problem is modified by the next
++      // assemblies: it is copied
++      this->elastic_operator = copyAssembledOperator(this->getJacobian(u));
++      if (this->elastic_operator_linear_solver.linear_solver != nullptr) {
++        auto profiler = this->ctx_ptr != nullptr
++                            ? this->ctx_ptr->startNewProfiling(
++                                  "NS::setLinearSolverOperator",
++                                  this->ctx_ptr->isProfilingEnabled())
++                            : mgis::ProfilingSection{};
++        this->elastic_operator_linear_solver.linear_solver->SetOperator(
++            *(this->elastic_operator));
++      }
++    }
++    if (this->elastic_operator_linear_solver.linear_solver == nullptr) {
++      // the prediction of the problem gives its own operator to its linear
++      // solver
++      auto profiler = this->ctx_ptr != nullptr
++                          ? this->ctx_ptr->startNewProfiling(
++                                "NS::setLinearSolverOperator",
++                                this->ctx_ptr->isProfilingEnabled())
++                          : mgis::ProfilingSection{};
++      this->prec->SetOperator(*(this->elastic_operator));
++    }
++    return true;
++  }  // end of setElasticOperator
++
++  mfem::Solver& FixedPointSolver::getCorrectionSolver() const {
++    if ((this->method == Method::ELASTIC_OPERATOR) &&
++        (this->elastic_operator_linear_solver.linear_solver != nullptr)) {
++      return *(this->elastic_operator_linear_solver.linear_solver);
++    }
++    return *(this->prec);
++  }  // end of getCorrectionSolver
++
++  void FixedPointSolver::Mult(const mfem::Vector&, mfem::Vector& x) const {
++    auto profiler = this->ctx_ptr != nullptr
++                        ? this->ctx_ptr->startNewProfiling(
++                              "FPS::Mult", this->ctx_ptr->isProfilingEnabled())
++                        : mgis::ProfilingSection{};
++    MFEM_ASSERT(this->oper != nullptr,
++                "the Operator is not set (use SetOperator).");
++    MFEM_ASSERT(this->prec != nullptr,
++                "the Solver is not set (use setLinearSolver).");
++    this->iterations_information.clear();
++    this->converged = false;
++    this->final_iter = 0;
++    this->final_norm = std::numeric_limits<real>::max();
++    auto& log = this->getLogStream();
++    const auto shall_print = this->shallPrint();
++    // operator of the corrections and first integration
++    if (this->method == Method::ELASTIC_OPERATOR) {
++      if ((!this->setElasticOperator(x)) ||
++          (!this->integrate(
++              x, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR))) {
++        return;
++      }
++    } else {
++      if (!this->integrate(
++              x, IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR)) {
++        return;
++      }
++      auto profiler_setup = this->ctx_ptr != nullptr
++                                ? this->ctx_ptr->startNewProfiling(
++                                      "NS::setLinearSolverOperator",
++                                      this->ctx_ptr->isProfilingEnabled())
++                                : mgis::ProfilingSection{};
++      this->prec->SetOperator(this->getJacobian(x));
++    }
++    auto& solver = this->getCorrectionSolver();
++    const auto n = x.Size();
++    auto r = mfem::Vector(n);
++    auto c = mfem::Vector(n);
++    auto xn = mfem::Vector(n);
++    auto dx = mfem::Vector(n);
++    for (auto* const v : {&r, &c, &xn, &dx}) {
++      v->UseDevice(true);
++    }
++    auto update_residual = [this, &r](const mfem::Vector& u) {
++      this->computeResidual(r, u);
++      return this->Norm(r);
++    };
++    auto norm = update_residual(x);
++    if (!this->reference_residual_norm.has_value()) {
++      this->reference_residual_norm = norm;
++    }
++    this->initial_norm = *(this->reference_residual_norm);
++    const auto goal = std::max(
++        this->rel_tol * (*(this->reference_residual_norm)), this->abs_tol);
++    if (this->acceleration != nullptr) {
++      this->acceleration->initialize(
++          static_cast<size_type>(n),
++          [this](const mfem::Vector& a, const mfem::Vector& b) {
++            return this->Dot(a, b);
++          });
++    }
++    auto it = size_type{};
++    while (true) {
++      if (shall_print) {
++        log << "Fixed point iteration " << std::setw(2) << it
++            << " : ||r|| = " << norm
++            << ", ||r||/||r_0|| = " << norm / (*(this->reference_residual_norm))
++            << '\n';
++      }
++      this->Monitor(static_cast<int>(it), norm, r, x);
++      if (norm <= goal) {
++        this->converged = true;
++        break;
++      }
++      if (it >= static_cast<size_type>(this->max_iter)) {
++        break;
++      }
++      // correction
++      {
++        auto profiler_solve =
++            this->ctx_ptr != nullptr
++                ? this->ctx_ptr->startNewProfiling(
++                      "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
++                : mgis::ProfilingSection{};
++        c = real{0};
++        solver.Mult(r, c);
++        clearHypreErrors();
++      }
++      if ((!this->discardLinearSolverFailure) && (!hasConverged(solver))) {
++        break;
++      }
++      subtract(x, c, xn);
++      if (this->acceleration != nullptr) {
++        auto profiler_acceleration =
++            this->ctx_ptr != nullptr
++                ? this->ctx_ptr->startNewProfiling(
++                      "FPS::accelerate", this->ctx_ptr->isProfilingEnabled())
++                : mgis::ProfilingSection{};
++        subtract(xn, x, dx);
++        this->acceleration->execute(xn, dx, r, goal, it + 1);
++      }
++      // integration at the new estimate: on failure, the estimate is moved
++      // towards the previous one
++      auto integrated =
++          this->integrate(xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
++      for (int i = 0; (!integrated) && (i != 10); ++i) {
++        if (shall_print) {
++          log << "Fixed point iteration " << std::setw(2) << it
++              << ": integration failure, the estimate is moved towards the "
++                 "previous one\n";
++        }
++        xn += x;
++        xn *= real{1} / 2;
++        integrated = this->integrate(
++            xn, IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
++      }
++      if (!integrated) {
++        break;
++      }
++      x = xn;
++      norm = update_residual(x);
++      auto iteration = Parameters{};
++      iteration.replaceOrInsert("Norm", norm);
++      this->iterations_information.push_back(iteration);
++      ++it;
++    }
++    this->final_iter = static_cast<int>(it);
++    this->final_norm = norm;
++  }  // end of Mult
++
++  FixedPointSolver::~FixedPointSolver() noexcept = default;
++
++}  // end of namespace mfem_mgis
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index d502561eb0..a0f8d9ab99 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -529,6 +529,25 @@ namespace mfem_mgis {
+ 
+ #ifdef MFEM_USE_MPI
+ 
++  /*!
++   * \return a generator of a linear solver applying one cycle of BoomerAMG,
++   * an approximate solver used for instance by the fixed point iterations on
++   * the elastic operator (see `FixedPointSolver`). The options are the ones
++   * of the `HypreBoomerAMG` preconditioner.
++   */
++  [[nodiscard]] static LinearSolverFactory<true>::Generator
++  buildHypreBoomerAMGSolverGenerator() {
++    return [](Context& ctx, FiniteElementSpace<true>& fespace,
++              const Parameters& params) -> LinearSolverHandler {
++      auto amg = setHypreBoomerAMGPreconditioner(ctx, fespace, params);
++      if (amg == nullptr) {
++        return {};
++      }
++      return LinearSolverHandler{std::move(amg),
++                                 std::unique_ptr<LinearSolverPreconditioner>{}};
++    };
++  }  // end of buildHypreBoomerAMGSolverGenerator
++
+   [[nodiscard]] static std::function<LinearSolverHandler(
+       Context&, FiniteElementSpace<true>&, const Parameters&)>
+   buildHyprePCGSolverGenerator() {
+@@ -877,6 +896,7 @@ namespace mfem_mgis {
+       check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
+ #endif
+       check(f.add(ctx, "HyprePCG", buildHyprePCGSolverGenerator()));
++      check(f.add(ctx, "HypreBoomerAMG", buildHypreBoomerAMGSolverGenerator()));
+       check(f.add(ctx, "HypreGMRES", buildHypreGMRESSolverGenerator()));
+       check(f.add(ctx, "HypreFGMRES", buildHypreFGMRESSolverGenerator()));
+     }
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index b561ba948e..061f98c6d9 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -64,35 +64,8 @@ namespace mfem_mgis {
+       }
+       this->iterations_information.push_back(iteration);
+     };
+-    // log stream
+-    auto &log = [this]() -> std::ostream & {
+-      if (this->ctx_ptr == nullptr) {
+-        return getDefaultLogStream();
+-      }
+-      return this->ctx_ptr->log();
+-    }();
+-    // boolean stating if messages shall be displayed
+-    auto shall_print = [this]() -> bool {
+-      if (this->print_level >= 0) {
+-#ifdef MFEM_USE_MPI
+-        // We must check that a communicator has been set.
+-        // This is not the case in sequential computations
+-        if (this->GetComm() != MPI_COMM_NULL) {
+-          int rank = 0;
+-          MPI_Comm_rank(this->GetComm(), &rank);
+-          return rank == 0;
+-        }
+-        return true;
+-#else  /* MFEM_USE_MPI */
+-        return true;
+-#endif /* MFEM_USE_MPI */
+-      }
+-      if (this->ctx_ptr != nullptr) {
+-        return this->ctx_ptr->getVerbosityLevel() >=
+-               VerbosityLevel::verboseLevel3;
+-      }
+-      return false;
+-    }();
++    auto &log = this->getLogStream();
++    const auto shall_print = this->shallPrint();
+ 
+     mfem::Vector r;  // residual vector
+     mfem::Vector c;  // opposite of the Newton's correction
+diff --git a/src/NonLinearSolverBase.cxx b/src/NonLinearSolverBase.cxx
+index 48d77fd8ca..24fbbcd29a 100644
+--- a/src/NonLinearSolverBase.cxx
++++ b/src/NonLinearSolverBase.cxx
+@@ -178,6 +178,34 @@ namespace mfem_mgis {
+     return true;
+   }  // end of processNewUnknownsEstimate
+ 
++  bool NonLinearSolverBase::shallPrint() const noexcept {
++    if (this->print_level >= 0) {
++#ifdef MFEM_USE_MPI
++      // a communicator is not set in sequential computations
++      if (this->GetComm() != MPI_COMM_NULL) {
++        int rank = 0;
++        MPI_Comm_rank(this->GetComm(), &rank);
++        return rank == 0;
++      }
++      return true;
++#else  /* MFEM_USE_MPI */
++      return true;
++#endif /* MFEM_USE_MPI */
++    }
++    if (this->ctx_ptr != nullptr) {
++      return this->ctx_ptr->getVerbosityLevel() >=
++             VerbosityLevel::verboseLevel3;
++    }
++    return false;
++  }  // end of shallPrint
++
++  std::ostream &NonLinearSolverBase::getLogStream() const noexcept {
++    if (this->ctx_ptr == nullptr) {
++      return getDefaultLogStream();
++    }
++    return this->ctx_ptr->log();
++  }  // end of getLogStream
++
+   NonLinearSolverBase::~NonLinearSolverBase() = default;
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/NonLinearSolverFactory.cxx b/src/NonLinearSolverFactory.cxx
+index 3c88090d56..ad6b73d56b 100644
+--- a/src/NonLinearSolverFactory.cxx
++++ b/src/NonLinearSolverFactory.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
++#include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,6 +25,10 @@ namespace mfem_mgis {
+     auto g = make_unique<StandardNonLinearSolverGenerator<NewtonSolver>>(ctx) |
+              or_die;
+     this->add(ctx, "Newton", std::move(g)) | or_die;
++    auto g2 =
++        make_unique<StandardNonLinearSolverGenerator<FixedPointSolver>>(ctx) |
++        or_die;
++    this->add(ctx, "FixedPoint", std::move(g2)) | or_die;
+   }  // end of NonLinearSolverFactory
+ 
+   bool NonLinearSolverFactory::add(
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 9c745d057d..cbcabff3fb 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -850,6 +850,23 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endif()
+ 
++  # FixedPointSolverTest executable: fixed point solver (methods,
++  # accelerations, linear solvers of the elastic operator) compared to the
++  # Newton solver
++  add_test_executable(FixedPointSolverTest)
++  add_test(NAME FixedPointSolverTest
++           COMMAND FixedPointSolverTest
++                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                   --library $<TARGET_FILE:BehaviourTest>)
++  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++    add_test(NAME FixedPointSolverTestP
++             COMMAND mpirun -n 2 ./FixedPointSolverTest --parallel
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(FixedPointSolverTestP
++                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++
+   # MaterialArraysTest executable: arrays of the materials in the memory of
+   # MFEM, on the host, on the debug device of MFEM and on the GPU
+   if(NOT MFEM_USE_HIP STREQUAL "YES")
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+new file mode 100644
+index 0000000000..4d5cd30c03
+--- /dev/null
++++ b/tests/FixedPointSolverTest.cxx
+@@ -0,0 +1,289 @@
++/*!
++ * \file   FixedPointSolverTest.cxx
++ * \brief  Test of the fixed point solver (`FixedPoint` non linear solver):
++ * uniaxial tension of a cube made of a plastic material with a linear
++ * hardening, in two time steps. Each method (fixed point on the elastic
++ * operator, modified Newton) and each acceleration gives the solution of the
++ * Newton solver; the accelerations reduce the number of iterations; without
++ * acceleration, the asymptotic rate of convergence of the fixed point on the
++ * elastic operator is bounded by `3μ / (3μ + H)`; the invalid options are
++ * refused. With the `--parallel` option, the elastic operator is also
++ * solved by one cycle of BoomerAMG per iteration, or by the conjugate
++ * gradient of hypre preconditioned by BoomerAMG.
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <cstdlib>
++#include <string>
++#include <vector>
++#include <iostream>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief results of a computation
++struct Results {
++  //! \brief status
++  bool status = false;
++  //! \brief unknowns at the end of the computation
++  std::vector<mfem_mgis::real> u;
++  //! \brief total number of iterations
++  mfem_mgis::size_type iterations = 0;
++  //! \brief norms of the residual during the last time step
++  std::vector<mfem_mgis::real> norms;
++};
++
++/*!
++ * \return the results of the computation
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: value of the `NonLinearSolver` parameter, the Newton
++ * solver being used if empty
++ */
++static Results compute(mfem_mgis::Context& ctx,
++                       const char* const mesh,
++                       const char* const library,
++                       const mfem_mgis::Parameters& solver) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto params = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"Parallel", parallel}};
++  if (!solver.empty()) {
++    params.insert(throwing, {{"NonLinearSolver", solver}});
++  }
++  auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* s : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Xmax"},
++            {"Component", 0},
++            {"LoadingEvolution", [](const real t) { return 1e-2 * t; }}}) |
++      or_die;
++  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
++      or_die;
++  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                    {"RelativeTolerance", 1e-12},
++                                    {"AbsoluteTolerance", 0.},
++                                    {"MaximumNumberOfIterations", 1000}}) |
++      or_die;
++  auto r = Results{};
++  constexpr int nsteps = 2;
++  const auto dt = real{1} / nsteps;
++  auto t = real{0};
++  for (int i = 0; i != nsteps; ++i) {
++    auto c = Context{};
++    const auto o = problem.solve(c, t, dt);
++    if (!o.status) {
++      std::cerr << c.getErrorMessage() << '\n';
++      return r;
++    }
++    r.iterations += o.iterations;
++    r.norms.clear();
++    for (const auto& information : o.iterations_information) {
++      const auto& p = get<Parameters>(throwing, information);
++      if (contains(p, "Norm")) {
++        r.norms.push_back(get<double>(throwing, p, "Norm"));
++      }
++    }
++    problem.update(ctx) | or_die;
++    t += dt;
++  }
++  const auto& u = problem.getUnknowns(ets);
++  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
++  r.status = true;
++  return r;
++}  // end of compute
++
++/*!
++ * \return the maximum difference between two arrays, relative to the
++ * maximum absolute value of the first one
++ */
++static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
++                                    const std::vector<mfem_mgis::real>& b) {
++  if ((a.size() != b.size()) || a.empty()) {
++    return 1;
++  }
++  auto d = 0.;
++  auto m = 0.;
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    d = std::max(d, std::abs(a[i] - b[i]));
++    m = std::max(m, std::abs(a[i]));
++  }
++  return m == 0 ? d : d / m;
++}  // end of getRelativeDifference
++
++//! \return the parameters of the fixed point solver
++static mfem_mgis::Parameters makeFixedPointSolver(
++    const mfem_mgis::Parameters& options) {
++  return mfem_mgis::Parameters{{"FixedPoint", options}};
++}  // end of makeFixedPointSolver
++
++/*!
++ * \brief an invalid option of the fixed point solver is refused
++ * \param[in] mesh: mesh
++ * \param[in] options: options of the fixed point solver
++ * \param[in] name: name of the check
++ */
++static void checkRefusal(const char* const mesh,
++                         const mfem_mgis::Parameters& options,
++                         const std::string& name) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto o = construct<NonLinearEvolutionProblem>(
++      ctx, Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"Hypothesis", "Tridimensional"},
++                      {"NonLinearSolver", makeFixedPointSolver(options)},
++                      {"Parallel", parallel}});
++  check(isInvalid(o), name + " is accepted");
++}  // end of checkRefusal
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  auto ctx = Context{};
++  const auto reference = compute(ctx, mesh, library, Parameters{});
++  check(reference.status, "Newton: resolution failed");
++  std::cout << "Newton: " << reference.iterations << " iterations\n";
++  // fixed point on the elastic operator, solved by the linear solver of the
++  // problem, without acceleration: rate of convergence
++  const auto none = compute(ctx, mesh, library, makeFixedPointSolver({}));
++  {
++    const auto mu = 70e9 / (2 * (1 + 0.34));
++    const auto H = 10e9;
++    const auto bound = 3 * mu / (3 * mu + H);
++    const auto& n = none.norms;
++    const auto rate = (n.size() > 2) ? n[n.size() - 1] / n[n.size() - 2] : 1.;
++    std::cout << "fixed point: " << none.iterations
++              << " iterations, rate of convergence " << rate << " (bound "
++              << bound << ")\n";
++    check(none.status, "fixed point: resolution failed");
++    check((rate > 0.5 * bound) && (rate <= bound * (1 + 1e-3)),
++          "fixed point: rate of convergence");
++  }
++  struct Case {
++    std::string name;
++    Parameters options;
++    // if true, the number of iterations must be lower than without
++    // acceleration
++    bool accelerated;
++  };
++  auto cases = std::vector<Case>{
++      {"fixed point, Anderson",
++       {{"Acceleration", Parameters{{"Anderson", Parameters{{"Depth", 4}}}}}},
++       true},
++      {"fixed point, Cast3M", {{"Acceleration", "Cast3M"}}, true},
++      {"fixed point, Anderson, elastic operator assembled once, own linear "
++       "solver",
++       {{"Acceleration", "Anderson"},
++        {"ElasticOperatorUpdate", "Once"},
++        {"ElasticOperatorLinearSolver",
++         parallel ? "MUMPSSolver" : "UMFPackSolver"}},
++       true},
++      {"fixed point, Anderson, elastic operator by integration",
++       {{"Acceleration", "Anderson"},
++        {"ElasticOperatorComputation", "Integration"}},
++       true},
++      {"modified Newton", {{"Method", "ModifiedNewton"}}, true},
++      {"modified Newton, Anderson",
++       {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
++       true}};
++  if (parallel) {
++    cases.push_back(
++        {"fixed point, Anderson, one cycle of BoomerAMG per iteration",
++         {{"Acceleration", "Anderson"},
++          {"ElasticOperatorUpdate", "Once"},
++          {"ElasticOperatorLinearSolver", "HypreBoomerAMG"}},
++         true});
++    cases.push_back(
++        {"fixed point, Anderson, conjugate gradient and BoomerAMG",
++         {{"Acceleration", "Anderson"},
++          {"ElasticOperatorLinearSolver",
++           Parameters{{"HyprePCG",
++                       Parameters{{"Tolerance", 1e-12},
++                                  {"Preconditioner",
++                                   Parameters{{"Name", "HypreBoomerAMG"}}}}}}}},
++         true});
++  }
++  for (const auto& c : cases) {
++    const auto r = compute(ctx, mesh, library, makeFixedPointSolver(c.options));
++    const auto du = getRelativeDifference(reference.u, r.u);
++    std::cout << c.name << ": " << r.iterations
++              << " iterations, relative difference to Newton " << du << '\n';
++    check(r.status, c.name + ": resolution failed");
++    check(du < 1e-8, c.name + ": solution");
++    if (c.accelerated) {
++      check(r.iterations < none.iterations, c.name + ": number of iterations");
++    }
++  }
++  // invalid options
++  checkRefusal(mesh, {{"Method", "Secant"}}, "an invalid method");
++  checkRefusal(mesh, {{"Acceleration", "Unknown"}}, "an invalid acceleration");
++  checkRefusal(
++      mesh,
++      {{"Acceleration", Parameters{{"Anderson", Parameters{{"Depth", 0}}}}}},
++      "a null depth of Anderson's method");
++  checkRefusal(
++      mesh,
++      {{"Acceleration", Parameters{{"Cast3M", Parameters{{"Trigger", 2}}}}}},
++      "a trigger of the acceleration of Cast3M lower than 3");
++  checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
++               "an invalid update of the elastic operator");
++  checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
++               "an invalid linear solver of the elastic operator");
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

@@ -3278,3 +3278,49 @@ mfem-mgis 1bbcb877d8 (et MGIS 860b693) :
   cas MatrixFree échouent ; sans le `try/catch`, `std::terminate`.
 - Suites : 146/146 (dont 7 sur GPU), noyaux forcés 129/139 (10 refus
   attendus : chaleur, micromorphe), cas 19/19.
+
+### 2026-10-10 (nuit), noyaux des dérivées et action fusionnée
+
+- mfem-mgis a2602d117a : les dérivées des inconnues aux points sont
+  calculées par un noyau propre (gradients des fonctions de forme de
+  `mfem::DofToQuad`) au lieu de `QuadratureInterpolator::Derivatives` de
+  MFEM, dont la version générique pour les simplexes coûtait 890 µs par
+  appel sur la poutre (39 µs maintenant). L'action de la tangente sans
+  matrice est calculée par un seul noyau par matériau, un fil par élément
+  (gradient de l'incrément, produit par K, `Bᵀ`, sans tableau aux points) :
+  128 µs par matériau au lieu de 350 µs. Temps de calcul du GPU de la
+  poutre sans matrice (10 pas) : 2,88 s au lieu de 5,15 s.
+- Le noyau fusionné lit les blocs de K point par point (accès non
+  coalescents, environ 45 % de la bande passante) : le rangement
+  composante par composante (paramètre `QuadratureDataLayout`, prévu en
+  L1) reste à brancher dans les intégrateurs.
+
+### 2026-10-10 (nuit), solveur de point fixe (lot L5)
+
+mfem-mgis f3d8ed1e55 : solveur non linéaire `FixedPoint`, tiré du
+prototype du 04/10 (`mfem-mgis-gpu`) et écrit dans mfem-mgis :
+
+- méthodes `ElasticOperator` (K0 assemblé une fois par résolution ou une
+  fois pour tout le calcul, résolu par le solveur du problème ou par un
+  solveur propre dont la mise en place est gardée) et `ModifiedNewton` ;
+- accélérations dans une fabrique extensible (`AccelerationAlgorithmFactory`)
+  : `Anderson` (type II, matrice des produits scalaires mise à jour au fil
+  des itérations, deux produits scalaires par itération et par différence
+  gardée) et `Cast3M` (comme MTest) ;
+- `HypreBoomerAMG` déclaré aussi comme solveur linéaire (un cycle d'AMG
+  par itération).
+
+Cube en traction (plasticité à écrouissage linéaire), 2 pas : Newton 8
+itérations, point fixe 103 (taux observé 0,642, borne 3μ/(3μ+H) = 0,887),
+Anderson 37, Cast3M 56, Newton modifié 59, un cycle d'AMG + Anderson 46.
+Mêmes solutions que Newton à 1e-12 près, sur CPU, `debug` et `cuda`, à 1
+et 2 processus. Sur le GPU, un cycle de BoomerAMG est bien plus faible (101
+itérations au lieu de 46) : réglages de hypre sur GPU (lisseur l1-Jacobi,
+grossissement PMIS) à exposer.
+
+Relecture indépendante de b129009b0c et 1bbcb877d8 terminée
+(`scratch/nuit-2026-10-10/relecture-1bbcb877d8.md`) : F1 à F6 confirmés
+corrigés ; nouveaux constats C3 (écriture directe après `update` ignorée
+sur le périphérique), C7 (exception sur un seul processus : blocage), C4
+et C5 (matrice du préconditionneur `AssembledOperator`), C9 (tests), C8
+(copie de K). Corrections en cours.

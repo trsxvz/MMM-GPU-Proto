@@ -213,21 +213,21 @@ namespace mfem_mgis {
     /*!
      * \brief add the action of the stiffness matrices of all the elements,
      * computed by kernels from the tangent operator blocks without
-     * assembling them, on the increments of the unknowns given by their
-     * derivatives: `Σ Bᵀ K B dx w det J`, in the layout of the element
-     * restriction of MFEM (see `addInnerForcesByKernels`)
+     * assembling them, on increments of the unknowns given element by
+     * element: `Σ Bᵀ K B x w det J`, in the layout of the element restriction
+     * of MFEM (see `addInnerForcesByKernels`)
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in, out] y: values element by element
-     * \param[in] dx: derivatives of the increments of the unknowns, for each
-     * integration rule
+     * \param[in] x: increments of the unknowns element by element (layout
+     * of the element restriction of MFEM)
      * \param[in] g: geometric data
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addTangentOperatorActionByKernels(
         Context&,
         mfem::Vector&,
-        const batch::UnknownsDerivativesSet&,
+        const mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief add the diagonals of the stiffness matrices of all the elements,

@@ -32,8 +32,8 @@ namespace mfem_mgis::batch {
 
   /*!
    * \brief derivatives of the unknowns at the integration points of all the
-   * elements of the mesh, for one integration rule, computed by the
-   * quadrature interpolator of MFEM (see `computeUnknownsDerivatives`)
+   * elements of the mesh, for one integration rule (see
+   * `computeUnknownsDerivatives`)
    */
   struct MFEM_MGIS_EXPORT UnknownsDerivatives {
     //! \brief integration rule
@@ -46,8 +46,7 @@ namespace mfem_mgis::batch {
      * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
      * on the device if a device is enabled. They are converted to physical
      * derivatives by the kernels with the jacobians of the element
-     * transformations (see `ElementsGeometry`), the physical derivatives of
-     * the quadrature interpolator requiring nodes in the mesh.
+     * transformations (see `ElementsGeometry`).
      */
     mfem::Vector values;
     //! \brief values of the unknowns element by element (workspace)
@@ -132,13 +131,13 @@ namespace mfem_mgis::batch {
    * \brief computes the derivatives of the unknowns at the points of an
    * integration rule, for all the elements of the mesh: element
    * restriction, then derivatives with respect to the reference coordinates
-   * by the quadrature interpolator of MFEM, on the device if a device is
-   * enabled
+   * by a kernel, from the gradients of the shape functions on the reference
+   * element (`mfem::DofToQuad`), on the device if a device is enabled
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[out] d: derivatives
    * \param[in] fes: finite element space. Its elements must have the same
-   * geometry and be supported by the quadrature interpolator of MFEM.
+   * geometry.
    * \param[in] u: unknowns (local vector of the finite element space,
    * after the prolongation for a parallel space)
    * \param[in] ir: integration rule
@@ -166,29 +165,6 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradients(
       Context&,
       Material&,
-      const UnknownsDerivatives&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
-  /*!
-   * \brief computes the increments of the gradients of a material at all its
-   * integration points associated with increments of the unknowns given by
-   * their derivatives, by a kernel: same operator `B` as `computeGradients`,
-   * without the macroscopic gradients (nor the identity of the deformation
-   * gradient), on the device if a device is enabled
-   * \return true on success
-   * \param[in, out] ctx: execution context
-   * \param[out] v: increments of the gradients, stored point by point
-   * (resized)
-   * \param[in] qs: quadrature space of the material. All its elements must
-   * use the integration rule of the derivatives.
-   * \param[in] d: derivatives of the increments of the unknowns
-   * \param[in] g: geometric data of the integration rule of the derivatives
-   * \param[in] k: kind of the gradients
-   */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool computeGradientsIncrements(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
       const UnknownsDerivatives&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;

@@ -96,27 +96,22 @@ namespace mfem_mgis::batch::internals {
       real* const,
       const bool);
   /*!
-   * \brief launches the kernel computing `ds = K dg` at all the points of a
-   * material
-   * \param[out] ds: increments of the thermodynamic forces, point by point
-   * \param[in] K: tangent operator blocks
-   * \param[in] ps: stride between two points of the tangent operator blocks
-   * \param[in] cs: stride between two components of the tangent operator
-   * blocks
-   * \param[in] dg: increments of the gradients, point by point
-   * \param[in] n: number of points
-   * \param[in] gs: number of components of the gradients and of the
-   * thermodynamic forces
+   * \brief launches the kernel adding the action of the stiffness matrices of
+   * the elements of a material, `Σ Bᵀ K B x w det J`, on values given
+   * element by element, in the layout of the element restriction of MFEM
+   * (`node + nd * (component + dim * element)`)
+   * \param[in] k: kind of the gradients
+   * \param[in] a: arguments (`matrices` is not used)
+   * \param[in] x: values element by element
+   * \param[in, out] y: action, element by element
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchTangentOperatorBlocksProductKernel(real* const,
-                                                const real* const,
-                                                const long long,
-                                                const long long,
-                                                const real* const,
-                                                const int,
-                                                const int,
-                                                const bool);
+  void launchTangentOperatorActionKernel(
+      const GradientsKind,
+      const StiffnessMatricesKernelArguments&,
+      const real* const,
+      real* const,
+      const bool);
   /*!
    * \brief sets values to zero
    * \param[out] v: values

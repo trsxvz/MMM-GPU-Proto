@@ -261,27 +261,105 @@ namespace mfem_mgis::batch::internals {
                                             use_device);
   }  // end of launchStiffnessMatricesDiagonalsKernel
 
-  void launchTangentOperatorBlocksProductKernel(real* const ds,
-                                                const real* const K,
-                                                const long long ps,
-                                                const long long cs,
-                                                const real* const dg,
-                                                const int n,
-                                                const int gs,
-                                                const bool use_device) {
-    mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(int i) {
-      const auto* const Ki = K + static_cast<long long>(i) * ps;
-      const auto* const dgi = dg + static_cast<std::size_t>(i) * gs;
-      auto* const dsi = ds + static_cast<std::size_t>(i) * gs;
-      for (int r = 0; r != gs; ++r) {
-        auto v = real{0};
-        for (int c = 0; c != gs; ++c) {
-          v += Ki[static_cast<long long>(r * gs + c) * cs] * dgi[c];
-        }
-        dsi[r] = v;
-      }
-    });
-  }  // end of launchTangentOperatorBlocksProductKernel
+  /*!
+   * \brief launches the kernel adding the action of the stiffness matrices of
+   * the elements of a material on values given element by element (see
+   * `launchTangentOperatorActionKernel`): one thread per element, which
+   * computes, at each point, the increment of the gradients `B x`, the
+   * increment of the thermodynamic forces `K B x` and adds
+   * `Bᵀ K B x w det J` to the values of the element
+   * \tparam K: kind of the gradients
+   * \tparam N: dimension
+   */
+  template <GradientsKind K, int N>
+  static void launchTangentOperatorActionKernel(
+      const StiffnessMatricesKernelArguments& a,
+      const real* const x,
+      real* const y,
+      const bool use_device) {
+    mfem::forall_switch(
+        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
+          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+          const auto nd = static_cast<std::size_t>(a.nd);
+          const auto nq = static_cast<std::size_t>(a.nq);
+          const auto e = static_cast<std::size_t>(a.elements[k]);
+          const auto* const xe = x + nd * N * e;
+          auto* const ye = y + nd * N * e;
+          for (std::size_t q = 0; q != nq; ++q) {
+            const auto detJ = a.determinants[q + nq * e];
+            real iJ[N * N];
+            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+            // increment of the gradients, B x
+            real dg[gs] = {};
+            for (std::size_t node = 0; node != nd; ++node) {
+              real dN[N];
+              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
+                                            nq, node, iJ);
+              real B[9][3];
+              computeB<K>(B, dN);
+              for (std::size_t r = 0; r != gs; ++r) {
+                for (std::size_t c = 0; c != N; ++c) {
+                  dg[r] += B[r][c] * xe[node + nd * c];
+                }
+              }
+            }
+            // increment of the thermodynamic forces, K B x
+            const auto o = static_cast<long long>(a.offsets[k]) +
+                           static_cast<long long>(q);
+            const auto* const t = a.tangent_operator + o * a.point_stride;
+            const auto cs = a.component_stride;
+            real ds[gs];
+            for (std::size_t r1 = 0; r1 != gs; ++r1) {
+              ds[r1] = 0;
+              for (std::size_t r2 = 0; r2 != gs; ++r2) {
+                ds[r1] += t[static_cast<long long>(r1 * gs + r2) * cs] * dg[r2];
+              }
+            }
+            // Bᵀ K B x w det J
+            const auto w = a.weights[q] * detJ;
+            for (std::size_t node = 0; node != nd; ++node) {
+              real dN[N];
+              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
+                                            nq, node, iJ);
+              real B[9][3];
+              computeB<K>(B, dN);
+              for (std::size_t c = 0; c != N; ++c) {
+                auto v = real{0};
+                for (std::size_t r = 0; r != gs; ++r) {
+                  v += B[r][c] * ds[r];
+                }
+                ye[node + nd * c] += w * v;
+              }
+            }
+          }
+        });
+  }  // end of launchTangentOperatorActionKernel
+
+  void launchTangentOperatorActionKernel(
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      const real* const x,
+      real* const y,
+      const bool use_device) {
+    switch (k) {
+      case GradientsKind::SMALL_STRAIN_3D:
+        launchTangentOperatorActionKernel<GradientsKind::SMALL_STRAIN_3D, 3>(
+            a, x, y, use_device);
+        break;
+      case GradientsKind::SMALL_STRAIN_2D:
+        launchTangentOperatorActionKernel<GradientsKind::SMALL_STRAIN_2D, 2>(
+            a, x, y, use_device);
+        break;
+      case GradientsKind::DEFORMATION_GRADIENT_3D:
+        launchTangentOperatorActionKernel<
+            GradientsKind::DEFORMATION_GRADIENT_3D, 3>(a, x, y, use_device);
+        break;
+      case GradientsKind::DEFORMATION_GRADIENT_2D:
+        launchTangentOperatorActionKernel<
+            GradientsKind::DEFORMATION_GRADIENT_2D, 2>(a, x, y, use_device);
+        break;
+    }
+  }  // end of launchTangentOperatorActionKernel
 
   void zeroValues(real* const v, const int n, const bool use_device) {
     mfem::forall_switch(use_device, n,

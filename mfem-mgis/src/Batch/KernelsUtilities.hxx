@@ -29,6 +29,21 @@ namespace mfem_mgis::batch::internals {
                : 2;
   }  // end of getDimension
 
+  //! \return the number of components of the gradients of the given kind
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr int getGradientsSize() {
+    if constexpr (K == GradientsKind::SMALL_STRAIN_3D) {
+      return 6;
+    } else if constexpr (K == GradientsKind::SMALL_STRAIN_2D) {
+      return 4;
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
+      return 9;
+    } else {
+      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
+      return 5;
+    }
+  }  // end of getGradientsSize
+
   /*!
    * \brief computes the inverse of a jacobian
    * \tparam N: dimension

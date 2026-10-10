@@ -74,7 +74,7 @@ namespace mfem_mgis {
   bool AbstractBehaviourIntegrator::addTangentOperatorActionByKernels(
       Context& ctx,
       mfem::Vector&,
-      const batch::UnknownsDerivativesSet&,
+      const mfem::Vector&,
       const batch::ElementsGeometrySet&) noexcept {
     return ctx.registerErrorMessage(
         "AbstractBehaviourIntegrator::addTangentOperatorActionByKernels: the "

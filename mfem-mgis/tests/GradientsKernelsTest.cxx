@@ -323,14 +323,13 @@ static void testCase(mfem_mgis::Context& ctx,
           xv[i] = std::sin(0.7 * real(i)) + 0.1 * std::cos(real(i));
         }
       }
-      auto dx = batch::UnknownsDerivativesSet{};
-      check(batch::computeUnknownsDerivatives(ctx, dx[r], fes, x, *r),
-            name + ": derivatives of the increments of the unknowns (" +
-                ctx.getErrorMessage() + ")");
+      auto xe = mfem::Vector(restriction->Height());
+      xe.UseDevice(true);
+      restriction->Mult(x, xe);
       auto ye = mfem::Vector(restriction->Height());
       ye.UseDevice(true);
       ye = real{0};
-      check(bi.addTangentOperatorActionByKernels(ctx, ye, dx, geometry),
+      check(bi.addTangentOperatorActionByKernels(ctx, ye, xe, geometry),
             name + ": action of the tangent operator (" +
                 ctx.getErrorMessage() + ")");
       auto y = mfem::Vector(fes.GetVSize());

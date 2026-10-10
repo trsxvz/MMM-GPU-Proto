@@ -205,51 +205,55 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatricesDiagonals
 
-  bool multiplyByTangentOperatorBlocks(Context& ctx,
-                                       mfem::Vector& ds,
-                                       const mgis::FieldView<const real>& K,
-                                       const mfem::Vector& dg,
-                                       const GradientsKind k) noexcept {
+  bool addTangentOperatorAction(Context& ctx,
+                                mfem::Vector& y,
+                                const PartialQuadratureSpace& qs,
+                                const mgis::FieldView<const real>& K,
+                                const mfem::Vector& x,
+                                const ElementsGeometry& g,
+                                const GradientsKind k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(ds);
+    static_cast<void>(y);
+    static_cast<void>(qs);
     static_cast<void>(K);
-    static_cast<void>(dg);
+    static_cast<void>(x);
+    static_cast<void>(g);
     static_cast<void>(k);
     return ctx.registerErrorMessage(
-        "multiplyByTangentOperatorBlocks: the kernels are not compiled (MFEM "
-        "compiled with HIP)");
+        "addTangentOperatorAction: the kernels computing the stiffness "
+        "matrices are not compiled (MFEM compiled with HIP)");
 #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
-      const auto gs = static_cast<int>(getGradientsSize(k));
-      const auto n = dg.Size() / gs;
-      if ((n * gs != dg.Size()) ||
-          (K.getNumberOfPoints() != static_cast<size_type>(n)) ||
-          (K.getNumberOfComponents() != static_cast<size_type>(gs * gs))) {
-        return ctx.registerErrorMessage(
-            "multiplyByTangentOperatorBlocks: unexpected number of points or "
-            "of components");
-      }
-      ds.UseDevice(true);
-      ds.SetSize(dg.Size());
-      if (n == 0) {
-        return true;
-      }
       const auto use_device = mfem::Device::IsEnabled();
-      internals::launchTangentOperatorBlocksProductKernel(
-          ds.Write(use_device), K.data(),
-          static_cast<long long>(K.getPointStride()),
-          static_cast<long long>(K.getComponentStride()), dg.Read(use_device),
-          n, gs, use_device);
+      auto a = internals::StiffnessMatricesKernelArguments{};
+      auto error = false;
+      // one thread per element: the check of the number of threads made for
+      // the diagonals (one thread per node) is sufficient
+      if (!getStiffnessMatricesKernelArguments(
+              ctx, a, error, qs, K, g, k, use_device,
+              "addTangentOperatorAction", true)) {
+        return !error;
+      }
+      const auto size =
+          std::int64_t{g.nd} * getSpaceDimension(k) * std::int64_t{g.ne};
+      if ((static_cast<std::int64_t>(x.Size()) != size) ||
+          (static_cast<std::int64_t>(y.Size()) != size)) {
+        return ctx.registerErrorMessage(
+            "addTangentOperatorAction: unexpected size of the values element "
+            "by element");
+      }
+      internals::launchTangentOperatorActionKernel(
+          k, a, x.Read(use_device), y.ReadWrite(use_device), use_device);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
-          std::string{"multiplyByTangentOperatorBlocks: "} + e.what());
+          std::string{"addTangentOperatorAction: "} + e.what());
     } catch (...) {
       return ctx.registerErrorMessage(
-          "multiplyByTangentOperatorBlocks: unknown exception");
+          "addTangentOperatorAction: unknown exception");
     }
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-  }  // end of multiplyByTangentOperatorBlocks
+  }  // end of addTangentOperatorAction
 
   bool computeElementsDegreesOfFreedom(
       Context& ctx,

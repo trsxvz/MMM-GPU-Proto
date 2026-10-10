@@ -529,6 +529,25 @@ namespace mfem_mgis {
 
 #ifdef MFEM_USE_MPI
 
+  /*!
+   * \return a generator of a linear solver applying one cycle of BoomerAMG,
+   * an approximate solver used for instance by the fixed point iterations on
+   * the elastic operator (see `FixedPointSolver`). The options are the ones
+   * of the `HypreBoomerAMG` preconditioner.
+   */
+  [[nodiscard]] static LinearSolverFactory<true>::Generator
+  buildHypreBoomerAMGSolverGenerator() {
+    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+              const Parameters& params) -> LinearSolverHandler {
+      auto amg = setHypreBoomerAMGPreconditioner(ctx, fespace, params);
+      if (amg == nullptr) {
+        return {};
+      }
+      return LinearSolverHandler{std::move(amg),
+                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+    };
+  }  // end of buildHypreBoomerAMGSolverGenerator
+
   [[nodiscard]] static std::function<LinearSolverHandler(
       Context&, FiniteElementSpace<true>&, const Parameters&)>
   buildHyprePCGSolverGenerator() {
@@ -877,6 +896,7 @@ namespace mfem_mgis {
       check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
 #endif
       check(f.add(ctx, "HyprePCG", buildHyprePCGSolverGenerator()));
+      check(f.add(ctx, "HypreBoomerAMG", buildHypreBoomerAMGSolverGenerator()));
       check(f.add(ctx, "HypreGMRES", buildHypreGMRESSolverGenerator()));
       check(f.add(ctx, "HypreFGMRES", buildHypreFGMRESSolverGenerator()));
     }

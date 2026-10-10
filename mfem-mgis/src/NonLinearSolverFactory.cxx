@@ -6,6 +6,7 @@
  */
 
 #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
+#include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 
 namespace mfem_mgis {
@@ -24,6 +25,10 @@ namespace mfem_mgis {
     auto g = make_unique<StandardNonLinearSolverGenerator<NewtonSolver>>(ctx) |
              or_die;
     this->add(ctx, "Newton", std::move(g)) | or_die;
+    auto g2 =
+        make_unique<StandardNonLinearSolverGenerator<FixedPointSolver>>(ctx) |
+        or_die;
+    this->add(ctx, "FixedPoint", std::move(g2)) | or_die;
   }  // end of NonLinearSolverFactory
 
   bool NonLinearSolverFactory::add(

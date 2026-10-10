@@ -397,7 +397,7 @@ namespace mfem_mgis {
   StandardBehaviourIntegratorCRTPBase<Child>::addTangentOperatorActionByKernels(
       Context &ctx,
       mfem::Vector &y,
-      const batch::UnknownsDerivativesSet &dx,
+      const mfem::Vector &x,
       const batch::ElementsGeometrySet &g) noexcept {
     auto data = KernelsData{};
     if (!this->getKernelsData(ctx, data, "addTangentOperatorActionByKernels",
@@ -407,34 +407,11 @@ namespace mfem_mgis {
     if (data.rule == nullptr) {
       return true;
     }
-    const auto p = dx.find(data.rule);
-    if (p == dx.end()) {
-      return ctx.registerErrorMessage(
-          "addTangentOperatorActionByKernels: the derivatives of the "
-          "increments of the unknowns are not computed for the integration "
-          "rule of the material");
-    }
     try {
-      // increments of the gradients, then of the thermodynamic forces, whose
-      // contributions are added as inner forces
       const auto use_device = mfem::Device::IsEnabled();
-      auto &dg = this->wks.gradients_increments;
-      auto &ds = this->wks.thermodynamic_forces_increments;
-      if ((!batch::computeGradientsIncrements(
-              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
-              data.kind)) ||
-          (!batch::multiplyByTangentOperatorBlocks(
-              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
-              data.kind))) {
-        return false;
-      }
-      const auto np = static_cast<size_type>(this->n);
-      const auto gs = batch::getGradientsSize(data.kind);
-      const auto s = std::span<const real>(ds.Read(use_device),
-                                           static_cast<std::size_t>(ds.Size()));
-      return batch::addInnerForces(
+      return batch::addTangentOperatorAction(
           ctx, y, *(this->quadrature_space),
-          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
+          this->readTangentOperatorBlocks(use_device), x, *(data.geometry),
           data.kind);
     } catch (std::exception &e) {
       return ctx.registerErrorMessage(

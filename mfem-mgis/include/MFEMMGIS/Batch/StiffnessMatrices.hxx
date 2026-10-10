@@ -77,22 +77,29 @@ namespace mfem_mgis::batch {
       const ElementsGeometry&,
       const GradientsKind) noexcept;
   /*!
-   * \brief computes the increments of the thermodynamic forces associated
-   * with increments of the gradients, `ds = K dg`, at all the points of a
-   * material, on the device if a device is enabled
+   * \brief adds the action of the stiffness matrices of the elements of a
+   * material, computed from the tangent operator blocks without assembling
+   * them, `Σ Bᵀ K B x w det J`, on values given element by element, by a
+   * kernel which computes the increments of the gradients and of the
+   * thermodynamic forces at the points of each element without storing
+   * them, on the device if a device is enabled. The values are given in the
+   * layout of the element restriction of MFEM (`node + nd * (component +
+   * dim * element)`, as `addInnerForces`), for all the elements of the mesh.
    * \return true on success
-   * \param[out] ds: increments of the thermodynamic forces, stored point by
-   * point (resized)
+   * \param[in, out] y: action, element by element
+   * \param[in] qs: quadrature space of the material
    * \param[in] K: tangent operator blocks in the global frame
-   * \param[in] dg: increments of the gradients, stored point by point (see
-   * `computeGradientsIncrements`)
+   * \param[in] x: values element by element
+   * \param[in] g: geometric data
    * \param[in] k: kind of the gradients
    */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool multiplyByTangentOperatorBlocks(
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addTangentOperatorAction(
       Context&,
       mfem::Vector&,
+      const PartialQuadratureSpace&,
       const mgis::FieldView<const real>&,
       const mfem::Vector&,
+      const ElementsGeometry&,
       const GradientsKind) noexcept;
 
   /*!

@@ -8,6 +8,7 @@
 #ifndef LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
 #define LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
 
+#include <ostream>
 #include "mfem/linalg/solvers.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
@@ -81,7 +82,15 @@ namespace mfem_mgis {
      * \param[in] u: new unknown estimate
      * \return true on success
      */
-    virtual bool processNewUnknownsEstimate(const mfem::Vector &u) const;
+    virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
+    /*!
+     * \return if messages shall be displayed: on the first process, if the
+     * print level is positive or if the verbosity level of the execution
+     * context is high enough (`verboseLevel3`)
+     */
+    [[nodiscard]] bool shallPrint() const noexcept;
+    //! \return the log stream of the execution context, if any
+    [[nodiscard]] std::ostream &getLogStream() const noexcept;
     /*!
      * \brief actions performed when a new estimate of the unknowns is
      * available

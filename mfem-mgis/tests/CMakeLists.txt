@@ -850,6 +850,23 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
   endif()
 
+  # FixedPointSolverTest executable: fixed point solver (methods,
+  # accelerations, linear solvers of the elastic operator) compared to the
+  # Newton solver
+  add_test_executable(FixedPointSolverTest)
+  add_test(NAME FixedPointSolverTest
+           COMMAND FixedPointSolverTest
+                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                   --library $<TARGET_FILE:BehaviourTest>)
+  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+    add_test(NAME FixedPointSolverTestP
+             COMMAND mpirun -n 2 ./FixedPointSolverTest --parallel
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(FixedPointSolverTestP
+                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU
   if(NOT MFEM_USE_HIP STREQUAL "YES")

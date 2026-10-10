@@ -346,17 +346,6 @@ namespace mfem_mgis {
        * `integrateBatch` (integration on the device)
        */
       std::vector<mfem::Vector> device_inputs;
-      /*!
-       * \brief increments of the gradients, stored point by point, used by
-       * the computation of the action of the tangent operator by kernels
-       */
-      mfem::Vector gradients_increments;
-      /*!
-       * \brief increments of the thermodynamic forces, stored point by
-       * point, used by the computation of the action of the tangent
-       * operator by kernels
-       */
-      mfem::Vector thermodynamic_forces_increments;
       //! \brief see `getRotatedThermodynamicForces`
       mfem::Vector rotated_thermodynamic_forces;
       /*!
