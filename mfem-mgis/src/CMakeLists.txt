@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
   AccelerationAlgorithm.cxx
   AndersonAccelerationAlgorithm.cxx
   Cast3MAccelerationAlgorithm.cxx
+  SecantAccelerationAlgorithms.cxx
   FixedPointSolver.cxx
   AnalyticalTests.cxx
   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx

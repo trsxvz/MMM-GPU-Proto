@@ -8,6 +8,7 @@
 #include <vector>
 #include <utility>
 #include <string>
+#include <optional>
 #include <algorithm>
 #include "mfem/linalg/densemat.hpp"
 #include "MFEMMGIS/Parameters.hxx"
@@ -19,20 +20,33 @@ namespace mfem_mgis::internals {
    * \brief Anderson's method (type II): the new estimate is the combination
    * of the images `g_k` of the last iterates by the fixed point map,
    * `g_i - Σ γ_k Δg_k`, whose coefficients minimize the norm of the
-   * combination of the fixed point residuals `f_k = g_k - x_k`,
-   * `|| f_i - Σ γ_k Δf_k ||`, `Δ` being the differences between successive
-   * iterations. The least squares problem is solved by its normal
-   * equations, whose matrix (scalar products of the `Δf_k`) is updated
-   * incrementally: two scalar products per stored iteration and per
-   * iteration.
+   * combination of the residuals `f_k`, `|| f_i - Σ γ_k Δf_k ||`, `Δ` being
+   * the differences between successive iterations. The residuals are the
+   * fixed point residuals `g_k - x_k` (as `UAnderson` in MTest) or the
+   * residuals of the problem at `x_k` (as `FAnderson`). The least squares
+   * problem is solved by its normal equations, whose matrix (scalar
+   * products of the `Δf_k`) is updated incrementally: two scalar products
+   * per stored iteration and per iteration. The histories are updated at
+   * each iteration, the estimate is accelerated every `period` iterations
+   * from the second one.
    */
   struct AndersonAccelerationAlgorithm final : AccelerationAlgorithm {
     /*!
      * \param[in] d: maximum number of differences used
+     * \param[in] p: number of iterations between two accelerations
+     * \param[in] f: if true, the residuals of the problem are used,
+     * otherwise the fixed point residuals
      * \param[in] r: relative regularization of the normal equations
      */
-    AndersonAccelerationAlgorithm(const size_type d, const real r)
-        : depth(d), regularization(r), gram(static_cast<int>(d)) {
+    AndersonAccelerationAlgorithm(const size_type d,
+                                  const size_type p,
+                                  const bool f,
+                                  const real r)
+        : depth(d),
+          period(p),
+          forces(f),
+          regularization(r),
+          gram(static_cast<int>(d)) {
       this->df.resize(d);
       this->dg.resize(d);
     }
@@ -54,16 +68,17 @@ namespace mfem_mgis::internals {
     }
     void execute(mfem::Vector& x,
                  const mfem::Vector& dx,
-                 const mfem::Vector&,
+                 const mfem::Vector& r,
                  const real,
-                 const size_type) override {
-      // `x` is the image of the previous iterate and `dx` the fixed point
-      // residual
+                 const real,
+                 const size_type i) override {
+      // `x` is the image of the previous iterate
+      const auto& f = this->forces ? r : dx;
       if (this->has_previous_iterate) {
         // the new differences overwrite the oldest ones when the history is
         // full
         const auto k = this->next;
-        subtract(dx, this->f_previous, this->df[k]);
+        subtract(f, this->f_previous, this->df[k]);
         subtract(x, this->g_previous, this->dg[k]);
         this->next = (this->next + 1) % this->depth;
         this->count = std::min(this->count + 1, this->depth);
@@ -74,35 +89,35 @@ namespace mfem_mgis::internals {
           this->gram(static_cast<int>(s), static_cast<int>(k)) = v;
         }
       }
-      this->f_previous = dx;
+      this->f_previous = f;
       this->g_previous = x;
       this->has_previous_iterate = true;
-      if (this->count == 0) {
+      if ((this->count == 0) || (i < 2) || ((i - 2) % this->period != 0)) {
         return;
       }
       const auto m = static_cast<int>(this->count);
       auto A = mfem::DenseMatrix(m, m);
       auto b = mfem::Vector(m);
       auto dmax = real{0};
-      for (int i = 0; i != m; ++i) {
-        const auto si = static_cast<int>(this->slot(i));
+      for (int l = 0; l != m; ++l) {
+        const auto si = static_cast<int>(this->slot(l));
         for (int j = 0; j != m; ++j) {
-          A(i, j) = this->gram(si, static_cast<int>(this->slot(j)));
+          A(l, j) = this->gram(si, static_cast<int>(this->slot(j)));
         }
-        b(i) = this->dot(this->df[si], dx);
-        dmax = std::max(dmax, A(i, i));
+        b(l) = this->dot(this->df[si], f);
+        dmax = std::max(dmax, A(l, l));
       }
       if (dmax <= 0) {
         return;
       }
-      for (int i = 0; i != m; ++i) {
-        A(i, i) += this->regularization * dmax;
+      for (int l = 0; l != m; ++l) {
+        A(l, l) += this->regularization * dmax;
       }
       auto gamma = mfem::Vector(m);
       auto inverse = mfem::DenseMatrixInverse(A);
       inverse.Mult(b, gamma);
-      for (int i = 0; i != m; ++i) {
-        x.Add(-gamma(i), this->dg[this->slot(i)]);
+      for (int l = 0; l != m; ++l) {
+        x.Add(-gamma(l), this->dg[this->slot(l)]);
       }
     }
 
@@ -113,6 +128,10 @@ namespace mfem_mgis::internals {
     }
     //! \brief maximum number of differences used
     const size_type depth;
+    //! \brief number of iterations between two accelerations
+    const size_type period;
+    //! \brief if true, the residuals of the problem are used
+    const bool forces;
     //! \brief relative regularization of the normal equations
     const real regularization;
     //! \brief scalar products of the differences of the fixed point residuals
@@ -135,28 +154,77 @@ namespace mfem_mgis::internals {
     bool has_previous_iterate = false;
   };  // end of struct AndersonAccelerationAlgorithm
 
-  std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
-      Context& ctx, const Parameters& opts) noexcept {
-    if (!checkParameters(ctx, opts,
-                         std::vector<std::string>{"Depth", "Regularization"})) {
+  /*!
+   * \return Anderson's method
+   * \param[in, out] ctx: execution context
+   * \param[in] opts: options
+   * \param[in] name: name of the algorithm, for the error messages
+   * \param[in] default_period: default number of iterations between two
+   * accelerations
+   * \param[in] residuals: if not empty, residuals used (`Unknowns` or
+   * `Forces`), which can't be changed by the options
+   */
+  static std::unique_ptr<AccelerationAlgorithm> makeAnderson(
+      Context& ctx,
+      const Parameters& opts,
+      const std::string& name,
+      const int default_period,
+      const std::string& residuals) noexcept {
+    auto options =
+        std::vector<std::string>{"Depth", "Period", "Regularization"};
+    if (residuals.empty()) {
+      options.push_back("Residuals");
+    }
+    if (!checkParameters(ctx, opts, options)) {
       return {};
     }
     const auto odepth = get_if<int>(ctx, opts, "Depth", 4);
+    const auto operiod = get_if<int>(ctx, opts, "Period", default_period);
     const auto oregularization =
         get_if<double>(ctx, opts, "Regularization", 1e-12);
-    if (isInvalid(odepth) || isInvalid(oregularization)) {
+    const auto oresiduals = residuals.empty()
+                                ? get_if<std::string>(ctx, opts, "Residuals",
+                                                      std::string{"Unknowns"})
+                                : std::optional<std::string>{residuals};
+    if (isInvalid(odepth) || isInvalid(operiod) || isInvalid(oregularization) ||
+        isInvalid(oresiduals)) {
       return {};
     }
     if (*odepth <= 0) {
-      return ctx.registerErrorMessage(
-          "Anderson: the depth must be strictly positive");
+      return ctx.registerErrorMessage(name +
+                                      ": the depth must be strictly positive");
+    }
+    if (*operiod <= 0) {
+      return ctx.registerErrorMessage(name +
+                                      ": the period must be strictly positive");
     }
     if (*oregularization < 0) {
-      return ctx.registerErrorMessage(
-          "Anderson: the regularization must be positive");
+      return ctx.registerErrorMessage(name +
+                                      ": the regularization must be positive");
+    }
+    if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
+      return ctx.registerErrorMessage(name + ": invalid residuals '" +
+                                      *oresiduals +
+                                      "' (expected 'Unknowns' or 'Forces')");
     }
     return std::make_unique<AndersonAccelerationAlgorithm>(
-        static_cast<size_type>(*odepth), *oregularization);
+        static_cast<size_type>(*odepth), static_cast<size_type>(*operiod),
+        *oresiduals == "Forces", *oregularization);
+  }  // end of makeAnderson
+
+  std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
+      Context& ctx, const Parameters& opts) noexcept {
+    return makeAnderson(ctx, opts, "Anderson", 1, "");
   }  // end of makeAndersonAccelerationAlgorithm
+
+  std::unique_ptr<AccelerationAlgorithm> makeUAndersonAccelerationAlgorithm(
+      Context& ctx, const Parameters& opts) noexcept {
+    return makeAnderson(ctx, opts, "UAnderson", 2, "Unknowns");
+  }  // end of makeUAndersonAccelerationAlgorithm
+
+  std::unique_ptr<AccelerationAlgorithm> makeFAndersonAccelerationAlgorithm(
+      Context& ctx, const Parameters& opts) noexcept {
+    return makeAnderson(ctx, opts, "FAnderson", 2, "Forces");
+  }  // end of makeFAndersonAccelerationAlgorithm
 
 }  // end of namespace mfem_mgis::internals

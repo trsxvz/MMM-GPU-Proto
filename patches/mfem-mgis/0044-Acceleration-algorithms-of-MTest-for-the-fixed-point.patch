@@ -1,0 +1,1040 @@
+From bea210c3853e2146954d11fed8389fd0fde38a2a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 02:35:34 +0200
+Subject: [PATCH] Acceleration algorithms of MTest for the fixed point solver
+
+- Anderson's method: options `Period` (accelerations every `Period`
+  iterations, the histories being updated at each iteration) and
+  `Residuals` (`Unknowns`: fixed point residuals; `Forces`: residuals of
+  the problem); `UAnderson` and `FAnderson` declared with the defaults of
+  MTest (period 2);
+- ports of the algorithms of MTest based on secant and delta squared
+  methods: `Secant`, `CrossedSecant`, `AlternateSecant`, `IronsTuck`,
+  `Steffensen` (component by component, on the host), `CrossedDelta2`,
+  `Crossed2Delta`, `Crossed2Deltabis`, `AlternateDelta2` and
+  `Alternate2Delta`, option `Trigger` with the defaults of MTest;
+- AccelerationAlgorithm::execute takes a scale of the unknowns, estimated
+  by the fixed point solver from its first correction, as the criterion on
+  the unknowns of MTest.
+
+FixedPointSolverTest: all the accelerations, except Steffensen's method,
+which diverges on this coupled problem, give the solution of the Newton
+solver.
+---
+ .../AccelerationAlgorithm.hxx                 |  31 +-
+ src/AccelerationAlgorithm.cxx                 |   5 +
+ src/AccelerationAlgorithms.hxx                |  23 +
+ src/AndersonAccelerationAlgorithm.cxx         | 136 +++--
+ src/CMakeLists.txt                            |   1 +
+ src/Cast3MAccelerationAlgorithm.cxx           |   1 +
+ src/FixedPointSolver.cxx                      |   8 +-
+ src/SecantAccelerationAlgorithms.cxx          | 545 ++++++++++++++++++
+ tests/FixedPointSolverTest.cxx                |  38 +-
+ 9 files changed, 743 insertions(+), 45 deletions(-)
+ create mode 100644 src/SecantAccelerationAlgorithms.cxx
+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+index d7dff555c9..352de7c175 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+@@ -53,14 +53,19 @@ namespace mfem_mgis {
+      * estimate if the algorithm applies at this iteration
+      * \param[in] dx: correction `x_{i+1} - x_i`
+      * \param[in] r: residual at the previous estimate `x_i`
+-     * \param[in] r_eps: scale of the residual below which differences of
+-     * residuals are considered null (the convergence criterion)
++     * \param[in] r_eps: scale of the residual (the convergence criterion on
++     * the residual), below which differences of residuals are considered
++     * null
++     * \param[in] u_eps: scale of the unknowns (an estimate of the variation
++     * of the unknowns when the residual reaches its convergence criterion),
++     * below which differences of unknowns are considered null
+      * \param[in] i: iteration number, starting at 1
+      */
+     virtual void execute(mfem::Vector&,
+                          const mfem::Vector&,
+                          const mfem::Vector&,
+                          const real,
++                         const real,
+                          const size_type) = 0;
+     //! \brief destructor
+     virtual ~AccelerationAlgorithm();
+@@ -70,13 +75,25 @@ namespace mfem_mgis {
+    * \brief factory of the acceleration algorithms. The algorithms are
+    * selected by their names and set by their options:
+    *
+-   * - `Anderson`: Anderson's method (type II) on the images of the fixed
+-   *   point map, options `Depth` (number of previous iterations used, 4 by
+-   *   default) and `Regularization` (relative regularization of the least
+-   *   squares problem, 1e-12 by default);
++   * - `Anderson`: Anderson's method on the images of the fixed point map,
++   *   options `Depth` (number of previous iterations used, 4 by default),
++   *   `Period` (number of iterations between two accelerations, 1 by
++   *   default), `Residuals` (`Unknowns`, by default, the fixed point
++   *   residuals, or `Forces`, the residuals of the problem) and
++   *   `Regularization` (relative regularization of the least squares
++   *   problem, 1e-12 by default);
++   * - `UAnderson` and `FAnderson`: Anderson's method on the fixed point
++   *   residuals and on the residuals of the problem, accelerating every two
++   *   iterations by default, as MTest (same options as `Anderson`, except
++   *   `Residuals`);
+    * - `Cast3M`: port of the acceleration of Cast3M (as MTest), options
+    *   `Trigger` (first accelerated iteration, 4 by default) and `Period`
+-   *   (number of iterations between two accelerations, 2 by default).
++   *   (number of iterations between two accelerations, 2 by default);
++   * - `Secant`, `CrossedSecant`, `AlternateSecant`, `IronsTuck`,
++   *   `Steffensen`, `CrossedDelta2`, `Crossed2Delta`, `Crossed2Deltabis`,
++   *   `AlternateDelta2` and `Alternate2Delta`: ports of the algorithms of
++   *   MTest of the same names, option `Trigger` (first accelerated
++   *   iteration, with the default values of MTest).
+    */
+   struct MFEM_MGIS_EXPORT AccelerationAlgorithmFactory {
+     //! \brief generator of an acceleration algorithm from its options
+diff --git a/src/AccelerationAlgorithm.cxx b/src/AccelerationAlgorithm.cxx
+index b896bd5323..d22a13d2f9 100644
+--- a/src/AccelerationAlgorithm.cxx
++++ b/src/AccelerationAlgorithm.cxx
+@@ -34,7 +34,12 @@ namespace mfem_mgis {
+     };
+     check(this->add(ctx, "Anderson",
+                     internals::makeAndersonAccelerationAlgorithm));
++    check(this->add(ctx, "UAnderson",
++                    internals::makeUAndersonAccelerationAlgorithm));
++    check(this->add(ctx, "FAnderson",
++                    internals::makeFAndersonAccelerationAlgorithm));
+     check(this->add(ctx, "Cast3M", internals::makeCast3MAccelerationAlgorithm));
++    internals::declareSecantAccelerationAlgorithms(*this);
+   }  // end of AccelerationAlgorithmFactory
+ 
+   bool AccelerationAlgorithmFactory::add(Context& ctx,
+diff --git a/src/AccelerationAlgorithms.hxx b/src/AccelerationAlgorithms.hxx
+index 27d7d37e34..c1f1e27eb4 100644
+--- a/src/AccelerationAlgorithms.hxx
++++ b/src/AccelerationAlgorithms.hxx
+@@ -22,6 +22,29 @@ namespace mfem_mgis::internals {
+    */
+   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
+   makeAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
++  /*!
++   * \return Anderson's method on the fixed point residuals, accelerating
++   * every two iterations by default, as `UAnderson` in MTest
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   */
++  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
++  makeUAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
++  /*!
++   * \return Anderson's method on the residuals of the problem, accelerating
++   * every two iterations by default, as `FAnderson` in MTest
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   */
++  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
++  makeFAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
++  /*!
++   * \brief declares the algorithms based on secant and delta squared methods
++   * (`Secant`, `CrossedSecant`, ...)
++   * \param[in, out] f: factory
++   */
++  void declareSecantAccelerationAlgorithms(
++      AccelerationAlgorithmFactory&) noexcept;
+   /*!
+    * \return the acceleration of Cast3M (see `AccelerationAlgorithmFactory`)
+    * \param[in, out] ctx: execution context
+diff --git a/src/AndersonAccelerationAlgorithm.cxx b/src/AndersonAccelerationAlgorithm.cxx
+index 4060ac3533..b6e1ce0302 100644
+--- a/src/AndersonAccelerationAlgorithm.cxx
++++ b/src/AndersonAccelerationAlgorithm.cxx
+@@ -8,6 +8,7 @@
+ #include <vector>
+ #include <utility>
+ #include <string>
++#include <optional>
+ #include <algorithm>
+ #include "mfem/linalg/densemat.hpp"
+ #include "MFEMMGIS/Parameters.hxx"
+@@ -19,20 +20,33 @@ namespace mfem_mgis::internals {
+    * \brief Anderson's method (type II): the new estimate is the combination
+    * of the images `g_k` of the last iterates by the fixed point map,
+    * `g_i - Σ γ_k Δg_k`, whose coefficients minimize the norm of the
+-   * combination of the fixed point residuals `f_k = g_k - x_k`,
+-   * `|| f_i - Σ γ_k Δf_k ||`, `Δ` being the differences between successive
+-   * iterations. The least squares problem is solved by its normal
+-   * equations, whose matrix (scalar products of the `Δf_k`) is updated
+-   * incrementally: two scalar products per stored iteration and per
+-   * iteration.
++   * combination of the residuals `f_k`, `|| f_i - Σ γ_k Δf_k ||`, `Δ` being
++   * the differences between successive iterations. The residuals are the
++   * fixed point residuals `g_k - x_k` (as `UAnderson` in MTest) or the
++   * residuals of the problem at `x_k` (as `FAnderson`). The least squares
++   * problem is solved by its normal equations, whose matrix (scalar
++   * products of the `Δf_k`) is updated incrementally: two scalar products
++   * per stored iteration and per iteration. The histories are updated at
++   * each iteration, the estimate is accelerated every `period` iterations
++   * from the second one.
+    */
+   struct AndersonAccelerationAlgorithm final : AccelerationAlgorithm {
+     /*!
+      * \param[in] d: maximum number of differences used
++     * \param[in] p: number of iterations between two accelerations
++     * \param[in] f: if true, the residuals of the problem are used,
++     * otherwise the fixed point residuals
+      * \param[in] r: relative regularization of the normal equations
+      */
+-    AndersonAccelerationAlgorithm(const size_type d, const real r)
+-        : depth(d), regularization(r), gram(static_cast<int>(d)) {
++    AndersonAccelerationAlgorithm(const size_type d,
++                                  const size_type p,
++                                  const bool f,
++                                  const real r)
++        : depth(d),
++          period(p),
++          forces(f),
++          regularization(r),
++          gram(static_cast<int>(d)) {
+       this->df.resize(d);
+       this->dg.resize(d);
+     }
+@@ -54,16 +68,17 @@ namespace mfem_mgis::internals {
+     }
+     void execute(mfem::Vector& x,
+                  const mfem::Vector& dx,
+-                 const mfem::Vector&,
++                 const mfem::Vector& r,
+                  const real,
+-                 const size_type) override {
+-      // `x` is the image of the previous iterate and `dx` the fixed point
+-      // residual
++                 const real,
++                 const size_type i) override {
++      // `x` is the image of the previous iterate
++      const auto& f = this->forces ? r : dx;
+       if (this->has_previous_iterate) {
+         // the new differences overwrite the oldest ones when the history is
+         // full
+         const auto k = this->next;
+-        subtract(dx, this->f_previous, this->df[k]);
++        subtract(f, this->f_previous, this->df[k]);
+         subtract(x, this->g_previous, this->dg[k]);
+         this->next = (this->next + 1) % this->depth;
+         this->count = std::min(this->count + 1, this->depth);
+@@ -74,35 +89,35 @@ namespace mfem_mgis::internals {
+           this->gram(static_cast<int>(s), static_cast<int>(k)) = v;
+         }
+       }
+-      this->f_previous = dx;
++      this->f_previous = f;
+       this->g_previous = x;
+       this->has_previous_iterate = true;
+-      if (this->count == 0) {
++      if ((this->count == 0) || (i < 2) || ((i - 2) % this->period != 0)) {
+         return;
+       }
+       const auto m = static_cast<int>(this->count);
+       auto A = mfem::DenseMatrix(m, m);
+       auto b = mfem::Vector(m);
+       auto dmax = real{0};
+-      for (int i = 0; i != m; ++i) {
+-        const auto si = static_cast<int>(this->slot(i));
++      for (int l = 0; l != m; ++l) {
++        const auto si = static_cast<int>(this->slot(l));
+         for (int j = 0; j != m; ++j) {
+-          A(i, j) = this->gram(si, static_cast<int>(this->slot(j)));
++          A(l, j) = this->gram(si, static_cast<int>(this->slot(j)));
+         }
+-        b(i) = this->dot(this->df[si], dx);
+-        dmax = std::max(dmax, A(i, i));
++        b(l) = this->dot(this->df[si], f);
++        dmax = std::max(dmax, A(l, l));
+       }
+       if (dmax <= 0) {
+         return;
+       }
+-      for (int i = 0; i != m; ++i) {
+-        A(i, i) += this->regularization * dmax;
++      for (int l = 0; l != m; ++l) {
++        A(l, l) += this->regularization * dmax;
+       }
+       auto gamma = mfem::Vector(m);
+       auto inverse = mfem::DenseMatrixInverse(A);
+       inverse.Mult(b, gamma);
+-      for (int i = 0; i != m; ++i) {
+-        x.Add(-gamma(i), this->dg[this->slot(i)]);
++      for (int l = 0; l != m; ++l) {
++        x.Add(-gamma(l), this->dg[this->slot(l)]);
+       }
+     }
+ 
+@@ -113,6 +128,10 @@ namespace mfem_mgis::internals {
+     }
+     //! \brief maximum number of differences used
+     const size_type depth;
++    //! \brief number of iterations between two accelerations
++    const size_type period;
++    //! \brief if true, the residuals of the problem are used
++    const bool forces;
+     //! \brief relative regularization of the normal equations
+     const real regularization;
+     //! \brief scalar products of the differences of the fixed point residuals
+@@ -135,28 +154,77 @@ namespace mfem_mgis::internals {
+     bool has_previous_iterate = false;
+   };  // end of struct AndersonAccelerationAlgorithm
+ 
+-  std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
+-      Context& ctx, const Parameters& opts) noexcept {
+-    if (!checkParameters(ctx, opts,
+-                         std::vector<std::string>{"Depth", "Regularization"})) {
++  /*!
++   * \return Anderson's method
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   * \param[in] name: name of the algorithm, for the error messages
++   * \param[in] default_period: default number of iterations between two
++   * accelerations
++   * \param[in] residuals: if not empty, residuals used (`Unknowns` or
++   * `Forces`), which can't be changed by the options
++   */
++  static std::unique_ptr<AccelerationAlgorithm> makeAnderson(
++      Context& ctx,
++      const Parameters& opts,
++      const std::string& name,
++      const int default_period,
++      const std::string& residuals) noexcept {
++    auto options =
++        std::vector<std::string>{"Depth", "Period", "Regularization"};
++    if (residuals.empty()) {
++      options.push_back("Residuals");
++    }
++    if (!checkParameters(ctx, opts, options)) {
+       return {};
+     }
+     const auto odepth = get_if<int>(ctx, opts, "Depth", 4);
++    const auto operiod = get_if<int>(ctx, opts, "Period", default_period);
+     const auto oregularization =
+         get_if<double>(ctx, opts, "Regularization", 1e-12);
+-    if (isInvalid(odepth) || isInvalid(oregularization)) {
++    const auto oresiduals = residuals.empty()
++                                ? get_if<std::string>(ctx, opts, "Residuals",
++                                                      std::string{"Unknowns"})
++                                : std::optional<std::string>{residuals};
++    if (isInvalid(odepth) || isInvalid(operiod) || isInvalid(oregularization) ||
++        isInvalid(oresiduals)) {
+       return {};
+     }
+     if (*odepth <= 0) {
+-      return ctx.registerErrorMessage(
+-          "Anderson: the depth must be strictly positive");
++      return ctx.registerErrorMessage(name +
++                                      ": the depth must be strictly positive");
++    }
++    if (*operiod <= 0) {
++      return ctx.registerErrorMessage(name +
++                                      ": the period must be strictly positive");
+     }
+     if (*oregularization < 0) {
+-      return ctx.registerErrorMessage(
+-          "Anderson: the regularization must be positive");
++      return ctx.registerErrorMessage(name +
++                                      ": the regularization must be positive");
++    }
++    if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
++      return ctx.registerErrorMessage(name + ": invalid residuals '" +
++                                      *oresiduals +
++                                      "' (expected 'Unknowns' or 'Forces')");
+     }
+     return std::make_unique<AndersonAccelerationAlgorithm>(
+-        static_cast<size_type>(*odepth), *oregularization);
++        static_cast<size_type>(*odepth), static_cast<size_type>(*operiod),
++        *oresiduals == "Forces", *oregularization);
++  }  // end of makeAnderson
++
++  std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
++      Context& ctx, const Parameters& opts) noexcept {
++    return makeAnderson(ctx, opts, "Anderson", 1, "");
+   }  // end of makeAndersonAccelerationAlgorithm
+ 
++  std::unique_ptr<AccelerationAlgorithm> makeUAndersonAccelerationAlgorithm(
++      Context& ctx, const Parameters& opts) noexcept {
++    return makeAnderson(ctx, opts, "UAnderson", 2, "Unknowns");
++  }  // end of makeUAndersonAccelerationAlgorithm
++
++  std::unique_ptr<AccelerationAlgorithm> makeFAndersonAccelerationAlgorithm(
++      Context& ctx, const Parameters& opts) noexcept {
++    return makeAnderson(ctx, opts, "FAnderson", 2, "Forces");
++  }  // end of makeFAndersonAccelerationAlgorithm
++
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ccbcc533d1..ee47e970dc 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+   AccelerationAlgorithm.cxx
+   AndersonAccelerationAlgorithm.cxx
+   Cast3MAccelerationAlgorithm.cxx
++  SecantAccelerationAlgorithms.cxx
+   FixedPointSolver.cxx
+   AnalyticalTests.cxx
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+diff --git a/src/Cast3MAccelerationAlgorithm.cxx b/src/Cast3MAccelerationAlgorithm.cxx
+index 298f384498..2ba994f4d7 100644
+--- a/src/Cast3MAccelerationAlgorithm.cxx
++++ b/src/Cast3MAccelerationAlgorithm.cxx
+@@ -43,6 +43,7 @@ namespace mfem_mgis::internals {
+                  const mfem::Vector&,
+                  const mfem::Vector& r,
+                  const real r_eps,
++                 const real,
+                  const size_type i) override {
+       const auto eps = 100 * r_eps * std::numeric_limits<real>::epsilon();
+       std::swap(this->u0, this->u1);
+diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
+index 3bf93a00fb..552b32a450 100644
+--- a/src/FixedPointSolver.cxx
++++ b/src/FixedPointSolver.cxx
+@@ -342,6 +342,9 @@ namespace mfem_mgis {
+             return this->Dot(a, b);
+           });
+     }
++    // scale of the variations of the unknowns at convergence, estimated
++    // from the first correction (see `AccelerationAlgorithm::execute`)
++    auto unknowns_scale = real{};
+     auto it = size_type{};
+     while (true) {
+       if (shall_print) {
+@@ -372,6 +375,9 @@ namespace mfem_mgis {
+       if ((!this->discardLinearSolverFailure) && (!hasConverged(solver))) {
+         break;
+       }
++      if (it == 0) {
++        unknowns_scale = this->rel_tol * this->Norm(c);
++      }
+       subtract(x, c, xn);
+       if (this->acceleration != nullptr) {
+         auto profiler_acceleration =
+@@ -380,7 +386,7 @@ namespace mfem_mgis {
+                       "FPS::accelerate", this->ctx_ptr->isProfilingEnabled())
+                 : mgis::ProfilingSection{};
+         subtract(xn, x, dx);
+-        this->acceleration->execute(xn, dx, r, goal, it + 1);
++        this->acceleration->execute(xn, dx, r, goal, unknowns_scale, it + 1);
+       }
+       // integration at the new estimate: on failure, the estimate is moved
+       // towards the previous one
+diff --git a/src/SecantAccelerationAlgorithms.cxx b/src/SecantAccelerationAlgorithms.cxx
+new file mode 100644
+index 0000000000..b50dcd4700
+--- /dev/null
++++ b/src/SecantAccelerationAlgorithms.cxx
+@@ -0,0 +1,545 @@
++/*!
++ * \file   src/SecantAccelerationAlgorithms.cxx
++ * \brief  This file implements the acceleration algorithms of the fixed
++ * point iterations of MTest based on secant and delta squared methods
++ * (`Secant`, `CrossedSecant`, `AlternateSecant`, `IronsTuck`,
++ * `Steffensen`, `CrossedDelta2`, `Crossed2Delta`, `Crossed2Deltabis`,
++ * `AlternateDelta2` and `Alternate2Delta`)
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <array>
++#include <limits>
++#include <string>
++#include <vector>
++#include <utility>
++#include "MGIS/Contract.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "AccelerationAlgorithms.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief base class of the algorithms of this file, ported from MTest
++   * (`mtest::*AccelerationAlgorithm`). With the notations of MTest, at
++   * iteration `n`, `G(X_n)` is the new estimate given to `execute` and
++   * `Delta X_n = G(X_n) - X_n` the fixed point residual (the correction).
++   * \tparam N: number of vectors kept by the algorithm
++   */
++  template <std::size_t N>
++  struct HistoryAccelerationAlgorithmBase : AccelerationAlgorithm {
++    //! \param[in] t: first accelerated iteration
++    explicit HistoryAccelerationAlgorithmBase(const size_type t) : trigger(t) {}
++    void initialize(const size_type n, ScalarProduct p) override {
++      this->dot = std::move(p);
++      for (auto& v : this->vectors) {
++        v.UseDevice(true);
++        v.SetSize(static_cast<int>(n));
++        v = real{0};
++      }
++    }
++
++   protected:
++    /*!
++     * \return the threshold below which a scalar quantity of the scale of
++     * `eps` is considered null, as in MTest
++     * \param[in] eps: scale
++     */
++    [[nodiscard]] static real getThreshold(const real eps) noexcept {
++      return 100 * eps * std::numeric_limits<real>::epsilon();
++    }
++    //! \brief first accelerated iteration
++    const size_type trigger;
++    //! \brief scalar product
++    ScalarProduct dot;
++    //! \brief vectors kept by the algorithm
++    std::array<mfem::Vector, N> vectors;
++  };
++
++  /*!
++   * \brief secant method on the residuals (forces):
++   * `G(X_n) - a (G(X_n) - G(X_{n-1}))`, `a` minimizing the norm of the
++   * corresponding combination of the residuals
++   */
++  struct SecantAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<5> {
++    using HistoryAccelerationAlgorithmBase<5>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector&,
++                 const mfem::Vector& r,
++                 const real r_eps,
++                 const real,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, dr] = this->vectors;
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      r1 = r;
++      u1 = x;
++      subtract(r1, r0, dr);
++      if (i >= this->trigger) {
++        const auto nr2_dr = this->dot(dr, dr);
++        if (nr2_dr > getThreshold(r_eps)) {
++          const auto a = this->dot(r1, dr) / nr2_dr;
++          x.Add(-a, u1);
++          x.Add(a, u0);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief crossed secant method: `G(X_n) - a Delta X_n` with
++   * `a = (dG . dDelta) / |dDelta|²`
++   */
++  struct CrossedSecantAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<6> {
++    using HistoryAccelerationAlgorithmBase<6>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, du, dr] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du);
++      subtract(r1, r0, dr);
++      if (i >= this->trigger) {
++        const auto nr2_dr = this->dot(dr, dr);
++        if (nr2_dr > eps * eps) {
++          x.Add(-this->dot(du, dr) / nr2_dr, r1);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief alternate secant method: `G(X_n) - a dG` with
++   * `a = (dDelta . Delta X_n) / |dDelta|²`
++   */
++  struct AlternateSecantAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<6> {
++    using HistoryAccelerationAlgorithmBase<6>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, du, dr] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du);
++      subtract(r1, r0, dr);
++      if (i >= this->trigger) {
++        const auto nr2_dr = this->dot(dr, dr);
++        if (nr2_dr > eps * eps) {
++          x.Add(-this->dot(dr, r1) / nr2_dr, du);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief method of Irons and Tuck, applied every two iterations:
++   * `G(X_n) - a Delta X_n` with `a = (Delta X_n . dDelta) / |dDelta|²`
++   */
++  struct IronsTuckAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<3> {
++    using HistoryAccelerationAlgorithmBase<3>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [r0, r1, dr] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(r0, r1);
++      r1 = dx;
++      if ((i >= this->trigger) && ((i - this->trigger) % 2 == 0)) {
++        subtract(r1, r0, dr);
++        const auto nr2_dr = this->dot(dr, dr);
++        if (nr2_dr > eps * eps) {
++          x.Add(-this->dot(r1, dr) / nr2_dr, r1);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief method of Steffensen, component by component, applied every two
++   * iterations. The components are combined on the host.
++   */
++  struct SteffensenAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<3> {
++    using HistoryAccelerationAlgorithmBase<3>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector&,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, u2] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(u1, u2);
++      u2 = x;
++      if ((i < this->trigger) || ((i - this->trigger) % 2 != 0)) {
++        return;
++      }
++      const auto* const pu0 = u0.HostRead();
++      const auto* const pu1 = u1.HostRead();
++      const auto* const pu2 = u2.HostRead();
++      auto* const px = x.HostReadWrite();
++      for (int id = 0; id != x.Size(); ++id) {
++        const auto du2 = pu2[id] - pu1[id];
++        const auto du1 = pu1[id] - pu0[id];
++        if ((std::abs(du2) > eps) && (std::abs(du1) > eps)) {
++          const auto i1 = 1 / du2;
++          const auto i2 = 1 / du1;
++          if (std::abs(i1 - i2) > eps) {
++            px[id] = pu1[id] + 1 / (i1 - i2);
++          }
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief crossed delta squared method: crossed secant at the second
++   * iteration, then `G(X_n) - a dDelta_n` with `a = (dG . d²Delta) /
++   * |d²Delta|²`
++   */
++  struct CrossedDelta2AccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<8> {
++    using HistoryAccelerationAlgorithmBase<8>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, dr0, dr1, du, d2r] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      std::swap(dr0, dr1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du);
++      subtract(r1, r0, dr1);
++      subtract(dr1, dr0, d2r);
++      if (i < this->trigger) {
++        return;
++      }
++      if (i == 2) {
++        const auto nr2_dr = this->dot(dr1, dr1);
++        if (nr2_dr > eps * eps) {
++          x.Add(-this->dot(du, dr1) / nr2_dr, r1);
++        }
++      } else {
++        const auto nr2_d2r = this->dot(d2r, d2r);
++        if (nr2_d2r > eps * eps) {
++          x.Add(-this->dot(du, d2r) / nr2_d2r, dr1);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief crossed method of order 2: crossed secant at the second
++   * iteration, then `G(X_n) - l1 Delta X_n - l2 Delta X_{n-1}`, `l1` and
++   * `l2` minimizing `|dG - l1 dDelta_n - l2 dDelta_{n-1}|`, unless the last
++   * differences are almost colinear
++   */
++  struct Crossed2DeltaAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<7> {
++    using HistoryAccelerationAlgorithmBase<7>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, dr0, dr1, du] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      std::swap(dr0, dr1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du);
++      subtract(r1, r0, dr1);
++      if (i < this->trigger) {
++        return;
++      }
++      const auto nr2_dr1 = this->dot(dr1, dr1);
++      if (i != 2) {
++        const auto nr2_dr0 = this->dot(dr0, dr0);
++        const auto dr1_dr0 = this->dot(dr1, dr0);
++        const auto det = nr2_dr1 * nr2_dr0 - dr1_dr0 * dr1_dr0;
++        if ((dr1_dr0 * dr1_dr0) / (nr2_dr1 * nr2_dr0) < 0.99) {
++          const auto b1 = this->dot(dr1, du);
++          const auto b2 = this->dot(dr0, du);
++          const auto l1 = (nr2_dr0 * b1 - dr1_dr0 * b2) / det;
++          const auto l2 = (nr2_dr1 * b2 - dr1_dr0 * b1) / det;
++          x.Add(-l1, r1);
++          x.Add(-l2, r0);
++          return;
++        }
++      }
++      if (nr2_dr1 > eps * eps) {
++        x.Add(-this->dot(du, dr1) / nr2_dr1, r1);
++      }
++    }
++  };
++
++  /*!
++   * \brief variant of the crossed method of order 2 using the differences
++   * of the accelerated estimates (`Crossed2Deltabis` of MTest)
++   */
++  struct Crossed2DeltabisAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<12> {
++    using HistoryAccelerationAlgorithmBase<
++        12>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, x0, x1, x2, dx0, dx1, dx2, r0, r1, du, dr] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(x0, x1);
++      std::swap(x1, x2);
++      std::swap(dx0, dx1);
++      std::swap(dx1, dx2);
++      std::swap(r0, r1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du);
++      subtract(r1, r0, dr);
++      if (i >= this->trigger) {
++        const auto ma = this->dot(dr, dr);
++        auto crossed_secant = [&] {
++          if (ma > eps * eps) {
++            x.Add(-this->dot(du, dr) / ma, r1);
++          }
++        };
++        if (i == 2) {
++          crossed_secant();
++        } else {
++          // `dudx` is stored in `dx2`, set at the end of this method
++          auto& dudx = dx2;
++          subtract(du, dx0, dudx);
++          const auto mc = this->dot(dudx, dudx);
++          const auto mb = this->dot(dr, dudx);
++          const auto det = ma * mc - mb * mb;
++          if ((mb * mb) / (ma * mc) < 0.99) {
++            const auto b1 = this->dot(dr, du);
++            const auto b2 = this->dot(dudx, du);
++            const auto l1 = (mc * b1 - mb * b2) / det;
++            const auto l2 = (ma * b2 - mb * b1) / det;
++            // u1 - x0 is computed in `dudx`, no longer used
++            subtract(u1, x0, dudx);
++            x.Add(-l1, r1);
++            x.Add(-l2, dudx);
++          } else {
++            crossed_secant();
++          }
++        }
++      }
++      x2 = x;
++      subtract(x2, x1, dx2);
++    }
++  };
++
++  /*!
++   * \brief alternate delta squared method: alternate secant at the second
++   * iteration, then `G(X_n) - a d²G` with `a = (d²Delta . Delta X_n) /
++   * |d²Delta|²`
++   */
++  struct AlternateDelta2AccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<10> {
++    using HistoryAccelerationAlgorithmBase<
++        10>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, du0, du1, dr0, dr1, r0, r1, d2u, d2r] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(du0, du1);
++      std::swap(dr0, dr1);
++      std::swap(r0, r1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du1);
++      subtract(du1, du0, d2u);
++      subtract(r1, r0, dr1);
++      subtract(dr1, dr0, d2r);
++      if (i < this->trigger) {
++        return;
++      }
++      if (i == 2) {
++        const auto nr2_dr = this->dot(dr1, dr1);
++        if (nr2_dr > eps * eps) {
++          x.Add(-this->dot(dr1, r1) / nr2_dr, du1);
++        }
++      } else {
++        const auto nr2_d2r = this->dot(d2r, d2r);
++        if (nr2_d2r > eps * eps) {
++          x.Add(-this->dot(d2r, r1) / nr2_d2r, d2u);
++        }
++      }
++    }
++  };
++
++  /*!
++   * \brief alternate method of order 2: alternate secant at the second
++   * iteration, then `G(X_n) - l1 dG_n - l2 dG_{n-1}`, `l1` and `l2`
++   * minimizing `|Delta X_n - l1 dDelta_n - l2 dDelta_{n-1}|`, unless the
++   * last differences are almost colinear
++   */
++  struct Alternate2DeltaAccelerationAlgorithm final
++      : HistoryAccelerationAlgorithmBase<8> {
++    using HistoryAccelerationAlgorithmBase<8>::HistoryAccelerationAlgorithmBase;
++    void execute(mfem::Vector& x,
++                 const mfem::Vector& dx,
++                 const mfem::Vector&,
++                 const real,
++                 const real u_eps,
++                 const size_type i) override {
++      auto& [u0, u1, r0, r1, du0, du1, dr0, dr1] = this->vectors;
++      const auto eps = getThreshold(u_eps);
++      std::swap(u0, u1);
++      std::swap(r0, r1);
++      std::swap(du0, du1);
++      std::swap(dr0, dr1);
++      r1 = dx;
++      u1 = x;
++      subtract(u1, u0, du1);
++      subtract(r1, r0, dr1);
++      if (i < this->trigger) {
++        return;
++      }
++      const auto nr2_dr1 = this->dot(dr1, dr1);
++      if (i != 2) {
++        const auto nr2_dr0 = this->dot(dr0, dr0);
++        const auto dr1_dr0 = this->dot(dr1, dr0);
++        const auto det = nr2_dr1 * nr2_dr0 - dr1_dr0 * dr1_dr0;
++        if ((dr1_dr0 * dr1_dr0) / (nr2_dr1 * nr2_dr0) < 0.99) {
++          const auto b1 = this->dot(dr1, r1);
++          const auto b2 = this->dot(dr0, r1);
++          const auto l1 = (nr2_dr0 * b1 - dr1_dr0 * b2) / det;
++          const auto l2 = (nr2_dr1 * b2 - dr1_dr0 * b1) / det;
++          x.Add(-l1, du1);
++          x.Add(-l2, du0);
++          return;
++        }
++      }
++      if (nr2_dr1 > eps * eps) {
++        x.Add(-this->dot(dr1, r1) / nr2_dr1, du1);
++      }
++    }
++  };
++
++  /*!
++   * \return an algorithm of this file, whose only option is `Trigger`, the
++   * first accelerated iteration
++   * \tparam Algorithm: algorithm
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options
++   * \param[in] name: name of the algorithm
++   * \param[in] default_trigger: default value of the trigger
++   * \param[in] minimum_trigger: minimum value of the trigger
++   */
++  template <typename Algorithm>
++  static std::unique_ptr<AccelerationAlgorithm> makeTriggeredAlgorithm(
++      Context& ctx,
++      const Parameters& opts,
++      const char* const name,
++      const int default_trigger,
++      const int minimum_trigger) noexcept {
++    if (!checkParameters(ctx, opts, std::vector<std::string>{"Trigger"})) {
++      return {};
++    }
++    const auto otrigger = get_if<int>(ctx, opts, "Trigger", default_trigger);
++    if (isInvalid(otrigger)) {
++      return {};
++    }
++    if (*otrigger < minimum_trigger) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the trigger must be greater than or equal to " +
++          std::to_string(minimum_trigger));
++    }
++    return std::make_unique<Algorithm>(static_cast<size_type>(*otrigger));
++  }  // end of makeTriggeredAlgorithm
++
++  void declareSecantAccelerationAlgorithms(
++      AccelerationAlgorithmFactory& f) noexcept {
++    auto ctx = Context{};
++    auto check = [&ctx](const bool b) {
++      if (!b) {
++        auto eh = mgis::ContractViolationHandler{};
++        eh.registerErrorMessage(ctx.getErrorMessage().c_str());
++      }
++    };
++    // name, default trigger and minimum trigger as in MTest
++    check(f.add(ctx, "Secant", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<SecantAccelerationAlgorithm>(c, o, "Secant",
++                                                                 3, 3);
++    }));
++    check(f.add(ctx, "CrossedSecant", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<CrossedSecantAccelerationAlgorithm>(
++          c, o, "CrossedSecant", 2, 2);
++    }));
++    check(f.add(ctx, "AlternateSecant", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<AlternateSecantAccelerationAlgorithm>(
++          c, o, "AlternateSecant", 2, 2);
++    }));
++    check(f.add(ctx, "IronsTuck", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<IronsTuckAccelerationAlgorithm>(
++          c, o, "IronsTuck", 2, 2);
++    }));
++    check(f.add(ctx, "Steffensen", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<SteffensenAccelerationAlgorithm>(
++          c, o, "Steffensen", 3, 3);
++    }));
++    check(f.add(ctx, "CrossedDelta2", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<CrossedDelta2AccelerationAlgorithm>(
++          c, o, "CrossedDelta2", 3, 2);
++    }));
++    check(f.add(ctx, "Crossed2Delta", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<Crossed2DeltaAccelerationAlgorithm>(
++          c, o, "Crossed2Delta", 2, 2);
++    }));
++    check(f.add(ctx, "Crossed2Deltabis", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<Crossed2DeltabisAccelerationAlgorithm>(
++          c, o, "Crossed2Deltabis", 2, 2);
++    }));
++    check(f.add(ctx, "AlternateDelta2", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<AlternateDelta2AccelerationAlgorithm>(
++          c, o, "AlternateDelta2", 3, 2);
++    }));
++    check(f.add(ctx, "Alternate2Delta", [](Context& c, const Parameters& o) {
++      return makeTriggeredAlgorithm<Alternate2DeltaAccelerationAlgorithm>(
++          c, o, "Alternate2Delta", 2, 2);
++    }));
++  }  // end of declareSecantAccelerationAlgorithms
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 4d5cd30c03..091eed58fb 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -4,9 +4,11 @@
+  * uniaxial tension of a cube made of a plastic material with a linear
+  * hardening, in two time steps. Each method (fixed point on the elastic
+  * operator, modified Newton) and each acceleration gives the solution of the
+- * Newton solver; the accelerations reduce the number of iterations; without
+- * acceleration, the asymptotic rate of convergence of the fixed point on the
+- * elastic operator is bounded by `3μ / (3μ + H)`; the invalid options are
++ * Newton solver; Anderson's method and the acceleration of Cast3M reduce
++ * the number of iterations; the other accelerations of MTest converge;
++ * without acceleration, the asymptotic rate of convergence of the fixed
++ * point on the elastic operator is bounded by `3μ / (3μ + H)`; the invalid
++ * options are
+  * refused. With the `--parallel` option, the elastic operator is also
+  * solved by one cycle of BoomerAMG per iteration, or by the conjugate
+  * gradient of hypre preconditioned by BoomerAMG.
+@@ -241,6 +243,23 @@ int main(int argc, char** argv) {
+       {"modified Newton, Anderson",
+        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
+        true}};
++  // the other accelerations, ported from MTest: the solution only is
++  // checked. Steffensen's method, applied component by component, diverges
++  // on this problem (as expected for a coupled system): its declaration is
++  // checked by the refusal of an invalid trigger.
++  cases.push_back({"fixed point, Anderson on the residuals, period 2",
++                   {{"Acceleration",
++                     Parameters{{"Anderson", Parameters{{"Residuals", "Forces"},
++                                                        {"Period", 2}}}}}},
++                   false});
++  for (const auto* const a :
++       {"UAnderson", "FAnderson", "Secant", "CrossedSecant", "AlternateSecant",
++        "IronsTuck", "CrossedDelta2", "Crossed2Delta", "Crossed2Deltabis",
++        "AlternateDelta2", "Alternate2Delta"}) {
++    cases.push_back({std::string{"fixed point, "} + a,
++                     {{"Acceleration", std::string{a}}},
++                     false});
++  }
+   if (parallel) {
+     cases.push_back(
+         {"fixed point, Anderson, one cycle of BoomerAMG per iteration",
+@@ -280,6 +299,19 @@ int main(int argc, char** argv) {
+       mesh,
+       {{"Acceleration", Parameters{{"Cast3M", Parameters{{"Trigger", 2}}}}}},
+       "a trigger of the acceleration of Cast3M lower than 3");
++  checkRefusal(
++      mesh,
++      {{"Acceleration", Parameters{{"Secant", Parameters{{"Trigger", 2}}}}}},
++      "a trigger of the secant method lower than 3");
++  checkRefusal(mesh,
++               {{"Acceleration",
++                 Parameters{{"Steffensen", Parameters{{"Trigger", 2}}}}}},
++               "a trigger of Steffensen's method lower than 3");
++  checkRefusal(
++      mesh,
++      {{"Acceleration",
++        Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
++      "invalid residuals of Anderson's method");
+   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
+                "an invalid update of the elastic operator");
+   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
+-- 
+2.43.0
+

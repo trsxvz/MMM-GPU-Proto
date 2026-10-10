@@ -43,6 +43,7 @@ namespace mfem_mgis::internals {
                  const mfem::Vector&,
                  const mfem::Vector& r,
                  const real r_eps,
+                 const real,
                  const size_type i) override {
       const auto eps = 100 * r_eps * std::numeric_limits<real>::epsilon();
       std::swap(this->u0, this->u1);

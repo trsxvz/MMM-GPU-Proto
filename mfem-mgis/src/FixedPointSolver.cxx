@@ -342,6 +342,9 @@ namespace mfem_mgis {
             return this->Dot(a, b);
           });
     }
+    // scale of the variations of the unknowns at convergence, estimated
+    // from the first correction (see `AccelerationAlgorithm::execute`)
+    auto unknowns_scale = real{};
     auto it = size_type{};
     while (true) {
       if (shall_print) {
@@ -372,6 +375,9 @@ namespace mfem_mgis {
       if ((!this->discardLinearSolverFailure) && (!hasConverged(solver))) {
         break;
       }
+      if (it == 0) {
+        unknowns_scale = this->rel_tol * this->Norm(c);
+      }
       subtract(x, c, xn);
       if (this->acceleration != nullptr) {
         auto profiler_acceleration =
@@ -380,7 +386,7 @@ namespace mfem_mgis {
                       "FPS::accelerate", this->ctx_ptr->isProfilingEnabled())
                 : mgis::ProfilingSection{};
         subtract(xn, x, dx);
-        this->acceleration->execute(xn, dx, r, goal, it + 1);
+        this->acceleration->execute(xn, dx, r, goal, unknowns_scale, it + 1);
       }
       // integration at the new estimate: on failure, the estimate is moved
       // towards the previous one

@@ -3357,3 +3357,19 @@ mfem-mgis bae47cb272 :
   que Jacobi), C12 (préconditionneur gardé après un échec de Newton), C14
   (une réduction MPI par application de l'opérateur sans matrice), tests
   de F4, F5, F6.
+
+### 2026-10-10 (nuit), accélérations de MTest
+
+mfem-mgis : portage de toutes les accélérations de MTest dans la fabrique
+du point fixe : `UAnderson` et `FAnderson` (méthode d'Anderson sur les
+résidus du point fixe ou sur ceux du problème, accélération tous les deux
+pas d'itération par défaut), `Secant`, `CrossedSecant`, `AlternateSecant`,
+`IronsTuck`, `Steffensen`, `CrossedDelta2`, `Crossed2Delta`,
+`Crossed2Deltabis`, `AlternateDelta2`, `Alternate2Delta`. Cube en traction
+(2 pas, Newton 8 itérations, point fixe seul 103) : Anderson 37,
+UAnderson et FAnderson 38, CrossedSecant 41, Alternate2Delta 46, IronsTuck
+48, Cast3M 56, AlternateDelta2 60, AlternateSecant 61, Secant 65,
+Crossed2Delta 70, CrossedDelta2 140, Crossed2Deltabis 374 ; Steffensen,
+appliqué composante par composante, diverge sur ce problème couplé (même
+formule que MTest). Toutes les autres donnent la solution de Newton à
+1e-12 près.

@@ -23,6 +23,29 @@ namespace mfem_mgis::internals {
   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
   makeAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
   /*!
+   * \return Anderson's method on the fixed point residuals, accelerating
+   * every two iterations by default, as `UAnderson` in MTest
+   * \param[in, out] ctx: execution context
+   * \param[in] opts: options
+   */
+  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
+  makeUAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  /*!
+   * \return Anderson's method on the residuals of the problem, accelerating
+   * every two iterations by default, as `FAnderson` in MTest
+   * \param[in, out] ctx: execution context
+   * \param[in] opts: options
+   */
+  [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
+  makeFAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  /*!
+   * \brief declares the algorithms based on secant and delta squared methods
+   * (`Secant`, `CrossedSecant`, ...)
+   * \param[in, out] f: factory
+   */
+  void declareSecantAccelerationAlgorithms(
+      AccelerationAlgorithmFactory&) noexcept;
+  /*!
    * \return the acceleration of Cast3M (see `AccelerationAlgorithmFactory`)
    * \param[in, out] ctx: execution context
    * \param[in] opts: options

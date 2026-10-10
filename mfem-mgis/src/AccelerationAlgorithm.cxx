@@ -34,7 +34,12 @@ namespace mfem_mgis {
     };
     check(this->add(ctx, "Anderson",
                     internals::makeAndersonAccelerationAlgorithm));
+    check(this->add(ctx, "UAnderson",
+                    internals::makeUAndersonAccelerationAlgorithm));
+    check(this->add(ctx, "FAnderson",
+                    internals::makeFAndersonAccelerationAlgorithm));
     check(this->add(ctx, "Cast3M", internals::makeCast3MAccelerationAlgorithm));
+    internals::declareSecantAccelerationAlgorithms(*this);
   }  // end of AccelerationAlgorithmFactory
 
   bool AccelerationAlgorithmFactory::add(Context& ctx,

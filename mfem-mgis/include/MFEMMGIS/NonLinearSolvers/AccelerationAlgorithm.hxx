@@ -53,13 +53,18 @@ namespace mfem_mgis {
      * estimate if the algorithm applies at this iteration
      * \param[in] dx: correction `x_{i+1} - x_i`
      * \param[in] r: residual at the previous estimate `x_i`
-     * \param[in] r_eps: scale of the residual below which differences of
-     * residuals are considered null (the convergence criterion)
+     * \param[in] r_eps: scale of the residual (the convergence criterion on
+     * the residual), below which differences of residuals are considered
+     * null
+     * \param[in] u_eps: scale of the unknowns (an estimate of the variation
+     * of the unknowns when the residual reaches its convergence criterion),
+     * below which differences of unknowns are considered null
      * \param[in] i: iteration number, starting at 1
      */
     virtual void execute(mfem::Vector&,
                          const mfem::Vector&,
                          const mfem::Vector&,
+                         const real,
                          const real,
                          const size_type) = 0;
     //! \brief destructor
@@ -70,13 +75,25 @@ namespace mfem_mgis {
    * \brief factory of the acceleration algorithms. The algorithms are
    * selected by their names and set by their options:
    *
-   * - `Anderson`: Anderson's method (type II) on the images of the fixed
-   *   point map, options `Depth` (number of previous iterations used, 4 by
-   *   default) and `Regularization` (relative regularization of the least
-   *   squares problem, 1e-12 by default);
+   * - `Anderson`: Anderson's method on the images of the fixed point map,
+   *   options `Depth` (number of previous iterations used, 4 by default),
+   *   `Period` (number of iterations between two accelerations, 1 by
+   *   default), `Residuals` (`Unknowns`, by default, the fixed point
+   *   residuals, or `Forces`, the residuals of the problem) and
+   *   `Regularization` (relative regularization of the least squares
+   *   problem, 1e-12 by default);
+   * - `UAnderson` and `FAnderson`: Anderson's method on the fixed point
+   *   residuals and on the residuals of the problem, accelerating every two
+   *   iterations by default, as MTest (same options as `Anderson`, except
+   *   `Residuals`);
    * - `Cast3M`: port of the acceleration of Cast3M (as MTest), options
    *   `Trigger` (first accelerated iteration, 4 by default) and `Period`
-   *   (number of iterations between two accelerations, 2 by default).
+   *   (number of iterations between two accelerations, 2 by default);
+   * - `Secant`, `CrossedSecant`, `AlternateSecant`, `IronsTuck`,
+   *   `Steffensen`, `CrossedDelta2`, `Crossed2Delta`, `Crossed2Deltabis`,
+   *   `AlternateDelta2` and `Alternate2Delta`: ports of the algorithms of
+   *   MTest of the same names, option `Trigger` (first accelerated
+   *   iteration, with the default values of MTest).
    */
   struct MFEM_MGIS_EXPORT AccelerationAlgorithmFactory {
     //! \brief generator of an acceleration algorithm from its options

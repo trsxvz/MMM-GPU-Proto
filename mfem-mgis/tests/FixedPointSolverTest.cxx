@@ -4,9 +4,11 @@
  * uniaxial tension of a cube made of a plastic material with a linear
  * hardening, in two time steps. Each method (fixed point on the elastic
  * operator, modified Newton) and each acceleration gives the solution of the
- * Newton solver; the accelerations reduce the number of iterations; without
- * acceleration, the asymptotic rate of convergence of the fixed point on the
- * elastic operator is bounded by `3μ / (3μ + H)`; the invalid options are
+ * Newton solver; Anderson's method and the acceleration of Cast3M reduce
+ * the number of iterations; the other accelerations of MTest converge;
+ * without acceleration, the asymptotic rate of convergence of the fixed
+ * point on the elastic operator is bounded by `3μ / (3μ + H)`; the invalid
+ * options are
  * refused. With the `--parallel` option, the elastic operator is also
  * solved by one cycle of BoomerAMG per iteration, or by the conjugate
  * gradient of hypre preconditioned by BoomerAMG.
@@ -241,6 +243,23 @@ int main(int argc, char** argv) {
       {"modified Newton, Anderson",
        {{"Method", "ModifiedNewton"}, {"Acceleration", "Anderson"}},
        true}};
+  // the other accelerations, ported from MTest: the solution only is
+  // checked. Steffensen's method, applied component by component, diverges
+  // on this problem (as expected for a coupled system): its declaration is
+  // checked by the refusal of an invalid trigger.
+  cases.push_back({"fixed point, Anderson on the residuals, period 2",
+                   {{"Acceleration",
+                     Parameters{{"Anderson", Parameters{{"Residuals", "Forces"},
+                                                        {"Period", 2}}}}}},
+                   false});
+  for (const auto* const a :
+       {"UAnderson", "FAnderson", "Secant", "CrossedSecant", "AlternateSecant",
+        "IronsTuck", "CrossedDelta2", "Crossed2Delta", "Crossed2Deltabis",
+        "AlternateDelta2", "Alternate2Delta"}) {
+    cases.push_back({std::string{"fixed point, "} + a,
+                     {{"Acceleration", std::string{a}}},
+                     false});
+  }
   if (parallel) {
     cases.push_back(
         {"fixed point, Anderson, one cycle of BoomerAMG per iteration",
@@ -280,6 +299,19 @@ int main(int argc, char** argv) {
       mesh,
       {{"Acceleration", Parameters{{"Cast3M", Parameters{{"Trigger", 2}}}}}},
       "a trigger of the acceleration of Cast3M lower than 3");
+  checkRefusal(
+      mesh,
+      {{"Acceleration", Parameters{{"Secant", Parameters{{"Trigger", 2}}}}}},
+      "a trigger of the secant method lower than 3");
+  checkRefusal(mesh,
+               {{"Acceleration",
+                 Parameters{{"Steffensen", Parameters{{"Trigger", 2}}}}}},
+               "a trigger of Steffensen's method lower than 3");
+  checkRefusal(
+      mesh,
+      {{"Acceleration",
+        Parameters{{"Anderson", Parameters{{"Residuals", "Displacements"}}}}}},
+      "invalid residuals of Anderson's method");
   checkRefusal(mesh, {{"ElasticOperatorUpdate", "Never"}},
                "an invalid update of the elastic operator");
   checkRefusal(mesh, {{"ElasticOperatorLinearSolver", "Unknown"}},
