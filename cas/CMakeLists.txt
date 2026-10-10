@@ -85,3 +85,4 @@ find_package(Python3 COMPONENTS Interpreter)
 
 add_subdirectory(poutre)
 add_subdirectory(polycristal)
+add_subdirectory(thermique)

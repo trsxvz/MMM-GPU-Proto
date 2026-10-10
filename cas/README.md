@@ -14,6 +14,17 @@ mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
   Le bilan donne le nombre d'inconnues, la norme de la solution finale
   (identique pour tous les solveurs) et les itérations de Newton par pas.
   Les tests comparent cette norme à sa valeur de référence.
+- `thermique/` : thermique stationnaire non linéaire dans la même poutre
+  (conductivité qui dépend de la température, températures imposées aux
+  deux extrémités, loi `StationaryNonLinearHeatTransfer` des tests de
+  mfem-mgis). Résolue par le Newton de mfem-mgis, point par point ou par
+  noyaux, sur l'hôte ou sur le GPU. La tangente thermique est définie
+  négative et les températures imposées ont une diagonale à un : la
+  matrice est indéfinie, d'où GMRES au lieu du gradient conjugué.
+  Solveurs linéaires : `gmres-amg` (GMRES de hypre et BoomerAMG),
+  `gmres-jacobi` (GMRES de MFEM et Jacobi, aussi sans matrice), `mumps`,
+  `umfpack`. Mêmes options et même bilan que la poutre, plus `-dT`
+  (échauffement imposé) et `-alst` (tolérance adaptative).
 
 `mesures-reference.sh` mesure les temps de référence du chemin actuel de
 mfem-mgis sur CPU (lot L0) : poutre, ssna303 en 3D (ex4), polycristal

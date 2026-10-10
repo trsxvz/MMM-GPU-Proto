@@ -14,7 +14,9 @@
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
 # - polycristal : polycristal de mm-opera-hpc (5 grains, loi de monocristal
-#   de l'UO2, orthotrope, en grandes transformations), 10 pas.
+#   de l'UO2, orthotrope, en grandes transformations), 10 pas ;
+# - thermique : thermique stationnaire non linéaire dans la poutre
+#   (cas/thermique), r5, 5 pas.
 #
 # Sorties brutes (avec les tableaux de profilage) dans le dossier de
 # résultats, résumé dans resume.txt ; temps par phase :
@@ -48,8 +50,13 @@ case "$case_name" in
     generic=$B/src/libBehaviour.so
     gp=$P/build/cas/polycristal
     ;;
+  thermique)
+    B=$P/build/cas/thermique
+    generic=$B/src/libBehaviour.so
+    gp=$B
+    ;;
   *)
-    echo "usage : $0 [poutre|polycristal] [dossier de résultats]" >&2
+    echo "usage : $0 [poutre|polycristal|thermique] [dossier de résultats]" >&2
     exit 1
     ;;
 esac
@@ -84,6 +91,11 @@ command_of() {
   case "$case_name" in
     poutre)
       echo ./poutre -r 4 -n 10 -mi 3000 -ls "$linear_solver" \
+        -lt "$linear_tolerance" \
+        -l "$library" --profiling ${device:+--device $device} $options
+      ;;
+    thermique)
+      echo ./thermique -r 5 -n 5 -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
       ;;
