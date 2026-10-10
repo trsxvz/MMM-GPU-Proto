@@ -14,11 +14,12 @@ import sys
 # phases : nom affiché, sections de mfem-mgis
 PHASES = [
     ("total", ["root"]),
-    ("intégration", ["NS::processNewUnknownsEstimate"]),
+    ("intégration", ["NS::processNewUnknownsEstimate", "FPS::integrate"]),
     ("résidu", ["NS::computeResidual"]),
     ("tangente", ["NS::getJacobian"]),
     ("préconditionneur", ["NS::setLinearSolverOperator"]),
     ("résolution", ["MFEM::Mult(r,c)"]),
+    ("accélération", ["FPS::accelerate"]),
     ("prédiction", ["NLEPIB::computePrediction"]),
     ("fin de pas", ["NLEPIB::update"]),
 ]
