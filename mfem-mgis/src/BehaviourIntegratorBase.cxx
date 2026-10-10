@@ -1212,8 +1212,8 @@ namespace mfem_mgis {
     const auto nK = static_cast<std::size_t>(
         this->getArrays().getTangentOperatorBlocks().Size());
     if (nK != 0) {
-      auto* const K = this->getArrays().writeTangentOperatorBlocks(false);
-      std::fill(K, K + nK, real{0});
+      auto* const blocks = this->getArrays().writeTangentOperatorBlocks(false);
+      std::fill(blocks, blocks + nK, real{0});
     }
   }  // end of copyStatesOnDevice
 

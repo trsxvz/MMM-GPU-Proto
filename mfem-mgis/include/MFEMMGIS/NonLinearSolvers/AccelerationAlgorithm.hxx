@@ -51,7 +51,8 @@ namespace mfem_mgis {
      * \brief accelerates the fixed point iterations
      * \param[in, out] x: new estimate `x_{i+1}`, replaced by the accelerated
      * estimate if the algorithm applies at this iteration
-     * \param[in] dx: correction `x_{i+1} - x_i`
+     * \param[in] dx: correction `x_{i+1} - x_i` (the opposite of the
+     * correction `du` given to the algorithms of MTest)
      * \param[in] r: residual at the previous estimate `x_i`
      * \param[in] r_eps: scale of the residual (the convergence criterion on
      * the residual), below which differences of residuals are considered

@@ -9,6 +9,7 @@
 #define LIB_MFEMMGIS_NONLINEARSOLVERS_NONLINEARSOLVERBASE_HXX
 
 #include <ostream>
+#include <functional>
 #include "mfem/linalg/solvers.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
@@ -90,11 +91,19 @@ namespace mfem_mgis {
      */
     [[nodiscard]] bool shallPrint() const noexcept;
     /*!
-     * \return if the given value is true on all the processes using the
-     * communicator of the solver (a single process in sequential)
-     * \param[in] b: value on the current process
+     * \brief calls a computation and handles its exceptions. In a sequential
+     * computation, or for a failure reported on all the processes
+     * (`CollectiveFailure`), the exception is reported in the execution
+     * context of the resolution (or on the error stream) and the computation
+     * fails. In a parallel computation, any other exception, possibly thrown
+     * by a single process, can't be handled without blocking the other
+     * processes in their collective operations: its message is printed on the
+     * error stream and the program is stopped (`std::terminate`).
+     * \return the result of the computation, false on failure
+     * \param[in] f: computation
      */
-    [[nodiscard]] bool isTrueOnAllProcesses(const bool) const noexcept;
+    [[nodiscard]] bool callAndHandleFailures(
+        const std::function<bool()> &) const noexcept;
     //! \return the log stream of the execution context, if any
     [[nodiscard]] std::ostream &getLogStream() const noexcept;
     /*!

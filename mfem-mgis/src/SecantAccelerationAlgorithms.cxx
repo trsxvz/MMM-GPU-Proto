@@ -500,46 +500,54 @@ namespace mfem_mgis::internals {
       }
     };
     // name, default trigger and minimum trigger as in MTest
-    check(f.add(ctx, "Secant", [](Context& c, const Parameters& o) {
+    check(f.add(ctx, "Secant", [](Context& c, const Parameters& o) noexcept {
       return makeTriggeredAlgorithm<SecantAccelerationAlgorithm>(c, o, "Secant",
                                                                  3, 3);
     }));
-    check(f.add(ctx, "CrossedSecant", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<CrossedSecantAccelerationAlgorithm>(
-          c, o, "CrossedSecant", 2, 2);
-    }));
-    check(f.add(ctx, "AlternateSecant", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<AlternateSecantAccelerationAlgorithm>(
-          c, o, "AlternateSecant", 2, 2);
-    }));
-    check(f.add(ctx, "IronsTuck", [](Context& c, const Parameters& o) {
+    check(f.add(
+        ctx, "CrossedSecant", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<CrossedSecantAccelerationAlgorithm>(
+              c, o, "CrossedSecant", 2, 2);
+        }));
+    check(f.add(
+        ctx, "AlternateSecant", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<AlternateSecantAccelerationAlgorithm>(
+              c, o, "AlternateSecant", 2, 2);
+        }));
+    check(f.add(ctx, "IronsTuck", [](Context& c, const Parameters& o) noexcept {
       return makeTriggeredAlgorithm<IronsTuckAccelerationAlgorithm>(
           c, o, "IronsTuck", 2, 2);
     }));
-    check(f.add(ctx, "Steffensen", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<SteffensenAccelerationAlgorithm>(
-          c, o, "Steffensen", 3, 3);
-    }));
-    check(f.add(ctx, "CrossedDelta2", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<CrossedDelta2AccelerationAlgorithm>(
-          c, o, "CrossedDelta2", 3, 2);
-    }));
-    check(f.add(ctx, "Crossed2Delta", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<Crossed2DeltaAccelerationAlgorithm>(
-          c, o, "Crossed2Delta", 2, 2);
-    }));
-    check(f.add(ctx, "Crossed2Deltabis", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<Crossed2DeltabisAccelerationAlgorithm>(
-          c, o, "Crossed2Deltabis", 2, 2);
-    }));
-    check(f.add(ctx, "AlternateDelta2", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<AlternateDelta2AccelerationAlgorithm>(
-          c, o, "AlternateDelta2", 3, 2);
-    }));
-    check(f.add(ctx, "Alternate2Delta", [](Context& c, const Parameters& o) {
-      return makeTriggeredAlgorithm<Alternate2DeltaAccelerationAlgorithm>(
-          c, o, "Alternate2Delta", 2, 2);
-    }));
+    check(
+        f.add(ctx, "Steffensen", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<SteffensenAccelerationAlgorithm>(
+              c, o, "Steffensen", 3, 3);
+        }));
+    check(f.add(
+        ctx, "CrossedDelta2", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<CrossedDelta2AccelerationAlgorithm>(
+              c, o, "CrossedDelta2", 3, 2);
+        }));
+    check(f.add(
+        ctx, "Crossed2Delta", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<Crossed2DeltaAccelerationAlgorithm>(
+              c, o, "Crossed2Delta", 2, 2);
+        }));
+    check(f.add(
+        ctx, "Crossed2Deltabis", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<Crossed2DeltabisAccelerationAlgorithm>(
+              c, o, "Crossed2Deltabis", 2, 2);
+        }));
+    check(f.add(
+        ctx, "AlternateDelta2", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<AlternateDelta2AccelerationAlgorithm>(
+              c, o, "AlternateDelta2", 3, 2);
+        }));
+    check(f.add(
+        ctx, "Alternate2Delta", [](Context& c, const Parameters& o) noexcept {
+          return makeTriggeredAlgorithm<Alternate2DeltaAccelerationAlgorithm>(
+              c, o, "Alternate2Delta", 2, 2);
+        }));
   }  // end of declareSecantAccelerationAlgorithms
 
 }  // end of namespace mfem_mgis::internals

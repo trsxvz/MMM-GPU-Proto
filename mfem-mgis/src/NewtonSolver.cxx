@@ -218,60 +218,30 @@ namespace mfem_mgis {
                 "the Operator is not set (use SetOperator).");
     MFEM_ASSERT(this->prec != nullptr,
                 "the Solver is not set (use setLinearSolver).");
-    // reports an exception in the execution context of the resolution, if
-    // any (see `setContext`)
-    auto report = [this] {
-      if (this->ctx_ptr != nullptr) {
-        std::ignore = mgis::registerExceptionInErrorBacktrace(*(this->ctx_ptr));
-      } else {
-        getErrorStream() << "computation of the Newton correction failed\n";
-      }
-    };
-    // the assembly of the tangent operator and the setup of the linear solver
-    // (and of its preconditioner) are timed separately. A failure of one of
-    // them on a process is made collective before the resolution, which
-    // involves collective operations.
-    auto success = true;
-    try {
+    // the assembly of the tangent operator, the setup of the linear solver
+    // (and of its preconditioner) and the resolution are timed separately.
+    // The failures reported on all the processes, for instance by the
+    // computations by kernels, make the computation of the correction fail
+    // (see `callAndHandleFailures`).
+    const auto success = this->callAndHandleFailures([this, &c, &r, &u] {
       auto &J = this->getJacobian(u);
-      auto profiler_setup = this->ctx_ptr != nullptr
-                                ? this->ctx_ptr->startNewProfiling(
-                                      "NS::setLinearSolverOperator",
-                                      this->ctx_ptr->isProfilingEnabled())
-                                : mgis::ProfilingSection{};
-      this->prec->SetOperator(J);
-    } catch (...) {
-      report();
-      success = false;
-    }
-    if (!this->isTrueOnAllProcesses(success)) {
-      if ((success) && (this->ctx_ptr != nullptr)) {
-        std::ignore = this->ctx_ptr->registerErrorMessage(
-            "computation of the Newton correction failed on another process");
+      {
+        auto profiler_setup = this->ctx_ptr != nullptr
+                                  ? this->ctx_ptr->startNewProfiling(
+                                        "NS::setLinearSolverOperator",
+                                        this->ctx_ptr->isProfilingEnabled())
+                                  : mgis::ProfilingSection{};
+        this->prec->SetOperator(J);
       }
-      return false;
-    }
-    // resolution: the computations by kernels report their failures on all
-    // the processes (`CollectiveFailure`). In parallel, any other exception,
-    // thrown by a single process, can't be handled without blocking the
-    // other processes: it reaches `std::terminate`.
-    try {
       auto profiler_mfem =
           this->ctx_ptr != nullptr
               ? this->ctx_ptr->startNewProfiling(
                     "MFEM::Mult(r,c)", this->ctx_ptr->isProfilingEnabled())
               : mgis::ProfilingSection{};
       this->prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
-    } catch (CollectiveFailure &) {
-      report();
-      return false;
-    } catch (...) {
-#ifdef MFEM_USE_MPI
-      if (this->GetComm() != MPI_COMM_NULL) {
-        throw;
-      }
-#endif /* MFEM_USE_MPI */
-      report();
+      return true;
+    });
+    if (!success) {
       return false;
     }
     clearHypreErrors();

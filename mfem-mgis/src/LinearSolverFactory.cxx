@@ -654,7 +654,7 @@ namespace mfem_mgis {
   [[nodiscard]] static LinearSolverFactory<true>::Generator
   buildHypreBoomerAMGSolverGenerator() {
     return [](Context& ctx, FiniteElementSpace<true>& fespace,
-              const Parameters& params) -> LinearSolverHandler {
+              const Parameters& params) noexcept -> LinearSolverHandler {
       auto amg = setHypreBoomerAMGPreconditioner(ctx, fespace, params);
       if (amg == nullptr) {
         return {};

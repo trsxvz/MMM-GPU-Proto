@@ -198,9 +198,9 @@ namespace mfem_mgis::internals {
       return ctx.registerErrorMessage(name +
                                       ": the period must be strictly positive");
     }
-    if (*oregularization < 0) {
-      return ctx.registerErrorMessage(name +
-                                      ": the regularization must be positive");
+    if (*oregularization <= 0) {
+      return ctx.registerErrorMessage(
+          name + ": the regularization must be strictly positive");
     }
     if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
       return ctx.registerErrorMessage(name + ": invalid residuals '" +

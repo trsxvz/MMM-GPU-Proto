@@ -6,10 +6,15 @@
  */
 
 #include <array>
+#include <functional>
+#include <exception>
+#include <tuple>
 #include <iomanip>
 #include <utility>
 #include "MGIS/Raise.hxx"
+#include "MGIS/ErrorBacktrace.hxx"
 #include "MGIS/Profiling.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -178,17 +183,38 @@ namespace mfem_mgis {
     return true;
   }  // end of processNewUnknownsEstimate
 
-  bool NonLinearSolverBase::isTrueOnAllProcesses(const bool b) const noexcept {
+  bool NonLinearSolverBase::callAndHandleFailures(
+      const std::function<bool()> &f) const noexcept {
+    // reports the current exception in the execution context of the
+    // resolution, if any, or on the error stream
+    auto report = [this] {
+      if (this->ctx_ptr != nullptr) {
+        std::ignore = registerExceptionInErrorBacktrace(*(this->ctx_ptr));
+        return;
+      }
+      auto ctx = Context{};
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+      getErrorStream() << ctx.getErrorMessage() << '\n';
+    };
+    try {
+      return f();
+    } catch (CollectiveFailure &) {
+      report();
+    } catch (...) {
 #ifdef MFEM_USE_MPI
-    if (this->GetComm() != MPI_COMM_NULL) {
-      auto r = b;
-      MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_CXX_BOOL, MPI_LAND,
-                    this->GetComm());
-      return r;
-    }
+      if (this->GetComm() != MPI_COMM_NULL) {
+        auto ctx = Context{};
+        std::ignore = registerExceptionInErrorBacktrace(ctx);
+        getErrorStream() << "exception thrown during a parallel resolution, "
+                            "which can't be handled on all the processes: "
+                         << ctx.getErrorMessage() << '\n';
+        std::terminate();
+      }
 #endif /* MFEM_USE_MPI */
-    return b;
-  }  // end of isTrueOnAllProcesses
+      report();
+    }
+    return false;
+  }  // end of callAndHandleFailures
 
   bool NonLinearSolverBase::shallPrint() const noexcept {
     if (this->print_level >= 0) {

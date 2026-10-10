@@ -45,16 +45,20 @@ namespace mfem_mgis {
    *   operator at the first iteration of each resolution, given to the
    *   linear solver of the problem.
    *
-   * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, `Name` and
-   * `Options` as the linear solvers of the problems, for instance
-   * `HypreBoomerAMG` for one cycle of BoomerAMG per iteration): owned by
+   * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, a linear
+   * solver of the factory of the problems, for instance `HypreBoomerAMG`
+   * for one cycle of BoomerAMG per iteration in a parallel computation):
+   * owned by
    * the solver, so that its setup is kept between resolutions with
    * `ElasticOperatorUpdate` set to `Once`. If not given, the linear solver
    * of the problem is used, and set up with `K0` at each resolution (the
    * prediction of the problem gives it its own operator).
    *
-   * Acceleration (option `Acceleration`, a name or a `Name` and `Options`,
-   * see `AccelerationAlgorithmFactory`): none by default.
+   * Acceleration (option `Acceleration`, see `AccelerationAlgorithmFactory`):
+   * none by default. The linear solver of the elastic operator and the
+   * acceleration are given by a name, by a dictionary associating a name
+   * with its options, or by a dictionary with the entries `Name` and
+   * `Options`.
    *
    * Linear solver of the elastic prediction of the problem (option
    * `PredictionLinearSolver`): `Problem` (default), the linear solver of
@@ -67,7 +71,8 @@ namespace mfem_mgis {
    *
    * The other options are the ones of the iterative solvers
    * (`RelativeTolerance`, `AbsoluteTolerance`, `MaximumNumberOfIterations`,
-   * `VerbosityLevel`) and `DiscardLinearSolverFailure`. When the
+   * `VerbosityLevel`) and `DiscardLinearSolverFailure`. The iterations stop
+   * if the norm of the residual is not finite. When the
    * integration of the behaviours fails at a new estimate, it is replaced
    * by the middle of this estimate and of the previous one, ten times at
    * most.

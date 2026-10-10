@@ -89,11 +89,12 @@ namespace mfem_mgis {
   static void checkMatrixFreeTangentOperatorSupport(
       const mfem::NonlinearForm& f,
       const MultiMaterialNonLinearIntegrator* const mi) {
+    // this check gives the same result on all the processes
     if (!isTheOnlyIntegrator(f, mi)) {
-      raise(
+      throw(CollectiveFailure(
           "the tangent operator applied without assembly (parameter "
           "TangentOperatorComputation set to MatrixFree) requires that the "
-          "non linear form only contains the integrator of mfem-mgis");
+          "non linear form only contains the integrator of mfem-mgis"));
     }
   }  // end of checkMatrixFreeTangentOperatorSupport
 

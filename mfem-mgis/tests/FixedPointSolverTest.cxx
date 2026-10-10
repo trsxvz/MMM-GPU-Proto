@@ -16,6 +16,7 @@
  */
 
 #include <cmath>
+#include <map>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -317,6 +318,25 @@ int main(int argc, char** argv) {
                                    Parameters{{"Name", "HypreBoomerAMG"}}}}}}}},
          true});
   }
+  // maximum numbers of iterations of the accelerations, about 15 % above
+  // the observed ones, to detect a wrong acceleration which still converges
+  const auto maximum_numbers_of_iterations = std::map<std::string, size_type>{
+      {"fixed point, Anderson", 43},
+      {"fixed point, Cast3M", 65},
+      {"modified Newton", 70},
+      {"modified Newton, Anderson", 38},
+      {"fixed point, Anderson on the residuals, period 2", 44},
+      {"fixed point, UAnderson", 44},
+      {"fixed point, FAnderson", 44},
+      {"fixed point, Secant", 75},
+      {"fixed point, CrossedSecant", 48},
+      {"fixed point, AlternateSecant", 71},
+      {"fixed point, IronsTuck", 56},
+      {"fixed point, CrossedDelta2", 161},
+      {"fixed point, Crossed2Delta", 81},
+      {"fixed point, Crossed2Deltabis", 431},
+      {"fixed point, AlternateDelta2", 69},
+      {"fixed point, Alternate2Delta", 53}};
   // number of iterations of the fixed point with one cycle of BoomerAMG per
   // iteration, compared to two cycles per iteration (a setting of BoomerAMG
   // which must survive the setup of the elastic operator)
@@ -340,6 +360,12 @@ int main(int argc, char** argv) {
               << " iterations, relative difference to Newton " << du << '\n';
     check(r.status, c.name + ": resolution failed");
     check(du < 1e-8, c.name + ": solution");
+    if (const auto p = maximum_numbers_of_iterations.find(c.name);
+        p != maximum_numbers_of_iterations.end()) {
+      check(r.iterations <= p->second,
+            c.name + ": number of iterations (" + std::to_string(r.iterations) +
+                ", at most " + std::to_string(p->second) + " expected)");
+    }
     if (c.accelerated) {
       check(r.iterations < none.iterations, c.name + ": number of iterations");
     }

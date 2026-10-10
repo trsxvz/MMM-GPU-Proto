@@ -3373,3 +3373,32 @@ Crossed2Delta 70, CrossedDelta2 140, Crossed2Deltabis 374 ; Steffensen,
 appliqué composante par composante, diverge sur ce problème couplé (même
 formule que MTest). Toutes les autres donnent la solution de Newton à
 1e-12 près.
+
+### 2026-10-10 (nuit), options de BoomerAMG, prédiction par K0, relecture L5
+
+- mfem-mgis d05475d265 : options de BoomerAMG (`StrengthThreshold`,
+  `CoarseningType`, `AggressiveCoarseningLevels`, `InterpolationType`,
+  `RelaxationType`, `RelaxationSweeps`, `CycleType`, `NumberOfCycles`,
+  `MaximumNumberOfLevels`), réappliquées après chaque `SetOperator` (qui ne
+  garde qu'une partie des réglages de hypre). Sur le GPU, le lisseur de
+  Chebyshev (`RelaxationType=16`) rend un cycle de BoomerAMG bien plus
+  efficace pour le point fixe (438 itérations au lieu de 1 231).
+- Mesures L5 (`results/L5-poutre-2026-10-10-0250/`) : sur 8 cœurs, le
+  point fixe (Anderson 8, un cycle d'AMG, K0 gardé) bat Newton (13,3 s
+  contre 20,3 s sur machine chargée ; 9,4 s contre 16,6 s sur machine
+  calme, ×1,7) ; sur le GPU, égalité (3,4 s) avec Chebyshev.
+- mfem-mgis 846551e0cb : `getElasticPredictionLinearSolver` : le point fixe
+  peut fournir le solveur de la prédiction élastique (gradient conjugué
+  préconditionné par l'AMG de K0 déjà construite) ; gain modeste
+  (prédiction 1,52 s au lieu de 1,34 s sur le GPU), la prédiction reste
+  le poste principal du point fixe.
+- Relecture indépendante de a2602d117a, f3d8ed1e55, bae47cb272
+  (`scratch/nuit-2026-10-10/relecture-L5.md`) : noyaux et point fixe
+  justes (42 configurations par périphérique, Anderson identique à une
+  implantation directe, Cast3M fidèle à MTest) ; C7 pas corrigé (l'accord
+  collectif pouvait s'apparier avec une autre réduction). Corrigé dans
+  1d5adf1a32 : en parallèle, seules les `CollectiveFailure` sont traitées,
+  toute autre exception arrête le programme ; options du point fixe
+  validées avant d'être appliquées, actions appelées une fois, garde NaN,
+  informations du solveur linéaire, bornes des nombres d'itérations dans
+  le test (un Cast3M faux est détecté), variantes noyaux et `debug`.

@@ -866,6 +866,22 @@ if(MFEM_MGIS_HAVE_TFEL)
     set_tests_properties(FixedPointSolverTestP
                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
   endif()
+  # integration by batches and computations by kernels, on the host and on
+  # the debug device of MFEM
+  set(fixed_point_solver_test_kernels
+      MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+      MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+      MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+      MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
+  foreach(_device cpu debug)
+    add_test(NAME FixedPointSolverTest-kernels-${_device}
+             COMMAND FixedPointSolverTest --device ${_device}
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(FixedPointSolverTest-kernels-${_device}
+                         PROPERTIES ENVIRONMENT
+                         "${fixed_point_solver_test_kernels}")
+  endforeach()
 
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU
