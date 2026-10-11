@@ -26,10 +26,11 @@ namespace mfem_mgis::batch::internals {
      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
      */
     const real* derivatives = nullptr;
-    //! \brief jacobians at the center of all the elements of the mesh
-    const real* jacobians = nullptr;
-    //! \brief determinants of the jacobians at the center of the elements
-    const real* determinants = nullptr;
+    /*!
+     * \brief inverses of the jacobians at the center of all the elements of
+     * the mesh (see `ElementsJacobians::invJ`)
+     */
+    const real* inverse_jacobians = nullptr;
     /*!
      * \brief gradients of the shape functions at the center of the
      * reference element (`dim x nd`)

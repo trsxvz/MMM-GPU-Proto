@@ -177,8 +177,7 @@ namespace mfem_mgis::batch {
     auto ca = internals::FBarCentersKernelArguments{};
     ca.elements = elements.Read(use_device);
     ca.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
-    ca.jacobians = g0.jacobians->J.Read(use_device);
-    ca.determinants = g0.jacobians->detJ.Read(use_device);
+    ca.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
     ca.centers = data.centers.Write(use_device);
     ca.b = data.b.Write(use_device);

@@ -21,3 +21,6 @@ add_test(NAME assemblage-grandes-transformations
   COMMAND ./assemblage -m cube.mesh -r 2 -n 2 -t finite-strain)
 add_test(NAME assemblage-hexaedres-ordre-2
   COMMAND ./assemblage -m cube.mesh -r 1 -o 2 -n 2 -t mechanics)
+# in parallel, with the construction of the global matrix
+add_test(NAME assemblage-parallele
+  COMMAND mpirun -n 2 ./assemblage -r 1 -n 2 -t mechanics -p)

@@ -6,9 +6,14 @@
  * (`batch::computeStiffnessMatricesPositions`) and without them (entries
  * searched in their rows), in the same program. Mechanics in small or finite
  * strain (vector unknowns) or heat transfer (scalar unknowns), arbitrary
- * tangent operator blocks, one process, on the host or on a device. The
- * values of the matrix may be written to a file, to compare two versions of
- * mfem-mgis.
+ * tangent operator blocks, one process or several (`--parallel`), on the
+ * host or on a device. The values of the matrix may be written to a file,
+ * to compare two versions of mfem-mgis (one process). In parallel, the
+ * construction of the global matrix from the local ones is also timed, as
+ * made by mfem-mgis (`assembleTangentOperatorByKernels`): block diagonal
+ * matrix, product `Pᵀ A P` of hypre, elimination of the degrees of freedom
+ * of a clamped end (boundary 1); the times are the maxima over the
+ * processes.
  */
 
 #include <cmath>
@@ -22,10 +27,14 @@
 #include <string_view>
 #include <vector>
 #include <algorithm>
+#include <mpi.h>
 #include "mfem/general/backends.hpp"
 #include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/sparsemat.hpp"
+#include "mfem/linalg/handle.hpp"
+#include "mfem/linalg/hypre.hpp"
+#include "mfem/fem/pfespace.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
@@ -45,6 +54,28 @@ static double median(std::vector<double> v) {
   return (n % 2 == 1) ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
 }  // end of median
 
+/*!
+ * \return the maximum of a value over the processes
+ * \param[in] v: value
+ * \param[in] parallel: if false, the value is returned
+ */
+static double maximumOverProcesses(const double v, const bool parallel) {
+  if (!parallel) {
+    return v;
+  }
+  auto r = v;
+  MPI_Allreduce(&v, &r, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  return r;
+}  // end of maximumOverProcesses
+
+//! \brief waits for the end of the computations launched on a GPU
+static void synchronize() {
+  if (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                           mfem::Backend::HIP_MASK)) {
+    MFEM_DEVICE_SYNC;
+  }
+}  // end of synchronize
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -56,6 +87,7 @@ int main(int argc, char** argv) {
   auto order = 1;
   auto repetitions = 10;
   auto tolerance = real{1e-13};
+  auto parallel = false;
   mfem::OptionsParser args(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh", "Mesh file.");
@@ -75,9 +107,16 @@ int main(int argc, char** argv) {
                  "Number of assemblies with and without the positions.");
   args.AddOption(&tolerance, "-tol", "--tolerance",
                  "Relative tolerance of the comparison of the two matrices.");
+  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                 "Parallel computation, timing also the construction of the "
+                 "global matrix.");
   args.Parse();
   if ((!args.Good()) || (repetitions < 1)) {
     args.PrintUsage(std::cerr);
+    return EXIT_FAILURE;
+  }
+  if (parallel && (!std::string_view{values_file}.empty())) {
+    std::cerr << "the values of the matrix are written in sequential only\n";
     return EXIT_FAILURE;
   }
   const auto thermal = std::string_view{physics} == "thermal";
@@ -97,11 +136,15 @@ int main(int argc, char** argv) {
                           {"UnknownsSize", thermal ? 1 : 3},
                           {"NumberOfUniformRefinements", refinements},
                           {"Hypothesis", "Tridimensional"},
-                          {"Parallel", false}}) |
+                          {"Parallel", parallel}}) |
       or_die;
   auto& fed = problem.getFiniteElementDiscretization();
-  const auto& fes = fed.getFiniteElementSpace<false>();
-  const auto attributes = fed.getMesh<false>().attributes;
+  const auto& fes =
+      parallel ? static_cast<const mfem::FiniteElementSpace&>(
+                     fed.getFiniteElementSpace<true>())
+               : fed.getFiniteElementSpace<false>();
+  const auto attributes = parallel ? fed.getMesh<true>().attributes
+                                   : fed.getMesh<false>().attributes;
   // behaviour integrators on all the element attributes, arbitrary tangent
   // operator blocks
   auto integrators = std::vector<AbstractBehaviourIntegrator*>{};
@@ -120,6 +163,10 @@ int main(int argc, char** argv) {
           or_die;
     }
     auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
+    if (mat.n == 0) {
+      // no element of this material on this process
+      continue;
+    }
     mat.synchronizeOnHost();
     for (std::size_t i = 0; i != mat.K.size(); ++i) {
       mat.K[i] = std::cos(real(i));
@@ -156,10 +203,7 @@ int main(int argc, char** argv) {
     batch::computeStiffnessMatricesPositions(ctx, positions, fes, dofs,
                                              *matrix) |
         or_die;
-    if (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
-                             mfem::Backend::HIP_MASK)) {
-      MFEM_DEVICE_SYNC;
-    }
+    synchronize();
     positions_time = elapsed(t0);
   }
   const auto no_positions = mfem::Array<std::uint16_t>{};
@@ -218,8 +262,72 @@ int main(int argc, char** argv) {
       without.push_back(assemble(no_positions));
     }
   }
+  // construction of the global matrix, as by
+  // `NonLinearEvolutionProblemImplementation::assembleTangentOperatorByKernels`
+  auto global = std::vector<double>{};
+  auto elimination = std::vector<double>{};
+  if (parallel) {
+    const auto& pfes = fed.getFiniteElementSpace<true>();
+    const auto& pmesh = fed.getMesh<true>();
+    auto marker = mfem::Array<int>(pmesh.bdr_attributes.Max());
+    marker = 0;
+    marker[0] = 1;
+    auto essential_dofs = mfem::Array<int>{};
+    pfes.GetEssentialTrueDofs(marker, essential_dofs);
+    auto* const P = pfes.Dof_TrueDof_Matrix();
+    for (int i = 0; i != repetitions; ++i) {
+      assemble(positions);
+      MPI_Barrier(MPI_COMM_WORLD);
+      const auto t0 = clock::now();
+      auto A = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      dA.MakeSquareBlockDiag(pfes.GetComm(), pfes.GlobalVSize(),
+                             pfes.GetDofOffsets(), matrix.get());
+      Ph.ConvertFrom(P);
+      A.MakePtAP(dA, Ph);
+      synchronize();
+      MPI_Barrier(MPI_COMM_WORLD);
+      global.push_back(elapsed(t0));
+      const auto t1 = clock::now();
+      A.As<mfem::HypreParMatrix>()->EliminateBC(essential_dofs,
+                                                mfem::Operator::DIAG_ONE);
+      synchronize();
+      MPI_Barrier(MPI_COMM_WORLD);
+      elimination.push_back(elapsed(t1));
+    }
+  }
   const auto ne = fes.GetNE();
   const auto n = (ne == 0) ? 0 : dofs.Size() / ne;
+  const auto without_time = maximumOverProcesses(median(without), parallel);
+  const auto with_time = maximumOverProcesses(median(with), parallel);
+  // checks made on all the processes
+  const auto failed = maximumOverProcesses(
+      ((positions.Size() == 0) || (searched_entries != 0) ||
+       (!(maximum > 0)) || (difference > tolerance * maximum))
+          ? 1
+          : 0,
+      parallel);
+  auto rank = 0;
+  auto size = 1;
+  if (parallel) {
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+  }
+  if (rank != 0) {
+    return failed > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+  }
+  if (parallel) {
+    std::cout << std::setprecision(4) << size
+              << " processes, maxima over the processes, first process:\n"
+              << "assembly without positions: median " << without_time
+              << " ms\n"
+              << "assembly with positions: median " << with_time << " ms\n"
+              << "block diagonal matrix and product Pt A P: median "
+              << median(global) << " ms\n"
+              << "elimination of the essential degrees of freedom: median "
+              << median(elimination) << " ms\n";
+  }
   std::cout << std::setprecision(4) << "elements " << ne
             << ", degrees of freedom per element " << n << ", entries " << nnz
             << ", positions " << positions.Size() * sizeof(std::uint16_t) / 1e6
@@ -235,8 +343,7 @@ int main(int argc, char** argv) {
             << "ratio of the medians " << median(without) / median(with)
             << ", maximum difference " << difference << " (maximum value "
             << maximum << ")\n";
-  if ((positions.Size() == 0) || (searched_entries != 0) ||
-      (!(maximum > 0)) || (difference > tolerance * maximum)) {
+  if (failed > 0) {
     std::cerr << "assemblage: no positions, entries searched or different "
                  "matrices\n";
     return EXIT_FAILURE;

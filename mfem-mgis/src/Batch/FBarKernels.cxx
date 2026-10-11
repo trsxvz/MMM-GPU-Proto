@@ -97,9 +97,8 @@ namespace mfem_mgis::batch::internals {
           const auto e = static_cast<std::size_t>(a.elements[k]);
           // inverse of the jacobian at the center (one point per element)
           real iJ[N * N];
-          invertJacobian<N>(iJ,
-                            a.jacobians + static_cast<std::size_t>(N * N) * e,
-                            1, a.determinants[e]);
+          loadInverseJacobian<N>(
+              iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
           // deformation gradient at the center
           real F0[9];
           computeDeformationGradientAtCenter<K>(

@@ -306,7 +306,8 @@ namespace mfem_mgis::batch::internals {
       for (std::size_t q = 0; q != nq; ++q) {
         const auto detJ = a.determinants[q + nq * e];
         real iJ[N * N];
-        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+        loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+                               nq);
         const auto o2 =
             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
         const auto* const t = a.tangent_operator + o2 * a.point_stride;
@@ -392,7 +393,8 @@ namespace mfem_mgis::batch::internals {
       for (std::size_t q = 0; q != nq; ++q) {
         const auto detJ = a.determinants[q + nq * e];
         real iJ[N * N];
-        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+        loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+                               nq);
         // derivatives of the shape functions in the physical frame, followed
         // by their values (see `getBOperatorEntries`)
         real xa[N + 1];
@@ -567,7 +569,8 @@ namespace mfem_mgis::batch::internals {
           for (std::size_t q = 0; q != nq; ++q) {
             const auto detJ = a.determinants[q + nq * e];
             real iJ[N * N];
-            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+                                   nq);
             // increment of the gradients, B x, without forming B (see
             // `getBOperatorEntries`)
             constexpr auto entries = getBOperatorEntries<K>();

@@ -14,24 +14,25 @@
 namespace mfem_mgis::batch::internals {
 
   /*!
-   * \brief inverse of the jacobian at the center of an element
+   * \brief reads the inverse of the jacobian at the center of an element
    * \tparam N: dimension
    * \param[out] iJ0: inverse of the jacobian
    * \param[in] a: geometric data
    * \param[in] e: element of the mesh
    */
   template <int N>
-  MFEM_HOST_DEVICE inline void invertCenterJacobian(
+  MFEM_HOST_DEVICE inline void loadCenterInverseJacobian(
       real* const iJ0,
       const FaltusGeometryKernelArguments& a,
       const std::size_t e) {
-    invertJacobian<N>(iJ0,
-                      a.center_jacobians + static_cast<std::size_t>(N * N) * e,
-                      1, a.center_determinants[e]);
-  }  // end of invertCenterJacobian
+    loadInverseJacobian<N>(
+        iJ0, a.center_inverse_jacobians + static_cast<std::size_t>(N * N) * e,
+        1);
+  }  // end of loadCenterInverseJacobian
 
   /*!
-   * \brief inverse of the jacobian at an integration point of an element
+   * \brief reads the inverse of the jacobian at an integration point of an
+   * element
    * \tparam N: dimension
    * \return the weight of the point, `w det J`
    * \param[out] iJ: inverse of the jacobian
@@ -40,16 +41,16 @@ namespace mfem_mgis::batch::internals {
    * \param[in] q: integration point
    */
   template <int N>
-  MFEM_HOST_DEVICE inline real invertPointJacobian(
+  MFEM_HOST_DEVICE inline real loadPointInverseJacobian(
       real* const iJ,
       const FaltusGeometryKernelArguments& a,
       const std::size_t e,
       const std::size_t q) {
     const auto nq = static_cast<std::size_t>(a.nq);
     const auto detJ = a.determinants[q + nq * e];
-    invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+    loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e, nq);
     return a.weights[q] * detJ;
-  }  // end of invertPointJacobian
+  }  // end of loadPointInverseJacobian
 
   /*!
    * \brief computes the block of a node of the operator `D = B - B0` at an
@@ -142,11 +143,11 @@ namespace mfem_mgis::batch::internals {
                   (K == GradientsKind::DEFORMATION_GRADIENT_2D));
     constexpr auto N = getDimension<K>();
     real iJ0[N * N];
-    invertCenterJacobian<N>(iJ0, a, e);
+    loadCenterInverseJacobian<N>(iJ0, a, e);
     auto v = real{0};
     for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
       real iJ[N * N];
-      const auto w = invertPointJacobian<N>(iJ, a, e, q);
+      const auto w = loadPointInverseJacobian<N>(iJ, a, e, q);
       real da[N];
       real db[N];
       computeFaltusDerivativesDifference<N>(da, a, q, na, iJ, iJ0);
@@ -170,9 +171,8 @@ namespace mfem_mgis::batch::internals {
           constexpr auto gs = getGradientsSize<K>();
           const auto e = static_cast<std::size_t>(a.elements[k]);
           real iJ[N * N];
-          invertJacobian<N>(iJ,
-                            a.jacobians + static_cast<std::size_t>(N * N) * e,
-                            1, a.determinants[e]);
+          loadInverseJacobian<N>(
+              iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
           computeDeformationGradientAtCenter<K>(
               a.centers +
                   static_cast<std::size_t>(gs) * static_cast<std::size_t>(k),
@@ -200,10 +200,10 @@ namespace mfem_mgis::batch::internals {
           const auto* const F0 = a.centers + sgs * static_cast<std::size_t>(k);
           auto* const fe = a.values + nd * V * e;
           real iJ0[N * N];
-          invertCenterJacobian<N>(iJ0, g, e);
+          loadCenterInverseJacobian<N>(iJ0, g, e);
           for (std::size_t q = 0; q != static_cast<std::size_t>(g.nq); ++q) {
             real iJ[N * N];
-            const auto w = invertPointJacobian<N>(iJ, g, e, q);
+            const auto w = loadPointInverseJacobian<N>(iJ, g, e, q);
             const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
             // α (F - F0)
             real dF[9];
@@ -330,10 +330,10 @@ namespace mfem_mgis::batch::internals {
           const auto* const xe = x + nd * V * e;
           auto* const ye = y + nd * V * e;
           real iJ0[N * N];
-          invertCenterJacobian<N>(iJ0, a, e);
+          loadCenterInverseJacobian<N>(iJ0, a, e);
           for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
             real iJ[N * N];
-            const auto w = invertPointJacobian<N>(iJ, a, e, q);
+            const auto w = loadPointInverseJacobian<N>(iJ, a, e, q);
             // g[v][j] = Σ_b d_b[j] x_b[v]
             real g[V][N] = {};
             for (std::size_t node = 0; node != nd; ++node) {

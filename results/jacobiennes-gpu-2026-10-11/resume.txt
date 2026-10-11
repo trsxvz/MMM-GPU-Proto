@@ -1,0 +1,26 @@
+date : 2026-10-11 10:54:36
+cas : poutre
+machine : 16 cœurs, 30 Go
+charge : 1.71 1.32 1.42
+mfem-mgis : 4a007e85f2
+== poutre-np1-gpu-noyaux-registres : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 3.182 s
+== poutre-np1-gpu-noyaux-jacobiennes : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 3.035 s
+date : 2026-10-11 10:54:45
+cas : thermique
+machine : 16 cœurs, 30 Go
+charge : 1.65 1.32 1.42
+mfem-mgis : 4a007e85f2
+== thermique-np1-gpu-noyaux-registres : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
+time 1.321 s
+== thermique-np1-gpu-noyaux-jacobiennes : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
+time 1.084 s

@@ -45,8 +45,8 @@ namespace mfem_mgis::batch {
      * coordinate at the `q`-th point of the `e`-th element is the value
      * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
      * on the device if a device is enabled. They are converted to physical
-     * derivatives by the kernels with the jacobians of the element
-     * transformations (see `ElementsGeometry`).
+     * derivatives by the kernels with the inverses of the jacobians of the
+     * element transformations (see `ElementsGeometry`).
      */
     mfem::Vector values;
     //! \brief values of the unknowns element by element (workspace)

@@ -1,0 +1,36 @@
+== poutre, tétraèdres P1 (r4): mpirun -n 1 ./assemblage --device cuda -r 4 -n 10 -t mechanics -p
+1 processes, maxima over the processes, first process:
+assembly without positions: median 2.305 ms
+assembly with positions: median 2.3 ms
+block diagonal matrix and product Pt A P: median 1.147 ms
+elimination of the essential degrees of freedom: median 0.2011 ms
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (0.5367 ms)
+assembly without positions: median 2.305 ms, minimum 2.3 ms
+assembly with positions: median 2.3 ms, minimum 2.299 ms
+entries searched with the positions 0
+ratio of the medians 1.002, maximum difference 6.939e-17 (maximum value 0.1344)
+   statut 0
+== thermique, tétraèdres P1 (r5): mpirun -n 1 ./assemblage --device cuda -r 5 -n 10 -t thermal -p
+1 processes, maxima over the processes, first process:
+assembly without positions: median 13.75 ms
+assembly with positions: median 13.79 ms
+block diagonal matrix and product Pt A P: median 1.469 ms
+elimination of the essential degrees of freedom: median 0.04387 ms
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.2044 ms)
+assembly without positions: median 13.75 ms, minimum 13.12 ms
+assembly with positions: median 13.79 ms, minimum 13.68 ms
+entries searched with the positions 0
+ratio of the medians 0.997, maximum difference 4.163e-17 (maximum value 0.1074)
+   statut 0
+== grandes transformations, hexaèdres Q1 27 points (r4): mpirun -n 1 ./assemblage --device cuda -m cube.mesh -r 4 -n 10 -t finite-strain -p
+1 processes, maxima over the processes, first process:
+assembly without positions: median 4.532 ms
+assembly with positions: median 4.538 ms
+block diagonal matrix and product Pt A P: median 0.408 ms
+elimination of the essential degrees of freedom: median 0.5206 ms
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (0.1307 ms)
+assembly without positions: median 4.532 ms, minimum 4.514 ms
+assembly with positions: median 4.538 ms, minimum 4.518 ms
+entries searched with the positions 0
+ratio of the medians 0.9987, maximum difference 1.388e-17 (maximum value 0.05512)
+   statut 0

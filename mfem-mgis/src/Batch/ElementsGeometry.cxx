@@ -124,8 +124,9 @@ namespace mfem_mgis::batch {
   }  // end of getTransformationsNodes
 
   /*!
-   * \brief computes the jacobians of the element transformations by a kernel
-   * from the coordinates of the nodes of the transformations
+   * \brief computes the inverses and the determinants of the jacobians of
+   * the element transformations by a kernel from the coordinates of the
+   * nodes of the transformations
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in, out] g: geometric data. The number of elements, the number of
@@ -175,8 +176,8 @@ namespace mfem_mgis::batch {
       }
     }
     auto jacobians = std::make_shared<ElementsJacobians>();
-    jacobians->J.UseDevice(true);
-    jacobians->J.SetSize(g.nq * g.dim * g.dim * g.ne);
+    jacobians->invJ.UseDevice(true);
+    jacobians->invJ.SetSize(g.nq * g.dim * g.dim * g.ne);
     jacobians->detJ.UseDevice(true);
     jacobians->detJ.SetSize(g.nq * g.ne);
     const auto use_device = mfem::Device::IsEnabled();
@@ -186,7 +187,7 @@ namespace mfem_mgis::batch {
     a.node_stride = n.node_stride;
     a.component_stride = n.component_stride;
     a.shape_functions_gradients = gradients.Read(use_device);
-    a.jacobians = jacobians->J.Write(use_device);
+    a.inverse_jacobians = jacobians->invJ.Write(use_device);
     a.determinants = jacobians->detJ.Write(use_device);
     a.number_of_elements = g.ne;
     a.nodes_per_element = nd;

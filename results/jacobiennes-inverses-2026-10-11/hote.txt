@@ -1,0 +1,39 @@
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis registres: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (30.91 ms)
+assembly without positions: median 63.33 ms, minimum 63.22 ms
+assembly with positions: median 52.3 ms, minimum 52.18 ms
+entries searched with the positions 0
+ratio of the medians 1.211, maximum difference 0 (maximum value 0.05512)
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis jacobiennes: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.27 ms)
+assembly without positions: median 62.17 ms, minimum 61.93 ms
+assembly with positions: median 51.48 ms, minimum 51.25 ms
+entries searched with the positions 0
+ratio of the medians 1.208, maximum difference 0 (maximum value 0.05512)
+   écart maximal entre les deux versions 0.000e+00 (valeur maximale 5.512e-02), valeurs identiques
+== poutre, tétraèdres P1 (r4), mfem-mgis registres: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (419.2 ms)
+assembly without positions: median 191.8 ms, minimum 191.4 ms
+assembly with positions: median 75.56 ms, minimum 74.85 ms
+entries searched with the positions 0
+ratio of the medians 2.539, maximum difference 0 (maximum value 0.1344)
+== poutre, tétraèdres P1 (r4), mfem-mgis jacobiennes: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (439 ms)
+assembly without positions: median 191.1 ms, minimum 188.3 ms
+assembly with positions: median 72.3 ms, minimum 69.98 ms
+entries searched with the positions 0
+ratio of the medians 2.644, maximum difference 0 (maximum value 0.1344)
+   écart maximal entre les deux versions 0.000e+00 (valeur maximale 1.344e-01), valeurs identiques
+== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (270.2 ms)
+assembly without positions: median 368.9 ms, minimum 365 ms
+assembly with positions: median 116.7 ms, minimum 115.9 ms
+entries searched with the positions 0
+ratio of the medians 3.161, maximum difference 0 (maximum value 0.1074)
+== thermique, tétraèdres P1 (r5), mfem-mgis jacobiennes: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (269.6 ms)
+assembly without positions: median 365.9 ms, minimum 365.1 ms
+assembly with positions: median 109.7 ms, minimum 108.7 ms
+entries searched with the positions 0
+ratio of the medians 3.336, maximum difference 0 (maximum value 0.1074)
+   écart maximal entre les deux versions 0.000e+00 (valeur maximale 1.074e-01), valeurs identiques

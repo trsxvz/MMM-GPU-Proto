@@ -1,13 +1,14 @@
 /*!
  * \file   src/Batch/ElementsGeometryKernels.cxx
- * \brief  This file implements the kernel computing the jacobians of the
- * element transformations. It contains kernels of
- * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+ * \brief  This file implements the kernel computing the determinants and the
+ * inverses of the jacobians of the element transformations. It contains kernels
+ * of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
  * \date   10/10/2026
  */
 
 #include <cstddef>
 #include "mfem/general/forall.hpp"
+#include "KernelsUtilities.hxx"
 #include "ElementsGeometryKernels.hxx"
 
 namespace mfem_mgis::batch::internals {
@@ -38,12 +39,6 @@ namespace mfem_mgis::batch::internals {
           }
         }
       }
-      auto* const Je = a.jacobians + q + nq * dim * dim * e;
-      for (std::size_t c = 0; c != dim; ++c) {
-        for (std::size_t r = 0; r != dim; ++r) {
-          Je[nq * (r + dim * c)] = J[r + 3 * c];
-        }
-      }
       auto det = J[0];
       if (dim == 2) {
         det = J[0] * J[4] - J[1] * J[3];
@@ -53,6 +48,25 @@ namespace mfem_mgis::batch::internals {
               J[6] * (J[1] * J[5] - J[2] * J[4]);
       }
       a.determinants[q + nq * e] = det;
+      // inverse, `iJ[r + dim * c]` being its component `(r, c)`
+      real Jd[9] = {};
+      for (std::size_t c = 0; c != dim; ++c) {
+        for (std::size_t r = 0; r != dim; ++r) {
+          Jd[r + dim * c] = J[r + 3 * c];
+        }
+      }
+      real iJ[9] = {};
+      if (dim == 2) {
+        invertJacobian<2>(iJ, Jd, 1, det);
+      } else if (dim == 3) {
+        invertJacobian<3>(iJ, Jd, 1, det);
+      } else {
+        iJ[0] = 1 / det;
+      }
+      auto* const iJe = a.inverse_jacobians + q + nq * dim * dim * e;
+      for (std::size_t k = 0; k != dim * dim; ++k) {
+        iJe[nq * k] = iJ[k];
+      }
     });
   }  // end of launchJacobiansKernel
 

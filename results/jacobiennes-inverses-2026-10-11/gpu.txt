@@ -1,0 +1,65 @@
+== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.052 ms)
+assembly without positions: median 31.75 ms, minimum 30.78 ms
+assembly with positions: median 31.75 ms, minimum 30.77 ms
+entries searched with the positions 0
+ratio of the medians 1, maximum difference 6.939e-18 (maximum value 0.02789)
+== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis jacobiennes: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.048 ms)
+assembly without positions: median 19 ms, minimum 18.08 ms
+assembly with positions: median 18.99 ms, minimum 18.36 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 1.041e-17 (maximum value 0.02789)
+   écart maximal entre les deux versions 1.041e-17 (valeur maximale 2.789e-02)
+== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.044 ms)
+assembly without positions: median 29.15 ms, minimum 28.28 ms
+assembly with positions: median 29.16 ms, minimum 28.28 ms
+entries searched with the positions 0
+ratio of the medians 0.9999, maximum difference 1.084e-18 (maximum value 0.004256)
+== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis jacobiennes: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.047 ms)
+assembly without positions: median 16.26 ms, minimum 16.25 ms
+assembly with positions: median 16.25 ms, minimum 16.25 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 1.301e-18 (maximum value 0.004256)
+   écart maximal entre les deux versions 1.735e-18 (valeur maximale 4.256e-03)
+== poutre, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (4.054 ms)
+assembly without positions: median 18.09 ms, minimum 17.24 ms
+assembly with positions: median 18.06 ms, minimum 17.21 ms
+entries searched with the positions 0
+ratio of the medians 1.002, maximum difference 3.816e-17 (maximum value 0.0697)
+== poutre, tétraèdres P1 (r5), mfem-mgis jacobiennes: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (4.049 ms)
+assembly without positions: median 8.138 ms, minimum 8.134 ms
+assembly with positions: median 7.625 ms, minimum 7.619 ms
+entries searched with the positions 0
+ratio of the medians 1.067, maximum difference 3.469e-17 (maximum value 0.0697)
+   écart maximal entre les deux versions 4.163e-17 (valeur maximale 6.970e-02)
+== grandes transformations, tétraèdres P2 (r4), mfem-mgis registres: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (13.91 ms)
+assembly without positions: median 52.78 ms, minimum 52 ms
+assembly with positions: median 52.7 ms, minimum 51.96 ms
+entries searched with the positions 0
+ratio of the medians 1.002, maximum difference 5.551e-17 (maximum value 0.2628)
+== grandes transformations, tétraèdres P2 (r4), mfem-mgis jacobiennes: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (13.94 ms)
+assembly without positions: median 26.36 ms, minimum 25.03 ms
+assembly with positions: median 26.71 ms, minimum 25.19 ms
+entries searched with the positions 0
+ratio of the medians 0.987, maximum difference 5.551e-17 (maximum value 0.2628)
+   écart maximal entre les deux versions 5.551e-17 (valeur maximale 2.628e-01)
+== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.205 ms)
+assembly without positions: median 13.75 ms, minimum 13.75 ms
+assembly with positions: median 13.79 ms, minimum 13.78 ms
+entries searched with the positions 0
+ratio of the medians 0.9971, maximum difference 4.163e-17 (maximum value 0.1074)
+== thermique, tétraèdres P1 (r5), mfem-mgis jacobiennes: ./assemblage --device cuda -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.2053 ms)
+assembly without positions: median 2.347 ms, minimum 2.346 ms
+assembly with positions: median 2.344 ms, minimum 2.343 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 5.551e-17 (maximum value 0.1074)
+   écart maximal entre les deux versions 5.551e-17 (valeur maximale 1.074e-01)

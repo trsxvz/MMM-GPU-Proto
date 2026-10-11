@@ -31,10 +31,11 @@ namespace mfem_mgis::batch::internals {
      * `gradientsRequireUnknownsValues`)
      */
     const real* unknowns_values = nullptr;
-    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
-    const real* jacobians = nullptr;
-    //! \brief determinants of the jacobians (`nq x ne`)
-    const real* determinants = nullptr;
+    /*!
+     * \brief inverses of the jacobians of the element transformations (`nq x
+     * dim x dim x ne`, see `ElementsJacobians::invJ`)
+     */
+    const real* inverse_jacobians = nullptr;
     //! \brief gradients of the material
     real* gradients = nullptr;
     //! \brief number of elements of the material

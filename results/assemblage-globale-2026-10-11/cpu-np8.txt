@@ -1,0 +1,36 @@
+== poutre, tétraèdres P1 (r4): mpirun -n 8 ./assemblage -r 4 -n 10 -t mechanics -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 24.21 ms
+assembly with positions: median 9.544 ms
+block diagonal matrix and product Pt A P: median 15.42 ms
+elimination of the essential degrees of freedom: median 0.263 ms
+elements 24576, degrees of freedom per element 12, entries 602649, positions 7.078 MB (57.58 ms)
+assembly without positions: median 24.08 ms, minimum 23.96 ms
+assembly with positions: median 9.329 ms, minimum 9.286 ms
+entries searched with the positions 0
+ratio of the medians 2.581, maximum difference 0 (maximum value 0.1258)
+   statut 0
+== thermique, tétraèdres P1 (r5): mpirun -n 8 ./assemblage -r 5 -n 10 -t thermal -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 47.13 ms
+assembly with positions: median 14.76 ms
+block diagonal matrix and product Pt A P: median 36.52 ms
+elimination of the essential degrees of freedom: median 0.1662 ms
+elements 196608, degrees of freedom per element 4, entries 513313, positions 6.291 MB (33.99 ms)
+assembly without positions: median 46.44 ms, minimum 46.29 ms
+assembly with positions: median 14.55 ms, minimum 14.52 ms
+entries searched with the positions 0
+ratio of the medians 3.191, maximum difference 0 (maximum value 0.09865)
+   statut 0
+== grandes transformations, hexaèdres Q1 27 points (r4): mpirun -n 8 ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 7.961 ms
+assembly with positions: median 6.541 ms
+block diagonal matrix and product Pt A P: median 3.067 ms
+elimination of the essential degrees of freedom: median 0.163 ms
+elements 512, degrees of freedom per element 24, entries 140625, positions 0.5898 MB (4.079 ms)
+assembly without positions: median 7.948 ms, minimum 7.892 ms
+assembly with positions: median 6.52 ms, minimum 6.476 ms
+entries searched with the positions 0
+ratio of the medians 1.219, maximum difference 0 (maximum value 0.05494)
+   statut 0

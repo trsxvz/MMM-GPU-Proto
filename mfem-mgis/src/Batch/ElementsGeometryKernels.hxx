@@ -1,6 +1,7 @@
 /*!
  * \file   src/Batch/ElementsGeometryKernels.hxx
- * \brief  This file declares the kernel computing the jacobians of the
+ * \brief  This file declares the kernel computing the determinants and the
+ * inverses of the jacobians of the
  * element transformations (internal header)
  * \date   10/10/2026
  */
@@ -13,7 +14,8 @@
 namespace mfem_mgis::batch::internals {
 
   /*!
-   * \brief arguments of the kernel computing the jacobians of the element
+   * \brief arguments of the kernel computing the determinants and the
+   * inverses of the jacobians of the element
    * transformations from the coordinates of their nodes (the nodes of the
    * mesh, or its vertices)
    */
@@ -40,10 +42,10 @@ namespace mfem_mgis::batch::internals {
      */
     const real* shape_functions_gradients = nullptr;
     /*!
-     * \brief jacobians (`nq x dim x dim x ne`, layout of
+     * \brief inverses of the jacobians (`nq x dim x dim x ne`, layout of
      * `mfem::GeometricFactors::J`)
      */
-    real* jacobians = nullptr;
+    real* inverse_jacobians = nullptr;
     //! \brief determinants of the jacobians (`nq x ne`)
     real* determinants = nullptr;
     //! \brief number of elements
@@ -58,8 +60,9 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel computing the jacobians of the element
-   * transformations and their determinants: one thread per point of an
-   * element
+   * transformations, their determinants and their inverses (see
+   * `invertJacobian`, the jacobians themselves are not stored): one thread
+   * per point of an element
    * \param[in] a: arguments
    * \param[in] d: if true, the kernel runs on the device (if a device is
    * enabled), and the pointers of the arguments are located on the device

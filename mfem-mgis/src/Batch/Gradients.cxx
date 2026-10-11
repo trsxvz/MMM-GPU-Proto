@@ -422,8 +422,7 @@ namespace mfem_mgis::batch {
       }
       a.unknowns_values = d.point_values.Read(use_device);
     }
-    a.jacobians = g.jacobians->J.Read(use_device);
-    a.determinants = g.jacobians->detJ.Read(use_device);
+    a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
     error = false;
     return true;
   }  // end of getGradientsKernelArguments

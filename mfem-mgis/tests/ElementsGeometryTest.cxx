@@ -2,16 +2,16 @@
  * \file   ElementsGeometryTest.cxx
  * \brief  Test of the geometric data of the elements used by the kernels of
  * the batch path (`mfem_mgis::batch::computeElementsGeometry`): the
- * jacobians and their determinants at the integration points are the ones
- * of the element transformations of MFEM, for meshes without nodes (kernel
- * computing the jacobians from the vertices) of all the geometries, with
- * distorted and mirrored elements (negative determinants), for parallel
- * meshes refined non conformingly, for two integration rules allocated
- * successively at the same address, for curved meshes (kernel computing
- * the jacobians from the nodes, ordered by nodes or by components, of
- * order 2 or 3, discontinuous for a periodic mesh) with a rule whose
- * points are not ordered as a tensor product, and the jacobians are kept
- * when the nodes of the mesh are modified. The values of the shape
+ * inverses and the determinants of the jacobians at the integration points
+ * are the ones of the element transformations of MFEM, for meshes without
+ * nodes (kernel computing them from the vertices) of all the geometries,
+ * with distorted and mirrored elements (negative determinants), for
+ * parallel meshes refined non conformingly, for two integration rules
+ * allocated successively at the same address, for curved meshes (kernel
+ * computing them from the nodes, ordered by nodes or by components, of
+ * order 2 or 3, discontinuous for a periodic mesh) with a rule whose points
+ * are not ordered as a tensor product, and they are kept when the nodes of
+ * the mesh are modified. The values of the shape
  * functions of a destroyed rule, cached by the finite element, are
  * detected. Meshes mixing several geometries, surface meshes and NURBS
  * meshes are refused.
@@ -174,14 +174,15 @@ static void compare(mfem::Mesh& mesh,
   if (g.jacobians == nullptr) {
     return;
   }
-  check((g.jacobians->J.Size() == g.nq * dim * dim * g.ne) &&
+  check((g.jacobians->invJ.Size() == g.nq * dim * dim * g.ne) &&
             (g.jacobians->detJ.Size() == g.nq * g.ne),
         name + ": sizes of the jacobians");
-  const auto* const J = g.jacobians->J.HostRead();
+  const auto* const iJ = g.jacobians->invJ.HostRead();
   const auto* const detJ = g.jacobians->detJ.HostRead();
   const auto* const w = g.weights.HostRead();
-  auto dJ = real{0};
+  auto diJ = real{0};
   auto ddet = real{0};
+  auto finite = true;
   auto dw = real{0};
   auto signs = true;
   for (int e = 0; e != mesh.GetNE(); ++e) {
@@ -190,16 +191,22 @@ static void compare(mfem::Mesh& mesh,
       const auto& ip = ir.IntPoint(q);
       T.SetIntPoint(&ip);
       const auto& Jr = T.Jacobian();
+      // inverse of the jacobian of MFEM
+      auto iJr = mfem::DenseMatrix(dim);
+      mfem::CalcInverse(Jr, iJr);
       auto m = real{0};
+      auto im = real{0};
       for (int c = 0; c != dim; ++c) {
         for (int r = 0; r != dim; ++r) {
           m = std::max(m, std::abs(Jr(r, c)));
+          im = std::max(im, std::abs(iJr(r, c)));
         }
       }
       for (int c = 0; c != dim; ++c) {
         for (int r = 0; r != dim; ++r) {
-          const auto v = J[q + g.nq * (r + dim * (c + dim * e))];
-          dJ = std::max(dJ, std::abs(v - Jr(r, c)) / m);
+          const auto v = iJ[q + g.nq * (r + dim * (c + dim * e))];
+          finite = finite && std::isfinite(v);
+          diJ = std::max(diJ, std::abs(v - iJr(r, c)) / im);
         }
       }
       const auto det = detJ[q + g.nq * e];
@@ -210,10 +217,11 @@ static void compare(mfem::Mesh& mesh,
   }
   if (verbose) {
     std::cout << name << ": " << g.ne << " elements, " << g.nq
-              << " points, relative differences " << dJ << " (jacobians), "
-              << ddet << " (determinants), " << dw << " (weights)\n";
+              << " points, relative differences " << diJ
+              << " (inverses of the jacobians), " << ddet << " (determinants), "
+              << dw << " (weights)\n";
   }
-  check(dJ < 1e-13, name + ": jacobians");
+  check(finite && (diJ < 1e-13), name + ": inverses of the jacobians");
   check(ddet < 1e-13, name + ": determinants");
   check(dw < 1e-15, name + ": weights");
   check(signs, name + ": signs of the determinants");
@@ -319,9 +327,9 @@ static void checkStaleShapeFunctions(mfem::Mesh& mesh,
 }  // end of checkStaleShapeFunctions
 
 /*!
- * \brief checks that the jacobians computed for a curved mesh are kept when
- * its nodes are modified (the geometric factors of the mesh are then
- * destroyed by MFEM)
+ * \brief checks that the inverses of the jacobians computed for a curved
+ * mesh are kept when its nodes are modified (the geometric factors of the mesh
+ * are then destroyed by MFEM)
  * \param[in] mesh: mesh with nodes
  * \param[in] name: name of the check
  */
@@ -336,8 +344,8 @@ static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
     check(false, name + ": " + ctx.getErrorMessage());
     return;
   }
-  const auto* const J = g.jacobians->J.HostRead();
-  const auto before = std::vector<real>(J, J + g.jacobians->J.Size());
+  const auto* const iJ = g.jacobians->invJ.HostRead();
+  const auto before = std::vector<real>(iJ, iJ + g.jacobians->invJ.Size());
   // the factors of the mesh are computed, then destroyed
   static_cast<void>(
       mesh.GetGeometricFactors(ir, mfem::GeometricFactors::JACOBIANS));
@@ -349,9 +357,11 @@ static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
       }
     }
   });
-  const auto* const J2 = g.jacobians->J.HostRead();
-  check(std::equal(before.begin(), before.end(), J2),
-        name + ": jacobians modified by the modification of the mesh");
+  const auto* const iJ2 = g.jacobians->invJ.HostRead();
+  check(std::equal(before.begin(), before.end(), iJ2),
+        name +
+            ": inverses of the jacobians modified by the modification of the "
+            "mesh");
 }  // end of checkJacobiansLifetime
 
 /*!

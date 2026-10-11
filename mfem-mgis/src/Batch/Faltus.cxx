@@ -130,12 +130,11 @@ namespace mfem_mgis::batch {
     }
     a.elements = elements.Read(use_device);
     a.shape_functions_gradients = g.maps->G.Read(use_device);
-    a.jacobians = g.jacobians->J.Read(use_device);
+    a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
     a.determinants = g.jacobians->detJ.Read(use_device);
     a.weights = g.weights.Read(use_device);
     a.center_shape_functions_gradients = g0.maps->G.Read(use_device);
-    a.center_jacobians = g0.jacobians->J.Read(use_device);
-    a.center_determinants = g0.jacobians->detJ.Read(use_device);
+    a.center_inverse_jacobians = g0.jacobians->invJ.Read(use_device);
     a.alpha = alpha;
     a.number_of_elements = elements.Size();
     a.nd = g.nd;
@@ -206,8 +205,7 @@ namespace mfem_mgis::batch {
       auto a = internals::FaltusCentersKernelArguments{};
       a.elements = elements.Read(use_device);
       a.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
-      a.jacobians = g0.jacobians->J.Read(use_device);
-      a.determinants = g0.jacobians->detJ.Read(use_device);
+      a.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
       a.centers = data.centers.Write(use_device);
       a.number_of_elements = elements.Size();
       for (std::int64_t c = 0; c != gsize; ++c) {

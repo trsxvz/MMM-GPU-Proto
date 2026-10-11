@@ -656,7 +656,10 @@ Travail :
   un cœur, sans gain sur le GPU), et produits `K B` et `Bᵀ K B` écrits sans
   former `B` (table constexpr des entrées non nulles : 254 puis 64
   registres en grandes transformations 3D, assemblage ×1,1 à ×3,1 sur un
-  cœur et ×1,4 à ×1,9 sur le GPU, résultats identiques).
+  cœur et ×1,4 à ×1,9 sur le GPU, résultats identiques). Inverses des
+  jacobiennes calculées une fois par le noyau de géométrie : assemblage
+  sur le GPU ×1,7 à ×5,9. Reste le produit `Pᵀ A P` de hypre, plus cher
+  que l'assemblage local sur 8 processus : motif et échanges à garder.
 - `TangentOperator=MatrixFree` (a) : action des noyaux, diagonale et
   blocs nodaux pour les lisseurs, AMG construit une fois sur l'opérateur
   élastique assemblé.

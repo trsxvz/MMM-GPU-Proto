@@ -89,7 +89,8 @@ namespace mfem_mgis::batch::internals {
           for (std::size_t q = 0; q != nq; ++q) {
             const auto detJ = a.determinants[q + nq * e];
             real iJ[N * N];
-            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
+            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+                                   nq);
             const auto o = static_cast<long long>(a.offsets[k]) +
                            static_cast<long long>(q);
             const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;

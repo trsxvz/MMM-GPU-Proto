@@ -183,6 +183,25 @@ namespace mfem_mgis::batch::internals {
   }  // end of invertJacobian
 
   /*!
+   * \brief reads the inverse of the jacobian at a point, computed once by the
+   * kernel of the geometric data (see `ElementsJacobians::invJ`)
+   * \tparam N: dimension
+   * \param[out] iJ: inverse, `iJ[i + N * j]` being the component `(i, j)`
+   * (as computed by `invertJacobian`)
+   * \param[in] invJ: inverse at the point of the element (`nq` points per
+   * element): `invJ[nq * (i + N * j)]` is the component `(i, j)`
+   * \param[in] nq: number of points per element
+   */
+  template <int N>
+  MFEM_HOST_DEVICE inline void loadInverseJacobian(real* const iJ,
+                                                   const real* const invJ,
+                                                   const std::size_t nq) {
+    for (std::size_t k = 0; k != N * N; ++k) {
+      iJ[k] = invJ[nq * k];
+    }
+  }  // end of loadInverseJacobian
+
+  /*!
    * \brief computes the derivatives of a shape function in the physical
    * frame: `dN/dx_c = sum_r dN/dxi_r (J^-1)_{rc}`
    * \tparam N: dimension

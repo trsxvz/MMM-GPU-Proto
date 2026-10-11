@@ -26,10 +26,11 @@ namespace mfem_mgis::batch::internals {
      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
      */
     const real* derivatives = nullptr;
-    //! \brief jacobians at the center of all the elements of the mesh
-    const real* jacobians = nullptr;
-    //! \brief determinants of the jacobians at the center of the elements
-    const real* determinants = nullptr;
+    /*!
+     * \brief inverses of the jacobians at the center of all the elements of
+     * the mesh (see `ElementsJacobians::invJ`)
+     */
+    const real* inverse_jacobians = nullptr;
     /*!
      * \brief deformation gradients `F0` at the center of the elements of
      * the material (`c + gs * k` for the component `c` of the `k`-th
@@ -56,8 +57,11 @@ namespace mfem_mgis::batch::internals {
      * the reference element (`nq x dim x nd`)
      */
     const real* shape_functions_gradients = nullptr;
-    //! \brief jacobians at the integration points of all the elements
-    const real* jacobians = nullptr;
+    /*!
+     * \brief inverses of the jacobians at the integration points of all the
+     * elements (see `ElementsJacobians::invJ`)
+     */
+    const real* inverse_jacobians = nullptr;
     //! \brief determinants of the jacobians at the integration points
     const real* determinants = nullptr;
     //! \brief weights of the integration points
@@ -67,10 +71,11 @@ namespace mfem_mgis::batch::internals {
      * reference element (`dim x nd`)
      */
     const real* center_shape_functions_gradients = nullptr;
-    //! \brief jacobians at the center of all the elements
-    const real* center_jacobians = nullptr;
-    //! \brief determinants of the jacobians at the center of the elements
-    const real* center_determinants = nullptr;
+    /*!
+     * \brief inverses of the jacobians at the center of all the elements
+     * (see `ElementsJacobians::invJ`)
+     */
+    const real* center_inverse_jacobians = nullptr;
     //! \brief penalization coefficient `α`
     real alpha = 0;
     //! \brief number of elements of the material

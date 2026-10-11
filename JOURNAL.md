@@ -4065,3 +4065,23 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   hôte ou GPU, écriture des valeurs pour comparer deux versions).
   Résultats : `results/assemblage-positions-2026-10-11-0901`,
   `results/registres-noyaux-2026-10-11`. Suites 185/185.
+
+### 2026-10-11 (matin), matrice globale et inverses des jacobiennes
+
+- Banc `cas/assemblage` en parallèle (`--parallel`) : assemblage local par
+  noyaux, puis matrice globale comme mfem-mgis (bloc diagonal, `Pᵀ A P` de
+  hypre, élimination). Sur 8 processus, le produit de hypre coûte plus que
+  l'assemblage local (thermique r5 : 36,5 contre 14,8 ms ; poutre r4 :
+  15,4 contre 9,5 ms) ; sur le GPU à un processus, il est faible
+  (`results/assemblage-globale-2026-10-11`). Piste : motif et échanges de
+  la matrice globale gardés.
+- Nsight Compute : les noyaux des matrices sur le GPU sont limités par le
+  calcul (85 à 89 % du débit des multiprocesseurs). Chaque fil inversait la
+  jacobienne à chaque point. mfem-mgis 7af829b3a5 : le noyau de géométrie
+  range les inverses des jacobiennes à la place des jacobiennes (même
+  mémoire), tous les noyaux les lisent. Assemblage sur le GPU ×1,7 à ×2,2
+  en mécanique, ×5,9 en thermique (`results/jacobiennes-inverses-2026-10-11`) ;
+  sur l'hôte, mêmes valeurs au bit près. De bout en bout sur le GPU :
+  thermique ×1,22, poutre ×1,05, la résolution dominant
+  (`results/jacobiennes-gpu-2026-10-11`). Suite 185/185, 9 mutations
+  détectées, relecture O traitée (rien au-dessus de 1/5).

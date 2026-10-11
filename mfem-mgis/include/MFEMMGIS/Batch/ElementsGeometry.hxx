@@ -23,15 +23,19 @@ namespace mfem {
 namespace mfem_mgis::batch {
 
   /*!
-   * \brief jacobians of the element transformations and their determinants
-   * at the integration points (see `computeElementsGeometry`)
+   * \brief inverses of the jacobians of the element transformations and
+   * determinants of the jacobians at the integration points (see
+   * `computeElementsGeometry`). The kernels only use the jacobians through
+   * their inverses, which are computed once.
    */
   struct MFEM_MGIS_EXPORT ElementsJacobians {
     /*!
-     * \brief jacobians at the points (`nq x dim x dim x ne`, layout of
-     * `mfem::GeometricFactors::J`)
+     * \brief inverses of the jacobians at the points (`nq x dim x dim x
+     * ne`, layout of `mfem::GeometricFactors::J`: the component `(i, j)` of
+     * the inverse at the point `q` of the element `e` is `invJ[q + nq * (i +
+     * dim * (j + dim * e))]`)
      */
-    mfem::Vector J;
+    mfem::Vector invJ;
     //! \brief determinants of the jacobians (`nq x ne`)
     mfem::Vector detJ;
   };
@@ -39,8 +43,8 @@ namespace mfem_mgis::batch {
   /*!
    * \brief geometric data of all the elements of the mesh for one
    * integration rule: gradients of the shape functions on the reference
-   * element (`mfem::DofToQuad`, owned by the finite element) and jacobians
-   * of the element transformations
+   * element (`mfem::DofToQuad`, owned by the finite element), inverses and
+   * determinants of the jacobians of the element transformations
    *
    * The data are computed once: they are not updated if the mesh is
    * modified (refinement, displacement of the nodes or of the vertices).
@@ -54,7 +58,10 @@ namespace mfem_mgis::batch {
      * integration rule (see `computeElementsGeometry`)
      */
     const mfem::DofToQuad* maps = nullptr;
-    //! \brief jacobians of the element transformations
+    /*!
+     * \brief inverses and determinants of the jacobians of the element
+     * transformations
+     */
     std::shared_ptr<const ElementsJacobians> jacobians;
     //! \brief weights of the integration points (in the memory of MFEM)
     mfem::Vector weights;
@@ -96,6 +103,9 @@ namespace mfem_mgis::batch {
    *   for the kernel on the GPU and 0.3 s on the host;
    * - for the quadrangles and hexahedra, they assume a tensor product
    *   integration rule.
+   *
+   * The same kernel computes the determinants and the inverses of the
+   * jacobians, which are the only ones stored (see `ElementsJacobians`).
    *
    * The values and gradients of the shape functions of the unknowns
    * (`maps`) are the ones cached by the finite element of the unknowns: the

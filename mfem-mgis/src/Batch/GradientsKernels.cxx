@@ -99,9 +99,10 @@ namespace mfem_mgis::batch::internals {
           a.derivatives + static_cast<std::size_t>(V * N) * (sq + nq * e);
       // physical derivatives: du_i/dx_j = sum_r du_i/dxi_r (J^-1)_{rj}
       real iJ[N * N];
-      invertJacobian<N>(
-          iJ, a.jacobians + sq + nq * static_cast<std::size_t>(N * N) * e, nq,
-          a.determinants[sq + nq * e]);
+      loadInverseJacobian<N>(
+          iJ,
+          a.inverse_jacobians + sq + nq * static_cast<std::size_t>(N * N) * e,
+          nq);
       real du[V * N];
       for (int i2 = 0; i2 != V; ++i2) {
         for (int j = 0; j != N; ++j) {
