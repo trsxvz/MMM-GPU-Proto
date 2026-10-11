@@ -4254,3 +4254,31 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   intègre en 5,62 et 5,69 s, la loi cuda en 5,61 s (les deux passent par
   nvcc) ; contraintes identiques à 2,8e-13. mm-opera-hpc n'a pas été
   modifié.
+
+### 2026-10-11 (soir), cermet et bulle de mm-opera-hpc, mémoire de l'hôte sur le GPU
+
+- Cermet (polycristal de l'UO2 et interface métallique) et bulle (cavité
+  sous pression, éléments quadratiques, post-traitements) de mm-opera-hpc
+  sur le chemin par lots : point par point, par lots, tout par noyaux, sur
+  le CPU (1 et 2 processus) et sur le GPU (lois `generic` sur l'hôte et
+  lois cuda) : mêmes résultats (cermet à 8,6e-15 au plus). Tests dans
+  `cas/bulle` et `cas/cermet`, comme le polycristal ; `comparer-sorties.py
+  --csv` pour les sorties de la bulle. mm-opera-hpc : options de
+  mfem-mgis (`--device`...) dans les deux programmes, option `-l` du
+  cermet, option `--linear-solver-preconditioner` de la bulle : son cas
+  par défaut (467 109 inconnues) échouait même point par point (PCG
+  arrêté à 1000 itérations avec la diagonale, Newton limité à une
+  itération) et converge avec BoomerAMG.
+- Sur le GPU, la bulle prenait 68 s contre 31 s sur un cœur du CPU, dont
+  60 s de post-traitements. Cause : MFEM compilé avec Umpire alloue aussi
+  la mémoire de l'hôte avec Umpire dès qu'un périphérique est configuré,
+  et chaque temporaire des boucles par élément faites sur l'hôte passe par
+  la table des allocations d'Umpire (piles prises avec gdb ; les appels
+  CUDA ne comptaient que pour 1 s). Correctif dans mfem-mgis (branche
+  memoire-hote) : mémoire standard pour l'hôte, Umpire gardé pour le GPU,
+  sauf `MFEM_MEMORY`.
+- Mesures (`results/memoire-hote-2026-10-11`) : bulle 69,2 -> 14,0 s,
+  ex8 point par point 164,6 -> 57,3 s, cermet point par point 28,1 ->
+  14,8 s ; peu d'effet quand tout est calculé par noyaux (poutre,
+  polycristal, ex8 avec les lois cuda : 18,6 -> 16,9 s, la condition de
+  Robin étant évaluée sur l'hôte).

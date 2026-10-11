@@ -173,6 +173,48 @@ namespace mfem_mgis {
   }  // end of setHypreDevicePoolSize
 
   /*!
+   * \return true if a configuration of the device of MFEM uses a GPU
+   * (`cuda`, `hip`, `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
+   * \param[in] configuration: configuration of the device
+   */
+  static bool usesGPU(const char* const configuration) {
+    const auto c = std::string_view{configuration};
+    return (c.find("cuda") != std::string_view::npos) ||
+           (c.find("hip") != std::string_view::npos) ||
+           (c.find("gpu") != std::string_view::npos);
+  }  // end of usesGPU
+
+  /*!
+   * \brief sets the memory types of MFEM before the configuration of its
+   * device, unless they are given by the environment (variable
+   * `MFEM_MEMORY`, with which MFEM would ignore this call anyway): the
+   * standard memory of the host, and the default memory of the device
+   * (Umpire if MFEM is compiled with it). MFEM compiled with Umpire
+   * otherwise allocates the memory of the host with Umpire too, which
+   * records each allocation, including the temporaries of the loops over the
+   * elements made on the host: post-processings, assemblies on the host and
+   * exports were about five times slower.
+   * \param[in] configuration: configuration of the device
+   */
+  static void setMemoryTypes(const char* const configuration) {
+    if (std::getenv("MFEM_MEMORY") != nullptr) {
+      return;
+    }
+    if (!usesGPU(configuration)) {
+      mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
+                                   mfem::MemoryType::HOST);
+      return;
+    }
+#ifdef MFEM_USE_UMPIRE
+    mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
+                                 mfem::MemoryType::DEVICE_UMPIRE);
+#else  /* MFEM_USE_UMPIRE */
+    mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
+                                 mfem::MemoryType::DEVICE);
+#endif /* MFEM_USE_UMPIRE */
+  }  // end of setMemoryTypes
+
+  /*!
    * \return the identifier of the GPU used by this process: the processes
    * of a node use the GPUs of the node in turn (several processes may share
    * a GPU)
@@ -181,12 +223,8 @@ namespace mfem_mgis {
   static int getDeviceIdentifier(const char* const configuration) {
 #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
     // MFEM aborts if the number of GPUs is queried on a machine without GPU:
-    // it is only queried for a configuration using a GPU (`cuda`, `hip`,
-    // `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
-    const auto c = std::string_view{configuration};
-    if ((c.find("cuda") == std::string_view::npos) &&
-        (c.find("hip") == std::string_view::npos) &&
-        (c.find("gpu") == std::string_view::npos)) {
+    // it is only queried for a configuration using a GPU
+    if (!usesGPU(configuration)) {
       return 0;
     }
     const auto n = mfem::Device::GetDeviceCount();
@@ -344,6 +382,7 @@ namespace mfem_mgis {
             "option '--device' can't be used");
       }
       const auto identifier = getDeviceIdentifier(device_configuration);
+      setMemoryTypes(device_configuration);
       this->device =
           std::make_unique<mfem::Device>(device_configuration, identifier);
       // the kernels are launched asynchronously on a GPU: the profiling

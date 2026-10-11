@@ -56,6 +56,10 @@ Usage: ./test-bubble [options] ...
 | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
 | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
 | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
+| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
+
+The options of `mfem-mgis` are also accepted, for instance `--device cuda`
+to compute on a GPU.
 
 The command to execute the test-case is
 

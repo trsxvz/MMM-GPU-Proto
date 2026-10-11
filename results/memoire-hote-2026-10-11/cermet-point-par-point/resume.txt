@@ -1,0 +1,13 @@
+date : 2026-10-11 19:16:02
+cas : cermet
+machine : 16 cœurs, 30 Go
+charge : 1.23 1.72 1.70
+mfem-mgis : 0c61fbfcb4
+== cermet-np1-gpu-umpire : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=umpire
+   statut 0
+== cermet-np1-gpu-host : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=host
+   statut 0
+   7 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
+== cermet-np1-gpu-defaut : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint
+   statut 0
+   7 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00

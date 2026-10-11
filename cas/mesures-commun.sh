@@ -5,7 +5,8 @@
 #   lot=L2
 #   source "$(dirname "$0")/mesures-commun.sh" "$@"
 #
-# Arguments : cas (poutre, polycristal, thermique, ssna303 ou ex8), dossier
+# Arguments : cas (poutre, polycristal, thermique, ssna303, ex8, bulle ou
+# cermet), dossier
 # de résultats (par défaut results/<lot>-<cas>-<date>). Définit `run` (voir
 # plus bas), `generic`, `openmp` et `stlpar` (bibliothèques de la loi du
 # cas), et les variables `device`, `linear_solver`, `linear_tolerance`,
@@ -28,7 +29,17 @@
 # - ex8 : plaque thermomécanique (exemple ex8 de mfem-mgis-examples :
 #   thermique avec condition de Robin, mécanique avec gonflement, couplage
 #   itératif), 5 pas, MUMPS pour la mécanique, lois de l'exemple (la
-#   bibliothèque donnée à `run` est ignorée).
+#   bibliothèque donnée à `run` est ignorée) ;
+# - bulle : bulle de mm-opera-hpc (cavité sphérique sous pression dans une
+#   cellule périodique, élasticité, éléments quadratiques, maillage par
+#   défaut single_sphere.msh, 467 109 inconnues, PCG et BoomerAMG), un pas,
+#   post-traitements compris (export des contraintes aux nœuds, projection
+#   L2) ; les sorties de la bulle sont écrites dans son dossier ;
+# - cermet : cermet de mm-opera-hpc (polycristal de l'UO2 et interface
+#   métallique), `nsteps` pas (1 par défaut) sur `duration` (0,4 s par
+#   défaut).
+# Les exécutables de la bulle et du cermet doivent avoir les options de
+# mfem-mgis et l'option -l (mm-opera-hpc gpu-proto 88be07a ou après).
 #
 # Sorties brutes (avec les tableaux de profilage) dans le dossier de
 # résultats, résumé dans resume.txt ; temps par phase :
@@ -77,8 +88,18 @@ case "$case_name" in
     generic=""
     gp=$B
     ;;
+  bulle)
+    B=$P/build/mm-opera-hpc/bubble
+    generic=$B/src/libBehaviour.so
+    gp=$P/build/cas/bulle
+    ;;
+  cermet)
+    B=$P/build/mm-opera-hpc/cermet
+    generic=$B/src/libBehaviour.so
+    gp=$P/build/cas/cermet
+    ;;
   *)
-    echo "usage : $0 [poutre|polycristal|thermique|ssna303|ex8] [dossier de résultats]" >&2
+    echo "usage : $0 [poutre|polycristal|thermique|ssna303|ex8|bulle|cermet] [dossier de résultats]" >&2
     exit 1
     ;;
 esac
@@ -112,6 +133,8 @@ reference=""
 summary="^dofs|^time"
 if [ "$case_name" = ex8 ]; then
   summary="^Temperature|^DisplacementNorm|IterativeCouplingScheme::computeNextState"
+elif [ "$case_name" = bulle ]; then
+  summary="^Newton iteration|^PCG Iterations"
 fi
 # poutre : exécutable (par défaut celui du dossier de construction, chemin
 # absolu pour un autre exécutable, par exemple construit avec une version
@@ -144,6 +167,18 @@ command_of() {
       echo ./rjh_plate -m assemblage_hexa.msh -r "${refinement:-0}" -ns 5 \
         -lsMc MUMPSSolver -no-pp ${device:+--device $device} $options
       ;;
+    bulle)
+      echo ./test-bubble --mesh mesh/single_sphere.msh \
+        --bubble-file mesh/single_bubble.txt \
+        --linear-solver-preconditioner HypreBoomerAMG -v 1 \
+        -l "$library" ${device:+--device $device} $options
+      ;;
+    cermet)
+      echo ./cermet --duration "${duration:-0.4}" --nstep "${nsteps:-1}" \
+        --postprocessing 0 -l "$library" \
+        --macroscopic-stress-output-file "$out/$name.res" \
+        ${device:+--device $device} $options
+      ;;
     polycristal)
       echo ./uniaxial-polycrystal $post_processing --nstep 10 \
         --duration 10 -l "$library" \
@@ -170,6 +205,10 @@ run() {
   fi
   local cmd
   read -r -a cmd <<< "$(command_of "$library" "$name")"
+  if ! (cd "$B" && [ -x "${cmd[0]}" ]); then
+    echo "   exécutable ${cmd[0]} absent de $B" | tee -a "$out/resume.txt"
+    return 1
+  fi
   (cd "$B" && env OMP_NUM_THREADS="$threads" "${settings[@]}" \
     timeout 3600 mpirun "${placement[@]}" -n "$np" "${cmd[@]}") \
     < /dev/null > "$out/$name.txt" 2>&1

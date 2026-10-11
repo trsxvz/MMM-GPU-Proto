@@ -1,0 +1,24 @@
+date : 2026-10-11 19:14:09
+cas : bulle
+machine : 16 cœurs, 30 Go
+charge : 1.67 1.98 1.78
+mfem-mgis : 0c61fbfcb4
+== bulle-np1-gpu-umpire : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MEMORY=umpire
+   statut 0
+Newton iteration  0 : ||r|| = 0.0180624, ||r||/||r_0|| = 1
+PCG Iterations = 46
+Newton iteration  1 : ||r|| = 2.05176e-11, ||r||/||r_0|| = 1.13593e-09
+== bulle-np1-gpu-host : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MEMORY=host
+   statut 0
+Newton iteration  0 : ||r|| = 0.0180624, ||r||/||r_0|| = 1
+PCG Iterations = 46
+Newton iteration  1 : ||r|| = 2.05176e-11, ||r||/||r_0|| = 1.13593e-09
+   sig_hydro : 3 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
+   bubbles_and_stresses_selected : 5 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
+== bulle-np1-gpu-defaut : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+Newton iteration  0 : ||r|| = 0.0180624, ||r||/||r_0|| = 1
+PCG Iterations = 46
+Newton iteration  1 : ||r|| = 2.05176e-11, ||r||/||r_0|| = 1.13593e-09
+   sig_hydro : 3 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
+   bubbles_and_stresses_selected : 5 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00

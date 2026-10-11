@@ -1,0 +1,13 @@
+date : 2026-10-11 19:15:52
+cas : cermet
+machine : 16 cœurs, 30 Go
+charge : 1.27 1.74 1.71
+mfem-mgis : 0c61fbfcb4
+== cermet-np1-gpu-umpire : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MEMORY=umpire
+   statut 0
+== cermet-np1-gpu-host : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MEMORY=host
+   statut 0
+   7 valeurs, plus grande différence rapportée au maximum de son groupe : 3.711e-15
+== cermet-np1-gpu-defaut : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+   7 valeurs, plus grande différence rapportée au maximum de son groupe : 5.375e-15

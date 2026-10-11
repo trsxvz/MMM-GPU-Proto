@@ -30,6 +30,17 @@ mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
   l'interface `generic-parallel` (openmp, stlpar, cuda) ; l'exécutable est
   celui de mm-opera-hpc. Les tests comparent les contraintes
   macroscopiques au calcul point par point.
+- `bulle/` : loi de la bulle de mm-opera-hpc (cavité sphérique sous
+  pression dans une cellule périodique, élasticité, éléments
+  quadratiques), générée par l'interface `generic-parallel` ; l'exécutable
+  est `test-bubble` de mm-opera-hpc, sur le maillage de sa CI, chaque test
+  dans son dossier. Les tests comparent ses sorties (contrainte
+  hydrostatique moyenne, contraintes près des bulles) au calcul point par
+  point.
+- `cermet/` : lois du cermet de mm-opera-hpc (polycristal de l'UO2 et
+  interface métallique de Norton), une bibliothèque pour les deux ; un
+  pas sur deux processus, contraintes macroscopiques comparées au calcul
+  point par point.
 - `ssna303/` : lois de l'exemple ex4 de mfem-mgis-examples (barreau
   entaillé en 3D, plasticité en grandes transformations, déformation de
   Hencky) générées par l'interface `generic-parallel` ; l'exécutable est
@@ -49,14 +60,16 @@ variables `MFEM_MGIS_*` des calculs par lots et par noyaux.
 
 Scripts de mesures (résultats dans `results/<lot>-<cas>-<date>/`) :
 `mesures-commun.sh` (fonctions communes ; cas poutre, polycristal,
-thermique, ssna303 ; variable `refinement`), `mesures-L2.sh` à
+thermique, ssna303, ex8, bulle, cermet ; variable `refinement`), `mesures-L2.sh` à
 `mesures-L7-thermique.sh` (un script par lot du plan),
 `mesures-echelle-poutre.sh` (passage à l'échelle de la poutre, mémoire du
 GPU), `mesures-ssna303.sh` (ssna303 sur 8 cœurs et sur le GPU),
 `balayage-amgx-k0.sh` (configurations d'AmgX sur K0),
-`profil-transferts.sh` (copies entre l'hôte et le GPU, nsys). Outils :
+`profil-transferts.sh` (copies entre l'hôte et le GPU, nsys),
+`mesures-memoire-hote.sh` (types de mémoire de MFEM sur le GPU). Outils :
 `resume-profilage.py` (temps par phase des sorties `--profiling`),
-`comparer-sorties.py` (comparaison de sorties numériques).
+`comparer-sorties.py` (comparaison de sorties numériques, `--csv` pour
+les valeurs séparées par des virgules).
 
 `mesures-reference.sh` mesure les temps de référence du chemin actuel de
 mfem-mgis sur CPU (lot L0) : poutre, ssna303 en 3D (ex4), polycristal

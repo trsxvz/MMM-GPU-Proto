@@ -2,7 +2,7 @@
 """Comparaison de deux fichiers de résultats numériques.
 
 usage : cas/comparer-sorties.py référence fichier [--rtol r] [--atol a]
-        [--groupes g...]
+        [--groupes g...] [--csv]
 
 Compare un à un les nombres des deux fichiers, rangés en lignes de
 colonnes (par exemple : temps, composantes du gradient et des contraintes
@@ -14,17 +14,23 @@ chaque colonne forme un groupe ; avec --groupes, des colonnes de même
 nature partagent une échelle, par exemple `--groupes 0 1-3 4-6` pour le
 temps, le gradient et les contraintes : une contrainte transverse nulle en
 théorie (bruit numérique de 1e2 Pa sous un chargement de 1e7 Pa) est
-alors comparée à l'échelle des contraintes. Affiche la plus grande
-différence ainsi rapportée ; code de retour non nul si les fichiers
-diffèrent.
+alors comparée à l'échelle des contraintes. Une valeur non finie (NaN,
+infini) dans l'un des fichiers est une différence. Avec --csv, les valeurs sont
+séparées par des virgules et la première ligne (les noms des colonnes)
+est ignorée. Affiche la plus grande différence ainsi rapportée ; code de
+retour non nul si les fichiers diffèrent.
 """
 import argparse
+import math
 import sys
 
 
-def read(path):
+def read(path, csv=False):
     with open(path) as f:
-        return [[float(v) for v in line.split()] for line in f if line.split()]
+        lines = f.readlines()
+    if csv:
+        lines = [line.replace(",", " ") for line in lines[1:]]
+    return [[float(v) for v in line.split()] for line in lines if line.split()]
 
 
 def main():
@@ -36,9 +42,12 @@ def main():
     parser.add_argument("--groupes", nargs="*", default=[],
                         help="groupes de colonnes partageant une échelle "
                         "(indices à partir de 0, intervalles i-j)")
+    parser.add_argument("--csv", action="store_true",
+                        help="valeurs séparées par des virgules, première "
+                        "ligne ignorée")
     args = parser.parse_args()
-    a = read(args.reference)
-    b = read(args.file)
+    a = read(args.reference, args.csv)
+    b = read(args.file, args.csv)
     if len(a) != len(b) or not a or any(len(x) != len(y) for x, y in zip(a, b)):
         print("formes différentes ou fichier vide")
         return 1
@@ -63,7 +72,8 @@ def main():
         for j, (u, v) in enumerate(zip(x, y)):
             n += 1
             d = abs(u - v)
-            if d > args.atol + args.rtol * scale[j]:
+            if (not (math.isfinite(u) and math.isfinite(v))) or \
+                    d > args.atol + args.rtol * scale[j]:
                 ok = False
             if scale[j] != 0:
                 worst = max(worst, d / scale[j])

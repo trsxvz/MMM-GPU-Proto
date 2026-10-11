@@ -203,8 +203,17 @@ if((NOT MFEM_MGIS_HAS_KOKKOS_OPTION) AND Kokkos_FOUND)
 elseif(NOT MFEM_MGIS_HAS_KOKKOS_OPTION)
   message(STATUS "Kokkos not found: no option --kokkos in the cases")
 endif()
+# mm-opera-hpc: sources (behaviours of its cases) and build directory (its
+# executables, run by the tests of the polycrystal, of the bubble and of the
+# cermet, whose directories are cached from it at the first configuration)
+set(MM_OPERA_HPC_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../mm-opera-hpc"
+  CACHE PATH "sources of mm-opera-hpc")
+set(MM_OPERA_HPC_BINARY_DIR "${CMAKE_BINARY_DIR}/../mm-opera-hpc"
+  CACHE PATH "build directory of mm-opera-hpc")
 add_subdirectory(poutre)
 add_subdirectory(polycristal)
+add_subdirectory(bulle)
+add_subdirectory(cermet)
 add_subdirectory(ssna303)
 add_subdirectory(thermique)
 add_subdirectory(ex8)

@@ -4,10 +4,7 @@
 # batches. The executable is the one of mm-opera-hpc, run in its build
 # directory; the mode of integration is given by the environment variable
 # MFEM_MGIS_BEHAVIOUR_INTEGRATION.
-set(MM_OPERA_HPC_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../mm-opera-hpc"
-  CACHE PATH "sources of mm-opera-hpc")
-set(MM_OPERA_HPC_POLYCRYSTAL_DIR
-  "${CMAKE_BINARY_DIR}/../mm-opera-hpc/polycrystal"
+set(MM_OPERA_HPC_POLYCRYSTAL_DIR "${MM_OPERA_HPC_BINARY_DIR}/polycrystal"
   CACHE PATH "build directory of the polycrystal of mm-opera-hpc")
 add_generic_parallel_mfront_libraries(polycristal-behaviours CUDA
   "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")

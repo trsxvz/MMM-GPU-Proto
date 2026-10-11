@@ -258,7 +258,9 @@ The ``mfem_mgis::declareDefaultOptions`` function adds the option
 ``MFEM`` device (for instance ``cuda``). The device is created by
 ``mfem_mgis::initialize``; no device is created if the option is not
 given. An application using this option must not create its own
-``mfem::Device`` nor declare its own ``--device`` option.
+``mfem::Device`` nor declare its own ``--device`` option. The memory of
+the host is then the standard one (see the guide of the computations by
+batches).
 
 If ``MFEM`` was built with support of ``PETSc`` library, the following
 options are also added by the ``mfem_mgis::declareDefaultOptions``

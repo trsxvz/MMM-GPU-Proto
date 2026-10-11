@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <string_view>
 
 #include "MGIS/Function/TFEL/Mechanics.hxx"
 
@@ -169,6 +170,8 @@ struct TestParameters : PhysicalParameters {
   const char* bubble_file =
       "mesh/single_bubble.txt";                  ///< Bubble definitions file
   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
+  const char* linear_solver_preconditioner =
+      "HypreBoomerAMG";     ///< Preconditioner of the linear solver (or none)
   int parallel_mesh = 0;    ///< Flag for parallel mesh format
   int order = 2;            ///< Finite element order
   int refinement = 0;       ///< Mesh refinement level
@@ -185,6 +188,8 @@ struct TestParameters : PhysicalParameters {
  * \param p Parameter structure to fill
  */
 void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+  // options of mfem-mgis (device of MFEM...)
+  mfem_mgis::declareDefaultOptions(args);
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
   args.AddOption(&p.parallel_mesh, "-pm", "--parallel-mesh",
                  "Parallel mesh format or not");
@@ -203,6 +208,11 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "Scaling factor for the principal stress");
   args.AddOption(&p.testcase_name, "-n", "--name-case",
                  "Name of the testcase.");
+  args.AddOption(&p.linear_solver_preconditioner, "",
+                 "--linear-solver-preconditioner",
+                 "Preconditioner of the conjugate gradient solver "
+                 "(HypreBoomerAMG by default, HypreDiagScale...), none for no "
+                 "preconditioner.");
   args.AddOption(
       &p.d_min, "-dm", "--dmin",
       "Distance to evaluate bubble rupture, in µm, default = 0.950.");
@@ -215,7 +225,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
   if (!args.Good()) {
     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
     mfem_mgis::finalize();
-    exit(0);
+    // an invalid option is a failure, which a test must see
+    exit(EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
     if (mfem_mgis::getMPIrank() == 0)
@@ -425,12 +436,17 @@ int main(int argc, char** argv) {
   mfem_mgis::Parameters solverParameters;
   solverParameters.insert(mfem_mgis::throwing,
                           mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
-  // Use diagonal scaling preconditioner
-  auto preconditioner = mfem_mgis::Parameters{{"Name", "HypreDiagScale"}};
-  solverParameters.insert(
-      mfem_mgis::throwing,
-      mfem_mgis::Parameters{{"Preconditioner", preconditioner},
-                            {"Tolerance", 1e-10}});
+  solverParameters.insert(mfem_mgis::throwing,
+                          mfem_mgis::Parameters{{"Tolerance", 1e-10}});
+  // algebraic multigrid preconditioner by default: with the diagonal
+  // scaling, the solver does not reach its tolerance on the default mesh
+  if (std::string_view{p.linear_solver_preconditioner} != "none") {
+    auto preconditioner =
+        mfem_mgis::Parameters{{"Name", p.linear_solver_preconditioner}};
+    solverParameters.insert(
+        mfem_mgis::throwing,
+        mfem_mgis::Parameters{{"Preconditioner", preconditioner}});
+  }
 
   // Set up conjugate gradient solver
   problem.setLinearSolver(ctx, "HyprePCG", solverParameters) | or_die;

@@ -106,6 +106,7 @@ Usage: ./cermet [options] ...
 | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
 | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
+| `-l <string>, --library <string>`           | string | `src/libBehaviour.so` | Material library containing the behaviours of the grains and of the metallic interface.                                                                          |
 | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
 | `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh (default = 1).                                                                                                                       |
 | `-p <int>, --post-processing <int>`         | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
@@ -114,6 +115,9 @@ Usage: ./cermet [options] ...
 | `-n <int>, --nstep <int>`                   | int    | `400`                 | Number of simulation steps (default = 40).                                                                                                                        |
 | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
 | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+
+The options of `mfem-mgis` are also accepted, for instance `--device cuda`
+to compute on a GPU.
 
 
 ### Run it

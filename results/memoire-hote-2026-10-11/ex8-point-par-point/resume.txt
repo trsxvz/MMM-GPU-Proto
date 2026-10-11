@@ -1,0 +1,15 @@
+date : 2026-10-11 19:18:42
+cas : ex8
+machine : 16 cœurs, 30 Go
+charge : 1.35 1.54 1.63
+mfem-mgis : 34c4326052
+== ex8-np1-gpu-umpire : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=umpire
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.000644324263349186
+Temperature 309.565082913283 480.495121135856 360.215014545482
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |         164.435368 |         99.919614% |
+== ex8-np1-gpu-host : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=host
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.000644324263349186
+Temperature 309.565082913283 480.495121135856 360.215014545482
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |          57.174225 |         99.785772% |

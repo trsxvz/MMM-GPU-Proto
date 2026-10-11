@@ -1284,6 +1284,24 @@ add_test(NAME DeviceOptionTest-debug
          COMMAND DeviceOptionTest --device debug --expected debug)
 add_test(NAME DeviceOptionTest-debug-short
          COMMAND DeviceOptionTest -dev debug --expected debug)
+# a device on the host or on a GPU, with the standard memory of the host
+# (MFEM compiled with Umpire allocates it with Umpire by default), unless
+# the variable MFEM_MEMORY of MFEM gives it, which prevails (these tests
+# fail if MFEM_MEMORY is set for the whole test suite)
+add_test(NAME DeviceOptionTest-cpu
+         COMMAND DeviceOptionTest --device cpu --expected cpu)
+if(MFEM_USE_UMPIRE STREQUAL "YES")
+  add_test(NAME DeviceOptionTest-cpu-umpire
+           COMMAND DeviceOptionTest --device cpu --expected cpu
+                   --expected-host-memory umpire)
+  set_tests_properties(DeviceOptionTest-cpu-umpire PROPERTIES
+                       ENVIRONMENT MFEM_MEMORY=umpire)
+endif()
+if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+  add_test(NAME DeviceOptionTest-cuda
+           COMMAND DeviceOptionTest --device cuda --expected gpu)
+  set_tests_properties(DeviceOptionTest-cuda PROPERTIES RESOURCE_LOCK gpu)
+endif()
 # KokkosOptionTest executable: the option --kokkos and the variable
 # MFEM_MGIS_KOKKOS initialize Kokkos if mfem-mgis is built with Kokkos;
 # otherwise, the option is refused and the variable is ignored with a

@@ -41,3 +41,9 @@ Phases (`cas/resume-profilage.py`, deux problèmes cumulés) :
   FieldUpdaterModel (mfem-mgis-examples 6505b78), la thermique lit sur
   l'hôte des gradients périmés et les statistiques s'écartent de la
   référence d'environ 3e-5 en relatif (essai sur le maillage grossier).
+
+Note ajoutée le 11/10 au soir : ces calculs sur le GPU ont tourné avec la
+mémoire de l'hôte d'Umpire, choix par défaut de MFEM compilé avec Umpire,
+qui ralentit les boucles faites sur l'hôte. Avec la mémoire standard de
+l'hôte (`results/memoire-hote-2026-10-11`) : point par point 164,6 ->
+57,3 s ; tout par noyaux avec les lois cuda 18,6 -> 16,9 s.

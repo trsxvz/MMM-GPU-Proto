@@ -379,6 +379,21 @@ GPUs of the node in a round-robin manner (several processes may share a
 GPU). On a GPU, each profiling section waits for the end of the kernels
 launched on the GPU before it is closed.
 
+The memory of the host is the standard one, and the memory of the device
+the default one of :code:`MFEM` (:code:`Umpire` if :code:`MFEM` is
+compiled with it), unless the environment variable :code:`MFEM_MEMORY` of
+:code:`MFEM` gives them. :code:`MFEM` compiled with :code:`Umpire`
+otherwise also allocates the memory of the host with :code:`Umpire`, which
+records each allocation, including the temporaries of the loops over the
+elements made on the host: on the bubble of :code:`mm-opera-hpc` on a GPU,
+the post-processings (export of the stresses at the nodes, L2 projection)
+took 60.8 s instead of 10.5 s. :code:`MFEM_MEMORY=umpire` restores this
+behaviour, :code:`MFEM_MEMORY=host` uses the standard memory of the host
+and the memory of the device allocated by the runtime of the GPU, without
+pool. An application which creates its own :code:`mfem::Device` keeps the
+choice of :code:`MFEM`, unless it calls
+:code:`mfem::Device::SetMemoryTypes` before.
+
 The :code:`debug` device of :code:`MFEM` keeps the copies of the arrays
 "on the device" in a separate memory of the host, and detects the accesses
 to invalid copies, which allows checking the memory accesses of the

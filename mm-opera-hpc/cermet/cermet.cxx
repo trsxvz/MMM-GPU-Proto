@@ -49,8 +49,8 @@ struct TestParameters {
   //  const char *behaviourGrain = "MonoCristal_UO2";
   const char *behaviourGrain = "Mono_UO2_Cosh_Jaco3";
   const char *behaviourMetal = "NortonCr";
-  const char *libraryGrain = "src/libBehaviour.so";
-  const char *libraryMetal = "src/libBehaviour.so";
+  //! \brief library of the behaviours of the grains and of the interface
+  const char* library = "src/libBehaviour.so";
   const char *vector_file = "vectors_5grains.txt";
   int order = 1;
   int refinement = 0;
@@ -62,11 +62,16 @@ struct TestParameters {
 
 static void parseCommandLineOptions(mfem::OptionsParser &args,
                                     TestParameters &p) {
+  // options of mfem-mgis (device of MFEM...)
+  mfem_mgis::declareDefaultOptions(args);
   args.AddOption(&p.output_file, "", "--macroscopic-stress-output-file",
                  "main output file containing the evolution of the diagonal "
                  "components of the deformation gradient and the  diagonal "
                  "components of the Cauchy stress.");
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
+  args.AddOption(&p.library, "-l", "--library",
+                 "Material library containing the behaviours of the grains "
+                 "and of the metallic interface.");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -84,7 +89,8 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
   if (!args.Good()) {
     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
     mfem_mgis::finalize();
-    exit(0);
+    // an invalid option is a failure, which a test must see
+    exit(EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
     if (mfem_mgis::getMPIrank() == 0)
@@ -160,7 +166,7 @@ static void setup_material_properties(
 
   // TEST metal
   {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.libraryMetal,
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library,
                                    p.behaviourMetal) |
         or_die;
     auto &metal = problem.getMaterial(ctx, 1, 0) | or_die;
@@ -168,7 +174,7 @@ static void setup_material_properties(
   }
 
   for (int grainID = 2; grainID <= nMat; grainID++) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID, p.libraryGrain,
+    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID, p.library,
                                    p.behaviourGrain) |
         or_die;
     auto &grain = problem.getMaterial(ctx, grainID, 0) | or_die;
@@ -284,6 +290,7 @@ int main(int argc, char **argv) {
   std::ofstream out(p.output_file);
   if (!out) {
     std::cerr << "can't open output file '" << p.output_file << "'\n";
+    return EXIT_FAILURE;
   }
   out.precision(14);
   //

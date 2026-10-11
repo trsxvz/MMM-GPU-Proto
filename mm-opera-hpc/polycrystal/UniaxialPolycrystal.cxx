@@ -301,6 +301,7 @@ int main(int argc, char *argv[]) {
   std::ofstream out(p.output_file);
   if (!out) {
     std::cerr << "can't open output file '" << p.output_file << "'\n";
+    return EXIT_FAILURE;
   }
   out.precision(14);
   // setting the simulation and running it
@@ -385,7 +386,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   if (!args.Good()) {
     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
     mfem_mgis::finalize();
-    exit(0);
+    // an invalid option is a failure, which a test must see
+    exit(EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
     if (mfem_mgis::getMPIrank() == 0)
