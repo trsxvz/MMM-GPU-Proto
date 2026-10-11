@@ -903,7 +903,16 @@ Ordre proposé :
    évaluateurs non uniformes copiés vers le GPU à chaque `setup` après
    synchronisation de leur source ;
 6. conditions aux limites de bord (pression, source de chaleur) par des
-   noyaux de bord, pour le GPU ;
+   noyaux de bord, pour le GPU. Fait autrement (11/10) : ces conditions ne
+   dépendent pas des inconnues, leur contribution est assemblée une fois
+   pour une valeur unité, puis multipliée par la valeur à la fin du pas et
+   ajoutée sur le GPU aux forces intérieures calculées par noyaux
+   (`AbstractBoundaryCondition::isIndependentOfTheUnknowns`). La forme non
+   linéaire ne contient plus que l'intégrateur de mfem-mgis : plus de
+   résidu assemblé sur l'hôte, tangente assemblée par noyaux sans
+   l'assemblage de MFEM, tangente sans assemblage possible avec une
+   pression. Restent les conditions qui dépendent des inconnues (Robin
+   d'ex8), qui demanderaient de vrais noyaux de bord ;
 7. modèles et schémas de couplage (`Simulation`, `IterativeCouplingScheme`,
    `LoopCouplingScheme`, `NonLinearModel`, `PointWiseModel`,
    `QPEvaluators`), dépendances entre intégrateurs de deux problèmes

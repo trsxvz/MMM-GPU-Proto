@@ -96,24 +96,32 @@ namespace mfem_mgis {
       throw(CollectiveFailure(
           "the tangent operator applied without assembly (parameter "
           "TangentOperatorComputation set to MatrixFree) requires that the "
-          "non linear form only contains the integrator of mfem-mgis"));
+          "non linear form only contains the integrator of mfem-mgis (with "
+          "the inner forces computed by kernels, the boundary conditions "
+          "independent of the unknowns, such as an imposed pressure, are not "
+          "integrators of the non linear form)"));
     }
   }  // end of checkMatrixFreeTangentOperatorSupport
 
   /*!
-   * \brief adds the inner forces computed by kernels to the residual (true
-   * degrees of freedom), and cancels the residual at the essential degrees
-   * of freedom
+   * \brief adds the inner forces computed by kernels and the contributions
+   * of the boundary conditions independent of the unknowns to the residual
+   * (true degrees of freedom), and cancels the residual at the essential
+   * degrees of freedom
    * \param[in] fed: finite element discretization
-   * \param[in, out] mi: multi-material integrator
+   * \param[in, out] mi: multi-material integrator, null if the inner forces
+   * are not computed by kernels
+   * \param[in] bcs: boundary conditions independent of the unknowns
    * \param[in] fes: finite element space
    * \param[in] essential_dofs: essential true degrees of freedom
-   * \param[out] f: inner forces (local vector of the finite element space)
+   * \param[out] f: inner forces and contributions of the boundary
+   * conditions (local vector of the finite element space)
    * \param[in, out] r: residual
    */
   static void addInnerForcesComputedByKernels(
       const FiniteElementDiscretization& fed,
-      MultiMaterialNonLinearIntegrator& mi,
+      MultiMaterialNonLinearIntegrator* const mi,
+      const std::vector<AbstractBoundaryCondition*>& bcs,
       const mfem::FiniteElementSpace& fes,
       const mfem::Array<int>& essential_dofs,
       mfem::Vector& f,
@@ -124,7 +132,10 @@ namespace mfem_mgis {
       f.UseDevice(true);
       f.SetSize(fes.GetVSize());
       f = real{0};
-      success = mi.addInnerForcesByKernels(ctx, fes, f);
+      success = (mi == nullptr) || mi->addInnerForcesByKernels(ctx, fes, f);
+      for (auto* const bc : bcs) {
+        success = success && bc->addContributionToTheResidual(ctx, f);
+      }
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
     }
@@ -486,7 +497,8 @@ namespace mfem_mgis {
         } else {
           B = b;
         }
-        addInnerForcesComputedByKernels(fed, mi, fespace, edofs_list,
+        // the boundary conditions contribute to `b` by their linear forms
+        addInnerForcesComputedByKernels(fed, &mi, {}, fespace, edofs_list,
                                         *(kernels.inner_forces), B);
         // elimination in the local matrix, without prolongation
         const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
@@ -730,7 +742,9 @@ namespace mfem_mgis {
 
   void NonLinearEvolutionProblemImplementation<true>::Mult(
       const mfem::Vector& u, mfem::Vector& r) const {
-    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+    const auto kernels =
+        (this->inner_forces_kernels) && (this->mgis_integrator != nullptr);
+    if ((!kernels) && (this->residual_boundary_conditions.empty())) {
       mfem_mgis::NonlinearForm<true>::Mult(u, r);
       return;
     }
@@ -738,16 +752,17 @@ namespace mfem_mgis {
     // gives null contributions to the residual assembled by MFEM: the
     // assembly of MFEM is skipped if the form has no other integrator
     const auto only_mfem_mgis =
-        isTheOnlyIntegrator(*this, this->mgis_integrator);
+        kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
     if (only_mfem_mgis) {
       r = real{0};
     } else {
       mfem_mgis::NonlinearForm<true>::Mult(u, r);
     }
     addInnerForcesComputedByKernels(
-        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-        this->getFiniteElementSpace(), this->ess_tdof_list,
-        this->inner_forces_by_kernels, r);
+        this->getFiniteElementDiscretization(),
+        kernels ? this->mgis_integrator : nullptr,
+        this->residual_boundary_conditions, this->getFiniteElementSpace(),
+        this->ess_tdof_list, this->inner_forces_by_kernels, r);
   }  // end of Mult
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<
@@ -819,7 +834,13 @@ namespace mfem_mgis {
     if (f.get() == nullptr) {
       return ctx.registerErrorMessage("invalid boundary condition");
     }
-    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+    if ((this->inner_forces_kernels) && (f->isIndependentOfTheUnknowns())) {
+      // the contribution of the boundary condition is added to the inner
+      // forces computed by kernels (see `Mult`): the non linear form only
+      // contains the integrator of mfem-mgis, and the tangent operator can
+      // be assembled by kernels or applied without assembly
+      this->residual_boundary_conditions.push_back(f.get());
+    } else if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
       return false;
     }
     this->boundary_conditions.push_back(std::move(f));
@@ -1091,21 +1112,24 @@ namespace mfem_mgis {
 
   void NonLinearEvolutionProblemImplementation<false>::Mult(
       const mfem::Vector& u, mfem::Vector& r) const {
-    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
+    const auto kernels =
+        (this->inner_forces_kernels) && (this->mgis_integrator != nullptr);
+    if ((!kernels) && (this->residual_boundary_conditions.empty())) {
       mfem_mgis::NonlinearForm<false>::Mult(u, r);
       return;
     }
     const auto only_mfem_mgis =
-        isTheOnlyIntegrator(*this, this->mgis_integrator);
+        kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
     if (only_mfem_mgis) {
       r = real{0};
     } else {
       mfem_mgis::NonlinearForm<false>::Mult(u, r);
     }
     addInnerForcesComputedByKernels(
-        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
-        this->getFiniteElementSpace(), this->ess_tdof_list,
-        this->inner_forces_by_kernels, r);
+        this->getFiniteElementDiscretization(),
+        kernels ? this->mgis_integrator : nullptr,
+        this->residual_boundary_conditions, this->getFiniteElementSpace(),
+        this->ess_tdof_list, this->inner_forces_by_kernels, r);
   }  // end of Mult
 
   mfem::Operator& NonLinearEvolutionProblemImplementation<
@@ -1173,7 +1197,13 @@ namespace mfem_mgis {
     if (f.get() == nullptr) {
       return ctx.registerErrorMessage("invalid boundary condition");
     }
-    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+    if ((this->inner_forces_kernels) && (f->isIndependentOfTheUnknowns())) {
+      // the contribution of the boundary condition is added to the inner
+      // forces computed by kernels (see `Mult`): the non linear form only
+      // contains the integrator of mfem-mgis, and the tangent operator can
+      // be assembled by kernels or applied without assembly
+      this->residual_boundary_conditions.push_back(f.get());
+    } else if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
       return false;
     }
     this->boundary_conditions.push_back(std::move(f));

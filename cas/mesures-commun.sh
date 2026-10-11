@@ -93,13 +93,17 @@ options=""
 # polycristal : nom du calcul de référence des comparaisons (par défaut, le
 # calcul point par point sur le même nombre de processus)
 reference=""
+# poutre : exécutable (par défaut celui du dossier de construction, chemin
+# absolu pour un autre exécutable, par exemple construit avec une version
+# précédente de mfem-mgis)
+executable=./poutre
 # usage : command_of bibliothèque nom
 # affiche la commande du cas
 command_of() {
   local library=$1 name=$2
   case "$case_name" in
     poutre)
-      echo ./poutre -r "${refinement:-4}" -n 10 -mi 3000 -ls "$linear_solver" \
+      echo "$executable" -r "${refinement:-4}" -n 10 -mi 3000 -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
       ;;

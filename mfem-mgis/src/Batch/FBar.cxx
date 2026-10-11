@@ -36,6 +36,49 @@ namespace mfem_mgis::batch {
     return &(mfem::IntRules.Get(fes.GetFE(e)->GetGeomType(), 0));
   }  // end of getElementsCenterIntegrationRule
 
+  /*!
+   * \brief copies the values of an array of the memory of MFEM, on the
+   * device if a device is enabled
+   * \param[out] d: destination
+   * \param[in] s: source
+   */
+  static void copyFBarArray(mfem::Vector& d, const mfem::Vector& s) {
+    d.UseDevice(true);
+    d.SetSize(s.Size());
+    if (s.Size() != 0) {
+      d = s;
+    }
+  }  // end of copyFBarArray
+
+  void updateFBarData(FBarData& data) {
+    auto& b = data.beginning_of_time_step;
+    copyFBarArray(b.deformation_gradients, data.deformation_gradients);
+    copyFBarArray(b.coefficients, data.coefficients);
+    copyFBarArray(b.centers, data.centers);
+    copyFBarArray(b.b, data.b);
+    b.valid = data.valid;
+    b.defined = true;
+    data.has_tangent_operator = false;
+  }  // end of updateFBarData
+
+  void revertFBarData(FBarData& data) {
+    const auto& b = data.beginning_of_time_step;
+    if (b.defined) {
+      copyFBarArray(data.deformation_gradients, b.deformation_gradients);
+      copyFBarArray(data.coefficients, b.coefficients);
+      copyFBarArray(data.centers, b.centers);
+      copyFBarArray(data.b, b.b);
+      data.valid = b.valid;
+    } else {
+      data.deformation_gradients.SetSize(0);
+      data.coefficients.SetSize(0);
+      data.centers.SetSize(0);
+      data.b.SetSize(0);
+      data.valid = true;
+    }
+    data.has_tangent_operator = false;
+  }  // end of revertFBarData
+
   bool isFBarSupportedByKernels(const GradientsKind k) noexcept {
     return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
@@ -91,11 +134,12 @@ namespace mfem_mgis::batch {
     const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
     const auto vdim = getUnknownsSize(k);
     data.has_tangent_operator = false;
+    data.valid = true;
     if ((!resizeFBarArray(ctx, data.deformation_gradients, np * gsize)) ||
         (!resizeFBarArray(ctx, data.coefficients, np)) ||
-        (!resizeFBarArray(ctx, data.centers,
-                          std::int64_t{elements.Size()} * (1 + gsize))) ||
-        (!resizeFBarArray(ctx, data.b, std::int64_t{g0.ne} * g0.nd * vdim))) {
+        (!resizeFBarArray(ctx, data.centers, elements.Size())) ||
+        (!resizeFBarArray(ctx, data.b,
+                          std::int64_t{elements.Size()} * g0.nd * vdim))) {
       return false;
     }
     if (elements.Size() == 0) {
@@ -137,7 +181,7 @@ namespace mfem_mgis::batch {
     ca.determinants = g0.jacobians->detJ.Read(use_device);
     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
     ca.centers = data.centers.Write(use_device);
-    ca.b = data.b.ReadWrite(use_device);
+    ca.b = data.b.Write(use_device);
     ca.number_of_elements = elements.Size();
     ca.nd = g0.nd;
     for (std::int64_t c = 0; c != gsize; ++c) {
@@ -175,17 +219,19 @@ namespace mfem_mgis::batch {
       const ElementsGeometry& g,
       const GradientsKind k,
       const bool use_device,
-      const char* const name) {
+      const char* const name,
+      const std::int64_t threads_per_element) {
     const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+    const auto& elements = qs.getElements();
+    const auto size = n * elements.Size();
     if ((!data.has_tangent_operator) ||
-        (static_cast<std::int64_t>(data.a.Size()) != n * g.ne) ||
-        (static_cast<std::int64_t>(data.b.Size()) != n * g.ne)) {
+        (static_cast<std::int64_t>(data.a.Size()) != size) ||
+        (static_cast<std::int64_t>(data.b.Size()) != size)) {
       return ctx.registerErrorMessage(
           std::string{name} +
           ": the tangent operator of the FBar formulation is not computed");
     }
-    const auto& elements = qs.getElements();
-    if (std::int64_t{elements.Size()} * n * n >
+    if (std::int64_t{elements.Size()} * threads_per_element >
         std::numeric_limits<int>::max()) {
       return ctx.registerErrorMessage(std::string{name} +
                                       ": too many elements for the kernels");
@@ -303,8 +349,7 @@ namespace mfem_mgis::batch {
       const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
       if ((!isFBarSupportedByKernels(k)) ||
           (static_cast<std::int64_t>(data.coefficients.Size()) != np) ||
-          (static_cast<std::int64_t>(data.centers.Size()) !=
-           std::int64_t{elements.Size()} * (1 + gsize))) {
+          (data.centers.Size() != elements.Size())) {
         return ctx.registerErrorMessage(
             "computeFBarTangentOperator: the data of the FBar formulation are "
             "not computed");
@@ -318,7 +363,7 @@ namespace mfem_mgis::batch {
       const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
       if ((!resizeFBarArray(ctx, data.tangent_operator, np * gsize * gsize)) ||
           (!resizeFBarArray(ctx, data.pseudo_stresses, np * gsize)) ||
-          (!resizeFBarArray(ctx, data.a, n * g.ne))) {
+          (!resizeFBarArray(ctx, data.a, n * elements.Size()))) {
         return false;
       }
       data.a = real{0};
@@ -348,12 +393,12 @@ namespace mfem_mgis::batch {
         const auto s = std::span<const real>(
             data.pseudo_stresses.Read(use_device),
             static_cast<std::size_t>(data.pseudo_stresses.Size()));
-        if (!addInnerForces(ctx, data.a, qs,
-                            mgis::makePointByPointFieldView(
-                                s, qs.getNumberOfIntegrationPoints(),
-                                static_cast<size_type>(gsize),
-                                static_cast<size_type>(gsize)),
-                            g, k)) {
+        if (!addMaterialInnerForces(ctx, data.a, qs,
+                                    mgis::makePointByPointFieldView(
+                                        s, qs.getNumberOfIntegrationPoints(),
+                                        static_cast<size_type>(gsize),
+                                        static_cast<size_type>(gsize)),
+                                    g, k)) {
           return false;
         }
       }
@@ -386,8 +431,10 @@ namespace mfem_mgis::batch {
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
+      // one thread per entry of the matrices
+      const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
       if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
-                                         "addFBarStiffnessMatrices")) {
+                                         "addFBarStiffnessMatrices", n * n)) {
         return false;
       }
       if (!addStiffnessMatrices(ctx, m, qs,
@@ -427,8 +474,10 @@ namespace mfem_mgis::batch {
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
-                                         "addFBarStiffnessMatrices")) {
+      // one thread per row of the matrices
+      if (!getFBarRankOneKernelArguments(
+              ctx, a, data, qs, g, k, use_device, "addFBarStiffnessMatrices",
+              std::int64_t{g.nd} * getUnknownsSize(k))) {
         return false;
       }
       if (!addStiffnessMatrices(ctx, m, qs,
@@ -484,8 +533,11 @@ namespace mfem_mgis::batch {
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
-                                         "addFBarStiffnessMatricesDiagonals")) {
+      // one thread per degree of freedom
+      if (!getFBarRankOneKernelArguments(
+              ctx, a, data, qs, g, k, use_device,
+              "addFBarStiffnessMatricesDiagonals",
+              std::int64_t{g.nd} * getUnknownsSize(k))) {
         return false;
       }
       if (!addStiffnessMatricesDiagonals(
@@ -527,8 +579,9 @@ namespace mfem_mgis::batch {
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
+      // one thread per element
       if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
-                                         "addFBarTangentOperatorAction")) {
+                                         "addFBarTangentOperatorAction", 1)) {
         return false;
       }
       if (!addTangentOperatorAction(

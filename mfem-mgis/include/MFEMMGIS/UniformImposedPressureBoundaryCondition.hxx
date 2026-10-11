@@ -136,6 +136,17 @@ namespace mfem_mgis {
     [[nodiscard]] bool setup(Context& ctx,
                              const real t,
                              const real dt) noexcept override;
+    //! \return true: the imposed pressure does not depend on the unknowns
+    [[nodiscard]] bool isIndependentOfTheUnknowns() const noexcept override;
+    /*!
+     * \brief adds the contribution of the imposed pressure to the residual
+     * \param[in, out] ctx: execution context
+     * \param[in, out] r: residual, in the layout of the local vectors of the
+     * finite element space
+     * \return true on success
+     */
+    [[nodiscard]] bool addContributionToTheResidual(
+        Context& ctx, mfem::Vector& r) noexcept override;
     //! \brief destructor
     ~UniformImposedPressureBoundaryCondition() override;
 
@@ -154,6 +165,16 @@ namespace mfem_mgis {
     mfem::Array<mfem_mgis::size_type> boundaries_markers;
     //! \brief function returning the value of the imposed pressure
     std::function<real(const real)> prfct;
+    //! \brief value of the imposed pressure at the end of the time step
+    real pressure = 0;
+    /*!
+     * \brief contribution of a unit pressure to the residual, in the layout
+     * of the local vectors of the finite element space, assembled by the
+     * first call to `addContributionToTheResidual`
+     */
+    mfem::Vector unit_pressure_contribution;
+    //! \brief if the contribution of a unit pressure is assembled
+    bool unit_pressure_contribution_assembled = false;
     //! \brief underlying integrator
     UniformImposedPressureNonlinearFormIntegrator* const nfi = nullptr;
     //! \brief if the integrator must be freed by the destructor

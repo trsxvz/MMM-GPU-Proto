@@ -35,14 +35,11 @@ namespace mfem_mgis::batch::internals {
      * reference element (`dim x nd`)
      */
     const real* shape_functions_gradients = nullptr;
-    /*!
-     * \brief determinant `J0` and its derivative at the center of the
-     * elements of the material (`1 + gradients size` values per element)
-     */
+    //! \brief determinant `J0` at the center of the elements of the material
     real* centers = nullptr;
     /*!
-     * \brief vectors `b` of all the elements of the mesh (layout of the
-     * element restriction of MFEM)
+     * \brief vectors `b` of the elements of the material (`node + nd *
+     * (component + vdim * k)` for the `k`-th element of the material)
      */
     real* b = nullptr;
     //! \brief number of elements of the material
@@ -124,9 +121,9 @@ namespace mfem_mgis::batch::internals {
   struct FBarRankOneKernelArguments {
     //! \brief elements of the material
     const int* elements = nullptr;
-    //! \brief vectors `a` (layout of the element restriction)
+    //! \brief vectors `a`, by element of the material
     const real* a = nullptr;
-    //! \brief vectors `b` (layout of the element restriction)
+    //! \brief vectors `b`, by element of the material
     const real* b = nullptr;
     //! \brief number of elements of the material
     int number_of_elements = 0;

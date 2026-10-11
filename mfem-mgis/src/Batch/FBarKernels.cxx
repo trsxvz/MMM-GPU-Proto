@@ -137,14 +137,10 @@ namespace mfem_mgis::batch::internals {
           }
           real dJ0[9];
           computeDeterminantDerivative<K>(dJ0, F0);
-          auto* const c = a.centers + static_cast<std::size_t>(1 + gs) * k;
-          c[0] = computeDeterminant<K>(F0);
-          for (int i = 0; i != gs; ++i) {
-            c[1 + i] = dJ0[i];
-          }
+          a.centers[k] = computeDeterminant<K>(F0);
           // derivative of J0 with respect to the unknowns of the element
           const auto nd = static_cast<std::size_t>(a.nd);
-          auto* const b = a.b + nd * V * e;
+          auto* const b = a.b + nd * V * static_cast<std::size_t>(k);
           for (std::size_t node = 0; node != nd; ++node) {
             real dN[N];
             computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, 0, 1,
@@ -183,7 +179,7 @@ namespace mfem_mgis::batch::internals {
                                   : a.gradients[c * np + o];
         }
       }
-      const auto J0 = a.centers[static_cast<std::size_t>(1 + gs) * k];
+      const auto J0 = a.centers[k];
       const auto alpha =
           computeFBarCoefficient<K>(J0, computeDeterminant<K>(F));
       a.coefficients[o] = alpha;
@@ -221,7 +217,7 @@ namespace mfem_mgis::batch::internals {
       const auto* const F = a.deformation_gradients + o * sgs;
       const auto alpha = a.coefficients[o];
       const auto J = computeDeterminant<K>(F);
-      const auto J0 = a.centers[static_cast<std::size_t>(1 + gs) * k];
+      const auto J0 = a.centers[k];
       // dα/dF; in plane strain, the third component is ignored
       real c[9];
       computeDeterminantDerivative<K>(c, F);
@@ -306,14 +302,12 @@ namespace mfem_mgis::batch::internals {
       const auto k = t / nn;
       const auto r = t - k * nn;
       // row i (first index of `a`), column j, stored column by column
-      const auto j = r / a.n;
-      const auto i = r - j * a.n;
+      const auto j = static_cast<std::size_t>(r / a.n);
+      const auto i = static_cast<std::size_t>(r) - j * a.n;
       const auto e = static_cast<std::size_t>(a.elements[k]);
+      const auto sk = static_cast<std::size_t>(k);
       const auto sn = static_cast<std::size_t>(a.n);
-      m[sn * sn * e + static_cast<std::size_t>(i) +
-        sn * static_cast<std::size_t>(j)] +=
-          a.a[sn * e + static_cast<std::size_t>(i)] *
-          a.b[sn * e + static_cast<std::size_t>(j)];
+      m[sn * sn * e + i + sn * j] += a.a[sn * sk + i] * a.b[sn * sk + j];
     });
   }  // end of launchFBarRankOneMatricesKernel
 
@@ -325,6 +319,7 @@ namespace mfem_mgis::batch::internals {
       const auto k = t / a.n;
       const auto i = t - k * a.n;
       const auto e = static_cast<std::size_t>(a.elements[k]);
+      const auto sk = static_cast<std::size_t>(k);
       const auto sn = static_cast<std::size_t>(a.n);
       const auto* const dofs = o.element_dofs + sn * e;
       const auto row = dofs[i];
@@ -332,7 +327,7 @@ namespace mfem_mgis::batch::internals {
         ::AtomicAdd(o.missing[0], a.n);
         return;
       }
-      const auto ai = a.a[sn * e + static_cast<std::size_t>(i)];
+      const auto ai = a.a[sn * sk + static_cast<std::size_t>(i)];
       const auto end = o.I[row + 1];
       for (int j = 0; j != a.n; ++j) {
         const auto p = findColumn(o.J, o.I[row], end, dofs[j]);
@@ -340,7 +335,7 @@ namespace mfem_mgis::batch::internals {
           ::AtomicAdd(o.missing[0], 1);
         } else {
           ::AtomicAdd(o.values[p],
-                      ai * a.b[sn * e + static_cast<std::size_t>(j)]);
+                      ai * a.b[sn * sk + static_cast<std::size_t>(j)]);
         }
       }
     });
@@ -352,11 +347,11 @@ namespace mfem_mgis::batch::internals {
     const auto n = a.number_of_elements * a.n;
     mfem::forall_switch(use_device, n, [a, d] MFEM_HOST_DEVICE(int t) {
       const auto k = t / a.n;
-      const auto i = t - k * a.n;
-      const auto p = static_cast<std::size_t>(a.n) *
-                         static_cast<std::size_t>(a.elements[k]) +
-                     static_cast<std::size_t>(i);
-      d[p] += a.a[p] * a.b[p];
+      const auto i = static_cast<std::size_t>(t - k * a.n);
+      const auto sn = static_cast<std::size_t>(a.n);
+      const auto e = static_cast<std::size_t>(a.elements[k]);
+      const auto p = sn * static_cast<std::size_t>(k) + i;
+      d[sn * e + i] += a.a[p] * a.b[p];
     });
   }  // end of launchFBarRankOneDiagonalsKernel
 
@@ -368,12 +363,13 @@ namespace mfem_mgis::batch::internals {
         use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
           const auto sn = static_cast<std::size_t>(a.n);
           const auto e = static_cast<std::size_t>(a.elements[k]);
+          const auto sk = static_cast<std::size_t>(k);
           real bx = 0;
           for (std::size_t j = 0; j != sn; ++j) {
-            bx += a.b[sn * e + j] * x[sn * e + j];
+            bx += a.b[sn * sk + j] * x[sn * e + j];
           }
           for (std::size_t i = 0; i != sn; ++i) {
-            y[sn * e + i] += a.a[sn * e + i] * bx;
+            y[sn * e + i] += a.a[sn * sk + i] * bx;
           }
         });
   }  // end of launchFBarRankOneActionKernel

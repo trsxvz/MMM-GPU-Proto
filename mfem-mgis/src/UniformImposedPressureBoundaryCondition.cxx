@@ -203,7 +203,8 @@ namespace mfem_mgis {
       Context &ctx, const real t, const real dt) noexcept {
     auto success = true;
     try {
-      this->nfi->setPressure(this->prfct(t + dt));
+      this->pressure = this->prfct(t + dt);
+      this->nfi->setPressure(this->pressure);
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
       success = false;
@@ -282,6 +283,55 @@ namespace mfem_mgis {
     b.AddBoundaryIntegrator(form, this->boundaries_markers);
     return true;
   }  // end of addLinearFormIntegrators
+
+  bool UniformImposedPressureBoundaryCondition::isIndependentOfTheUnknowns()
+      const noexcept {
+    return true;
+  }  // end of isIndependentOfTheUnknowns
+
+  bool UniformImposedPressureBoundaryCondition::addContributionToTheResidual(
+      Context &ctx, mfem::Vector &r) noexcept {
+    try {
+      auto &v = this->unit_pressure_contribution;
+      if (!this->unit_pressure_contribution_assembled) {
+        // the linear form integrator of the prediction, for a unit
+        // pressure, assembled on the host once
+        auto &fed = *(this->finiteElementDiscretization);
+        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
+#ifdef MFEM_USE_MPI
+          if (fed.describesAParallelComputation()) {
+            return &(fed.getFiniteElementSpace<true>());
+          }
+#endif /* MFEM_USE_MPI */
+          return &(fed.getFiniteElementSpace<false>());
+        }();
+        auto markers = mfem::Array<mfem_mgis::size_type>(
+            fes->GetMesh()->bdr_attributes.Max());
+        markers = 0;
+        for (const auto &bid : this->bids) {
+          markers[bid - 1] = 1;
+        }
+        auto b = mfem::LinearForm(fes);
+        auto *const form = new UniformImposedPressureLinearFormIntegrator();
+        form->setPressure(1);
+        b.AddBoundaryIntegrator(form, markers);
+        b.Assemble();
+        v.UseDevice(true);
+        v = b;
+        this->unit_pressure_contribution_assembled = true;
+      }
+      if (r.Size() != v.Size()) {
+        return ctx.registerErrorMessage(
+            "UniformImposedPressureBoundaryCondition::"
+            "addContributionToTheResidual: invalid size of the residual");
+      }
+      r.Add(this->pressure, v);
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+      return false;
+    }
+    return true;
+  }  // end of addContributionToTheResidual
 
   UniformImposedPressureBoundaryCondition::
       ~UniformImposedPressureBoundaryCondition() {

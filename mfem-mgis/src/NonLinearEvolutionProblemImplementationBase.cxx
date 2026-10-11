@@ -521,6 +521,11 @@ namespace mfem_mgis {
             (!this->mgis_integrator->checkKernelsSupport(ctx))) {
           return false;
         }
+        if ((this->computesStiffnessMatricesByKernels()) &&
+            (!this->mgis_integrator->checkStiffnessMatricesKernelsSupport(
+                ctx, this->gradients_kernels))) {
+          return false;
+        }
         if (!this->mgis_integrator->setup(ctx, t, dt)) {
           return false;
         }

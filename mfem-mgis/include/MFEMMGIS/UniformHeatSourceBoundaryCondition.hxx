@@ -133,6 +133,17 @@ namespace mfem_mgis {
     [[nodiscard]] bool setup(Context& ctx,
                              const real t,
                              const real dt) noexcept override;
+    //! \return true: the heat source does not depend on the unknowns
+    [[nodiscard]] bool isIndependentOfTheUnknowns() const noexcept override;
+    /*!
+     * \brief adds the contribution of the heat source to the residual
+     * \param[in, out] ctx: execution context
+     * \param[in, out] r: residual, in the layout of the local vectors of the
+     * finite element space
+     * \return true on success
+     */
+    [[nodiscard]] bool addContributionToTheResidual(
+        Context& ctx, mfem::Vector& r) noexcept override;
     //! \brief destructor
     ~UniformHeatSourceBoundaryCondition() override;
 
@@ -151,6 +162,16 @@ namespace mfem_mgis {
     mfem::Array<mfem_mgis::size_type> materials_markers;
     //! \brief function returning the value of the heat source
     std::function<real(const real)> qfct;
+    //! \brief value of the heat source at the end of the time step
+    real heat_source = 0;
+    /*!
+     * \brief contribution of a unit heat source to the residual, in the
+     * layout of the local vectors of the finite element space, assembled by
+     * the first call to `addContributionToTheResidual`
+     */
+    mfem::Vector unit_heat_source_contribution;
+    //! \brief if the contribution of a unit heat source is assembled
+    bool unit_heat_source_contribution_assembled = false;
     //! \brief underlying integrator
     UniformHeatSourceNonlinearFormIntegrator* const nfi = nullptr;
     //! \brief if the integrator must be freed by the destructor

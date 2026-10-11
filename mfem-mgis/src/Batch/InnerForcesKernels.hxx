@@ -47,6 +47,11 @@ namespace mfem_mgis::batch::internals {
      * number of components of the unknowns)
      */
     real* values = nullptr;
+    /*!
+     * \brief if true, the values are stored by element of the material
+     * (`nd x vdim x number_of_elements`) instead of by element of the mesh
+     */
+    bool by_material_element = false;
     //! \brief number of elements of the material
     int number_of_elements = 0;
     //! \brief number of degrees of freedom per element and per component

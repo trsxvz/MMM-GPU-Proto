@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +25,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
 #include "solver-options.hxx"
 
 int main(int argc, char** argv) {
@@ -56,6 +58,7 @@ int main(int argc, char** argv) {
   auto update_period = 1;
   auto chebyshev_order = 2;
   auto displacement = real{0.5};
+  auto pressure = real{0};
   auto relative_tolerance = real{1e-8};
   auto linear_tolerance = real{1e-10};
   auto adaptive_initial_tolerance = real{-1};
@@ -171,6 +174,9 @@ int main(int argc, char** argv) {
                  "Elastic prediction at the beginning of each step.");
   args.AddOption(&displacement, "-u", "--displacement",
                  "Transverse displacement imposed at the end of the beam.");
+  args.AddOption(&pressure, "-pa", "--pressure",
+                 "Pressure imposed on the end of the beam, increasing "
+                 "linearly in time up to this value (none if null).");
   args.AddOption(&relative_tolerance, "-rt", "--relative-tolerance",
                  "Relative tolerance of the Newton solver.");
   args.AddOption(&expected_norm, "-en", "--expected-norm",
@@ -320,6 +326,16 @@ int main(int argc, char** argv) {
               {"LoadingEvolution",
                [displacement](const real t) { return displacement * t; }}}) |
         or_die;
+    if (pressure != 0) {
+      // independent of the unknowns: with the inner forces computed by
+      // kernels, its contribution is added to the residual without
+      // integrator in the non linear form
+      problem.addBoundaryCondition(
+          ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
+                   problem.getFiniteElementDiscretizationPointer(), 2,
+                   [pressure](const real t) { return pressure * t; })) |
+          or_die;
+    }
     if (prediction) {
       auto pp = PredictionPolicy{};
       pp.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION;

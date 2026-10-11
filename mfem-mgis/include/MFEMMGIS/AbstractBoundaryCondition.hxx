@@ -96,6 +96,32 @@ namespace mfem_mgis {
     [[nodiscard]] virtual bool setup(Context& ctx,
                                      const real t,
                                      const real dt) noexcept = 0;
+    /*!
+     * \return if the contribution of the boundary condition to the residual
+     * is a vector independent of the unknowns multiplied by a scalar which
+     * only depends on time, its contribution to the tangent operator being
+     * null. With the inner forces computed by kernels (parameter
+     * `InnerForcesComputation`), such a boundary condition is applied by
+     * `addContributionToTheResidual` instead of an integrator of the non
+     * linear form: if the non linear form contains no other integrator than
+     * the one of mfem-mgis, the tangent operator can then be assembled by
+     * kernels without the assembly of MFEM, or applied without assembly.
+     * The default implementation returns false.
+     */
+    [[nodiscard]] virtual bool isIndependentOfTheUnknowns() const noexcept;
+    /*!
+     * \brief adds the contribution of a boundary condition independent of
+     * the unknowns (see `isIndependentOfTheUnknowns`) to the residual, at the
+     * end of the time step given to `setup`. The default implementation
+     * reports an error.
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] r: residual, in the layout of the local vectors of the
+     * finite element space (one value per degree of freedom of the
+     * process), on the device if a device is enabled
+     */
+    [[nodiscard]] virtual bool addContributionToTheResidual(
+        Context& ctx, mfem::Vector& r) noexcept;
     //! \brief destructor
     virtual ~AbstractBoundaryCondition();
   };

@@ -187,7 +187,8 @@ namespace mfem_mgis {
                                                  const real dt) noexcept {
     auto success = true;
     try {
-      this->nfi->setHeatSource(this->qfct(t + dt));
+      this->heat_source = this->qfct(t + dt);
+      this->nfi->setHeatSource(this->heat_source);
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
       success = false;
@@ -266,6 +267,55 @@ namespace mfem_mgis {
     b.AddDomainIntegrator(form, this->materials_markers);
     return true;
   }  // end of addLinearFormIntegrators
+
+  bool UniformHeatSourceBoundaryCondition::isIndependentOfTheUnknowns()
+      const noexcept {
+    return true;
+  }  // end of isIndependentOfTheUnknowns
+
+  bool UniformHeatSourceBoundaryCondition::addContributionToTheResidual(
+      Context &ctx, mfem::Vector &r) noexcept {
+    try {
+      auto &v = this->unit_heat_source_contribution;
+      if (!this->unit_heat_source_contribution_assembled) {
+        // the linear form integrator of the prediction, for a unit heat
+        // source, assembled on the host once
+        auto &fed = *(this->finiteElementDiscretization);
+        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
+#ifdef MFEM_USE_MPI
+          if (fed.describesAParallelComputation()) {
+            return &(fed.getFiniteElementSpace<true>());
+          }
+#endif /* MFEM_USE_MPI */
+          return &(fed.getFiniteElementSpace<false>());
+        }();
+        auto markers = mfem::Array<mfem_mgis::size_type>(
+            fes->GetMesh()->attributes.Max());
+        markers = 0;
+        for (const auto &mid : this->mids) {
+          markers[mid - 1] = 1;
+        }
+        auto b = mfem::LinearForm(fes);
+        auto *const form = new UniformHeatSourceLinearFormIntegrator();
+        form->setHeatSource(1);
+        b.AddDomainIntegrator(form, markers);
+        b.Assemble();
+        v.UseDevice(true);
+        v = b;
+        this->unit_heat_source_contribution_assembled = true;
+      }
+      if (r.Size() != v.Size()) {
+        return ctx.registerErrorMessage(
+            "UniformHeatSourceBoundaryCondition::"
+            "addContributionToTheResidual: invalid size of the residual");
+      }
+      r.Add(this->heat_source, v);
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+      return false;
+    }
+    return true;
+  }  // end of addContributionToTheResidual
 
   UniformHeatSourceBoundaryCondition::~UniformHeatSourceBoundaryCondition() {
     if (this->shallFreeIntegrator) {

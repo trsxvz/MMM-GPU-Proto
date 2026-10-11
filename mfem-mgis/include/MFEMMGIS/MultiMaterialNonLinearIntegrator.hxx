@@ -141,6 +141,22 @@ namespace mfem_mgis {
      */
     [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
     /*!
+     * \return true if the stiffness matrices of all the behaviour
+     * integrators can be computed by kernels with the given computation of
+     * the gradients: the stiffness matrices of a behaviour integrator
+     * depending on the current estimate of the solution (FBar formulation,
+     * see
+     * `AbstractBehaviourIntegrator::requiresCurrentSolutionForJacobianAssembly`)
+     * are computed from data computed with the gradients by kernels;
+     * otherwise, an error message naming the first behaviour integrator
+     * concerned is registered
+     * \param[in, out] ctx: execution context
+     * \param[in] gradients_kernels: if true, the gradients are computed by
+     * kernels
+     */
+    [[nodiscard]] bool checkStiffnessMatricesKernelsSupport(
+        Context& ctx, const bool gradients_kernels) const noexcept;
+    /*!
      * \brief compute the gradients of all the behaviour integrators by
      * kernels (first step of the integration by batches, replacing the calls
      * to `computeGradients` element by element): the derivatives of the

@@ -51,6 +51,13 @@ namespace mfem_mgis::batch {
    * respect to the unknowns of the element). In plane strain, the third
    * component of `F` and of the derivatives of the determinants are
    * ignored, as by the FBar behaviour integrators (`F̄33 = 1`).
+   *
+   * The data are computed with the gradients by kernels (`applyFBar`): the
+   * tangent operator computed by kernels is the one of the unknowns of the
+   * last computation of the gradients (or of the beginning of the time step
+   * after a revert, see `revertFBarData`), whatever the unknowns given to
+   * the assembly of the jacobian, and it can't be computed if the gradients
+   * have been computed element by element (see `valid`).
    */
   struct MFEM_MGIS_EXPORT FBarData {
     /*!
@@ -60,21 +67,14 @@ namespace mfem_mgis::batch {
     mfem::Vector deformation_gradients;
     //! \brief coefficients `α` at the integration points of the material
     mfem::Vector coefficients;
-    /*!
-     * \brief determinant `J0` and its derivative `dJ0/dF0` at the center of
-     * each element of the material (`1 + gradients size` values per
-     * element)
-     */
+    //! \brief determinant `J0` at the center of each element of the material
     mfem::Vector centers;
     /*!
-     * \brief vectors `b` of the elements, in the layout of the element
-     * restriction of MFEM, for all the elements of the mesh
+     * \brief vectors `b` of the elements of the material (`node + nd *
+     * (component + vdim * k)` for the `k`-th element of the material)
      */
     mfem::Vector b;
-    /*!
-     * \brief vectors `a` of the elements, in the layout of the element
-     * restriction of MFEM, for all the elements of the mesh
-     */
+    //! \brief vectors `a` of the elements of the material (as `b`)
     mfem::Vector a;
     /*!
      * \brief tangent operator `K'` at the integration points of the
@@ -88,6 +88,28 @@ namespace mfem_mgis::batch {
      * the current tangent operator blocks of the behaviour
      */
     bool has_tangent_operator = false;
+    /*!
+     * \brief false if the gradients have been computed element by element
+     * since the last computation of the data by kernels: the data do not
+     * match the current unknowns, and the tangent operator can't be computed
+     * by kernels
+     */
+    bool valid = true;
+    //! \brief copies of the data at the beginning of the time step
+    struct {
+      //! \brief deformation gradients `F`
+      mfem::Vector deformation_gradients;
+      //! \brief coefficients `α`
+      mfem::Vector coefficients;
+      //! \brief data at the center of the elements
+      mfem::Vector centers;
+      //! \brief vectors `b`
+      mfem::Vector b;
+      //! \brief validity of the data (see `FBarData::valid`)
+      bool valid = true;
+      //! \brief if true, the copies are set (see `updateFBarData`)
+      bool defined = false;
+    } beginning_of_time_step;
   };
 
   /*!
@@ -143,6 +165,22 @@ namespace mfem_mgis::batch {
       const Material&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;
+  /*!
+   * \brief keeps the data of the FBar formulation, computed for the
+   * converged unknowns of the time step, as the data at the beginning of the
+   * next time step (see `revertFBarData`)
+   * \param[in, out] data: data of the FBar formulation
+   */
+  MFEM_MGIS_EXPORT void updateFBarData(FBarData&);
+  /*!
+   * \brief restores the data of the FBar formulation at the beginning of the
+   * time step, kept by `updateFBarData`, or, before the first update, removes
+   * the data (the data at the beginning of the first time step are computed
+   * for null unknowns, see `initializeFBar`, which supposes that the initial
+   * unknowns are null)
+   * \param[in, out] data: data of the FBar formulation
+   */
+  MFEM_MGIS_EXPORT void revertFBarData(FBarData&);
   /*!
    * \brief computes the tangent operator `K'` at the integration points of
    * a material and the vectors `a` of its elements, from the tangent

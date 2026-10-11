@@ -3907,3 +3907,58 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   la matrice, de l'action et de la diagonale, terme `v ⊗ c`, α oublié,
   pseudo-contrainte, F̄33 en déformations planes). Faltus reste refusé
   (GradientsKernelsTest).
+- Relecture F (scratch, relecture-F.md), corrigée dans mfem-mgis
+  (639db23788 à ad1d81db9e) : données FBar marquées invalides quand les
+  gradients sont calculés élément par élément, la tangente par noyaux
+  étant alors refusée avec un message ; données du début du pas gardées
+  par `update` et rétablies par `revert` (une prédiction après un revert
+  relisait des données d'un autre état) ; nombre de fils par élément exact
+  dans le contrôle de débordement ; vecteurs `a` et `b` des matrices de
+  rang un rangés par élément du matériau (nouvelle fonction
+  `addMaterialInnerForces`), `centers` réduit à J0. Tests : face x = 0
+  encastrée (solution non homogène), cas FBar avec pression (matrices
+  élémentaires), deux matériaux dont le matériau étudié est le second du
+  maillage (indices différents dans le maillage et dans le matériau),
+  éléments quadratiques, refus de la tangente par noyaux sans gradients
+  par noyaux, deux prédictions séparées par un revert. En parallèle, le
+  résidu des cas FBar avec pression stagne vers 1e-12 fois sa référence
+  (MUMPS) : tolérance relative portée à 1e-11 pour ces cas (option
+  `relative_tolerance`). CPU, `debug`, GPU, 2 processus (CPU et GPU),
+  GradientsKernelsTest : 8/8.
+- Relecture G (scratch, relecture-G.md) des corrections : rien de gravité
+  3 ou plus. Traité : la tangente FBar par noyaux sans gradients par
+  noyaux est refusée à la mise en place de la résolution (avant, à la
+  première assemblée, vue comme une non-convergence et donc redécoupée
+  dans une `Simulation`), tangente déjà calculée oubliée avec les données,
+  documentation de `TangentOperatorComputation`, refus testé aussi sans
+  assemblage, prédiction dans le cas d'ordre 2. Le constat sur la
+  prédiction sans revert (couplage itératif) n'est pas propre à FBar : la
+  prédiction intègre les gradients du dernier itéré, et les données FBar
+  sont celles de ces gradients.
+
+### 2026-10-11 (nuit), conditions aux limites indépendantes des inconnues (L7.6)
+
+- Pression imposée et source de chaleur : leur résidu est `s(t + dt) v`,
+  `v` indépendant des inconnues, tangente nulle. Nouvelles méthodes de
+  `AbstractBoundaryCondition` : `isIndependentOfTheUnknowns` (faux par
+  défaut) et `addContributionToTheResidual`. `v` est assemblé une seule
+  fois, pour une valeur unité, par l'intégrateur de forme linéaire déjà
+  utilisé par la prédiction, puis gardé sur le GPU. Avec les forces
+  intérieures calculées par noyaux, ces conditions ne sont plus des
+  intégrateurs de la forme non linéaire : leur contribution est ajoutée
+  au vecteur local des forces intérieures avant le passage aux degrés de
+  liberté vrais. La forme ne contient alors que l'intégrateur de
+  mfem-mgis : plus de boucle sur les éléments de l'hôte pour le résidu
+  (copies de `u` et du résidu), tangente assemblée par noyaux sans
+  l'assemblage de MFEM, tangente sans assemblage possible avec une
+  pression (refusée avant).
+- Tests : BatchIntegrationTest (pression avec la tangente assemblée par
+  noyaux ou sans assemblage, et comme intégrateur de la forme quand les
+  forces intérieures sont calculées élément par élément ; refus du sans
+  assemblage avec une condition de test qui dépend des inconnues),
+  HeatTransferKernelsTest (source de chaleur, stationnaire et
+  transitoire, écarts de 1e-16). Avec FBar orthotrope, une pression et la
+  tangente sans assemblage, le gradient conjugué du test ne converge pas
+  en 10 000 itérations (tangente non symétrique) : ce cas reste isotrope.
+  Quatre mutations détectées (pression doublée, source oubliée, pression
+  déclarée dépendante, intégrateurs de bord ignorés).

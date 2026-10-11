@@ -87,6 +87,10 @@ namespace mfem_mgis {
       }
       return true;
     }
+    // the gradients are computed element by element: the data of the FBar
+    // formulation computed by kernels no longer match the unknowns
+    this->fbar_data.valid = false;
+    this->fbar_data.has_tangent_operator = false;
 #ifdef MFEM_THREAD_SAFE
     mfem::Vector shape0;
     mfem::DenseMatrix dshape0;
@@ -236,6 +240,10 @@ namespace mfem_mgis {
         Traits::updateExternalStateVariablesFromUnknownsValues ||
         Traits::gradientsComputationRequiresShapeFunctions;
     auto &child = static_cast<Child &>(*this);
+    // the data of the FBar formulation computed by kernels no longer match
+    // the unknowns
+    this->fbar_data.valid = false;
+    this->fbar_data.has_tangent_operator = false;
     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
     const auto &ir = child.getIntegrationRule(e, tr);
 #ifdef MFEM_THREAD_SAFE
@@ -517,13 +525,16 @@ namespace mfem_mgis {
 
   template <typename Child, Hypothesis H>
   void FBarBehaviourIntegratorCRTPBase<Child, H>::revert() {
-    this->fbar_data.has_tangent_operator = false;
+    // data of the FBar formulation at the beginning of the time step
+    batch::revertFBarData(this->fbar_data);
     BehaviourIntegratorBase::revert();
   }  // end of revert
 
   template <typename Child, Hypothesis H>
   void FBarBehaviourIntegratorCRTPBase<Child, H>::update() {
-    this->fbar_data.has_tangent_operator = false;
+    // the data of the converged unknowns are the data at the beginning of
+    // the next time step
+    batch::updateFBarData(this->fbar_data);
     BehaviourIntegratorBase::update();
   }  // end of update
 
@@ -619,7 +630,19 @@ namespace mfem_mgis {
     if (!this->getKernelsData(ctx, data, name, g)) {
       return false;
     }
-    if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
+    if (data.rule == nullptr) {
+      return true;
+    }
+    // safeguard: this case is refused by the setup of the non linear
+    // evolution problem
+    if (!this->fbar_data.valid) {
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": the tangent operator of the FBar formulation can only be "
+          "computed by kernels from gradients computed by kernels "
+          "(GradientsComputation set to Kernels)");
+    }
+    if (this->fbar_data.has_tangent_operator) {
       return true;
     }
     try {

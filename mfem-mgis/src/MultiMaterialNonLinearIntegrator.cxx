@@ -299,6 +299,29 @@ namespace mfem_mgis {
     return true;
   }  // end of checkBatchIntegrationSupport
 
+  bool MultiMaterialNonLinearIntegrator::checkStiffnessMatricesKernelsSupport(
+      Context& ctx, const bool gradients_kernels) const noexcept {
+    if (gradients_kernels) {
+      return true;
+    }
+    for (size_type m = 0;
+         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
+      for (const auto& bi : this->behaviour_integrators[m]) {
+        if (bi->requiresCurrentSolutionForJacobianAssembly()) {
+          return ctx.registerErrorMessage(
+              "the stiffness matrices of the behaviour integrator of "
+              "material '" +
+              std::to_string(m) +
+              "' depend on the current estimate of the solution (FBar "
+              "formulation): they can only be computed by kernels from "
+              "gradients computed by kernels (GradientsComputation set to "
+              "Kernels)");
+        }
+      }
+    }
+    return true;
+  }  // end of checkStiffnessMatricesKernelsSupport
+
   bool MultiMaterialNonLinearIntegrator::checkPointByPointIntegrationSupport(
       Context& ctx) const noexcept {
     auto ctx2 = Context{};

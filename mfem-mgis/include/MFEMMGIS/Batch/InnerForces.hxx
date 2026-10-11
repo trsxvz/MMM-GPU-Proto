@@ -45,6 +45,26 @@ namespace mfem_mgis::batch {
       const mgis::FieldView<const real>&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;
+  /*!
+   * \brief adds the inner forces of the elements of a material, as
+   * `addInnerForces`, to values stored by element of the material
+   * (`node + nd * (component + vdim * k)` for the `k`-th element of the
+   * material) instead of by element of the mesh
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] f: values by element of the material
+   * \param[in] qs: quadrature space of the material
+   * \param[in] s: thermodynamic forces in the global frame
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addMaterialInnerForces(
+      Context&,
+      mfem::Vector&,
+      const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
+      const ElementsGeometry&,
+      const GradientsKind) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

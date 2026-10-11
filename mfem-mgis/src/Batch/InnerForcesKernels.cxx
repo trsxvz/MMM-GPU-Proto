@@ -83,7 +83,9 @@ namespace mfem_mgis::batch::internals {
           const auto e = static_cast<std::size_t>(a.elements[k]);
           const auto nq = static_cast<std::size_t>(a.nq);
           const auto nd = static_cast<std::size_t>(a.nd);
-          auto* const fe = a.values + nd * V * e;
+          const auto ke =
+              a.by_material_element ? static_cast<std::size_t>(k) : e;
+          auto* const fe = a.values + nd * V * ke;
           for (std::size_t q = 0; q != nq; ++q) {
             const auto detJ = a.determinants[q + nq * e];
             real iJ[N * N];

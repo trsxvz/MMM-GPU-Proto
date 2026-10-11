@@ -121,10 +121,16 @@ namespace mfem_mgis {
      * `OperatorJacobiSmoother` preconditioner, or with the
      * `AssembledOperator` preconditioner, built on the assembled tangent
      * operator; the non linear form must only contain the integrator of
-     * mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
+     * mfem-mgis). With the inner forces computed by kernels, the boundary
+     * conditions independent of the unknowns (imposed pressure, heat source,
+     * see `AbstractBoundaryCondition::isIndependentOfTheUnknowns`) add their
+     * contributions to the residual without integrator in the non linear
+     * form. `Kernels` and `MatrixFree` are supported for the same
      * behaviour integrators and meshes as for `GradientsComputation`, not
-     * with PETSc. The default value is given by the environment variable
-     * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
+     * with PETSc; with the FBar formulation, whose stiffness matrices depend
+     * on the current estimate of the solution, they require the gradients
+     * computed by kernels. The default value is given by the environment
+     * variable `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
      */
     static const char* const TangentOperatorComputation;
     //! \brief computations of the tangent operator
@@ -348,6 +354,14 @@ namespace mfem_mgis {
     MultiMaterialNonLinearIntegrator* const mgis_integrator = nullptr;
     //! \brief registered boundary conditions
     std::vector<std::unique_ptr<AbstractBoundaryCondition>> boundary_conditions;
+    /*!
+     * \brief boundary conditions independent of the unknowns whose
+     * contributions to the residual are added to the inner forces computed
+     * by kernels, without integrator in the non linear form (see
+     * `AbstractBoundaryCondition::isIndependentOfTheUnknowns`). They are
+     * owned by `boundary_conditions`.
+     */
+    std::vector<AbstractBoundaryCondition*> residual_boundary_conditions;
     //! \brief prediction policy
     PredictionPolicy prediction_policy;
     //! \brief modelling hypothesis

@@ -22,21 +22,32 @@
 
 namespace mfem_mgis::batch {
 
-  bool addInnerForces(Context& ctx,
-                      mfem::Vector& f,
-                      const PartialQuadratureSpace& qs,
-                      const mgis::FieldView<const real>& s,
-                      const ElementsGeometry& g,
-                      const GradientsKind k) noexcept {
+  /*!
+   * \brief implementation of `addInnerForces` and of
+   * `addMaterialInnerForces`
+   * \param[in] by_material_element: if true, the values are stored by
+   * element of the material
+   * \param[in] name: name of the calling function, for the messages
+   */
+  static bool addInnerForcesImplementation(Context& ctx,
+                                           mfem::Vector& f,
+                                           const PartialQuadratureSpace& qs,
+                                           const mgis::FieldView<const real>& s,
+                                           const ElementsGeometry& g,
+                                           const GradientsKind k,
+                                           const bool by_material_element,
+                                           const char* const name) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(f);
     static_cast<void>(qs);
     static_cast<void>(s);
     static_cast<void>(g);
     static_cast<void>(k);
+    static_cast<void>(by_material_element);
     return ctx.registerErrorMessage(
-        "addInnerForces: the kernels computing the inner forces are not "
-        "compiled (MFEM compiled with HIP)");
+        std::string{name} +
+        ": the kernels computing the inner forces are not compiled (MFEM "
+        "compiled with HIP)");
 #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto& elements = qs.getElements();
     const auto& offsets = qs.getElementOffsets();
@@ -47,31 +58,36 @@ namespace mfem_mgis::batch {
         (g.jacobians == nullptr) ||
         (qs.getUniformIntegrationRule() != g.rule)) {
       return ctx.registerErrorMessage(
-          "addInnerForces: the elements of the material do not use the "
-          "integration rule of the geometric data");
+          std::string{name} +
+          ": the elements of the material do not use the integration rule of "
+          "the geometric data");
     }
     const auto dim = getSpaceDimension(k);
     if (g.dim != dim) {
       return ctx.registerErrorMessage(
-          "addInnerForces: unexpected dimension of the space (" +
+          std::string{name} + ": unexpected dimension of the space (" +
           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
     }
-    const auto size = std::int64_t{g.nd} * getUnknownsSize(k) * g.ne;
+    const auto size = std::int64_t{g.nd} * getUnknownsSize(k) *
+                      (by_material_element ? elements.Size() : g.ne);
     if (static_cast<std::int64_t>(f.Size()) != size) {
       return ctx.registerErrorMessage(
-          "addInnerForces: unexpected size of the values element by element");
+          std::string{name} +
+          ": unexpected size of the values element by element");
     }
     if ((s.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
         (s.getNumberOfComponents() != getGradientsSize(k))) {
       return ctx.registerErrorMessage(
-          "addInnerForces: unexpected number of points or of components of "
-          "the thermodynamic forces");
+          std::string{name} +
+          ": unexpected number of points or of components of the "
+          "thermodynamic forces");
     }
     auto a = internals::InnerForcesKernelArguments{};
     a.number_of_elements = elements.Size();
     a.nd = g.nd;
     a.nq = g.nq;
     a.dim = g.dim;
+    a.by_material_element = by_material_element;
     a.thermodynamic_forces = s.data();
     a.point_stride = static_cast<long long>(s.getPointStride());
     a.component_stride = static_cast<long long>(s.getComponentStride());
@@ -87,13 +103,33 @@ namespace mfem_mgis::batch {
       a.values = f.ReadWrite(use_device);
       internals::launchInnerForcesKernel(k, a, use_device);
     } catch (std::exception& e) {
-      return ctx.registerErrorMessage(std::string{"addInnerForces: "} +
-                                      e.what());
+      return ctx.registerErrorMessage(std::string{name} + ": " + e.what());
     } catch (...) {
-      return ctx.registerErrorMessage("addInnerForces: unknown exception");
+      return ctx.registerErrorMessage(std::string{name} +
+                                      ": unknown exception");
     }
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of addInnerForcesImplementation
+
+  bool addInnerForces(Context& ctx,
+                      mfem::Vector& f,
+                      const PartialQuadratureSpace& qs,
+                      const mgis::FieldView<const real>& s,
+                      const ElementsGeometry& g,
+                      const GradientsKind k) noexcept {
+    return addInnerForcesImplementation(ctx, f, qs, s, g, k, false,
+                                        "addInnerForces");
   }  // end of addInnerForces
+
+  bool addMaterialInnerForces(Context& ctx,
+                              mfem::Vector& f,
+                              const PartialQuadratureSpace& qs,
+                              const mgis::FieldView<const real>& s,
+                              const ElementsGeometry& g,
+                              const GradientsKind k) noexcept {
+    return addInnerForcesImplementation(ctx, f, qs, s, g, k, true,
+                                        "addMaterialInnerForces");
+  }  // end of addMaterialInnerForces
 
 }  // end of namespace mfem_mgis::batch
