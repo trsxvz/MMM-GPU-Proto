@@ -4,8 +4,10 @@
  * `mfem_mgis::initialize` from the option `--hypre-device-pool-size` (or
  * `-hdps`) or from the environment variable
  * `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`. The option `--expected` gives the
- * expected size in GiB, or `error` if the initialization must fail. No
- * memory is allocated on the GPU.
+ * expected size in GiB, or `error` if the initialization must fail. With
+ * the option `--allocate`, hypre allocates memory on the GPU, which creates
+ * the pool, whose actual size is checked (Umpire); otherwise, no memory is
+ * allocated on the GPU and the size given to hypre is checked.
  * \date   11/10/2026
  */
 
@@ -18,6 +20,11 @@
 #include "mfem/general/optparser.hpp"
 #ifdef MFEM_USE_MPI
 #include "_hypre_utilities.h"
+#if defined(HYPRE_USING_UMPIRE_DEVICE) && \
+    __has_include("umpire/interface/c_fortran/umpire.h")
+#include "umpire/interface/c_fortran/umpire.h"
+#define MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE_TEST_ALLOCATION
+#endif
 #endif /* MFEM_USE_MPI */
 #include "MFEMMGIS/Config.hxx"
 
@@ -54,6 +61,10 @@ int main(int argc, char** argv) {
   args.AddOption(&e, "-e", "--expected",
                  "expected size in GiB, or error if the initialization must "
                  "fail");
+  auto allocate = false;
+  args.AddOption(&allocate, "-a", "--allocate", "-no-a", "--no-allocate",
+                 "allocate memory on the GPU through hypre and check the "
+                 "actual size of the pool");
   args.Parse();
   if (!args.Good()) {
     args.PrintUsage(std::cerr);
@@ -77,6 +88,25 @@ int main(int argc, char** argv) {
     }
   }
 #endif
+  if (success && allocate) {
+#ifdef MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE_TEST_ALLOCATION
+    // the first allocation of hypre on the GPU creates the pool
+    auto* p = hypre_TAlloc(char, 1024, HYPRE_MEMORY_DEVICE);
+    auto& pool = hypre_HandleUmpireDevicePool(hypre_handle());
+    const auto actual = umpire_allocator_get_actual_size(&pool);
+    hypre_TFree(p, HYPRE_MEMORY_DEVICE);
+    const auto value =
+        static_cast<std::size_t>(std::stod(expected) * 1073741824.);
+    std::cout << "actual size of the pool: " << actual << " bytes\n";
+    if (actual != value) {
+      std::cerr << "expected " << value << " bytes\n";
+      success = false;
+    }
+#else
+    std::cerr << "the pool of memory of hypre on the GPU can't be checked\n";
+    success = false;
+#endif
+  }
   mfem_mgis::finalize();
   return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }  // end of main

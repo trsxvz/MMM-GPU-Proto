@@ -3850,21 +3850,35 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 - `cas/mesures-echelle-poutre.sh`, results/echelle-poutre-2026-10-11-0247 :
   poutre raffinée 3, 4 et 5 fois (16 000 à 840 000 inconnues), NewtonK0 et
-  Eisenstat-Walker 1. Gain du GPU sur 8 cœurs : ×1,8, ×4,6 puis ×10,9
+  Eisenstat-Walker 1. Gain du GPU sur 8 cœurs : ×1,8, ×4,5 puis ×10,9
   (9,86 s contre 107,9 s à 840 000 inconnues). AmgX réglé en simple
   précision est le meilleur jusqu'à 110 000 inconnues, BoomerAMG agressif
   au-delà. La tangente sans assemblage ne paie pas avec NewtonK0.
-- Six raffinements (6,7 millions d'inconnues) : mémoire du GPU épuisée
-  (allocations d'Umpire refusées à 13,8 Go, puis à 15,7 Go avec une
+- Six raffinements (6,5 millions d'inconnues) : mémoire du GPU épuisée
+  (allocations d'Umpire refusées à 13,48 Gio, puis à 15,37 Gio avec une
   réserve de hypre réduite). Le pilote de la poutre affiche maintenant le
   message d'erreur d'un pas non convergé (avant : « not converged » sans
   cause) et a une option de verbosité (`-vl`).
 - hypre 3.2 alloue d'un coup une réserve de 4 Gio sur le GPU : mfem-mgis
   fd93974cdc, option `--hypre-device-pool-size` (ou `-hdps`, ou variable
   `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`) appliquée par `initialize` ; à 0,5 Gio,
-  la poutre à quatre raffinements occupe 2,3 Go au lieu de 5,9 Go, au même
-  temps. HypreDevicePoolSizeTest (7 cas, 5 mutations détectées) ; suites
+  la poutre à quatre raffinements occupe 2,29 Gio au lieu de 5,79 Gio, pour
+  un temps 2 à 4 % plus long avec BoomerAMG (et non « au même temps »
+  comme l'écrit le message du commit). HypreDevicePoolSizeTest (7 cas, 5 mutations détectées) ; suites
   165/165 CPU, 15/15 GPU, cas 33/33.
-- Les mesures sur 8 cœurs sont sensibles à l'activité de la machine
-  (compilation en parallèle : +15 à 40 %) ; premier passage gardé dans
-  results/echelle-poutre-2026-10-11-0233.
+- Les mesures sur 8 cœurs du premier passage
+  (results/echelle-poutre-2026-10-11-0233) sont 13 à 43 % plus lentes que
+  celles du second, pour une cause non établie (des compilations d'une
+  autre session tournaient, mais la reprise à charge 1,1 a donné les mêmes
+  temps).
+- Relecture E (scratch, relecture-E.md) : option de mfem-mgis vérifiée dans
+  les sources de hypre et par une sonde sur le GPU (taille exacte de la
+  réserve, croissance, une réserve par processus). Corrigé : temps et
+  causes du README, unités (Gio), nombre d'inconnues de six raffinements
+  (6 502 275) ; dans mfem-mgis, option déclarée comme chaîne (comme
+  `--device`), taille bornée (au moins un octet, dans la plage de
+  `std::size_t`), drapeau d'erreur global de hypre ignoré, variable
+  d'environnement ignorée avec un avertissement si hypre n'utilise pas
+  Umpire, documentation (une réserve par processus), test sur le GPU qui
+  alloue et vérifie la taille réelle de la réserve (seul à détecter un
+  réglage trop tardif).

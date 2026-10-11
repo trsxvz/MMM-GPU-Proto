@@ -1131,6 +1131,19 @@ if(MFEM_USE_MPI)
            COMMAND HypreDevicePoolSizeTest -hdps 1x --expected error)
   add_test(NAME HypreDevicePoolSizeTest-missing
            COMMAND HypreDevicePoolSizeTest --expected error -hdps)
+  # less than a byte, more bytes than the range of std::size_t
+  add_test(NAME HypreDevicePoolSizeTest-too-small
+           COMMAND HypreDevicePoolSizeTest -hdps 1e-10 --expected error)
+  add_test(NAME HypreDevicePoolSizeTest-too-large
+           COMMAND HypreDevicePoolSizeTest -hdps 1e30 --expected error)
+  # actual size of the pool created on the GPU by a first allocation
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME HypreDevicePoolSizeTest-gpu
+             COMMAND HypreDevicePoolSizeTest --device cuda -hdps 0.25
+                     --expected 0.25 --allocate)
+    set_tests_properties(HypreDevicePoolSizeTest-gpu
+                         PROPERTIES RESOURCE_LOCK gpu)
+  endif()
 endif(MFEM_USE_MPI)
 
 # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code

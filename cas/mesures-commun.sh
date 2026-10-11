@@ -17,7 +17,10 @@
 # - polycristal : polycristal de mm-opera-hpc (5 grains, loi de monocristal
 #   de l'UO2, orthotrope, en grandes transformations), 10 pas ;
 # - thermique : thermique stationnaire non linéaire dans la poutre
-#   (cas/thermique), r5, 5 pas.
+#   (cas/thermique), r5, 5 pas ;
+# - ssna303 : barreau entaillé ssna303 en 3D (exemple ex4 de
+#   mfem-mgis-examples, variante résolue par hypre), plasticité en grandes
+#   transformations (déformation logarithmique de Hencky), 10 pas.
 #
 # Sorties brutes (avec les tableaux de profilage) dans le dossier de
 # résultats, résumé dans resume.txt ; temps par phase :
@@ -56,8 +59,13 @@ case "$case_name" in
     generic=$B/src/libBehaviour.so
     gp=$B
     ;;
+  ssna303)
+    B=$P/build/mfem-mgis-examples/ex4
+    generic=$B/src/libBehaviour.so
+    gp=$P/build/cas/ssna303
+    ;;
   *)
-    echo "usage : $0 [poutre|polycristal|thermique] [dossier de résultats]" >&2
+    echo "usage : $0 [poutre|polycristal|thermique|ssna303] [dossier de résultats]" >&2
     exit 1
     ;;
 esac
@@ -99,6 +107,11 @@ command_of() {
       echo ./thermique -r "${refinement:-5}" -n 5 -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
+      ;;
+    ssna303)
+      echo ./ssna303_3d_hypre --no-paraview --nbsteps 10 --end-time 1 \
+        -r "${refinement:-0}" -l "$library" --profiling \
+        ${device:+--device $device} $options
       ;;
     polycristal)
       echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \

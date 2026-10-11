@@ -149,9 +149,11 @@ namespace mfem_mgis {
    * The option `--hypre-device-pool-size <size>` (or `-hdps`), or else the
    * environment variable `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, gives the size
    * in GiB of the pool of memory allocated at once by hypre on the GPU
-   * through Umpire (4 GiB by default in hypre 3.2, which grows if needed):
-   * a smaller pool leaves more memory to MFEM and to mfem-mgis. It is an
-   * error if hypre does not use Umpire on the GPU.
+   * through Umpire (4 GiB by default in hypre 3.2), which grows if needed:
+   * a smaller pool leaves more memory to MFEM and to mfem-mgis. Each process
+   * has its own pool (n times the size for n processes sharing a GPU). The
+   * option is an error if hypre does not use Umpire on the GPU; the
+   * environment variable is then ignored with a warning.
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!

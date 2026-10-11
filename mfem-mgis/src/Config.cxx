@@ -6,6 +6,7 @@
  */
 
 #include <cmath>
+#include <limits>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -106,26 +107,42 @@ namespace mfem_mgis {
   /*!
    * \brief sets the size of the pool of memory allocated at once by hypre
    * on the GPU through Umpire (4 GiB by default in hypre 3.2), before the
-   * first allocation of hypre on the GPU, which creates the pool
+   * first allocation of hypre on the GPU, which creates the pool. Each
+   * process has its own pool.
    * \param[in] size: size in GiB, as given by the user
+   * \param[in] environment: if true, the size is given by the environment
+   * variable `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, ignored with a warning if
+   * hypre does not use Umpire on the GPU (as for a whole test suite)
    */
-  static void setHypreDevicePoolSize(const char* const size) {
+  static void setHypreDevicePoolSize(const char* const size,
+                                     const bool environment) {
     auto* end = static_cast<char*>(nullptr);
     const auto s = std::strtod(size, &end);
-    if ((end == size) || (*end != '\0') || (!std::isfinite(s)) || (s <= 0)) {
+    // number of bytes, which must be representable
+    const auto bytes = s * 1073741824.;
+    if ((end == size) || (*end != '\0') || (!std::isfinite(s)) ||
+        (!(bytes >= 1)) ||
+        (!(bytes <
+           static_cast<double>(std::numeric_limits<std::size_t>::max())))) {
       mgis::raise("initialize: invalid size of the pool of memory of hypre '" +
-                  std::string{size} + "' (strictly positive number expected)");
+                  std::string{size} +
+                  "' (strictly positive number of GiB expected)");
     }
 #if defined(MFEM_USE_MPI) && defined(HYPRE_USING_UMPIRE_DEVICE)
-    const auto bytes = static_cast<std::size_t>(s * 1073741824.);
-    if (HYPRE_SetUmpireDevicePoolSize(bytes) != 0) {
-      mgis::raise(
-          "initialize: the size of the pool of memory of hypre can't be set");
-    }
+    static_cast<void>(environment);
+    // the function only stores the size: its result, the global error flag
+    // of hypre, may report a previous error
+    static_cast<void>(
+        HYPRE_SetUmpireDevicePoolSize(static_cast<std::size_t>(bytes)));
 #else
-    mgis::raise(
-        "initialize: hypre does not use a pool of memory of Umpire on the "
-        "GPU");
+    if (!environment) {
+      mgis::raise(
+          "initialize: hypre does not use a pool of memory of Umpire on the "
+          "GPU");
+    }
+    mfem_mgis::getErrorStream()
+        << "initialize: hypre does not use a pool of memory of Umpire on the "
+           "GPU, the variable MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE is ignored\n";
 #endif
   }  // end of setHypreDevicePoolSize
 
@@ -201,6 +218,7 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_PETSC */
     const char* device_configuration = nullptr;
     const char* hypre_device_pool_size = nullptr;
+    auto hypre_device_pool_size_from_environment = false;
     for (const auto* a = argv; a != argv + argc; ++a) {
       if ((std::strcmp(*a, hypre_device_pool_size_option) == 0) ||
           (std::strcmp(*a, hypre_device_pool_size_short_option) == 0)) {
@@ -259,10 +277,12 @@ namespace mfem_mgis {
       const auto* const e = std::getenv("MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE");
       if ((e != nullptr) && (*e != '\0')) {
         hypre_device_pool_size = e;
+        hypre_device_pool_size_from_environment = true;
       }
     }
     if (hypre_device_pool_size != nullptr) {
-      setHypreDevicePoolSize(hypre_device_pool_size);
+      setHypreDevicePoolSize(hypre_device_pool_size,
+                             hypre_device_pool_size_from_environment);
     }
     // without the option, the configuration of the device may be given by
     // the environment, for instance to run a whole test suite on a GPU
@@ -414,7 +434,9 @@ namespace mfem_mgis {
                      "cuda, hip, omp or debug), created by "
                      "mfem_mgis::initialize. No device is created by "
                      "default.");
-    static auto hypre_device_pool_size = 0.;
+    // read by `initialize`: only declared here, as a string, so that the
+    // parser accepts it
+    static const char* hypre_device_pool_size = "";
     parser.AddOption(&hypre_device_pool_size,
                      Finalizer::hypre_device_pool_size_short_option,
                      Finalizer::hypre_device_pool_size_option,

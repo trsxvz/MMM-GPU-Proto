@@ -1,0 +1,55 @@
+From 6c204f35aa708a7c4cb1f1ca919205ff7ed03320 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 03:11:45 +0200
+Subject: [PATCH] ex4: number of unknowns and time of the loop over the time
+ steps (hypre)
+
+---
+ ex4/ssna303_hypre.cxx | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
+index d1eb834..122205d 100644
+--- a/ex4/ssna303_hypre.cxx
++++ b/ex4/ssna303_hypre.cxx
+@@ -5,6 +5,8 @@
+  * \date   14/12/2020
+  */
+ 
++#include <chrono>
++#include <iomanip>
+ #include <memory>
+ #include <string_view>
+ #include <cstdlib>
+@@ -202,6 +204,14 @@ int main(int argc, char** argv) {
+         {{"Boundary", 2}, {"OutputFileName", "force_HFGMRES_WS_1.txt"}}) |
+         or_die;
+ 
++    // number of unknowns and time of the loop over the time steps, for the
++    // measurements
++    const auto& fed = problem.getFiniteElementDiscretization();
++    if (mfem_mgis::isMainProcess(fed)) {
++      std::cout << "dofs "
++                << fed.getFiniteElementSpace<true>().GlobalTrueVSize() << '\n';
++    }
++    const auto start = std::chrono::steady_clock::now();
+     // loop over time step
+     const auto nsteps = mfem_mgis::size_type(nbsteps);
+     const auto dt = end_time / nsteps;
+@@ -240,6 +250,13 @@ int main(int argc, char** argv) {
+       ++iteration;
+       std::cout << '\n';
+     }
++    if (mfem_mgis::isMainProcess(fed)) {
++      const auto total = std::chrono::duration<double>(
++                             std::chrono::steady_clock::now() - start)
++                             .count();
++      std::cout << std::fixed << std::setprecision(3) << "time " << total
++                << " s\n";
++    }
+     // comparison to the reference values, only on the process writing the
+     // resultant force
+     if ((!std::string_view{reference_file}.empty()) &&
+-- 
+2.43.0
+

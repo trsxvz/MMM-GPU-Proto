@@ -1,6 +1,6 @@
 #!/bin/bash
 # Passage à l'échelle (campagne de mesures, cas 5) : poutre raffinée trois,
-# quatre puis cinq fois (14 000 à 840 000 inconnues, 10 pas), meilleure
+# quatre puis cinq fois (16 000 à 840 000 inconnues, 10 pas), meilleure
 # méthode du lot L5 (NewtonK0, gradient conjugué préconditionné par le
 # multigrille de K0, prédiction, tolérance d'Eisenstat-Walker 1), tous les
 # noyaux :
@@ -12,9 +12,9 @@
 # - sur 8 processus CPU, BoomerAMG agressif.
 # Sur le GPU, la réserve de mémoire de hypre (Umpire, 4 Gio par défaut,
 # allouée d'un coup) est réduite à 0,5 Gio (option -hdps de mfem-mgis) :
-# même temps, 3,6 Go de moins. Le raffinement suivant (6,7 millions
-# d'inconnues) ne tient pas dans les 16 Go du GPU, même ainsi (allocation
-# refusée à 15,7 Go, tangente assemblée ou non).
+# temps à quelques % près, 3,5 Gio de moins. Le raffinement suivant
+# (6,5 millions d'inconnues) ne tient pas dans les 16 Go du GPU, même ainsi
+# (allocation refusée à 15,37 Gio, tangente assemblée ou non).
 # Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
 # autre processus libère le GPU, puis le signale dans le résumé.
 # À lancer sur une machine calme, après build-mfem-mgis.sh.

@@ -2,7 +2,9 @@
 
 Premier passage de `cas/mesures-echelle-poutre.sh`, avec la réserve de
 mémoire de hypre par défaut (4 Gio) et sans la variante sans matrice.
-Une compilation tournait en même temps : les calculs sur 8 cœurs (et leur
-reprise, fichiers `*-reprise.txt`) sont plus lents de 15 à 40 % que sur
-une machine calme. Résultats de référence et analyse :
+Les calculs sur 8 cœurs (et leur reprise, fichiers `*-reprise.txt`) sont
+plus lents de 13 à 43 % que ceux du passage suivant, pour une cause non
+établie (des compilations d'une autre session ont été vues pendant ces
+calculs, mais la reprise, à une charge de 1,1, a donné les mêmes temps).
+Résultats de référence et analyse :
 `../echelle-poutre-2026-10-11-0247`.
