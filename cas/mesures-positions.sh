@@ -1,12 +1,13 @@
 #!/bin/bash
-# Mesures de bout en bout des positions des entrées dans la matrice creuse
-# (mfem-mgis, branche positions) : thermique r5 et poutre r4 sur 8
-# processus, tangente assemblée par noyaux, avec la construction des cas
-# liée à mfem-mgis installé dans install/mfem-mgis (avant) et à celui
-# installé dans install/mfem-mgis-positions (après, build/cas-positions),
-# plus le calcul point par point comme référence. À lancer sur une machine
-# calme, rien d'autre ne tournant sur les cœurs (les processeurs N et N+8
-# partagent un cœur).
+# Mesures de bout en bout de l'assemblage de la tangente par noyaux
+# (positions des entrées dans la matrice creuse, matrices sans former B) :
+# thermique r5 et poutre r4 sur 8 processus, tangente assemblée par noyaux,
+# avec la construction des cas liée à mfem-mgis installé dans
+# install/mfem-mgis (avant, build/cas) et à celui installé dans
+# install/mfem-mgis-registres (après, build/cas-registres), plus le calcul
+# point par point comme référence. À lancer sur une machine calme, rien
+# d'autre ne tournant sur les cœurs (les processeurs N et N+8 partagent un
+# cœur).
 #
 # usage : cas/mesures-positions.sh [dossier de résultats]
 lot=positions
@@ -24,8 +25,8 @@ for case_name in thermique poutre; do
   fi
   run "$case_name-np8-point-par-point" 1 8 "$generic"
   run "$case_name-np8-noyaux-avant" 1 8 "$generic" "${batch[@]}"
-  B=$P/build/cas-positions/$case_name
+  B=$P/build/cas-registres/$case_name
   executable=./poutre
-  run "$case_name-np8-noyaux-positions" 1 8 "$generic" "${batch[@]}"
+  run "$case_name-np8-noyaux-apres" 1 8 "$generic" "${batch[@]}"
 done
 echo "résultats dans $out"
