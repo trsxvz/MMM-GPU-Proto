@@ -63,6 +63,7 @@ In addition to the parameters supported by ``MeshDiscretization``, ``FiniteEleme
 - ``FiniteElementOrder`` (int): Order of the polynomial approximation.
 - ``FiniteElementSpaceOrdering`` (string): Ordering of the degrees of freedom, ``byNODES`` (all the values of the first component, then all the values of the second component, etc., default) or ``byVDIM`` (all the components of the first node, then all the components of the second node, etc.). The ``Elasticity`` strategy of the ``HypreBoomerAMG`` preconditioner requires ``byVDIM``.
 - ``UnknownsSize`` (int): Number of components of the unknowns.
+- ``IntegrationRuleOrder`` (int, optional): Order of the integration rules of the behaviour integrators. By default, each behaviour integrator uses its own rule, of order ``2 * t.OrderGrad(&e)``, i.e. 27 points on the hexahedra of order 1; the order 3 gives 8 points, which integrate exactly the elastic stiffness of affine hexahedra of order 1 and divide by about 3.4 the memory and the work at the integration points. The quadrature spaces of the behaviour integrators and their integrations use the same rule. The order is the same for all the geometries and all the orders of the elements: the order 3 under-integrates the hexahedra of order 2, and the orders 0 and 1 give one point on the hexahedra (hourglass modes). A rule having a weight which is not positive (rules of MFEM for some simplices) is refused.
 
 .. note::
 

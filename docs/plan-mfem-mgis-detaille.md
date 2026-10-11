@@ -659,7 +659,10 @@ Travail :
 - `TangentOperator=ElasticOperator` (b) : avec `FixedPoint` (L5).
 - `IntegrationRuleOrder` : règle choisie par l'utilisateur, par exemple
   8 points sur l'hexaèdre d'ordre 1 au lieu de 27 ; vérification de
-  l'absence de modes parasites sur les cas de référence.
+  l'absence de modes parasites sur les cas de référence. Fait (11/10) :
+  paramètre de la discrétisation, même ordre pour toutes les géométries,
+  règles à poids non positif refusées, espaces de quadrature et
+  intégrations par la même règle (`applyIntegrationRuleOrder`).
 - Prédiction (`...Implementation.cxx:98-233`) réécrite avec les noyaux :
   opérateur élastique, sécant ou tangent par l'intégration de prédiction
   de MGIS, second membre par le noyau de résidu plus la contribution des

@@ -688,6 +688,9 @@ PeriodicNonLinearEvolutionProblem
 +----------------------------+----------------------------------------------------------+
 | FiniteElementSpaceOrdering | Ordering of the dofs: byNODES (default), byVDIM [string] |
 +----------------------------+----------------------------------------------------------+
+| IntegrationRuleOrder       | Order of the integration rules of the behaviour          |
+|                            | integrators, >= 0, optional [int]                        |
++----------------------------+----------------------------------------------------------+
 | UnknownsSize               | Number of unknowns, >=1 [int]                            |
 +----------------------------+----------------------------------------------------------+
 | NumberOfUniformRefinements | Number of times the mesh is uniformly refined, >= 0 [int]|

@@ -134,8 +134,8 @@ namespace mfem_mgis {
         FBarOrthotropicTridimensionalBehaviourIntegrator,
         Hypothesis::TRIDIMENSIONAL>;
     /*!
-     * \brief select the integration rule for the given element and element
-     * transformation
+     * \brief default integration rule for the given element and element
+     * transformation (see `applyIntegrationRuleOrder`)
      * \param[in] e: element
      * \param[in] t: element transformation
      * \return the integration rule

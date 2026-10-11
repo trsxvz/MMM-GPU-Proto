@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <optional>
 #include "MFEMMGIS/Info.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
@@ -31,6 +32,15 @@ namespace mfem_mgis {
   struct MFEM_MGIS_EXPORT FiniteElementDiscretization : MeshDiscretization {
     //! \brief string associated to the `UnknownsSize` parameter
     static const char* const UnknownsSize;
+    /*!
+     * \brief string associated to the `IntegrationRuleOrder` parameter:
+     * order of the integration rules of the behaviour integrators, the
+     * default rule of each behaviour integrator being used if this
+     * parameter is not given (see `applyIntegrationRuleOrder`). The
+     * constructors given a finite element collection and a number of
+     * components don't take it.
+     */
+    static const char* const IntegrationRuleOrder;
     //! \brief report that no parallel finite element space is defined
     [[noreturn]] static void reportInvalidParallelFiniteElementSpace();
     //! \brief report that no sequential finite element space is defined
@@ -87,6 +97,8 @@ namespace mfem_mgis {
      * - `FiniteElementSpaceOrdering` (string): ordering of the degrees of
      * freedom, `byNODES` (default) or `byVDIM`.
      * - `UnknownsSize` (int): number of components of the unknowns
+     * - `IntegrationRuleOrder` (int, optional): order of the integration
+     * rules of the behaviour integrators (see `applyIntegrationRuleOrder`)
      */
     FiniteElementDiscretization(Context& ctx,
                                 std::shared_ptr<Mesh<false>> m,
@@ -159,12 +171,20 @@ namespace mfem_mgis {
     using MeshDiscretization::getMaterialsNames;
     using MeshDiscretization::setBoundariesNames;
     using MeshDiscretization::setMaterialsNames;
+    /*!
+     * \return the order of the integration rules of the behaviour
+     * integrators given by the `IntegrationRuleOrder` parameter, if any
+     */
+    [[nodiscard]] std::optional<size_type> getIntegrationRuleOrder()
+        const noexcept;
     //! \brief destructor
     ~FiniteElementDiscretization();
 
    private:
     //! \brief manager of the finite element spaces
     FiniteElementSpacesManager fespaces_manager;
+    //! \brief order of the integration rules of the behaviour integrators
+    std::optional<size_type> integration_rule_order;
 #ifdef MFEM_USE_MPI
     //! \brief parallel finite element space
     std::shared_ptr<FiniteElementSpace<true>> parallel_fe_space;
@@ -172,6 +192,30 @@ namespace mfem_mgis {
     //! \brief sequential finite element space
     std::shared_ptr<FiniteElementSpace<false>> sequential_fe_space;
   };  // end of FiniteElementDiscretization
+
+  /*!
+   * \return the integration rule of an element of a behaviour integrator:
+   * the rule of the order given by the `IntegrationRuleOrder` parameter of
+   * the discretization, if any, or the default rule of the behaviour
+   * integrator. The behaviour integrators use it to build their quadrature
+   * spaces, whose rules they use for their integrations.
+   *
+   * The order is the same for all the geometries and all the orders of the
+   * elements: the order 3 gives 8 points on the hexahedra, which integrate
+   * exactly the elastic stiffness of affine hexahedra of order 1, but
+   * under-integrate the hexahedra of order 2; the orders 0 and 1 give one
+   * point (hourglass modes, the FBar formulation then being the standard
+   * one and the regularization of Faltus et al. being null). A rule having
+   * a weight which is not positive (rules of MFEM for some simplices) is
+   * refused.
+   * \param[in] fed: finite element discretization
+   * \param[in] e: finite element
+   * \param[in] r: default rule of the behaviour integrator
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] const mfem::IntegrationRule&
+  applyIntegrationRuleOrder(const FiniteElementDiscretization& fed,
+                            const mfem::FiniteElement& e,
+                            const mfem::IntegrationRule& r);
 
   /*!
    * \brief return the number of components of the unknowns

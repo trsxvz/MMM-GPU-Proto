@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <algorithm>
 #include "MGIS/Behaviour/Behaviour.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
 
 namespace mfem_mgis {
@@ -24,10 +26,10 @@ namespace mfem_mgis {
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
       buildQuadratureSpace(const FiniteElementDiscretization &fed,
                            const size_type m) {
-    auto selector = [](const mfem::FiniteElement &e,
-                       const mfem::ElementTransformation &tr)
+    auto selector = [&fed](const mfem::FiniteElement &e,
+                           const mfem::ElementTransformation &tr)
         -> const mfem::IntegrationRule & {
-      return selectIntegrationRule(e, tr);
+      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
     };  // end of selector
     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
   }  // end of buildQuadratureSpace
@@ -59,8 +61,7 @@ namespace mfem_mgis {
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
       getIntegrationRule(const mfem::FiniteElement &e,
                          const mfem::ElementTransformation &t) const {
-    return IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
-        selectIntegrationRule(e, t);
+    return this->quadrature_space->getIntegrationRule(e, t);
   }
 
   bool

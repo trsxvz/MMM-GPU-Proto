@@ -1034,6 +1034,21 @@ if(MFEM_MGIS_HAVE_TFEL)
                COMMAND GradientsKernelsTest --device cuda
                        ${gradients_kernels_test_arguments})
     endif()
+    # IntegrationRuleOrderTest executable: order of the integration rules
+    # of the behaviour integrators given by the user, point by point and by
+    # kernels, on the host and on the debug device of MFEM (UMFPack)
+    if(MFEM_USE_SUITESPARSE)
+      add_test_executable(IntegrationRuleOrderTest)
+      set(integration_rule_order_test_arguments
+          --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+          --library $<TARGET_FILE:BehaviourTest>)
+      add_test(NAME IntegrationRuleOrderTest
+               COMMAND IntegrationRuleOrderTest
+                       ${integration_rule_order_test_arguments})
+      add_test(NAME IntegrationRuleOrderTest-debug
+               COMMAND IntegrationRuleOrderTest --device debug
+                       ${integration_rule_order_test_arguments})
+    endif()
   endif()
 
   # HypreBoomerAMGTest executable

@@ -4001,3 +4001,20 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (9 puis 6 sur les noyaux par paires, dont une confusion des jacobiens
   du point et du centre que seuls les maillages déformés voient).
   Relecture I traitée (aucun résultat faux), relecture J en cours.
+
+### 2026-10-11 (matin), ordre des règles d'intégration (L4)
+
+- Paramètre `IntegrationRuleOrder` de la discrétisation (mfem-mgis
+  c941836702) : ordre des règles de tous les intégrateurs de
+  comportement ; par défaut, 27 points sur l'hexaèdre d'ordre 1, 8 avec
+  l'ordre 3 (intégration exacte de la rigidité élastique d'un hexaèdre
+  affine), soit 3,4 fois moins de mémoire et de travail aux points.
+  Les 26 intégrateurs construisent leur espace de quadrature avec cette
+  règle et leur `getIntegrationRule` rend celle de l'espace. Ordre négatif
+  et règles à poids non positif refusés. IntegrationRuleOrderTest (hôte
+  et périphérique `debug`), suite 184/184, 4 mutations détectées,
+  relecture K traitée (documentation des cas risqués : sous-intégration
+  des hexaèdres d'ordre 2, un point aux ordres 0 et 1).
+- Motivation : ssna303 à deux raffinements ne tient pas sur le GPU avec
+  27 points par élément ; la mesure avec 8 points reste à faire (série de
+  mesures arrêtée faute de mémoire, à relancer avec accord).

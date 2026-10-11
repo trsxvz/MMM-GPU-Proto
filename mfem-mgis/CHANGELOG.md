@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   vector dimension (`byVDIM`) instead of by nodes (`byNODES`, the default). The
   `Elasticity` strategy of the `HypreBoomerAMG` preconditioner requires
   `byVDIM`.
+- `IntegrationRuleOrder` parameter, to choose the order of the integration
+  rules of the behaviour integrators (8 points instead of 27 on the
+  hexahedra of order 1 with the order 3).
 
 ### Changed
 

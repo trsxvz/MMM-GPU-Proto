@@ -6,6 +6,7 @@
  */
 
 #include <regex>
+#include <string>
 #include <cctype>
 #include <utility>
 #include <fstream>
@@ -13,6 +14,8 @@
 #include <algorithm>
 #include <mfem/mesh/mesh.hpp>
 #include <mfem/fem/fespace.hpp>
+#include <mfem/fem/intrules.hpp>
+#include <mfem/fem/fe/fe_base.hpp>
 #ifdef MFEM_USE_MPI
 #include <mfem/mesh/pmesh.hpp>
 #include <mfem/fem/pfespace.hpp>
@@ -26,6 +29,8 @@
 namespace mfem_mgis {
 
   const char* const FiniteElementDiscretization::UnknownsSize = "UnknownsSize";
+  const char* const FiniteElementDiscretization::IntegrationRuleOrder =
+      "IntegrationRuleOrder";
 
   //! \return list of valid parameters when the mesh is already built
   [[nodiscard]] static std::vector<std::string>
@@ -33,6 +38,7 @@ namespace mfem_mgis {
     auto d =
         FiniteElementSpacesManager::getFiniteElementCollectionParametersList();
     d.push_back(FiniteElementDiscretization::UnknownsSize);
+    d.push_back(FiniteElementDiscretization::IntegrationRuleOrder);
     return d;
   }  // end of getFiniteElementDiscretizationParametersList
 
@@ -63,12 +69,24 @@ namespace mfem_mgis {
       const Parameters& params)
       : MeshDiscretization(m.getMeshDiscretization()), fespaces_manager(m) {
     CatchTimeSection(ctx, "FED::Constructor");
-    checkParameters(
-        throwing, params,
-        std::vector<std::string>{FiniteElementDiscretization::UnknownsSize});
+    checkParameters(throwing, params,
+                    std::vector<std::string>{
+                        FiniteElementDiscretization::UnknownsSize,
+                        FiniteElementDiscretization::IntegrationRuleOrder});
     auto or_raise = ctx.getThrowingFailureHandler();
     const auto usize =
         get<int>(throwing, params, FiniteElementDiscretization::UnknownsSize);
+    if (params.contains(FiniteElementDiscretization::IntegrationRuleOrder)) {
+      const auto o = get<int>(
+          throwing, params, FiniteElementDiscretization::IntegrationRuleOrder);
+      if (o < 0) {
+        raise(
+            "FiniteElementDiscretization: invalid order of the integration "
+            "rules (" +
+            std::to_string(o) + ")");
+      }
+      this->integration_rule_order = static_cast<size_type>(o);
+    }
     if (this->describesAParallelComputation()) {
 #ifdef MFEM_USE_MPI
       this->parallel_fe_space =
@@ -164,6 +182,32 @@ namespace mfem_mgis {
             ctx,
             FiniteElementSpacesManager(ctx, m, c),
             Parameters{{FiniteElementDiscretization::UnknownsSize, d}}) {}
+
+  std::optional<size_type>
+  FiniteElementDiscretization::getIntegrationRuleOrder() const noexcept {
+    return this->integration_rule_order;
+  }  // end of getIntegrationRuleOrder
+
+  const mfem::IntegrationRule& applyIntegrationRuleOrder(
+      const FiniteElementDiscretization& fed,
+      const mfem::FiniteElement& e,
+      const mfem::IntegrationRule& r) {
+    const auto o = fed.getIntegrationRuleOrder();
+    if (!o.has_value()) {
+      return r;
+    }
+    const auto& ir = mfem::IntRules.Get(e.GetGeomType(), static_cast<int>(*o));
+    // some rules of MFEM for the simplices have negative weights
+    for (int i = 0; i != ir.GetNPoints(); ++i) {
+      if (ir.IntPoint(i).weight <= 0) {
+        raise("applyIntegrationRuleOrder: the integration rule of order " +
+              std::to_string(*o) +
+              " of the geometry of an element has a "
+              "weight which is not positive");
+      }
+    }
+    return ir;
+  }  // end of applyIntegrationRuleOrder
 
   FiniteElementSpacesManager
   FiniteElementDiscretization::getFiniteElementSpacesManager() const noexcept {
