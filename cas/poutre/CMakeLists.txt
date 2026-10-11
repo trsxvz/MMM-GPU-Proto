@@ -1,5 +1,8 @@
 add_executable(poutre poutre.cxx)
 target_link_libraries(poutre PRIVATE mfem-mgis::MFEMMGIS)
+if(TARGET proto-kokkos-runtime)
+  target_link_libraries(poutre PRIVATE proto-kokkos-runtime)
+endif()
 add_mfront_library(poutre-behaviours
   "${MFEM_MGIS_SOURCE_DIR}/tests/IsotropicLinearHardeningPlasticity.mfront")
 configure_file("${MFEM_MGIS_SOURCE_DIR}/tests/beam-tet.mesh"

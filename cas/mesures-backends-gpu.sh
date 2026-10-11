@@ -1,0 +1,43 @@
+#!/bin/bash
+# Comparaison des backends GPU de l'interface generic-parallel dans
+# mfem-mgis : poutre r4 sur un processus et le GPU, tout par noyaux,
+# tangente assemblée, Newton et PCG + BoomerAMG, avec la même loi générée
+# pour chaque backend qui fonctionne dans mfem-mgis (cuda par nvcc et par
+# clang, hip par clang et par hipcc sur la plateforme NVIDIA, kokkos avec
+# Kokkos initialisé par le cas, option --kokkos). Les bibliothèques sont
+# lues dans `$libs/<configuration>/src` (par défaut les dossiers
+# generic-parallel-<configuration> de build/cas-autres/poutre). À lancer sur
+# une machine calme, GPU libre.
+#
+# usage : cas/mesures-backends-gpu.sh [dossier de résultats]
+lot=backends
+P=$(cd "$(dirname "$0")/.." && pwd)
+out=${1:-$P/results/backends-gpu-$(date +%Y-%m-%d-%H%M)}
+source "$P/cas/mesures-commun.sh" poutre "$out"
+B=${poutre:-$P/build/cas-autres/poutre}
+kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+  MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+  MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+  MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
+device=cuda
+library_of() {
+  local configuration=$1 suffix=$2
+  if [ -n "${libs:-}" ]; then
+    echo "$libs/$configuration/src/libGenericParallelBehaviour-$suffix.so"
+  else
+    echo "$B/generic-parallel-$configuration/src/libGenericParallelBehaviour-$suffix.so"
+  fi
+}
+for pass in 1 2; do
+  for backend in cuda-nvcc:cuda cuda-clang:cuda \
+    hip-clang-nvidia-platform:hip hip-hipcc:hip kokkos:kokkos; do
+    IFS=: read -r configuration suffix <<< "$backend"
+    options=""
+    if [ "$suffix" = kokkos ]; then
+      options="--kokkos"
+    fi
+    run "poutre-np1-gpu-$configuration-$pass" 1 1 \
+      "$(library_of "$configuration" "$suffix")" "${kernels[@]}"
+  done
+done
+echo "résultats dans $out"
