@@ -1,0 +1,125 @@
+WARNING: CPU IP/backtrace sampling not supported, disabling.
+Try the 'nsys status --environment' command to learn more.
+
+WARNING: CPU context switch tracing not supported, disabling.
+Try the 'nsys status --environment' command to learn more.
+
+WARNING: CUDA backtraces will not be collected because CPU sampling is disabled.
+Fixed point iteration  0 : ||r|| = 400319, ||r||/||r_0|| = 0.000306629
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 38392.4, ||r||/||r_0|| = 2.94072e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.000170027
+Fixed point iteration  2 : ||r|| = 6.56064, ||r||/||r_0|| = 5.02521e-09
+Fixed point iteration  0 : ||r|| = 386693, ||r||/||r_0|| = 0.000296193
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 26597.1, ||r||/||r_0|| = 2.03724e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.00024543
+Fixed point iteration  2 : ||r|| = 6.64444, ||r||/||r_0|| = 5.0894e-09
+Fixed point iteration  0 : ||r|| = 386695, ||r||/||r_0|| = 0.000296194
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 26610.7, ||r||/||r_0|| = 2.03828e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.000245305
+Fixed point iteration  2 : ||r|| = 6.64999, ||r||/||r_0|| = 5.09365e-09
+Fixed point iteration  0 : ||r|| = 429962, ||r||/||r_0|| = 0.000329335
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 45500.8, ||r||/||r_0|| = 3.48519e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.00770644
+Fixed point iteration  2 : ||r|| = 354.835, ||r||/||r_0|| = 2.7179e-07
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0183965
+Fixed point iteration  3 : ||r|| = 5.81204, ||r||/||r_0|| = 4.45181e-09
+Fixed point iteration  0 : ||r|| = 1.98947e+06, ||r||/||r_0|| = 0.00152386
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 266853, ||r||/||r_0|| = 0.0002044
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0263219
+Fixed point iteration  2 : ||r|| = 10669.6, ||r||/||r_0|| = 8.17255e-06
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0127913
+Fixed point iteration  3 : ||r|| = 148.942, ||r||/||r_0|| = 1.14084e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0438274
+Fixed point iteration  4 : ||r|| = 5.74081, ||r||/||r_0|| = 4.39725e-09
+Fixed point iteration  0 : ||r|| = 3.29953e+06, ||r||/||r_0|| = 0.00252732
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 592775, ||r||/||r_0|| = 0.000454044
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0572774
+Fixed point iteration  2 : ||r|| = 39111.8, ||r||/||r_0|| = 2.99582e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.00517476
+Fixed point iteration  3 : ||r|| = 264.352, ||r||/||r_0|| = 2.02484e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0246933
+Fixed point iteration  4 : ||r|| = 5.1981, ||r||/||r_0|| = 3.98156e-09
+Fixed point iteration  0 : ||r|| = 3.62818e+06, ||r||/||r_0|| = 0.00277905
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 736679, ||r||/||r_0|| = 0.000564269
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0622807
+Fixed point iteration  2 : ||r|| = 56027.4, ||r||/||r_0|| = 4.29149e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.00659784
+Fixed point iteration  3 : ||r|| = 459.945, ||r||/||r_0|| = 3.52301e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0141924
+Fixed point iteration  4 : ||r|| = 6.33279, ||r||/||r_0|| = 4.85068e-09
+Fixed point iteration  0 : ||r|| = 3.77309e+06, ||r||/||r_0|| = 0.00289005
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 765708, ||r||/||r_0|| = 0.000586505
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0675271
+Fixed point iteration  2 : ||r|| = 69041.5, ||r||/||r_0|| = 5.28832e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.016215
+Fixed point iteration  3 : ||r|| = 1243.49, ||r||/||r_0|| = 9.52465e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.00524954
+Fixed point iteration  4 : ||r|| = 5.7493, ||r||/||r_0|| = 4.40376e-09
+Fixed point iteration  0 : ||r|| = 3.85403e+06, ||r||/||r_0|| = 0.00295204
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 828894, ||r||/||r_0|| = 0.000634903
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0721975
+Fixed point iteration  2 : ||r|| = 81290, ||r||/||r_0|| = 6.22652e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0149114
+Fixed point iteration  3 : ||r|| = 1713.41, ||r||/||r_0|| = 1.31241e-06
+Fixed point iteration  3 : relative tolerance of the linear solver 0.00808118
+Fixed point iteration  4 : ||r|| = 14.0441, ||r||/||r_0|| = 1.07573e-08
+Fixed point iteration  4 : relative tolerance of the linear solver 0.464801
+Fixed point iteration  5 : ||r|| = 6.13455, ||r||/||r_0|| = 4.69884e-09
+Fixed point iteration  0 : ||r|| = 3.89875e+06, ||r||/||r_0|| = 0.0029863
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 875437, ||r||/||r_0|| = 0.000670553
+Fixed point iteration  1 : relative tolerance of the linear solver 0.071631
+Fixed point iteration  2 : ||r|| = 88933.5, ||r||/||r_0|| = 6.81198e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0189317
+Fixed point iteration  3 : ||r|| = 1851.16, ||r||/||r_0|| = 1.41792e-06
+Fixed point iteration  3 : relative tolerance of the linear solver 0.00352629
+Fixed point iteration  4 : ||r|| = 5.74972, ||r||/||r_0|| = 4.40407e-09
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704599 | iterations per step: 2 2 2 3 4 4 4 4 5 4 | total 34
+time 1.965 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------|
+ |    name                                       |    number Of Calls |            time(s) |            part(%) |
+ |--------------------------------------------------------------------------------------------------------------|
+ | > root                                       |                  1 |           2.227404 |        100.000000% |
+ | |--> Mesh::Constructor                       |                  1 |           0.127753 |          5.735508% |
+ |    |--> Mesh::LoadMesh                       |                  1 |           0.000262 |          0.011779% |
+ |    |--> Mesh::Run_ParUniformRefinement       |                  4 |           0.127351 |          5.717470% |
+ | |--> FED::Constructor                        |                  1 |           0.134723 |          6.048413% |
+ | |--> NLEPIB::updateLinearSolver              |                  1 |           0.000002 |          0.000106% |
+ | |--> NLEP::solve                             |                 10 |           1.920298 |         86.212350% |
+ |    |--> NLEPIB::setup                        |                 10 |           0.000682 |          0.030596% |
+ |    |--> NLEPIB::solve                        |                 10 |           1.919583 |         86.180274% |
+ |       |--> NLEPIB::computePrediction         |                 10 |           0.465054 |         20.878732% |
+ |          |--> PRED::integrate                |                 10 |           0.046319 |          2.079526% |
+ |          |--> PRED::forms                    |                 10 |           0.004212 |          0.189098% |
+ |          |--> PRED::assemble                 |                 10 |           0.139503 |          6.263050% |
+ |          |--> PRED::solve                    |                 10 |           0.268214 |         12.041566% |
+ |       |--> FPS::Mult                         |                 10 |           1.454482 |         65.299408% |
+ |          |--> FPS::integrate                 |                 45 |           0.123883 |          5.561781% |
+ |             |--> NS::getJacobian             |                  1 |           0.064674 |          2.903562% |
+ |             |--> NS::setLinearSolverOperator |                  1 |           0.000104 |          0.004652% |
+ |          |--> NS::computeResidual            |                 44 |           0.011660 |          0.523467% |
+ |          |--> NS::getJacobian                |                 34 |           0.178200 |          8.000330% |
+ |          |--> NS::setLinearSolverOperator    |                 34 |           0.000041 |          0.001844% |
+ |          |--> MFEM::Mult(r,c)                |                 34 |           1.136958 |         51.044095% |
+ | |--> NLEPIB::update                          |                 10 |           0.044629 |          2.003624% |
+ |-- end timetable ---------------------------------------------------------------------------------------------|
+Collecting data...
+Generating '/tmp/nsys-report-5219.qdstrm'
+[1/1] [0%                          ] poutre-r4.nsys-rep[1/1] [0%                          ] poutre-r4.nsys-rep[1/1] [=16%                        ] poutre-r4.nsys-rep[1/1] [13%                         ] poutre-r4.nsys-rep[1/1] [12%                         ] poutre-r4.nsys-rep[1/1] [10%                         ] poutre-r4.nsys-rep[1/1] [==19%                       ] poutre-r4.nsys-rep[1/1] [=17%                        ] poutre-r4.nsys-rep[1/1] [=16%                        ] poutre-r4.nsys-rep[1/1] [14%                         ] poutre-r4.nsys-rep[1/1] [13%                         ] poutre-r4.nsys-rep[1/1] [12%                         ] poutre-r4.nsys-rep[1/1] [11%                         ] poutre-r4.nsys-rep[1/1] [10%                         ] poutre-r4.nsys-rep[1/1] [9%                          ] poutre-r4.nsys-rep[1/1] [8%                          ] poutre-r4.nsys-rep[1/1] [7%                          ] poutre-r4.nsys-rep[1/1] [6%                          ] poutre-r4.nsys-rep[1/1] [5%                          ] poutre-r4.nsys-rep[1/1] [6%                          ] poutre-r4.nsys-rep[1/1] [8%                          ] poutre-r4.nsys-rep[1/1] [11%                         ] poutre-r4.nsys-rep[1/1] [13%                         ] poutre-r4.nsys-rep[1/1] [=15%                        ] poutre-r4.nsys-rep[1/1] [=17%                        ] poutre-r4.nsys-rep[1/1] [==19%                       ] poutre-r4.nsys-rep[1/1] [==21%                       ] poutre-r4.nsys-rep[1/1] [===24%                      ] poutre-r4.nsys-rep[1/1] [====26%                     ] poutre-r4.nsys-rep[1/1] [====28%                     ] poutre-r4.nsys-rep[1/1] [=====30%                    ] poutre-r4.nsys-rep[1/1] [=====32%                    ] poutre-r4.nsys-rep[1/1] [======34%                   ] poutre-r4.nsys-rep[1/1] [=======36%                  ] poutre-r4.nsys-rep[1/1] [=======39%                  ] poutre-r4.nsys-rep[1/1] [========41%                 ] poutre-r4.nsys-rep[1/1] [=========43%                ] poutre-r4.nsys-rep[1/1] [=========45%                ] poutre-r4.nsys-rep[1/1] [==========47%               ] poutre-r4.nsys-rep[1/1] [==========49%               ] poutre-r4.nsys-rep[1/1] [===========51%              ] poutre-r4.nsys-rep[1/1] [============54%             ] poutre-r4.nsys-rep[1/1] [============56%             ] poutre-r4.nsys-rep[1/1] [=============58%            ] poutre-r4.nsys-rep[1/1] [=============60%            ] poutre-r4.nsys-rep[1/1] [==============62%           ] poutre-r4.nsys-rep[1/1] [==============64%           ] poutre-r4.nsys-rep[1/1] [===============66%          ] poutre-r4.nsys-rep[1/1] [================69%         ] poutre-r4.nsys-rep[1/1] [================71%         ] poutre-r4.nsys-rep[1/1] [=================73%        ] poutre-r4.nsys-rep[1/1] [==================75%       ] poutre-r4.nsys-rep[1/1] [==================77%       ] poutre-r4.nsys-rep[1/1] [===================79%      ] poutre-r4.nsys-rep[1/1] [===================82%      ] poutre-r4.nsys-rep[1/1] [========================100%] poutre-r4.nsys-rep[1/1] [========================100%] poutre-r4.nsys-rep
+Generated:
+	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/scratch/nuit-2026-10-11/profil-transferts/poutre-r4.nsys-rep

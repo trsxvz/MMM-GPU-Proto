@@ -3829,3 +3829,19 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   d'échelles différentes selon les processus (facteur commun), résidus
   des tests calculés sur des vecteurs mis à l'échelle ; trois mutations
   détectées.
+
+### 2026-10-11 (nuit), transferts entre l'hôte et le GPU (L7.3)
+
+- Profil des copies (`cas/profil-transferts.sh`,
+  results/L7-transferts-2026-10-11) : 8 % du temps de la thermique r5,
+  3 % de la poutre r4. Origine donnée par gdb : surtout la fin de pas,
+  qui ramène les tableaux d'état sur l'hôte et invalide leur copie sur
+  le GPU (renvoyée à l'intégration suivante), puis la température aux
+  points (valeurs des inconnues recopiées sur l'hôte, variables externes
+  recopiées vers le GPU à chaque intégration).
+- Essai d'une synchronisation en lecture seule après la mise à jour
+  (copie du GPU gardée valide) : casse le contrat « modification directe
+  de l'état sur l'hôte après une mise à jour » de `MaterialArrays`,
+  vérifié par `BatchIntegrationTest` sur `debug` et `cuda`. Annulé.
+- Température gardée sur le GPU : gain d'au plus 2,3 % sur la thermique,
+  non fait. Lot L7.3 clos sur ces mesures.

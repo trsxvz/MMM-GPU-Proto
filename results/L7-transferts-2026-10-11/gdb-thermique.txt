@@ -1,0 +1,607 @@
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+Function "mfem::CuMemcpyDtoH" not defined.
+Breakpoint 1 (mfem::CuMemcpyDtoH if $rdx == 18874368 || $rdx == 6291456) pending.
+Function "mfem::CuMemcpyHtoD" not defined.
+Breakpoint 2 (mfem::CuMemcpyHtoD if $rdx == 18874368 || $rdx == 6291456 || $rdx == 25165824) pending.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+warning: File "/home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/ginkgo-1.11.0-2cwloe3adjbl6p7mfe5jl253ygcwsllc/lib/libginkgo.so.1.11.0-gdb.py" auto-loading has been declined by your `auto-load safe-path' set to "$debugdir:$datadir/auto-load".
+To enable execution of this file add
+	add-auto-load-safe-path /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/ginkgo-1.11.0-2cwloe3adjbl6p7mfe5jl253ygcwsllc/lib/libginkgo.so.1.11.0-gdb.py
+line to your configuration file "/home/t/.config/gdb/gdbinit".
+To completely disable this security protection add
+	set auto-load safe-path /
+line to your configuration file "/home/t/.config/gdb/gdbinit".
+For more information about this security protection see the
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+	info "(gdb)Auto-loading safe path"
+=== HtoD 25165824
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00007fffd7494494 in mfem::ElementRestriction::Mult(mfem::Vector const&, mfem::Vector&) const () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#3  0x00005555556a80ef in mfem_mgis::batch::computeUnknownsDerivatives(mgis::Context&, mfem_mgis::batch::UnknownsDerivatives&, mfem::FiniteElementSpace const&, mfem::Vector const&, mfem::IntegrationRule const&, bool) ()
+#4  0x000055555566f5a5 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#5  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#6  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#7  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#8  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#9  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#10 0x00005555555a4256 in main ()
+=== HtoD 25165824
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556a6528 in mfem_mgis::batch::computeElementsGeometry(mgis::Context&, mfem_mgis::batch::ElementsGeometry&, mfem::FiniteElementSpace const&, mfem::IntegrationRule const&) ()
+#3  0x000055555566eddc in mfem_mgis::MultiMaterialNonLinearIntegrator::computeElementsGeometry(mgis::Context&, mfem::FiniteElementSpace const&) ()
+#4  0x000055555566f5d1 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#5  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#6  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#7  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#8  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#9  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#10 0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578ee83 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578ee83 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f06b in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578ee83 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578ee83 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 18874368
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f06b in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564b842 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 25165824
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00007fffd74ae456 in void mfem::ElementRestriction::TAddMultTranspose<true>(mfem::Vector const&, mfem::Vector&) const () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#3  0x0000555555676a79 in mfem_mgis::MultiMaterialNonLinearIntegrator::addInnerForcesByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector&) ()
+#4  0x0000555555627f48 in mfem_mgis::addInnerForcesComputedByKernels(mfem_mgis::FiniteElementDiscretization const&, mfem_mgis::MultiMaterialNonLinearIntegrator&, mfem::FiniteElementSpace const&, mfem::Array<int> const&, mfem::Vector&, mfem::Vector&) ()
+#5  0x000055555564b4e9 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const::{lambda()#1}::operator()() const ()
+#6  0x000055555564b926 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 25165824
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556ae1c5 in mfem_mgis::batch::addStiffnessMatrices(mgis::Context&, mfem_mgis::batch::AssembledStiffnessMatrix const&, mfem_mgis::PartialQuadratureSpace const&, mgis::FieldView<double const> const&, mfem_mgis::batch::ElementsGeometry const&, mfem_mgis::batch::GradientsKind) ()
+#3  0x00005555556f9edb in bool mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::implementAddStiffnessMatricesByKernels<mfem_mgis::batch::AssembledStiffnessMatrix const>(mgis::Context&, mfem_mgis::batch::AssembledStiffnessMatrix const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#4  0x000055555567031e in mfem_mgis::MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::SparseMatrix&) ()
+#5  0x00005555556276e0 in mfem_mgis::assembleStiffnessMatrixByKernels(mfem_mgis::FiniteElementDiscretization const&, mfem_mgis::MultiMaterialNonLinearIntegrator&, mfem::FiniteElementSpace const&, mfem::SparseMatrix*&) ()
+#6  0x00005555556277d7 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::assembleTangentOperatorByKernels() const ()
+#7  0x000055555569396d in mfem_mgis::NonLinearSolverBase::getJacobian(mfem::Vector const&) const ()
+#8  0x000055555564c579 in std::_Function_handler<bool (), mfem_mgis::NewtonSolver::computeNewtonCorrection(mfem::Vector&, mfem::Vector const&, mfem::Vector const&, mfem_mgis::AdaptiveLinearSolverToleranceUpdater*) const::{lambda()#1}>::_M_invoke(std::_Any_data const&) ()
+#9  0x0000555555694916 in mfem_mgis::NonLinearSolverBase::callAndHandleFailures(std::function<bool ()> const&) const ()
+#10 0x000055555564b374 in mfem_mgis::NewtonSolver::computeNewtonCorrection(mfem::Vector&, mfem::Vector const&, mfem::Vector const&, mfem_mgis::AdaptiveLinearSolverToleranceUpdater*) const ()
+#11 0x000055555564bb4c in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 6291456
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556fa7b7 in mfem_mgis::StandardBehaviourIntegratorCRTPBase<mfem_mgis::IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>::computeGradientsByKernels(mgis::Context&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::UnknownsDerivatives, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::UnknownsDerivatives> > > const&, std::map<mfem::IntegrationRule const*, mfem_mgis::batch::ElementsGeometry, std::less<mfem::IntegrationRule const*>, std::allocator<std::pair<mfem::IntegrationRule const* const, mfem_mgis::batch::ElementsGeometry> > > const&) ()
+#3  0x000055555566f623 in mfem_mgis::MultiMaterialNonLinearIntegrator::computeGradientsByKernels(mgis::Context&, mfem::FiniteElementSpace const&, mfem::Vector const&) ()
+#4  0x0000555555629224 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== HtoD 6291456
+#0  0x00007fffd6a2c680 in mfem::CuMemcpyHtoD(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a425c4 in mfem::MemoryManager::GetDevicePtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x000055555578f7d5 in mfem_mgis::BehaviourIntegratorBase::integrateBatchOnDevice(mfem_mgis::IntegrationType) ()
+#3  0x0000555555675cb5 in mfem_mgis::MultiMaterialNonLinearIntegrator::integrateBatch(mfem_mgis::IntegrationType) ()
+#4  0x0000555555628f48 in mfem_mgis::NonLinearEvolutionProblemImplementation<true>::integrate(mfem::Vector const&, mfem_mgis::IntegrationType, std::optional<double>) ()
+#5  0x0000555555693abd in mfem_mgis::NonLinearSolverBase::processNewUnknownsEstimate(mfem::Vector const&) const ()
+#6  0x000055555564bb70 in mfem_mgis::NewtonSolver::Mult(mfem::Vector const&, mfem::Vector&) const ()
+#7  0x0000555555622fcc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::solve(mgis::Context&, double, double) ()
+#8  0x00005555555ef523 in mfem_mgis::NonLinearEvolutionProblem::solve(mgis::Context&, double, double) ()
+#9  0x00005555555a4256 in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796344 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796358 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796344 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796358 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796344 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796358 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796344 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+=== DtoH 18874368
+#0  0x00007fffd6a2c7c0 in mfem::CuMemcpyDtoH(void*, void const*, unsigned long) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#1  0x00007fffd6a418d8 in mfem::MemoryManager::GetHostPtr(void const*, unsigned long, bool) () from /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10
+#2  0x00005555556178bd in mfem_mgis::getHostView(mfem::Vector&) [clone .part.0] ()
+#3  0x0000555555796358 in mfem_mgis::BehaviourIntegratorBase::copyStatesOnDevice(bool) ()
+#4  0x000055555566e910 in mfem_mgis::MultiMaterialNonLinearIntegrator::update() ()
+#5  0x000055555561d1fc in mfem_mgis::NonLinearEvolutionProblemImplementationBase::update(mgis::Context&) ()
+#6  0x00005555555a428c in main ()
+Newton iteration  0 : ||r|| = 3655.37, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 897.759, ||r||/||r_0|| = 0.2456
+Newton iteration  2 : ||r|| = 76.7744, ||r||/||r_0|| = 0.0210032
+Newton iteration  3 : ||r|| = 0.658998, ||r||/||r_0|| = 0.000180282
+Newton iteration  4 : ||r|| = 5.74282e-05, ||r||/||r_0|| = 1.57106e-08
+Newton iteration  5 : ||r|| = 6.8137e-12, ||r||/||r_0|| = 1.86402e-15
+Convergence order 1.70595
+
+dofs 279873 | ls gmres-amg | ||T|| 306232.6261 | iterations per step: 5 | total 5
+time 0.519 s
+[Inferior 1 (process 1728373) exited normally]

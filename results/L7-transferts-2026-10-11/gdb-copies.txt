@@ -1,0 +1,19 @@
+set pagination off
+set breakpoint pending on
+set print thread-events off
+break mfem::CuMemcpyDtoH if $rdx == 18874368 || $rdx == 6291456
+commands
+silent
+printf "=== DtoH %lu\n", $rdx
+bt 12
+continue
+end
+break mfem::CuMemcpyHtoD if $rdx == 18874368 || $rdx == 6291456 || $rdx == 25165824
+commands
+silent
+printf "=== HtoD %lu\n", $rdx
+bt 12
+continue
+end
+run
+quit

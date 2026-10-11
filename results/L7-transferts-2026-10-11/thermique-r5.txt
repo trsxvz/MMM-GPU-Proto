@@ -1,0 +1,77 @@
+WARNING: CPU IP/backtrace sampling not supported, disabling.
+Try the 'nsys status --environment' command to learn more.
+
+WARNING: CPU context switch tracing not supported, disabling.
+Try the 'nsys status --environment' command to learn more.
+
+WARNING: CUDA backtraces will not be collected because CPU sampling is disabled.
+Newton iteration  0 : ||r|| = 1038.87, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 100.133, ||r||/||r_0|| = 0.0963865
+Newton iteration  2 : ||r|| = 1.09135, ||r||/||r_0|| = 0.00105052
+Newton iteration  3 : ||r|| = 0.000135979, ||r||/||r_0|| = 1.30891e-07
+Newton iteration  4 : ||r|| = 8.63513e-12, ||r||/||r_0|| = 8.31208e-15
+Convergence order 1.84331
+
+Newton iteration  0 : ||r|| = 845.352, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 68.2742, ||r||/||r_0|| = 0.0807642
+Newton iteration  2 : ||r|| = 0.510227, ||r||/||r_0|| = 0.000603567
+Newton iteration  3 : ||r|| = 2.97322e-05, ||r||/||r_0|| = 3.51713e-08
+Newton iteration  4 : ||r|| = 6.19985e-12, ||r||/||r_0|| = 7.33405e-15
+Convergence order 1.5777
+
+Newton iteration  0 : ||r|| = 712.676, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 49.5378, ||r||/||r_0|| = 0.0695096
+Newton iteration  2 : ||r|| = 0.269493, ||r||/||r_0|| = 0.000378143
+Newton iteration  3 : ||r|| = 8.29621e-06, ||r||/||r_0|| = 1.16409e-08
+Newton iteration  4 : ||r|| = 5.84389e-12, ||r||/||r_0|| = 8.19992e-15
+Convergence order 1.36361
+
+Newton iteration  0 : ||r|| = 616.026, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 37.5852, ||r||/||r_0|| = 0.0610123
+Newton iteration  2 : ||r|| = 0.155455, ||r||/||r_0|| = 0.000252352
+Newton iteration  3 : ||r|| = 2.76084e-06, ||r||/||r_0|| = 4.4817e-09
+Convergence order 1.99318
+
+Newton iteration  0 : ||r|| = 542.474, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 29.4934, ||r||/||r_0|| = 0.0543683
+Newton iteration  2 : ||r|| = 0.0958563, ||r||/||r_0|| = 0.000176702
+Newton iteration  3 : ||r|| = 1.04978e-06, ||r||/||r_0|| = 1.93518e-09
+Convergence order 1.9937
+
+dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
+time 1.462 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable ----------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |            time(s) |            part(%) |
+ |-----------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |           3.547110 |        100.000000% |
+ | |--> Mesh::Constructor                          |                  1 |           1.041485 |         29.361517% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000250 |          0.007040% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  5 |           1.041095 |         29.350527% |
+ | |--> FED::Constructor                           |                  1 |           1.043978 |         29.431787% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000003 |          0.000077% |
+ | |--> NLEP::solve                                |                  5 |           1.405368 |         39.620100% |
+ |    |--> NLEPIB::setup                           |                  5 |           0.000090 |          0.002547% |
+ |    |--> NLEPIB::solve                           |                  5 |           1.405260 |         39.617048% |
+ |       |--> NS::Mult                             |                  5 |           1.405240 |         39.616491% |
+ |          |--> NS::processNewUnknownsEstimate    |                  5 |           0.112867 |          3.181952% |
+ |          |--> NS::computeResidual               |                  5 |           0.011152 |          0.314390% |
+ |          |--> NS::Mult::WhileLoop               |                 23 |           1.280488 |         36.099480% |
+ |             |--> NS::computeNewtonCorrection    |                 18 |           1.076141 |         30.338540% |
+ |                |--> NS::getJacobian             |                 18 |           0.415510 |         11.714047% |
+ |                |--> NS::setLinearSolverOperator |                 18 |           0.001106 |          0.031179% |
+ |                |--> MFEM::Mult(r,c)             |                 18 |           0.659412 |         18.590115% |
+ |             |--> NS::processNewUnknownsEstimate |                 18 |           0.168618 |          4.753678% |
+ |             |--> NS::computeResidual            |                 18 |           0.024376 |          0.687194% |
+ | |--> NLEPIB::update                             |                  5 |           0.056276 |          1.586520% |
+ |-- end timetable ------------------------------------------------------------------------------------------------|
+Collecting data...
+Generating '/tmp/nsys-report-ec82.qdstrm'
+[1/1] [0%                          ] thermique-r5.nsys-rep[1/1] [0%                          ] thermique-r5.nsys-rep[1/1] [=16%                        ] thermique-r5.nsys-rep[1/1] [14%                         ] thermique-r5.nsys-rep[1/1] [12%                         ] thermique-r5.nsys-rep[1/1] [10%                         ] thermique-r5.nsys-rep[1/1] [==19%                       ] thermique-r5.nsys-rep[1/1] [==18%                       ] thermique-r5.nsys-rep[1/1] [=16%                        ] thermique-r5.nsys-rep[1/1] [=15%                        ] thermique-r5.nsys-rep[1/1] [13%                         ] thermique-r5.nsys-rep[1/1] [12%                         ] thermique-r5.nsys-rep[1/1] [11%                         ] thermique-r5.nsys-rep[1/1] [=17%                        ] thermique-r5.nsys-rep[1/1] [===22%                      ] thermique-r5.nsys-rep[1/1] [====27%                     ] thermique-r5.nsys-rep[1/1] [======33%                   ] thermique-r5.nsys-rep[1/1] [=======38%                  ] thermique-r5.nsys-rep[1/1] [=========43%                ] thermique-r5.nsys-rep[1/1] [==========49%               ] thermique-r5.nsys-rep[1/1] [============54%             ] thermique-r5.nsys-rep[1/1] [=============59%            ] thermique-r5.nsys-rep[1/1] [===============65%          ] thermique-r5.nsys-rep[1/1] [================70%         ] thermique-r5.nsys-rep[1/1] [==================75%       ] thermique-r5.nsys-rep[1/1] [===================80%      ] thermique-r5.nsys-rep[1/1] [====================83%     ] thermique-r5.nsys-rep[1/1] [========================100%] thermique-r5.nsys-rep[1/1] [========================100%] thermique-r5.nsys-rep
+Generated:
+	/home/t/Documents/GitHub/mfem-mgis-gpu-proto/scratch/nuit-2026-10-11/profil-transferts/thermique-r5.nsys-rep
