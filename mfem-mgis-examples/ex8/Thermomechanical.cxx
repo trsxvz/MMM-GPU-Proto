@@ -198,9 +198,15 @@ int main(int argc, char* argv[]) {
   c->setMaximumNumberOfIterations(ctx, 10) | or_die;
   c->addConvergenceCriterion(ctx, criterion) | or_die;
 
+  auto mechanical_materials = std::vector<const mfem_mgis::Material*>{};
+  for (const int mat_id : {1, 2, 3}) {
+    mechanical_materials.push_back(
+        &(mechanics.getMaterial(ctx, mat_id, 0) | or_die));
+  }
   auto updater_model = std::make_shared<FieldUpdaterModel>(
       ctx, mesh, setup.fields[0].Pow_s0_sw, setup.fields[0].Pow_s1_sw,
-      power_history, &u_mech, &mechanics.getUnknowns(mfem_mgis::ets));
+      power_history, &u_mech, &mechanics.getUnknowns(mfem_mgis::ets),
+      std::move(mechanical_materials));
 
   c->addModel(ctx, updater_model) | or_die;
   c->addModel(ctx, heat_transfer_model) | or_die;

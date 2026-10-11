@@ -4157,6 +4157,6 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   les tests rjh_plate-kernels et, sous l'option
   `MFEM_MGIS_EXAMPLES_GPU_TESTS`, rjh_plate-cuda et rjh_plate-kernels-cuda.
 - Mesure (`results/ex8-2026-10-11`, maillage d'origine) : CPU 2 processus
-  31,0 -> 22,3 s (×1,38), GPU 1 processus 167,7 -> 38,3 s (×4,4). Restent
+  31,0 -> 22,3 s (×1,39), GPU 1 processus 167,7 -> 38,3 s (×4,4). Restent
   l'intégration des lois sur l'hôte et MUMPS ; le maillage raffiné une
   fois est hors de portée des solveurs essayés (MUMPS, PCG et BoomerAMG).

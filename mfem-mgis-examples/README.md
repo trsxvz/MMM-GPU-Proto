@@ -45,6 +45,9 @@ or `restricted`, selects the test mode explicitly:
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DMFEM_MGIS_EXAMPLES_TEST_MODE=restricted
 ```
 
+The `MFEM_MGIS_EXAMPLES_GPU_TESTS` option (off by default) adds the tests of the examples which
+support it on a CUDA device, when MFEM is compiled with CUDA. A GPU is then required to run them.
+
 For an installation on a supercomputer without internet please follow the procedure described here for MFEM-MGIS installation: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html#installation-guide-on-topaze-ccrt-of-mfem-mgis-examples
 
 ## Test case description

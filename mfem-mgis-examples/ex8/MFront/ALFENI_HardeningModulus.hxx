@@ -1,6 +1,8 @@
 #pragma once
 
-inline double computeHardeningModulus(const double T_actuelle) {
+// constexpr: also callable from the code of the behaviours generated for a
+// GPU (nvcc with --expt-relaxed-constexpr)
+constexpr double computeHardeningModulus(const double T_actuelle) noexcept {
   double H = 1500e6;
 
   if (T_actuelle > 573.15) {

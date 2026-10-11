@@ -9,14 +9,15 @@ mécanique, GMRES et BoomerAMG pour la thermique. Construction séparée
 (`install/mfem-mgis-autres`), mfem-mgis-examples 3a907f1. CPU : 2
 processus d'un fil, comme le test de l'exemple ; GPU : un processus,
 `--device cuda`, lois de l'exemple compilées par l'interface `generic`
-(intégrées sur l'hôte). Machine calme, deux passages (`resume.txt`,
-`repetition-2`).
+(intégrées sur l'hôte). Deux passages (`resume.txt`, `repetition-2`) ;
+au premier, la charge moyenne valait encore 6 (fin d'un essai précédent),
+au second 1 ; les deux concordent à 2 % près.
 
 Couplage sur les 5 pas, en secondes :
 
 | Cas | Point par point | Tout par noyaux | Gain |
 |---|---|---|---|
-| CPU, 2 processus | 30,97 et 30,62 | 22,35 et 22,25 | ×1,38 |
+| CPU, 2 processus | 30,97 et 30,62 | 22,35 et 22,25 | ×1,38 à ×1,39 |
 | GPU, 1 processus | 167,66 et 166,04 | 38,32 et 37,59 | ×4,4 |
 
 Phases du premier passage (`cas/resume-profilage.py`, deux problèmes
@@ -30,8 +31,9 @@ cumulés) :
 | GPU, noyaux | 19,53 | 1,61 | 1,44 | 11,79 | 3,92 |
 
 - Mêmes statistiques des champs (température, norme du déplacement,
-  gonflement) dans les quatre cas, et même nombre d'itérations de Newton
-  (114 pour les deux problèmes).
+  gonflement) dans les quatre cas, et mêmes nombres d'itérations de
+  Newton (64 : 35 en thermique, 29 en mécanique, pour 114 évaluations du
+  résidu).
 - Sur CPU, l'intégration de la loi mécanique (U3Si2) et la factorisation
   de MUMPS dominent ; le résidu (×8) et la tangente (×2,6) par noyaux ne
   pèsent plus.

@@ -5,12 +5,13 @@
 #   lot=L2
 #   source "$(dirname "$0")/mesures-commun.sh" "$@"
 #
-# Arguments : cas (poutre ou polycristal), dossier de résultats (par défaut
-# results/<lot>-<cas>-<date>). Définit `run` (voir plus bas), `generic`,
-# `openmp` et `stlpar` (bibliothèques de la loi du cas), et les variables
-# `device`, `linear_solver`, `linear_tolerance`, `options` et `reference`
-# lues par `run`, et `refinement` (nombre de raffinements du maillage de
-# la poutre ou de la thermique, 4 et 5 par défaut).
+# Arguments : cas (poutre, polycristal, thermique, ssna303 ou ex8), dossier
+# de résultats (par défaut results/<lot>-<cas>-<date>). Définit `run` (voir
+# plus bas), `generic`, `openmp` et `stlpar` (bibliothèques de la loi du
+# cas), et les variables `device`, `linear_solver`, `linear_tolerance`,
+# `options` et `reference` lues par `run`, et `refinement` (nombre de
+# raffinements du maillage : 4 pour la poutre, 5 pour la thermique, 0 pour
+# ssna303 et ex8 par défaut).
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -137,7 +138,7 @@ command_of() {
         ${device:+--device $device} $options
       ;;
     ex8)
-      echo ./rjh_plate -m assemblage_hexa.msh -r "${refinement:-1}" -ns 5 \
+      echo ./rjh_plate -m assemblage_hexa.msh -r "${refinement:-0}" -ns 5 \
         -lsMc MUMPSSolver -no-pp ${device:+--device $device} $options
       ;;
     polycristal)
