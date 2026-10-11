@@ -7,8 +7,11 @@
 # Kokkos initialisé par le cas, option --kokkos). Les bibliothèques sont
 # celles des dossiers generic-parallel-<dossier> de build/cas-autres/poutre
 # (cuda pour nvcc, sinon le nom de la configuration), ou celles de
-# `$libs/<configuration>/src` si la variable `libs` est donnée. À lancer
-# sur une machine calme, GPU libre.
+# `$libs/<configuration>/src` si la variable `libs` est donnée.
+# L'exécutable est celui du dossier donné par la variable `poutre` (par
+# défaut build/cas-autres/poutre), construit avec Kokkos pour l'option
+# --kokkos (Kokkos trouvé par la configuration de cas/). À lancer sur une
+# machine calme, GPU libre.
 #
 # usage : cas/mesures-backends-gpu.sh [dossier de résultats]
 lot=backends
