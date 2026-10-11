@@ -97,6 +97,9 @@ reference=""
 # absolu pour un autre exécutable, par exemple construit avec une version
 # précédente de mfem-mgis)
 executable=./poutre
+# polycristal : option des post-traitements (vide pour les exécuter : export
+# ParaView et moyennes des contraintes à chaque pas)
+post_processing=--disable-post-processing
 # usage : command_of bibliothèque nom
 # affiche la commande du cas
 command_of() {
@@ -118,7 +121,7 @@ command_of() {
         ${device:+--device $device} $options
       ;;
     polycristal)
-      echo ./uniaxial-polycrystal --disable-post-processing --nstep 10 \
+      echo ./uniaxial-polycrystal $post_processing --nstep 10 \
         --duration 10 -l "$library" \
         --macroscopic-stress-output-file "$out/$name.res" \
         ${device:+--device $device} $options

@@ -921,8 +921,10 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
+    CatchTimeSection(ctx, "NLEP::executePostProcessings");
     // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
+      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
       try {
         this->mgis_integrator->synchronizeOnHostForReading();
       } catch (...) {
@@ -931,6 +933,7 @@ namespace mfem_mgis {
     }
     auto success = true;
     for (auto& p : this->postprocessings) {
+      CatchTimeSection(ctx, "NLEP::PP::execute");
       if (!p->execute(ctx, *this, t, dt)) {
         success = false;
       }
@@ -1263,8 +1266,10 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
       Context& ctx, const real t, const real dt) noexcept {
+    CatchTimeSection(ctx, "NLEP::executePostProcessings");
     // the post-processings read the materials on the host
     if (this->mgis_integrator != nullptr) {
+      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
       try {
         this->mgis_integrator->synchronizeOnHostForReading();
       } catch (...) {
@@ -1273,6 +1278,7 @@ namespace mfem_mgis {
     }
     auto success = true;
     for (auto& p : this->postprocessings) {
+      CatchTimeSection(ctx, "NLEP::PP::execute");
       if (!p->execute(ctx, *this, t, dt)) {
         success = false;
       }
