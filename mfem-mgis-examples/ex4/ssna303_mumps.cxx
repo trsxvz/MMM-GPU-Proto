@@ -210,7 +210,13 @@ int main(int argc, char** argv) {
         }
         problem.update(ctx) | or_die;
       } else {
-        std::cout << "\nsubstep: " << niter << '\n';
+        // reason of the failure, if reported (the messages are cleared)
+        const auto msg = ctx.getErrorMessage();
+        std::cout << "\nsubstep: " << niter;
+        if (!msg.empty()) {
+          std::cout << " (" << msg << ")";
+        }
+        std::cout << '\n';
         nsteps *= 2;
         dt2 /= 2;
         ++niter;

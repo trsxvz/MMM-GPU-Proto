@@ -17,6 +17,19 @@ kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
 cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 options=""
+
+# waits at most 10 minutes for the GPU to be free of other processes
+wait_for_gpu() {
+  local i
+  for ((i = 0; i != 120; ++i)); do
+    if [ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "   GPU partagé avec un autre processus" | tee -a "$out/resume.txt"
+}
+
 for device in cuda ""; do
   if [ -z "$device" ]; then
     np=8
@@ -29,10 +42,12 @@ for device in cuda ""; do
   fi
   post_processing=--disable-post-processing
   reference=""
+  [ -n "$device" ] && wait_for_gpu
   run "polycristal-$where-sans-post-traitements" 1 $np "$library" "$batch" \
     "${kernels[@]}"
   post_processing=""
   reference="polycristal-$where-sans-post-traitements"
+  [ -n "$device" ] && wait_for_gpu
   run "polycristal-$where-post-traitements" 1 $np "$library" "$batch" \
     "${kernels[@]}"
   rm -rf "$B"/OutputFile-Uniaxial-polycrystal* "$B"/PolycrystalParaviewOutput

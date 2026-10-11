@@ -1,0 +1,34 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --device 
+   --hypre-device-pool-size 
+   --donot-use-petsc
+   --petsc-configuration-file 
+   --order 1
+   --nbsteps 10
+   --end-time 1
+   --reference-file 
+   --linearsolver HypreFGMRES
+   --preconditioner HypreBoomerAMG
+   --refinement 2
+   --profiling
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/mfem-mgis-examples/ex4/src/libBehaviour.so
+   --no-paraview
+   --use-fbar
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+iteration 0 from 0 to 0.1
+dofs 1461915
+iteration 0 from 0 to 0.1

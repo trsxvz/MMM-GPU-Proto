@@ -3962,3 +3962,17 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   en 10 000 itérations (tangente non symétrique) : ce cas reste isotrope.
   Quatre mutations détectées (pression doublée, source oubliée, pression
   déclarée dépendante, intégrateurs de bord ignorés).
+
+### 2026-10-11 (matin), ssna303 et arrêt pour manque de mémoire
+
+- Mesures de ssna303 (cas 2 de la campagne, results/
+  ssna303-ssna303-2026-10-11-0625) : GPU ×2,4 à 200 000 inconnues (×2,7
+  avec FBar), la résolution de hypre dominant sur le GPU. Série arrêtée à
+  7 h 18 pendant `ssna303-r2-fbar-np8-noyaux` (1,46 million d'inconnues,
+  FBar, 8 processus) : la mémoire de la machine (30 Go) était presque
+  épuisée, et les tâches de fond de la session (mesures et enchaînement
+  vers l'installation et les mesures de la pression et des
+  post-traitements) ont été arrêtées. Rien n'a été relancé. Le calcul à
+  deux raffinements sur le GPU échoue dès le premier pas ; ex4 affiche
+  désormais la cause des échecs de résolution (mfem-mgis-examples
+  db0ce2a).
