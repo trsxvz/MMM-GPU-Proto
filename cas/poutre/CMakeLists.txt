@@ -49,6 +49,37 @@ set_tests_properties(poutre-sans-matrice-amg PROPERTIES ENVIRONMENT
 # GPU, all the computations being made by kernels
 add_generic_parallel_mfront_libraries(poutre-behaviours CUDA
   "${MFEM_MGIS_SOURCE_DIR}/tests/IsotropicLinearHardeningPlasticity.mfront")
+# the other backends for the GPU which work in mfem-mgis (see
+# cas/mesures-backends-gpu.sh): cuda by clang, hip by clang and by hipcc on
+# the NVIDIA platform, kokkos (Kokkos being initialized by the option
+# --kokkos); short tests on the GPU
+foreach(_gpu_backend cuda-clang:cuda hip-clang-nvidia-platform:hip
+                     hip-hipcc:hip kokkos:kokkos)
+  string(REPLACE ":" ";" _gb "${_gpu_backend}")
+  list(GET _gb 0 _name)
+  list(GET _gb 1 _suffix)
+  if((_suffix STREQUAL "kokkos") AND (NOT TARGET proto-kokkos-runtime))
+    continue()
+  endif()
+  add_generic_parallel_mfront_library(poutre-behaviours ${_name}
+    config-${_name}.json ${_suffix}
+    "${MFEM_MGIS_SOURCE_DIR}/tests/IsotropicLinearHardeningPlasticity.mfront")
+  if(NOT poutre-behaviours_${_name}_FOUND)
+    continue()
+  endif()
+  set(_options)
+  if(_suffix STREQUAL "kokkos")
+    set(_options --kokkos)
+  endif()
+  add_test(NAME poutre-gpu-${_name}
+    COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls pcg-amg -bi Batch
+            --device cuda ${_options}
+            -l "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_name}/src/libGenericParallelBehaviour-${_suffix}.so"
+            -en ${norm})
+  set_tests_properties(poutre-gpu-${_name} PROPERTIES ENVIRONMENT
+    "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+    RESOURCE_LOCK gpu)
+endforeach()
 foreach(_backend ${poutre-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
   if(_backend STREQUAL "cuda")

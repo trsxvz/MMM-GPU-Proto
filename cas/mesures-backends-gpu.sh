@@ -5,9 +5,10 @@
 # pour chaque backend qui fonctionne dans mfem-mgis (cuda par nvcc et par
 # clang, hip par clang et par hipcc sur la plateforme NVIDIA, kokkos avec
 # Kokkos initialisé par le cas, option --kokkos). Les bibliothèques sont
-# lues dans `$libs/<configuration>/src` (par défaut les dossiers
-# generic-parallel-<configuration> de build/cas-autres/poutre). À lancer sur
-# une machine calme, GPU libre.
+# celles des dossiers generic-parallel-<dossier> de build/cas-autres/poutre
+# (cuda pour nvcc, sinon le nom de la configuration), ou celles de
+# `$libs/<configuration>/src` si la variable `libs` est donnée. À lancer
+# sur une machine calme, GPU libre.
 #
 # usage : cas/mesures-backends-gpu.sh [dossier de résultats]
 lot=backends
@@ -21,23 +22,24 @@ kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
 device=cuda
 library_of() {
-  local configuration=$1 suffix=$2
+  local configuration=$1 directory=$2 suffix=$3
   if [ -n "${libs:-}" ]; then
     echo "$libs/$configuration/src/libGenericParallelBehaviour-$suffix.so"
   else
-    echo "$B/generic-parallel-$configuration/src/libGenericParallelBehaviour-$suffix.so"
+    echo "$B/generic-parallel-$directory/src/libGenericParallelBehaviour-$suffix.so"
   fi
 }
 for pass in 1 2; do
-  for backend in cuda-nvcc:cuda cuda-clang:cuda \
-    hip-clang-nvidia-platform:hip hip-hipcc:hip kokkos:kokkos; do
-    IFS=: read -r configuration suffix <<< "$backend"
+  for backend in cuda-nvcc:cuda:cuda cuda-clang:cuda-clang:cuda \
+    hip-clang-nvidia-platform:hip-clang-nvidia-platform:hip \
+    hip-hipcc:hip-hipcc:hip kokkos:kokkos:kokkos; do
+    IFS=: read -r configuration directory suffix <<< "$backend"
     options=""
     if [ "$suffix" = kokkos ]; then
       options="--kokkos"
     fi
     run "poutre-np1-gpu-$configuration-$pass" 1 1 \
-      "$(library_of "$configuration" "$suffix")" "${kernels[@]}"
+      "$(library_of "$configuration" "$directory" "$suffix")" "${kernels[@]}"
   done
 done
 echo "résultats dans $out"

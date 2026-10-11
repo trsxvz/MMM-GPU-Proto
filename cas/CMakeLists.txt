@@ -42,21 +42,27 @@ function(add_mfront_library target)
   add_custom_target(${target} ALL DEPENDS "${wd}/src/libBehaviour.so")
 endfunction()
 
-# usage: add_generic_parallel_mfront_libraries(target [CUDA] sources...
-#          [LIBRARIES names...] [INCLUDE_DIRECTORY directory])
-# Behaviours compiled by MFront with the generic-parallel interface, on the
-# host for each backend whose configuration file is provided by TFEL
-# (openmp, stlpar), and on the GPU with the CUDA option if nvcc is found
-# (cuda), in
-# <current binary dir>/generic-parallel-<backend>/src/libGenericParallel<name>-<backend>.so
-# (targets <target>-<backend>), for each name given after LIBRARIES (the
+# usage: add_generic_parallel_mfront_library(target name configuration
+#          suffix sources... [LIBRARIES names...] [INCLUDE_DIRECTORY directory])
+# Behaviours compiled by MFront with the generic-parallel interface and the
+# given configuration file of TFEL (for instance config-cuda-nvcc.json), if
+# it is provided, in
+# <current binary dir>/generic-parallel-<name>/src/libGenericParallel<library>-<suffix>.so
+# (target <target>-<name>), <suffix> being the backend of the configuration
+# (cuda, hip, kokkos...), and <library> each name given after LIBRARIES (the
 # @Library or @Material of the sources, Behaviour by default). The
 # directory given after INCLUDE_DIRECTORY is searched for the files
-# included by the sources (@MaterialLaw, @Includes). The backends are
-# returned in the variable <target>_BACKENDS.
-function(add_generic_parallel_mfront_libraries target)
-  cmake_parse_arguments(_gp "CUDA" "INCLUDE_DIRECTORY" "LIBRARIES" ${ARGN})
-  set(_sources ${_gp_UNPARSED_ARGUMENTS})
+# included by the sources (@MaterialLaw, @Includes). The variable
+# <target>_<name>_FOUND is set in the scope of the caller: true if the
+# configuration is provided.
+function(add_generic_parallel_mfront_library target name configuration suffix)
+  cmake_parse_arguments(_gp "" "INCLUDE_DIRECTORY" "LIBRARIES" ${ARGN})
+  set(${target}_${name}_FOUND FALSE PARENT_SCOPE)
+  get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
+  if(NOT EXISTS
+     "${_mfront_bin}/../share/tfel/mfront/configuration-files/${configuration}")
+    return()
+  endif()
   set(_names ${_gp_LIBRARIES})
   if(NOT _names)
     set(_names Behaviour)
@@ -65,7 +71,36 @@ function(add_generic_parallel_mfront_libraries target)
   if(_gp_INCLUDE_DIRECTORY)
     set(_include "--include=${_gp_INCLUDE_DIRECTORY}")
   endif()
-  get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
+  set(_directory "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${name}")
+  set(_libraries)
+  foreach(_library ${_names})
+    list(APPEND _libraries
+         "${_directory}/src/libGenericParallel${_library}-${suffix}.so")
+  endforeach()
+  file(MAKE_DIRECTORY "${_directory}")
+  add_custom_command(
+    OUTPUT ${_libraries}
+    COMMAND ${MFRONT} --obuild --interface=generic-parallel
+            "--configuration-file=${configuration}" ${_include}
+            ${_gp_UNPARSED_ARGUMENTS}
+    WORKING_DIRECTORY "${_directory}"
+    DEPENDS ${_gp_UNPARSED_ARGUMENTS}
+    COMMENT "MFront: behaviours of ${target}, generic-parallel (${name})")
+  add_custom_target(${target}-${name} ALL DEPENDS ${_libraries})
+  set(${target}_${name}_FOUND TRUE PARENT_SCOPE)
+endfunction()
+
+# usage: add_generic_parallel_mfront_libraries(target [CUDA] sources...
+#          [LIBRARIES names...] [INCLUDE_DIRECTORY directory])
+# Behaviours compiled by MFront with the generic-parallel interface (see
+# add_generic_parallel_mfront_library), on the host for each backend whose
+# configuration file is provided by TFEL (openmp, stlpar), and on the GPU
+# with the CUDA option if nvcc is found (cuda), in
+# <current binary dir>/generic-parallel-<backend>/src/libGenericParallel<name>-<backend>.so
+# (targets <target>-<backend>). The backends are returned in the variable
+# <target>_BACKENDS.
+function(add_generic_parallel_mfront_libraries target)
+  cmake_parse_arguments(_gp "CUDA" "" "" ${ARGN})
   set(_configurations openmp:config-openmp-host-gcc.json
                       stlpar:config-stlpar-parunseq-gcc.json)
   if(_gp_CUDA)
@@ -79,24 +114,9 @@ function(add_generic_parallel_mfront_libraries target)
     string(REPLACE ":" ";" _bc "${backend_configuration}")
     list(GET _bc 0 _backend)
     list(GET _bc 1 _configuration)
-    if(EXISTS
-       "${_mfront_bin}/../share/tfel/mfront/configuration-files/${_configuration}")
-      set(_directory "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}")
-      set(_libraries)
-      foreach(_name ${_names})
-        list(APPEND _libraries
-             "${_directory}/src/libGenericParallel${_name}-${_backend}.so")
-      endforeach()
-      file(MAKE_DIRECTORY "${_directory}")
-      add_custom_command(
-        OUTPUT ${_libraries}
-        COMMAND ${MFRONT} --obuild --interface=generic-parallel
-                "--configuration-file=${_configuration}" ${_include}
-                ${_sources}
-        WORKING_DIRECTORY "${_directory}"
-        DEPENDS ${_sources}
-        COMMENT "MFront: behaviours of ${target}, generic-parallel (${_backend})")
-      add_custom_target(${target}-${_backend} ALL DEPENDS ${_libraries})
+    add_generic_parallel_mfront_library(${target} ${_backend}
+      "${_configuration}" ${_backend} ${_gp_UNPARSED_ARGUMENTS})
+    if(${target}_${_backend}_FOUND)
       list(APPEND _backends ${_backend})
     endif()
   endforeach()

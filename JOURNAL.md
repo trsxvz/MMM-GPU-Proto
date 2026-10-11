@@ -4206,3 +4206,20 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   préconditionné par l'opérateur élastique coûte trop (28,8 s contre
   13,1 s) ; ModifiedNewton diverge dès le premier pas. Le levier reste un
   préconditionneur adapté à cette plaque mince aux matériaux contrastés.
+
+### 2026-10-11 (fin d'après-midi), backends GPU de l'interface generic-parallel
+
+- Dans mfem-mgis, fonctionnent : cuda (nvcc, clang), hip (clang, hipcc sur
+  la plateforme NVIDIA) et kokkos si le programme initialise Kokkos
+  (`cas/commun/KokkosRuntime`, option `--kokkos` de la poutre, Kokkos
+  facultatif). Échouent : sycl (le programme doit fournir une file SYCL),
+  nvhpc stdpar et openmp offload (support d'exécution d'OpenMP de nvhpc en
+  conflit avec libgomp de MFEM et mfem-mgis compilés par GCC).
+- `cas/CMakeLists.txt` : `add_generic_parallel_mfront_library` (une
+  configuration, nom explicite) sous `add_generic_parallel_mfront_libraries` ;
+  la poutre et le polycristal ont les bibliothèques et les tests courts de
+  ces backends (poutre-gpu-*, polycristal-batch-* et comparaisons).
+- Poutre r4 (`results/backends-gpu-2026-10-11`) : loi à 1 ms par
+  intégration, aucun écart. Polycristal (`results/backends-polycristal-2026-10-11`) :
+  intégration 5,6 s avec nvcc ou hipcc, 7,7 s avec clang (cuda ou hip),
+  102 s sur l'hôte ; contraintes identiques à 2,4e-13.
