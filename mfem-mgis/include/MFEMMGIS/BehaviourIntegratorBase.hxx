@@ -133,6 +133,52 @@ namespace mfem_mgis {
      */
     BehaviourIntegratorBase(std::shared_ptr<const PartialQuadratureSpace> s,
                             std::unique_ptr<const Behaviour> b_ptr);
+    //! \brief data of the computations by kernels on the material
+    struct KernelsData {
+      //! \brief kind of the gradients
+      batch::GradientsKind kind = batch::GradientsKind::SMALL_STRAIN_3D;
+      //! \brief integration rule of the material, null if it has no element
+      const mfem::IntegrationRule* rule = nullptr;
+      //! \brief geometric data of this rule
+      const batch::ElementsGeometry* geometry = nullptr;
+    };
+    /*!
+     * \brief checks that the material can be processed by kernels (same
+     * integration rule for all its elements, supported behaviour, geometric
+     * data of its rule computed) and gets the data of the computations
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[out] data: data, whose rule is null if the material has no
+     * element (nothing to compute)
+     * \param[in] name: name of the calling method, for the messages
+     * \param[in] g: geometric data of the integration rules
+     */
+    [[nodiscard]] bool getKernelsData(
+        Context&,
+        KernelsData&,
+        const char* const,
+        const batch::ElementsGeometrySet&) const noexcept;
+    /*!
+     * \return a view of the tangent operator blocks, in the global frame
+     * (rotated after the integration of the behaviour for an orthotropic
+     * behaviour), readable on the device if `d` is true (see
+     * `MaterialArrays`)
+     * \param[in] d: if true, the view is located on the device (if a device
+     * is enabled)
+     */
+    [[nodiscard]] mgis::FieldView<const real> readTangentOperatorBlocks(
+        const bool) const;
+    /*!
+     * \brief adds the inner forces of all the elements, computed by kernels
+     * from the thermodynamic forces at the end of the time step in the
+     * global frame (see `batch::addInnerForces`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] f: values element by element
+     * \param[in] g: geometric data
+     */
+    [[nodiscard]] bool addInnerForcesFromThermodynamicForcesByKernels(
+        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief check that the behaviour is a standard finite strain behaviour
      * or a general behaviour whose only gradient is the deformation

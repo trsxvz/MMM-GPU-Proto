@@ -914,7 +914,11 @@ Ordre proposé :
    cas simple de loi par lots sur GPU ;
 8. micromorphe ;
 9. régularisations (FBar, Faltus) : elles demandent la solution courante
-   à l'assemblage, à traiter en dernier ;
+   à l'assemblage, à traiter en dernier. FBar fait (11/10) : gradient au
+   centre des éléments par une règle d'ordre 0, `F̄ = α F`, tangente
+   standard modifiée plus un terme de rang un par élément (voir
+   `batch::FBarData`), en 3D et en déformations planes, matrice assemblée,
+   diagonale et action sans matrice ; Faltus reste refusé ;
 10. problèmes périodiques.
 
 Tests : la suite de mfem-mgis passée sur le chemin par lots, cas par cas.

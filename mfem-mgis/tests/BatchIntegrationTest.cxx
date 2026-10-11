@@ -1204,6 +1204,41 @@ int main(int argc, char** argv) {
                       .matrix_free = true,
                       .assembled_preconditioner = true},
                      ", matrix free, assembled preconditioner"});
+    // FBar formulation by kernels: in 3D, with and without prediction, the
+    // tangent operator being assembled or applied without assembly (the
+    // diagonal of the operator applied without assembly being compared to
+    // the one of the assembled operator), and in plane strain
+    for (const auto* const b : {"SaintVenantKirchhoffElasticity",
+                                "OrthotropicSaintVenantKirchhoffElasticity"}) {
+      cases.push_back({b,
+                       {.fbar = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
+                       ", FBar"});
+      cases.push_back({b,
+                       {.fbar = true,
+                        .prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
+                       ", FBar and prediction"});
+      cases.push_back({b,
+                       {.fbar = true,
+                        .prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .matrix_free = true},
+                       ", FBar, matrix free"});
+      cases.push_back({b,
+                       {.fbar = true,
+                        .plane_strain = true,
+                        .prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true},
+                       ", FBar, plane strain"});
+    }
     for (const auto& [b, opts, name] : cases) {
       const auto* const m = getMesh(opts);
       auto reference = opts;
@@ -1251,6 +1286,20 @@ int main(int argc, char** argv) {
     cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
                      {.fbar = true},
                      ", FBar"});
+    // FBar formulation by kernels, assembled and applied without assembly
+    cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                     {.fbar = true,
+                      .prediction = true,
+                      .gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .tangent_operator_kernels = true},
+                     ", FBar, kernels and prediction"});
+    cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                     {.fbar = true,
+                      .gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .matrix_free = true},
+                     ", FBar, matrix free"});
     // material properties given at each point (copied to the device)
     cases.push_back({"IsotropicLinearElasticity", {}, ""});
     // temperature varying in time, the temperature at the beginning of the

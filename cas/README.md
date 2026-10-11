@@ -26,6 +26,38 @@ mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
   `umfpack`. Mêmes options et même bilan que la poutre, plus `-dT`
   (échauffement imposé) et `-alst` (tolérance adaptative).
 
+- `polycristal/` : lois du polycristal de mm-opera-hpc générées par
+  l'interface `generic-parallel` (openmp, stlpar, cuda) ; l'exécutable est
+  celui de mm-opera-hpc. Les tests comparent les contraintes
+  macroscopiques au calcul point par point.
+- `ssna303/` : lois de l'exemple ex4 de mfem-mgis-examples (barreau
+  entaillé en 3D, plasticité en grandes transformations, déformation de
+  Hencky) générées par l'interface `generic-parallel` ; l'exécutable est
+  `ssna303_3d_hypre` de mfem-mgis-examples (options `--device`, `-l`,
+  `-no-pv`, `-r`). Les tests comparent la force résultante du premier pas
+  aux valeurs de référence de l'exemple.
+
+Options de la poutre ajoutées par les lots suivants : point fixe et
+NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), tolérance
+adaptative (`-alst EisenstatWalker1 -alsti 0.1`), multigrille de K0
+(`-els amg|amgx`, `-amgo` options de BoomerAMG, `-amgxo`, `-amgxc`,
+`-amgxs` pour AmgX), verbosité du solveur non linéaire (`-vl`). L'outil
+`poutre-k0` résout l'opérateur élastique K0 seul, mise en place et
+résolutions chronométrées à part. Les options de mfem-mgis s'appliquent à
+tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`), et les
+variables `MFEM_MGIS_*` des calculs par lots et par noyaux.
+
+Scripts de mesures (résultats dans `results/<lot>-<cas>-<date>/`) :
+`mesures-commun.sh` (fonctions communes ; cas poutre, polycristal,
+thermique, ssna303 ; variable `refinement`), `mesures-L2.sh` à
+`mesures-L7-thermique.sh` (un script par lot du plan),
+`mesures-echelle-poutre.sh` (passage à l'échelle de la poutre, mémoire du
+GPU), `mesures-ssna303.sh` (ssna303 sur 8 cœurs et sur le GPU),
+`balayage-amgx-k0.sh` (configurations d'AmgX sur K0),
+`profil-transferts.sh` (copies entre l'hôte et le GPU, nsys). Outils :
+`resume-profilage.py` (temps par phase des sorties `--profiling`),
+`comparer-sorties.py` (comparaison de sorties numériques).
+
 `mesures-reference.sh` mesure les temps de référence du chemin actuel de
 mfem-mgis sur CPU (lot L0) : poutre, ssna303 en 3D (ex4), polycristal
 (mm-opera-hpc), thermomécanique (ex8). Résultats dans

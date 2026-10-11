@@ -1,0 +1,2521 @@
+From 8a6325335e5997fac27306df71bfb0c63149571b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 04:00:05 +0200
+Subject: [PATCH] Batch: FBar formulation by kernels
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The gradients, the inner forces and the stiffness matrices of the FBar
+behaviour integrators (isotropic and orthotropic, 3D and plane strain) are
+computed by kernels (batch::FBarData, src/Batch/FBar*.cxx):
+
+- the deformation gradients at the center of the elements are computed
+  with the integration rule of order 0 of their geometry, an additional
+  rule of the kernels (AbstractBehaviourIntegrator::
+  getAdditionalIntegrationRulesForKernels), whose derivatives of the
+  unknowns and geometric data are computed with the ones of the rules of
+  the elements;
+- the kernel of the standard deformation gradients is followed by a kernel
+  replacing F by F̄ = α F, α = (J0/J)^(1/3) (1/2 and F̄33 = 1 in plane
+  strain), F and α being kept;
+- the inner forces are the ones of the standard finite strain formulation;
+- the stiffness matrices are the ones of the standard formulation with the
+  tangent operator K' = α K + (K F) ⊗ dα/dF, plus a matrix of rank one per
+  element a ⊗ b, a being the inner forces of the pseudo-stress
+  α/(ie J0) K F and b the derivative of J0 with respect to the unknowns of
+  the element: assembled matrix, matrices element by element, diagonal and
+  action without assembly. The tangent operator K' is computed once after
+  each integration of the behaviour.
+
+The helpers of the computations by kernels shared by the standard and FBar
+behaviour integrators (kernels data, tangent operator blocks, inner forces)
+move to BehaviourIntegratorBase. The regularisation of Faltus et al. is
+still refused.
+
+Tests: BatchIntegrationTest compares the FBar formulation by kernels to the
+integration point by point (isotropic and orthotropic, 3D and plane
+strain, with and without prediction, assembled and without assembly,
+generic, openmp, stlpar and cuda behaviours; host, debug device, GPU, two
+processes): relative differences from 1e-15 to 1e-12; seven mutations
+detected. GradientsKernelsTest no longer expects the refusal of FBar.
+---
+ include/CMakeLists.txt                        |   1 +
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  12 +
+ include/MFEMMGIS/Batch/FBar.hxx               | 246 ++++++++
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  |  46 ++
+ .../FBarBehaviourIntegratorCRTPBase.hxx       |  55 ++
+ .../FBarBehaviourIntegratorCRTPBase.ixx       | 226 +++++++
+ .../MultiMaterialNonLinearIntegrator.hxx      |   4 +-
+ ...nearEvolutionProblemImplementationBase.hxx |   5 +-
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |  35 --
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  86 +--
+ src/AbstractBehaviourIntegrator.cxx           |   5 +
+ src/Batch/FBar.cxx                            | 554 ++++++++++++++++++
+ src/Batch/FBarKernels.cxx                     | 381 ++++++++++++
+ src/Batch/FBarKernels.hxx                     | 213 +++++++
+ src/Batch/KernelsUtilities.hxx                |  43 ++
+ src/Batch/StiffnessMatricesKernels.cxx        |  43 --
+ src/BehaviourIntegratorBase.cxx               |  89 +++
+ src/CMakeLists.txt                            |   4 +-
+ src/MultiMaterialNonLinearIntegrator.cxx      |  28 +-
+ tests/BatchIntegrationTest.cxx                |  49 ++
+ tests/GradientsKernelsTest.cxx                |   7 +-
+ 21 files changed, 1949 insertions(+), 183 deletions(-)
+ create mode 100644 include/MFEMMGIS/Batch/FBar.hxx
+ create mode 100644 src/Batch/FBar.cxx
+ create mode 100644 src/Batch/FBarKernels.cxx
+ create mode 100644 src/Batch/FBarKernels.hxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index fd1785f308..985ec82e68 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -43,6 +43,7 @@ mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
++mfem_mgis_header(MFEMMGIS/Batch FBar.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
+ mfem_mgis_header(MFEMMGIS MatrixFreeTangentOperator.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index 4e52b6397e..1afd00fd9b 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -11,6 +11,7 @@
+ #include <span>
+ #include <array>
+ #include <memory>
++#include <vector>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/TimeStepStage.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+@@ -160,6 +161,17 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
+         const noexcept;
++    /*!
++     * \return the integration rules, other than the rule of the elements,
++     * whose derivatives of the unknowns and geometric data are used by the
++     * kernels of this behaviour integrator (for instance the rule of the
++     * center of the elements of the FBar formulation): they are computed
++     * with the ones of the rules of the elements (see
++     * `computeGradientsByKernels`). The default implementation returns no
++     * rule.
++     */
++    [[nodiscard]] virtual std::vector<const mfem::IntegrationRule*>
++    getAdditionalIntegrationRulesForKernels() const;
+     /*!
+      * \brief compute the gradients at all the integration points by
+      * kernels, from the derivatives of the unknowns at the points of the
+diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
+new file mode 100644
+index 0000000000..b8558244ed
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/FBar.hxx
+@@ -0,0 +1,246 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/FBar.hxx
++ * \brief  This file declares the computations of the FBar formulation by
++ * kernels of MFEM, for all the integration points of a material at once
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_FBAR_HXX
++#define LIB_MFEM_MGIS_BATCH_FBAR_HXX
++
++#include "mfem/linalg/vector.hpp"
++#include "MGIS/Context.hxx"
++#include "MGIS/FieldView.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
++
++namespace mfem {
++  // forward declaration
++  class IntegrationRule;
++}  // end of namespace mfem
++
++namespace mfem_mgis {
++  // forward declarations
++  struct Material;
++  struct PartialQuadratureSpace;
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief data of the FBar formulation of a material, computed by kernels.
++   *
++   * The gradient of the behaviour is `F̄ = α F`, `F` being the deformation
++   * gradient at the integration point, `α = (J0 / J)^(1/ie)`, `J = det F`,
++   * `J0 = det F0`, `F0` being the deformation gradient at the center of the
++   * element, `ie` being 3 in 3D and 2 in plane strain (where `F̄33 = 1`).
++   * The inner forces are the ones of the standard finite strain
++   * formulation. The stiffness matrix of an element is
++   *
++   * `Σ_q w_q det J_q B_qᵀ (K_q dF̄/dF B_q + K_q dF̄/dF0 B0)`,
++   *
++   * `K_q` being the tangent operator blocks of the behaviour, `dF̄/dF = α I +
++   * F ⊗ dα/dF`, `dF̄/dF0 = F ⊗ dα/dF0`, `dα/dF = -α / (ie J) dJ/dF` and
++   * `dα/dF0 = α / (ie J0) dJ0/dF0`, `B0` being the operator `B` at the
++   * center of the element. It is computed as the stiffness matrix of the
++   * standard formulation with the tangent operator `K'_q = α K_q + (K_q F)
++   * ⊗ dα/dF`, plus the matrix of rank one `a ⊗ b`, `a = Σ_q w_q det J_q α
++   * / (ie J0) B_qᵀ K_q F`, `b = B0ᵀ dJ0/dF0` (derivative of `J0` with
++   * respect to the unknowns of the element). In plane strain, the third
++   * component of `F` and of the derivatives of the determinants are
++   * ignored, as by the FBar behaviour integrators (`F̄33 = 1`).
++   */
++  struct MFEM_MGIS_EXPORT FBarData {
++    /*!
++     * \brief deformation gradients `F` at the integration points of the
++     * material, in the global frame, point by point
++     */
++    mfem::Vector deformation_gradients;
++    //! \brief coefficients `α` at the integration points of the material
++    mfem::Vector coefficients;
++    /*!
++     * \brief determinant `J0` and its derivative `dJ0/dF0` at the center of
++     * each element of the material (`1 + gradients size` values per
++     * element)
++     */
++    mfem::Vector centers;
++    /*!
++     * \brief vectors `b` of the elements, in the layout of the element
++     * restriction of MFEM, for all the elements of the mesh
++     */
++    mfem::Vector b;
++    /*!
++     * \brief vectors `a` of the elements, in the layout of the element
++     * restriction of MFEM, for all the elements of the mesh
++     */
++    mfem::Vector a;
++    /*!
++     * \brief tangent operator `K'` at the integration points of the
++     * material, point by point (see `computeFBarTangentOperator`)
++     */
++    mfem::Vector tangent_operator;
++    //! \brief workspace: `α / (ie J0) K F` at the integration points
++    mfem::Vector pseudo_stresses;
++    /*!
++     * \brief if true, the tangent operator `K'` and the vectors `a` match
++     * the current tangent operator blocks of the behaviour
++     */
++    bool has_tangent_operator = false;
++  };
++
++  /*!
++   * \return the integration rule giving the center of the elements of a
++   * material (rule of order 0 of their geometry), or a null pointer if the
++   * material has no element
++   * \param[in] qs: quadrature space of the material
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] const mfem::IntegrationRule*
++  getElementsCenterIntegrationRule(const PartialQuadratureSpace&);
++  /*!
++   * \return true if the FBar formulation is supported by the kernels for
++   * the given kind of gradients (deformation gradient in 3D or in 2D)
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool isFBarSupportedByKernels(
++      const GradientsKind) noexcept;
++  /*!
++   * \brief computes the data of the FBar formulation at the center of the
++   * elements of a material and at its integration points, and replaces its
++   * gradients at the end of the time step, computed by `computeGradients`,
++   * by the gradients `F̄` of the FBar formulation
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] data: data of the FBar formulation
++   * \param[in, out] m: material
++   * \param[in] d0: derivatives of the unknowns at the center of the
++   * elements
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool applyFBar(Context&,
++                                                FBarData&,
++                                                Material&,
++                                                const UnknownsDerivatives&,
++                                                const ElementsGeometry&,
++                                                const GradientsKind) noexcept;
++  /*!
++   * \brief initializes the data of the FBar formulation of a material for
++   * null unknowns (deformation gradients equal to the macroscopic
++   * gradients, `α = 1`), before the first computation of the gradients
++   * (prediction of the first time step)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] data: data of the FBar formulation
++   * \param[in] m: material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool initializeFBar(
++      Context&,
++      FBarData&,
++      const Material&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief computes the tangent operator `K'` at the integration points of
++   * a material and the vectors `a` of its elements, from the tangent
++   * operator blocks of its behaviour (see `FBarData`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks in the global frame
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeFBarTangentOperator(
++      Context&,
++      FBarData&,
++      const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the stiffness matrices of the elements of a material in the
++   * FBar formulation to matrices stored element by element (see
++   * `addStiffnessMatrices`), from the data computed by
++   * `computeFBarTangentOperator`
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: matrices element by element
++   * \param[in] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatrices(
++      Context&,
++      mfem::Vector&,
++      const FBarData&,
++      const PartialQuadratureSpace&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the stiffness matrices of the elements of a material in the
++   * FBar formulation to an assembled sparse matrix (see
++   * `addStiffnessMatrices`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: assembled matrix
++   * \param[in] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatrices(
++      Context&,
++      const AssembledStiffnessMatrix&,
++      const FBarData&,
++      const PartialQuadratureSpace&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the diagonals of the stiffness matrices of the elements of
++   * a material in the FBar formulation (see `addStiffnessMatricesDiagonals`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] d: values element by element
++   * \param[in] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatricesDiagonals(
++      Context&,
++      mfem::Vector&,
++      const FBarData&,
++      const PartialQuadratureSpace&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the action of the stiffness matrices of the elements of a
++   * material in the FBar formulation, without assembling them (see
++   * `addTangentOperatorAction`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] y: action, element by element
++   * \param[in] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] x: values element by element
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarTangentOperatorAction(
++      Context&,
++      mfem::Vector&,
++      const FBarData&,
++      const PartialQuadratureSpace&,
++      const mfem::Vector&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_FBAR_HXX */
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index 2cfcd7520f..a83b97467b 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -133,6 +133,52 @@ namespace mfem_mgis {
+      */
+     BehaviourIntegratorBase(std::shared_ptr<const PartialQuadratureSpace> s,
+                             std::unique_ptr<const Behaviour> b_ptr);
++    //! \brief data of the computations by kernels on the material
++    struct KernelsData {
++      //! \brief kind of the gradients
++      batch::GradientsKind kind = batch::GradientsKind::SMALL_STRAIN_3D;
++      //! \brief integration rule of the material, null if it has no element
++      const mfem::IntegrationRule* rule = nullptr;
++      //! \brief geometric data of this rule
++      const batch::ElementsGeometry* geometry = nullptr;
++    };
++    /*!
++     * \brief checks that the material can be processed by kernels (same
++     * integration rule for all its elements, supported behaviour, geometric
++     * data of its rule computed) and gets the data of the computations
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[out] data: data, whose rule is null if the material has no
++     * element (nothing to compute)
++     * \param[in] name: name of the calling method, for the messages
++     * \param[in] g: geometric data of the integration rules
++     */
++    [[nodiscard]] bool getKernelsData(
++        Context&,
++        KernelsData&,
++        const char* const,
++        const batch::ElementsGeometrySet&) const noexcept;
++    /*!
++     * \return a view of the tangent operator blocks, in the global frame
++     * (rotated after the integration of the behaviour for an orthotropic
++     * behaviour), readable on the device if `d` is true (see
++     * `MaterialArrays`)
++     * \param[in] d: if true, the view is located on the device (if a device
++     * is enabled)
++     */
++    [[nodiscard]] mgis::FieldView<const real> readTangentOperatorBlocks(
++        const bool) const;
++    /*!
++     * \brief adds the inner forces of all the elements, computed by kernels
++     * from the thermodynamic forces at the end of the time step in the
++     * global frame (see `batch::addInnerForces`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] f: values element by element
++     * \param[in] g: geometric data
++     */
++    [[nodiscard]] bool addInnerForcesFromThermodynamicForcesByKernels(
++        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief check that the behaviour is a standard finite strain behaviour
+      * or a general behaviour whose only gradient is the deformation
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+index 7010ff67a6..f02afaceb6 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+@@ -8,7 +8,9 @@
+ #ifndef LIB_MFEM_MGIS_ISOTROPICFBARBEHAVIOURINTEGRATORCRTPBASE_HXX
+ #define LIB_MFEM_MGIS_ISOTROPICFBARBEHAVIOURINTEGRATORCRTPBASE_HXX
+ 
++#include <vector>
+ #include <mfem/linalg/densemat.hpp>
++#include "MFEMMGIS/Batch/FBar.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+ 
+ namespace mfem_mgis {
+@@ -35,6 +37,11 @@ namespace mfem_mgis {
+    * rotating the values of one point (`generic-parallel` interface) are
+    * rotated in the global frame at all the points at once (see
+    * `BehaviourIntegratorBase::getRotatedThermodynamicForces`).
++   *
++   * The gradients, the inner forces and the stiffness matrices can also be
++   * computed by kernels (see `batch::FBarData`): the deformation gradients
++   * at the center of the elements are computed with the integration rule of
++   * order 0 of their geometry (see `getAdditionalIntegrationRulesForKernels`).
+    */
+   template <typename Child, Hypothesis H>
+   struct FBarBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
+@@ -42,11 +49,59 @@ namespace mfem_mgis {
+     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
+                                         mfem::ElementTransformation&,
+                                         const mfem::Vector&) override;
++    [[nodiscard]] bool integrateBatch(const IntegrationType) override;
++    void revert() override;
++    void update() override;
++    [[nodiscard]] bool supportsKernels() const noexcept override;
++    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
++    getAdditionalIntegrationRulesForKernels() const override;
++    [[nodiscard]] bool computeGradientsByKernels(
++        Context&,
++        const batch::UnknownsDerivativesSet&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addInnerForcesByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addStiffnessMatricesByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addStiffnessMatricesByKernels(
++        Context&,
++        const batch::AssembledStiffnessMatrix&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addTangentOperatorActionByKernels(
++        Context&,
++        mfem::Vector&,
++        const mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
+ 
+    protected:
+     static_assert(((H == Hypothesis::PLANESTRAIN) ||
+                    (H == Hypothesis::TRIDIMENSIONAL)),
+                   "invalid modelling hypothesis");
++    //! \brief data of the FBar formulation computed by kernels
++    batch::FBarData fbar_data;
++    /*!
++     * \brief gets the data of the computations by kernels and computes the
++     * tangent operator of the FBar formulation if it is not up to date (see
++     * `batch::computeFBarTangentOperator`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[out] data: data of the computations by kernels
++     * \param[in] name: name of the calling method, for the messages
++     * \param[in] g: geometric data
++     */
++    [[nodiscard]] bool prepareFBarTangentOperatorForKernels(
++        Context&,
++        KernelsData&,
++        const char* const,
++        const batch::ElementsGeometrySet&) noexcept;
+     /*!
+      * \brief constructor
+      * \param[in] s: quadrature space
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index eee87925b3..7816bfe0ec 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -9,6 +9,9 @@
+ #ifndef LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORCRTPBASE_IXX
+ #define LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORCRTPBASE_IXX
+ 
++#include <string>
++#include <exception>
++#include "mfem/general/device.hpp"
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+ #include "MGIS/Raise.hxx"
+@@ -63,6 +66,8 @@ namespace mfem_mgis {
+                   "compute the gradients");
+     //
+     auto &child = static_cast<Child &>(*this);
++    // the tangent operator blocks change
++    this->fbar_data.has_tangent_operator = false;
+     // element offset
+     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto &ir = child.getIntegrationRule(e, tr);
+@@ -502,6 +507,227 @@ namespace mfem_mgis {
+     }
+   }  // end of implementUpdateJacobian
+ 
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::integrateBatch(
++      const IntegrationType it) {
++    // the tangent operator blocks change
++    this->fbar_data.has_tangent_operator = false;
++    return BehaviourIntegratorBase::integrateBatch(it);
++  }  // end of integrateBatch
++
++  template <typename Child, Hypothesis H>
++  void FBarBehaviourIntegratorCRTPBase<Child, H>::revert() {
++    this->fbar_data.has_tangent_operator = false;
++    BehaviourIntegratorBase::revert();
++  }  // end of revert
++
++  template <typename Child, Hypothesis H>
++  void FBarBehaviourIntegratorCRTPBase<Child, H>::update() {
++    this->fbar_data.has_tangent_operator = false;
++    BehaviourIntegratorBase::update();
++  }  // end of update
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsKernels()
++      const noexcept {
++    // deformation gradient in 3D or in plane strain, computed by the
++    // kernels as by the FBar behaviour integrator
++    if (!batch::areGradientsKernelsAvailable()) {
++      return false;
++    }
++    const auto k = batch::getGradientsKind(this->b);
++    constexpr auto expected =
++        (H == Hypothesis::PLANESTRAIN)
++            ? batch::GradientsKind::DEFORMATION_GRADIENT_2D
++            : batch::GradientsKind::DEFORMATION_GRADIENT_3D;
++    if ((!k.has_value()) || (*k != expected)) {
++      return false;
++    }
++    // all the elements must use the same integration rule
++    return (this->quadrature_space->getNumberOfElements() == 0) ||
++           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++  }  // end of supportsKernels
++
++  template <typename Child, Hypothesis H>
++  std::vector<const mfem::IntegrationRule*> FBarBehaviourIntegratorCRTPBase<
++      Child,
++      H>::getAdditionalIntegrationRulesForKernels() const {
++    const auto* const r0 =
++        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++    if (r0 == nullptr) {
++      return {};
++    }
++    return {r0};
++  }  // end of getAdditionalIntegrationRulesForKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::computeGradientsByKernels(
++      Context& ctx,
++      const batch::UnknownsDerivativesSet& d,
++      const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "computeGradientsByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    try {
++      const auto p = d.find(data.rule);
++      const auto* const r0 =
++          batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++      const auto p0 = d.find(r0);
++      const auto g0 = g.find(r0);
++      if ((p == d.end()) || (p0 == d.end()) || (g0 == g.end())) {
++        return ctx.registerErrorMessage(
++            "computeGradientsByKernels: the derivatives of the unknowns or the "
++            "geometric data are not computed for the integration rules of the "
++            "material (points and center of the elements)");
++      }
++      // deformation gradients, then gradients of the FBar formulation
++      if (!batch::computeGradients(ctx, *this, p->second, *(data.geometry),
++                                   data.kind)) {
++        return false;
++      }
++      return batch::applyFBar(ctx, this->fbar_data, *this, p0->second,
++                              g0->second, data.kind);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"computeGradientsByKernels: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeGradientsByKernels: unknown exception");
++    }
++  }  // end of computeGradientsByKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addInnerForcesByKernels(
++      Context& ctx,
++      mfem::Vector& f,
++      const batch::ElementsGeometrySet& g) noexcept {
++    // inner forces of the standard finite strain formulation
++    return this->addInnerForcesFromThermodynamicForcesByKernels(ctx, f, g);
++  }  // end of addInnerForcesByKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
++      prepareFBarTangentOperatorForKernels(
++          Context& ctx,
++          KernelsData& data,
++          const char* const name,
++          const batch::ElementsGeometrySet& g) noexcept {
++    if (!this->getKernelsData(ctx, data, name, g)) {
++      return false;
++    }
++    if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
++      return true;
++    }
++    try {
++      if (this->fbar_data.coefficients.Size() != this->n) {
++        // before the first computation of the gradients (prediction of the
++        // first time step): null unknowns
++        const auto* const r0 =
++            batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++        const auto g0 = g.find(r0);
++        if (g0 == g.end()) {
++          return ctx.registerErrorMessage(
++              std::string{name} +
++              ": the geometric data are not computed for the center of the "
++              "elements");
++        }
++        if (!batch::initializeFBar(ctx, this->fbar_data, *this, g0->second,
++                                   data.kind)) {
++          return false;
++        }
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      return batch::computeFBarTangentOperator(
++          ctx, this->fbar_data, *(this->quadrature_space),
++          this->readTangentOperatorBlocks(use_device), *(data.geometry),
++          data.kind);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{name} + ": " + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unknown exception");
++    }
++  }  // end of prepareFBarTangentOperatorForKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
++      Context& ctx,
++      mfem::Vector& m,
++      const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->prepareFBarTangentOperatorForKernels(
++            ctx, data, "addStiffnessMatricesByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
++                                           *(this->quadrature_space),
++                                           *(data.geometry), data.kind);
++  }  // end of addStiffnessMatricesByKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
++      Context& ctx,
++      const batch::AssembledStiffnessMatrix& m,
++      const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->prepareFBarTangentOperatorForKernels(
++            ctx, data, "addStiffnessMatricesByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
++                                           *(this->quadrature_space),
++                                           *(data.geometry), data.kind);
++  }  // end of addStiffnessMatricesByKernels
++
++  template <typename Child, Hypothesis H>
++  bool
++  FBarBehaviourIntegratorCRTPBase<Child, H>::addTangentOperatorActionByKernels(
++      Context& ctx,
++      mfem::Vector& y,
++      const mfem::Vector& x,
++      const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->prepareFBarTangentOperatorForKernels(
++            ctx, data, "addTangentOperatorActionByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFBarTangentOperatorAction(ctx, y, this->fbar_data,
++                                               *(this->quadrature_space), x,
++                                               *(data.geometry), data.kind);
++  }  // end of addTangentOperatorActionByKernels
++
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
++      addTangentOperatorDiagonalByKernels(
++          Context& ctx,
++          mfem::Vector& d,
++          const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->prepareFBarTangentOperatorForKernels(
++            ctx, data, "addTangentOperatorDiagonalByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFBarStiffnessMatricesDiagonals(
++        ctx, d, this->fbar_data, *(this->quadrature_space), *(data.geometry),
++        data.kind);
++  }  // end of addTangentOperatorDiagonalByKernels
++
+   template <typename Child, Hypothesis H>
+   FBarBehaviourIntegratorCRTPBase<Child,
+                                   H>::~FBarBehaviourIntegratorCRTPBase() =
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index e3c47a81c0..c16f1ba2fa 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -437,7 +437,9 @@ namespace mfem_mgis {
+     mfem::Vector tangent_operator_element_values;
+     /*!
+      * \return the integration rules of the behaviour integrators (rules
+-     * shared by all the elements of a material)
++     * shared by all the elements of a material), and the additional rules
++     * used by their kernels (see
++     * `AbstractBehaviourIntegrator::getAdditionalIntegrationRulesForKernels`)
+      */
+     [[nodiscard]] std::vector<const mfem::IntegrationRule*>
+     getIntegrationRules() const;
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index feac52186e..63ff06a779 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -84,8 +84,9 @@ namespace mfem_mgis {
+      * behaviour integrator computes its gradients by a kernel, on the device
+      * if a device is enabled). `Kernels` requires `BehaviourIntegration` set
+      * to `Batch`, and is supported, in 3D, plane strain and plane stress,
+-     * for the standard mechanical behaviours (small and finite strain,
+-     * without FBar nor regularisation), the stationary non linear heat
++     * for the standard mechanical behaviours (small and finite strain, with
++     * the FBar formulation in 3D and in plane strain, without the other
++     * regularisations), the stationary non linear heat
+      * transfer behaviours, the transient term of the heat equation and the
+      * micromorphic damage behaviours, on meshes with one geometry (NURBS
+      * meshes excepted). The default value is given by the environment
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index 31802c92a8..c42f3db4ac 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -83,41 +83,6 @@ namespace mfem_mgis {
+      * `requiresUnknownsValuesForKernels`)
+      */
+     mfem::Vector unknowns_values;
+-    //! \brief data of the computations by kernels on the material
+-    struct KernelsData {
+-      //! \brief kind of the gradients
+-      batch::GradientsKind kind = batch::GradientsKind::SMALL_STRAIN_3D;
+-      //! \brief integration rule of the material, null if it has no element
+-      const mfem::IntegrationRule* rule = nullptr;
+-      //! \brief geometric data of this rule
+-      const batch::ElementsGeometry* geometry = nullptr;
+-    };
+-    /*!
+-     * \brief checks that the material can be processed by kernels (same
+-     * integration rule for all its elements, supported behaviour, geometric
+-     * data of its rule computed) and gets the data of the computations
+-     * \return true on success
+-     * \param[in, out] ctx: execution context
+-     * \param[out] data: data, whose rule is null if the material has no
+-     * element (nothing to compute)
+-     * \param[in] name: name of the calling method, for the messages
+-     * \param[in] g: geometric data of the integration rules
+-     */
+-    [[nodiscard]] bool getKernelsData(
+-        Context&,
+-        KernelsData&,
+-        const char* const,
+-        const batch::ElementsGeometrySet&) const noexcept;
+-    /*!
+-     * \return a view of the tangent operator blocks, in the global frame
+-     * (rotated after the integration of the behaviour for an orthotropic
+-     * behaviour), readable on the device if `d` is true (see
+-     * `MaterialArrays`)
+-     * \param[in] d: if true, the view is located on the device (if a device
+-     * is enabled)
+-     */
+-    [[nodiscard]] mgis::FieldView<const real> readTangentOperatorBlocks(
+-        const bool) const;
+     /*!
+      * \brief implementation of `addStiffnessMatricesByKernels`
+      * \tparam Destination: matrices element by element (`mfem::Vector`) or
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 5aea8e8f93..0976e2341a 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -268,52 +268,6 @@ namespace mfem_mgis {
+            Traits::gradientsComputationRequiresShapeFunctions;
+   }  // end of requiresUnknownsValuesForKernels
+ 
+-  template <typename Child>
+-  bool StandardBehaviourIntegratorCRTPBase<Child>::getKernelsData(
+-      Context &ctx,
+-      KernelsData &data,
+-      const char *const name,
+-      const batch::ElementsGeometrySet &g) const noexcept {
+-    data = KernelsData{};
+-    const auto *const r = this->quadrature_space->getUniformIntegrationRule();
+-    if (r == nullptr) {
+-      if (this->quadrature_space->getNumberOfElements() == 0) {
+-        return true;
+-      }
+-      return ctx.registerErrorMessage(
+-          std::string{name} +
+-          ": the elements of the material do not use the same integration "
+-          "rule");
+-    }
+-    const auto k = batch::getGradientsKind(this->b);
+-    if (!k.has_value()) {
+-      return ctx.registerErrorMessage(std::string{name} +
+-                                      ": unsupported behaviour");
+-    }
+-    const auto p = g.find(r);
+-    if (p == g.end()) {
+-      return ctx.registerErrorMessage(
+-          std::string{name} +
+-          ": the geometric data are not computed for the integration rule of "
+-          "the material");
+-    }
+-    data.kind = *k;
+-    data.rule = r;
+-    data.geometry = &(p->second);
+-    return true;
+-  }  // end of getKernelsData
+-
+-  template <typename Child>
+-  mgis::FieldView<const real>
+-  StandardBehaviourIntegratorCRTPBase<Child>::readTangentOperatorBlocks(
+-      const bool d) const {
+-    const auto &v = this->getArrays().getTangentOperatorBlocks();
+-    const auto s =
+-        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
+-    return mgis::makeFieldView(s, this->getArrays().array_layout,
+-                               static_cast<size_type>(this->n), this->K_stride);
+-  }  // end of readTangentOperatorBlocks
+-
+   template <typename Child>
+   bool StandardBehaviourIntegratorCRTPBase<Child>::computeGradientsByKernels(
+       Context &ctx,
+@@ -363,45 +317,7 @@ namespace mfem_mgis {
+       Context &ctx,
+       mfem::Vector &f,
+       const batch::ElementsGeometrySet &g) noexcept {
+-    auto data = KernelsData{};
+-    if (!this->getKernelsData(ctx, data, "addInnerForcesByKernels", g)) {
+-      return false;
+-    }
+-    if (data.rule == nullptr) {
+-      return true;
+-    }
+-    try {
+-      const auto use_device = mfem::Device::IsEnabled();
+-      const auto np = static_cast<size_type>(this->n);
+-      const auto nc = this->s1.thermodynamic_forces_stride;
+-      if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+-        // thermodynamic forces in the global frame at all the points
+-        auto& v = this->wks.rotated_thermodynamic_forces;
+-        if (!this->updateRotatedThermodynamicForces()) {
+-          this->computeThermodynamicForcesInGlobalFrame(v);
+-        }
+-        const auto s = std::span<const real>(
+-            v.Read(use_device), static_cast<std::size_t>(v.Size()));
+-        return batch::addInnerForces(
+-            ctx, f, *(this->quadrature_space),
+-            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
+-            data.kind);
+-      }
+-      const auto& v = this->getArrays().getArray(
+-          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
+-      const auto s = std::span<const real>(v.Read(use_device),
+-                                           static_cast<std::size_t>(v.Size()));
+-      return batch::addInnerForces(
+-          ctx, f, *(this->quadrature_space),
+-          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
+-          *(data.geometry), data.kind);
+-    } catch (std::exception &e) {
+-      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
+-                                      e.what());
+-    } catch (...) {
+-      return ctx.registerErrorMessage(
+-          "addInnerForcesByKernels: unknown exception");
+-    }
++    return this->addInnerForcesFromThermodynamicForcesByKernels(ctx, f, g);
+   }  // end of addInnerForcesByKernels
+ 
+   template <typename Child>
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 563c5d8f7f..195eeddcd0 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -51,6 +51,11 @@ namespace mfem_mgis {
+     return false;
+   }  // end of requiresUnknownsValuesForKernels
+ 
++  std::vector<const mfem::IntegrationRule*>
++  AbstractBehaviourIntegrator::getAdditionalIntegrationRulesForKernels() const {
++    return {};
++  }  // end of getAdditionalIntegrationRulesForKernels
++
+   bool AbstractBehaviourIntegrator::computeGradientsByKernels(
+       Context& ctx,
+       const batch::UnknownsDerivativesSet&,
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+new file mode 100644
+index 0000000000..af4f0f36d2
+--- /dev/null
++++ b/src/Batch/FBar.cxx
+@@ -0,0 +1,554 @@
++/*!
++ * \file   src/Batch/FBar.cxx
++ * \brief  This file implements the computations of the FBar formulation by
++ * kernels of MFEM (see `MFEMMGIS/Batch/FBar.hxx`)
++ * \date   11/10/2026
++ */
++
++#include <limits>
++#include <string>
++#include <cstdint>
++#include <exception>
++#include "mfem/general/device.hpp"
++#include "mfem/fem/fe/fe_base.hpp"
++#include "mfem/fem/intrules.hpp"
++#include "mfem/fem/fespace.hpp"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Batch/InnerForces.hxx"
++#include "MFEMMGIS/Batch/FBar.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "FBarKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++namespace mfem_mgis::batch {
++
++  const mfem::IntegrationRule* getElementsCenterIntegrationRule(
++      const PartialQuadratureSpace& qs) {
++    const auto& elements = qs.getElements();
++    if (elements.Size() == 0) {
++      return nullptr;
++    }
++    const auto& fes =
++        getFiniteElementSpace(qs.getFiniteElementDiscretization());
++    const auto e = elements.HostRead()[0];
++    return &(mfem::IntRules.Get(fes.GetFE(e)->GetGeomType(), 0));
++  }  // end of getElementsCenterIntegrationRule
++
++  bool isFBarSupportedByKernels(const GradientsKind k) noexcept {
++    return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
++           (k == GradientsKind::DEFORMATION_GRADIENT_2D);
++  }  // end of isFBarSupportedByKernels
++
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++
++  /*!
++   * \brief resizes an array of the memory of MFEM, used on the device if a
++   * device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] v: array
++   * \param[in] s: size
++   */
++  static bool resizeFBarArray(Context& ctx,
++                              mfem::Vector& v,
++                              const std::int64_t s) {
++    if (s > std::numeric_limits<int>::max()) {
++      return ctx.registerErrorMessage("FBar: array too large for MFEM");
++    }
++    v.UseDevice(true);
++    v.SetSize(static_cast<int>(s));
++    return true;
++  }  // end of resizeFBarArray
++
++  /*!
++   * \brief computes the data at the center of the elements and at the
++   * integration points (see `applyFBar` and `initializeFBar`)
++   * \param[in] d0: derivatives at the center, null for null unknowns
++   * \param[in] gradients: if true, the gradients of the material are
++   * replaced by `F̄`
++   */
++  static bool computeFBarData(Context& ctx,
++                              FBarData& data,
++                              const Material& m,
++                              real* const gradients,
++                              const bool point_by_point,
++                              const UnknownsDerivatives* const d0,
++                              const ElementsGeometry& g0,
++                              const GradientsKind k,
++                              const char* const name) {
++    if (!isFBarSupportedByKernels(k)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the FBar formulation requires a deformation gradient in 3D or in "
++          "2D");
++    }
++    const auto& qs = m.getPartialQuadratureSpace();
++    const auto& elements = qs.getElements();
++    const auto& offsets = qs.getElementOffsets();
++    const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
++    const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
++    const auto vdim = getUnknownsSize(k);
++    data.has_tangent_operator = false;
++    if ((!resizeFBarArray(ctx, data.deformation_gradients, np * gsize)) ||
++        (!resizeFBarArray(ctx, data.coefficients, np)) ||
++        (!resizeFBarArray(ctx, data.centers,
++                          std::int64_t{elements.Size()} * (1 + gsize))) ||
++        (!resizeFBarArray(ctx, data.b, std::int64_t{g0.ne} * g0.nd * vdim))) {
++      return false;
++    }
++    if (elements.Size() == 0) {
++      return true;
++    }
++    const auto* const r0 = getElementsCenterIntegrationRule(qs);
++    if ((g0.rule != r0) || (g0.nq != 1) || (g0.maps == nullptr) ||
++        (g0.jacobians == nullptr) || (g0.dim != getSpaceDimension(k))) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": invalid geometric data of the center of the elements");
++    }
++    if ((d0 != nullptr) && ((d0->rule != r0) || (d0->nq != 1) ||
++                            (d0->vdim != vdim) || (d0->ne != g0.ne))) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": invalid derivatives of the unknowns at the center of the "
++          "elements");
++    }
++    const auto* const r = qs.getUniformIntegrationRule();
++    if (r == nullptr) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the elements of the material do not use the same integration "
++          "rule");
++    }
++    const auto nq = r->GetNPoints();
++    if (std::int64_t{elements.Size()} * nq != np) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unexpected number of points");
++    }
++    const auto use_device = mfem::Device::IsEnabled();
++    const auto macroscopic_gradients = m.getMacroscopicGradients();
++    // data at the center of the elements
++    auto ca = internals::FBarCentersKernelArguments{};
++    ca.elements = elements.Read(use_device);
++    ca.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
++    ca.jacobians = g0.jacobians->J.Read(use_device);
++    ca.determinants = g0.jacobians->detJ.Read(use_device);
++    ca.shape_functions_gradients = g0.maps->G.Read(use_device);
++    ca.centers = data.centers.Write(use_device);
++    ca.b = data.b.ReadWrite(use_device);
++    ca.number_of_elements = elements.Size();
++    ca.nd = g0.nd;
++    for (std::int64_t c = 0; c != gsize; ++c) {
++      ca.macroscopic_gradients[c] = macroscopic_gradients[c];
++    }
++    internals::launchFBarCentersKernel(k, ca, use_device);
++    // data at the integration points
++    auto ga = internals::FBarGradientsKernelArguments{};
++    ga.elements = elements.Read(use_device);
++    ga.offsets = offsets.Read(use_device);
++    ga.centers = data.centers.Read(use_device);
++    ga.gradients = gradients;
++    ga.deformation_gradients = data.deformation_gradients.Write(use_device);
++    ga.coefficients = data.coefficients.Write(use_device);
++    ga.number_of_elements = elements.Size();
++    ga.nq = nq;
++    ga.number_of_points = static_cast<int>(np);
++    ga.point_by_point = point_by_point;
++    for (std::int64_t c = 0; c != gsize; ++c) {
++      ga.macroscopic_gradients[c] = macroscopic_gradients[c];
++    }
++    internals::launchFBarGradientsKernel(k, ga, use_device);
++    return true;
++  }  // end of computeFBarData
++
++  /*!
++   * \return the arguments of the kernels adding the matrices of rank one,
++   * or an error
++   */
++  static bool getFBarRankOneKernelArguments(
++      Context& ctx,
++      internals::FBarRankOneKernelArguments& a,
++      const FBarData& data,
++      const PartialQuadratureSpace& qs,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const bool use_device,
++      const char* const name) {
++    const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
++    if ((!data.has_tangent_operator) ||
++        (static_cast<std::int64_t>(data.a.Size()) != n * g.ne) ||
++        (static_cast<std::int64_t>(data.b.Size()) != n * g.ne)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the tangent operator of the FBar formulation is not computed");
++    }
++    const auto& elements = qs.getElements();
++    if (std::int64_t{elements.Size()} * n * n >
++        std::numeric_limits<int>::max()) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": too many elements for the kernels");
++    }
++    a.elements = elements.Read(use_device);
++    a.a = data.a.Read(use_device);
++    a.b = data.b.Read(use_device);
++    a.number_of_elements = elements.Size();
++    a.n = static_cast<int>(n);
++    return true;
++  }  // end of getFBarRankOneKernelArguments
++
++  //! \return a view of the tangent operator `K'`
++  static mgis::FieldView<const real> getFBarTangentOperator(
++      const FBarData& data,
++      const PartialQuadratureSpace& qs,
++      const GradientsKind k,
++      const bool use_device) {
++    const auto np = qs.getNumberOfIntegrationPoints();
++    const auto nc = getGradientsSize(k) * getGradientsSize(k);
++    const auto s = std::span<const real>(
++        data.tangent_operator.Read(use_device),
++        static_cast<std::size_t>(data.tangent_operator.Size()));
++    return mgis::makePointByPointFieldView(s, np, nc, nc);
++  }  // end of getFBarTangentOperator
++
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  //! \brief error reported if the kernels are not compiled
++  [[maybe_unused]] static bool reportFBarKernelsNotCompiled(
++      Context& ctx, const char* const name) {
++    return ctx.registerErrorMessage(
++        std::string{name} +
++        ": the kernels of the FBar formulation are not compiled (MFEM "
++        "compiled with HIP)");
++  }  // end of reportFBarKernelsNotCompiled
++
++  bool applyFBar(Context& ctx,
++                 FBarData& data,
++                 Material& m,
++                 const UnknownsDerivatives& d0,
++                 const ElementsGeometry& g0,
++                 const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(data);
++    static_cast<void>(m);
++    static_cast<void>(d0);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "applyFBar");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      if (m.s1.gradients_stride != getGradientsSize(k)) {
++        return ctx.registerErrorMessage(
++            "applyFBar: unexpected number of components of the gradients");
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      auto* const gradients = m.getArrays().readWrite(
++          MaterialArrays::StateArray::GRADIENTS, ets, use_device);
++      return computeFBarData(
++          ctx, data, m, gradients,
++          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT, &d0,
++          g0, k, "applyFBar");
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"applyFBar: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("applyFBar: unknown exception");
++    }
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of applyFBar
++
++  bool initializeFBar(Context& ctx,
++                      FBarData& data,
++                      const Material& m,
++                      const ElementsGeometry& g0,
++                      const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(data);
++    static_cast<void>(m);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "initializeFBar");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      return computeFBarData(ctx, data, m, nullptr, true, nullptr, g0, k,
++                             "initializeFBar");
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"initializeFBar: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("initializeFBar: unknown exception");
++    }
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of initializeFBar
++
++  bool computeFBarTangentOperator(Context& ctx,
++                                  FBarData& data,
++                                  const PartialQuadratureSpace& qs,
++                                  const mgis::FieldView<const real>& K,
++                                  const ElementsGeometry& g,
++                                  const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(data);
++    static_cast<void>(qs);
++    static_cast<void>(K);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "computeFBarTangentOperator");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      data.has_tangent_operator = false;
++      const auto& elements = qs.getElements();
++      const auto& offsets = qs.getElementOffsets();
++      const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
++      const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
++      if ((!isFBarSupportedByKernels(k)) ||
++          (static_cast<std::int64_t>(data.coefficients.Size()) != np) ||
++          (static_cast<std::int64_t>(data.centers.Size()) !=
++           std::int64_t{elements.Size()} * (1 + gsize))) {
++        return ctx.registerErrorMessage(
++            "computeFBarTangentOperator: the data of the FBar formulation are "
++            "not computed");
++      }
++      if ((K.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
++          (K.getNumberOfComponents() != getTangentOperatorBlocksSize(k))) {
++        return ctx.registerErrorMessage(
++            "computeFBarTangentOperator: unexpected number of points or of "
++            "components of the tangent operator blocks");
++      }
++      const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
++      if ((!resizeFBarArray(ctx, data.tangent_operator, np * gsize * gsize)) ||
++          (!resizeFBarArray(ctx, data.pseudo_stresses, np * gsize)) ||
++          (!resizeFBarArray(ctx, data.a, n * g.ne))) {
++        return false;
++      }
++      data.a = real{0};
++      if (elements.Size() != 0) {
++        const auto* const r = qs.getUniformIntegrationRule();
++        if ((r == nullptr) || (g.rule != r)) {
++          return ctx.registerErrorMessage(
++              "computeFBarTangentOperator: the elements of the material do "
++              "not use the integration rule of the geometric data");
++        }
++        const auto use_device = mfem::Device::IsEnabled();
++        auto a = internals::FBarTangentOperatorKernelArguments{};
++        a.elements = elements.Read(use_device);
++        a.offsets = offsets.Read(use_device);
++        a.centers = data.centers.Read(use_device);
++        a.deformation_gradients = data.deformation_gradients.Read(use_device);
++        a.coefficients = data.coefficients.Read(use_device);
++        a.tangent_operator = K.data();
++        a.point_stride = static_cast<long long>(K.getPointStride());
++        a.component_stride = static_cast<long long>(K.getComponentStride());
++        a.modified_tangent_operator = data.tangent_operator.Write(use_device);
++        a.pseudo_stresses = data.pseudo_stresses.Write(use_device);
++        a.number_of_elements = elements.Size();
++        a.nq = r->GetNPoints();
++        internals::launchFBarTangentOperatorKernel(k, a, use_device);
++        // vectors `a`: inner forces of the pseudo-stresses
++        const auto s = std::span<const real>(
++            data.pseudo_stresses.Read(use_device),
++            static_cast<std::size_t>(data.pseudo_stresses.Size()));
++        if (!addInnerForces(ctx, data.a, qs,
++                            mgis::makePointByPointFieldView(
++                                s, qs.getNumberOfIntegrationPoints(),
++                                static_cast<size_type>(gsize),
++                                static_cast<size_type>(gsize)),
++                            g, k)) {
++          return false;
++        }
++      }
++      data.has_tangent_operator = true;
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"computeFBarTangentOperator: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeFBarTangentOperator: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeFBarTangentOperator
++
++  bool addFBarStiffnessMatrices(Context& ctx,
++                                mfem::Vector& m,
++                                const FBarData& data,
++                                const PartialQuadratureSpace& qs,
++                                const ElementsGeometry& g,
++                                const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(data);
++    static_cast<void>(qs);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FBarRankOneKernelArguments{};
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++                                         "addFBarStiffnessMatrices")) {
++        return false;
++      }
++      if (!addStiffnessMatrices(ctx, m, qs,
++                                getFBarTangentOperator(data, qs, k, use_device),
++                                g, k)) {
++        return false;
++      }
++      if (a.number_of_elements != 0) {
++        internals::launchFBarRankOneMatricesKernel(a, m.ReadWrite(use_device),
++                                                   use_device);
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFBarStiffnessMatrices: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFBarStiffnessMatrices: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFBarStiffnessMatrices
++
++  bool addFBarStiffnessMatrices(Context& ctx,
++                                const AssembledStiffnessMatrix& m,
++                                const FBarData& data,
++                                const PartialQuadratureSpace& qs,
++                                const ElementsGeometry& g,
++                                const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(data);
++    static_cast<void>(qs);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FBarRankOneKernelArguments{};
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++                                         "addFBarStiffnessMatrices")) {
++        return false;
++      }
++      if (!addStiffnessMatrices(ctx, m, qs,
++                                getFBarTangentOperator(data, qs, k, use_device),
++                                g, k)) {
++        return false;
++      }
++      if (a.number_of_elements != 0) {
++        auto missing = mfem::Array<int>(1);
++        missing.HostWrite()[0] = 0;
++        auto o = internals::SparseMatrixOutput{};
++        o.number_of_rows = m.matrix->Height();
++        o.I = m.matrix->ReadI(use_device);
++        o.J = m.matrix->ReadJ(use_device);
++        o.values = m.matrix->ReadWriteData(use_device);
++        o.element_dofs = m.element_dofs->Read(use_device);
++        o.missing = missing.ReadWrite(use_device);
++        internals::launchFBarRankOneMatricesKernel(a, o, use_device);
++        if (missing.HostRead()[0] != 0) {
++          return ctx.registerErrorMessage(
++              "addFBarStiffnessMatrices: " +
++              std::to_string(missing.HostRead()[0]) +
++              " entries of the stiffness matrices are not in the pattern of "
++              "the assembled matrix");
++        }
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFBarStiffnessMatrices: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFBarStiffnessMatrices: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFBarStiffnessMatrices
++
++  bool addFBarStiffnessMatricesDiagonals(Context& ctx,
++                                         mfem::Vector& d,
++                                         const FBarData& data,
++                                         const PartialQuadratureSpace& qs,
++                                         const ElementsGeometry& g,
++                                         const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(d);
++    static_cast<void>(data);
++    static_cast<void>(qs);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx,
++                                        "addFBarStiffnessMatricesDiagonals");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FBarRankOneKernelArguments{};
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++                                         "addFBarStiffnessMatricesDiagonals")) {
++        return false;
++      }
++      if (!addStiffnessMatricesDiagonals(
++              ctx, d, qs, getFBarTangentOperator(data, qs, k, use_device), g,
++              k)) {
++        return false;
++      }
++      if (a.number_of_elements != 0) {
++        internals::launchFBarRankOneDiagonalsKernel(a, d.ReadWrite(use_device),
++                                                    use_device);
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFBarStiffnessMatricesDiagonals: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFBarStiffnessMatricesDiagonals: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFBarStiffnessMatricesDiagonals
++
++  bool addFBarTangentOperatorAction(Context& ctx,
++                                    mfem::Vector& y,
++                                    const FBarData& data,
++                                    const PartialQuadratureSpace& qs,
++                                    const mfem::Vector& x,
++                                    const ElementsGeometry& g,
++                                    const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(y);
++    static_cast<void>(data);
++    static_cast<void>(qs);
++    static_cast<void>(x);
++    static_cast<void>(g);
++    static_cast<void>(k);
++    return reportFBarKernelsNotCompiled(ctx, "addFBarTangentOperatorAction");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FBarRankOneKernelArguments{};
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++                                         "addFBarTangentOperatorAction")) {
++        return false;
++      }
++      if (!addTangentOperatorAction(
++              ctx, y, qs, getFBarTangentOperator(data, qs, k, use_device), x, g,
++              k)) {
++        return false;
++      }
++      if (a.number_of_elements != 0) {
++        internals::launchFBarRankOneActionKernel(
++            a, x.Read(use_device), y.ReadWrite(use_device), use_device);
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFBarTangentOperatorAction: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFBarTangentOperatorAction: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFBarTangentOperatorAction
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+new file mode 100644
+index 0000000000..8ea592e8e3
+--- /dev/null
++++ b/src/Batch/FBarKernels.cxx
+@@ -0,0 +1,381 @@
++/*!
++ * \file   src/Batch/FBarKernels.cxx
++ * \brief  This file implements the kernels of the FBar formulation. It
++ * contains kernels of MFEM: it is compiled as CUDA code when MFEM is
++ * compiled with CUDA.
++ * \date   11/10/2026
++ */
++
++#include <cmath>
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "KernelsUtilities.hxx"
++#include "FBarKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \return the determinant of a deformation gradient, in the order of the
++   * gradients of the behaviours (`F11, F22, F33, F12, F21, F13, F31, F23,
++   * F32` in 3D, `F11, F22, F33, F12, F21` in 2D)
++   * \tparam K: kind of the gradients
++   * \param[in] F: deformation gradient
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline real computeDeterminant(const real* const F) {
++    if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      return F[0] * (F[1] * F[2] - F[7] * F[8]) -
++             F[3] * (F[4] * F[2] - F[7] * F[6]) +
++             F[5] * (F[4] * F[8] - F[1] * F[6]);
++    } else {
++      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
++      return F[2] * (F[0] * F[1] - F[3] * F[4]);
++    }
++  }  // end of computeDeterminant
++
++  /*!
++   * \brief computes the derivative of the determinant of a deformation
++   * gradient with respect to its components (cofactors), in the order of
++   * the gradients
++   * \tparam K: kind of the gradients
++   * \param[out] dJ: derivative
++   * \param[in] F: deformation gradient
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline void computeDeterminantDerivative(
++      real* const dJ, const real* const F) {
++    if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      // F11 F22 F33 F12 F21 F13 F31 F23 F32
++      // 0   1   2   3   4   5   6   7   8
++      dJ[0] = F[1] * F[2] - F[7] * F[8];
++      dJ[1] = F[0] * F[2] - F[5] * F[6];
++      dJ[2] = F[0] * F[1] - F[3] * F[4];
++      dJ[3] = F[7] * F[6] - F[4] * F[2];
++      dJ[4] = F[5] * F[8] - F[3] * F[2];
++      dJ[5] = F[4] * F[8] - F[1] * F[6];
++      dJ[6] = F[3] * F[7] - F[5] * F[1];
++      dJ[7] = F[3] * F[6] - F[0] * F[8];
++      dJ[8] = F[5] * F[4] - F[0] * F[7];
++    } else {
++      static_assert(K == GradientsKind::DEFORMATION_GRADIENT_2D);
++      dJ[0] = F[1] * F[2];
++      dJ[1] = F[0] * F[2];
++      dJ[2] = F[0] * F[1] - F[3] * F[4];
++      dJ[3] = -F[4] * F[2];
++      dJ[4] = -F[3] * F[2];
++    }
++  }  // end of computeDeterminantDerivative
++
++  //! \return the inverse of the exponent of the FBar formulation
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE constexpr int getFBarExponentInverse() {
++    return K == GradientsKind::DEFORMATION_GRADIENT_3D ? 3 : 2;
++  }  // end of getFBarExponentInverse
++
++  /*!
++   * \return `(J0 / J)^(1/ie)`
++   * \tparam K: kind of the gradients
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline real computeFBarCoefficient(const real J0,
++                                                      const real J) {
++    if constexpr (getFBarExponentInverse<K>() == 3) {
++      return cbrt(J0 / J);
++    } else {
++      return sqrt(J0 / J);
++    }
++  }  // end of computeFBarCoefficient
++
++  template <GradientsKind K>
++  static void launchFBarCentersKernel(const FBarCentersKernelArguments& a,
++                                      const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
++          constexpr auto N = getDimension<K>();
++          constexpr auto V = getUnknownsSize<K>();
++          constexpr auto gs = getGradientsSize<K>();
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          // inverse of the jacobian at the center (one point per element)
++          real iJ[N * N];
++          invertJacobian<N>(iJ,
++                            a.jacobians + static_cast<std::size_t>(N * N) * e,
++                            1, a.determinants[e]);
++          // deformation gradient at the center
++          real F0[9];
++          for (int c = 0; c != gs; ++c) {
++            F0[c] = a.macroscopic_gradients[c];
++          }
++          if (a.derivatives != nullptr) {
++            const auto* const dr =
++                a.derivatives + static_cast<std::size_t>(V * N) * e;
++            real du[V * N];
++            for (int i = 0; i != V; ++i) {
++              for (int j = 0; j != N; ++j) {
++                du[i + V * j] = 0;
++                for (int r = 0; r != N; ++r) {
++                  du[i + V * j] += dr[i + V * r] * iJ[r + N * j];
++                }
++              }
++            }
++            auto d = [&du](const int i, const int j) { return du[i + V * j]; };
++            if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++              F0[0] += d(0, 0);
++              F0[1] += d(1, 1);
++              F0[2] += d(2, 2);
++              F0[3] += d(0, 1);
++              F0[4] += d(1, 0);
++              F0[5] += d(0, 2);
++              F0[6] += d(2, 0);
++              F0[7] += d(1, 2);
++              F0[8] += d(2, 1);
++            } else {
++              F0[0] += d(0, 0);
++              F0[1] += d(1, 1);
++              F0[3] += d(0, 1);
++              F0[4] += d(1, 0);
++            }
++          }
++          real dJ0[9];
++          computeDeterminantDerivative<K>(dJ0, F0);
++          auto* const c = a.centers + static_cast<std::size_t>(1 + gs) * k;
++          c[0] = computeDeterminant<K>(F0);
++          for (int i = 0; i != gs; ++i) {
++            c[1 + i] = dJ0[i];
++          }
++          // derivative of J0 with respect to the unknowns of the element
++          const auto nd = static_cast<std::size_t>(a.nd);
++          auto* const b = a.b + nd * V * e;
++          for (std::size_t node = 0; node != nd; ++node) {
++            real dN[N];
++            computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, 0, 1,
++                                          node, iJ);
++            real B[9][3];
++            computeB<K>(B, dN, real{0});
++            for (int comp = 0; comp != V; ++comp) {
++              real v = 0;
++              for (int i = 0; i != gs; ++i) {
++                v += dJ0[i] * B[i][comp];
++              }
++              b[node + nd * comp] = v;
++            }
++          }
++        });
++  }  // end of launchFBarCentersKernel
++
++  template <GradientsKind K>
++  static void launchFBarGradientsKernel(const FBarGradientsKernelArguments& a,
++                                        const bool use_device) {
++    const auto n = a.number_of_elements * a.nq;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      constexpr auto gs = getGradientsSize<K>();
++      const auto k = i / a.nq;
++      const auto q = i - k * a.nq;
++      const auto o = static_cast<std::size_t>(a.offsets[k] + q);
++      const auto np = static_cast<std::size_t>(a.number_of_points);
++      const auto sgs = static_cast<std::size_t>(gs);
++      // deformation gradient at the point
++      real F[9];
++      for (std::size_t c = 0; c != sgs; ++c) {
++        if (a.gradients == nullptr) {
++          F[c] = a.macroscopic_gradients[c];
++        } else {
++          F[c] = a.point_by_point ? a.gradients[o * sgs + c]
++                                  : a.gradients[c * np + o];
++        }
++      }
++      const auto J0 = a.centers[static_cast<std::size_t>(1 + gs) * k];
++      const auto alpha =
++          computeFBarCoefficient<K>(J0, computeDeterminant<K>(F));
++      a.coefficients[o] = alpha;
++      for (std::size_t c = 0; c != sgs; ++c) {
++        a.deformation_gradients[o * sgs + c] = F[c];
++      }
++      if (a.gradients != nullptr) {
++        for (std::size_t c = 0; c != sgs; ++c) {
++          // in plane strain, the third component of F̄ is one
++          const auto v =
++              ((K == GradientsKind::DEFORMATION_GRADIENT_2D) && (c == 2))
++                  ? real{1}
++                  : alpha * F[c];
++          if (a.point_by_point) {
++            a.gradients[o * sgs + c] = v;
++          } else {
++            a.gradients[c * np + o] = v;
++          }
++        }
++      }
++    });
++  }  // end of launchFBarGradientsKernel
++
++  template <GradientsKind K>
++  static void launchFBarTangentOperatorKernel(
++      const FBarTangentOperatorKernelArguments& a, const bool use_device) {
++    const auto n = a.number_of_elements * a.nq;
++    mfem::forall_switch(use_device, n, [a] MFEM_HOST_DEVICE(int i) {
++      constexpr auto gs = getGradientsSize<K>();
++      constexpr auto ie = getFBarExponentInverse<K>();
++      const auto k = i / a.nq;
++      const auto q = i - k * a.nq;
++      const auto o = static_cast<std::size_t>(a.offsets[k] + q);
++      const auto sgs = static_cast<std::size_t>(gs);
++      const auto* const F = a.deformation_gradients + o * sgs;
++      const auto alpha = a.coefficients[o];
++      const auto J = computeDeterminant<K>(F);
++      const auto J0 = a.centers[static_cast<std::size_t>(1 + gs) * k];
++      // dα/dF; in plane strain, the third component is ignored
++      real c[9];
++      computeDeterminantDerivative<K>(c, F);
++      for (int j = 0; j != gs; ++j) {
++        c[j] *= -alpha / (ie * J);
++      }
++      if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
++        c[2] = 0;
++      }
++      // v = K F
++      const auto* const Kb =
++          a.tangent_operator + static_cast<long long>(o) * a.point_stride;
++      auto Kv = [Kb, &a](const int r, const int col) {
++        return Kb[static_cast<long long>(r * gs + col) * a.component_stride];
++      };
++      real v[9];
++      for (int r = 0; r != gs; ++r) {
++        v[r] = 0;
++        for (int col = 0; col != gs; ++col) {
++          if ((K == GradientsKind::DEFORMATION_GRADIENT_2D) && (col == 2)) {
++            continue;
++          }
++          v[r] += Kv(r, col) * F[col];
++        }
++      }
++      auto* const Km = a.modified_tangent_operator + o * sgs * sgs;
++      for (int r = 0; r != gs; ++r) {
++        for (int col = 0; col != gs; ++col) {
++          Km[r * gs + col] = alpha * Kv(r, col) + v[r] * c[col];
++        }
++      }
++      auto* const s = a.pseudo_stresses + o * sgs;
++      for (int r = 0; r != gs; ++r) {
++        s[r] = alpha / (ie * J0) * v[r];
++      }
++    });
++  }  // end of launchFBarTangentOperatorKernel
++
++  void launchFBarCentersKernel(const GradientsKind k,
++                               const FBarCentersKernelArguments& a,
++                               const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFBarCentersKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, use_device);
++    } else {
++      launchFBarCentersKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, use_device);
++    }
++  }  // end of launchFBarCentersKernel
++
++  void launchFBarGradientsKernel(const GradientsKind k,
++                                 const FBarGradientsKernelArguments& a,
++                                 const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFBarGradientsKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, use_device);
++    } else {
++      launchFBarGradientsKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, use_device);
++    }
++  }  // end of launchFBarGradientsKernel
++
++  void launchFBarTangentOperatorKernel(
++      const GradientsKind k,
++      const FBarTangentOperatorKernelArguments& a,
++      const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFBarTangentOperatorKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, use_device);
++    } else {
++      launchFBarTangentOperatorKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, use_device);
++    }
++  }  // end of launchFBarTangentOperatorKernel
++
++  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments& a,
++                                       real* const m,
++                                       const bool use_device) {
++    const auto n = a.number_of_elements * a.n * a.n;
++    mfem::forall_switch(use_device, n, [a, m] MFEM_HOST_DEVICE(int t) {
++      const auto nn = a.n * a.n;
++      const auto k = t / nn;
++      const auto r = t - k * nn;
++      // row i (first index of `a`), column j, stored column by column
++      const auto j = r / a.n;
++      const auto i = r - j * a.n;
++      const auto e = static_cast<std::size_t>(a.elements[k]);
++      const auto sn = static_cast<std::size_t>(a.n);
++      m[sn * sn * e + static_cast<std::size_t>(i) +
++        sn * static_cast<std::size_t>(j)] +=
++          a.a[sn * e + static_cast<std::size_t>(i)] *
++          a.b[sn * e + static_cast<std::size_t>(j)];
++    });
++  }  // end of launchFBarRankOneMatricesKernel
++
++  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments& a,
++                                       const SparseMatrixOutput& o,
++                                       const bool use_device) {
++    const auto n = a.number_of_elements * a.n;
++    mfem::forall_switch(use_device, n, [a, o] MFEM_HOST_DEVICE(int t) {
++      const auto k = t / a.n;
++      const auto i = t - k * a.n;
++      const auto e = static_cast<std::size_t>(a.elements[k]);
++      const auto sn = static_cast<std::size_t>(a.n);
++      const auto* const dofs = o.element_dofs + sn * e;
++      const auto row = dofs[i];
++      if ((row < 0) || (row >= o.number_of_rows)) {
++        ::AtomicAdd(o.missing[0], a.n);
++        return;
++      }
++      const auto ai = a.a[sn * e + static_cast<std::size_t>(i)];
++      const auto end = o.I[row + 1];
++      for (int j = 0; j != a.n; ++j) {
++        const auto p = findColumn(o.J, o.I[row], end, dofs[j]);
++        if (p == end) {
++          ::AtomicAdd(o.missing[0], 1);
++        } else {
++          ::AtomicAdd(o.values[p],
++                      ai * a.b[sn * e + static_cast<std::size_t>(j)]);
++        }
++      }
++    });
++  }  // end of launchFBarRankOneMatricesKernel
++
++  void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments& a,
++                                        real* const d,
++                                        const bool use_device) {
++    const auto n = a.number_of_elements * a.n;
++    mfem::forall_switch(use_device, n, [a, d] MFEM_HOST_DEVICE(int t) {
++      const auto k = t / a.n;
++      const auto i = t - k * a.n;
++      const auto p = static_cast<std::size_t>(a.n) *
++                         static_cast<std::size_t>(a.elements[k]) +
++                     static_cast<std::size_t>(i);
++      d[p] += a.a[p] * a.b[p];
++    });
++  }  // end of launchFBarRankOneDiagonalsKernel
++
++  void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments& a,
++                                     const real* const x,
++                                     real* const y,
++                                     const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
++          const auto sn = static_cast<std::size_t>(a.n);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          real bx = 0;
++          for (std::size_t j = 0; j != sn; ++j) {
++            bx += a.b[sn * e + j] * x[sn * e + j];
++          }
++          for (std::size_t i = 0; i != sn; ++i) {
++            y[sn * e + i] += a.a[sn * e + i] * bx;
++          }
++        });
++  }  // end of launchFBarRankOneActionKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/FBarKernels.hxx b/src/Batch/FBarKernels.hxx
+new file mode 100644
+index 0000000000..2fa2247438
+--- /dev/null
++++ b/src/Batch/FBarKernels.hxx
+@@ -0,0 +1,213 @@
++/*!
++ * \file   src/Batch/FBarKernels.hxx
++ * \brief  This file declares the kernels of the FBar formulation (internal
++ * header, see `MFEMMGIS/Batch/FBar.hxx`)
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "StiffnessMatricesKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief arguments of the kernel computing the data of the FBar
++   * formulation at the center of the elements of a material
++   */
++  struct FBarCentersKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    /*!
++     * \brief derivatives of the unknowns at the center of all the elements
++     * of the mesh (see `UnknownsDerivatives`), null for null unknowns
++     */
++    const real* derivatives = nullptr;
++    //! \brief jacobians at the center of all the elements of the mesh
++    const real* jacobians = nullptr;
++    //! \brief determinants of the jacobians at the center of the elements
++    const real* determinants = nullptr;
++    /*!
++     * \brief gradients of the shape functions at the center of the
++     * reference element (`dim x nd`)
++     */
++    const real* shape_functions_gradients = nullptr;
++    /*!
++     * \brief determinant `J0` and its derivative at the center of the
++     * elements of the material (`1 + gradients size` values per element)
++     */
++    real* centers = nullptr;
++    /*!
++     * \brief vectors `b` of all the elements of the mesh (layout of the
++     * element restriction of MFEM)
++     */
++    real* b = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++    //! \brief macroscopic gradients
++    real macroscopic_gradients[9] = {};
++  };
++
++  /*!
++   * \brief arguments of the kernel computing the coefficients `α` and the
++   * gradients `F̄` at the integration points of a material
++   */
++  struct FBarGradientsKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief offsets of the integration points of the elements
++    const int* offsets = nullptr;
++    //! \brief data at the center of the elements of the material
++    const real* centers = nullptr;
++    /*!
++     * \brief gradients of the material (deformation gradients computed by
++     * the kernel of the gradients, replaced by `F̄`), null for null unknowns
++     */
++    real* gradients = nullptr;
++    //! \brief deformation gradients `F`, point by point
++    real* deformation_gradients = nullptr;
++    //! \brief coefficients `α`
++    real* coefficients = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++    //! \brief number of integration points of the material
++    int number_of_points = 0;
++    //! \brief layout of the gradients: true if stored point by point
++    bool point_by_point = true;
++    //! \brief macroscopic gradients (for null unknowns)
++    real macroscopic_gradients[9] = {};
++  };
++
++  /*!
++   * \brief arguments of the kernel computing the tangent operator `K'` and
++   * the pseudo-stresses `α / (ie J0) K F` at the integration points of a
++   * material
++   */
++  struct FBarTangentOperatorKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief offsets of the integration points of the elements
++    const int* offsets = nullptr;
++    //! \brief data at the center of the elements of the material
++    const real* centers = nullptr;
++    //! \brief deformation gradients `F`, point by point
++    const real* deformation_gradients = nullptr;
++    //! \brief coefficients `α`
++    const real* coefficients = nullptr;
++    //! \brief tangent operator blocks of the behaviour
++    const real* tangent_operator = nullptr;
++    //! \brief stride between two points of the tangent operator blocks
++    long long point_stride = 0;
++    //! \brief stride between two components of the tangent operator blocks
++    long long component_stride = 0;
++    //! \brief tangent operator `K'`, point by point
++    real* modified_tangent_operator = nullptr;
++    //! \brief pseudo-stresses, point by point
++    real* pseudo_stresses = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++  };
++
++  /*!
++   * \brief arguments of the kernels adding the matrices of rank one `a ⊗ b`
++   * of the elements of a material
++   */
++  struct FBarRankOneKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief vectors `a` (layout of the element restriction)
++    const real* a = nullptr;
++    //! \brief vectors `b` (layout of the element restriction)
++    const real* b = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom of an element
++    int n = 0;
++  };
++
++  /*!
++   * \brief launches the kernel computing the data of the FBar formulation
++   * at the center of the elements of a material: one thread per element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarCentersKernel(const GradientsKind,
++                               const FBarCentersKernelArguments&,
++                               const bool);
++  /*!
++   * \brief launches the kernel computing the coefficients `α` and the
++   * gradients `F̄`: one thread per integration point
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarGradientsKernel(const GradientsKind,
++                                 const FBarGradientsKernelArguments&,
++                                 const bool);
++  /*!
++   * \brief launches the kernel computing the tangent operator `K'` and the
++   * pseudo-stresses: one thread per integration point
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarTangentOperatorKernel(
++      const GradientsKind,
++      const FBarTangentOperatorKernelArguments&,
++      const bool);
++  /*!
++   * \brief adds the matrices `a ⊗ b` to matrices stored element by element,
++   * column by column (see `addStiffnessMatrices`): one thread per entry
++   * \param[in] a: arguments
++   * \param[in, out] m: matrices of all the elements of the mesh
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments&,
++                                       real* const,
++                                       const bool);
++  /*!
++   * \brief adds the matrices `a ⊗ b` to an assembled sparse matrix: one
++   * thread per row of an element
++   * \param[in] a: arguments
++   * \param[in] o: assembled matrix
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments&,
++                                       const SparseMatrixOutput&,
++                                       const bool);
++  /*!
++   * \brief adds the diagonals of the matrices `a ⊗ b`: one thread per
++   * degree of freedom of an element
++   * \param[in] a: arguments
++   * \param[in, out] diagonals: values element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments&,
++                                        real* const,
++                                        const bool);
++  /*!
++   * \brief adds the action of the matrices `a ⊗ b`, `a (b · x)`: one thread
++   * per element
++   * \param[in] a: arguments
++   * \param[in] x: values element by element
++   * \param[in, out] y: action element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments&,
++                                     const real* const,
++                                     real* const,
++                                     const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX */
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index 723340f721..a28816329d 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -306,6 +306,49 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of getShapeFunctionValue
+ 
++  /*!
++   * \return the position of a column in a row of a sparse matrix, or `end`
++   * if the column is not in the row. The first column is tested first, then
++   * the other columns are searched by bisection, which is exact for sorted
++   * rows and for rows whose first column is the diagonal one, the others
++   * being sorted (see `makeAssembledStiffnessMatrix`). Otherwise, the row is
++   * searched linearly.
++   * \param[in] J: columns of the matrix
++   * \param[in] begin: position of the first column of the row
++   * \param[in] end: position after the last column of the row
++   * \param[in] c: column
++   */
++  MFEM_HOST_DEVICE inline int findColumn(const int* const J,
++                                         const int begin,
++                                         const int end,
++                                         const int c) {
++    if (begin == end) {
++      return end;
++    }
++    if (J[begin] == c) {
++      return begin;
++    }
++    auto lo = begin + 1;
++    auto hi = end;
++    while (lo != hi) {
++      const auto mid = lo + (hi - lo) / 2;
++      if (J[mid] < c) {
++        lo = mid + 1;
++      } else {
++        hi = mid;
++      }
++    }
++    if ((lo != end) && (J[lo] == c)) {
++      return lo;
++    }
++    for (auto p = begin + 1; p != end; ++p) {
++      if (J[p] == c) {
++        return p;
++      }
++    }
++    return end;
++  }  // end of findColumn
++
+ }  // end of namespace mfem_mgis::batch::internals
+ 
+ #endif /* LIB_MFEM_MGIS_SRC_BATCH_KERNELSUTILITIES_HXX */
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 15ae871206..4e577423b1 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -46,49 +46,6 @@ namespace mfem_mgis::batch::internals {
+     }
+   };
+ 
+-  /*!
+-   * \return the position of a column in a row of a sparse matrix, or `end`
+-   * if the column is not in the row. The first column is tested first, then
+-   * the other columns are searched by bisection, which is exact for sorted
+-   * rows and for rows whose first column is the diagonal one, the others
+-   * being sorted (see `makeAssembledStiffnessMatrix`). Otherwise, the row is
+-   * searched linearly.
+-   * \param[in] J: columns of the matrix
+-   * \param[in] begin: position of the first column of the row
+-   * \param[in] end: position after the last column of the row
+-   * \param[in] c: column
+-   */
+-  MFEM_HOST_DEVICE inline int findColumn(const int* const J,
+-                                         const int begin,
+-                                         const int end,
+-                                         const int c) {
+-    if (begin == end) {
+-      return end;
+-    }
+-    if (J[begin] == c) {
+-      return begin;
+-    }
+-    auto lo = begin + 1;
+-    auto hi = end;
+-    while (lo != hi) {
+-      const auto mid = lo + (hi - lo) / 2;
+-      if (J[mid] < c) {
+-        lo = mid + 1;
+-      } else {
+-        hi = mid;
+-      }
+-    }
+-    if ((lo != end) && (J[lo] == c)) {
+-      return lo;
+-    }
+-    for (auto p = begin + 1; p != end; ++p) {
+-      if (J[p] == c) {
+-        return p;
+-      }
+-    }
+-    return end;
+-  }  // end of findColumn
+-
+   //! \brief adds the blocks to an assembled sparse matrix
+   struct SparseMatrixAssembly {
+     //! \brief assembled matrix
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 4b88fd5449..633197190f 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -23,6 +23,7 @@
+ #include "MFEMMGIS/IntegrationType.hxx"
+ #include "MFEMMGIS/MeshDiscretization.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+ 
+@@ -1217,6 +1218,94 @@ namespace mfem_mgis {
+     }
+   }  // end of copyStatesOnDevice
+ 
++  bool BehaviourIntegratorBase::getKernelsData(
++      Context& ctx,
++      KernelsData& data,
++      const char* const name,
++      const batch::ElementsGeometrySet& g) const noexcept {
++    data = KernelsData{};
++    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
++    if (r == nullptr) {
++      if (this->quadrature_space->getNumberOfElements() == 0) {
++        return true;
++      }
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the elements of the material do not use the same integration "
++          "rule");
++    }
++    const auto k = batch::getGradientsKind(this->b);
++    if (!k.has_value()) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unsupported behaviour");
++    }
++    const auto p = g.find(r);
++    if (p == g.end()) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the geometric data are not computed for the integration rule of "
++          "the material");
++    }
++    data.kind = *k;
++    data.rule = r;
++    data.geometry = &(p->second);
++    return true;
++  }  // end of getKernelsData
++
++  mgis::FieldView<const real>
++  BehaviourIntegratorBase::readTangentOperatorBlocks(const bool d) const {
++    const auto& v = this->getArrays().getTangentOperatorBlocks();
++    const auto s =
++        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
++    return mgis::makeFieldView(s, this->getArrays().array_layout,
++                               static_cast<size_type>(this->n), this->K_stride);
++  }  // end of readTangentOperatorBlocks
++
++  bool BehaviourIntegratorBase::addInnerForcesFromThermodynamicForcesByKernels(
++      Context& ctx,
++      mfem::Vector& f,
++      const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data, "addInnerForcesByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto np = static_cast<size_type>(this->n);
++      const auto nc = this->s1.thermodynamic_forces_stride;
++      if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
++        // thermodynamic forces in the global frame at all the points
++        auto& v = this->wks.rotated_thermodynamic_forces;
++        if (!this->updateRotatedThermodynamicForces()) {
++          this->computeThermodynamicForcesInGlobalFrame(v);
++        }
++        const auto s = std::span<const real>(
++            v.Read(use_device), static_cast<std::size_t>(v.Size()));
++        return batch::addInnerForces(
++            ctx, f, *(this->quadrature_space),
++            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
++            data.kind);
++      }
++      const auto& v = this->getArrays().getArray(
++          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
++      const auto s = std::span<const real>(v.Read(use_device),
++                                           static_cast<std::size_t>(v.Size()));
++      return batch::addInnerForces(
++          ctx, f, *(this->quadrature_space),
++          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
++          *(data.geometry), data.kind);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addInnerForcesByKernels: unknown exception");
++    }
++  }  // end of addInnerForcesFromThermodynamicForcesByKernels
++
+   void BehaviourIntegratorBase::revert() {
+     this->wks.has_rotated_thermodynamic_forces = false;
+     if (this->integratesBatchesOnDevice()) {
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ba15609d70..a62571bfe0 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -160,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/GradientsKernels.cxx
+   Batch/InnerForcesKernels.cxx
+   Batch/StiffnessMatricesKernels.cxx
++  Batch/FBarKernels.cxx
+   Batch/ElementsGeometryKernels.cxx)
+ # conversions of the vectors exchanged with AmgX in single precision
+ if(MFEM_MGIS_HAVE_AMGX)
+@@ -177,7 +178,8 @@ list(APPEND MFEMMGIS_SOURCES
+   Batch/ElementsGeometry.cxx
+   Batch/Gradients.cxx
+   Batch/InnerForces.cxx
+-  Batch/StiffnessMatrices.cxx)
++  Batch/StiffnessMatrices.cxx
++  Batch/FBar.cxx)
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+ if(MFEMMGIS_DEVICE_SOURCES)
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index c0f3a88a0b..8e508d9a56 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -390,7 +390,8 @@ namespace mfem_mgis {
+               "mechanical behaviours, small or finite strain, stationary non "
+               "linear heat transfer behaviours, transient term of the heat "
+               "equation and micromorphic damage behaviours, in 3D, plane "
+-              "strain and plane stress, without FBar nor regularization, all "
++              "strain and plane stress, without regularization other than "
++              "FBar (3D and plane strain), all "
+               "the elements of the material using the same integration "
+               "rule)");
+         }
+@@ -445,13 +446,18 @@ namespace mfem_mgis {
+   std::vector<const mfem::IntegrationRule*>
+   MultiMaterialNonLinearIntegrator::getIntegrationRules() const {
+     auto rules = std::vector<const mfem::IntegrationRule*>{};
++    auto add = [&rules](const mfem::IntegrationRule* const r) {
++      if ((r != nullptr) &&
++          (std::find(rules.begin(), rules.end(), r) == rules.end())) {
++        rules.push_back(r);
++      }
++    };
+     for (const auto& bis : this->behaviour_integrators) {
+       for (const auto& bi : bis) {
+-        const auto* const r =
+-            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
+-        if ((r != nullptr) &&
+-            (std::find(rules.begin(), rules.end(), r) == rules.end())) {
+-          rules.push_back(r);
++        add(bi->getPartialQuadratureSpace().getUniformIntegrationRule());
++        for (const auto* const r :
++             bi->getAdditionalIntegrationRulesForKernels()) {
++          add(r);
+         }
+       }
+     }
+@@ -540,11 +546,9 @@ namespace mfem_mgis {
+   bool MultiMaterialNonLinearIntegrator::computeElementsGeometry(
+       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+     // computed once for each integration rule (the mesh does not change)
+-    for (const auto& bis : this->behaviour_integrators) {
+-      for (const auto& bi : bis) {
+-        const auto* const r =
+-            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
+-        if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
++    try {
++      for (const auto* const r : this->getIntegrationRules()) {
++        if (!this->elements_geometry.contains(r)) {
+           if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
+                                               fes, *r)) {
+             // no partial entry is kept
+@@ -553,6 +557,8 @@ namespace mfem_mgis {
+           }
+         }
+       }
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
+     }
+     return true;
+   }  // end of computeElementsGeometry
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index a88481b2e3..ccacc66a21 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -1204,6 +1204,41 @@ int main(int argc, char** argv) {
+                       .matrix_free = true,
+                       .assembled_preconditioner = true},
+                      ", matrix free, assembled preconditioner"});
++    // FBar formulation by kernels: in 3D, with and without prediction, the
++    // tangent operator being assembled or applied without assembly (the
++    // diagonal of the operator applied without assembly being compared to
++    // the one of the assembled operator), and in plane strain
++    for (const auto* const b : {"SaintVenantKirchhoffElasticity",
++                                "OrthotropicSaintVenantKirchhoffElasticity"}) {
++      cases.push_back({b,
++                       {.fbar = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .tangent_operator_kernels = true},
++                       ", FBar"});
++      cases.push_back({b,
++                       {.fbar = true,
++                        .prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .tangent_operator_kernels = true},
++                       ", FBar and prediction"});
++      cases.push_back({b,
++                       {.fbar = true,
++                        .prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .matrix_free = true},
++                       ", FBar, matrix free"});
++      cases.push_back({b,
++                       {.fbar = true,
++                        .plane_strain = true,
++                        .prediction = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .tangent_operator_kernels = true},
++                       ", FBar, plane strain"});
++    }
+     for (const auto& [b, opts, name] : cases) {
+       const auto* const m = getMesh(opts);
+       auto reference = opts;
+@@ -1251,6 +1286,20 @@ int main(int argc, char** argv) {
+     cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                      {.fbar = true},
+                      ", FBar"});
++    // FBar formulation by kernels, assembled and applied without assembly
++    cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .prediction = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true},
++                     ", FBar, kernels and prediction"});
++    cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true},
++                     ", FBar, matrix free"});
+     // material properties given at each point (copied to the device)
+     cases.push_back({"IsotropicLinearElasticity", {}, ""});
+     // temperature varying in time, the temperature at the beginning of the
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 61cda5e444..5f44be4151 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -12,8 +12,7 @@
+  * materials with macroscopic gradients) and under the plane strain
+  * hypothesis (the plane stress hypothesis uses the same operator, but no
+  * behaviour of the tests supports it), on the device selected by the
+- * `--device` option; refusal of the FBar formulation and of the
+- * regularisation of Faltus et al.
++ * `--device` option; refusal of the regularisation of Faltus et al.
+  * \date   09/10/2026
+  */
+ 
+@@ -439,8 +438,7 @@ static void testCase(mfem_mgis::Context& ctx,
+ }  // end of testCase
+ 
+ /*!
+- * \brief the FBar formulation and the regularisation of Faltus et al. are
+- * refused
++ * \brief the regularisation of Faltus et al. is refused
+  * \param[in] regularisation: regularisation
+  */
+ static void testRefusal(mfem_mgis::Context& ctx,
+@@ -545,7 +543,6 @@ int main(int argc, char** argv) {
+   for (const auto& c : cases) {
+     testCase(ctx, library, c);
+   }
+-  testRefusal(ctx, cube, library, {{"FBar", Parameters{}}});
+   testRefusal(ctx, cube, library,
+               {{"Faltus2026", Parameters{{"PenalizationCoefficient", 1e9}}}});
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+-- 
+2.43.0
+

@@ -390,7 +390,8 @@ namespace mfem_mgis {
               "mechanical behaviours, small or finite strain, stationary non "
               "linear heat transfer behaviours, transient term of the heat "
               "equation and micromorphic damage behaviours, in 3D, plane "
-              "strain and plane stress, without FBar nor regularization, all "
+              "strain and plane stress, without regularization other than "
+              "FBar (3D and plane strain), all "
               "the elements of the material using the same integration "
               "rule)");
         }
@@ -445,13 +446,18 @@ namespace mfem_mgis {
   std::vector<const mfem::IntegrationRule*>
   MultiMaterialNonLinearIntegrator::getIntegrationRules() const {
     auto rules = std::vector<const mfem::IntegrationRule*>{};
+    auto add = [&rules](const mfem::IntegrationRule* const r) {
+      if ((r != nullptr) &&
+          (std::find(rules.begin(), rules.end(), r) == rules.end())) {
+        rules.push_back(r);
+      }
+    };
     for (const auto& bis : this->behaviour_integrators) {
       for (const auto& bi : bis) {
-        const auto* const r =
-            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
-        if ((r != nullptr) &&
-            (std::find(rules.begin(), rules.end(), r) == rules.end())) {
-          rules.push_back(r);
+        add(bi->getPartialQuadratureSpace().getUniformIntegrationRule());
+        for (const auto* const r :
+             bi->getAdditionalIntegrationRulesForKernels()) {
+          add(r);
         }
       }
     }
@@ -540,11 +546,9 @@ namespace mfem_mgis {
   bool MultiMaterialNonLinearIntegrator::computeElementsGeometry(
       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
     // computed once for each integration rule (the mesh does not change)
-    for (const auto& bis : this->behaviour_integrators) {
-      for (const auto& bi : bis) {
-        const auto* const r =
-            bi->getPartialQuadratureSpace().getUniformIntegrationRule();
-        if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
+    try {
+      for (const auto* const r : this->getIntegrationRules()) {
+        if (!this->elements_geometry.contains(r)) {
           if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
                                               fes, *r)) {
             // no partial entry is kept
@@ -553,6 +557,8 @@ namespace mfem_mgis {
           }
         }
       }
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
     }
     return true;
   }  // end of computeElementsGeometry

@@ -8,7 +8,9 @@
 #ifndef LIB_MFEM_MGIS_ISOTROPICFBARBEHAVIOURINTEGRATORCRTPBASE_HXX
 #define LIB_MFEM_MGIS_ISOTROPICFBARBEHAVIOURINTEGRATORCRTPBASE_HXX
 
+#include <vector>
 #include <mfem/linalg/densemat.hpp>
+#include "MFEMMGIS/Batch/FBar.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
 
 namespace mfem_mgis {
@@ -35,6 +37,11 @@ namespace mfem_mgis {
    * rotating the values of one point (`generic-parallel` interface) are
    * rotated in the global frame at all the points at once (see
    * `BehaviourIntegratorBase::getRotatedThermodynamicForces`).
+   *
+   * The gradients, the inner forces and the stiffness matrices can also be
+   * computed by kernels (see `batch::FBarData`): the deformation gradients
+   * at the center of the elements are computed with the integration rule of
+   * order 0 of their geometry (see `getAdditionalIntegrationRulesForKernels`).
    */
   template <typename Child, Hypothesis H>
   struct FBarBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
@@ -42,11 +49,59 @@ namespace mfem_mgis {
     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
                                         mfem::ElementTransformation&,
                                         const mfem::Vector&) override;
+    [[nodiscard]] bool integrateBatch(const IntegrationType) override;
+    void revert() override;
+    void update() override;
+    [[nodiscard]] bool supportsKernels() const noexcept override;
+    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
+    getAdditionalIntegrationRulesForKernels() const override;
+    [[nodiscard]] bool computeGradientsByKernels(
+        Context&,
+        const batch::UnknownsDerivativesSet&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addInnerForcesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
+        Context&,
+        const batch::AssembledStiffnessMatrix&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addTangentOperatorActionByKernels(
+        Context&,
+        mfem::Vector&,
+        const mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
 
    protected:
     static_assert(((H == Hypothesis::PLANESTRAIN) ||
                    (H == Hypothesis::TRIDIMENSIONAL)),
                   "invalid modelling hypothesis");
+    //! \brief data of the FBar formulation computed by kernels
+    batch::FBarData fbar_data;
+    /*!
+     * \brief gets the data of the computations by kernels and computes the
+     * tangent operator of the FBar formulation if it is not up to date (see
+     * `batch::computeFBarTangentOperator`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[out] data: data of the computations by kernels
+     * \param[in] name: name of the calling method, for the messages
+     * \param[in] g: geometric data
+     */
+    [[nodiscard]] bool prepareFBarTangentOperatorForKernels(
+        Context&,
+        KernelsData&,
+        const char* const,
+        const batch::ElementsGeometrySet&) noexcept;
     /*!
      * \brief constructor
      * \param[in] s: quadrature space

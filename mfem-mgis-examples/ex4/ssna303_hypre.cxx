@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
   auto end_time = mfem_mgis::real{1};
   auto profiling = false;
   auto paraview = true;
+  auto use_fbar = false;
 
   // options treatment
   mfem::OptionsParser args(argc, argv);
@@ -71,6 +72,10 @@ int main(int argc, char** argv) {
                  "the generic-parallel interface).");
   args.AddOption(&paraview, "-pv", "--paraview", "-no-pv", "--no-paraview",
                  "Export the displacements for ParaView at each step.");
+#ifdef MGIS_HAVE_TFEL
+  args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
+                 "Use the FBar formulation.");
+#endif /* MGIS_HAVE_TFEL */
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -99,8 +104,17 @@ int main(int argc, char** argv) {
         or_die;
 
     // 2 1 "Volume"
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
-        or_die;
+    if (use_fbar) {
+      problem.addBehaviourIntegrator(
+          ctx, "Mechanics", 1, library, behaviour,
+          {{"Regularization",
+            mfem_mgis::Parameters{{"FBar", mfem_mgis::Parameters{}}}}}) |
+          or_die;
+    } else {
+      problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
+                                     behaviour) |
+          or_die;
+    }
     // materials
     auto& m1 = problem.getMaterial(ctx, 1, 0) | or_die;
     mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature",

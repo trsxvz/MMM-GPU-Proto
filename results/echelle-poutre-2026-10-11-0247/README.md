@@ -50,9 +50,13 @@ place) :
 
 6 502 275 inconnues : ne tient pas dans la mémoire du GPU. Avec la
 réserve de hypre par défaut, l'allocation de la matrice de K0 (2,14 Gio)
-est refusée à 13,48 Gio occupés ; avec une réserve de 0,5 Gio, une
-allocation de 1,07 Gio est refusée à 15,37 Gio, la tangente étant
-assemblée ou non (fichiers `poutre-r6-*`). Mémoire de l'hôte : 18,3 Gio.
+est refusée à 13,46 Gio occupés (`poutre-r6-gpu-amg-agressif-assemblee`,
+même refus sans matrice pour la tangente) ; avec une réserve de 0,5 Gio,
+une allocation de 1,07 Gio est refusée à 15,34 Gio, la tangente étant
+assemblée ou non (`poutre-r6-gpu-amg-agressif-reserve-hypre-0.5-*`). Les
+sorties commencent par la ligne de commande et donnent le message
+d'erreur, sauf `poutre-r6-gpu-amg-agressif-sans-matrice` (premier essai,
+message seul). Mémoire de l'hôte : 18,3 Gio.
 
 ## Réserve de mémoire de hypre
 

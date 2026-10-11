@@ -1,0 +1,56 @@
+From f272b9bc5af2ae593ad69b23eb7414d4a586caaf Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 04:01:23 +0200
+Subject: [PATCH] ex4: FBar formulation option (hypre)
+
+The variant solved by hypre takes the --use-fbar option of the variant solved by MUMPS (FBar formulation of the behaviour integrator), for the measurements of the FBar formulation computed by kernels on the GPU.
+---
+ ex4/ssna303_hypre.cxx | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
+index 122205d..4f57622 100644
+--- a/ex4/ssna303_hypre.cxx
++++ b/ex4/ssna303_hypre.cxx
+@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
+   auto end_time = mfem_mgis::real{1};
+   auto profiling = false;
+   auto paraview = true;
++  auto use_fbar = false;
+ 
+   // options treatment
+   mfem::OptionsParser args(argc, argv);
+@@ -71,6 +72,10 @@ int main(int argc, char** argv) {
+                  "the generic-parallel interface).");
+   args.AddOption(&paraview, "-pv", "--paraview", "-no-pv", "--no-paraview",
+                  "Export the displacements for ParaView at each step.");
++#ifdef MGIS_HAVE_TFEL
++  args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
++                 "Use the FBar formulation.");
++#endif /* MGIS_HAVE_TFEL */
+   args.Parse();
+   if (args.Help()) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+@@ -99,8 +104,17 @@ int main(int argc, char** argv) {
+         or_die;
+ 
+     // 2 1 "Volume"
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
+-        or_die;
++    if (use_fbar) {
++      problem.addBehaviourIntegrator(
++          ctx, "Mechanics", 1, library, behaviour,
++          {{"Regularization",
++            mfem_mgis::Parameters{{"FBar", mfem_mgis::Parameters{}}}}}) |
++          or_die;
++    } else {
++      problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
++                                     behaviour) |
++          or_die;
++    }
+     // materials
+     auto& m1 = problem.getMaterial(ctx, 1, 0) | or_die;
+     mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature",
+-- 
+2.43.0
+

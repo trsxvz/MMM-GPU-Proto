@@ -51,6 +51,11 @@ namespace mfem_mgis {
     return false;
   }  // end of requiresUnknownsValuesForKernels
 
+  std::vector<const mfem::IntegrationRule*>
+  AbstractBehaviourIntegrator::getAdditionalIntegrationRulesForKernels() const {
+    return {};
+  }  // end of getAdditionalIntegrationRulesForKernels
+
   bool AbstractBehaviourIntegrator::computeGradientsByKernels(
       Context& ctx,
       const batch::UnknownsDerivativesSet&,

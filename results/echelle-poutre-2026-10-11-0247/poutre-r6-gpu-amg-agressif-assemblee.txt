@@ -1,0 +1,33 @@
+commande : env OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels ./poutre -r 6 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 -nls fixed-point -fpm newton-k0 -k0 -pk0 -alst EisenstatWalker1 -alsti 0.1 -els amg -amgo AggressiveCoarseningLevels=1 -l generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so --profiling --device cuda 
+step 1: not converged (computation of the tangent operator: zeroSparseMatrixValues: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 2300157024 ) failed with error: out of memory
+    Backtrace: 20 frames
+    0 0x7ea0bd63c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ea0bd63c11e]
+    1 0x7ea0bd6465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ea0bd6465a9]
+    2 0x7ea083a73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ea083a73d4e]
+    3 0x7ea083ab57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ea083ab57b9]
+    4 0x7ea083ad4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ea083ad4644]
+    5 0x7ea083a46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ea083a46f83]
+    6 0x7ea0bd647522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ea0bd647522]
+    7 0x7ea0bd647803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7ea0bd647803]
+    8 0x7ea0bd64256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7ea0bd64256f]
+    9 0x5e9c57a7c224 No dladdr: ./poutre(+0x15f224) [0x5e9c57a7c224]
+    10 0x5e9c57a3e896 No dladdr: ./poutre(+0x121896) [0x5e9c57a3e896]
+    11 0x5e9c579f4e60 No dladdr: ./poutre(+0xd7e60) [0x5e9c579f4e60]
+    12 0x5e9c579fb56a No dladdr: ./poutre(+0xde56a) [0x5e9c579fb56a]
+    13 0x5e9c579f5ac1 No dladdr: ./poutre(+0xd8ac1) [0x5e9c579f5ac1]
+    14 0x5e9c579f0589 No dladdr: ./poutre(+0xd3589) [0x5e9c579f0589]
+    15 0x5e9c579bcca3 No dladdr: ./poutre(+0x9fca3) [0x5e9c579bcca3]
+    16 0x5e9c5796eb46 No dladdr: ./poutre(+0x51b46) [0x5e9c5796eb46]
+    17 0x7ea0b6c2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ea0b6c2a1ca]
+    18 0x7ea0b6c2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ea0b6c2a28b]
+    19 0x5e9c579723c5 No dladdr: ./poutre(+0x553c5) [0x5e9c579723c5])
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+  Proc: [[11294,0],0]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+statut 1

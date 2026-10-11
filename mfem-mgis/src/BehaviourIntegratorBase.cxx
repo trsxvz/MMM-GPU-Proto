@@ -23,6 +23,7 @@
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
 
@@ -1216,6 +1217,94 @@ namespace mfem_mgis {
       std::fill(blocks, blocks + nK, real{0});
     }
   }  // end of copyStatesOnDevice
+
+  bool BehaviourIntegratorBase::getKernelsData(
+      Context& ctx,
+      KernelsData& data,
+      const char* const name,
+      const batch::ElementsGeometrySet& g) const noexcept {
+    data = KernelsData{};
+    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+    if (r == nullptr) {
+      if (this->quadrature_space->getNumberOfElements() == 0) {
+        return true;
+      }
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": the elements of the material do not use the same integration "
+          "rule");
+    }
+    const auto k = batch::getGradientsKind(this->b);
+    if (!k.has_value()) {
+      return ctx.registerErrorMessage(std::string{name} +
+                                      ": unsupported behaviour");
+    }
+    const auto p = g.find(r);
+    if (p == g.end()) {
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": the geometric data are not computed for the integration rule of "
+          "the material");
+    }
+    data.kind = *k;
+    data.rule = r;
+    data.geometry = &(p->second);
+    return true;
+  }  // end of getKernelsData
+
+  mgis::FieldView<const real>
+  BehaviourIntegratorBase::readTangentOperatorBlocks(const bool d) const {
+    const auto& v = this->getArrays().getTangentOperatorBlocks();
+    const auto s =
+        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
+    return mgis::makeFieldView(s, this->getArrays().array_layout,
+                               static_cast<size_type>(this->n), this->K_stride);
+  }  // end of readTangentOperatorBlocks
+
+  bool BehaviourIntegratorBase::addInnerForcesFromThermodynamicForcesByKernels(
+      Context& ctx,
+      mfem::Vector& f,
+      const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "addInnerForcesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto np = static_cast<size_type>(this->n);
+      const auto nc = this->s1.thermodynamic_forces_stride;
+      if (this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+        // thermodynamic forces in the global frame at all the points
+        auto& v = this->wks.rotated_thermodynamic_forces;
+        if (!this->updateRotatedThermodynamicForces()) {
+          this->computeThermodynamicForcesInGlobalFrame(v);
+        }
+        const auto s = std::span<const real>(
+            v.Read(use_device), static_cast<std::size_t>(v.Size()));
+        return batch::addInnerForces(
+            ctx, f, *(this->quadrature_space),
+            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
+            data.kind);
+      }
+      const auto& v = this->getArrays().getArray(
+          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
+      const auto s = std::span<const real>(v.Read(use_device),
+                                           static_cast<std::size_t>(v.Size()));
+      return batch::addInnerForces(
+          ctx, f, *(this->quadrature_space),
+          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
+          *(data.geometry), data.kind);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +
+                                      e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addInnerForcesByKernels: unknown exception");
+    }
+  }  // end of addInnerForcesFromThermodynamicForcesByKernels
 
   void BehaviourIntegratorBase::revert() {
     this->wks.has_rotated_thermodynamic_forces = false;

@@ -14,7 +14,7 @@
 # allouée d'un coup) est réduite à 0,5 Gio (option -hdps de mfem-mgis) :
 # temps à quelques % près, 3,5 Gio de moins. Le raffinement suivant
 # (6,5 millions d'inconnues) ne tient pas dans les 16 Go du GPU, même ainsi
-# (allocation refusée à 15,37 Gio, tangente assemblée ou non).
+# (allocation refusée vers 15,3 Gio, tangente assemblée ou non).
 # Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
 # autre processus libère le GPU, puis le signale dans le résumé.
 # À lancer sur une machine calme, après build-mfem-mgis.sh.

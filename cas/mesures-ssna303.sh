@@ -7,7 +7,9 @@
 # d'inconnues) :
 # - point par point puis par lots et noyaux sur 8 processus CPU ;
 # - par noyaux sur le GPU (loi `cuda`), avec la réserve de mémoire de hypre
-#   réduite à 0,5 Gio.
+#   réduite à 0,5 Gio ;
+# puis les mêmes calculs avec la formulation FBar (`--use-fbar`), par
+# noyaux depuis le lot L7.9.
 # Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
 # autre processus libère le GPU, puis le signale dans le résumé.
 # À lancer sur une machine calme, après build-mfem-mgis.sh (examples et cas).
@@ -34,14 +36,18 @@ wait_for_gpu() {
 }
 
 for refinement in 0 1 2; do
-  device=""
-  options=""
-  run "ssna303-r$refinement-np8-point-par-point" 1 8 "$generic"
-  run "ssna303-r$refinement-np8-noyaux" 1 8 "$generic" "$batch" \
-    "${kernels[@]}"
-  device=cuda
-  options="-hdps 0.5"
-  wait_for_gpu
-  run "ssna303-r$refinement-gpu-noyaux" 1 1 "$cuda" "$batch" "${kernels[@]}"
+  for fbar in "" "--use-fbar"; do
+    suffix=${fbar:+-fbar}
+    device=""
+    options="$fbar"
+    run "ssna303-r$refinement$suffix-np8-point-par-point" 1 8 "$generic"
+    run "ssna303-r$refinement$suffix-np8-noyaux" 1 8 "$generic" "$batch" \
+      "${kernels[@]}"
+    device=cuda
+    options="$fbar -hdps 0.5"
+    wait_for_gpu
+    run "ssna303-r$refinement$suffix-gpu-noyaux" 1 1 "$cuda" "$batch" \
+      "${kernels[@]}"
+  done
 done
 echo "résultats dans $out"

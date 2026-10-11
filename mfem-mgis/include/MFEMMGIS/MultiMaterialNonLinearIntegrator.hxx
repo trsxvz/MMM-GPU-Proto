@@ -437,7 +437,9 @@ namespace mfem_mgis {
     mfem::Vector tangent_operator_element_values;
     /*!
      * \return the integration rules of the behaviour integrators (rules
-     * shared by all the elements of a material)
+     * shared by all the elements of a material), and the additional rules
+     * used by their kernels (see
+     * `AbstractBehaviourIntegrator::getAdditionalIntegrationRulesForKernels`)
      */
     [[nodiscard]] std::vector<const mfem::IntegrationRule*>
     getIntegrationRules() const;

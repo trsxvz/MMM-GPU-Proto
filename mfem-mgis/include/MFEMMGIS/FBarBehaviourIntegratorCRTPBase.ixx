@@ -9,6 +9,9 @@
 #ifndef LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORCRTPBASE_IXX
 #define LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORCRTPBASE_IXX
 
+#include <string>
+#include <exception>
+#include "mfem/general/device.hpp"
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
 #include "MGIS/Raise.hxx"
@@ -63,6 +66,8 @@ namespace mfem_mgis {
                   "compute the gradients");
     //
     auto &child = static_cast<Child &>(*this);
+    // the tangent operator blocks change
+    this->fbar_data.has_tangent_operator = false;
     // element offset
     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
     const auto &ir = child.getIntegrationRule(e, tr);
@@ -501,6 +506,227 @@ namespace mfem_mgis {
       }
     }
   }  // end of implementUpdateJacobian
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::integrateBatch(
+      const IntegrationType it) {
+    // the tangent operator blocks change
+    this->fbar_data.has_tangent_operator = false;
+    return BehaviourIntegratorBase::integrateBatch(it);
+  }  // end of integrateBatch
+
+  template <typename Child, Hypothesis H>
+  void FBarBehaviourIntegratorCRTPBase<Child, H>::revert() {
+    this->fbar_data.has_tangent_operator = false;
+    BehaviourIntegratorBase::revert();
+  }  // end of revert
+
+  template <typename Child, Hypothesis H>
+  void FBarBehaviourIntegratorCRTPBase<Child, H>::update() {
+    this->fbar_data.has_tangent_operator = false;
+    BehaviourIntegratorBase::update();
+  }  // end of update
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsKernels()
+      const noexcept {
+    // deformation gradient in 3D or in plane strain, computed by the
+    // kernels as by the FBar behaviour integrator
+    if (!batch::areGradientsKernelsAvailable()) {
+      return false;
+    }
+    const auto k = batch::getGradientsKind(this->b);
+    constexpr auto expected =
+        (H == Hypothesis::PLANESTRAIN)
+            ? batch::GradientsKind::DEFORMATION_GRADIENT_2D
+            : batch::GradientsKind::DEFORMATION_GRADIENT_3D;
+    if ((!k.has_value()) || (*k != expected)) {
+      return false;
+    }
+    // all the elements must use the same integration rule
+    return (this->quadrature_space->getNumberOfElements() == 0) ||
+           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+  }  // end of supportsKernels
+
+  template <typename Child, Hypothesis H>
+  std::vector<const mfem::IntegrationRule*> FBarBehaviourIntegratorCRTPBase<
+      Child,
+      H>::getAdditionalIntegrationRulesForKernels() const {
+    const auto* const r0 =
+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+    if (r0 == nullptr) {
+      return {};
+    }
+    return {r0};
+  }  // end of getAdditionalIntegrationRulesForKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::computeGradientsByKernels(
+      Context& ctx,
+      const batch::UnknownsDerivativesSet& d,
+      const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data, "computeGradientsByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    try {
+      const auto p = d.find(data.rule);
+      const auto* const r0 =
+          batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+      const auto p0 = d.find(r0);
+      const auto g0 = g.find(r0);
+      if ((p == d.end()) || (p0 == d.end()) || (g0 == g.end())) {
+        return ctx.registerErrorMessage(
+            "computeGradientsByKernels: the derivatives of the unknowns or the "
+            "geometric data are not computed for the integration rules of the "
+            "material (points and center of the elements)");
+      }
+      // deformation gradients, then gradients of the FBar formulation
+      if (!batch::computeGradients(ctx, *this, p->second, *(data.geometry),
+                                   data.kind)) {
+        return false;
+      }
+      return batch::applyFBar(ctx, this->fbar_data, *this, p0->second,
+                              g0->second, data.kind);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"computeGradientsByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: unknown exception");
+    }
+  }  // end of computeGradientsByKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addInnerForcesByKernels(
+      Context& ctx,
+      mfem::Vector& f,
+      const batch::ElementsGeometrySet& g) noexcept {
+    // inner forces of the standard finite strain formulation
+    return this->addInnerForcesFromThermodynamicForcesByKernels(ctx, f, g);
+  }  // end of addInnerForcesByKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
+      prepareFBarTangentOperatorForKernels(
+          Context& ctx,
+          KernelsData& data,
+          const char* const name,
+          const batch::ElementsGeometrySet& g) noexcept {
+    if (!this->getKernelsData(ctx, data, name, g)) {
+      return false;
+    }
+    if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
+      return true;
+    }
+    try {
+      if (this->fbar_data.coefficients.Size() != this->n) {
+        // before the first computation of the gradients (prediction of the
+        // first time step): null unknowns
+        const auto* const r0 =
+            batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+        const auto g0 = g.find(r0);
+        if (g0 == g.end()) {
+          return ctx.registerErrorMessage(
+              std::string{name} +
+              ": the geometric data are not computed for the center of the "
+              "elements");
+        }
+        if (!batch::initializeFBar(ctx, this->fbar_data, *this, g0->second,
+                                   data.kind)) {
+          return false;
+        }
+      }
+      const auto use_device = mfem::Device::IsEnabled();
+      return batch::computeFBarTangentOperator(
+          ctx, this->fbar_data, *(this->quadrature_space),
+          this->readTangentOperatorBlocks(use_device), *(data.geometry),
+          data.kind);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(std::string{name} + ": " + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(std::string{name} +
+                                      ": unknown exception");
+    }
+  }  // end of prepareFBarTangentOperatorForKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
+      Context& ctx,
+      mfem::Vector& m,
+      const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->prepareFBarTangentOperatorForKernels(
+            ctx, data, "addStiffnessMatricesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
+                                           *(this->quadrature_space),
+                                           *(data.geometry), data.kind);
+  }  // end of addStiffnessMatricesByKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
+      Context& ctx,
+      const batch::AssembledStiffnessMatrix& m,
+      const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->prepareFBarTangentOperatorForKernels(
+            ctx, data, "addStiffnessMatricesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
+                                           *(this->quadrature_space),
+                                           *(data.geometry), data.kind);
+  }  // end of addStiffnessMatricesByKernels
+
+  template <typename Child, Hypothesis H>
+  bool
+  FBarBehaviourIntegratorCRTPBase<Child, H>::addTangentOperatorActionByKernels(
+      Context& ctx,
+      mfem::Vector& y,
+      const mfem::Vector& x,
+      const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->prepareFBarTangentOperatorForKernels(
+            ctx, data, "addTangentOperatorActionByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFBarTangentOperatorAction(ctx, y, this->fbar_data,
+                                               *(this->quadrature_space), x,
+                                               *(data.geometry), data.kind);
+  }  // end of addTangentOperatorActionByKernels
+
+  template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
+      addTangentOperatorDiagonalByKernels(
+          Context& ctx,
+          mfem::Vector& d,
+          const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->prepareFBarTangentOperatorForKernels(
+            ctx, data, "addTangentOperatorDiagonalByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFBarStiffnessMatricesDiagonals(
+        ctx, d, this->fbar_data, *(this->quadrature_space), *(data.geometry),
+        data.kind);
+  }  // end of addTangentOperatorDiagonalByKernels
 
   template <typename Child, Hypothesis H>
   FBarBehaviourIntegratorCRTPBase<Child,

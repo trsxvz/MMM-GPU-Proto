@@ -3855,8 +3855,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   précision est le meilleur jusqu'à 110 000 inconnues, BoomerAMG agressif
   au-delà. La tangente sans assemblage ne paie pas avec NewtonK0.
 - Six raffinements (6,5 millions d'inconnues) : mémoire du GPU épuisée
-  (allocations d'Umpire refusées à 13,48 Gio, puis à 15,37 Gio avec une
-  réserve de hypre réduite). Le pilote de la poutre affiche maintenant le
+  (allocations d'Umpire refusées vers 13,5 Gio, puis vers 15,3 Gio avec
+  une réserve de hypre réduite). Le pilote de la poutre affiche maintenant le
   message d'erreur d'un pas non convergé (avant : « not converged » sans
   cause) et a une option de verbosité (`-vl`).
 - hypre 3.2 alloue d'un coup une réserve de 4 Gio sur le GPU : mfem-mgis
@@ -3882,3 +3882,28 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   Umpire, documentation (une réserve par processus), test sur le GPU qui
   alloue et vérifie la taille réelle de la réserve (seul à détecter un
   réglage trop tardif).
+
+### 2026-10-11 (nuit), FBar par noyaux (L7.9)
+
+- Formulation FBar calculée par noyaux (`batch::FBarData`,
+  `src/Batch/FBar*.cxx`) : le gradient au centre de chaque élément vient
+  d'une règle d'intégration d'ordre 0, calculée avec les autres règles
+  (nouvelle méthode `getAdditionalIntegrationRulesForKernels` des
+  intégrateurs) ; le noyau des gradients standard donne F, puis un noyau
+  remplace F par `F̄ = α F`, `α = (J0/J)^(1/3)` (1/2 en déformations
+  planes, `F̄33 = 1`), en gardant F et α. Forces intérieures : celles des
+  grandes transformations standard. Tangente : la tangente standard avec
+  `K' = α K + (K F) ⊗ dα/dF`, plus une matrice de rang un par élément
+  `a ⊗ b` (`a` : forces intérieures d'une pseudo-contrainte
+  `α/(ie J0) K F`, `b = dJ0/du`), pour la matrice assemblée, la diagonale
+  et l'action sans matrice. Les aides communes des noyaux (données,
+  blocs de la tangente, forces intérieures) passent de la base standard à
+  `BehaviourIntegratorBase`, partagées avec la base FBar.
+- Tests : `BatchIntegrationTest` compare au calcul point par point FBar,
+  isotrope et orthotrope, en 3D et en déformations planes, avec et sans
+  prédiction, assemblé et sans matrice (diagonale comprise), lois
+  generic, openmp, stlpar et cuda, CPU, `debug`, GPU, 2 processus :
+  écarts de 1e-15 à 1e-12. Sept mutations détectées (terme de rang un de
+  la matrice, de l'action et de la diagonale, terme `v ⊗ c`, α oublié,
+  pseudo-contrainte, F̄33 en déformations planes). Faltus reste refusé
+  (GradientsKernelsTest).

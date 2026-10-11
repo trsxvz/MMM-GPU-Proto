@@ -83,41 +83,6 @@ namespace mfem_mgis {
      * `requiresUnknownsValuesForKernels`)
      */
     mfem::Vector unknowns_values;
-    //! \brief data of the computations by kernels on the material
-    struct KernelsData {
-      //! \brief kind of the gradients
-      batch::GradientsKind kind = batch::GradientsKind::SMALL_STRAIN_3D;
-      //! \brief integration rule of the material, null if it has no element
-      const mfem::IntegrationRule* rule = nullptr;
-      //! \brief geometric data of this rule
-      const batch::ElementsGeometry* geometry = nullptr;
-    };
-    /*!
-     * \brief checks that the material can be processed by kernels (same
-     * integration rule for all its elements, supported behaviour, geometric
-     * data of its rule computed) and gets the data of the computations
-     * \return true on success
-     * \param[in, out] ctx: execution context
-     * \param[out] data: data, whose rule is null if the material has no
-     * element (nothing to compute)
-     * \param[in] name: name of the calling method, for the messages
-     * \param[in] g: geometric data of the integration rules
-     */
-    [[nodiscard]] bool getKernelsData(
-        Context&,
-        KernelsData&,
-        const char* const,
-        const batch::ElementsGeometrySet&) const noexcept;
-    /*!
-     * \return a view of the tangent operator blocks, in the global frame
-     * (rotated after the integration of the behaviour for an orthotropic
-     * behaviour), readable on the device if `d` is true (see
-     * `MaterialArrays`)
-     * \param[in] d: if true, the view is located on the device (if a device
-     * is enabled)
-     */
-    [[nodiscard]] mgis::FieldView<const real> readTangentOperatorBlocks(
-        const bool) const;
     /*!
      * \brief implementation of `addStiffnessMatricesByKernels`
      * \tparam Destination: matrices element by element (`mfem::Vector`) or

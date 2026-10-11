@@ -12,8 +12,7 @@
  * materials with macroscopic gradients) and under the plane strain
  * hypothesis (the plane stress hypothesis uses the same operator, but no
  * behaviour of the tests supports it), on the device selected by the
- * `--device` option; refusal of the FBar formulation and of the
- * regularisation of Faltus et al.
+ * `--device` option; refusal of the regularisation of Faltus et al.
  * \date   09/10/2026
  */
 
@@ -439,8 +438,7 @@ static void testCase(mfem_mgis::Context& ctx,
 }  // end of testCase
 
 /*!
- * \brief the FBar formulation and the regularisation of Faltus et al. are
- * refused
+ * \brief the regularisation of Faltus et al. is refused
  * \param[in] regularisation: regularisation
  */
 static void testRefusal(mfem_mgis::Context& ctx,
@@ -545,7 +543,6 @@ int main(int argc, char** argv) {
   for (const auto& c : cases) {
     testCase(ctx, library, c);
   }
-  testRefusal(ctx, cube, library, {{"FBar", Parameters{}}});
   testRefusal(ctx, cube, library,
               {{"Faltus2026", Parameters{{"PenalizationCoefficient", 1e9}}}});
   std::cout << (failures == 0 ? "success" : "failure") << '\n';

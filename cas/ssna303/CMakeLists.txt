@@ -27,13 +27,28 @@ if(EXISTS "${MFEM_MGIS_EXAMPLES_EX4_DIR}/ssna303_3d_hypre")
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
   set_tests_properties(ssna303-noyaux PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
+  # FBar formulation: point by point, and by kernels on the host and on the
+  # GPU, compared to the reference values of the example with FBar
+  set(_run_fbar mpirun -n 2 ./ssna303_3d_hypre --no-paraview --nbsteps 1
+                --end-time 0.1 --use-fbar
+                --reference-file ssna303_3d-force-10steps-fbar.ref)
+  add_test(NAME ssna303-fbar-point-par-point COMMAND ${_run_fbar}
+    WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
+  add_test(NAME ssna303-fbar-noyaux COMMAND ${_run_fbar}
+    WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
+  set_tests_properties(ssna303-fbar-noyaux PROPERTIES
+    ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
   foreach(_backend ${ssna303-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     if(_backend STREQUAL "cuda")
       add_test(NAME ssna303-batch-${_backend}
         COMMAND ${_run} --device cuda -l "${_library}"
         WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
-      set_tests_properties(ssna303-batch-${_backend} PROPERTIES
+      add_test(NAME ssna303-fbar-batch-${_backend}
+        COMMAND ${_run_fbar} --device cuda -l "${_library}"
+        WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
+      set_tests_properties(ssna303-batch-${_backend}
+        ssna303-fbar-batch-${_backend} PROPERTIES
         ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}"
         RESOURCE_LOCK gpu)
     else()

@@ -11,6 +11,7 @@
 #include <span>
 #include <array>
 #include <memory>
+#include <vector>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/TimeStepStage.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
@@ -160,6 +161,17 @@ namespace mfem_mgis {
      */
     [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
         const noexcept;
+    /*!
+     * \return the integration rules, other than the rule of the elements,
+     * whose derivatives of the unknowns and geometric data are used by the
+     * kernels of this behaviour integrator (for instance the rule of the
+     * center of the elements of the FBar formulation): they are computed
+     * with the ones of the rules of the elements (see
+     * `computeGradientsByKernels`). The default implementation returns no
+     * rule.
+     */
+    [[nodiscard]] virtual std::vector<const mfem::IntegrationRule*>
+    getAdditionalIntegrationRulesForKernels() const;
     /*!
      * \brief compute the gradients at all the integration points by
      * kernels, from the derivatives of the unknowns at the points of the

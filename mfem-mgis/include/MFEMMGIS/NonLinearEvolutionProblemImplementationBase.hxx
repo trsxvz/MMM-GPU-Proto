@@ -84,8 +84,9 @@ namespace mfem_mgis {
      * behaviour integrator computes its gradients by a kernel, on the device
      * if a device is enabled). `Kernels` requires `BehaviourIntegration` set
      * to `Batch`, and is supported, in 3D, plane strain and plane stress,
-     * for the standard mechanical behaviours (small and finite strain,
-     * without FBar nor regularisation), the stationary non linear heat
+     * for the standard mechanical behaviours (small and finite strain, with
+     * the FBar formulation in 3D and in plane strain, without the other
+     * regularisations), the stationary non linear heat
      * transfer behaviours, the transient term of the heat equation and the
      * micromorphic damage behaviours, on meshes with one geometry (NURBS
      * meshes excepted). The default value is given by the environment
