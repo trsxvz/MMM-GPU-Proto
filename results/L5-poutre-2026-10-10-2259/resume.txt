@@ -1,0 +1,143 @@
+date : 2026-10-10 22:59:53
+cas : poutre
+machine : 16 cœurs, 30 Go
+charge : 0.79 1.47 1.53
+mfem-mgis : de2e76a913
+== k0-amg
+   statut 0
+dofs 111843 | solver cg-amg | setup 6.503e-05 s
+first resolution | time 0.09408 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06857 s | iterations 70 | residual 2.005e-08
+resolution | time 0.07153 s | iterations 70 | residual 2.005e-08
+resolution | time 0.07005 s | iterations 70 | residual 2.005e-08
+resolution | time 0.07154 s | iterations 70 | residual 2.005e-08
+resolution | time 0.07159 s | iterations 70 | residual 2.005e-08
+== k0-amg-agressif
+   statut 0
+dofs 111843 | solver cg-amg | setup 6.368e-05 s
+first resolution | time 0.1002 s | iterations 80 | residual 3.412e-08
+resolution | time 0.06881 s | iterations 80 | residual 3.412e-08
+resolution | time 0.06845 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07038 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07061 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07171 s | iterations 80 | residual 3.412e-08
+== k0-pcg-amg
+   statut 0
+dofs 111843 | solver pcg-amg | setup 5.902e-05 s
+first resolution | time 0.08797 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06531 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06744 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06506 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06525 s | iterations 70 | residual 2.005e-08
+resolution | time 0.0635 s | iterations 70 | residual 2.005e-08
+== k0-amgx-defaut
+   statut 0
+dofs 111843 | solver cg-amgx | setup 0.1925 s
+first resolution | time 1.909 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.959 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.945 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.955 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.978 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.941 s | iterations 1078 | residual 3.941e-08
+== k0-amgx-regle
+   statut 0
+dofs 111843 | solver cg-amgx | setup 0.07112 s
+first resolution | time 0.09612 s | iterations 111 | residual 3.205e-08
+resolution | time 0.09254 s | iterations 111 | residual 3.205e-08
+resolution | time 0.09263 s | iterations 111 | residual 3.205e-08
+resolution | time 0.09208 s | iterations 111 | residual 3.205e-08
+resolution | time 0.0923 s | iterations 111 | residual 3.205e-08
+resolution | time 0.09178 s | iterations 111 | residual 3.205e-08
+== k0-amgx-regle-balayages2
+   statut 0
+dofs 111843 | solver cg-amgx | setup 0.06636 s
+first resolution | time 0.1159 s | iterations 96 | residual 2.215e-08
+resolution | time 0.1232 s | iterations 96 | residual 2.215e-08
+resolution | time 0.1218 s | iterations 96 | residual 2.215e-08
+resolution | time 0.1224 s | iterations 96 | residual 2.215e-08
+resolution | time 0.1193 s | iterations 96 | residual 2.215e-08
+resolution | time 0.1077 s | iterations 96 | residual 2.215e-08
+== k0-amgx-regle-simple
+   statut 0
+dofs 111843 | solver cg-amgx | setup 0.0669 s
+first resolution | time 0.06525 s | iterations 110 | residual 3.029e-08
+resolution | time 0.06021 s | iterations 110 | residual 3.029e-08
+resolution | time 0.0607 s | iterations 110 | residual 3.029e-08
+resolution | time 0.0579 s | iterations 110 | residual 3.029e-08
+resolution | time 0.05305 s | iterations 110 | residual 3.029e-08
+resolution | time 0.05443 s | iterations 110 | residual 3.029e-08
+== k0-amgx-defaut-simple
+   statut 0
+dofs 111843 | solver cg-amgx | setup 0.1757 s
+first resolution | time 1.156 s | iterations 1110 | residual 3.742e-08
+resolution | time 1.113 s | iterations 1110 | residual 3.742e-08
+resolution | time 1.098 s | iterations 1110 | residual 3.742e-08
+resolution | time 1.098 s | iterations 1110 | residual 3.742e-08
+resolution | time 1.099 s | iterations 1110 | residual 3.742e-08
+resolution | time 1.098 s | iterations 1110 | residual 3.742e-08
+== k0-amgx-pcg-regle
+   statut 0
+dofs 111843 | solver amgx-pcg | setup 0.06325 s
+first resolution | time 0.08166 s | iterations 116 | residual 9.732e-09
+resolution | time 0.07767 s | iterations 116 | residual 9.732e-09
+resolution | time 0.07807 s | iterations 116 | residual 9.732e-09
+resolution | time 0.07813 s | iterations 116 | residual 9.732e-09
+resolution | time 0.08019 s | iterations 116 | residual 9.732e-09
+resolution | time 0.08042 s | iterations 116 | residual 9.732e-09
+== k0-jacobi
+   statut 0
+dofs 111843 | solver cg-jacobi | setup 0.0009865 s
+first resolution | time 0.2267 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2268 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2261 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2281 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2269 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2268 s | iterations 1862 | residual 9.594e-09
+== poutre-np1-gpu-amg : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704575 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 1.985 s
+== poutre-np1-gpu-amg-agressif : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704621 | iterations per step: 2 2 2 3 4 4 4 4 5 4 | total 34
+time 1.864 s
+== poutre-np1-gpu-amgx-defaut : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704517 | iterations per step: 2 2 3 7 13 13 13 10 13 14 | total 90
+time 51.529 s
+== poutre-np1-gpu-amgx-regle : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704573 | iterations per step: 2 2 2 3 4 4 5 5 5 5 | total 37
+time 1.946 s
+== poutre-np1-gpu-amgx-regle-balayages2 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704579 | iterations per step: 2 2 2 3 4 5 5 5 5 5 | total 38
+time 2.388 s
+== poutre-np1-gpu-amgx-regle-simple : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704556 | iterations per step: 2 2 2 4 4 4 4 5 5 5 | total 37
+time 1.580 s
+== poutre-np8-amg : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704612 | iterations per step: 2 2 2 4 4 4 5 5 5 5 | total 38
+time 9.225 s
+== poutre-np8-amg-agressif : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704598 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 7.400 s
+== poutre-np8-amgx-defaut : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704534 | iterations per step: 2 2 3 7 11 14 13 11 13 16 | total 92
+time 848.703 s
+== poutre-np8-amgx-regle : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704747 | iterations per step: 2 2 2 3 6 5 5 5 5 5 | total 40
+time 133.455 s
+== poutre-np8-amgx-regle-balayages2 : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 6 5 5 5 7 7 | total 44
+time 166.782 s
+== poutre-np8-amgx-regle-simple : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704525 | iterations per step: 2 2 2 3 5 5 5 5 5 5 | total 39
+time 127.881 s

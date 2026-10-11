@@ -63,3 +63,27 @@ foreach(_backend ${poutre-behaviours_BACKENDS})
               -l "${_library}" -en ${norm})
   endif()
 endforeach()
+
+# resolution of the elastic operator of the beam (operator K0 of the
+# NewtonK0 method) by the linear solvers of the factory: setup and
+# resolutions timed separately
+add_executable(poutre-k0 poutre-k0.cxx)
+target_link_libraries(poutre-k0 PRIVATE mfem-mgis::MFEMMGIS)
+add_test(NAME poutre-k0-cg-amg
+  COMMAND mpirun -n 2 ./poutre-k0 -r 1 -n 1 -s cg-amg)
+
+# the solvers of AmgX, if mfem-mgis uses AmgX: the same solution as the other
+# linear solvers
+if(MFEMMGIS_HAVE_AMGX)
+  add_test(NAME poutre-cg-amgx
+    COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls cg-amgx -en ${norm})
+  add_test(NAME poutre-amgx-pcg
+    COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls amgx-pcg -en ${norm})
+  add_test(NAME poutre-newton-k0-amgx
+    COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -nls fixed-point -fpm newton-k0
+            -els amgx -k0 -pk0 -en ${norm})
+  add_test(NAME poutre-k0-cg-amgx
+    COMMAND mpirun -n 2 ./poutre-k0 -r 1 -n 1 -s cg-amgx -amgxs)
+  set_tests_properties(poutre-cg-amgx poutre-amgx-pcg poutre-newton-k0-amgx
+                       poutre-k0-cg-amgx PROPERTIES RESOURCE_LOCK gpu)
+endif()

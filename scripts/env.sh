@@ -52,6 +52,10 @@ case "$PROTO_ENVIRONMENT" in
     export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_SPACK_VIEW
     export PKG_CONFIG_PATH=$PROTO_SPACK_VIEW/lib/pkgconfig:$PROTO_SPACK_VIEW/share/pkgconfig
     export CUDA_HOME=$PROTO_CUDA
+    # AmgX of mfem-mgis: the AmgX patched for CUDA 13 (classical multigrid,
+    # recipe amgx of mmm_gpu), installed but not yet in the environment,
+    # whose MFEM contains the unpatched AmgX (see deps/spack/README.md)
+    export AMGX_DIR=${AMGX_DIR:-/home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/amgx-2.5.0.20260701-xupvzscun6yxw2kmubrm4eogjxtq6uns}
     ;;
   *)
     echo "env.sh: unknown environment '$PROTO_ENVIRONMENT'" >&2

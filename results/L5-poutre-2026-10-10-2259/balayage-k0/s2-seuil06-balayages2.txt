@@ -1,0 +1,10 @@
+AMGX version 2.5.0
+Built on Oct 10 2026, 13:38:20
+Compiled with CUDA Runtime 13.0, using CUDA driver 13.2
+dofs 111843 | solver cg-amgx | setup 0.08105 s
+first resolution | time 0.2032 s | iterations 102 | residual 1.796e-08
+resolution | time 0.1987 s | iterations 102 | residual 1.796e-08
+resolution | time 0.198 s | iterations 102 | residual 1.796e-08
+resolution | time 0.2028 s | iterations 102 | residual 1.796e-08
+resolution | time 0.1992 s | iterations 102 | residual 1.796e-08
+resolution | time 0.1974 s | iterations 102 | residual 1.796e-08

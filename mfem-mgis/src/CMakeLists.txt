@@ -51,6 +51,7 @@ list(APPEND MFEMMGIS_SOURCES
   SolverUtilities.cxx
   LinearSolverHandler.cxx
   LinearSolverFactory.cxx
+  AmgXSolvers.cxx
   AbstractNonLinearSolver.cxx
   NonLinearSolverBase.cxx
   NonLinearSolverFactory.cxx
@@ -160,6 +161,10 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/InnerForcesKernels.cxx
   Batch/StiffnessMatricesKernels.cxx
   Batch/ElementsGeometryKernels.cxx)
+# conversions of the vectors exchanged with AmgX in single precision
+if(MFEM_MGIS_HAVE_AMGX)
+  list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
+endif()
 if(MFEM_USE_HIP STREQUAL "YES")
   message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
           "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
@@ -184,6 +189,17 @@ endif()
 # project may define on its own
 if(MFEM_USE_CUDA STREQUAL "YES")
   target_link_libraries(MFEMMGIS PUBLIC CUDA::cudart)
+endif()
+# AmgX precedes MFEM in the link line: a MFEM compiled with AmgX contains
+# its own copy of AmgX (static library), which the library of AmgX given to
+# mfem-mgis replaces
+if(MFEM_MGIS_HAVE_AMGX)
+  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_AMGX)
+  foreach(_property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+    get_target_property(_libraries MFEMMGIS ${_property})
+    set_property(TARGET MFEMMGIS PROPERTY ${_property}
+                 AMGX::amgxsh ${_libraries})
+  endforeach(_property)
 endif()
 if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
  target_compile_definitions(MFEMMGIS PUBLIC 

@@ -1,0 +1,384 @@
+From 8c496bfe31ea19f55ba36c9743abc3de7bfa1bd5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 13:51:56 +0200
+Subject: [PATCH] AmgX: parameters of AmgX completing the default configuration
+
+The configurations generated for the AmgX and AmgXPCG solvers are
+written in the name=value format of AmgX, the default multigrid being
+the one of MFEM. The option AmgXParameters gives parameters of AmgX with
+their names in AmgX (strength_threshold, interpolator...), which complete
+or override this configuration: a name without scope is given to the
+multigrid, a name scope:name as is. The parameters of the conjugate
+gradient of AmgXPCG are refused, its options being used to check the
+convergence.
+---
+ src/AmgXSolvers.cxx      | 207 ++++++++++++++++++++++++++++-----------
+ src/AmgXSolvers.hxx      |  20 +++-
+ tests/AmgXSolverTest.cxx |  36 +++++++
+ 3 files changed, 203 insertions(+), 60 deletions(-)
+
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index b9dc7c6c93..173d8a8106 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -85,6 +85,97 @@ namespace mfem_mgis::internals {
+     return s;
+   }  // end of initialise
+ 
++  //! \brief name of the option giving parameters of AmgX
++  static const char* const AmgXParameters = "AmgXParameters";
++
++  /*!
++   * \return a stream writing a configuration of AmgX in its format
++   * `name=value`, the reals being written exactly
++   */
++  static std::ostringstream makeConfigurationStream() {
++    auto c = std::ostringstream{};
++    c.imbue(std::locale::classic());
++    c << std::setprecision(std::numeric_limits<real>::max_digits10);
++    return c;
++  }  // end of makeConfigurationStream
++
++  /*!
++   * \brief writes the parameters of the default multigrid of MFEM (scope
++   * `amg`): one V-cycle of the classical algebraic multigrid with a
++   * L1-Jacobi smoother
++   * \param[in, out] c: configuration
++   * \param[in] verbose: print the statistics of AmgX
++   */
++  static void writeDefaultMultigridParameters(std::ostringstream& c,
++                                              const bool verbose) {
++    c << "amg:max_iters=1, amg:cycle=V, amg:max_levels=100, "
++      << "amg:smoother(smoother)=JACOBI_L1, amg:presweeps=1, "
++      << "amg:postsweeps=1, amg:interpolator=D2, amg:max_row_sum=0.9, "
++      << "amg:strength_threshold=0.25";
++    if (verbose) {
++      c << ", amg:print_grid_stats=1, amg:obtain_timings=1";
++    }
++  }  // end of writeDefaultMultigridParameters
++
++  /*!
++   * \brief writes parameters of AmgX given by the user (option
++   * `AmgXParameters`), which override the previous values: a parameter
++   * without scope is given to the multigrid (scope `amg`), a parameter
++   * `scope:name` as is
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] c: configuration
++   * \param[in] params: options
++   * \param[in] forbidden_scope: scope of the parameters refused, if not
++   * empty
++   */
++  static bool writeAmgXParameters(
++      Context& ctx,
++      std::ostringstream& c,
++      const Parameters& params,
++      const std::string& forbidden_scope = "") noexcept {
++    if (!contains(params, AmgXParameters)) {
++      return true;
++    }
++    const auto oparameters = get<Parameters>(ctx, params, AmgXParameters);
++    if (isInvalid(oparameters)) {
++      return false;
++    }
++    for (const auto& [name, value] : *oparameters) {
++      if ((name.empty()) || (name.find_first_of(",= ") != std::string::npos)) {
++        return ctx.registerErrorMessage(
++            "AmgX: invalid name of a parameter of AmgX '" + name + "'");
++      }
++      if ((!forbidden_scope.empty()) &&
++          (name.starts_with(forbidden_scope + ":"))) {
++        return ctx.registerErrorMessage(
++            "AmgX: the parameter of AmgX '" + name +
++            "' is given by the options of the solver");
++      }
++      c << ", " << (name.find(':') == std::string::npos ? "amg:" : "") << name
++        << '=';
++      if (is<bool>(value)) {
++        c << (*get<bool>(ctx, value) ? 1 : 0);
++      } else if (is<int>(value)) {
++        c << *get<int>(ctx, value);
++      } else if (is<real>(value)) {
++        c << *get<real>(ctx, value);
++      } else if (is<std::string>(value)) {
++        const auto& v = *get<std::string>(ctx, value);
++        if ((v.empty()) || (v.find_first_of(",= ") != std::string::npos)) {
++          return ctx.registerErrorMessage(
++              "AmgX: invalid value of the parameter of AmgX '" + name + "'");
++        }
++        c << v;
++      } else {
++        return ctx.registerErrorMessage(
++            "AmgX: invalid type of the parameter of AmgX '" + name +
++            "' (boolean, integer, real or string expected)");
++      }
++    }
++    return true;
++  }  // end of writeAmgXParameters
++
+   template <bool parallel>
+   std::unique_ptr<AmgXSolver> makeAmgXPreconditioner(
+       Context& ctx,
+@@ -96,7 +187,7 @@ namespace mfem_mgis::internals {
+     if (!checkParameters(
+             ctx, params,
+             std::vector<std::string>{Configuration, ConfigurationFile,
+-                                     VerbosityLevel})) {
++                                     VerbosityLevel, AmgXParameters})) {
+       return {};
+     }
+     const auto oconfiguration =
+@@ -115,11 +206,12 @@ namespace mfem_mgis::internals {
+           "AmgX: the options 'Configuration' and 'ConfigurationFile' are "
+           "exclusive");
+     }
+-    if ((has_configuration || has_file) && contains(params, VerbosityLevel)) {
++    if ((has_configuration || has_file) && (contains(params, VerbosityLevel) ||
++                                            contains(params, AmgXParameters))) {
+       return ctx.registerErrorMessage(
+-          "AmgX: the verbosity level only applies to the default "
+-          "configuration (a configuration given defines the outputs of "
+-          "AmgX)");
++          "AmgX: the verbosity level and the parameters of AmgX only apply "
++          "to the default configuration (a configuration given defines all "
++          "the parameters of AmgX)");
+     }
+     if (has_configuration && oconfiguration->empty()) {
+       return ctx.registerErrorMessage("AmgX: empty configuration");
+@@ -128,53 +220,34 @@ namespace mfem_mgis::internals {
+       return ctx.registerErrorMessage(
+           "AmgX: can't open the configuration file '" + *ofile + "'");
+     }
+-    auto s = has_file ? std::make_unique<AmgXSolver>(
+-                            *ofile, mfem::AmgXSolver::EXTERNAL, false,
+-                            std::optional<int>{})
+-                      : std::make_unique<AmgXSolver>(
+-                            *oconfiguration, mfem::AmgXSolver::INTERNAL,
+-                            *overbosity > 0, std::optional<int>{});
+-    return initialise<parallel>(std::move(s), fespace);
+-  }  // end of makeAmgXPreconditioner
+-
+-  /*!
+-   * \return the configuration of the conjugate gradient of AmgX,
+-   * preconditioned by one V-cycle of the default configuration of MFEM
+-   * \param[in] rtol: relative tolerance
+-   * \param[in] atol: absolute tolerance
+-   * \param[in] n: maximum number of iterations
+-   * \param[in] verbose: print the statistics of AmgX
+-   */
+-  static std::string getConjugateGradientConfiguration(const real rtol,
+-                                                       const real atol,
+-                                                       const int n,
+-                                                       const bool verbose) {
+-    auto c = std::ostringstream{};
+-    c.imbue(std::locale::classic());
+-    c << std::setprecision(std::numeric_limits<real>::max_digits10);
+-    c << "{\"config_version\": 2, \"solver\": {"
+-      << "\"solver\": \"PCG\", \"scope\": \"main\", \"norm\": \"L2\", "
+-      << "\"monitor_residual\": 1, \"max_iters\": " << n << ", ";
+-    if (atol > 0) {
+-      // converged if the norm of the residual is lower than `tolerance` or
+-      // than `alt_rel_tolerance` times the norm of the initial residual
+-      c << "\"convergence\": \"COMBINED_REL_INI_ABS\", \"tolerance\": " << atol
+-        << ", \"alt_rel_tolerance\": " << rtol << ", ";
+-    } else {
+-      c << "\"convergence\": \"RELATIVE_INI_CORE\", \"tolerance\": " << rtol
+-        << ", ";
++    if (has_file) {
++      return initialise<parallel>(
++          std::make_unique<AmgXSolver>(*ofile, mfem::AmgXSolver::EXTERNAL,
++                                       false, std::optional<int>{}),
++          fespace);
+     }
+-    if (verbose) {
+-      c << "\"obtain_timings\": 1, \"print_grid_stats\": 1, "
+-        << "\"print_solve_stats\": 1, ";
++    if (has_configuration) {
++      return initialise<parallel>(
++          std::make_unique<AmgXSolver>(*oconfiguration,
++                                       mfem::AmgXSolver::INTERNAL, false,
++                                       std::optional<int>{}),
++          fespace);
++    }
++    // default configuration, completed by the parameters given
++    auto c = makeConfigurationStream();
++    c << "config_version=2, solver(amg)=AMG, ";
++    writeDefaultMultigridParameters(c, *overbosity > 0);
++    if (*overbosity > 0) {
++      c << ", amg:print_solve_stats=1";
+     }
+-    c << "\"preconditioner\": {\"solver\": \"AMG\", \"scope\": \"amg\", "
+-      << "\"smoother\": {\"scope\": \"jacobi\", \"solver\": \"JACOBI_L1\"}, "
+-      << "\"presweeps\": 1, \"postsweeps\": 1, \"interpolator\": \"D2\", "
+-      << "\"max_row_sum\": 0.9, \"strength_threshold\": 0.25, "
+-      << "\"max_iters\": 1, \"max_levels\": 100, \"cycle\": \"V\"}}}";
+-    return c.str();
+-  }  // end of getConjugateGradientConfiguration
++    if (!writeAmgXParameters(ctx, c, params)) {
++      return {};
++    }
++    return initialise<parallel>(
++        std::make_unique<AmgXSolver>(c.str(), mfem::AmgXSolver::INTERNAL, false,
++                                     std::optional<int>{}),
++        fespace);
++  }  // end of makeAmgXPreconditioner
+ 
+   template <bool parallel>
+   std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver(
+@@ -182,7 +255,9 @@ namespace mfem_mgis::internals {
+       FiniteElementSpace<parallel>& fespace,
+       const Parameters& params) noexcept {
+     using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(ctx, params, getIterativeSolverParametersList())) {
++    auto allowed_parameters = getIterativeSolverParametersList();
++    allowed_parameters.push_back(AmgXParameters);
++    if (!checkParameters(ctx, params, allowed_parameters)) {
+       return {};
+     }
+     // default values of the solver configuration of MFEM
+@@ -207,10 +282,32 @@ namespace mfem_mgis::internals {
+           "AmgXPCG: the maximum number of iterations must be strictly "
+           "positive");
+     }
+-    const auto c =
+-        getConjugateGradientConfiguration(*ortol, *oatol, *on, *overbosity > 0);
+-    auto s =
+-        std::make_unique<AmgXSolver>(c, mfem::AmgXSolver::INTERNAL, false, *on);
++    // conjugate gradient preconditioned by the default multigrid, completed
++    // by the parameters given
++    auto c = makeConfigurationStream();
++    c << "config_version=2, solver(main)=PCG, main:max_iters=" << *on
++      << ", main:monitor_residual=1, main:norm=L2, ";
++    if (*oatol > 0) {
++      // converged if the norm of the residual is lower than `tolerance` or
++      // than `alt_rel_tolerance` times the norm of the initial residual
++      c << "main:convergence=COMBINED_REL_INI_ABS, main:tolerance=" << *oatol
++        << ", main:alt_rel_tolerance=" << *ortol << ", ";
++    } else {
++      c << "main:convergence=RELATIVE_INI_CORE, main:tolerance=" << *ortol
++        << ", ";
++    }
++    if (*overbosity > 0) {
++      c << "main:obtain_timings=1, main:print_solve_stats=1, ";
++    }
++    c << "main:preconditioner(amg)=AMG, ";
++    writeDefaultMultigridParameters(c, *overbosity > 0);
++    // the parameters of the conjugate gradient (scope `main`) are given by
++    // the options of the solver, used to check the convergence
++    if (!writeAmgXParameters(ctx, c, params, "main")) {
++      return {};
++    }
++    auto s = std::make_unique<AmgXSolver>(c.str(), mfem::AmgXSolver::INTERNAL,
++                                          false, *on);
+     return initialise<parallel>(std::move(s), fespace);
+   }  // end of makeAmgXConjugateGradientSolver
+ 
+diff --git a/src/AmgXSolvers.hxx b/src/AmgXSolvers.hxx
+index 9c1eec954f..a87c8e8963 100644
+--- a/src/AmgXSolvers.hxx
++++ b/src/AmgXSolvers.hxx
+@@ -75,10 +75,17 @@ namespace mfem_mgis::internals {
+    * - `ConfigurationFile`: file containing the configuration of AmgX (the
+    *   configurations distributed with AmgX are in `lib/configs`);
+    * - `VerbosityLevel`: if strictly positive, AmgX prints the statistics of
+-   *   the default configuration.
+-   * Without configuration, the default one of MFEM is used: one V-cycle of
+-   * the classical algebraic multigrid with a L1-Jacobi smoother. An
+-   * invalid configuration aborts the program (AmgX checks it).
++   *   the default configuration;
++   * - `AmgXParameters`: parameters of AmgX, with their names in AmgX
++   *   (`strength_threshold`, `interpolator`, ...), which complete or
++   *   override the default configuration. A parameter without scope is
++   *   given to the multigrid (scope `amg`), a parameter `scope:name` as is
++   *   (the smoother has the scope `smoother`).
++   * The default configuration is the one of MFEM: one V-cycle of the
++   * classical algebraic multigrid with a L1-Jacobi smoother (one sweep
++   * before and after the coarse correction), the D2 interpolation and a
++   * strength threshold of 0.25. An invalid configuration aborts the program
++   * (AmgX checks it).
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+@@ -96,7 +103,10 @@ namespace mfem_mgis::internals {
+    * `RelativeTolerance`, `AbsoluteTolerance`,
+    * `MaximumNumberOfIterations`), with the convergence criterion of MFEM:
+    * the norm of the residual is lower than the absolute tolerance or than
+-   * the relative tolerance times the norm of the initial residual.
++   * the relative tolerance times the norm of the initial residual. The
++   * option `AmgXParameters` gives parameters of the multigrid, as for the
++   * `AmgX` solver; the parameters of the conjugate gradient (scope `main`)
++   * are refused.
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index dd6686e948..12925526c4 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -238,6 +238,16 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+             (std::abs(rc1.residual - rc0.residual) <= 1e-6 * rc0.residual),
+         "AmgX: one cycle does not reduce the residual or depends on the "
+         "initial value of the solution");
++  // parameters of AmgX completing the default configuration: two cycles
++  // reduce the residual more than one
++  auto amg2 = generate<is_parallel>(
++      fespace, "AmgX",
++      Parameters{{"AmgXParameters", Parameters{{"max_iters", 2}}}});
++  const auto rc2 = solve<is_parallel>(fespace, *(amg2.linear_solver), A, B);
++  print("AmgX, two cycles", rc2);
++  check(rc2.residual < 0.9 * rc0.residual,
++        "AmgX: the parameters of AmgX are not taken into account (two "
++        "cycles)");
+   // conjugate gradient of AmgX
+   auto pcg =
+       generate<is_parallel>(fespace, "AmgXPCG",
+@@ -260,6 +270,21 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   print("AmgXPCG, two iterations", rp2);
+   check((!rp2.converged) && (rp2.iterations == 2) && (rp2.residual > 1e-9),
+         "AmgXPCG: resolution not converged in two iterations");
++  // two cycles of the multigrid per iteration: fewer iterations
++  auto pcgc = generate<is_parallel>(
++      fespace, "AmgXPCG",
++      Parameters{
++          {"RelativeTolerance", 1e-10},
++          {"MaximumNumberOfIterations", 200},
++          {"AmgXParameters",
++           Parameters{{"max_iters", 2}, {"smoother:relaxation_factor", 0.9}}}});
++  const auto rpc = solve<is_parallel>(fespace, *(pcgc.linear_solver), A, B);
++  print("AmgXPCG, two cycles", rpc);
++  check(rpc.converged && (rpc.residual < 1e-9) && rp.iterations.has_value() &&
++            rpc.iterations.has_value() &&
++            (*(rpc.iterations) < *(rp.iterations)),
++        "AmgXPCG: the parameters of AmgX are not taken into account (two "
++        "cycles)");
+   // absolute tolerance only
+   const auto nB = std::sqrt(dot<is_parallel>(fespace, B, B));
+   auto pcga =
+@@ -300,6 +325,8 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   pcg = LinearSolverHandler{};
+   pcg2 = LinearSolverHandler{};
+   pcga = LinearSolverHandler{};
++  amg2 = LinearSolverHandler{};
++  pcgc = LinearSolverHandler{};
+   {
+     auto a = generate<is_parallel>(fespace, "AmgXPCG",
+                                    Parameters{{"RelativeTolerance", 1e-10}});
+@@ -320,6 +347,15 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+       {"AmgXPCG", Parameters{{"RelativeTolerance", 0.}}},
+       {"AmgXPCG", Parameters{{"MaximumNumberOfIterations", 0}}},
+       {"AmgXPCG", Parameters{{"Configuration", aggregation}}},
++      {"AmgX", Parameters{{"Configuration", aggregation},
++                          {"AmgXParameters", Parameters{{"max_iters", 2}}}}},
++      {"AmgX",
++       Parameters{{"AmgXParameters", Parameters{{"max_iters", Parameters{}}}}}},
++      {"AmgX", Parameters{{"AmgXParameters", Parameters{{"max=iters", 2}}}}},
++      {"AmgX", Parameters{{"AmgXParameters",
++                           Parameters{{"interpolator", "D2, amg:cycle=W"}}}}},
++      {"AmgXPCG",
++       Parameters{{"AmgXParameters", Parameters{{"main:max_iters", 2}}}}},
+       {"CGSolver",
+        Parameters{{"Preconditioner",
+                    Parameters{{"Name", "AmgX"},
+-- 
+2.43.0
+

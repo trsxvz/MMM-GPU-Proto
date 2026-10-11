@@ -1,0 +1,707 @@
+From dbc963185e6164ed1873c7a7a517c12d1957a2ba Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 01:47:26 +0200
+Subject: [PATCH] AmgX: scaled right hand side, second review of the wrapper
+
+- the convergence criteria of AmgX also stop when the norm of the
+  residual is lower than 1e-20 (immediately if the norm of the initial
+  residual is): without absolute tolerance, AmgXPCG multiplies the right
+  hand side by a power of two giving it a norm between one and two, and
+  the solution by its inverse (exact operations), so that its relative
+  criterion does not depend on the scale of the right hand side; the
+  preconditioner in single precision does the same with its default
+  configuration, to stay in the range of the single precision; absolute
+  tolerances lower than 1e-20 are refused
+- options of a solver gathered in AmgXSolverOptions
+- the collective checks of SetOperator throw a CollectiveFailure
+- a resolution fails until AmgX gives its status (an exception left the
+  status of the previous resolution)
+- documentation of the floors of the convergence criteria
+- tests: right hand sides multiplied by 1e-15, 1e-25, 1e-40 and 1e45 in
+  double and single precision, zero right hand side, right hand side of
+  invalid size, status after a failed resolution, absolute tolerance
+  floor, message of the factory without GPU, synchronisation of the
+  processes by point to point messages (a barrier could hide a
+  collective destruction of the resources)
+---
+ src/AmgXKernels.cxx      |  28 +++++++--
+ src/AmgXKernels.hxx      |  30 ++++++---
+ src/AmgXSolvers.cxx      | 130 ++++++++++++++++++++++++++++++---------
+ src/AmgXSolvers.hxx      |  63 ++++++++++++++-----
+ tests/AmgXSolverTest.cxx | 101 ++++++++++++++++++++++++++++--
+ 5 files changed, 290 insertions(+), 62 deletions(-)
+
+diff --git a/src/AmgXKernels.cxx b/src/AmgXKernels.cxx
+index 7add29afe5..26914ffe4b 100644
+--- a/src/AmgXKernels.cxx
++++ b/src/AmgXKernels.cxx
+@@ -1,7 +1,7 @@
+ /*!
+  * \file   src/AmgXKernels.cxx
+- * \brief  This file implements the conversions of the vectors exchanged
+- * with the solvers of AmgX in single precision
++ * \brief  This file implements the scaling and the conversions of the
++ * vectors exchanged with the solvers of AmgX
+  * \date   10/10/2026
+  * \note   compiled as CUDA code when MFEM is compiled with CUDA
+  */
+@@ -11,25 +11,41 @@
+ 
+ namespace mfem_mgis::internals {
+ 
+-  void convertToSinglePrecision(mfem::Array<float>& d, const mfem::Vector& s) {
++  void scale(mfem::Vector& d, const mfem::Vector& s, const double f) {
+     const auto n = s.Size();
+     const auto use_device = s.UseDevice() && mfem::Device::IsEnabled();
+     d.SetSize(n);
++    d.UseDevice(s.UseDevice());
+     const auto* const ps = s.Read(use_device);
+     auto* const pd = d.Write(use_device);
+     mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(const int i) {
+-      pd[i] = static_cast<float>(ps[i]);
++      pd[i] = f * ps[i];
++    });
++  }  // end of scale
++
++  void convertToSinglePrecision(mfem::Array<float>& d,
++                                const mfem::Vector& s,
++                                const double f) {
++    const auto n = s.Size();
++    const auto use_device = s.UseDevice() && mfem::Device::IsEnabled();
++    d.SetSize(n);
++    const auto* const ps = s.Read(use_device);
++    auto* const pd = d.Write(use_device);
++    mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(const int i) {
++      pd[i] = static_cast<float>(f * ps[i]);
+     });
+   }  // end of convertToSinglePrecision
+ 
+-  void convertToDoublePrecision(mfem::Vector& d, const mfem::Array<float>& s) {
++  void convertToDoublePrecision(mfem::Vector& d,
++                                const mfem::Array<float>& s,
++                                const double f) {
+     const auto n = s.Size();
+     const auto use_device = d.UseDevice() && mfem::Device::IsEnabled();
+     d.SetSize(n);
+     const auto* const ps = s.Read(use_device);
+     auto* const pd = d.Write(use_device);
+     mfem::forall_switch(use_device, n, [=] MFEM_HOST_DEVICE(const int i) {
+-      pd[i] = static_cast<double>(ps[i]);
++      pd[i] = f * static_cast<double>(ps[i]);
+     });
+   }  // end of convertToDoublePrecision
+ 
+diff --git a/src/AmgXKernels.hxx b/src/AmgXKernels.hxx
+index 48efffbf74..5b656c2649 100644
+--- a/src/AmgXKernels.hxx
++++ b/src/AmgXKernels.hxx
+@@ -1,7 +1,7 @@
+ /*!
+  * \file   src/AmgXKernels.hxx
+- * \brief  This file declares the conversions of the vectors exchanged with
+- * the solvers of AmgX in single precision (internal header)
++ * \brief  This file declares the scaling and the conversions of the vectors
++ * exchanged with the solvers of AmgX (internal header)
+  * \date   10/10/2026
+  */
+ 
+@@ -14,19 +14,33 @@
+ namespace mfem_mgis::internals {
+ 
+   /*!
+-   * \brief converts a vector in double precision to single precision, on
+-   * the device if the vector uses it
++   * \brief multiplies a vector by a factor, on the device if the vector
++   * uses it
++   * \param[out] d: result, resized
++   * \param[in] s: vector
++   * \param[in] f: factor
++   */
++  void scale(mfem::Vector&, const mfem::Vector&, const double);
++  /*!
++   * \brief converts a vector in double precision, multiplied by a factor,
++   * to single precision, on the device if the vector uses it
+    * \param[out] d: values in single precision, resized
+    * \param[in] s: vector
++   * \param[in] f: factor
+    */
+-  void convertToSinglePrecision(mfem::Array<float>&, const mfem::Vector&);
++  void convertToSinglePrecision(mfem::Array<float>&,
++                                const mfem::Vector&,
++                                const double = 1);
+   /*!
+-   * \brief converts values in single precision to a vector in double
+-   * precision, on the device if the vector uses it
++   * \brief converts values in single precision, multiplied by a factor, to
++   * a vector in double precision, on the device if the vector uses it
+    * \param[out] d: vector, of the size of the values
+    * \param[in] s: values in single precision
++   * \param[in] f: factor
+    */
+-  void convertToDoublePrecision(mfem::Vector&, const mfem::Array<float>&);
++  void convertToDoublePrecision(mfem::Vector&,
++                                const mfem::Array<float>&,
++                                const double = 1);
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index 188988ec97..27511f38c1 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -10,6 +10,7 @@
+ #ifdef MFEM_MGIS_HAVE_AMGX
+ 
+ #include <array>
++#include <cmath>
+ #include <limits>
+ #include <locale>
+ #include <vector>
+@@ -27,6 +28,7 @@
+ #include "mfem/linalg/hypre.hpp"
+ #include "mfem/fem/pfespace.hpp"
+ #endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "AmgXKernels.hxx"
+@@ -196,15 +198,33 @@ namespace mfem_mgis::internals {
+       return values;
+     }  // end of getMatrixValues
+ 
++    /*!
++     * \return a power of two giving to a vector of the given norm a norm
++     * between one and two, if the norm is finite and if this power is
++     * representable
++     * \param[in] norm: norm of the vector, strictly positive
++     */
++    std::optional<real> getScalingFactor(const real norm) noexcept {
++      if (!std::isfinite(norm)) {
++        return {};
++      }
++      const auto f = std::ldexp(real{1}, -std::ilogb(norm));
++      if (!std::isfinite(f)) {
++        return {};
++      }
++      return f;
++    }  // end of getScalingFactor
++
+   }  // end of namespace
+ 
+ #ifdef MFEM_USE_MPI
+ 
+   AmgXSolver::AmgXSolver(MPI_Comm c,
+                          const std::string& config,
+-                         const AmgXPrecision p,
+-                         const bool b)
+-      : mode(getMode(p)), iterative(b) {
++                         const AmgXSolverOptions& o)
++      : mode(getMode(o.precision)),
++        iterative(o.iterative),
++        scale_right_hand_side(o.scale_right_hand_side) {
+     this->iterative_mode = false;
+     auto size = 0;
+     MPI_Comm_size(c, &size);
+@@ -229,10 +249,10 @@ namespace mfem_mgis::internals {
+ 
+ #else /* MFEM_USE_MPI */
+ 
+-  AmgXSolver::AmgXSolver(const std::string& config,
+-                         const AmgXPrecision p,
+-                         const bool b)
+-      : mode(getMode(p)), iterative(b) {
++  AmgXSolver::AmgXSolver(const std::string& config, const AmgXSolverOptions& o)
++      : mode(getMode(o.precision)),
++        iterative(o.iterative),
++        scale_right_hand_side(o.scale_right_hand_side) {
+     this->iterative_mode = false;
+     try {
+       this->create(config);
+@@ -312,15 +332,16 @@ namespace mfem_mgis::internals {
+ 
+   void AmgXSolver::upload(const mfem::HypreParMatrix& m) {
+     // limits of AmgX: global indices of rows of type int, rows on each
+-    // process (checked by all the processes)
++    // process (checked by all the processes, which fail together)
+     if (m.GetGlobalNumRows() >
+         static_cast<HYPRE_BigInt>(std::numeric_limits<int>::max())) {
+-      mgis::raise("AmgX: too many rows (more than the range of int)");
++      throw CollectiveFailure(
++          "AmgX: too many rows (more than the range of int)");
+     }
+     auto min_rows = static_cast<int>(m.Height());
+     MPI_Allreduce(MPI_IN_PLACE, &min_rows, 1, MPI_INT, MPI_MIN, this->comm);
+     if (min_rows == 0) {
+-      mgis::raise("AmgX: a process owns no row of the matrix");
++      throw CollectiveFailure("AmgX: a process owns no row of the matrix");
+     }
+     // local rows, with the global indices of the columns, merged on the
+     // host
+@@ -412,6 +433,9 @@ namespace mfem_mgis::internals {
+   }  // end of SetOperator
+ 
+   void AmgXSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
++    // the resolution fails until AmgX gives its status
++    this->status = AMGX_SOLVE_FAILED;
++    this->iterations.reset();
+     if (!this->setup) {
+       mgis::raise("AmgXSolver::Mult: no operator set up");
+     }
+@@ -420,10 +444,34 @@ namespace mfem_mgis::internals {
+     }
+     const auto n = b.Size();
+     const auto single = this->mode == AMGX_mode_dFFI;
++    x.UseDevice(true);
++    // factor of the right hand side, exact
++    auto factor = std::optional<real>{};
++    if (this->scale_right_hand_side) {
++#ifdef MFEM_USE_MPI
++      const auto norm = std::sqrt(mfem::InnerProduct(this->comm, b, b));
++#else  /* MFEM_USE_MPI */
++      const auto norm = std::sqrt(mfem::InnerProduct(b, b));
++#endif /* MFEM_USE_MPI */
++      if (std::fpclassify(norm) == FP_ZERO) {
++        // zero solution, as given by AmgX
++        x = real{};
++        this->status = AMGX_SOLVE_SUCCESS;
++        if (this->iterative) {
++          this->iterations = 0;
++        }
++        return;
++      }
++      factor = getScalingFactor(norm);
++    }
+     if (single) {
+-      convertToSinglePrecision(this->single_rhs, b);
++      convertToSinglePrecision(this->single_rhs, b, factor.value_or(1));
+       checkAmgX(AMGX_vector_upload(this->rhs, n, 1, this->single_rhs.Read()),
+                 "upload of the right hand side");
++    } else if (factor.has_value()) {
++      scale(this->scaled_rhs, b, *factor);
++      checkAmgX(AMGX_vector_upload(this->rhs, n, 1, this->scaled_rhs.Read()),
++                "upload of the right hand side");
+     } else {
+       checkAmgX(AMGX_vector_upload(this->rhs, n, 1, b.Read()),
+                 "upload of the right hand side");
+@@ -448,24 +496,27 @@ namespace mfem_mgis::internals {
+               "resolution");
+     auto s = AMGX_SOLVE_STATUS{};
+     checkAmgX(AMGX_solver_get_status(this->solver, &s), "access to the status");
+-    this->status = s;
+     if (this->iterative) {
+       auto it = 0;
+       checkAmgX(AMGX_solver_get_iterations_number(this->solver, &it),
+                 "access to the number of iterations");
+       this->iterations = it;
+     }
+-    x.UseDevice(true);
+     if (single) {
+       this->single_solution.SetSize(n);
+       checkAmgX(
+           AMGX_vector_download(this->solution, this->single_solution.Write()),
+           "download of the solution");
+-      convertToDoublePrecision(x, this->single_solution);
++      convertToDoublePrecision(x, this->single_solution,
++                               1 / factor.value_or(1));
+     } else {
+       checkAmgX(AMGX_vector_download(this->solution, x.Write()),
+                 "download of the solution");
++      if (factor.has_value()) {
++        x *= 1 / *factor;
++      }
+     }
++    this->status = s;
+   }  // end of Mult
+ 
+   std::optional<int> AmgXSolver::getNumberOfIterations() const noexcept {
+@@ -523,16 +574,14 @@ namespace mfem_mgis::internals {
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+    * \param[in] c: configuration
+-   * \param[in] p: precision
+-   * \param[in] iterative: if true, the solver is an iterative solver
++   * \param[in] o: options of the solver
+    */
+   template <bool parallel>
+   static std::unique_ptr<AmgXSolver> makeSolver(
+       Context& ctx,
+       FiniteElementSpace<parallel>& fespace,
+       const std::string& c,
+-      const AmgXPrecision p,
+-      const bool iterative) noexcept {
++      const AmgXSolverOptions& o) noexcept {
+     try {
+ #ifdef MFEM_USE_MPI
+       auto comm = MPI_Comm{MPI_COMM_SELF};
+@@ -541,10 +590,10 @@ namespace mfem_mgis::internals {
+       } else {
+         static_cast<void>(fespace);
+       }
+-      return std::make_unique<AmgXSolver>(comm, c, p, iterative);
++      return std::make_unique<AmgXSolver>(comm, c, o);
+ #else  /* MFEM_USE_MPI */
+       static_cast<void>(fespace);
+-      return std::make_unique<AmgXSolver>(c, p, iterative);
++      return std::make_unique<AmgXSolver>(c, o);
+ #endif /* MFEM_USE_MPI */
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(e.what());
+@@ -702,11 +751,12 @@ namespace mfem_mgis::internals {
+       }
+       auto c = std::ostringstream{};
+       c << f.rdbuf();
+-      return makeSolver<parallel>(ctx, fespace, c.str(), *oprecision, false);
++      return makeSolver<parallel>(ctx, fespace, c.str(),
++                                  AmgXSolverOptions{.precision = *oprecision});
+     }
+     if (has_configuration) {
+-      return makeSolver<parallel>(ctx, fespace, *oconfiguration, *oprecision,
+-                                  false);
++      return makeSolver<parallel>(ctx, fespace, *oconfiguration,
++                                  AmgXSolverOptions{.precision = *oprecision});
+     }
+     // default configuration, completed by the parameters given
+     auto c = makeConfigurationStream();
+@@ -722,7 +772,14 @@ namespace mfem_mgis::internals {
+     if (!writeAmgXParameters(ctx, c, params)) {
+       return {};
+     }
+-    return makeSolver<parallel>(ctx, fespace, c.str(), *oprecision, false);
++    // the cycles of the default configuration do not depend on the scale of
++    // the right hand side: in single precision, it is scaled to stay in the
++    // range of the single precision
++    return makeSolver<parallel>(
++        ctx, fespace, c.str(),
++        AmgXSolverOptions{
++            .precision = *oprecision,
++            .scale_right_hand_side = *oprecision == AmgXPrecision::SINGLE});
+   }  // end of makeAmgXPreconditioner
+ 
+   template <bool parallel>
+@@ -761,10 +818,15 @@ namespace mfem_mgis::internals {
+           "positive");
+     }
+     // AmgX reports a convergence when the norm of the residual is lower
+-    // than 1e-12 times the norm of the initial residual in double precision,
+-    // 1e-6 in single precision: lower relative tolerances would be ignored.
+-    // In single precision, an absolute tolerance alone could be reached
+-    // only through this floor.
++    // than the maximum of 1e-20 and of 1e-12 times the norm of the initial
++    // residual in double precision, 1e-6 in single precision: lower
++    // relative tolerances would be ignored. Without absolute tolerance, the
++    // right hand side is scaled (its norm is between one and two): the
++    // floor of 1e-20 is negligible. With an absolute tolerance, the
++    // absolute tolerance must be greater than this floor; an absolute
++    // tolerance alone is reached or the norm of the residual is reduced by
++    // 1e-12 (1e-6 in single precision, where a relative tolerance is
++    // required).
+     const auto floor =
+         (*oprecision == AmgXPrecision::SINGLE) ? real{1e-6} : real{1e-12};
+     if ((*ortol > 0) && (*ortol < floor)) {
+@@ -777,6 +839,11 @@ namespace mfem_mgis::internals {
+       return ctx.registerErrorMessage(
+           "AmgXPCG: in single precision, a relative tolerance is required");
+     }
++    if ((*oatol > 0) && (*oatol < 1e-20)) {
++      return ctx.registerErrorMessage(
++          "AmgXPCG: the absolute tolerance must be at least 1e-20 (floor of "
++          "the convergence criteria of AmgX)");
++    }
+     // conjugate gradient preconditioned by the default multigrid, completed
+     // by the parameters given
+     auto c = makeConfigurationStream();
+@@ -804,7 +871,12 @@ namespace mfem_mgis::internals {
+     if (!checkGPU(ctx)) {
+       return {};
+     }
+-    return makeSolver<parallel>(ctx, fespace, c.str(), *oprecision, true);
++    // the right hand side is scaled for a relative criterion only
++    return makeSolver<parallel>(
++        ctx, fespace, c.str(),
++        AmgXSolverOptions{.precision = *oprecision,
++                          .iterative = true,
++                          .scale_right_hand_side = !(*oatol > 0)});
+   }  // end of makeAmgXConjugateGradientSolver
+ 
+   template std::unique_ptr<AmgXSolver> makeAmgXPreconditioner<false>(
+diff --git a/src/AmgXSolvers.hxx b/src/AmgXSolvers.hxx
+index 6864a11567..bc68609c97 100644
+--- a/src/AmgXSolvers.hxx
++++ b/src/AmgXSolvers.hxx
+@@ -51,6 +51,27 @@ namespace mfem_mgis::internals {
+     SINGLE
+   };  // end of AmgXPrecision
+ 
++  //! \brief options of a solver of AmgX
++  struct AmgXSolverOptions {
++    //! \brief precision of the computations of AmgX
++    AmgXPrecision precision = AmgXPrecision::DOUBLE;
++    /*!
++     * \brief if true, the solver is an iterative solver whose number of
++     * iterations is given by `getNumberOfIterations`
++     */
++    bool iterative = false;
++    /*!
++     * \brief if true, the right hand side is multiplied by a power of two
++     * giving it a norm between one and two, and the solution by its
++     * inverse: exact operations, for a configuration whose result does not
++     * depend on the scale of the right hand side (no absolute tolerance).
++     * The floors of the convergence criteria of AmgX and the range of the
++     * single precision then do not depend on the scale of the right hand
++     * side.
++     */
++    bool scale_right_hand_side = false;
++  };  // end of AmgXSolverOptions
++
+   /*!
+    * \brief solver of the AmgX library, built on its C interface. AmgX
+    * computes on the current GPU of the process, whatever the device used by
+@@ -66,7 +87,8 @@ namespace mfem_mgis::internals {
+    * communicators). With a MFEM compiled with AmgX, which contains its own
+    * copy of AmgX, the library of AmgX given to mfem-mgis must precede MFEM
+    * in the link line (as `MFEMMGISConfig.cmake` does), and a program exiting
+-   * with a solver alive may abort (static objects of the two copies).
++   * with a solver alive may abort or hang (static objects of the two
++   * copies).
+    */
+   struct AmgXSolver final : public mfem::Solver {
+ #ifdef MFEM_USE_MPI
+@@ -75,20 +97,16 @@ namespace mfem_mgis::internals {
+      * \param[in] comm: communicator (`MPI_COMM_SELF` for a sequential
+      * resolution)
+      * \param[in] c: configuration of AmgX
+-     * \param[in] p: precision
+-     * \param[in] iterative: if true, the solver is an iterative solver
+-     * whose number of iterations is given by `getNumberOfIterations`
++     * \param[in] o: options
+      */
+-    AmgXSolver(MPI_Comm, const std::string&, const AmgXPrecision, const bool);
++    AmgXSolver(MPI_Comm, const std::string&, const AmgXSolverOptions&);
+ #else  /* MFEM_USE_MPI */
+     /*!
+      * \brief constructor
+      * \param[in] c: configuration of AmgX
+-     * \param[in] p: precision
+-     * \param[in] iterative: if true, the solver is an iterative solver
+-     * whose number of iterations is given by `getNumberOfIterations`
++     * \param[in] o: options
+      */
+-    AmgXSolver(const std::string&, const AmgXPrecision, const bool);
++    AmgXSolver(const std::string&, const AmgXSolverOptions&);
+ #endif /* MFEM_USE_MPI */
+     //
+     void SetOperator(const mfem::Operator&) override;
+@@ -126,6 +144,8 @@ namespace mfem_mgis::internals {
+     const AMGX_Mode mode;
+     //! \brief if true, the solver is an iterative solver
+     const bool iterative;
++    //! \brief if true, the right hand side is scaled
++    const bool scale_right_hand_side;
+     //! \brief configuration
+     AMGX_config_handle configuration = nullptr;
+     //! \brief resources, shared by the solvers of the process
+@@ -144,6 +164,8 @@ namespace mfem_mgis::internals {
+     mutable std::optional<AMGX_SOLVE_STATUS> status;
+     //! \brief number of iterations of the last resolution
+     mutable std::optional<int> iterations;
++    //! \brief scaled right hand side in double precision
++    mutable mfem::Vector scaled_rhs;
+     //! \brief right hand side in single precision
+     mutable mfem::Array<float> single_rhs;
+     //! \brief solution in single precision
+@@ -175,7 +197,11 @@ namespace mfem_mgis::internals {
+    * The default configuration is the one of MFEM: one V-cycle of the
+    * classical algebraic multigrid with a L1-Jacobi smoother (one sweep
+    * before and one after the coarse correction), the D2 interpolation and
+-   * a strength threshold of 0.25.
++   * a strength threshold of 0.25. In single precision, the right hand side
++   * of the default configuration is scaled by a power of two (see
++   * `AmgXSolverOptions`), so that its values stay in the range of the single
++   * precision; a configuration given is used without scaling (its criteria
++   * apply to the right hand side as given).
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+@@ -198,10 +224,19 @@ namespace mfem_mgis::internals {
+    * conjugate gradient of MFEM checks instead the norm of the
+    * preconditioned residual. The options `AmgXParameters` and `Precision` are
+    * the ones of the `AmgX` solver; the parameters of the conjugate gradient
+-   * (scope `main`) are refused. AmgX reports a convergence when the norm of the
+-   * residual is lower than 1e-12 times the one of the initial residual
+-   * (1e-6 in single precision): the relative tolerance must be at least
+-   * this floor, and is required in single precision.
++   * (scope `main`) are refused.
++   *
++   * AmgX also reports a convergence when the norm of the residual is lower
++   * than the maximum of `e` times the norm of the initial residual and of
++   * 1e-20, `e` being 1e-12 in double precision and 1e-6 in single
++   * precision. Without absolute tolerance, the right hand side is scaled by
++   * a power of two (see `AmgXSolverOptions`): only the floor `e` times the
++   * norm of the initial residual remains, and the relative tolerance must
++   * be at least `e`. With an absolute tolerance, the right hand side is not
++   * scaled: the absolute tolerance must be at least 1e-20, and an absolute
++   * tolerance alone (relative tolerance of 0) is reached or the norm of
++   * the residual is lower than `e` times the norm of the initial residual.
++   * In single precision, a relative tolerance is required.
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index 1d8fada59a..415b034d6d 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -17,6 +17,7 @@
+ #include <vector>
+ #include <cstdlib>
+ #include <fstream>
++#include <sstream>
+ #include <iostream>
+ #include <stdexcept>
+ #include <exception>
+@@ -386,10 +387,10 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   auto pcgra =
+       generate<is_parallel>(fespace, "AmgXPCG",
+                             Parameters{{"RelativeTolerance", 1e-4},
+-                                       {"AbsoluteTolerance", 1e-30},
++                                       {"AbsoluteTolerance", 1e-20},
+                                        {"MaximumNumberOfIterations", 200}});
+   const auto rpra = solve<is_parallel>(fespace, *(pcgra.linear_solver), A, B);
+-  print("AmgXPCG, relative tolerance 1e-4, absolute tolerance 1e-30", rpra);
++  print("AmgXPCG, relative tolerance 1e-4, absolute tolerance 1e-20", rpra);
+   check(rpra.converged && (rpra.iterations == rpr.iterations),
+         "AmgXPCG: a negligible absolute tolerance changes the resolution");
+   // single precision: the multigrid in single precision preconditions the
+@@ -470,7 +471,9 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+       return false;
+     };
+     check(raises([&ls, &B, &y] { ls.Mult(B, y); }),
+-          "AmgX: vector of invalid size accepted");
++          "AmgX: solution of invalid size accepted");
++    check(raises([&ls, &x, &y] { ls.Mult(y, x); }),
++          "AmgX: right hand side of invalid size accepted");
+     const auto identity = mfem::IdentityOperator(B.Size());
+     check(raises([&ls, &identity] { ls.SetOperator(identity); }),
+           "AmgX: unsupported operator accepted");
+@@ -480,6 +483,77 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+     ls.Mult(B, x);
+     check(hasConverged(ls), "AmgX: resolution after a new setup");
+   }
++  // failed resolution of an iterative solver: not converged, even after a
++  // successful resolution
++  {
++    auto a = generate<is_parallel>(fespace, "AmgXPCG",
++                                   Parameters{{"RelativeTolerance", 1e-10}});
++    const auto r = solve<is_parallel>(fespace, *(a.linear_solver), A, B);
++    auto y = mfem::Vector(B.Size() + 1);
++    y.UseDevice(true);
++    auto failed = false;
++    try {
++      a.linear_solver->Mult(y, y);
++    } catch (std::exception&) {
++      failed = true;
++    }
++    check(r.converged && failed && (!hasConverged(*(a.linear_solver))) &&
++              (!getNumberOfIterationsAtConvergence(*(a.linear_solver))
++                    .has_value()),
++          "AmgXPCG: convergence reported after a failed resolution");
++  }
++  // scale of the right hand side: the floor of 1e-20 of the convergence
++  // criteria of AmgX, the range of the single precision
++  {
++    auto pcg10 =
++        generate<is_parallel>(fespace, "AmgXPCG",
++                              Parameters{{"RelativeTolerance", 1e-10},
++                                         {"MaximumNumberOfIterations", 200}});
++    auto pcg5 =
++        generate<is_parallel>(fespace, "AmgXPCG",
++                              Parameters{{"RelativeTolerance", 1e-5},
++                                         {"MaximumNumberOfIterations", 200},
++                                         {"Precision", "Single"}});
++    auto cg32 = makeConjugateGradient<is_parallel>(
++        fespace, Parameters{{"Name", "AmgX"},
++                            {"Options", Parameters{{"Precision", "Single"}}}});
++    for (const auto f : {1e-15, 1e-25, 1e-40, 1e45}) {
++      auto Bf = mfem::Vector(B.Size());
++      Bf.UseDevice(true);
++      Bf.Set(f, B);
++      const auto r10 =
++          solve<is_parallel>(fespace, *(pcg10.linear_solver), A, Bf);
++      const auto r5 = solve<is_parallel>(fespace, *(pcg5.linear_solver), A, Bf);
++      const auto r32 =
++          solve<is_parallel>(fespace, *(cg32.linear_solver), A, Bf);
++      // the right hand side is scaled by a power of two by the solvers
++      // (the rounding of the multiplication by `f` may change the number
++      // of iterations)
++      auto os = std::ostringstream{};
++      os << f;
++      const auto factor = os.str();
++      check(r10.converged && (r10.residual < 1e-9) &&
++                close(r10.iterations, rp.iterations),
++            "AmgXPCG: right hand side multiplied by " + factor);
++      check(
++          r5.converged && (r5.residual < 1e-4) &&
++              close(r5.iterations, rpm.iterations),
++          "AmgXPCG, single precision: right hand side multiplied by " + factor);
++      check(r32.converged && (r32.residual < 1e-8) &&
++                close(r32.iterations, rm.iterations),
++            "CG, AmgX, single precision: right hand side multiplied by " +
++                factor);
++    }
++    // zero right hand side: zero solution, without iteration
++    auto Z = mfem::Vector(B.Size());
++    Z.UseDevice(true);
++    Z = 0.;
++    const auto rz =
++        solve<is_parallel>(fespace, *(pcg10.linear_solver), A, Z, 1.);
++    check(rz.converged && (rz.iterations == 0) &&
++              (dot<is_parallel>(fespace, rz.x, rz.x) <= 0),
++          "AmgXPCG: zero right hand side");
++  }
+   // all the solvers of AmgX destroyed, then a new one created (AmgX is
+   // finalised, then initialised again)
+   if (release) {
+@@ -536,6 +610,8 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+                              {"AbsoluteTolerance", 1e-8},
+                              {"Precision", "Single"}}},
+       {"AmgXPCG", Parameters{{"RelativeTolerance", 1e-13}}},
++      {"AmgXPCG",
++       Parameters{{"RelativeTolerance", 0.}, {"AbsoluteTolerance", 1e-21}}},
+       {"AmgX", Parameters{{"Configuration",
+                            "config_version=2, solver(s)=NOT_A_SOLVER"}}},
+       {"CGSolver",
+@@ -718,7 +794,10 @@ static void checkNoGPU(mfem_mgis::FiniteElementSpace<false>& fespace) {
+         ctx, name, fespace, parameters);
+     check(isInvalid(ls), "'" + name + "' accepted without GPU");
+     if (isInvalid(ls)) {
+-      std::cout << name << ": " << ctx.getErrorMessage() << '\n';
++      const auto msg = ctx.getErrorMessage();
++      std::cout << name << ": " << msg << '\n';
++      check(msg.find("no GPU available") != std::string::npos,
++            "'" + name + "': GPU not checked by the factory");
+     }
+   }
+ }  // end of checkNoGPU
+@@ -747,7 +826,19 @@ static void run(mfem::Mesh& mesh, mfem::FiniteElementCollection& fec) {
+       check(r.converged && (r.residual < 1e-9),
+             "AmgXPCG: sequential resolution on the first process only");
+     }
+-    MPI_Barrier(MPI_COMM_WORLD);
++    // the other processes wait for the first one by point to point
++    // messages, which can't match a collective operation made by the
++    // destruction of the resources of AmgX (a deadlock would follow)
++    auto token = 0;
++    if (rank == 0) {
++      auto size = 0;
++      MPI_Comm_size(MPI_COMM_WORLD, &size);
++      for (auto p = 1; p != size; ++p) {
++        MPI_Send(&token, 1, MPI_INT, p, 0, MPI_COMM_WORLD);
++      }
++    } else {
++      MPI_Recv(&token, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
++    }
+     // a sequential solver of AmgX, created before the parallel ones, each
+     // process solving its own sequential system
+     auto ls = generate<false>(sequential.fespace, "AmgXPCG",
+-- 
+2.43.0
+

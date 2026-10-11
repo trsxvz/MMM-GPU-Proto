@@ -47,6 +47,22 @@ if(("@MFEM_USE_CUDA@" STREQUAL "YES") AND (NOT TARGET CUDA::cudart))
   endif()
 endif()
 
+# AmgX, if mfem-mgis uses it (see `FindAMGX.cmake`), the installation used
+# to build mfem-mgis being searched first
+set(MFEMMGIS_HAVE_AMGX @MFEM_MGIS_HAVE_AMGX@)
+if(MFEMMGIS_HAVE_AMGX AND (NOT TARGET AMGX::amgxsh))
+  if(NOT AMGX_DIR)
+    set(AMGX_DIR "@MFEM_MGIS_AMGX_DIR@")
+  endif()
+  find_package(AMGX)
+  if(NOT TARGET AMGX::amgxsh)
+    set(MFEMMGIS_FOUND FALSE)
+    set(MFEMMGIS_NOT_FOUND_MESSAGE
+        "the AmgX library used to build mfem-mgis is not found")
+    return()
+  endif()
+endif()
+
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
 # before mfem-mgis, the description of MFEM is the one used to build
 # mfem-mgis

@@ -24,35 +24,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
-
-/*!
- * \return the options of BoomerAMG given as `Name=value` separated by
- * commas, integers or reals (with a dot or an exponent), the verbosity
- * level being null
- * \param[in] o: options
- */
-static mfem_mgis::Parameters parseBoomerAMGOptions(const std::string& o) {
-  auto params = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
-  auto start = std::string::size_type{};
-  while (start < o.size()) {
-    const auto end = std::min(o.find(',', start), o.size());
-    const auto option = o.substr(start, end - start);
-    const auto equal = option.find('=');
-    if (equal == std::string::npos) {
-      std::cerr << "invalid option of BoomerAMG '" << option << "'\n";
-      std::exit(EXIT_FAILURE);
-    }
-    const auto name = option.substr(0, equal);
-    const auto value = option.substr(equal + 1);
-    if (value.find_first_of(".eE") != std::string::npos) {
-      params.replaceOrInsert(name, std::stod(value));
-    } else {
-      params.replaceOrInsert(name, std::stoi(value));
-    }
-    start = end + 1;
-  }
-  return params;
-}  // end of parseBoomerAMGOptions
+#include "solver-options.hxx"
 
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
@@ -68,6 +40,9 @@ int main(int argc, char** argv) {
   const char* acceleration = "anderson";
   const char* elastic_operator_linear_solver = "problem";
   const char* amg_options = "";
+  const char* amgx_configuration_file = "";
+  const char* amgx_options = "";
+  auto amgx_single_precision = false;
   auto anderson_depth = 4;
   auto elastic_operator_once = false;
   auto prediction_by_elastic_operator = false;
@@ -96,9 +71,12 @@ int main(int argc, char** argv) {
                  "the assembled tangent operator) or cg-jacobi "
                  "(conjugate gradient of MFEM and Jacobi preconditioner, "
                  "usable with the tangent operator applied without "
-                 "assembly) or cg-chebyshev (conjugate gradient of MFEM and "
+                 "assembly), cg-chebyshev (conjugate gradient of MFEM and "
                  "Chebyshev smoother of order -cho, also usable without "
-                 "assembly).");
+                 "assembly), cg-amgx (conjugate gradient of MFEM and one "
+                 "cycle of AmgX built on the assembled tangent operator) or "
+                 "amgx-pcg (conjugate gradient of AmgX, not usable with an "
+                 "adaptive tolerance, -alst). AmgX computes on the GPU.");
   args.AddOption(&chebyshev_order, "-cho", "--chebyshev-order",
                  "Order of the Chebyshev smoother (linear solver "
                  "cg-chebyshev).");
@@ -129,8 +107,9 @@ int main(int argc, char** argv) {
                  "--elastic-operator-linear-solver",
                  "Linear solver of the elastic operator of the fixed point "
                  "solver: problem (the linear solver of the problem, set up "
-                 "at each step), amg (one cycle of BoomerAMG), pcg-amg or "
-                 "mumps.");
+                 "at each step), amg (one cycle of BoomerAMG), pcg-amg, "
+                 "mumps, amgx (one cycle of AmgX) or amgx-pcg (conjugate "
+                 "gradient of AmgX).");
   args.AddOption(&elastic_operator_once, "-k0", "--elastic-operator-once",
                  "-no-k0", "--no-elastic-operator-once",
                  "Elastic operator of the fixed point solver assembled once.");
@@ -145,6 +124,22 @@ int main(int argc, char** argv) {
                  "as Name=value separated by commas (see the HypreBoomerAMG "
                  "preconditioner of mfem-mgis), for instance "
                  "RelaxationType=8,StrengthThreshold=0.5.");
+  args.AddOption(&amgx_configuration_file, "-amgxc",
+                 "--amgx-configuration-file",
+                 "Configuration file of the cycles of AmgX (cg-amgx, amgx), "
+                 "for instance lib/configs/AGGREGATION_JACOBI.json of AmgX; "
+                 "the default configuration of MFEM (one V-cycle of the "
+                 "classical multigrid) if empty.");
+  args.AddOption(&amgx_options, "-amgxo", "--amgx-options",
+                 "Parameters of AmgX completing the default configuration "
+                 "of mfem-mgis (one V-cycle of the classical multigrid), as "
+                 "name=value separated by commas with the names of AmgX, "
+                 "for instance strength_threshold=0.8,interpolator=MULTIPASS "
+                 "(amgx, cg-amgx, amgx-pcg).");
+  args.AddOption(&amgx_single_precision, "-amgxs", "--amgx-single-precision",
+                 "-no-amgxs", "--no-amgx-single-precision",
+                 "Computations of AmgX in single precision (tolerance of "
+                 "amgx-pcg of at least 1e-6).");
   args.AddOption(&adaptive_linear_solver_tolerance, "-alst",
                  "--adaptive-linear-solver-tolerance",
                  "Relative tolerance of the iterative linear solver of the "
@@ -191,6 +186,9 @@ int main(int argc, char** argv) {
   auto ctx = Context{};
   auto or_die = ctx.getFatalFailureHandler();
   const auto amg = parseBoomerAMGOptions(amg_options);
+  const auto amgx =
+      parseAmgXOptions(amgx_configuration_file, std::string{amgx_options},
+                       amgx_single_precision);
   ctx.enableProfiling(profiling);
   auto success = true;
   {
@@ -257,6 +255,16 @@ int main(int argc, char** argv) {
                             {"Preconditioner",
                              Parameters{{"Name", "HypreBoomerAMG"},
                                         {"Options", amg}}}}}}) |
+            or_die;
+      } else if (els == "amgx") {
+        options.insert(ctx, "ElasticOperatorLinearSolver",
+                       Parameters{{"AmgX", amgx}}) |
+            or_die;
+      } else if (els == "amgx-pcg") {
+        options.insert(
+            ctx, "ElasticOperatorLinearSolver",
+            Parameters{{"AmgXPCG",
+                        amgxPCGOptions(amgx, linear_tolerance, 2000)}}) |
             or_die;
       } else if (els == "mumps") {
         options.insert(ctx, "ElasticOperatorLinearSolver",
@@ -349,6 +357,27 @@ int main(int argc, char** argv) {
                             {"Preconditioner",
                              Parameters{{"Name", "HypreBoomerAMG"},
                                         {"Options", amg}}}}}}}}) |
+          or_die;
+    } else if (ls == "cg-amgx") {
+      // conjugate gradient of MFEM, one cycle of AmgX built on the assembled
+      // tangent operator every `update_period` Newton iterations
+      problem.setLinearSolver(
+          ctx, "CGSolver",
+          {{"VerbosityLevel", 0},
+           {"RelativeTolerance", linear_tolerance},
+           {"AbsoluteTolerance", 0.},
+           {"MaximumNumberOfIterations", 2000},
+           {"Preconditioner",
+            Parameters{{"Name", "AssembledOperator"},
+                       {"Options",
+                        Parameters{{"UpdatePeriod", update_period},
+                                   {"Preconditioner",
+                                    Parameters{{"Name", "AmgX"},
+                                               {"Options", amgx}}}}}}}}) |
+          or_die;
+    } else if (ls == "amgx-pcg") {
+      problem.setLinearSolver(
+          ctx, "AmgXPCG", amgxPCGOptions(amgx, linear_tolerance, 2000)) |
           or_die;
     } else if (ls == "cg-jacobi") {
       // conjugate gradient of MFEM with a Jacobi preconditioner: usable with

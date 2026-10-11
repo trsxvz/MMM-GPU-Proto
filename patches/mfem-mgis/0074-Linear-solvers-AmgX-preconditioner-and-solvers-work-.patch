@@ -1,0 +1,921 @@
+From 1c740b96d551859247c8409607a24c062ced7636 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 10:56:04 +0200
+Subject: [PATCH] Linear solvers: AmgX preconditioner and solvers (work in
+ progress)
+
+The AmgX library of the environment fails on sm_120 (invalid device
+function in the setup of the classical multigrid): not validated.
+---
+ src/AmgXSolvers.cxx         | 223 ++++++++++++++++++++
+ src/AmgXSolvers.hxx         | 113 ++++++++++
+ src/CMakeLists.txt          |   1 +
+ src/LinearSolverFactory.cxx |  41 ++++
+ src/SolverUtilities.cxx     |  13 ++
+ tests/AmgXSolverTest.cxx    | 397 ++++++++++++++++++++++++++++++++++++
+ tests/CMakeLists.txt        |  19 ++
+ 7 files changed, 807 insertions(+)
+ create mode 100644 src/AmgXSolvers.cxx
+ create mode 100644 src/AmgXSolvers.hxx
+ create mode 100644 tests/AmgXSolverTest.cxx
+
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+new file mode 100644
+index 0000000000..14d520dbb1
+--- /dev/null
++++ b/src/AmgXSolvers.cxx
+@@ -0,0 +1,223 @@
++/*!
++ * \file   src/AmgXSolvers.cxx
++ * \brief  This file implements the solvers of the AmgX library of NVIDIA
++ * built by the factory of linear solvers
++ * \date   10/10/2026
++ */
++
++#include "AmgXSolvers.hxx"
++
++#ifdef MFEM_USE_AMGX
++
++#include <limits>
++#include <locale>
++#include <vector>
++#include <fstream>
++#include <sstream>
++#include <iomanip>
++#include "mfem/fem/fespace.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++namespace mfem_mgis::internals {
++
++  AmgXSolver::AmgXSolver(const std::string& c,
++                         const CONFIG_SRC s,
++                         const bool v,
++                         const std::optional<int> n)
++      : maximum_number_of_iterations(n) {
++    // the default configuration also initialises the mode of the solver,
++    // which the default constructor of MFEM leaves undefined, and imposes a
++    // zero initial guess, as the other solvers of the factory
++    this->DefaultParameters(PRECONDITIONER, v);
++    if (!c.empty()) {
++      this->ReadParameters(c, s);
++    }
++    this->SetConvergenceCheck(false);
++  }  // end of AmgXSolver
++
++  void AmgXSolver::Mult(const mfem::Vector& b, mfem::Vector& x) const {
++    mfem::AmgXSolver::Mult(b, x);
++    if (this->maximum_number_of_iterations.has_value()) {
++      // `GetNumIterations` is not declared const by MFEM
++      this->iterations = const_cast<AmgXSolver*>(this)->GetNumIterations();
++    }
++  }  // end of Mult
++
++  std::optional<int> AmgXSolver::getNumberOfIterations() const noexcept {
++    return this->iterations;
++  }  // end of getNumberOfIterations
++
++  bool AmgXSolver::hasConverged() const noexcept {
++    if ((!this->maximum_number_of_iterations.has_value()) ||
++        (!this->iterations.has_value())) {
++      return true;
++    }
++    return *(this->iterations) < *(this->maximum_number_of_iterations);
++  }  // end of hasConverged
++
++  /*!
++   * \return the solver initialised for the given space: in parallel, each
++   * process uses the first device it sees (`InitExclusiveGPU` of MFEM)
++   * \param[in] s: solver
++   * \param[in] fespace: finite element space
++   */
++  template <bool parallel>
++  static std::unique_ptr<AmgXSolver> initialise(
++      std::unique_ptr<AmgXSolver> s, FiniteElementSpace<parallel>& fespace) {
++    if constexpr (parallel) {
++#ifdef MFEM_USE_MPI
++      s->InitExclusiveGPU(fespace.GetComm());
++#endif /* MFEM_USE_MPI */
++    } else {
++      static_cast<void>(fespace);
++      s->InitSerial();
++    }
++    return s;
++  }  // end of initialise
++
++  template <bool parallel>
++  std::unique_ptr<AmgXSolver> makeAmgXPreconditioner(
++      Context& ctx,
++      FiniteElementSpace<parallel>& fespace,
++      const Parameters& params) noexcept {
++    const char* const Configuration = "Configuration";
++    const char* const ConfigurationFile = "ConfigurationFile";
++    const char* const VerbosityLevel = "VerbosityLevel";
++    if (!checkParameters(ctx, params,
++                         std::vector<std::string>{
++                             Configuration, ConfigurationFile, VerbosityLevel})) {
++      return {};
++    }
++    const auto oconfiguration =
++        get_if<std::string>(ctx, params, Configuration, std::string{});
++    const auto ofile =
++        get_if<std::string>(ctx, params, ConfigurationFile, std::string{});
++    const auto overbosity = get_if<int>(ctx, params, VerbosityLevel, 0);
++    if (isInvalid(oconfiguration) || isInvalid(ofile) ||
++        isInvalid(overbosity)) {
++      return {};
++    }
++    const auto has_configuration = contains(params, Configuration);
++    const auto has_file = contains(params, ConfigurationFile);
++    if (has_configuration && has_file) {
++      return ctx.registerErrorMessage(
++          "AmgX: the options 'Configuration' and 'ConfigurationFile' are "
++          "exclusive");
++    }
++    if ((has_configuration || has_file) && contains(params, VerbosityLevel)) {
++      return ctx.registerErrorMessage(
++          "AmgX: the verbosity level only applies to the default "
++          "configuration (a configuration given defines the outputs of "
++          "AmgX)");
++    }
++    if (has_configuration && oconfiguration->empty()) {
++      return ctx.registerErrorMessage("AmgX: empty configuration");
++    }
++    if (has_file && (!std::ifstream{*ofile})) {
++      return ctx.registerErrorMessage(
++          "AmgX: can't open the configuration file '" + *ofile + "'");
++    }
++    auto s = has_file ? std::make_unique<AmgXSolver>(
++                            *ofile, mfem::AmgXSolver::EXTERNAL, false,
++                            std::optional<int>{})
++                      : std::make_unique<AmgXSolver>(
++                            *oconfiguration, mfem::AmgXSolver::INTERNAL,
++                            *overbosity > 0, std::optional<int>{});
++    return initialise<parallel>(std::move(s), fespace);
++  }  // end of makeAmgXPreconditioner
++
++  /*!
++   * \return the configuration of the conjugate gradient of AmgX,
++   * preconditioned by one V-cycle of the default configuration of MFEM
++   * \param[in] rtol: relative tolerance
++   * \param[in] atol: absolute tolerance
++   * \param[in] n: maximum number of iterations
++   * \param[in] verbose: print the statistics of AmgX
++   */
++  static std::string getConjugateGradientConfiguration(const real rtol,
++                                                       const real atol,
++                                                       const int n,
++                                                       const bool verbose) {
++    auto c = std::ostringstream{};
++    c.imbue(std::locale::classic());
++    c << std::setprecision(std::numeric_limits<real>::max_digits10);
++    c << "{\"config_version\": 2, \"solver\": {"
++      << "\"solver\": \"PCG\", \"scope\": \"main\", \"norm\": \"L2\", "
++      << "\"monitor_residual\": 1, \"max_iters\": " << n << ", ";
++    if (atol > 0) {
++      // converged if the norm of the residual is lower than `tolerance` or
++      // than `alt_rel_tolerance` times the norm of the initial residual
++      c << "\"convergence\": \"COMBINED_REL_INI_ABS\", \"tolerance\": "
++        << atol << ", \"alt_rel_tolerance\": " << rtol << ", ";
++    } else {
++      c << "\"convergence\": \"RELATIVE_INI_CORE\", \"tolerance\": " << rtol
++        << ", ";
++    }
++    if (verbose) {
++      c << "\"obtain_timings\": 1, \"print_grid_stats\": 1, "
++        << "\"print_solve_stats\": 1, ";
++    }
++    c << "\"preconditioner\": {\"solver\": \"AMG\", \"scope\": \"amg\", "
++      << "\"smoother\": {\"scope\": \"jacobi\", \"solver\": \"JACOBI_L1\"}, "
++      << "\"presweeps\": 1, \"postsweeps\": 1, \"interpolator\": \"D2\", "
++      << "\"max_row_sum\": 0.9, \"strength_threshold\": 0.25, "
++      << "\"max_iters\": 1, \"max_levels\": 100, \"cycle\": \"V\"}}}";
++    return c.str();
++  }  // end of getConjugateGradientConfiguration
++
++  template <bool parallel>
++  std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver(
++      Context& ctx,
++      FiniteElementSpace<parallel>& fespace,
++      const Parameters& params) noexcept {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(ctx, params, getIterativeSolverParametersList())) {
++      return {};
++    }
++    // default values of the solver configuration of MFEM
++    const auto overbosity =
++        get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 0);
++    const auto ortol =
++        get_if<real>(ctx, params, Problem::SolverRelativeTolerance, 1e-12);
++    const auto oatol =
++        get_if<real>(ctx, params, Problem::SolverAbsoluteTolerance, 0);
++    const auto on =
++        get_if<int>(ctx, params, Problem::SolverMaximumNumberOfIterations, 150);
++    if (isInvalid(overbosity) || isInvalid(ortol) || isInvalid(oatol) ||
++        isInvalid(on)) {
++      return {};
++    }
++    if ((*ortol < 0) || (*oatol < 0) || ((*ortol <= 0) && (*oatol <= 0))) {
++      return ctx.registerErrorMessage(
++          "AmgXPCG: the tolerances must be positive, one of them strictly");
++    }
++    if (*on < 1) {
++      return ctx.registerErrorMessage(
++          "AmgXPCG: the maximum number of iterations must be strictly "
++          "positive");
++    }
++    const auto c =
++        getConjugateGradientConfiguration(*ortol, *oatol, *on, *overbosity > 0);
++    auto s = std::make_unique<AmgXSolver>(c, mfem::AmgXSolver::INTERNAL, false,
++                                          *on);
++    return initialise<parallel>(std::move(s), fespace);
++  }  // end of makeAmgXConjugateGradientSolver
++
++  template std::unique_ptr<AmgXSolver> makeAmgXPreconditioner<false>(
++      Context&, FiniteElementSpace<false>&, const Parameters&) noexcept;
++  template std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver<false>(
++      Context&, FiniteElementSpace<false>&, const Parameters&) noexcept;
++#ifdef MFEM_USE_MPI
++  template std::unique_ptr<AmgXSolver> makeAmgXPreconditioner<true>(
++      Context&, FiniteElementSpace<true>&, const Parameters&) noexcept;
++  template std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver<true>(
++      Context&, FiniteElementSpace<true>&, const Parameters&) noexcept;
++#endif /* MFEM_USE_MPI */
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_AMGX */
+diff --git a/src/AmgXSolvers.hxx b/src/AmgXSolvers.hxx
+new file mode 100644
+index 0000000000..9c1eec954f
+--- /dev/null
++++ b/src/AmgXSolvers.hxx
+@@ -0,0 +1,113 @@
++/*!
++ * \file   src/AmgXSolvers.hxx
++ * \brief  This file declares the solvers of the AmgX library of NVIDIA
++ * built by the factory of linear solvers (internal header)
++ * \date   10/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_AMGXSOLVERS_HXX
++#define LIB_MFEM_MGIS_SRC_AMGXSOLVERS_HXX
++
++#include "mfem/config/config.hpp"
++
++#ifdef MFEM_USE_AMGX
++
++#include <memory>
++#include <optional>
++#include <string>
++#include "mfem/linalg/amgxsolver.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverHandler.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief solver of the AmgX library, through the wrapper of MFEM. AmgX
++   * computes on the GPU, whatever the device used by MFEM: the matrix is
++   * copied on the host and uploaded to AmgX at each call to `SetOperator`
++   * (see `mfem::AmgXSolver`).
++   *
++   * MFEM gives no access to the status of AmgX and aborts when asked to
++   * check it. When the maximum number of iterations of the configuration is
++   * known, the resolution is considered converged if the number of
++   * iterations is lower, as for the solvers of hypre (see `hasConverged`).
++   */
++  struct AmgXSolver final : public mfem::AmgXSolver {
++    /*!
++     * \brief constructor
++     * \param[in] c: configuration of AmgX, the default configuration of
++     * MFEM for a preconditioner (one V-cycle) if empty
++     * \param[in] s: source of the configuration (string or file)
++     * \param[in] v: verbosity of the default configuration
++     * \param[in] n: maximum number of iterations of the configuration, if
++     * known
++     */
++    AmgXSolver(const std::string&,
++               const CONFIG_SRC,
++               const bool,
++               const std::optional<int>);
++    //
++    void Mult(const mfem::Vector&, mfem::Vector&) const override;
++    /*!
++     * \return the number of iterations of the last resolution, if the
++     * maximum number of iterations is known and a resolution was made
++     */
++    [[nodiscard]] std::optional<int> getNumberOfIterations() const noexcept;
++    //! \return if the last resolution has converged (see the class notes)
++    [[nodiscard]] bool hasConverged() const noexcept;
++
++   private:
++    //! \brief maximum number of iterations of the configuration, if known
++    const std::optional<int> maximum_number_of_iterations;
++    //! \brief number of iterations of the last resolution
++    mutable std::optional<int> iterations;
++  };  // end of AmgXSolver
++
++  /*!
++   * \return cycles of the algebraic multigrid of AmgX, as a preconditioner
++   * or an approximate linear solver (`AmgX` in the factory of linear
++   * solvers).
++   *
++   * The options are:
++   * - `Configuration`: configuration of AmgX, as a string;
++   * - `ConfigurationFile`: file containing the configuration of AmgX (the
++   *   configurations distributed with AmgX are in `lib/configs`);
++   * - `VerbosityLevel`: if strictly positive, AmgX prints the statistics of
++   *   the default configuration.
++   * Without configuration, the default one of MFEM is used: one V-cycle of
++   * the classical algebraic multigrid with a L1-Jacobi smoother. An
++   * invalid configuration aborts the program (AmgX checks it).
++   *
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] params: options
++   */
++  template <bool parallel>
++  [[nodiscard]] std::unique_ptr<AmgXSolver> makeAmgXPreconditioner(
++      Context&, FiniteElementSpace<parallel>&, const Parameters&) noexcept;
++  /*!
++   * \return the conjugate gradient of AmgX preconditioned by one V-cycle of
++   * its algebraic multigrid in the default configuration of MFEM
++   * (`AmgXPCG` in the factory of linear solvers).
++   *
++   * The options are the ones of the iterative solvers (`VerbosityLevel`,
++   * `RelativeTolerance`, `AbsoluteTolerance`,
++   * `MaximumNumberOfIterations`), with the convergence criterion of MFEM:
++   * the norm of the residual is lower than the absolute tolerance or than
++   * the relative tolerance times the norm of the initial residual.
++   *
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] params: options
++   */
++  template <bool parallel>
++  [[nodiscard]] std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver(
++      Context&, FiniteElementSpace<parallel>&, const Parameters&) noexcept;
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_AMGX */
++
++#endif /* LIB_MFEM_MGIS_SRC_AMGXSOLVERS_HXX */
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c3387c2834..75288096d1 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -51,6 +51,7 @@ list(APPEND MFEMMGIS_SOURCES
+   SolverUtilities.cxx
+   LinearSolverHandler.cxx
+   LinearSolverFactory.cxx
++  AmgXSolvers.cxx
+   AbstractNonLinearSolver.cxx
+   NonLinearSolverBase.cxx
+   NonLinearSolverFactory.cxx
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 6320fc7b10..9211226fa5 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -31,6 +31,7 @@
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
++#include "AmgXSolvers.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+ 
+@@ -710,6 +711,18 @@ namespace mfem_mgis {
+ #else  /* MFEM_USE_MPI */
+       return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
+ #endif /* MFEM_USE_MPI */
++    } else if (*oname == "AmgX") {
++#ifdef MFEM_USE_AMGX
++      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
++      if (isInvalid(oparams)) {
++        return {};
++      }
++      return internals::makeAmgXPreconditioner<parallel>(ctx, fespace,
++                                                         *oparams);
++#else  /* MFEM_USE_AMGX */
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: MFEM is not compiled with AmgX");
++#endif /* MFEM_USE_AMGX */
+     } else if (*oname == "HypreBoomerAMG") {
+       if constexpr (parallel) {
+         const auto oparams =
+@@ -1212,6 +1225,34 @@ namespace mfem_mgis {
+                 buildIterativeSolverGenerator<parallel, mfem::MINRESSolver>()));
+     check(f.add(ctx, "SLISolver",
+                 buildIterativeSolverGenerator<parallel, mfem::SLISolver>()));
++#ifdef MFEM_USE_AMGX
++    // cycles of the algebraic multigrid of AmgX (approximate solver, as
++    // `HypreBoomerAMG`) and conjugate gradient of AmgX
++    check(f.add(ctx, "AmgX",
++                [](Context& c, FiniteElementSpace<parallel>& fespace,
++                   const Parameters& params) noexcept -> LinearSolverHandler {
++                  auto s = internals::makeAmgXPreconditioner<parallel>(
++                      c, fespace, params);
++                  if (s == nullptr) {
++                    return {};
++                  }
++                  return LinearSolverHandler{
++                      std::move(s),
++                      std::unique_ptr<LinearSolverPreconditioner>{}};
++                }));
++    check(f.add(ctx, "AmgXPCG",
++                [](Context& c, FiniteElementSpace<parallel>& fespace,
++                   const Parameters& params) noexcept -> LinearSolverHandler {
++                  auto s = internals::makeAmgXConjugateGradientSolver<parallel>(
++                      c, fespace, params);
++                  if (s == nullptr) {
++                    return {};
++                  }
++                  return LinearSolverHandler{
++                      std::move(s),
++                      std::unique_ptr<LinearSolverPreconditioner>{}};
++                }));
++#endif /* MFEM_USE_AMGX */
+     if constexpr (parallel) {
+ #ifdef MFEM_USE_MUMPS
+       check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index b22f89d0fc..80d82c9840 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -17,6 +17,7 @@
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "AmgXSolvers.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -116,6 +117,12 @@ namespace mfem_mgis {
+         isolver != nullptr) {
+       return isolver->GetConverged();
+     }
++#ifdef MFEM_USE_AMGX
++    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
++        aptr != nullptr) {
++      return aptr->hasConverged();
++    }
++#endif /* MFEM_USE_AMGX */
+ #ifdef MFEM_USE_MPI
+     auto check_hypre_solver_convergence =
+         []<typename SolverType>(const SolverType* ptr) {
+@@ -149,6 +156,12 @@ namespace mfem_mgis {
+         isolver != nullptr) {
+       return isolver->GetNumIterations();
+     }
++#ifdef MFEM_USE_AMGX
++    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
++        aptr != nullptr) {
++      return aptr->getNumberOfIterations();
++    }
++#endif /* MFEM_USE_AMGX */
+ #ifdef MFEM_USE_MPI
+     auto get_hypre_solver_iterations =
+         []<typename SolverType>(const SolverType* ptr) {
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+new file mode 100644
+index 0000000000..ce1497065b
+--- /dev/null
++++ b/tests/AmgXSolverTest.cxx
+@@ -0,0 +1,397 @@
++/*!
++ * \file   AmgXSolverTest.cxx
++ * \brief  Test of the solvers of the AmgX library built by the factory of
++ * linear solvers (`AmgX` preconditioner and linear solver, `AmgXPCG` linear
++ * solver), on the Laplace equation on a cube, the essential degrees of
++ * freedom being eliminated with a diagonal set to one. AmgX computes on the
++ * GPU whatever the device used by MFEM. With the `--parallel` option, the
++ * computations are parallel.
++ * \date   10/10/2026
++ */
++
++#include <cmath>
++#include <memory>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <fstream>
++#include <iostream>
++#include "mfem.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++//! \brief rank of the process
++static int rank = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief configuration of AmgX: one V-cycle of the aggregation multigrid
++static const char* const aggregation =
++    "{\"config_version\": 2, \"solver\": {\"solver\": \"AMG\", "
++    "\"scope\": \"main\", \"algorithm\": \"AGGREGATION\", "
++    "\"selector\": \"SIZE_2\", \"smoother\": {\"scope\": \"jacobi\", "
++    "\"solver\": \"BLOCK_JACOBI\", \"relaxation_factor\": 0.8}, "
++    "\"presweeps\": 0, \"postsweeps\": 3, \"coarse_solver\": \"NOSOLVER\", "
++    "\"max_iters\": 1, \"max_levels\": 50, \"cycle\": \"V\"}}";
++
++//! \brief result of a resolution
++struct Resolution {
++  //! \brief solution
++  mfem::Vector x;
++  //! \brief if true, the resolution succeeded
++  bool converged = false;
++  //! \brief number of iterations, if given by the solver
++  std::optional<int> iterations;
++  //! \brief norm of the residual relative to the norm of the right hand side
++  double residual = 1;
++};
++
++/*!
++ * \return the scalar product of two vectors
++ * \param[in] fespace: finite element space
++ * \param[in] a: first vector
++ * \param[in] b: second vector
++ */
++template <bool is_parallel>
++static double dot(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                  const mfem::Vector& a,
++                  const mfem::Vector& b) {
++  if constexpr (is_parallel) {
++    return mfem::InnerProduct(fespace.GetComm(), a, b);
++  } else {
++    static_cast<void>(fespace);
++    return mfem::InnerProduct(a, b);
++  }
++}  // end of dot
++
++/*!
++ * \return the resolution of a linear system by a linear solver
++ * \param[in] fespace: finite element space
++ * \param[in, out] ls: linear solver
++ * \param[in] A: operator
++ * \param[in] B: right hand side
++ * \param[in] x0: initial value of the solution, ignored by the solvers of
++ * the factory (zero initial guess)
++ */
++template <bool is_parallel>
++static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                        mfem::Solver& ls,
++                        const mfem::Operator& A,
++                        const mfem::Vector& B,
++                        const double x0 = 0) {
++  using namespace mfem_mgis;
++  auto r = Resolution{};
++  r.x.SetSize(B.Size());
++  r.x.UseDevice(true);
++  r.x = x0;
++  ls.SetOperator(A);
++  ls.Mult(B, r.x);
++  auto e = mfem::Vector(B.Size());
++  e.UseDevice(true);
++  A.Mult(r.x, e);
++  e -= B;
++  r.converged = hasConverged(ls);
++  r.iterations = getNumberOfIterationsAtConvergence(ls);
++  r.residual = std::sqrt(dot<is_parallel>(fespace, e, e) /
++                         dot<is_parallel>(fespace, B, B));
++  return r;
++}  // end of solve
++
++/*!
++ * \return a linear solver of the factory, exits on failure
++ * \param[in] fespace: finite element space
++ * \param[in] name: name of the linear solver
++ * \param[in] parameters: options of the linear solver
++ */
++template <bool is_parallel>
++static mfem_mgis::LinearSolverHandler generate(
++    mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++    const std::string& name,
++    const mfem_mgis::Parameters& parameters) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, name, fespace, parameters);
++  if (isInvalid(ls)) {
++    std::cerr << ctx.getErrorMessage() << '\n';
++    std::exit(EXIT_FAILURE);
++  }
++  return ls;
++}  // end of generate
++
++/*!
++ * \return the conjugate gradient of MFEM with the given preconditioner
++ * \param[in] fespace: finite element space
++ * \param[in] preconditioner: preconditioner
++ */
++template <bool is_parallel>
++static mfem_mgis::LinearSolverHandler makeConjugateGradient(
++    mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++    const mfem_mgis::Parameters& preconditioner) {
++  using namespace mfem_mgis;
++  return generate<is_parallel>(
++      fespace, "CGSolver",
++      Parameters{{"RelativeTolerance", 1e-10},
++                 {"AbsoluteTolerance", 0.},
++                 {"MaximumNumberOfIterations", 5000},
++                 {"Preconditioner", preconditioner}});
++}  // end of makeConjugateGradient
++
++/*!
++ * \return if two numbers of iterations are close: the setup of AmgX on the
++ * GPU may not be deterministic
++ */
++static bool close(const std::optional<int> a, const std::optional<int> b) {
++  return a.has_value() && b.has_value() &&
++         (std::abs(*a - *b) <= *b / 20 + 1);
++}  // end of close
++
++/*!
++ * \brief checks the solvers of AmgX on a linear system
++ * \param[in] fespace: finite element space
++ * \param[in] A: assembled operator
++ * \param[in] B: right hand side
++ */
++template <bool is_parallel>
++static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++                      const mfem::Operator& A,
++                      const mfem::Vector& B) {
++  using namespace mfem_mgis;
++  auto print = [](const std::string& name, const Resolution& r) {
++    if (rank == 0) {
++      std::cout << name << ": ";
++      if (r.iterations.has_value()) {
++        std::cout << *(r.iterations) << " iterations, ";
++      }
++      std::cout << "residual " << r.residual
++                << (r.converged ? "" : " (not converged)") << '\n';
++    }
++  };
++  // reference: conjugate gradient preconditioned by a Jacobi smoother
++  auto jacobi = makeConjugateGradient<is_parallel>(
++      fespace, Parameters{{"Name", "OperatorJacobiSmoother"}});
++  const auto rj = solve<is_parallel>(fespace, *(jacobi.linear_solver), A, B);
++  print("CG, Jacobi", rj);
++  check(rj.converged && rj.iterations.has_value(), "CG, Jacobi: resolution");
++  // conjugate gradient of MFEM preconditioned by AmgX, default configuration
++  // of MFEM, set up twice
++  auto cg = makeConjugateGradient<is_parallel>(fespace,
++                                               Parameters{{"Name", "AmgX"}});
++  const auto r1 = solve<is_parallel>(fespace, *(cg.linear_solver), A, B);
++  const auto r2 = solve<is_parallel>(fespace, *(cg.linear_solver), A, B);
++  print("CG, AmgX", r1);
++  print("CG, AmgX, set up again", r2);
++  for (const auto& r : {r1, r2}) {
++    check(r.converged && (r.residual < 1e-9), "CG, AmgX: resolution");
++  }
++  check(close(r2.iterations, r1.iterations),
++        "CG, AmgX: different numbers of iterations after a new setup");
++  check(rj.iterations.has_value() && r1.iterations.has_value() &&
++            (2 * *(r1.iterations) < *(rj.iterations)),
++        "CG, AmgX: the multigrid does not reduce the number of iterations");
++  // configuration given as a string, then by a file
++  auto cgs = makeConjugateGradient<is_parallel>(
++      fespace, Parameters{{"Name", "AmgX"},
++                          {"Options", Parameters{{"Configuration",
++                                                  std::string{aggregation}}}}});
++  const auto rs = solve<is_parallel>(fespace, *(cgs.linear_solver), A, B);
++  print("CG, AmgX, aggregation (string)", rs);
++  const auto file = "AmgXSolverTest-" + std::string{is_parallel ? "p" : "s"} +
++                    std::to_string(rank) + ".json";
++  std::ofstream{file} << aggregation << '\n';
++  auto cgf = makeConjugateGradient<is_parallel>(
++      fespace,
++      Parameters{{"Name", "AmgX"},
++                 {"Options", Parameters{{"ConfigurationFile", file}}}});
++  const auto rf = solve<is_parallel>(fespace, *(cgf.linear_solver), A, B);
++  print("CG, AmgX, aggregation (file)", rf);
++  for (const auto& r : {rs, rf}) {
++    check(r.converged && (r.residual < 1e-9),
++          "CG, AmgX, aggregation: resolution");
++  }
++  check(close(rf.iterations, rs.iterations),
++        "CG, AmgX: different numbers of iterations for the same "
++        "configuration given as a string and by a file");
++  check(!close(rs.iterations, r1.iterations),
++        "CG, AmgX: same numbers of iterations for the aggregation and the "
++        "default configurations (configuration ignored ?)");
++  // one V-cycle as a linear solver, as `HypreBoomerAMG`: zero initial
++  // guess, no number of iterations
++  auto amg = generate<is_parallel>(fespace, "AmgX", Parameters{});
++  const auto rc0 = solve<is_parallel>(fespace, *(amg.linear_solver), A, B);
++  const auto rc1 =
++      solve<is_parallel>(fespace, *(amg.linear_solver), A, B, 1e3);
++  print("AmgX, one cycle", rc0);
++  check(rc0.converged && (!rc0.iterations.has_value()),
++        "AmgX: convergence and number of iterations of one cycle");
++  check((rc0.residual < 0.9) && (std::abs(rc1.residual - rc0.residual) <=
++                                 1e-6 * rc0.residual),
++        "AmgX: one cycle does not reduce the residual or depends on the "
++        "initial value of the solution");
++  // conjugate gradient of AmgX
++  auto pcg = generate<is_parallel>(
++      fespace, "AmgXPCG",
++      Parameters{{"RelativeTolerance", 1e-10},
++                 {"MaximumNumberOfIterations", 200}});
++  const auto rp = solve<is_parallel>(fespace, *(pcg.linear_solver), A, B, 1e3);
++  print("AmgXPCG", rp);
++  check(rp.converged && (rp.residual < 1e-9) && rp.iterations.has_value() &&
++            (*(rp.iterations) > 2),
++        "AmgXPCG: resolution");
++  check(close(rp.iterations, r1.iterations),
++        "AmgXPCG: different number of iterations than the conjugate "
++        "gradient of MFEM with the same preconditioner");
++  // too few iterations: not converged
++  auto pcg2 = generate<is_parallel>(
++      fespace, "AmgXPCG",
++      Parameters{{"RelativeTolerance", 1e-14},
++                 {"MaximumNumberOfIterations", 2}});
++  const auto rp2 = solve<is_parallel>(fespace, *(pcg2.linear_solver), A, B);
++  print("AmgXPCG, two iterations", rp2);
++  check((!rp2.converged) && (rp2.iterations == 2) && (rp2.residual > 1e-9),
++        "AmgXPCG: resolution not converged in two iterations");
++  // absolute tolerance only
++  const auto nB = std::sqrt(dot<is_parallel>(fespace, B, B));
++  auto pcga = generate<is_parallel>(
++      fespace, "AmgXPCG",
++      Parameters{{"RelativeTolerance", 0.},
++                 {"AbsoluteTolerance", 1e-5 * nB},
++                 {"MaximumNumberOfIterations", 200}});
++  const auto rpa = solve<is_parallel>(fespace, *(pcga.linear_solver), A, B);
++  print("AmgXPCG, absolute tolerance", rpa);
++  check(rpa.converged && rpa.iterations.has_value() &&
++            rp.iterations.has_value() &&
++            (*(rpa.iterations) < *(rp.iterations)) &&
++            (rpa.residual <= 1e-5),
++        "AmgXPCG: resolution with an absolute tolerance");
++  // several solvers alive at the same time (resources of AmgX shared by
++  // the instances), the first one destroyed before the last one is used
++  {
++    auto a1 = generate<is_parallel>(fespace, "AmgXPCG",
++                                    Parameters{{"RelativeTolerance", 1e-10}});
++    auto a2 = generate<is_parallel>(fespace, "AmgXPCG",
++                                    Parameters{{"RelativeTolerance", 1e-10}});
++    const auto ra1 = solve<is_parallel>(fespace, *(a1.linear_solver), A, B);
++    a1 = LinearSolverHandler{};
++    const auto ra2 = solve<is_parallel>(fespace, *(a2.linear_solver), A, B);
++    auto a3 = generate<is_parallel>(fespace, "AmgXPCG",
++                                    Parameters{{"RelativeTolerance", 1e-10}});
++    const auto ra3 = solve<is_parallel>(fespace, *(a3.linear_solver), A, B);
++    for (const auto& r : {ra1, ra2, ra3}) {
++      check(r.converged && (r.residual < 1e-9),
++            "AmgXPCG: resolution with several solvers");
++    }
++  }
++  // invalid options
++  const auto invalid =
++      std::vector<std::pair<std::string, Parameters>>{
++          {"AmgX", Parameters{{"Configuration", aggregation},
++                              {"ConfigurationFile", file}}},
++          {"AmgX", Parameters{{"Configuration", aggregation},
++                              {"VerbosityLevel", 1}}},
++          {"AmgX", Parameters{{"Configuration", ""}}},
++          {"AmgX", Parameters{{"ConfigurationFile", "missing-file.json"}}},
++          {"AmgX", Parameters{{"Tolerance", 1e-8}}},
++          {"AmgXPCG", Parameters{{"RelativeTolerance", -1.}}},
++          {"AmgXPCG", Parameters{{"RelativeTolerance", 0.}}},
++          {"AmgXPCG", Parameters{{"MaximumNumberOfIterations", 0}}},
++          {"AmgXPCG", Parameters{{"Configuration", aggregation}}},
++          {"CGSolver", Parameters{{"Preconditioner",
++                                   Parameters{{"Name", "AmgX"},
++                                              {"Options",
++                                               Parameters{{"Depth", 1}}}}}}}};
++  for (const auto& [name, parameters] : invalid) {
++    auto ctx = Context{};
++    const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++        ctx, name, fespace, parameters);
++    check(isInvalid(ls), "invalid options of '" + name + "' accepted");
++  }
++  if constexpr (is_parallel) {
++    // AmgX is not a preconditioner of hypre
++    auto ctx = Context{};
++    const auto ls = LinearSolverFactory<true>::getFactory().generate(
++        ctx, "HyprePCG", fespace,
++        Parameters{{"Preconditioner", Parameters{{"Name", "AmgX"}}}});
++    check(isInvalid(ls), "AmgX accepted as a preconditioner of HyprePCG");
++  }
++}  // end of checkAmgX
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++#ifdef MFEM_USE_MPI
++  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
++#endif /* MFEM_USE_MPI */
++  auto mesh =
++      mfem::Mesh::MakeCartesian3D(16, 16, 16, mfem::Element::HEXAHEDRON);
++  auto fec = mfem::H1_FECollection(1, 3);
++  auto ess_bdr = mfem::Array<int>(mesh.bdr_attributes.Max());
++  ess_bdr = 1;
++  auto one = mfem::ConstantCoefficient(1.);
++  if (parallel) {
++#ifdef MFEM_USE_MPI
++    auto pmesh = mfem::ParMesh(MPI_COMM_WORLD, mesh);
++    auto fespace = mfem::ParFiniteElementSpace(&pmesh, &fec);
++    auto ess_tdofs = mfem::Array<int>{};
++    fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
++    auto a = mfem::ParBilinearForm(&fespace);
++    a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
++    a.Assemble();
++    auto b = mfem::ParLinearForm(&fespace);
++    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++    b.Assemble();
++    auto x = mfem::ParGridFunction(&fespace);
++    x = 0.;
++    auto A = mfem::HypreParMatrix{};
++    auto B = mfem::Vector{};
++    auto X = mfem::Vector{};
++    a.FormLinearSystem(ess_tdofs, x, b, A, X, B);
++    checkAmgX<true>(fespace, A, B);
++#else  /* MFEM_USE_MPI */
++    std::cerr << "parallel computations are not supported\n";
++    return EXIT_FAILURE;
++#endif /* MFEM_USE_MPI */
++  } else {
++    auto fespace = mfem::FiniteElementSpace(&mesh, &fec);
++    auto ess_tdofs = mfem::Array<int>{};
++    fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
++    auto a = mfem::BilinearForm(&fespace);
++    a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
++    a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
++    a.Assemble();
++    auto b = mfem::LinearForm(&fespace);
++    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++    b.Assemble();
++    auto x = mfem::GridFunction(&fespace);
++    x = 0.;
++    auto A = mfem::SparseMatrix{};
++    auto B = mfem::Vector{};
++    auto X = mfem::Vector{};
++    a.FormLinearSystem(ess_tdofs, x, b, A, X, B);
++    checkAmgX<false>(fespace, A, B);
++  }
++  if (rank == 0) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 027d885c38..735d94d68b 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1083,6 +1083,25 @@ if(MFEM_USE_MPI)
+            COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
+ endif(MFEM_USE_MPI)
+ 
++# AmgXSolverTest executable: solvers of AmgX built by the factory of linear
++# solvers. AmgX computes on the GPU whatever the device of MFEM: the tests
++# require one.
++if((MFEM_USE_AMGX STREQUAL "YES") AND enable-gpu-tests)
++  add_test_executable(AmgXSolverTest)
++  add_test(NAME AmgXSolverTest-gpu COMMAND AmgXSolverTest)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    add_test(NAME AmgXSolverTest-cuda COMMAND AmgXSolverTest --device cuda)
++  endif()
++  if(MFEM_USE_MPI)
++    add_test(NAME AmgXSolverTestP-gpu
++             COMMAND mpirun -n 2 ./AmgXSolverTest --parallel)
++    if(MFEM_USE_CUDA STREQUAL "YES")
++      add_test(NAME AmgXSolverTestP-cuda
++               COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)
++    endif()
++  endif(MFEM_USE_MPI)
++endif()
++
+ # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
+ # when MFEM is compiled with CUDA (not supported yet with HIP). The test on
+ # the GPU requires one.
+-- 
+2.43.0
+

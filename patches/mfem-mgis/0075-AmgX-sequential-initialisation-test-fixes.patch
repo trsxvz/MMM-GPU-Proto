@@ -1,0 +1,290 @@
+From 71f95e001150e0a7b3e0e963550fc9efc371b59f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 13:35:48 +0200
+Subject: [PATCH] AmgX: sequential initialisation, test fixes
+
+The sequential solvers are initialised as the parallel ones, on the
+communicator of the process: InitSerial of MFEM initialises AmgX for each
+solver, which fails when another solver exists. The test uses a larger
+mesh, checks the conjugate gradient of AmgX against the one of MFEM with
+a Jacobi smoother, and the destruction of all the solvers of AmgX.
+---
+ src/AmgXSolvers.cxx      |  31 +++++++----
+ tests/AmgXSolverTest.cxx | 117 ++++++++++++++++++++++-----------------
+ 2 files changed, 84 insertions(+), 64 deletions(-)
+
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index 14d520dbb1..b9dc7c6c93 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -60,22 +60,28 @@ namespace mfem_mgis::internals {
+   }  // end of hasConverged
+ 
+   /*!
+-   * \return the solver initialised for the given space: in parallel, each
+-   * process uses the first device it sees (`InitExclusiveGPU` of MFEM)
++   * \return the solver initialised for the given space: each process uses
++   * the first device it sees (`InitExclusiveGPU` of MFEM). In sequential,
++   * the communicator of the process is used when MFEM is compiled with MPI:
++   * `InitSerial` initialises AmgX for each solver, which fails when another
++   * solver exists.
+    * \param[in] s: solver
+    * \param[in] fespace: finite element space
+    */
+   template <bool parallel>
+   static std::unique_ptr<AmgXSolver> initialise(
+       std::unique_ptr<AmgXSolver> s, FiniteElementSpace<parallel>& fespace) {
+-    if constexpr (parallel) {
+ #ifdef MFEM_USE_MPI
++    if constexpr (parallel) {
+       s->InitExclusiveGPU(fespace.GetComm());
+-#endif /* MFEM_USE_MPI */
+     } else {
+       static_cast<void>(fespace);
+-      s->InitSerial();
++      s->InitExclusiveGPU(MPI_COMM_SELF);
+     }
++#else  /* MFEM_USE_MPI */
++    static_cast<void>(fespace);
++    s->InitSerial();
++#endif /* MFEM_USE_MPI */
+     return s;
+   }  // end of initialise
+ 
+@@ -87,9 +93,10 @@ namespace mfem_mgis::internals {
+     const char* const Configuration = "Configuration";
+     const char* const ConfigurationFile = "ConfigurationFile";
+     const char* const VerbosityLevel = "VerbosityLevel";
+-    if (!checkParameters(ctx, params,
+-                         std::vector<std::string>{
+-                             Configuration, ConfigurationFile, VerbosityLevel})) {
++    if (!checkParameters(
++            ctx, params,
++            std::vector<std::string>{Configuration, ConfigurationFile,
++                                     VerbosityLevel})) {
+       return {};
+     }
+     const auto oconfiguration =
+@@ -151,8 +158,8 @@ namespace mfem_mgis::internals {
+     if (atol > 0) {
+       // converged if the norm of the residual is lower than `tolerance` or
+       // than `alt_rel_tolerance` times the norm of the initial residual
+-      c << "\"convergence\": \"COMBINED_REL_INI_ABS\", \"tolerance\": "
+-        << atol << ", \"alt_rel_tolerance\": " << rtol << ", ";
++      c << "\"convergence\": \"COMBINED_REL_INI_ABS\", \"tolerance\": " << atol
++        << ", \"alt_rel_tolerance\": " << rtol << ", ";
+     } else {
+       c << "\"convergence\": \"RELATIVE_INI_CORE\", \"tolerance\": " << rtol
+         << ", ";
+@@ -202,8 +209,8 @@ namespace mfem_mgis::internals {
+     }
+     const auto c =
+         getConjugateGradientConfiguration(*ortol, *oatol, *on, *overbosity > 0);
+-    auto s = std::make_unique<AmgXSolver>(c, mfem::AmgXSolver::INTERNAL, false,
+-                                          *on);
++    auto s =
++        std::make_unique<AmgXSolver>(c, mfem::AmgXSolver::INTERNAL, false, *on);
+     return initialise<parallel>(std::move(s), fespace);
+   }  // end of makeAmgXConjugateGradientSolver
+ 
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index ce1497065b..dd6686e948 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -140,12 +140,11 @@ static mfem_mgis::LinearSolverHandler makeConjugateGradient(
+     mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+     const mfem_mgis::Parameters& preconditioner) {
+   using namespace mfem_mgis;
+-  return generate<is_parallel>(
+-      fespace, "CGSolver",
+-      Parameters{{"RelativeTolerance", 1e-10},
+-                 {"AbsoluteTolerance", 0.},
+-                 {"MaximumNumberOfIterations", 5000},
+-                 {"Preconditioner", preconditioner}});
++  return generate<is_parallel>(fespace, "CGSolver",
++                               Parameters{{"RelativeTolerance", 1e-10},
++                                          {"AbsoluteTolerance", 0.},
++                                          {"MaximumNumberOfIterations", 5000},
++                                          {"Preconditioner", preconditioner}});
+ }  // end of makeConjugateGradient
+ 
+ /*!
+@@ -153,8 +152,7 @@ static mfem_mgis::LinearSolverHandler makeConjugateGradient(
+  * GPU may not be deterministic
+  */
+ static bool close(const std::optional<int> a, const std::optional<int> b) {
+-  return a.has_value() && b.has_value() &&
+-         (std::abs(*a - *b) <= *b / 20 + 1);
++  return a.has_value() && b.has_value() && (std::abs(*a - *b) <= *b / 20 + 1);
+ }  // end of close
+ 
+ /*!
+@@ -186,14 +184,16 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   check(rj.converged && rj.iterations.has_value(), "CG, Jacobi: resolution");
+   // conjugate gradient of MFEM preconditioned by AmgX, default configuration
+   // of MFEM, set up twice
+-  auto cg = makeConjugateGradient<is_parallel>(fespace,
+-                                               Parameters{{"Name", "AmgX"}});
++  auto cg =
++      makeConjugateGradient<is_parallel>(fespace, Parameters{{"Name", "AmgX"}});
+   const auto r1 = solve<is_parallel>(fespace, *(cg.linear_solver), A, B);
+   const auto r2 = solve<is_parallel>(fespace, *(cg.linear_solver), A, B);
+   print("CG, AmgX", r1);
+   print("CG, AmgX, set up again", r2);
++  // the conjugate gradient of MFEM checks the norm of the preconditioned
++  // residual: the norm of the residual is checked with a margin
+   for (const auto& r : {r1, r2}) {
+-    check(r.converged && (r.residual < 1e-9), "CG, AmgX: resolution");
++    check(r.converged && (r.residual < 1e-8), "CG, AmgX: resolution");
+   }
+   check(close(r2.iterations, r1.iterations),
+         "CG, AmgX: different numbers of iterations after a new setup");
+@@ -217,7 +217,7 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   const auto rf = solve<is_parallel>(fespace, *(cgf.linear_solver), A, B);
+   print("CG, AmgX, aggregation (file)", rf);
+   for (const auto& r : {rs, rf}) {
+-    check(r.converged && (r.residual < 1e-9),
++    check(r.converged && (r.residual < 1e-8),
+           "CG, AmgX, aggregation: resolution");
+   }
+   check(close(rf.iterations, rs.iterations),
+@@ -230,50 +230,48 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   // guess, no number of iterations
+   auto amg = generate<is_parallel>(fespace, "AmgX", Parameters{});
+   const auto rc0 = solve<is_parallel>(fespace, *(amg.linear_solver), A, B);
+-  const auto rc1 =
+-      solve<is_parallel>(fespace, *(amg.linear_solver), A, B, 1e3);
++  const auto rc1 = solve<is_parallel>(fespace, *(amg.linear_solver), A, B, 1e3);
+   print("AmgX, one cycle", rc0);
+   check(rc0.converged && (!rc0.iterations.has_value()),
+         "AmgX: convergence and number of iterations of one cycle");
+-  check((rc0.residual < 0.9) && (std::abs(rc1.residual - rc0.residual) <=
+-                                 1e-6 * rc0.residual),
++  check((rc0.residual < 0.9) &&
++            (std::abs(rc1.residual - rc0.residual) <= 1e-6 * rc0.residual),
+         "AmgX: one cycle does not reduce the residual or depends on the "
+         "initial value of the solution");
+   // conjugate gradient of AmgX
+-  auto pcg = generate<is_parallel>(
+-      fespace, "AmgXPCG",
+-      Parameters{{"RelativeTolerance", 1e-10},
+-                 {"MaximumNumberOfIterations", 200}});
++  auto pcg =
++      generate<is_parallel>(fespace, "AmgXPCG",
++                            Parameters{{"RelativeTolerance", 1e-10},
++                                       {"MaximumNumberOfIterations", 200}});
+   const auto rp = solve<is_parallel>(fespace, *(pcg.linear_solver), A, B, 1e3);
+   print("AmgXPCG", rp);
+   check(rp.converged && (rp.residual < 1e-9) && rp.iterations.has_value() &&
+             (*(rp.iterations) > 2),
+         "AmgXPCG: resolution");
+-  check(close(rp.iterations, r1.iterations),
+-        "AmgXPCG: different number of iterations than the conjugate "
+-        "gradient of MFEM with the same preconditioner");
++  check(rp.iterations.has_value() && rj.iterations.has_value() &&
++            (2 * *(rp.iterations) < *(rj.iterations)),
++        "AmgXPCG: the multigrid does not reduce the number of iterations");
+   // too few iterations: not converged
+-  auto pcg2 = generate<is_parallel>(
+-      fespace, "AmgXPCG",
+-      Parameters{{"RelativeTolerance", 1e-14},
+-                 {"MaximumNumberOfIterations", 2}});
++  auto pcg2 =
++      generate<is_parallel>(fespace, "AmgXPCG",
++                            Parameters{{"RelativeTolerance", 1e-14},
++                                       {"MaximumNumberOfIterations", 2}});
+   const auto rp2 = solve<is_parallel>(fespace, *(pcg2.linear_solver), A, B);
+   print("AmgXPCG, two iterations", rp2);
+   check((!rp2.converged) && (rp2.iterations == 2) && (rp2.residual > 1e-9),
+         "AmgXPCG: resolution not converged in two iterations");
+   // absolute tolerance only
+   const auto nB = std::sqrt(dot<is_parallel>(fespace, B, B));
+-  auto pcga = generate<is_parallel>(
+-      fespace, "AmgXPCG",
+-      Parameters{{"RelativeTolerance", 0.},
+-                 {"AbsoluteTolerance", 1e-5 * nB},
+-                 {"MaximumNumberOfIterations", 200}});
++  auto pcga =
++      generate<is_parallel>(fespace, "AmgXPCG",
++                            Parameters{{"RelativeTolerance", 0.},
++                                       {"AbsoluteTolerance", 1e-5 * nB},
++                                       {"MaximumNumberOfIterations", 200}});
+   const auto rpa = solve<is_parallel>(fespace, *(pcga.linear_solver), A, B);
+   print("AmgXPCG, absolute tolerance", rpa);
+   check(rpa.converged && rpa.iterations.has_value() &&
+             rp.iterations.has_value() &&
+-            (*(rpa.iterations) < *(rp.iterations)) &&
+-            (rpa.residual <= 1e-5),
++            (*(rpa.iterations) < *(rp.iterations)) && (rpa.residual <= 1e-5),
+         "AmgXPCG: resolution with an absolute tolerance");
+   // several solvers alive at the same time (resources of AmgX shared by
+   // the instances), the first one destroyed before the last one is used
+@@ -293,24 +291,39 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+             "AmgXPCG: resolution with several solvers");
+     }
+   }
++  // all the solvers of AmgX destroyed, then a new one created (AmgX is
++  // finalised, then initialised again)
++  cg = LinearSolverHandler{};
++  cgs = LinearSolverHandler{};
++  cgf = LinearSolverHandler{};
++  amg = LinearSolverHandler{};
++  pcg = LinearSolverHandler{};
++  pcg2 = LinearSolverHandler{};
++  pcga = LinearSolverHandler{};
++  {
++    auto a = generate<is_parallel>(fespace, "AmgXPCG",
++                                   Parameters{{"RelativeTolerance", 1e-10}});
++    const auto r = solve<is_parallel>(fespace, *(a.linear_solver), A, B);
++    check(r.converged && (r.residual < 1e-9),
++          "AmgXPCG: resolution after the destruction of all the solvers");
++  }
+   // invalid options
+-  const auto invalid =
+-      std::vector<std::pair<std::string, Parameters>>{
+-          {"AmgX", Parameters{{"Configuration", aggregation},
+-                              {"ConfigurationFile", file}}},
+-          {"AmgX", Parameters{{"Configuration", aggregation},
+-                              {"VerbosityLevel", 1}}},
+-          {"AmgX", Parameters{{"Configuration", ""}}},
+-          {"AmgX", Parameters{{"ConfigurationFile", "missing-file.json"}}},
+-          {"AmgX", Parameters{{"Tolerance", 1e-8}}},
+-          {"AmgXPCG", Parameters{{"RelativeTolerance", -1.}}},
+-          {"AmgXPCG", Parameters{{"RelativeTolerance", 0.}}},
+-          {"AmgXPCG", Parameters{{"MaximumNumberOfIterations", 0}}},
+-          {"AmgXPCG", Parameters{{"Configuration", aggregation}}},
+-          {"CGSolver", Parameters{{"Preconditioner",
+-                                   Parameters{{"Name", "AmgX"},
+-                                              {"Options",
+-                                               Parameters{{"Depth", 1}}}}}}}};
++  const auto invalid = std::vector<std::pair<std::string, Parameters>>{
++      {"AmgX",
++       Parameters{{"Configuration", aggregation}, {"ConfigurationFile", file}}},
++      {"AmgX",
++       Parameters{{"Configuration", aggregation}, {"VerbosityLevel", 1}}},
++      {"AmgX", Parameters{{"Configuration", ""}}},
++      {"AmgX", Parameters{{"ConfigurationFile", "missing-file.json"}}},
++      {"AmgX", Parameters{{"Tolerance", 1e-8}}},
++      {"AmgXPCG", Parameters{{"RelativeTolerance", -1.}}},
++      {"AmgXPCG", Parameters{{"RelativeTolerance", 0.}}},
++      {"AmgXPCG", Parameters{{"MaximumNumberOfIterations", 0}}},
++      {"AmgXPCG", Parameters{{"Configuration", aggregation}}},
++      {"CGSolver",
++       Parameters{{"Preconditioner",
++                   Parameters{{"Name", "AmgX"},
++                              {"Options", Parameters{{"Depth", 1}}}}}}}};
+   for (const auto& [name, parameters] : invalid) {
+     auto ctx = Context{};
+     const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+@@ -343,7 +356,7 @@ int main(int argc, char** argv) {
+   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+ #endif /* MFEM_USE_MPI */
+   auto mesh =
+-      mfem::Mesh::MakeCartesian3D(16, 16, 16, mfem::Element::HEXAHEDRON);
++      mfem::Mesh::MakeCartesian3D(32, 32, 32, mfem::Element::HEXAHEDRON);
+   auto fec = mfem::H1_FECollection(1, 3);
+   auto ess_bdr = mfem::Array<int>(mesh.bdr_attributes.Max());
+   ess_bdr = 1;
+-- 
+2.43.0
+

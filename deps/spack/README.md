@@ -119,6 +119,21 @@ produite par les recettes. La condition du patch de la convection
 (`^cuda@13:`, ajoutée après l'installation) change aussi le hachage de
 MFEM : la même reconcrétisation la prend en compte.
 
+## AmgX patché (10/10/2026)
+
+Avec CUDA 13 (sm_120), le multigrille classique de l'AmgX du commit
+91a8413e échoue (« invalid device function ») : la recette `amgx` de
+`mmm_gpu` applique `amgx-cuda13-sequence-kernel.patch` (reproducteur
+`reproducers/amgx-classical-cuda13`, PR amont NVIDIA/AMGX #386).
+L'AmgX patché (hachage `xupvzsc`) est installé, mais l'environnement
+garde son spack.lock d'avant, dont le MFEM contient l'AmgX non patché :
+la reconstruction de MFEM attend que les correctifs (AmgX #386, MFEM
+#5604) soient fusionnés en amont puis dans spack-packages. D'ici là,
+mfem-mgis utilise l'AmgX patché par `AMGX_DIR` (fixé par
+`scripts/env.sh`), placé avant MFEM à l'édition de liens.
+`mmm-gpu/spack.yaml` impose aussi gslib `+shared`, pris en compte à la
+même reconstruction.
+
 ## Contraintes entre paquets
 
 - PETSc avec `+openmp` : les en-têtes d'un Kokkos compilé avec OpenMP

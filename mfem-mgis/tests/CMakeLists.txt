@@ -1083,6 +1083,30 @@ if(MFEM_USE_MPI)
            COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
 endif(MFEM_USE_MPI)
 
+# AmgXSolverTest executable: solvers of AmgX built by the factory of linear
+# solvers. AmgX computes on the GPU whatever the device of MFEM: the tests
+# require one, and are not run at the same time as the other tests on the
+# GPU
+if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+  add_test_executable(AmgXSolverTest)
+  add_test(NAME AmgXSolverTest-gpu COMMAND AmgXSolverTest)
+  add_test(NAME AmgXSolverTest-cuda COMMAND AmgXSolverTest --device cuda)
+  # no GPU visible: the solvers of AmgX are refused
+  add_test(NAME AmgXSolverTest-no-gpu COMMAND AmgXSolverTest --no-gpu)
+  set_tests_properties(AmgXSolverTest-no-gpu
+                       PROPERTIES ENVIRONMENT "CUDA_VISIBLE_DEVICES=")
+  set(amgx_tests AmgXSolverTest-gpu AmgXSolverTest-cuda)
+  if(MFEM_USE_MPI)
+    add_test(NAME AmgXSolverTestP-gpu
+             COMMAND mpirun -n 2 ./AmgXSolverTest --parallel)
+    add_test(NAME AmgXSolverTestP-cuda
+             COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)
+    list(APPEND amgx_tests AmgXSolverTestP-gpu AmgXSolverTestP-cuda)
+  endif(MFEM_USE_MPI)
+  # a deadlock fails quickly
+  set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
 # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
 # when MFEM is compiled with CUDA (not supported yet with HIP). The test on
 # the GPU requires one.

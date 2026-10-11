@@ -25,6 +25,7 @@ enable_testing()
 option(enable-portable-build "Produce binary that can be shared between various machine (same architecture, same gcc version, different processors" OFF)
 option(BENCHMARKS "Compile benchmarks" OFF)
 option(enable-gpu-tests "Add the tests which require a GPU (when MFEM is compiled with CUDA)" ON)
+option(enable-amgx "Solvers of the AmgX library of NVIDIA (requires MFEM compiled with CUDA, AmgX given by AMGX_DIR)" OFF)
 
 #compiler options
 include(cmake/modules/compiler.cmake)
@@ -69,6 +70,17 @@ endif(MFEM_USE_MPI)
 if(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP) 
   find_package(OpenMP REQUIRED)
 endif(MFEM_USE_OPENMP OR MFEM_USE_LEGACY_OPENMP)
+
+# AmgX, used through its C interface
+set(MFEM_MGIS_HAVE_AMGX OFF)
+if(enable-amgx)
+  if(NOT (MFEM_USE_CUDA STREQUAL "YES"))
+    message(FATAL_ERROR "mfem-mgis: AmgX requires MFEM compiled with CUDA")
+  endif()
+  find_package(AMGX REQUIRED)
+  set(MFEM_MGIS_HAVE_AMGX ON)
+  get_filename_component(MFEM_MGIS_AMGX_DIR "${AMGX_INCLUDE_DIR}" DIRECTORY)
+endif(enable-amgx)
 
 # MFontGenericInterface
 find_package (MFrontGenericInterface REQUIRED PATH_SUFFIXES share/mgis/cmake)
@@ -177,6 +189,7 @@ endif(BENCHMARKS)
 # install
 install(FILES
    ${PROJECT_SOURCE_DIR}/cmake/modules/FindMFEM.cmake
+   ${PROJECT_SOURCE_DIR}/cmake/modules/FindAMGX.cmake
    ${PROJECT_SOURCE_DIR}/cmake/modules/MFEMMGISDeviceCode.cmake
    ${PROJECT_SOURCE_DIR}/cmake/modules/ParELAGCMakeUtilities.cmake
    DESTINATION share/mfem-mgis/cmake)

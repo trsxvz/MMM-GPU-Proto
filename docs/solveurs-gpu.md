@@ -281,18 +281,77 @@ que les matrices `aijkokkos` et `aijcusparse` sur GPU. Intérêt 6.
   (`AMGX_mode_dDDI`, commentaire « currently only double is supported »
   dans `linalg/amgxsolver.hpp`), modes MPI, réutilisation complète par
   `UpdateOperator` (coefficients remplacés, pas de nouvelle
-  construction). Intérêt 5.
-- **Au-delà de l'enveloppe** (ajout, intérêt 6) : AmgX accepte des
-  matrices par blocs (blocs 3×3 nodaux en élasticité) et le mode
-  `dDFI` (vecteurs en double, matrice et préconditionneur en simple), et
-  la réutilisation partielle (`AMGX_solver_resetup`). Il faudrait une
-  enveloppe propre à mfem-mgis. AmgX 2.5.0 a retiré la précision mixte de
-  cuSPARSE (`DISABLE_MIXED_PRECISION`) : le mode `dDFI` reste dans l'API,
-  son efficacité est à mesurer.
+  construction). Ses ressources, partagées par tous ses solveurs, gardent
+  le communicateur et la configuration du premier : détruire le premier
+  solveur fait échouer les suivants ; le GPU 0 est imposé ; le statut de
+  convergence d'AmgX n'est pas accessible. **mfem-mgis ne l'utilise pas.**
+- **Enveloppe propre à mfem-mgis** (fait, option `enable-amgx`, AmgX donné
+  par `AMGX_DIR`) : interface C d'AmgX, préconditionneur et solveur `AmgX`
+  (cycles du multigrille), solveur `AmgXPCG` (gradient conjugué d'AmgX).
+  - Ressources d'AmgX uniques pour le processus : elles portent des objets
+    globaux (réserve de mémoire du GPU, poignées cuSPARSE et cuBLAS),
+    libérés par la destruction de n'importe quelles ressources, et gardent
+    l'adresse de leur communicateur. Elles sont créées pour le premier
+    solveur sur `MPI_COMM_WORLD` (AmgX en fait lui-même une copie pour
+    ses échanges) et détruites avec le dernier ; création et destruction
+    ne sont pas collectives.
+  - Communicateur d'un solveur parallèle : tous les processus dans le
+    même ordre, ou un seul processus (la matrice est alors téléversée
+    comme une matrice locale). Chaque processus doit posséder des lignes
+    de la matrice, au plus 2^31 - 1 lignes en tout : contrôles collectifs
+    dans `SetOperator`. Après un échec de `SetOperator`, le solveur refuse
+    de résoudre jusqu'à la mise en place suivante.
+  - Les solveurs doivent être détruits avant `MPI_Finalize` (AmgX libère
+    alors ses communicateurs).
+  - Planchers d'AmgX : la convergence est déclarée dès que la norme du
+    résidu passe sous le maximum de 1e-20 et de `e` fois la norme du
+    résidu initial (`e` vaut 1e-12 en double, 1e-6 en simple), et
+    d'emblée si la norme initiale est sous 1e-20. Sans tolérance
+    absolue, `AmgXPCG` multiplie le second membre par une puissance de 2
+    qui ramène le maximum des valeurs absolues de ses composantes entre
+    1 et 2 (calculé sur tous les processus ; la norme elle-même
+    déborderait aux extrêmes), puis la solution par l'inverse
+    (opérations exactes) : seul reste le plancher relatif, et la
+    tolérance relative doit valoir au moins `e`. Les statistiques
+    affichées par AmgX sont alors celles du système mis à l'échelle.
+    Avec une tolérance absolue (double précision seulement), le second
+    membre n'est pas modifié : la tolérance absolue doit valoir au moins
+    1e-20, et avec une tolérance absolue seule la résolution s'arrête
+    aussi quand la norme du résidu a été multipliée par `e`. En simple
+    précision, le second membre est toujours mis à l'échelle : une
+    tolérance relative est exigée et une tolérance absolue refusée. Le
+    préconditionneur en simple précision (configuration par défaut) met
+    aussi le second membre à l'échelle, pour rester dans la plage de la
+    simple précision : une tolérance passée par `AmgXParameters`
+    s'applique alors au second membre mis à l'échelle.
+  - Double copie d'AmgX, en attendant la reconstruction de MFEM :
+    libmfem.so contient l'AmgX statique non patché de MFEM. Un programme
+    doit lier libamgxsh.so (patchée) avant MFEM, comme le fait
+    `MFEMMGISConfig.cmake` ; sinon le multigrille classique échoue
+    (« Thrust failure »). Un programme qui se termine avec un solveur
+    encore vivant (`std::exit`, objet statique) peut s'arrêter ou se
+    bloquer sur une double libération des objets globaux des deux
+    copies.
+  - GPU courant du processus, statut de convergence d'AmgX, erreurs
+    rendues par les codes de retour (sans le paramètre
+    `exception_handling`, qui fait au contraire abandonner AmgX).
+  - Paramètres d'AmgX par leur nom (`AmgXParameters`, par exemple
+    `strength_threshold=0.8, interpolator=MULTIPASS`), qui complètent la
+    configuration par défaut (celle de MFEM).
+  - Simple précision (`Precision` : `Single`, mode `dFFI`, vecteurs
+    convertis sur le GPU). La précision mixte `dDFI` (matrice en simple,
+    vecteurs en double) n'est plus prise en charge par AmgX 2.5
+    (« Mixed precision modes not currently supported for CUDA 10.1 or
+    later »).
+  - Reste à faire : matrices par blocs 3×3 (ordre par composantes),
+    réutilisation partielle (`AMGX_solver_resetup`), mise en place sans
+    passer par l'hôte.
 - AmgX 2.5.0 annonce CUDA 13 (testé jusqu'à 13.0). Deux corrections
   complémentaires ont suivi sur la branche principale en 2026 (C++17 avec
   CUDA 13.1 et plus, tuples de CUDA 13) : l'environnement utilise un
-  commit de cette branche.
+  commit de cette branche. Avec CUDA 13 sur sm_120, le multigrille
+  classique échouait (« invalid device function ») : patch de la recette
+  spack, reproducteur `reproducers/amgx-classical-cuda13`.
 
 ### Ginkgo
 

@@ -1,0 +1,11 @@
+AMGX version 2.5.0
+Built on Oct 10 2026, 13:38:20
+Compiled with CUDA Runtime 13.0, using CUDA driver 13.2
+Using Normal MPI (Hostbuffer) communicator...
+dofs 111843 | solver cg-amgx | setup 0.1925 s
+first resolution | time 1.909 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.959 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.945 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.955 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.978 s | iterations 1078 | residual 3.941e-08
+resolution | time 1.941 s | iterations 1078 | residual 3.941e-08

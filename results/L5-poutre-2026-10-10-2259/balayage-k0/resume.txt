@@ -1,0 +1,30 @@
+agregation-bj : mise en place 0.03871 s, 4 itérations, résolution 0.0056 à 0.0059 s, 5 résolutions sur 5 non convergées
+agregation-gs : mise en place 0.07199 s, 458 à 483 itérations, résolution 5.6860 à 5.9980 s
+agregation-pairwise : mise en place 0.07517 s, 925 itérations, résolution 1.1470 à 1.1510 s
+agregation-size8 : mise en place 0.0339 s, 3 itérations, résolution 0.0024 à 0.0026 s, 5 résolutions sur 5 non convergées
+classique-agressif : mise en place 0.07874 s, 1283 itérations, résolution 0.7535 à 0.7543 s
+classique-balayages2 : mise en place 0.1335 s, 779 itérations, résolution 1.8890 à 1.9090 s
+classique-d1 : mise en place 0.1031 s, 1602 itérations, résolution 4.4540 à 4.5360 s
+classique-defaut : mise en place 0.1361 s, 1078 itérations, résolution 1.7880 à 1.9010 s
+classique-gs : mise en place 0.1979 s, 806 à 6920 itérations, résolution 19.6700 à 166.3000 s
+classique-seuil05 : mise en place 0.06465 s, 1071 itérations, résolution 1.0350 à 1.1600 s
+s2-seuil05-balayages2 : mise en place 0.06417 s, 769 itérations, résolution 1.1510 à 1.1750 s
+s2-seuil05-dlu : mise en place 0.05923 s, 1074 itérations, résolution 1.0020 à 1.1460 s
+s2-seuil05-f : mise en place 0.05826 s, 1588 itérations, résolution 4.1530 à 4.7270 s
+s2-seuil05-rowsum1 : mise en place 0.04769 s, 1072 itérations, résolution 1.0300 à 1.0420 s
+s2-seuil05-w : mise en place 0.05849 s, 1055 itérations, résolution 3.8600 à 3.8940 s
+s2-seuil06-balayages2 : mise en place 0.08105 s, 102 itérations, résolution 0.1974 à 0.2028 s
+s2-seuil06 : mise en place 0.08519 s, 128 itérations, résolution 0.1648 à 0.1669 s
+s2-seuil07 : mise en place 0.06807 s, 116 itérations, résolution 0.1295 à 0.1339 s
+s2-seuil08 : mise en place 0.05972 s, 118 itérations, résolution 0.1067 à 0.1089 s
+s3-seuil085 : mise en place 0.05551 s, 124 itérations, résolution 0.0980 à 0.0998 s
+s3-seuil08-agressif : mise en place 0.05321 s, 252 itérations, résolution 0.1683 à 0.1728 s
+s3-seuil08-balayages2 : mise en place 0.05874 s, 98 itérations, résolution 0.1383 à 0.1433 s
+s3-seuil08-hmis : mise en place 0.1773 s, 117 itérations, résolution 0.1764 à 0.1798 s
+s3-seuil08-multipass : mise en place 0.05315 s, 111 itérations, résolution 0.0747 à 0.0770 s
+s3-seuil09 : mise en place 0.05239 s, 133 itérations, résolution 0.1008 à 0.1035 s
+s4-mp-seuil06 : mise en place 0.05536 s, 130 itérations, résolution 0.0903 à 0.0923 s
+s4-mp-seuil07-balayages2 : mise en place 0.05157 s, 107 itérations, résolution 0.1176 à 0.1194 s
+s4-mp-seuil07 : mise en place 0.05286 s, 129 itérations, résolution 0.0905 à 0.0930 s
+s4-mp-seuil08-balayages2 : mise en place 0.05327 s, 96 itérations, résolution 0.1008 à 0.1044 s
+s4-mp-seuil09 : mise en place 0.04994 s, 125 itérations, résolution 0.0816 à 0.0853 s

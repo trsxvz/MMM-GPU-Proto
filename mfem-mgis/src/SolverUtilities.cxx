@@ -17,6 +17,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "AmgXSolvers.hxx"
 
 namespace mfem_mgis {
 
@@ -116,6 +117,12 @@ namespace mfem_mgis {
         isolver != nullptr) {
       return isolver->GetConverged();
     }
+#ifdef MFEM_MGIS_HAVE_AMGX
+    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
+        aptr != nullptr) {
+      return aptr->hasConverged();
+    }
+#endif /* MFEM_MGIS_HAVE_AMGX */
 #ifdef MFEM_USE_MPI
     auto check_hypre_solver_convergence =
         []<typename SolverType>(const SolverType* ptr) {
@@ -149,6 +156,12 @@ namespace mfem_mgis {
         isolver != nullptr) {
       return isolver->GetNumIterations();
     }
+#ifdef MFEM_MGIS_HAVE_AMGX
+    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
+        aptr != nullptr) {
+      return aptr->getNumberOfIterations();
+    }
+#endif /* MFEM_MGIS_HAVE_AMGX */
 #ifdef MFEM_USE_MPI
     auto get_hypre_solver_iterations =
         []<typename SolverType>(const SolverType* ptr) {

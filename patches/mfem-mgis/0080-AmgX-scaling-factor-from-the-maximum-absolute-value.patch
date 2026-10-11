@@ -1,0 +1,322 @@
+From e03fd927f7ead1f7d3cad7e139fce75934dd3765 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 02:05:36 +0200
+Subject: [PATCH] AmgX: scaling factor from the maximum absolute value
+
+- the scaling factor of the right hand side is given by the maximum of
+  the absolute values of its components, reduced on the device and over
+  the processes: its norm underflows below about 1e-162 and overflows
+  above about 1e154 (the solution was then zero, reported as converged)
+- AmgXPCG in single precision refuses an absolute tolerance, which
+  prevented the scaling (the scalar products of AmgX overflowed above
+  about 1e19)
+- documentation: statistics of the scaled system, tolerances given by
+  AmgXParameters in single precision
+- tests: right hand sides multiplied by 1e-158 and 1e158, right hand side
+  of different scales on the processes, relative residuals computed on
+  scaled vectors
+---
+ src/AmgXKernels.cxx      | 15 ++++++++++++
+ src/AmgXKernels.hxx      |  8 ++++++
+ src/AmgXSolvers.cxx      | 42 +++++++++++++++++--------------
+ src/AmgXSolvers.hxx      | 25 ++++++++++++-------
+ tests/AmgXSolverTest.cxx | 53 +++++++++++++++++++++++++++++++++++++---
+ 5 files changed, 112 insertions(+), 31 deletions(-)
+
+diff --git a/src/AmgXKernels.cxx b/src/AmgXKernels.cxx
+index 26914ffe4b..5ca7cf31b9 100644
+--- a/src/AmgXKernels.cxx
++++ b/src/AmgXKernels.cxx
+@@ -7,10 +7,25 @@
+  */
+ 
+ #include "mfem/general/forall.hpp"
++#include "mfem/general/reducers.hpp"
+ #include "AmgXKernels.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
++  double getMaximumAbsoluteValue(const mfem::Vector& v,
++                                 mfem::Array<double>& w) {
++    const auto use_device = v.UseDevice() && mfem::Device::IsEnabled();
++    const auto* const pv = v.Read(use_device);
++    auto r = 0.;
++    mfem::reduce(
++        v.Size(), r,
++        [=] MFEM_HOST_DEVICE(const int i, double& m) {
++          m = fmax(m, fabs(pv[i]));
++        },
++        mfem::MaxReducer<double>{}, use_device, w);
++    return r;
++  }  // end of getMaximumAbsoluteValue
++
+   void scale(mfem::Vector& d, const mfem::Vector& s, const double f) {
+     const auto n = s.Size();
+     const auto use_device = s.UseDevice() && mfem::Device::IsEnabled();
+diff --git a/src/AmgXKernels.hxx b/src/AmgXKernels.hxx
+index 5b656c2649..bb01545ea8 100644
+--- a/src/AmgXKernels.hxx
++++ b/src/AmgXKernels.hxx
+@@ -13,6 +13,14 @@
+ 
+ namespace mfem_mgis::internals {
+ 
++  /*!
++   * \return the maximum of the absolute values of the components of a
++   * vector (zero for an empty vector, the components which are not a
++   * number being ignored), computed on the device if the vector uses it
++   * \param[in] v: vector
++   * \param[in, out] w: workspace of the reduction
++   */
++  double getMaximumAbsoluteValue(const mfem::Vector&, mfem::Array<double>&);
+   /*!
+    * \brief multiplies a vector by a factor, on the device if the vector
+    * uses it
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index 27511f38c1..da3d592012 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -199,16 +199,16 @@ namespace mfem_mgis::internals {
+     }  // end of getMatrixValues
+ 
+     /*!
+-     * \return a power of two giving to a vector of the given norm a norm
+-     * between one and two, if the norm is finite and if this power is
++     * \return a power of two giving to the given positive value a value
++     * between one and two, if the value is finite and if this power is
+      * representable
+-     * \param[in] norm: norm of the vector, strictly positive
++     * \param[in] v: value, strictly positive
+      */
+-    std::optional<real> getScalingFactor(const real norm) noexcept {
+-      if (!std::isfinite(norm)) {
++    std::optional<real> getScalingFactor(const real v) noexcept {
++      if (!std::isfinite(v)) {
+         return {};
+       }
+-      const auto f = std::ldexp(real{1}, -std::ilogb(norm));
++      const auto f = std::ldexp(real{1}, -std::ilogb(v));
+       if (!std::isfinite(f)) {
+         return {};
+       }
+@@ -445,15 +445,16 @@ namespace mfem_mgis::internals {
+     const auto n = b.Size();
+     const auto single = this->mode == AMGX_mode_dFFI;
+     x.UseDevice(true);
+-    // factor of the right hand side, exact
++    // factor of the right hand side, exact, given by the maximum of the
++    // absolute values of its components (its norm may underflow or
++    // overflow)
+     auto factor = std::optional<real>{};
+     if (this->scale_right_hand_side) {
++      auto m = getMaximumAbsoluteValue(b, this->reduction_workspace);
+ #ifdef MFEM_USE_MPI
+-      const auto norm = std::sqrt(mfem::InnerProduct(this->comm, b, b));
+-#else  /* MFEM_USE_MPI */
+-      const auto norm = std::sqrt(mfem::InnerProduct(b, b));
++      MPI_Allreduce(MPI_IN_PLACE, &m, 1, MPI_DOUBLE, MPI_MAX, this->comm);
+ #endif /* MFEM_USE_MPI */
+-      if (std::fpclassify(norm) == FP_ZERO) {
++      if (std::fpclassify(m) == FP_ZERO) {
+         // zero solution, as given by AmgX
+         x = real{};
+         this->status = AMGX_SOLVE_SUCCESS;
+@@ -462,7 +463,7 @@ namespace mfem_mgis::internals {
+         }
+         return;
+       }
+-      factor = getScalingFactor(norm);
++      factor = getScalingFactor(m);
+     }
+     if (single) {
+       convertToSinglePrecision(this->single_rhs, b, factor.value_or(1));
+@@ -821,12 +822,11 @@ namespace mfem_mgis::internals {
+     // than the maximum of 1e-20 and of 1e-12 times the norm of the initial
+     // residual in double precision, 1e-6 in single precision: lower
+     // relative tolerances would be ignored. Without absolute tolerance, the
+-    // right hand side is scaled (its norm is between one and two): the
+-    // floor of 1e-20 is negligible. With an absolute tolerance, the
+-    // absolute tolerance must be greater than this floor; an absolute
+-    // tolerance alone is reached or the norm of the residual is reduced by
+-    // 1e-12 (1e-6 in single precision, where a relative tolerance is
+-    // required).
++    // right hand side is scaled (its norm is at least one): the floor of
++    // 1e-20 is negligible. With an absolute tolerance (double precision
++    // only), the absolute tolerance must be greater than this floor; an
++    // absolute tolerance alone is reached or the norm of the residual is
++    // reduced by 1e-12.
+     const auto floor =
+         (*oprecision == AmgXPrecision::SINGLE) ? real{1e-6} : real{1e-12};
+     if ((*ortol > 0) && (*ortol < floor)) {
+@@ -839,6 +839,12 @@ namespace mfem_mgis::internals {
+       return ctx.registerErrorMessage(
+           "AmgXPCG: in single precision, a relative tolerance is required");
+     }
++    if ((*oprecision == AmgXPrecision::SINGLE) && (*oatol > 0)) {
++      return ctx.registerErrorMessage(
++          "AmgXPCG: in single precision, the right hand side is scaled to "
++          "stay in the range of the single precision: an absolute tolerance "
++          "is not supported");
++    }
+     if ((*oatol > 0) && (*oatol < 1e-20)) {
+       return ctx.registerErrorMessage(
+           "AmgXPCG: the absolute tolerance must be at least 1e-20 (floor of "
+diff --git a/src/AmgXSolvers.hxx b/src/AmgXSolvers.hxx
+index bc68609c97..15388bb8d1 100644
+--- a/src/AmgXSolvers.hxx
++++ b/src/AmgXSolvers.hxx
+@@ -62,12 +62,13 @@ namespace mfem_mgis::internals {
+     bool iterative = false;
+     /*!
+      * \brief if true, the right hand side is multiplied by a power of two
+-     * giving it a norm between one and two, and the solution by its
+-     * inverse: exact operations, for a configuration whose result does not
+-     * depend on the scale of the right hand side (no absolute tolerance).
+-     * The floors of the convergence criteria of AmgX and the range of the
+-     * single precision then do not depend on the scale of the right hand
+-     * side.
++     * giving to the maximum of the absolute values of its components a
++     * value between one and two, and the solution by its inverse: exact
++     * operations, for a configuration whose result does not depend on the
++     * scale of the right hand side (no absolute tolerance). The floors of
++     * the convergence criteria of AmgX and the range of the single
++     * precision then do not depend on the scale of the right hand side;
++     * the statistics printed by AmgX are the ones of the scaled system.
+      */
+     bool scale_right_hand_side = false;
+   };  // end of AmgXSolverOptions
+@@ -166,6 +167,9 @@ namespace mfem_mgis::internals {
+     mutable std::optional<int> iterations;
+     //! \brief scaled right hand side in double precision
+     mutable mfem::Vector scaled_rhs;
++    //! \brief workspace of the reduction giving the scaling factor
++    mutable mfem::Array<double> reduction_workspace{
++        mfem::MemoryType::HOST_PINNED};
+     //! \brief right hand side in single precision
+     mutable mfem::Array<float> single_rhs;
+     //! \brief solution in single precision
+@@ -200,8 +204,10 @@ namespace mfem_mgis::internals {
+    * a strength threshold of 0.25. In single precision, the right hand side
+    * of the default configuration is scaled by a power of two (see
+    * `AmgXSolverOptions`), so that its values stay in the range of the single
+-   * precision; a configuration given is used without scaling (its criteria
+-   * apply to the right hand side as given).
++   * precision: a tolerance given by `AmgXParameters` applies to the scaled
++   * right hand side in single precision, to the right hand side as given in
++   * double precision. A configuration given is used without scaling (its
++   * criteria apply to the right hand side as given).
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+@@ -236,7 +242,8 @@ namespace mfem_mgis::internals {
+    * scaled: the absolute tolerance must be at least 1e-20, and an absolute
+    * tolerance alone (relative tolerance of 0) is reached or the norm of
+    * the residual is lower than `e` times the norm of the initial residual.
+-   * In single precision, a relative tolerance is required.
++   * In single precision, the right hand side is always scaled: a relative
++   * tolerance is required, and an absolute tolerance is refused.
+    *
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index 415b034d6d..55bcdd20cc 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -83,6 +83,34 @@ static double dot(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   }
+ }  // end of dot
+ 
++/*!
++ * \return the norm of a vector relative to the norm of a reference vector,
++ * computed on copies multiplied by the same power of two (the scalar
++ * products of very small or very large vectors underflow or overflow)
++ * \param[in] fespace: finite element space
++ * \param[in] v: vector
++ * \param[in] r: reference vector
++ */
++template <bool is_parallel>
++static double getRelativeNorm(
++    mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
++    const mfem::Vector& v,
++    const mfem::Vector& r) {
++  auto m = r.Normlinf();
++  if constexpr (is_parallel) {
++    MPI_Allreduce(MPI_IN_PLACE, &m, 1, MPI_DOUBLE, MPI_MAX, fespace.GetComm());
++  }
++  const auto f = (m > 0) ? std::ldexp(1., -std::ilogb(m)) : 1.;
++  auto sv = mfem::Vector(v.Size());
++  sv.UseDevice(true);
++  sv.Set(f, v);
++  auto sr = mfem::Vector(r.Size());
++  sr.UseDevice(true);
++  sr.Set(f, r);
++  return std::sqrt(dot<is_parallel>(fespace, sv, sv) /
++                   dot<is_parallel>(fespace, sr, sr));
++}  // end of getRelativeNorm
++
+ /*!
+  * \return the resolution of a linear system by a linear solver
+  * \param[in] fespace: finite element space
+@@ -111,8 +139,7 @@ static Resolution solve(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+   e -= B;
+   r.converged = hasConverged(ls);
+   r.iterations = getNumberOfIterationsAtConvergence(ls);
+-  r.residual = std::sqrt(dot<is_parallel>(fespace, e, e) /
+-                         dot<is_parallel>(fespace, B, B));
++  r.residual = getRelativeNorm<is_parallel>(fespace, e, B);
+   return r;
+ }  // end of solve
+ 
+@@ -517,7 +544,11 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+     auto cg32 = makeConjugateGradient<is_parallel>(
+         fespace, Parameters{{"Name", "AmgX"},
+                             {"Options", Parameters{{"Precision", "Single"}}}});
+-    for (const auto f : {1e-15, 1e-25, 1e-40, 1e45}) {
++    // the conjugate gradient of MFEM can't solve the systems whose right
++    // hand side is multiplied by 1e-158 or 1e158 (scalar products), where
++    // the norm of the right hand side underflows or overflows
++    for (const auto f : {1e-15, 1e-25, 1e-40, 1e45, 1e-158, 1e158}) {
++      const auto extreme = (f < 1e-100) || (f > 1e100);
+       auto Bf = mfem::Vector(B.Size());
+       Bf.UseDevice(true);
+       Bf.Set(f, B);
+@@ -525,7 +556,8 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+           solve<is_parallel>(fespace, *(pcg10.linear_solver), A, Bf);
+       const auto r5 = solve<is_parallel>(fespace, *(pcg5.linear_solver), A, Bf);
+       const auto r32 =
+-          solve<is_parallel>(fespace, *(cg32.linear_solver), A, Bf);
++          extreme ? rm
++                  : solve<is_parallel>(fespace, *(cg32.linear_solver), A, Bf);
+       // the right hand side is scaled by a power of two by the solvers
+       // (the rounding of the multiplication by `f` may change the number
+       // of iterations)
+@@ -544,6 +576,16 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+             "CG, AmgX, single precision: right hand side multiplied by " +
+                 factor);
+     }
++    // components of different scales on the processes: the factor is the
++    // same for all the processes
++    {
++      auto Bp = mfem::Vector(B.Size());
++      Bp.UseDevice(true);
++      Bp.Set(rank == 0 ? 1. : 1e-3, B);
++      const auto r = solve<is_parallel>(fespace, *(pcg10.linear_solver), A, Bp);
++      check(r.converged && (r.residual < 1e-9),
++            "AmgXPCG: right hand side of different scales on the processes");
++    }
+     // zero right hand side: zero solution, without iteration
+     auto Z = mfem::Vector(B.Size());
+     Z.UseDevice(true);
+@@ -612,6 +654,9 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+       {"AmgXPCG", Parameters{{"RelativeTolerance", 1e-13}}},
+       {"AmgXPCG",
+        Parameters{{"RelativeTolerance", 0.}, {"AbsoluteTolerance", 1e-21}}},
++      {"AmgXPCG", Parameters{{"RelativeTolerance", 1e-5},
++                             {"AbsoluteTolerance", 1e-8},
++                             {"Precision", "Single"}}},
+       {"AmgX", Parameters{{"Configuration",
+                            "config_version=2, solver(s)=NOT_A_SOLVER"}}},
+       {"CGSolver",
+-- 
+2.43.0
+

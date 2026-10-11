@@ -1,0 +1,20 @@
+# poutre-k0 -r 4 -n 5 --device cuda, trois exécutions par solveur (11/10/2026, mfem-mgis 309849dff3)
+# temps et itérations des résolutions hors la première
+== -s cg-amg
+ time 0.08867 s   iterations 70 ; time 0.06936 s   iterations 70 ; time 0.07896 s   iterations 70 ; time 0.08496 s   iterations 70 ; time 0.08335 s   iterations 70 ;
+== -s cg-amgx -amgxs -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.06723 s   iterations 110 ; time 0.05938 s   iterations 110 ; time 0.05432 s   iterations 110 ; time 0.06747 s   iterations 110 ; time 0.06942 s   iterations 110 ;
+== -s cg-amgx -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.07594 s   iterations 111 ; time 0.08722 s   iterations 111 ; time 0.08946 s   iterations 111 ; time 0.08853 s   iterations 111 ; time 0.07779 s   iterations 111 ;
+== -s cg-amg
+ time 0.07976 s   iterations 70 ; time 0.08396 s   iterations 70 ; time 0.08226 s   iterations 70 ; time 0.06966 s   iterations 70 ; time 0.0793 s   iterations 70 ;
+== -s cg-amgx -amgxs -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.05761 s   iterations 110 ; time 0.06107 s   iterations 110 ; time 0.05465 s   iterations 110 ; time 0.06329 s   iterations 110 ; time 0.05464 s   iterations 110 ;
+== -s cg-amgx -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.07556 s   iterations 111 ; time 0.08979 s   iterations 111 ; time 0.09212 s   iterations 111 ; time 0.08717 s   iterations 111 ; time 0.07688 s   iterations 111 ;
+== -s cg-amg
+ time 0.08542 s   iterations 70 ; time 0.08431 s   iterations 70 ; time 0.06921 s   iterations 70 ; time 0.0819 s   iterations 70 ; time 0.07136 s   iterations 70 ;
+== -s cg-amgx -amgxs -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.05468 s   iterations 110 ; time 0.06534 s   iterations 110 ; time 0.0545 s   iterations 110 ; time 0.0721 s   iterations 110 ; time 0.05619 s   iterations 110 ;
+== -s cg-amgx -amgxo strength_threshold=0.8,interpolator=MULTIPASS
+ time 0.07641 s   iterations 111 ; time 0.08727 s   iterations 111 ; time 0.07516 s   iterations 111 ; time 0.09225 s   iterations 111 ; time 0.07829 s   iterations 111 ;

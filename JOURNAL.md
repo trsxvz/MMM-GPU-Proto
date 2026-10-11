@@ -3577,7 +3577,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   testé ni déclaré en 2D : loi de test HeatStorage, intégrateur déclaré en
   déformations et contraintes planes, cas transitoires dans
   HeatTransferKernelsTest (écarts au point par point au plus 2e-15, six
-  mutations détectées). Question pour Tristan : la règle de
+  mutations détectées). Question ouverte : la règle de
   `TransientHeatTransfer` est d'ordre 2 OrderGrad, soit un seul point pour
   les tétraèdres d'ordre un, ce qui sous-intègre le terme de masse.
 - mfem-mgis 3e3cc5b0f2 : corrections de la relecture HG2. Jacobiens de
@@ -3689,3 +3689,143 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `-static-global-template-stub=true` de CUDA 13, mais son cubin ne
   contient pas le noyau. Essai : AmgX reconstruit avec
   `-static-global-template-stub=false` (build/amgx-stub).
+- Réinstallation spack d'amgx patché, de gslib +shared et de MFEM
+  (relance du README) : amgx et gslib installés, construction de MFEM
+  arrêtée vers 14 h 30 (mémoire du système trop basse), à relancer plus
+  tard. Le spack.lock d'avant est remis en place
+  (MFEM zxpdstv), le nouveau est gardé dans
+  `backups/mmm-gpu-spack.lock-amgx-patch-a-installer`.
+- Relecture X du lot AmgX (`scratch/nuit-2026-10-10/relecture-X.md`) :
+  X1 (gravité 4), détruire le premier solveur AmgX fait échouer les
+  autres ; X2 à X5 (gravité 3) : chemin verbeux qui abandonne, solveur
+  séquentiel puis parallèle, GPU 0 imposé, tolérances mal testées. X1, X3,
+  X4 et le statut de convergence viennent de l'enveloppe `AmgXSolver` de
+  MFEM.
+- mfem-mgis de2e76a913 (branche `amgx-wip`) : enveloppe propre sur
+  l'interface C d'AmgX, sans `mfem::AmgXSolver`.
+  - Les ressources d'AmgX portent des objets globaux (réserve de mémoire,
+    poignées cuSPARSE et cuBLAS) libérés par la destruction de
+    n'importe quelles ressources, et gardent l'adresse de leur
+    communicateur : une seule ressource par processus, créée pour le
+    premier solveur sur `MPI_COMM_WORLD`, détruite avec le dernier.
+  - `exception_handling=1` fait abandonner AmgX (c'est AmgX qui traite
+    l'erreur) : sans lui, les erreurs remontent en codes de retour ; une
+    configuration invalide est refusée par la fabrique.
+  - Statut de convergence d'AmgX ; simple précision (`Precision` :
+    `Single`, mode `dFFI`, conversions sur le GPU) ; la précision mixte
+    `dDFI` n'est plus prise en charge par AmgX 2.5.
+  - `AMGX_vector_set_zero` redimensionne le vecteur sans le halo d'une
+    matrice distribuée : la solution initiale nulle est téléversée.
+  - Option `enable-amgx` et `FindAMGX.cmake` (`AMGX_DIR`, recherché avant
+    `CMAKE_PREFIX_PATH`), AmgX placé avant MFEM à l'édition de liens (le
+    MFEM de l'environnement contient sa propre copie d'AmgX, non
+    patchée), dépendance transmise par `MFEMMGISConfig.cmake`.
+  - AmgXSolverTest vert dans les 4 variantes (séquentiel, 2 processus,
+    sans et avec `--device cuda`), 10 mutations détectées au total.
+- Cas de la poutre : options `-amgxo` (paramètres d'AmgX), `-amgxs`
+  (simple précision), outil `poutre-k0` (opérateur K0 seul, même
+  discrétisation et même loi que la poutre), 4 tests AmgX contrôlés par
+  la norme (15/15). Reproducteur `amgx-classical-cuda13` : compare les
+  installations d'AmgX données (sans patch, classique en échec ; avec le
+  patch installé par spack, 14 itérations).
+- Mesures AmgX (`cas/mesures-L5-amgx.sh`, results/L5-poutre-2026-10-10-2259) :
+  sur K0 seul, AmgX réglé (seuil 0,8, interpolation MULTIPASS) en simple
+  précision résout en 53 à 61 ms (110 itérations) contre 70 ms pour
+  BoomerAMG (70 itérations) ; réglage par défaut de MFEM 1078 itérations.
+  Poutre complète sur GPU : AmgX réglé simple 1,58 à 1,60 s, BoomerAMG
+  agressif 1,77 à 1,87 s, AmgX réglé double 1,95 à 2,04 s (quatre
+  exécutions). Sur 8 processus CPU avec AmgX sur le GPU partagé : 128 à
+  849 s, inutilisable.
+- PR amont ouvertes : MFEM #5604 (ressource partagée gardant sa propre
+  configuration et un communicateur dupliqué, `InitSerial` une seule
+  fois ; vérifié avant/après) et AmgX #386 (patch de `amg.cu`, ferme
+  #380). La règle de MFEM sur l'IA est respectée par une ligne de la
+  description (label réservé aux mainteneurs). La reconstruction de MFEM
+  et d'AmgX attendra la fusion amont puis dans spack-packages ; d'ici là,
+  `scripts/env.sh` fixe `AMGX_DIR` sur l'AmgX patché.
+- Polycristal avec AmgX (mm-opera-hpc 838144c : options
+  `--elastic-operator-linear-solver`, `--amgx-parameters`,
+  `--amgx-single-precision` ; `cas/mesures-L5-polycristal-amgx.sh`,
+  results/L5-polycristal-2026-10-10-2341) : BoomerAMG reste meilleur
+  (9,04 s contre 10,70 s pour AmgX réglé en simple précision). Le
+  multigrille d'AmgX ajoute des itérations de Newton (245 intégrations
+  contre 225), et l'intégration de la loi domine (75 %). Le gain d'AmgX
+  dépend du cas : il vaut quand la résolution linéaire domine (poutre).
+
+### 2026-10-11 (nuit), relecture Y de l'enveloppe AmgX
+
+- Relecture Y (indépendante) de l'enveloppe AmgX de mfem-mgis : Y1 et Y2
+  de gravité 3, le reste de 1 ou 2. Rectification d'une cause donnée
+  plus haut : le défaut d'AmgX avec CUDA 13 ne vient pas du stub hôte
+  interne (`-static-global-template-stub=false` ne le corrige pas) ; la
+  copie faible de `cub::DeviceFor::Bulk` (thrust::sequence<int>, de
+  `Matrix::colorMatrix` en ligne) d'amg.cu.o lance un noyau nul, corrigé
+  par le patch de src/amg.cu.
+- Corrections dans l'enveloppe :
+  - Y1 : les ressources gardaient une copie de `MPI_COMM_WORLD` faite au
+    premier solveur, opération collective : un solveur séquentiel créé
+    sur un seul processus bloquait. AmgX ne garde que l'adresse du
+    communicateur et le duplique lui-même pour ses échanges : la poignée
+    de `MPI_COMM_WORLD` est gardée telle quelle, création et destruction
+    ne sont plus collectives.
+  - Y2 : une matrice de hypre sur un communicateur d'un seul processus,
+    dans un calcul à plusieurs processus, était téléversée comme une
+    matrice distribuée sur les ressources de `MPI_COMM_WORLD` (lecture
+    hors du tableau des décalages) : elle est téléversée comme une
+    matrice locale.
+  - Y11 : contrôles collectifs dans `SetOperator` (chaque processus
+    possède des lignes, au plus 2^31 - 1 lignes).
+  - Y7 : après un échec de `SetOperator`, le solveur refuse de résoudre
+    (il gardait l'ancienne matrice) ; tailles des vecteurs vérifiées.
+  - Y5 : planchers de convergence d'AmgX (1e-12 du résidu initial en
+    double, 1e-6 en simple) : `AmgXPCG` refuse une tolérance relative
+    plus petite et exige une tolérance relative en simple précision.
+  - Y6 : en mode verbeux, le résidu calculé pour les statistiques
+    pouvait arrêter le cycle avant de commencer (second membre petit,
+    solution nulle) : tolérance négative pour le multigrille.
+  - Y13 : copie du solveur interdite.
+- Tests (Y8) : AmgXPCG verbeux et options par défaut, second membre
+  multiplié par 1e-20 (norme 5e-23) en mode verbeux, échec de `SetOperator` puis résolution,
+  vecteur de mauvaise taille, planchers, solveur séquentiel sur le seul
+  premier processus, communicateur d'un processus, processus dans
+  l'ordre inverse, processus sans ligne, réinitialisation complète
+  d'AmgX en parallèle, test sans GPU visible (`AmgXSolverTest-no-gpu`,
+  `CUDA_VISIBLE_DEVICES=` vide). Les échecs de la fabrique lèvent une
+  exception au lieu de `std::exit`, pour détruire les solveurs avant la
+  sortie (double copie d'AmgX, Y4).
+- Documentation (Y3, Y4, Y9, Y10, Y12) : en-tête de l'enveloppe et
+  docs/solveurs-gpu.md (ordre d'édition de liens, destruction avant
+  `MPI_Finalize`, sortie avec un solveur vivant, planchers), chiffres du
+  README des mesures de la poutre corrigés, avertissement de
+  build-mfem-mgis.sh quand l'AmgX utilisé n'a pas le patch pour CUDA 13
+  (empreinte du patch dans la spécification spack de l'installation).
+- Relecture Z (indépendante) de ces corrections : Y1, Y2, Y6, Y7, Y9 et
+  Y11 justes. Z1 (gravité 2) : les critères relatifs d'AmgX ont aussi un
+  plancher absolu, la convergence est déclarée dès que la norme du
+  résidu passe sous 1e-20 (et d'emblée si la norme initiale y est) ;
+  AmgXPCG s'arrêtait trop tôt avec un succès pour un second membre de
+  norme inférieure à 1e-20 divisé par la tolérance (sonde : résidu
+  relatif réel 1,5e-8 pour une tolérance de 1e-10 et une norme de
+  5e-13, solution nulle pour 5e-22). Corrigé : sans tolérance absolue,
+  le second membre est multiplié par une puissance de 2 qui ramène sa
+  norme entre 1 et 2, la solution par l'inverse (exact) ; idem pour le
+  préconditionneur en simple précision (plage de la simple précision) ;
+  tolérance absolue inférieure à 1e-20 refusée. Z2 : les contrôles
+  collectifs lèvent une `CollectiveFailure`. Z5 : statut d'échec tant
+  qu'AmgX n'a pas donné le sien (une exception laissait le statut de la
+  résolution précédente). Tests : seconds membres multipliés par 1e-15,
+  1e-25, 1e-40 et 1e45 (double et simple précision), second membre nul,
+  second membre de mauvaise taille, statut après un échec.
+- Relecture courte de dbc963185e (trois constats de gravité 1) : le
+  facteur tiré de la norme du second membre déborde aux extrêmes
+  (norme nulle sous 1e-162 environ, infinie au-delà de 1e154 : solution
+  nulle annoncée convergée) ; il est maintenant tiré du maximum des
+  valeurs absolues des composantes (réduction sur le GPU, maximum sur
+  les processus). En simple précision, une tolérance absolue empêchait
+  la mise à l'échelle et les produits scalaires d'AmgX débordaient
+  au-delà de 1e19 : elle est refusée. Documentation des statistiques
+  du système mis à l'échelle et des tolérances passées par
+  `AmgXParameters`. Tests : facteurs 1e-158 et 1e158, second membre
+  d'échelles différentes selon les processus (facteur commun), résidus
+  des tests calculés sur des vecteurs mis à l'échelle ; trois mutations
+  détectées.

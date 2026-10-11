@@ -14,6 +14,11 @@
 # les options de ce script à chaque appel. Pour repartir de zéro, le
 # supprimer avant.
 #
+# AmgX est celui donné par la variable AMGX_DIR (scripts/env.sh la définit
+# pour l'environnement mmm-gpu), sinon celui de l'environnement spack. Un
+# avertissement est affiché si cet AmgX n'a pas le patch pour CUDA 13
+# (multigrille classique, voir deps/spack/README.md).
+#
 # Les compilateurs CUDA (nvcc et son compilateur hôte) sont ceux de MFEM,
 # choisis par mfem-mgis (voir cmake/modules/MFEMMGISDeviceCode.cmake) :
 # ceux qu'un ancien dossier garde dans son cache sont retirés.
@@ -25,6 +30,17 @@ MFEM=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
   location -i mfem)
 MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
   location -i openmpi)
+# AmgX, used by mfem-mgis through its C interface: the one of the
+# environment, or the installation given by AMGX_DIR
+AMGX=${AMGX_DIR:-$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" \
+  -e "$P/deps/spack/mmm-gpu" location -i amgx)}
+# the patch for CUDA 13 is recorded in the specification of the installation
+amgx_patch=$P/deps/spack/repos/spack_repo/mmm_gpu/packages/amgx/amgx-cuda13-sequence-kernel.patch
+if ! /usr/bin/grep -qs "$(sha256sum "$amgx_patch" | cut -d' ' -f1)" \
+  "$AMGX/.spack/spec.json"; then
+  echo "build-mfem-mgis.sh: warning: the AmgX of $AMGX is not patched" \
+    "for CUDA 13 (classical multigrid), see deps/spack/README.md" >&2
+fi
 export PATH=$MPI/bin:$PATH
 JOBS=${JOBS:-8}
 # usage: build name source-directory install(yes|no) cmake-options...
@@ -49,6 +65,7 @@ for what in ${@:-mfem-mgis examples opera cas}; do
     mfem-mgis)
       build mfem-mgis "$P/mfem-mgis" yes \
         -DMFEM_DIR="$MFEM" \
+        -Denable-amgx=ON -DAMGX_DIR="$AMGX" \
         -DMFrontGenericInterface_DIR="$P/install/mgis/share/mgis/cmake" \
         -DTFEL_DIR="$PROTO_TFEL_INSTALL/share/tfel/cmake" \
         -DCMAKE_INSTALL_PREFIX="$P/install/mfem-mgis"

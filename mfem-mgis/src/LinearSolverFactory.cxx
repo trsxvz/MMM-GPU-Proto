@@ -31,6 +31,7 @@
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+#include "AmgXSolvers.hxx"
 
 #ifdef MFEM_USE_MPI
 
@@ -710,6 +711,19 @@ namespace mfem_mgis {
 #else  /* MFEM_USE_MPI */
       return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
 #endif /* MFEM_USE_MPI */
+    } else if (*oname == "AmgX") {
+#ifdef MFEM_MGIS_HAVE_AMGX
+      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+      if (isInvalid(oparams)) {
+        return {};
+      }
+      return internals::makeAmgXPreconditioner<parallel>(ctx, fespace,
+                                                         *oparams);
+#else  /* MFEM_MGIS_HAVE_AMGX */
+      return ctx.registerErrorMessage(
+          "setLinearSolverPreconditioner: mfem-mgis is not compiled with "
+          "AmgX (option enable-amgx)");
+#endif /* MFEM_MGIS_HAVE_AMGX */
     } else if (*oname == "HypreBoomerAMG") {
       if constexpr (parallel) {
         const auto oparams =
@@ -1212,6 +1226,34 @@ namespace mfem_mgis {
                 buildIterativeSolverGenerator<parallel, mfem::MINRESSolver>()));
     check(f.add(ctx, "SLISolver",
                 buildIterativeSolverGenerator<parallel, mfem::SLISolver>()));
+#ifdef MFEM_MGIS_HAVE_AMGX
+    // cycles of the algebraic multigrid of AmgX (approximate solver, as
+    // `HypreBoomerAMG`) and conjugate gradient of AmgX
+    check(f.add(ctx, "AmgX",
+                [](Context& c, FiniteElementSpace<parallel>& fespace,
+                   const Parameters& params) noexcept -> LinearSolverHandler {
+                  auto s = internals::makeAmgXPreconditioner<parallel>(
+                      c, fespace, params);
+                  if (s == nullptr) {
+                    return {};
+                  }
+                  return LinearSolverHandler{
+                      std::move(s),
+                      std::unique_ptr<LinearSolverPreconditioner>{}};
+                }));
+    check(f.add(ctx, "AmgXPCG",
+                [](Context& c, FiniteElementSpace<parallel>& fespace,
+                   const Parameters& params) noexcept -> LinearSolverHandler {
+                  auto s = internals::makeAmgXConjugateGradientSolver<parallel>(
+                      c, fespace, params);
+                  if (s == nullptr) {
+                    return {};
+                  }
+                  return LinearSolverHandler{
+                      std::move(s),
+                      std::unique_ptr<LinearSolverPreconditioner>{}};
+                }));
+#endif /* MFEM_MGIS_HAVE_AMGX */
     if constexpr (parallel) {
 #ifdef MFEM_USE_MUMPS
       check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));

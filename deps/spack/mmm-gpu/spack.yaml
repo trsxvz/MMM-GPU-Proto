@@ -79,6 +79,10 @@ spack:
       require: [target=x86_64_v3]
     mpi:
       require: [openmpi@5]
+    # shared library of gslib: libmfem.so links it, and its static library
+    # is not relocatable
+    gslib:
+      require: [+shared]
     # OpenBLAS rather than the BLAS and LAPACK of the HPC SDK
     blas:
       require: [openblas]

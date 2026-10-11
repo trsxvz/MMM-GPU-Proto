@@ -1,0 +1,31 @@
+diff --git a/src/amg.cu b/src/amg.cu
+index 207cc2a..0ecbe40 100644
+--- a/src/amg.cu
++++ b/src/amg.cu
+@@ -25,6 +25,7 @@
+ #include <cassert>
+ #include <csr_multiply.h>
+ #include <memory_info.h>
++#include <thrust_wrapper.h>
+ 
+ #include <thrust/sort.h>
+ #include <thrust/remove.h>
+@@ -1560,5 +1561,18 @@ template class AMG<AMGX_vecComplex, AMGX_matComplex, AMGX_indInt>;
+ template class AMG<AMGX_vecDoubleComplex, AMGX_matComplex, AMGX_indInt>;
+ template class AMG<AMGX_vecDoubleComplex, AMGX_matDoubleComplex, AMGX_indInt>;
+ 
++// The device code of this file did not contain the kernel of
++// thrust::sequence on the device vectors of integers, launched by the inline
++// functions of the matrices instantiated here (Matrix::colorMatrix): with
++// CUDA 13, the host code of these functions launched a null kernel, and the
++// copy of cub::DeviceFor::Bulk of this file, kept by the linker, failed with
++// "invalid device function" in the setup of the classical multigrid. Using
++// thrust::sequence in this function makes the device code of this file
++// contain the kernel.
++void instantiate_device_integer_sequence(Vector<TemplateConfig<AMGX_device, AMGX_vecInt, AMGX_matDouble, AMGX_indInt> > &v)
++{
++    thrust_wrapper::sequence<AMGX_device>(v.begin(), v.end());
++}
++
+ } // namespace amgx
+ 

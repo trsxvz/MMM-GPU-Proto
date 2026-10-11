@@ -1,0 +1,21 @@
+{
+ "config_version": 2,
+ "solver": {
+  "solver": "AMG",
+  "scope": "main",
+  "max_iters": 1,
+  "cycle": "V",
+  "max_levels": 100,
+  "algorithm": "AGGREGATION",
+  "selector": "SIZE_8",
+  "smoother": {
+   "scope": "jacobi",
+   "solver": "BLOCK_JACOBI",
+   "relaxation_factor": 0.8
+  },
+  "presweeps": 2,
+  "postsweeps": 2,
+  "coarse_solver": "DENSE_LU_SOLVER",
+  "dense_lu_num_rows": 64
+ }
+}

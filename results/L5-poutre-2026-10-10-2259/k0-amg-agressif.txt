@@ -1,0 +1,7 @@
+dofs 111843 | solver cg-amg | setup 6.368e-05 s
+first resolution | time 0.1002 s | iterations 80 | residual 3.412e-08
+resolution | time 0.06881 s | iterations 80 | residual 3.412e-08
+resolution | time 0.06845 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07038 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07061 s | iterations 80 | residual 3.412e-08
+resolution | time 0.07171 s | iterations 80 | residual 3.412e-08

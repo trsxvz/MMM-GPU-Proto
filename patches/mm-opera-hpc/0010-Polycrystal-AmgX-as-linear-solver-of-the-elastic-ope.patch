@@ -1,0 +1,160 @@
+From 838144ca964c78c48490e5805886eb7a814a01fd Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 23:44:01 +0200
+Subject: [PATCH] Polycrystal: AmgX as linear solver of the elastic operator of
+ NewtonK0
+
+Options --elastic-operator-linear-solver (HypreBoomerAMG, the default, or
+AmgX), --amgx-parameters (parameters of AmgX, as name=value separated by
+commas) and --amgx-single-precision.
+---
+ polycrystal/UniaxialPolycrystal.cxx | 98 ++++++++++++++++++++++++++++-
+ 1 file changed, 97 insertions(+), 1 deletion(-)
+
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 706ddd7..91ede63 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -8,6 +8,7 @@
+ 
+ #include <memory>
+ #include <string>
++#include <algorithm>
+ #include <exception>
+ #include <csignal>
+ #include <cstdlib>
+@@ -77,6 +78,19 @@ struct NumericalParameters {
+   const char *adaptive_linear_solver_tolerance = "None";
+   //! \brief initial adaptive tolerance, the default one if not given
+   mfem_mgis::real adaptive_linear_solver_initial_tolerance = -1;
++  /*!
++   * \brief linear solver of the elastic operator of `NewtonK0`:
++   * `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which
++   * requires mfem-mgis compiled with AmgX)
++   */
++  const char* elastic_operator_linear_solver = "HypreBoomerAMG";
++  /*!
++   * \brief parameters of AmgX completing its default configuration in
++   * mfem-mgis, as `name=value` separated by commas, with the names of AmgX
++   */
++  const char* amgx_parameters = "";
++  //! \brief computations of AmgX in single precision
++  bool amgx_single_precision = false;
+ };
+ 
+ /*!
+@@ -141,6 +155,8 @@ struct TestParameters : MeshParameters,
+ // a few utility functions defined after the main functions
+ 
+ static void parseCommandLineArguments(mfem::OptionsParser &, TestParameters &);
++static mfem_mgis::Parameter getElasticOperatorLinearSolver(
++    const NumericalParameters&);
+ static void addPostProcessings(mfem_mgis::attributes::MayAbort,
+                                mfem_mgis::Context &,
+                                mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+@@ -218,7 +234,7 @@ int main(int argc, char *argv[]) {
+         {"Method", "NewtonK0"},
+         {"ElasticOperatorComputation", "Integration"},
+         {"ElasticOperatorUpdate", "Once"},
+-        {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
++        {"ElasticOperatorLinearSolver", getElasticOperatorLinearSolver(p)},
+         {"TangentLinearSolver",
+          mfem_mgis::Parameters{{"CGSolver", tangent_linear_solver_options}}}};
+     for (const auto &[k, v] : non_linear_solver_options) {
+@@ -331,6 +347,17 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
+                  "--adaptive-linear-solver-initial-tolerance",
+                  "initial adaptive tolerance, the default one if negative");
++  args.AddOption(&p.elastic_operator_linear_solver, "",
++                 "--elastic-operator-linear-solver",
++                 "linear solver of the elastic operator of NewtonK0: "
++                 "HypreBoomerAMG (default) or AmgX (one cycle of the "
++                 "multigrid of AmgX)");
++  args.AddOption(&p.amgx_parameters, "", "--amgx-parameters",
++                 "parameters of AmgX, as name=value separated by commas, "
++                 "for instance strength_threshold=0.8,interpolator=MULTIPASS");
++  args.AddOption(&p.amgx_single_precision, "", "--amgx-single-precision", "",
++                 "--no-amgx-single-precision",
++                 "computations of AmgX in single precision");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -458,6 +485,75 @@ static void setupMaterials(
+   }
+ }
+ 
++/*!
++ * \return parameters given as `name=value` separated by commas: integers,
++ * reals or strings
++ * \param[in] o: parameters
++ */
++static mfem_mgis::Parameters parseNameValueParameters(const std::string& o) {
++  auto params = mfem_mgis::Parameters{};
++  auto start = std::string::size_type{};
++  while (start < o.size()) {
++    const auto end = std::min(o.find(',', start), o.size());
++    const auto option = o.substr(start, end - start);
++    const auto equal = option.find('=');
++    if ((equal == std::string::npos) || (equal == 0) ||
++        (equal + 1 == option.size())) {
++      mfem_mgis::Profiler::Utils::Message("error: invalid parameter '" +
++                                          option + "'");
++      std::exit(EXIT_FAILURE);
++    }
++    const auto name = option.substr(0, equal);
++    const auto value = option.substr(equal + 1);
++    auto n = std::size_t{};
++    try {
++      const auto i = std::stoi(value, &n);
++      if (n == value.size()) {
++        params.replaceOrInsert(name, i);
++        start = end + 1;
++        continue;
++      }
++      const auto r = std::stod(value, &n);
++      if (n == value.size()) {
++        params.replaceOrInsert(name, r);
++        start = end + 1;
++        continue;
++      }
++    } catch (std::exception&) {
++    }
++    params.replaceOrInsert(name, value);
++    start = end + 1;
++  }
++  return params;
++}  // end of parseNameValueParameters
++
++/*!
++ * \return the linear solver of the elastic operator of `NewtonK0`
++ * \param[in] p: parameters
++ */
++static mfem_mgis::Parameter getElasticOperatorLinearSolver(
++    const NumericalParameters& p) {
++  const auto s = std::string_view{p.elastic_operator_linear_solver};
++  if (s == "HypreBoomerAMG") {
++    return std::string{s};
++  }
++  if (s != "AmgX") {
++    mfem_mgis::Profiler::Utils::Message(
++        "error: invalid linear solver of the elastic operator (expected "
++        "HypreBoomerAMG or AmgX)");
++    std::exit(EXIT_FAILURE);
++  }
++  auto options = mfem_mgis::Parameters{};
++  if (!std::string_view{p.amgx_parameters}.empty()) {
++    options.replaceOrInsert("AmgXParameters",
++                            parseNameValueParameters(p.amgx_parameters));
++  }
++  if (p.amgx_single_precision) {
++    options.replaceOrInsert("Precision", std::string{"Single"});
++  }
++  return mfem_mgis::Parameters{{"AmgX", options}};
++}  // end of getElasticOperatorLinearSolver
++
+ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+                             mfem_mgis::Context &ctx,
+                             mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+-- 
+2.43.0
+

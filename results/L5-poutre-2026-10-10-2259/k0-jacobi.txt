@@ -1,0 +1,7 @@
+dofs 111843 | solver cg-jacobi | setup 0.0009865 s
+first resolution | time 0.2267 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2268 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2261 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2281 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2269 s | iterations 1862 | residual 9.594e-09
+resolution | time 0.2268 s | iterations 1862 | residual 9.594e-09

@@ -1,0 +1,21 @@
+{
+ "config_version": 2,
+ "solver": {
+  "solver": "AMG",
+  "scope": "main",
+  "max_iters": 1,
+  "cycle": "V",
+  "max_levels": 100,
+  "algorithm": "AGGREGATION",
+  "selector": "SIZE_2",
+  "smoother": {
+   "scope": "gs",
+   "solver": "MULTICOLOR_GS",
+   "symmetric_GS": 1
+  },
+  "presweeps": 1,
+  "postsweeps": 1,
+  "coarse_solver": "DENSE_LU_SOLVER",
+  "dense_lu_num_rows": 64
+ }
+}

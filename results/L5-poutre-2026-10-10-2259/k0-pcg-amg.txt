@@ -1,0 +1,7 @@
+dofs 111843 | solver pcg-amg | setup 5.902e-05 s
+first resolution | time 0.08797 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06531 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06744 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06506 s | iterations 70 | residual 2.005e-08
+resolution | time 0.06525 s | iterations 70 | residual 2.005e-08
+resolution | time 0.0635 s | iterations 70 | residual 2.005e-08
