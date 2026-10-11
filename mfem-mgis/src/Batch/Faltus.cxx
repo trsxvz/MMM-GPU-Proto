@@ -262,8 +262,8 @@ namespace mfem_mgis::batch {
                             std::int64_t{elements.Size()} * gsize)) {
         return ctx.registerErrorMessage(
             "addFaltusInnerForces: the deformation gradients at the center of "
-            "the elements are not computed by kernels (GradientsComputation "
-            "set to Kernels)");
+            "the elements are not computed by kernels for the current "
+            "gradients (GradientsComputation set to Kernels)");
       }
       if ((m.s1.gradients_stride != getGradientsSize(k)) ||
           (static_cast<std::int64_t>(f.Size()) !=
@@ -368,9 +368,12 @@ namespace mfem_mgis::batch {
       if (a.number_of_elements == 0) {
         return true;
       }
-      if ((m.matrix == nullptr) || (m.element_dofs == nullptr)) {
+      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
+          (static_cast<std::int64_t>(m.element_dofs->Size()) !=
+           getNumberOfElementDegreesOfFreedom(g, k) * g.ne)) {
         return ctx.registerErrorMessage(
-            "addFaltusStiffnessMatrices: invalid assembled matrix");
+            "addFaltusStiffnessMatrices: invalid assembled matrix or degrees "
+            "of freedom of the elements");
       }
       auto missing = mfem::Array<int>(1);
       missing.HostWrite()[0] = 0;

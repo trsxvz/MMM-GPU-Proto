@@ -590,10 +590,13 @@ int main(int argc, char** argv) {
                        .regularization = regularization,
                        .distorted_mesh = true});
     }
-    cases.push_back({.name = rn + "tetrahedra",
+    // quadratic tetrahedra: on linear tetrahedra, the deformation gradient
+    // is uniform in each element, and the regularizations change nothing
+    cases.push_back({.name = rn + "tetrahedra, order 2",
                      .mesh = tetrahedra,
                      .hypothesis = "Tridimensional",
                      .materials = {{1, svk}},
+                     .order = 2,
                      .refinement = 0,
                      .regularization = regularization});
     cases.push_back({.name = rn + "plane strain, distorted mesh",

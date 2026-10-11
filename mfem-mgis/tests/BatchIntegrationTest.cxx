@@ -13,17 +13,16 @@
  * assembly; FBar formulation (imposed pressure, springs, two materials,
  * quadratic elements, plane strain, distorted mesh) and regularization of
  * Faltus et al. (springs, two materials, quadratic elements, plane strain,
- * distorted meshes) by kernels;
- * refusal of an invalid value, of a behaviour integrator which does not
- * support it, of a tangent operator applied without assembly with a
- * boundary integrator depending on the unknowns, of a tangent operator of
- * the FBar formulation and of inner forces of the regularization of Faltus
- * et al. computed by kernels from gradients computed element by element;
+ * distorted meshes) by kernels; refusal of an invalid value, of a
+ * behaviour integrator which does not support it, of a tangent operator
+ * applied without assembly with a boundary integrator depending on the
+ * unknowns, of a tangent operator of the FBar formulation and of inner
+ * forces of the regularization of Faltus et al. computed by kernels from
+ * gradients computed element by element;
  * imposed pressure added to the inner forces computed by kernels, with a
  * tangent operator assembled by kernels or applied without assembly. With
- * the `--parallel`
- * option, the computations are made in parallel (MUMPS), only their
- * comparisons are made, to the rounding errors.
+ * the `--parallel` option, the computations are made in parallel (MUMPS),
+ * only their comparisons are made, to the rounding errors.
  * \date   09/10/2026
  */
 
