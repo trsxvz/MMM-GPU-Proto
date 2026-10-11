@@ -4,8 +4,9 @@ Campagne de mesures, cas 2. Exemple ex4 de mfem-mgis-examples, variante
 résolue par hypre (Newton, FGMRES de hypre préconditionné par BoomerAMG),
 plasticité en grandes transformations (déformation logarithmique de
 Hencky), chargement complet en 10 pas, maillage raffiné zéro, une et deux
-fois. Script : `cas/mesures-ssna303.sh`. mfem-mgis f0324f1d9c installé
-(FBar par noyaux, avant les corrections des relectures F et G). Une RTX
+fois. Script : `cas/mesures-ssna303.sh`. mfem-mgis 8a6325335e installé
+(FBar par noyaux, avant les corrections des relectures F et G ;
+`resume.txt` donne la version des sources, f0324f1d9c). Une RTX
 5080 (16 Go), 8 cœurs (16 fils), 30 Go de mémoire. Machine calme pendant
 ces calculs.
 
