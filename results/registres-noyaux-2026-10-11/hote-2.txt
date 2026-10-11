@@ -1,0 +1,65 @@
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis positions: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.17 ms)
+assembly without positions: median 178 ms, minimum 177.5 ms
+assembly with positions: median 164.1 ms, minimum 163.4 ms
+entries searched with the positions 0
+ratio of the medians 1.084, maximum difference 0 (maximum value 0.05512)
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis registres: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31 ms)
+assembly without positions: median 63.72 ms, minimum 63.47 ms
+assembly with positions: median 52.4 ms, minimum 52 ms
+entries searched with the positions 0
+ratio of the medians 1.216, maximum difference 0 (maximum value 0.05512)
+   valeurs identiques
+== petites déformations, hexaèdres Q1 27 points (r4), mfem-mgis positions: ./assemblage -m cube.mesh -r 4 -n 10 -t mechanics
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (30.98 ms)
+assembly without positions: median 129.8 ms, minimum 129.6 ms
+assembly with positions: median 116.3 ms, minimum 115.9 ms
+entries searched with the positions 0
+ratio of the medians 1.117, maximum difference 0 (maximum value 0.005456)
+== petites déformations, hexaèdres Q1 27 points (r4), mfem-mgis registres: ./assemblage -m cube.mesh -r 4 -n 10 -t mechanics
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.1 ms)
+assembly without positions: median 58.63 ms, minimum 58.58 ms
+assembly with positions: median 47.79 ms, minimum 47.7 ms
+entries searched with the positions 0
+ratio of the medians 1.227, maximum difference 0 (maximum value 0.005456)
+   valeurs identiques
+== poutre, tétraèdres P1 (r4), mfem-mgis positions: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (416.3 ms)
+assembly without positions: median 234.6 ms, minimum 232.7 ms
+assembly with positions: median 115.5 ms, minimum 115.1 ms
+entries searched with the positions 0
+ratio of the medians 2.031, maximum difference 0 (maximum value 0.1344)
+== poutre, tétraèdres P1 (r4), mfem-mgis registres: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (416.3 ms)
+assembly without positions: median 192.6 ms, minimum 191.5 ms
+assembly with positions: median 75.19 ms, minimum 73.38 ms
+entries searched with the positions 0
+ratio of the medians 2.561, maximum difference 0 (maximum value 0.1344)
+   valeurs identiques
+== grandes transformations, tétraèdres P2 (r3), mfem-mgis positions: ./assemblage -r 3 -o 2 -n 10 -t finite-strain
+elements 24576, degrees of freedom per element 30, entries 8934921, positions 44.24 MB (350 ms)
+assembly without positions: median 396.3 ms, minimum 395.3 ms
+assembly with positions: median 276.8 ms, minimum 275.4 ms
+entries searched with the positions 0
+ratio of the medians 1.432, maximum difference 0 (maximum value 0.4861)
+== grandes transformations, tétraèdres P2 (r3), mfem-mgis registres: ./assemblage -r 3 -o 2 -n 10 -t finite-strain
+elements 24576, degrees of freedom per element 30, entries 8934921, positions 44.24 MB (356.3 ms)
+assembly without positions: median 262.3 ms, minimum 259.5 ms
+assembly with positions: median 133.4 ms, minimum 131.1 ms
+entries searched with the positions 0
+ratio of the medians 1.966, maximum difference 0 (maximum value 0.4861)
+   valeurs identiques
+== thermique, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (271.6 ms)
+assembly without positions: median 383.8 ms, minimum 379.6 ms
+assembly with positions: median 137.1 ms, minimum 132.2 ms
+entries searched with the positions 0
+ratio of the medians 2.8, maximum difference 0 (maximum value 0.1074)
+== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (274.4 ms)
+assembly without positions: median 371.6 ms, minimum 368.9 ms
+assembly with positions: median 120.9 ms, minimum 117 ms
+entries searched with the positions 0
+ratio of the medians 3.072, maximum difference 0 (maximum value 0.1074)
+   valeurs identiques

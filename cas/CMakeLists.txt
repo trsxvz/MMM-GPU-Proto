@@ -83,6 +83,32 @@ endfunction()
 
 find_package(Python3 COMPONENTS Interpreter)
 
+# the benchmark of the assembly needs the positions of the entries of the
+# stiffness matrices in the assembled matrix (mfem-mgis branch positions,
+# October 11, 2026)
+# (the include directories added by the configuration file of mfem-mgis to
+# the directory are not seen by the check without CMAKE_REQUIRED_INCLUDES;
+# the check is made again at each configuration)
+include(CheckCXXSourceCompiles)
+get_directory_property(_include_directories INCLUDE_DIRECTORIES)
+set(CMAKE_REQUIRED_INCLUDES ${_include_directories})
+set(CMAKE_REQUIRED_LIBRARIES mfem-mgis::MFEMMGIS)
+unset(MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS CACHE)
+check_cxx_source_compiles("
+#include \"MFEMMGIS/Batch/StiffnessMatrices.hxx\"
+int main() {
+  auto* const f = &mfem_mgis::batch::computeStiffnessMatricesPositions;
+  auto a = mfem_mgis::batch::AssembledStiffnessMatrix{};
+  return ((f != nullptr) && (a.searched_entries == nullptr)) ? 0 : 1;
+}" MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_LIBRARIES)
+if(MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)
+  add_subdirectory(assemblage)
+else()
+  message(STATUS "assemblage: mfem-mgis without the positions of the "
+    "entries of the stiffness matrices, benchmark not built")
+endif()
 add_subdirectory(poutre)
 add_subdirectory(polycristal)
 add_subdirectory(ssna303)

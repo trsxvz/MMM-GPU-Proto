@@ -1,0 +1,25 @@
+== poutre, tétraèdres P1, mécanique: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (442 ms)
+assembly without positions: median 231.5 ms, minimum 230.8 ms
+assembly with positions: median 113.8 ms, minimum 113.1 ms
+ratio of the medians 2.035, maximum difference 0 (maximum value 0.1344)
+== thermique, tétraèdres P1: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (289 ms)
+assembly without positions: median 380.2 ms, minimum 377.7 ms
+assembly with positions: median 133.2 ms, minimum 132.3 ms
+ratio of the medians 2.854, maximum difference 0 (maximum value 0.1074)
+== hexaèdres Q1, mécanique (27 points): ./assemblage -m cube.mesh -r 4 -n 10 -t mechanics
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (33.31 ms)
+assembly without positions: median 135.7 ms, minimum 135.6 ms
+assembly with positions: median 122 ms, minimum 121.9 ms
+ratio of the medians 1.112, maximum difference 0 (maximum value 0.005456)
+== tétraèdres P2, mécanique: ./assemblage -r 3 -o 2 -n 10 -t mechanics
+elements 24576, degrees of freedom per element 30, entries 8934921, positions 44.24 MB (374.8 ms)
+assembly without positions: median 335.4 ms, minimum 333 ms
+assembly with positions: median 216.1 ms, minimum 213.9 ms
+ratio of the medians 1.552, maximum difference 0 (maximum value 0.1708)
+== hexaèdres Q2, mécanique: ./assemblage -m cube.mesh -r 2 -o 2 -n 10 -t mechanics
+elements 64, degrees of freedom per element 81, entries 323433, positions 0.8398 MB (5.704 ms)
+assembly without positions: median 46.35 ms, minimum 46.19 ms
+assembly with positions: median 43.33 ms, minimum 43.18 ms
+ratio of the medians 1.07, maximum difference 0 (maximum value 0.1827)

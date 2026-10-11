@@ -1,0 +1,65 @@
+== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis positions: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.056 ms)
+assembly without positions: median 59.81 ms, minimum 59.46 ms
+assembly with positions: median 59.74 ms, minimum 59.14 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 1.041e-17 (maximum value 0.02789)
+== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.054 ms)
+assembly without positions: median 33.01 ms, minimum 30.81 ms
+assembly with positions: median 33.41 ms, minimum 30.8 ms
+entries searched with the positions 0
+ratio of the medians 0.9882, maximum difference 6.939e-18 (maximum value 0.02789)
+   valeurs différentes (ordre des additions atomiques sur le GPU)
+== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis positions: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.04 ms)
+assembly without positions: median 42.52 ms, minimum 41.44 ms
+assembly with positions: median 42.48 ms, minimum 41.42 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 1.084e-18 (maximum value 0.004256)
+== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.053 ms)
+assembly without positions: median 30.45 ms, minimum 28.29 ms
+assembly with positions: median 30.72 ms, minimum 28.29 ms
+entries searched with the positions 0
+ratio of the medians 0.9913, maximum difference 1.301e-18 (maximum value 0.004256)
+   valeurs différentes (ordre des additions atomiques sur le GPU)
+== poutre, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (4.047 ms)
+assembly without positions: median 24.97 ms, minimum 23.85 ms
+assembly with positions: median 24.71 ms, minimum 23.57 ms
+entries searched with the positions 0
+ratio of the medians 1.011, maximum difference 3.469e-17 (maximum value 0.0697)
+== poutre, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (4.06 ms)
+assembly without positions: median 18.1 ms, minimum 17.24 ms
+assembly with positions: median 18.06 ms, minimum 17.21 ms
+entries searched with the positions 0
+ratio of the medians 1.002, maximum difference 3.469e-17 (maximum value 0.0697)
+   valeurs différentes (ordre des additions atomiques sur le GPU)
+== grandes transformations, tétraèdres P2 (r4), mfem-mgis positions: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (13.95 ms)
+assembly without positions: median 102.2 ms, minimum 102.1 ms
+assembly with positions: median 97.48 ms, minimum 97.3 ms
+entries searched with the positions 0
+ratio of the medians 1.048, maximum difference 5.551e-17 (maximum value 0.2628)
+== grandes transformations, tétraèdres P2 (r4), mfem-mgis registres: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (13.9 ms)
+assembly without positions: median 52.92 ms, minimum 52.09 ms
+assembly with positions: median 53.23 ms, minimum 52.21 ms
+entries searched with the positions 0
+ratio of the medians 0.9942, maximum difference 5.551e-17 (maximum value 0.2628)
+   valeurs différentes (ordre des additions atomiques sur le GPU)
+== thermique, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage --device cuda -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.2051 ms)
+assembly without positions: median 12.98 ms, minimum 12.35 ms
+assembly with positions: median 12.97 ms, minimum 12.35 ms
+entries searched with the positions 0
+ratio of the medians 1.001, maximum difference 4.163e-17 (maximum value 0.1074)
+== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.2041 ms)
+assembly without positions: median 13.75 ms, minimum 13.11 ms
+assembly with positions: median 13.79 ms, minimum 13.16 ms
+entries searched with the positions 0
+ratio of the medians 0.9971, maximum difference 3.469e-17 (maximum value 0.1074)
+   valeurs différentes (ordre des additions atomiques sur le GPU)

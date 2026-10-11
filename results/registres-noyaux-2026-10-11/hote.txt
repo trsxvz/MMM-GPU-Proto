@@ -1,0 +1,55 @@
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis positions: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.44 ms)
+assembly without positions: median 177 ms, minimum 176.5 ms
+assembly with positions: median 163.8 ms, minimum 163.2 ms
+ratio of the medians 1.08, maximum difference 0 (maximum value 0.05512)
+== grandes transformations, hexaèdres Q1 27 points (r4), mfem-mgis registres: ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.73 ms)
+assembly without positions: median 63.63 ms, minimum 63.31 ms
+assembly with positions: median 52.49 ms, minimum 52 ms
+ratio of the medians 1.212, maximum difference 0 (maximum value 0.05512)
+   valeurs identiques
+== petites déformations, hexaèdres Q1 27 points (r4), mfem-mgis positions: ./assemblage -m cube.mesh -r 4 -n 10 -t mechanics
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (31.61 ms)
+assembly without positions: median 135.8 ms, minimum 135.2 ms
+assembly with positions: median 122.1 ms, minimum 121.6 ms
+ratio of the medians 1.112, maximum difference 0 (maximum value 0.005456)
+== petites déformations, hexaèdres Q1 27 points (r4), mfem-mgis registres: ./assemblage -m cube.mesh -r 4 -n 10 -t mechanics
+elements 4096, degrees of freedom per element 24, entries 1058841, positions 4.719 MB (32.96 ms)
+assembly without positions: median 59.78 ms, minimum 59.7 ms
+assembly with positions: median 48.88 ms, minimum 48.8 ms
+ratio of the medians 1.223, maximum difference 0 (maximum value 0.005456)
+   valeurs identiques
+== poutre, tétraèdres P1 (r4), mfem-mgis positions: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (424.9 ms)
+assembly without positions: median 231.9 ms, minimum 231.2 ms
+assembly with positions: median 113.8 ms, minimum 113.1 ms
+ratio of the medians 2.037, maximum difference 0 (maximum value 0.1344)
+== poutre, tétraèdres P1 (r4), mfem-mgis registres: ./assemblage -r 4 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 12, entries 4702185, positions 56.62 MB (424.2 ms)
+assembly without positions: median 191.4 ms, minimum 189.7 ms
+assembly with positions: median 74.56 ms, minimum 73.58 ms
+ratio of the medians 2.566, maximum difference 0 (maximum value 0.1344)
+   valeurs identiques
+== grandes transformations, tétraèdres P2 (r3), mfem-mgis positions: ./assemblage -r 3 -o 2 -n 10 -t finite-strain
+elements 24576, degrees of freedom per element 30, entries 8934921, positions 44.24 MB (360.8 ms)
+assembly without positions: median 396.7 ms, minimum 393.7 ms
+assembly with positions: median 278.4 ms, minimum 277.3 ms
+ratio of the medians 1.425, maximum difference 0 (maximum value 0.4861)
+== grandes transformations, tétraèdres P2 (r3), mfem-mgis registres: ./assemblage -r 3 -o 2 -n 10 -t finite-strain
+elements 24576, degrees of freedom per element 30, entries 8934921, positions 44.24 MB (361.6 ms)
+assembly without positions: median 258.6 ms, minimum 256 ms
+assembly with positions: median 130.3 ms, minimum 128.2 ms
+ratio of the medians 1.985, maximum difference 0 (maximum value 0.4861)
+   valeurs identiques
+== thermique, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (284.5 ms)
+assembly without positions: median 385.9 ms, minimum 381.5 ms
+assembly with positions: median 139.8 ms, minimum 132.9 ms
+ratio of the medians 2.76, maximum difference 0 (maximum value 0.1074)
+== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (274.5 ms)
+assembly without positions: median 371.2 ms, minimum 369.6 ms
+assembly with positions: median 119.3 ms, minimum 117.8 ms
+ratio of the medians 3.111, maximum difference 0 (maximum value 0.1074)
+   valeurs identiques

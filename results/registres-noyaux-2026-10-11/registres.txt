@@ -1,0 +1,87 @@
+StiffnessMatricesKernels 8 0 0 zeroValues(double*, int, bool)::{lambda(int)#1}>(int, zeroValues(double*, int, bool)::{lambda(int)#1}):
+StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)9>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 64 0 0 launchTangentOperatorActionKernel<(GradientsKind)8>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 40 0 0 launchTangentOperatorActionKernel<(GradientsKind)7>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 40 0 0 launchTangentOperatorActionKernel<(GradientsKind)6>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)5>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 56 0 0 launchTangentOperatorActionKernel<(GradientsKind)4>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 56 0 0 launchTangentOperatorActionKernel<(GradientsKind)3>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 80 0 0 launchTangentOperatorActionKernel<(GradientsKind)2>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)1>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 64 0 0 launchTangentOperatorActionKernel<(GradientsKind)0>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 48 288 0 launchStiffnessMatricesKernel<(GradientsKind)9, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 66 288 0 launchStiffnessMatricesKernel<(GradientsKind)8, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 42 288 0 launchStiffnessMatricesKernel<(GradientsKind)7, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 40 288 0 launchStiffnessMatricesKernel<(GradientsKind)6, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 48 288 0 launchStiffnessMatricesKernel<(GradientsKind)5, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 64 288 0 launchStiffnessMatricesKernel<(GradientsKind)4, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 95 288 0 launchStiffnessMatricesKernel<(GradientsKind)3, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 254 576 0 launchStiffnessMatricesKernel<(GradientsKind)2, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Eleme
+StiffnessMatricesKernels 64 288 0 launchStiffnessMatricesKernel<(GradientsKind)1, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 126 576 0 launchStiffnessMatricesKernel<(GradientsKind)0, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Eleme
+StiffnessMatricesKernels 22 0 0 launchStiffnessMatricesPositionsKernel(SparseMatrixOutput const&, int, int, unsigned short*, bool)::{lambda(int)#1}>(int, launch
+StiffnessMatricesKernels 56 288 0 launchStiffnessMatricesKernel<(GradientsKind)9, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 72 288 0 launchStiffnessMatricesKernel<(GradientsKind)8, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 40 288 0 launchStiffnessMatricesKernel<(GradientsKind)7, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 40 288 0 launchStiffnessMatricesKernel<(GradientsKind)6, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 48 288 0 launchStiffnessMatricesKernel<(GradientsKind)5, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 68 288 0 launchStiffnessMatricesKernel<(GradientsKind)4, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 96 288 0 launchStiffnessMatricesKernel<(GradientsKind)3, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 254 576 0 launchStiffnessMatricesKernel<(GradientsKind)2, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseM
+StiffnessMatricesKernels 72 288 0 launchStiffnessMatricesKernel<(GradientsKind)1, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMa
+StiffnessMatricesKernels 122 576 0 launchStiffnessMatricesKernel<(GradientsKind)0, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseM
+StiffnessMatricesKernels 56 288 0 launchStiffnessMatricesKernel<(GradientsKind)9, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 72 288 0 launchStiffnessMatricesKernel<(GradientsKind)8, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 40 288 0 launchStiffnessMatricesKernel<(GradientsKind)7, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 37 288 0 launchStiffnessMatricesKernel<(GradientsKind)6, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 48 288 0 launchStiffnessMatricesKernel<(GradientsKind)5, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 64 288 0 launchStiffnessMatricesKernel<(GradientsKind)4, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 96 288 0 launchStiffnessMatricesKernel<(GradientsKind)3, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 254 576 0 launchStiffnessMatricesKernel<(GradientsKind)2, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Eleme
+StiffnessMatricesKernels 72 288 0 launchStiffnessMatricesKernel<(GradientsKind)1, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Elemen
+StiffnessMatricesKernels 126 576 0 launchStiffnessMatricesKernel<(GradientsKind)0, ElementMatricesStorage, false>(StiffnessMatricesKernelArguments const&, Eleme
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)9>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 56 72 0 launchGradientsKernel<(GradientsKind)8>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)7>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)6>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)5>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 56 72 0 launchGradientsKernel<(GradientsKind)4>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)3>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 56 72 0 launchGradientsKernel<(GradientsKind)2>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 40 72 0 launchGradientsKernel<(GradientsKind)1>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 56 72 0 launchGradientsKernel<(GradientsKind)0>(GradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchGradientsKernel<(GradientsK
+GradientsKernels 28 0 0 launchUnknownsValuesKernel(UnknownsValuesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchUnknownsValuesKernel(UnknownsValuesK
+GradientsKernels 40 0 0 launchUnknownsDerivativesKernel(UnknownsDerivativesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchUnknownsDerivativesKernel(
+InnerForcesKernels 48 0 0 launchInnerForcesKernel<(GradientsKind)9>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 62 0 0 launchInnerForcesKernel<(GradientsKind)8>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 36 0 0 launchInnerForcesKernel<(GradientsKind)7>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 36 0 0 launchInnerForcesKernel<(GradientsKind)6>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 46 0 0 launchInnerForcesKernel<(GradientsKind)5>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 62 0 0 launchInnerForcesKernel<(GradientsKind)4>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 56 0 0 launchInnerForcesKernel<(GradientsKind)3>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 80 0 0 launchInnerForcesKernel<(GradientsKind)2>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 48 0 0 launchInnerForcesKernel<(GradientsKind)1>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+InnerForcesKernels 80 0 0 launchInnerForcesKernel<(GradientsKind)0>(InnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchInnerForcesKernel<(Gra
+FBarKernels 40 0 0 launchFBarRankOneActionKernel(FBarRankOneKernelArguments const&, double const*, double*, bool)::{lambda(int)#1}>(int, launchFBarRankOneAction
+FBarKernels 12 0 0 launchFBarRankOneDiagonalsKernel(FBarRankOneKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFBarRankOneDiagonalsKernel(FB
+FBarKernels 28 0 0 launchFBarRankOneMatricesKernel(FBarRankOneKernelArguments const&, SparseMatrixOutput const&, bool)::{lambda(int)#1}>(int, launchFBarRankOneM
+FBarKernels 18 0 0 launchFBarRankOneMatricesKernel(FBarRankOneKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFBarRankOneMatricesKernel(FBar
+FBarKernels 56 0 0 launchFBarTangentOperatorKernel<(GradientsKind)3>(FBarTangentOperatorKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarTangentOp
+FBarKernels 80 0 0 launchFBarTangentOperatorKernel<(GradientsKind)2>(FBarTangentOperatorKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarTangentOp
+FBarKernels 35 0 0 launchFBarGradientsKernel<(GradientsKind)3>(FBarGradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarGradientsKernel<(Grad
+FBarKernels 40 0 0 launchFBarGradientsKernel<(GradientsKind)2>(FBarGradientsKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarGradientsKernel<(Grad
+FBarKernels 40 0 0 launchFBarCentersKernel<(GradientsKind)3>(FBarCentersKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarCentersKernel<(GradientsK
+FBarKernels 60 0 0 launchFBarCentersKernel<(GradientsKind)2>(FBarCentersKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFBarCentersKernel<(GradientsK
+FaltusKernels 56 0 0 launchFaltusActionKernel<(GradientsKind)3>(FaltusGeometryKernelArguments const&, double const*, double*, bool)::{lambda(int)#1}>(int, launc
+FaltusKernels 96 0 0 launchFaltusActionKernel<(GradientsKind)2>(FaltusGeometryKernelArguments const&, double const*, double*, bool)::{lambda(int)#1}>(int, launc
+FaltusKernels 56 0 0 launchFaltusDiagonalsKernel<(GradientsKind)3>(FaltusGeometryKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFaltusDiago
+FaltusKernels 82 0 0 launchFaltusDiagonalsKernel<(GradientsKind)2>(FaltusGeometryKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFaltusDiago
+FaltusKernels 78 0 0 launchFaltusMatricesKernel<(GradientsKind)3>(FaltusGeometryKernelArguments const&, SparseMatrixOutput const&, bool)::{lambda(int)#1}>(int, 
+FaltusKernels 146 0 0 launchFaltusMatricesKernel<(GradientsKind)2>(FaltusGeometryKernelArguments const&, SparseMatrixOutput const&, bool)::{lambda(int)#1}>(int,
+FaltusKernels 70 0 0 launchFaltusMatricesKernel<(GradientsKind)3>(FaltusGeometryKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFaltusMatric
+FaltusKernels 96 0 0 launchFaltusMatricesKernel<(GradientsKind)2>(FaltusGeometryKernelArguments const&, double*, bool)::{lambda(int)#1}>(int, launchFaltusMatric
+FaltusKernels 64 0 0 launchFaltusInnerForcesKernel<(GradientsKind)3>(FaltusInnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFaltusInnerForc
+FaltusKernels 106 0 0 launchFaltusInnerForcesKernel<(GradientsKind)2>(FaltusInnerForcesKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFaltusInnerFor
+FaltusKernels 36 0 0 launchFaltusCentersKernel<(GradientsKind)3>(FaltusCentersKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFaltusCentersKernel<(Gr
+FaltusKernels 64 0 0 launchFaltusCentersKernel<(GradientsKind)2>(FaltusCentersKernelArguments const&, bool)::{lambda(int)#1}>(int, launchFaltusCentersKernel<(Gr
+ElementsGeometryKernels 40 72 0 launchJacobiansKernel(JacobiansKernelArguments const&, bool)::{lambda(int)#1}>(int, launchJacobiansKernel(JacobiansKernelArgumen

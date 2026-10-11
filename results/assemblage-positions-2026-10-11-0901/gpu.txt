@@ -1,0 +1,25 @@
+== poutre, tétraèdres P1, mécanique: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (99.14 ms)
+assembly without positions: median 40.73 ms, minimum 40.69 ms
+assembly with positions: median 40.49 ms, minimum 40.41 ms
+ratio of the medians 1.006, maximum difference 4.163e-17 (maximum value 0.0697)
+== thermique, tétraèdres P1: ./assemblage --device cuda -r 5 -n 10 -t thermal
+elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (11.89 ms)
+assembly without positions: median 14.78 ms, minimum 14.76 ms
+assembly with positions: median 14.77 ms, minimum 14.76 ms
+ratio of the medians 1.001, maximum difference 4.163e-17 (maximum value 0.1074)
+== hexaèdres Q1, mécanique (27 points): ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (10.08 ms)
+assembly without positions: median 47.28 ms, minimum 44.97 ms
+assembly with positions: median 47.23 ms, minimum 44.97 ms
+ratio of the medians 1.001, maximum difference 1.301e-18 (maximum value 0.004256)
+== tétraèdres P2, mécanique: ./assemblage --device cuda -r 4 -o 2 -n 10 -t mechanics
+elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (96.98 ms)
+assembly without positions: median 102.8 ms, minimum 102.7 ms
+assembly with positions: median 102.5 ms, minimum 102.4 ms
+ratio of the medians 1.003, maximum difference 2.776e-17 (maximum value 0.0895)
+== hexaèdres Q2, mécanique: ./assemblage --device cuda -m cube.mesh -r 3 -o 2 -n 10 -t mechanics
+elements 512, degrees of freedom per element 81, entries 2471625, positions 6.718 MB (2.411 ms)
+assembly without positions: median 21.19 ms, minimum 20.54 ms
+assembly with positions: median 21.14 ms, minimum 20.54 ms
+ratio of the medians 1.002, maximum difference 6.939e-18 (maximum value 0.09137)
