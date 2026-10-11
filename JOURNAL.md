@@ -4120,3 +4120,28 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   indépendante des faits) traitée, dont le nom de la bibliothèque de lois
   produite par l'interface generic-parallel dans l'exemple. Construction
   Sphinx réduite sans avertissement sur ces pages.
+
+### 2026-10-11 (début d'après-midi), autres intégrateurs de la forme par noyaux
+
+- mfem-mgis 517e33cde4 : quand la forme non linéaire contient d'autres
+  intégrateurs que celui de mfem-mgis (condition de Robin en faces de bord,
+  ressorts dépendant des inconnues), le résidu et la tangente par noyaux ne
+  repassent plus par les boucles de MFEM sur tous les éléments. Les
+  intégrateurs de domaine, de bord et de faces de bord sont évalués par des
+  boucles copiées de MFEM et restreintes à eux (marqueurs compris), sur
+  l'hôte, puis ajoutés aux forces intérieures et à la matrice locale
+  assemblées par noyaux ; les positions des entrées et la matrice globale à
+  motif gardé servent aussi dans ce cas. Repli sur l'ancien chemin avec des
+  intégrateurs de faces intérieures ou une extension de MFEM. La
+  prolongation des inconnues est faite sur tous les processus avant les
+  calculs qui peuvent échouer sur un seul. Guide de mfem-mgis à jour.
+- Tests : ressorts de bord, de faces de bord et de domaine avec marqueurs,
+  bord intérieur (faces sautées comme par MFEM), repli par un intégrateur
+  nul de faces intérieures, compteurs des évaluations du résidu et des
+  assemblages de la tangente. Suite 188/188, 10 mutations détectées,
+  relectures R et S traitées (un défaut 3/5 : blocage possible du résidu en
+  parallèle si un seul processus échouait avant la prolongation).
+- Cas thermique : option `-hc` (échange convectif à la seconde extrémité,
+  intégrateur de faces de bord). Sur 8 processus (thermique r5,
+  `results/autres-integrateurs-2026-10-11`) : boucle sur les pas 4,17 ->
+  2,70 s, tangente ×3,3, résidu ×2, mêmes solutions et itérations.
