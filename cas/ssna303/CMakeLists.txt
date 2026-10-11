@@ -5,9 +5,6 @@
 # batches. The executable is the one of mfem-mgis-examples, run in its build
 # directory; the mode of integration is given by the environment variables
 # of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_SOURCE_DIR
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../mfem-mgis-examples"
-  CACHE PATH "sources of mfem-mgis-examples")
 set(MFEM_MGIS_EXAMPLES_EX4_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex4"
   CACHE PATH "build directory of the example ex4 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ssna303-behaviours CUDA

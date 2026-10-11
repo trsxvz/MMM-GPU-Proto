@@ -5,11 +5,16 @@
  * \date   26/08/2020
  */
 
+#include <span>
 #include <limits>
 #include <string>
+#include <cstddef>
+#include <utility>
 #include <variant>
 #include <algorithm>
+#include "mfem/general/device.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
+#include "MGIS/Behaviour/BehaviourDescription.hxx"
 #include "MGIS/Behaviour/RotationMatrix.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
@@ -360,6 +365,109 @@ namespace mfem_mgis {
     this->computeValuesInGlobalFrame(v, StateArray::THERMODYNAMIC_FORCES, s);
   }  // end of computeThermodynamicForcesInGlobalFrame
 
+  /*!
+   * \return a view of a copy, readable on the device, of the values of a
+   * material property, of an external state variable or of the mass
+   * density, given by a view of their values on the host
+   * \param[out] c: copy, stored point by point (one point for uniform
+   * values)
+   * \param[in] v: view of the values on the host
+   */
+  static mgis::FieldView<const real> copyToDevice(
+      mfem::Vector& c, const mgis::FieldView<const real>& v) {
+    const auto np = v.isUniform() ? size_type{1} : v.getNumberOfPoints();
+    const auto nc = v.getNumberOfComponents();
+    const auto size = static_cast<std::size_t>(np) * nc;
+    if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+      raise("Material::makeDeviceView: array too large for MFEM");
+    }
+    c.UseDevice(true);
+    c.SetSize(static_cast<int>(size));
+    auto* const values = c.HostWrite();
+    const auto* const h = v.data();
+    const auto ps = v.getPointStride();
+    const auto cs = v.getComponentStride();
+    for (size_type i = 0; i != np; ++i) {
+      for (size_type j = 0; j != nc; ++j) {
+        values[i * nc + j] = h[i * ps + j * cs];
+      }
+    }
+    const auto d = std::span<const real>(c.Read(), size);
+    if (v.isUniform()) {
+      return mgis::makeUniformFieldView(d, v.getNumberOfPoints());
+    }
+    return mgis::makePointByPointFieldView(d, np, nc, nc);
+  }  // end of copyToDevice
+
+  mgis::behaviour::MaterialDataView Material::makeDeviceView(
+      std::vector<mfem::Vector>& inputs,
+      const bool tangent,
+      const bool gradients) {
+    auto& arrays = this->getArrays();
+    // view of the arrays on the host, whose views are replaced by views of
+    // the copies on the device
+    auto v = mgis::behaviour::make_unchecked_view(*this);
+    v.memory_location = getDeviceMemoryLocation();
+    // arrays read by the behaviour (`Read`), which are not modified by it,
+    // or read and written (`ReadWrite`)
+    const auto relocateArray =
+        [&arrays](mgis::FieldView<real>& view, const StateArray a,
+                  const TimeStepStage s, const bool output) {
+          const auto& array = arrays.getArray(a, s);
+          auto* const p =
+              output ? arrays.readWrite(a, s) : const_cast<real*>(array.Read());
+          view = relocate(view, p, array.Size());
+        };
+    for (const auto& [view, a] :
+         {std::pair{&v.s0.gradients, StateArray::GRADIENTS},
+          std::pair{&v.s0.thermodynamic_forces,
+                    StateArray::THERMODYNAMIC_FORCES},
+          std::pair{&v.s0.internal_state_variables,
+                    StateArray::INTERNAL_STATE_VARIABLES},
+          std::pair{&v.s0.stored_energies, StateArray::STORED_ENERGIES},
+          std::pair{&v.s0.dissipated_energies,
+                    StateArray::DISSIPATED_ENERGIES}}) {
+      relocateArray(*view, a, bts, false);
+    }
+    relocateArray(v.s1.gradients, StateArray::GRADIENTS, ets, gradients);
+    for (const auto& [view, a] :
+         {std::pair{&v.s1.thermodynamic_forces,
+                    StateArray::THERMODYNAMIC_FORCES},
+          std::pair{&v.s1.internal_state_variables,
+                    StateArray::INTERNAL_STATE_VARIABLES},
+          std::pair{&v.s1.stored_energies, StateArray::STORED_ENERGIES},
+          std::pair{&v.s1.dissipated_energies,
+                    StateArray::DISSIPATED_ENERGIES}}) {
+      relocateArray(*view, a, ets, true);
+    }
+    if (tangent) {
+      v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
+                     arrays.getTangentOperatorBlocks().Size());
+    } else {
+      v.K = {};
+    }
+    v.speed_of_sound = {};
+    // material properties, external state variables and mass density
+    // copied to the device
+    auto views = std::vector<mgis::FieldView<const real>*>{};
+    for (auto* const st : {&v.s0, &v.s1}) {
+      for (auto& mp : st->material_properties) {
+        views.push_back(&mp);
+      }
+      for (auto& esv : st->external_state_variables) {
+        views.push_back(&esv);
+      }
+      views.push_back(&(st->mass_density));
+    }
+    inputs.resize(views.size());
+    for (std::size_t i = 0; i != views.size(); ++i) {
+      if (!views[i]->empty()) {
+        *(views[i]) = copyToDevice(inputs[i], *(views[i]));
+      }
+    }
+    return v;
+  }  // end of makeDeviceView
+
   Material::~Material() = default;
 
   static std::optional<PartialQuadratureFunction>
@@ -427,6 +535,13 @@ namespace mfem_mgis {
          .data_size = static_cast<size_type>(*os),
          .data_stride = static_cast<size_type>(*ostride)});
   }  // end of buildImmutablePartialQuadratureFunctionView
+
+  bool isIntegratedByBatchesOnDevice(const Behaviour& b) noexcept {
+    return mfem::Device::Allows(mfem::Backend::DEVICE_MASK) &&
+           mgis::behaviour::isGenericParallelBehaviour(b) &&
+           mgis::behaviour::isMemoryLocationAccessible(
+               b, getDeviceMemoryLocation());
+  }  // end of isIntegratedByBatchesOnDevice
 
   bool checkPointByPointLayout(AbstractErrorHandler &eh,
                                const Material &m) noexcept {

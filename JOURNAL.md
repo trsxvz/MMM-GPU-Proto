@@ -4160,3 +4160,31 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   31,0 -> 22,3 s (×1,39), GPU 1 processus 167,7 -> 38,3 s (×4,4). Restent
   l'intégration des lois sur l'hôte et MUMPS ; le maillage raffiné une
   fois est hors de portée des solveurs essayés (MUMPS, PCG et BoomerAMG).
+
+### 2026-10-11 (milieu d'après-midi), ex8 entièrement sur le GPU
+
+- Les lois d'ex8 se compilent avec l'interface generic-parallel (openmp,
+  stlpar, cuda), une fois `computeHardeningModulus` rendu `constexpr`
+  (mfem-mgis-examples 89718dd). Nouveau cas `cas/ex8` (bibliothèques
+  GenericParallelU3SI2 et GenericParallelALFENI de chaque backend, tests
+  ex8-batch-*), `add_generic_parallel_mfront_libraries` accepte plusieurs
+  bibliothèques et un dossier d'inclusion.
+- mfem-mgis 8011fe9eaa : un modèle aux points (`PointWiseModel`, gonflement
+  d'ex8) généré pour le GPU est intégré par lots sur le GPU, puis ses copies
+  hôte sont rendues lisibles (d'autres modèles les lisent par stockage
+  externe). La vue de MGIS sur les copies périphérique des tableaux
+  (`Material::makeDeviceView`) et le critère (`isIntegratedByBatchesOnDevice`)
+  sont partagés avec les intégrateurs. MaterialArraysTest : deux pas avec
+  mise à jour, sur l'hôte, sur `debug` (chemin périphérique exercé, copies
+  hôte protégées) et sur le GPU. Suite 188/188, mutations 3/4 (la copie des
+  entrées vers le GPU n'est pas détectable sur cette machine, dont le GPU
+  lit la mémoire hôte), relecture U traitée.
+- ex8 : la thermique lit les gradients mécaniques sur l'hôte ; quand la
+  mécanique est intégrée sur le GPU, il faut les synchroniser
+  (FieldUpdaterModel, mfem-mgis-examples 6505b78 ; sans cela, écart de 3e-5
+  à la référence).
+- Mesure (`results/ex8-lois-cuda-2026-10-11`) : ex8 sur le GPU en 18,5 s
+  avec les lois cuda, contre 37,8 s avec les lois sur l'hôte, 166 s point
+  par point sur le GPU et 22,1 s tout par noyaux sur 2 processus CPU.
+  L'intégration passe de 19,6 à 0,66 s ; MUMPS fait maintenant 15 s sur
+  18,5.

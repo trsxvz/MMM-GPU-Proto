@@ -76,12 +76,23 @@ namespace mfem_mgis {
         .integration_type =
             mgis::behaviour::IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR,
         .compute_speed_of_sound = false};  // end of BehaviourIntegrationOptions
-    // the behaviour is integrated by MGIS on the host. If an exception is
-    // thrown, the status is still synchronized between the processes below
+    // the behaviour is integrated by MGIS by batches on the device if its
+    // computations can access the memory of the device, on the host
+    // otherwise. If an exception is thrown, the status is still synchronized
+    // between the processes below
     auto r = mgis::behaviour::BehaviourIntegrationResult{};
     try {
-      this->synchronizeOnHost();
-      r = mgis::behaviour::integrate(*this, opts, ts.dt);
+      if (isIntegratedByBatchesOnDevice(this->b)) {
+        auto v = this->makeDeviceView(this->device_inputs, false, false);
+        r = mgis::behaviour::integrate(v.batch_execution_policy, v, opts,
+                                       ts.dt);
+        // the states are made readable on the host, where the other models
+        // read them (external storages)
+        this->synchronizeOnHostForReading();
+      } else {
+        this->synchronizeOnHost();
+        r = mgis::behaviour::integrate(*this, opts, ts.dt);
+      }
       if (r.exit_status == 0) {
         s.update(ExitStatus::unreliableResults);
       } else if (r.exit_status != 1) {

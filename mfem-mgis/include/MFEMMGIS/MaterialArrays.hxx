@@ -38,9 +38,10 @@ namespace mfem_mgis {
    * Validity of the copies: MFEM keeps track of the valid copies of each
    * array, but MGIS (and the views returned by the accessors of the
    * material) read and write the arrays through the pointers of the host,
-   * which MFEM does not see, except for the behaviours integrated on the
-   * device, whose views are built from pointers obtained by `Read`,
-   * `Write` or `ReadWrite` (see `BehaviourIntegratorBase::integrateBatch`).
+   * which MFEM does not see, except for the behaviours and the point-wise
+   * models integrated on the device, whose views are built from pointers
+   * obtained by `Read`, `Write` or `ReadWrite` (see
+   * `Material::makeDeviceView`).
    * Hence:
    *
    * - a phase of accesses on the host (integration of the behaviours by
@@ -60,7 +61,10 @@ namespace mfem_mgis {
    *   if needed;
    * - the update and the revert of a behaviour integrated on the device are
    *   made on the device, then the arrays are synchronized on the host (see
-   *   `BehaviourIntegratorBase::update`).
+   *   `BehaviourIntegratorBase::update`); the ones of a point-wise model
+   *   are made on the host (see `PointWiseModel::update`), its arrays being
+   *   made valid on the host for reading after its integration on the
+   *   device.
    *
    * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
    * device of MFEM, the copies are made between the memory of the host and
