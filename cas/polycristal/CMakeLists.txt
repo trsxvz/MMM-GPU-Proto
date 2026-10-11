@@ -14,14 +14,20 @@ add_generic_parallel_mfront_libraries(polycristal-behaviours CUDA
 # backends and suffixes of their libraries, with the other backends for the
 # GPU which work in mfem-mgis without change of the program of mm-opera-hpc
 # (see cas/mesures-backends-gpu.sh): cuda by clang, hip by clang and by
-# hipcc on the NVIDIA platform (kokkos requires an initialization of Kokkos
-# by the program)
+# hipcc on the NVIDIA platform; kokkos, if the program is linked to a
+# mfem-mgis built with Kokkos (option enable-kokkos), which initializes it
+# (variable MFEM_MGIS_KOKKOS)
+set(MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS OFF CACHE BOOL
+  "the polycrystal of mm-opera-hpc is linked to a mfem-mgis built with Kokkos")
 set(_backends_suffixes)
 foreach(_backend ${polycristal-behaviours_BACKENDS})
   list(APPEND _backends_suffixes ${_backend}:${_backend})
 endforeach()
-foreach(_gpu_backend cuda-clang:cuda hip-clang-nvidia-platform:hip
-                     hip-hipcc:hip)
+set(_gpu_backends cuda-clang:cuda hip-clang-nvidia-platform:hip hip-hipcc:hip)
+if(MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS)
+  list(APPEND _gpu_backends kokkos:kokkos)
+endif()
+foreach(_gpu_backend ${_gpu_backends})
   string(REPLACE ":" ";" _gb "${_gpu_backend}")
   list(GET _gb 0 _name)
   list(GET _gb 1 _suffix)
@@ -68,14 +74,20 @@ if(Python3_Interpreter_FOUND AND
     list(GET _bs 1 _suffix)
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_suffix}.so")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-batch-${_backend}.res")
-    if((_suffix STREQUAL "cuda") OR (_suffix STREQUAL "hip"))
+    if((_suffix STREQUAL "cuda") OR (_suffix STREQUAL "hip") OR
+       (_suffix STREQUAL "kokkos"))
       # behaviour integrated on the GPU, all the computations by kernels
       add_test(NAME polycristal-batch-${_backend}
         COMMAND ${_run} --device cuda -l "${_library}"
                 --macroscopic-stress-output-file "${_output}"
         WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
+      set(_environment "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+      if(_suffix STREQUAL "kokkos")
+        # Kokkos initialized by mfem-mgis
+        list(APPEND _environment "MFEM_MGIS_KOKKOS=1")
+      endif()
       set_tests_properties(polycristal-batch-${_backend} PROPERTIES
-        ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
+        ENVIRONMENT "${_environment}"
         FIXTURES_SETUP polycristal-${_backend}
         RESOURCE_LOCK gpu)
     else()

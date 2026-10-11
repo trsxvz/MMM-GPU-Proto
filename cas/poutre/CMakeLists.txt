@@ -1,6 +1,9 @@
 add_executable(poutre poutre.cxx)
 target_link_libraries(poutre PRIVATE mfem-mgis::MFEMMGIS)
-if(TARGET proto-kokkos-runtime)
+if(MFEM_MGIS_HAS_KOKKOS_OPTION)
+  # option --kokkos declared by mfem-mgis
+  target_compile_definitions(poutre PRIVATE PROTO_KOKKOS_OPTION_OF_MFEM_MGIS)
+elseif(TARGET proto-kokkos-runtime)
   target_link_libraries(poutre PRIVATE proto-kokkos-runtime)
 endif()
 add_mfront_library(poutre-behaviours
@@ -58,7 +61,7 @@ foreach(_gpu_backend cuda-clang:cuda hip-clang-nvidia-platform:hip
   string(REPLACE ":" ";" _gb "${_gpu_backend}")
   list(GET _gb 0 _name)
   list(GET _gb 1 _suffix)
-  if((_suffix STREQUAL "kokkos") AND (NOT TARGET proto-kokkos-runtime))
+  if((_suffix STREQUAL "kokkos") AND (NOT PROTO_WITH_KOKKOS))
     continue()
   endif()
   add_generic_parallel_mfront_library(poutre-behaviours ${_name}

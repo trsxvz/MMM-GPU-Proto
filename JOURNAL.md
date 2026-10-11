@@ -4223,3 +4223,34 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   intégration, aucun écart. Polycristal (`results/backends-polycristal-2026-10-11`) :
   intégration 5,6 s avec nvcc ou hipcc, 7,7 s avec clang (cuda ou hip),
   102 s sur l'hôte ; contraintes identiques à 2,4e-13.
+
+### 2026-10-11 (soir), Kokkos initialisé par mfem-mgis (option enable-kokkos)
+
+- mfem-mgis (branche kokkos) : option CMake `enable-kokkos` (désactivée par
+  défaut). `mfem_mgis::initialize` initialise Kokkos à la demande (option
+  `--kokkos` de `declareDefaultOptions`, ou variable `MFEM_MGIS_KOKKOS`),
+  après le périphérique de MFEM et sur son GPU ; `finalize` le termine
+  avant MPI. Sans l'option CMake, `--kokkos` est une erreur et la variable
+  est ignorée avec un avertissement. Tests : `KokkosOptionTest` (6 cas),
+  `MaterialArraysTest-kokkos` sur le GPU. Kokkos prend le GPU du
+  périphérique de MFEM, y compris s'il est configuré par le programme
+  avant `initialize`.
+- Conception : la seule source qui inclut Kokkos est compilée par le
+  compilateur de Kokkos dans une petite bibliothèque partagée
+  `MFEMMGISKokkos`, liée en privé à Kokkos. Une première version liait
+  `MFEMMGIS`, statique, à Kokkos avec `$<LINK_ONLY:...>` : les options
+  d'édition de liens de Kokkos (`-DKOKKOS_DEPENDENCE -arch=sm_120`)
+  passaient alors à tous les programmes clients, dont les
+  `check_cxx_source_compiles` de `cas/` échouaient hors du lanceur de
+  Kokkos. Les clients (mm-opera-hpc, `cas/`) ne cherchent plus Kokkos. Le
+  lanceur de Kokkos ne vaut que pour cette cible (composant
+  `separable_compilation`), compilée sans `CMAKE_CXX_COMPILER_LAUNCHER` :
+  ccache reste utilisable pour le reste. Kokkos doit être une bibliothèque
+  partagée (vérifié à la configuration).
+- `cas/` détecte l'option de mfem-mgis (`MFEM_MGIS_HAS_KOKKOS_OPTION`) :
+  la poutre utilise alors celle de mfem-mgis au lieu de la sienne. Le
+  polycristal a un test kokkos (`MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS`).
+- Polycristal (`results/kokkos-polycristal-2026-10-11`) : la loi kokkos
+  intègre en 5,62 et 5,69 s, la loi cuda en 5,61 s (les deux passent par
+  nvcc) ; contraintes identiques à 2,8e-13. mm-opera-hpc n'a pas été
+  modifié.

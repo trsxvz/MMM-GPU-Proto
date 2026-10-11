@@ -31,4 +31,6 @@ Newton (98) dans les dix calculs.
   l'intégration (nvcc 27 % de moins que clang), et 16 % de bout en bout. Le langage de la source (cuda ou
   hip) ne compte pas, le compilateur oui.
 - kokkos n'est pas mesuré ici : le programme de mm-opera-hpc
-  n'initialise pas Kokkos (voir `results/backends-gpu-2026-10-11`).
+  n'initialise pas Kokkos (voir `results/backends-gpu-2026-10-11`). Il
+  l'est dans `results/kokkos-polycristal-2026-10-11`, avec mfem-mgis
+  construit avec Kokkos (option `enable-kokkos`), qui l'initialise.

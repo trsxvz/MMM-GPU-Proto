@@ -4,14 +4,15 @@
 # tangente assemblée, Newton et PCG + BoomerAMG, avec la même loi générée
 # pour chaque backend qui fonctionne dans mfem-mgis (cuda par nvcc et par
 # clang, hip par clang et par hipcc sur la plateforme NVIDIA, kokkos avec
-# Kokkos initialisé par le cas, option --kokkos). Les bibliothèques sont
+# Kokkos initialisé à l'option --kokkos, par le cas ou par mfem-mgis s'il
+# est construit avec Kokkos). Les bibliothèques sont
 # celles des dossiers generic-parallel-<dossier> de build/cas-autres/poutre
 # (cuda pour nvcc, sinon le nom de la configuration), ou celles de
 # `$libs/<configuration>/src` si la variable `libs` est donnée.
 # L'exécutable est celui du dossier donné par la variable `poutre` (par
 # défaut build/cas-autres/poutre), construit avec Kokkos pour l'option
-# --kokkos (Kokkos trouvé par la configuration de cas/). À lancer sur une
-# machine calme, GPU libre.
+# --kokkos (Kokkos trouvé par la configuration de cas/, ou mfem-mgis
+# construit avec Kokkos). À lancer sur une machine calme, GPU libre.
 #
 # usage : cas/mesures-backends-gpu.sh [dossier de résultats]
 lot=backends

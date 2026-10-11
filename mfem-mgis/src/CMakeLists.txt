@@ -206,6 +206,34 @@ if(MFEM_MGIS_HAVE_AMGX)
                  AMGX::amgxsh ${_libraries})
   endforeach(_property)
 endif()
+# Kokkos: the only source including Kokkos is compiled by the compiler of
+# Kokkos in a shared library privately linked to Kokkos, so that neither the
+# other sources nor the projects linked to mfem-mgis inherit the flags of
+# Kokkos
+if(MFEM_MGIS_HAVE_KOKKOS)
+  add_library(MFEMMGISKokkos SHARED KokkosRuntime.cxx)
+  target_link_libraries(MFEMMGISKokkos PRIVATE Kokkos::kokkos)
+  # compilation and link redirected to the compiler of Kokkos by its
+  # launcher, which does not expect another launcher (such as ccache)
+  kokkos_compilation(TARGET MFEMMGISKokkos)
+  # the installed Kokkos may not support the extensions of the compilers;
+  # the symbols are exported despite the flag -fvisibility=hidden of the
+  # compilation; the installed library finds the one of Kokkos
+  set_target_properties(MFEMMGISKokkos PROPERTIES
+    CXX_COMPILER_LAUNCHER ""
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    CXX_EXTENSIONS OFF
+    CXX_VISIBILITY_PRESET default
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    INSTALL_RPATH_USE_LINK_PATH ON)
+  install(TARGETS MFEMMGISKokkos EXPORT MFEMMGIS
+          RUNTIME DESTINATION bin
+          LIBRARY DESTINATION lib${LIB_SUFFIX}
+          ARCHIVE DESTINATION lib${LIB_SUFFIX})
+  target_link_libraries(MFEMMGIS PRIVATE MFEMMGISKokkos)
+  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_KOKKOS)
+endif()
 if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
  target_compile_definitions(MFEMMGIS PUBLIC 
    MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR)

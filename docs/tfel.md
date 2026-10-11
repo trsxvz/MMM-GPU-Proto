@@ -185,7 +185,10 @@ Quelques choix méritent une explication :
   relogeable** avec CUDA. Les bibliothèques générées sont chargées par
   `dlopen` : l'appelant et elles doivent partager la même instance de
   Kokkos. La fonction générée vérifie que Kokkos est initialisé, elle ne
-  l'initialise jamais. Les statistiques d'un calcul synchrone sont dans
+  l'initialise jamais. mfem-mgis construit avec l'option `enable-kokkos`
+  l'initialise à la demande (option `--kokkos` ou variable
+  `MFEM_MGIS_KOKKOS`, voir `results/kokkos-polycristal-2026-10-11`). Les
+  statistiques d'un calcul synchrone sont dans
   `Kokkos::SharedSpace`, comme pour les propriétés matériau. Les backends
   `OpenACC` et `OpenMPTarget` de Kokkos n'ont pas cet espace : une
   assertion statique le signale.

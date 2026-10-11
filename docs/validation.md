@@ -165,6 +165,19 @@ façons, qui doivent toutes passer :
   reproduction en 25 passages isolés (certaines accélérations ont un
   nombre d'itérations sensible aux arrondis).
 
+L'option `enable-kokkos` (initialisation de Kokkos par mfem-mgis) se
+valide dans deux constructions séparées : `build/mfem-mgis-kokkos-off`
+(sans Kokkos : `ctest -R KokkosOptionTest`, 6 tests, option refusée et
+variable ignorée avec un avertissement) et `build/mfem-mgis-kokkos` (avec
+le Kokkos de l'environnement, construit pour CUDA, installé dans
+`install/mfem-mgis-kokkos` : `ctest -R "KokkosOptionTest|-kokkos"`, 7
+tests dont 4 sur le GPU). Côté clients, mm-opera-hpc
+(`build/mm-opera-hpc-kokkos`) et `cas/` (`build/cas-kokkos`, avec
+`MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS=ON`) se construisent contre cette
+installation sans chercher Kokkos ; leurs tests `poutre-gpu-kokkos` et
+`polycristal-batch-kokkos` (avec sa comparaison) utilisent la loi générée
+par le backend kokkos.
+
 La gestion hétérogène de la mémoire (HMM) masque ici les données de l'hôte
 lues par erreur sur le GPU : la mutation qui donne au noyau d'un modèle
 aux points les pointeurs hôte de ses entrées n'est pas détectée avec HMM.

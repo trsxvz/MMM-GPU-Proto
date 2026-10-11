@@ -63,6 +63,10 @@ if(MFEMMGIS_HAVE_AMGX AND (NOT TARGET AMGX::amgxsh))
   endif()
 endif()
 
+# true if mfem-mgis initializes Kokkos on demand (option enable-kokkos):
+# Kokkos is used through the shared library MFEMMGISKokkos, which finds it
+set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
+
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
 # before mfem-mgis, the description of MFEM is the one used to build
 # mfem-mgis

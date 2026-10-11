@@ -11,7 +11,10 @@
 # cas), et les variables `device`, `linear_solver`, `linear_tolerance`,
 # `options` et `reference` lues par `run`, et `refinement` (nombre de
 # raffinements du maillage : 4 pour la poutre, 5 pour la thermique, 0 pour
-# ssna303 et ex8 par défaut).
+# ssna303 et ex8 par défaut). La variable `mfem_mgis_sources`, lue avant,
+# donne les sources de mfem-mgis dont la version est notée dans resume.txt
+# (par défaut le sous-module mfem-mgis), pour un exécutable construit
+# contre une autre installation.
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -89,7 +92,7 @@ out=$(cd "$out" && pwd)
   echo "cas : $case_name"
   echo "machine : $(nproc --all) cœurs, $(free -g | awk '/^Mem/ {print $2}') Go"
   echo "charge : $(cut -d ' ' -f 1-3 /proc/loadavg)"
-  echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
+  echo "mfem-mgis : $(git -C "${mfem_mgis_sources:-$P/mfem-mgis}" log -1 --format=%h)"
 } | tee -a "$out/resume.txt"
 # périphérique de MFEM des calculs (option --device), vide pour le CPU
 device=""
