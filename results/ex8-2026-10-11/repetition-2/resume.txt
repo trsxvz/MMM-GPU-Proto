@@ -1,0 +1,25 @@
+date : 2026-10-11 14:40:25
+cas : ex8
+machine : 16 cœurs, 30 Go
+charge : 1.13 4.50 6.41
+mfem-mgis : 517e33cde4
+== ex8-np2-point-par-point : 2 processus, 1 fils, cpu, défaut
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.00064432426334919
+Temperature 309.565082913283 480.495121135856 360.215014545483
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |          30.617013 |          30.617098 |          30.617183 |         99.688828% |          0.000278% |
+== ex8-np2-noyaux : 2 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.00064432426334919
+Temperature 309.565082913283 480.495121135856 360.215014545483
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |          22.251815 |          22.251892 |          22.251970 |         99.573932% |          0.000348% |
+== ex8-np1-gpu-point-par-point : 1 processus, 1 fils, cuda, défaut
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.000644324263349186
+Temperature 309.565082913283 480.495121135856 360.215014545482
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |         166.039664 |         99.920679% |
+== ex8-np1-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+DisplacementNorm 0 0.00128600753526175 0.000644324263349187
+Temperature 309.565082913283 480.495121135856 360.215014545482
+ | |--> IterativeCouplingScheme::computeNextState        |                  5 |          37.594792 |         99.653822% |

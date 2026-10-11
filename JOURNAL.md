@@ -4145,3 +4145,18 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   intégrateur de faces de bord). Sur 8 processus (thermique r5,
   `results/autres-integrateurs-2026-10-11`) : boucle sur les pas 4,17 ->
   2,70 s, tangente ×3,3, résidu ×2, mêmes solutions et itérations.
+
+### 2026-10-11 (après-midi), ex8 tout par noyaux, sur CPU et sur GPU
+
+- ex8 de mfem-mgis-examples (thermique avec condition de Robin,
+  mécanique avec gonflement, couplage itératif) tourne tout par noyaux
+  avec mfem-mgis 517e33cde4 : mêmes statistiques que point par point, sur
+  CPU et sur GPU. Sur le GPU, l'exemple lisait ses résultats dans des
+  copies hôte périmées (comparaison à la référence en échec, résolutions
+  justes) : corrigé dans l'exemple (mfem-mgis-examples 3a907f1), avec
+  les tests rjh_plate-kernels et, sous l'option
+  `MFEM_MGIS_EXAMPLES_GPU_TESTS`, rjh_plate-cuda et rjh_plate-kernels-cuda.
+- Mesure (`results/ex8-2026-10-11`, maillage d'origine) : CPU 2 processus
+  31,0 -> 22,3 s (×1,38), GPU 1 processus 167,7 -> 38,3 s (×4,4). Restent
+  l'intégration des lois sur l'hôte et MUMPS ; le maillage raffiné une
+  fois est hors de portée des solveurs essayés (MUMPS, PCG et BoomerAMG).

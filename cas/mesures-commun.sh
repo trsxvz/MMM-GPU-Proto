@@ -20,7 +20,11 @@
 #   (cas/thermique), r5, 5 pas ;
 # - ssna303 : barreau entaillé ssna303 en 3D (exemple ex4 de
 #   mfem-mgis-examples, variante résolue par hypre), plasticité en grandes
-#   transformations (déformation logarithmique de Hencky), 10 pas.
+#   transformations (déformation logarithmique de Hencky), 10 pas ;
+# - ex8 : plaque thermomécanique (exemple ex8 de mfem-mgis-examples :
+#   thermique avec condition de Robin, mécanique avec gonflement, couplage
+#   itératif), 5 pas, MUMPS pour la mécanique, lois de l'exemple (la
+#   bibliothèque donnée à `run` est ignorée).
 #
 # Sorties brutes (avec les tableaux de profilage) dans le dossier de
 # résultats, résumé dans resume.txt ; temps par phase :
@@ -64,8 +68,13 @@ case "$case_name" in
     generic=$B/src/libBehaviour.so
     gp=$P/build/cas/ssna303
     ;;
+  ex8)
+    B=$P/build/mfem-mgis-examples/ex8
+    generic=""
+    gp=$B
+    ;;
   *)
-    echo "usage : $0 [poutre|polycristal|thermique|ssna303] [dossier de résultats]" >&2
+    echo "usage : $0 [poutre|polycristal|thermique|ssna303|ex8] [dossier de résultats]" >&2
     exit 1
     ;;
 esac
@@ -93,6 +102,13 @@ options=""
 # polycristal : nom du calcul de référence des comparaisons (par défaut, le
 # calcul point par point sur le même nombre de processus)
 reference=""
+# lignes des sorties recopiées dans resume.txt (expression régulière
+# étendue) : inconnues et temps de la boucle sur les pas, ou, pour ex8,
+# statistiques des champs et temps du couplage
+summary="^dofs|^time"
+if [ "$case_name" = ex8 ]; then
+  summary="^Temperature|^DisplacementNorm|IterativeCouplingScheme::computeNextState"
+fi
 # poutre : exécutable (par défaut celui du dossier de construction, chemin
 # absolu pour un autre exécutable, par exemple construit avec une version
 # précédente de mfem-mgis)
@@ -119,6 +135,10 @@ command_of() {
       echo ./ssna303_3d_hypre --no-paraview --nbsteps 10 --end-time 1 \
         -r "${refinement:-0}" -l "$library" --profiling \
         ${device:+--device $device} $options
+      ;;
+    ex8)
+      echo ./rjh_plate -m assemblage_hexa.msh -r "${refinement:-1}" -ns 5 \
+        -lsMc MUMPSSolver -no-pp ${device:+--device $device} $options
       ;;
     polycristal)
       echo ./uniaxial-polycrystal $post_processing --nstep 10 \
@@ -150,7 +170,7 @@ run() {
     timeout 3600 mpirun "${placement[@]}" -n "$np" "${cmd[@]}") \
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
-  /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/resume.txt"
+  /usr/bin/grep -E "$summary" "$out/$name.txt" | tee -a "$out/resume.txt"
   # comparaison au calcul de référence, par défaut le calcul point par
   # point sur le même nombre de processus (la partition change les
   # résultats du solveur itératif)
