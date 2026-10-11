@@ -145,6 +145,13 @@ namespace mfem_mgis {
    * the option `--device` fail, and the device is then configured before
    * hypre, without the choice of the GPUs by process nor the
    * synchronisation of the profiling sections.
+   *
+   * The option `--hypre-device-pool-size <size>` (or `-hdps`), or else the
+   * environment variable `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, gives the size
+   * in GiB of the pool of memory allocated at once by hypre on the GPU
+   * through Umpire (4 GiB by default in hypre 3.2, which grows if needed):
+   * a smaller pool leaves more memory to MFEM and to mfem-mgis. It is an
+   * error if hypre does not use Umpire on the GPU.
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!
@@ -216,8 +223,9 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
   /*!
    * \brief declare default options: the configuration of the MFEM device
-   * (`--device`, the device being created by `initialize`), and the PETSc
-   * options, if PETSc is available.
+   * (`--device`, the device being created by `initialize`), the size of the
+   * pool of memory of hypre on the GPU (`--hypre-device-pool-size`, set by
+   * `initialize`), and the PETSc options, if PETSc is available.
    * \param[in, out] parser: options parser
    */
   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);

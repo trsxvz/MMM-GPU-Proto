@@ -1107,6 +1107,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
   set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
 endif()
 
+# HypreDevicePoolSizeTest executable: size of the pool of memory of hypre on
+# the GPU, given by the option of mfem-mgis or by its environment variable
+# (no memory allocated on the GPU)
+if(MFEM_USE_MPI)
+  add_test_executable(HypreDevicePoolSizeTest)
+  add_test(NAME HypreDevicePoolSizeTest
+           COMMAND HypreDevicePoolSizeTest --hypre-device-pool-size 0.25
+                   --expected 0.25)
+  add_test(NAME HypreDevicePoolSizeTest-short
+           COMMAND HypreDevicePoolSizeTest -hdps 0.125 --expected 0.125)
+  add_test(NAME HypreDevicePoolSizeTest-environment
+           COMMAND HypreDevicePoolSizeTest --expected 0.5)
+  add_test(NAME HypreDevicePoolSizeTest-option-and-environment
+           COMMAND HypreDevicePoolSizeTest -hdps 0.25 --expected 0.25)
+  set_tests_properties(HypreDevicePoolSizeTest-environment
+                       HypreDevicePoolSizeTest-option-and-environment
+                       PROPERTIES ENVIRONMENT
+                       MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=0.5)
+  add_test(NAME HypreDevicePoolSizeTest-negative
+           COMMAND HypreDevicePoolSizeTest -hdps -1 --expected error)
+  add_test(NAME HypreDevicePoolSizeTest-invalid
+           COMMAND HypreDevicePoolSizeTest -hdps 1x --expected error)
+  add_test(NAME HypreDevicePoolSizeTest-missing
+           COMMAND HypreDevicePoolSizeTest --expected error -hdps)
+endif(MFEM_USE_MPI)
+
 # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
 # when MFEM is compiled with CUDA (not supported yet with HIP). The test on
 # the GPU requires one.

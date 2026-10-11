@@ -9,7 +9,8 @@
 # results/<lot>-<cas>-<date>). Définit `run` (voir plus bas), `generic`,
 # `openmp` et `stlpar` (bibliothèques de la loi du cas), et les variables
 # `device`, `linear_solver`, `linear_tolerance`, `options` et `reference`
-# lues par `run`.
+# lues par `run`, et `refinement` (nombre de raffinements du maillage de
+# la poutre ou de la thermique, 4 et 5 par défaut).
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -90,12 +91,12 @@ command_of() {
   local library=$1 name=$2
   case "$case_name" in
     poutre)
-      echo ./poutre -r 4 -n 10 -mi 3000 -ls "$linear_solver" \
+      echo ./poutre -r "${refinement:-4}" -n 10 -mi 3000 -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
       ;;
     thermique)
-      echo ./thermique -r 5 -n 5 -ls "$linear_solver" \
+      echo ./thermique -r "${refinement:-5}" -n 5 -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
       ;;

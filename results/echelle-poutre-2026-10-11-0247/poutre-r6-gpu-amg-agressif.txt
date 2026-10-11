@@ -1,0 +1,34 @@
+step 1: not converged
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+  Proc: [[22812,0],0]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+Command exited with non-zero status 1
+	Command being timed: "env OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels timeout -k 10 900 ./poutre -r 6 -n 10 -mi 3000 -ls pcg-amg -lt 1e-4 -nls fixed-point -fpm newton-k0 -k0 -pk0 -alst EisenstatWalker1 -alsti 0.1 -els amg -amgo AggressiveCoarseningLevels=1 -l generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so --profiling --device cuda"
+	User time (seconds): 22.58
+	System time (seconds): 4.85
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:27.66
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 19157608
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 8
+	Minor (reclaiming a frame) page faults: 5579080
+	Voluntary context switches: 825
+	Involuntary context switches: 299
+	Swaps: 0
+	File system inputs: 976
+	File system outputs: 8
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 1

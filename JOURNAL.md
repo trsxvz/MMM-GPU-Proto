@@ -3845,3 +3845,26 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   vérifié par `BatchIntegrationTest` sur `debug` et `cuda`. Annulé.
 - Température gardée sur le GPU : gain d'au plus 2,3 % sur la thermique,
   non fait. Lot L7.3 clos sur ces mesures.
+
+### 2026-10-11 (nuit), passage à l'échelle de la poutre
+
+- `cas/mesures-echelle-poutre.sh`, results/echelle-poutre-2026-10-11-0247 :
+  poutre raffinée 3, 4 et 5 fois (16 000 à 840 000 inconnues), NewtonK0 et
+  Eisenstat-Walker 1. Gain du GPU sur 8 cœurs : ×1,8, ×4,6 puis ×10,9
+  (9,86 s contre 107,9 s à 840 000 inconnues). AmgX réglé en simple
+  précision est le meilleur jusqu'à 110 000 inconnues, BoomerAMG agressif
+  au-delà. La tangente sans assemblage ne paie pas avec NewtonK0.
+- Six raffinements (6,7 millions d'inconnues) : mémoire du GPU épuisée
+  (allocations d'Umpire refusées à 13,8 Go, puis à 15,7 Go avec une
+  réserve de hypre réduite). Le pilote de la poutre affiche maintenant le
+  message d'erreur d'un pas non convergé (avant : « not converged » sans
+  cause) et a une option de verbosité (`-vl`).
+- hypre 3.2 alloue d'un coup une réserve de 4 Gio sur le GPU : mfem-mgis
+  fd93974cdc, option `--hypre-device-pool-size` (ou `-hdps`, ou variable
+  `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`) appliquée par `initialize` ; à 0,5 Gio,
+  la poutre à quatre raffinements occupe 2,3 Go au lieu de 5,9 Go, au même
+  temps. HypreDevicePoolSizeTest (7 cas, 5 mutations détectées) ; suites
+  165/165 CPU, 15/15 GPU, cas 33/33.
+- Les mesures sur 8 cœurs sont sensibles à l'activité de la machine
+  (compilation en parallèle : +15 à 40 %) ; premier passage gardé dans
+  results/echelle-poutre-2026-10-11-0233.

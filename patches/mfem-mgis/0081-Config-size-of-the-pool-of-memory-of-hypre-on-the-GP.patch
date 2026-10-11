@@ -1,0 +1,315 @@
+From fd93974cdcc392b5e1b5e505ec549b0de65dd99e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 02:58:58 +0200
+Subject: [PATCH] Config: size of the pool of memory of hypre on the GPU
+
+The option --hypre-device-pool-size (or -hdps), declared by
+declareDefaultOptions, or else the environment variable
+MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE, gives the size in GiB of the pool of
+memory allocated at once by hypre on the GPU through Umpire, set by
+initialize before the first allocation of hypre on the GPU. With hypre 3.2,
+the default pool of 4 GiB is allocated even for small problems: on the
+beam of the prototype refined four times, a pool of 0.5 GiB lowers the
+peak of memory on the GPU from 5.9 GB to 2.3 GB at the same speed. The
+size must be strictly positive; the option is an error if hypre does not
+use Umpire on the GPU.
+
+Tests: HypreDevicePoolSizeTest (option, short option, environment, option
+over environment, negative, invalid and missing values), checked by
+mutation.
+---
+ include/MFEMMGIS/Config.hxx       | 12 ++++-
+ src/Config.cxx                    | 75 ++++++++++++++++++++++++++++
+ tests/CMakeLists.txt              | 26 ++++++++++
+ tests/HypreDevicePoolSizeTest.cxx | 82 +++++++++++++++++++++++++++++++
+ 4 files changed, 193 insertions(+), 2 deletions(-)
+ create mode 100644 tests/HypreDevicePoolSizeTest.cxx
+
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index d4e56f7acb..f8e3d390e3 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -145,6 +145,13 @@ namespace mfem_mgis {
+    * the option `--device` fail, and the device is then configured before
+    * hypre, without the choice of the GPUs by process nor the
+    * synchronisation of the profiling sections.
++   *
++   * The option `--hypre-device-pool-size <size>` (or `-hdps`), or else the
++   * environment variable `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`, gives the size
++   * in GiB of the pool of memory allocated at once by hypre on the GPU
++   * through Umpire (4 GiB by default in hypre 3.2, which grows if needed):
++   * a smaller pool leaves more memory to MFEM and to mfem-mgis. It is an
++   * error if hypre does not use Umpire on the GPU.
+    */
+   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
+   /*!
+@@ -216,8 +223,9 @@ namespace mfem_mgis {
+   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
+   /*!
+    * \brief declare default options: the configuration of the MFEM device
+-   * (`--device`, the device being created by `initialize`), and the PETSc
+-   * options, if PETSc is available.
++   * (`--device`, the device being created by `initialize`), the size of the
++   * pool of memory of hypre on the GPU (`--hypre-device-pool-size`, set by
++   * `initialize`), and the PETSc options, if PETSc is available.
+    * \param[in, out] parser: options parser
+    */
+   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e8abc9594f..e8945f3dd8 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -5,14 +5,17 @@
+  * \date   14/02/2021
+  */
+ 
++#include <cmath>
+ #include <cstdlib>
+ #include <cstring>
+ #include <memory>
++#include <string>
+ #include <string_view>
+ #include <iostream>
+ #ifdef MFEM_USE_MPI
+ #include "mpi.h"
+ #include "mfem/linalg/hypre.hpp"
++#include "HYPRE_utilities.h"
+ #endif /* MFEM_USE_MPI */
+ #include "mfem/general/error.hpp"
+ #include "mfem/general/device.hpp"
+@@ -39,6 +42,13 @@ namespace mfem_mgis {
+     static const char* const device_option;
+     //! \brief short name of the option `device_option`
+     static const char* const device_short_option;
++    /*!
++     * \brief option giving the size, in GiB, of the pool of memory of
++     * hypre on the GPU
++     */
++    static const char* const hypre_device_pool_size_option;
++    //! \brief short name of the option `hypre_device_pool_size_option`
++    static const char* const hypre_device_pool_size_short_option;
+     //! \return the unique instance of this class
+     static Finalizer& get();
+     /*!
+@@ -88,6 +98,37 @@ namespace mfem_mgis {
+ 
+   const char* const Finalizer::device_short_option = "-dev";
+ 
++  const char* const Finalizer::hypre_device_pool_size_option =
++      "--hypre-device-pool-size";
++
++  const char* const Finalizer::hypre_device_pool_size_short_option = "-hdps";
++
++  /*!
++   * \brief sets the size of the pool of memory allocated at once by hypre
++   * on the GPU through Umpire (4 GiB by default in hypre 3.2), before the
++   * first allocation of hypre on the GPU, which creates the pool
++   * \param[in] size: size in GiB, as given by the user
++   */
++  static void setHypreDevicePoolSize(const char* const size) {
++    auto* end = static_cast<char*>(nullptr);
++    const auto s = std::strtod(size, &end);
++    if ((end == size) || (*end != '\0') || (!std::isfinite(s)) || (s <= 0)) {
++      mgis::raise("initialize: invalid size of the pool of memory of hypre '" +
++                  std::string{size} + "' (strictly positive number expected)");
++    }
++#if defined(MFEM_USE_MPI) && defined(HYPRE_USING_UMPIRE_DEVICE)
++    const auto bytes = static_cast<std::size_t>(s * 1073741824.);
++    if (HYPRE_SetUmpireDevicePoolSize(bytes) != 0) {
++      mgis::raise(
++          "initialize: the size of the pool of memory of hypre can't be set");
++    }
++#else
++    mgis::raise(
++        "initialize: hypre does not use a pool of memory of Umpire on the "
++        "GPU");
++#endif
++  }  // end of setHypreDevicePoolSize
++
+   /*!
+    * \return the identifier of the GPU used by this process: the processes
+    * of a node use the GPUs of the node in turn (several processes may share
+@@ -159,7 +200,23 @@ namespace mfem_mgis {
+     const char* petscrc_file = nullptr;
+ #endif /* MFEM_USE_PETSC */
+     const char* device_configuration = nullptr;
++    const char* hypre_device_pool_size = nullptr;
+     for (const auto* a = argv; a != argv + argc; ++a) {
++      if ((std::strcmp(*a, hypre_device_pool_size_option) == 0) ||
++          (std::strcmp(*a, hypre_device_pool_size_short_option) == 0)) {
++        if (hypre_device_pool_size != nullptr) {
++          mgis::raise(
++              "initialize: size of the pool of memory of hypre already "
++              "specified");
++        }
++        ++a;
++        if (a == argv + argc) {
++          mgis::raise("initialize: no value given to " +
++                      std::string{hypre_device_pool_size_option});
++        }
++        hypre_device_pool_size = *a;
++        continue;
++      }
+       if ((std::strcmp(*a, device_option) == 0) ||
+           (std::strcmp(*a, device_short_option) == 0)) {
+         if (device_configuration != nullptr) {
+@@ -196,6 +253,17 @@ namespace mfem_mgis {
+       }
+ #endif /* MFEM_USE_PETSC */
+     }
++    // size of the pool of memory of hypre on the GPU, given by the option or
++    // by the environment
++    if (hypre_device_pool_size == nullptr) {
++      const auto* const e = std::getenv("MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE");
++      if ((e != nullptr) && (*e != '\0')) {
++        hypre_device_pool_size = e;
++      }
++    }
++    if (hypre_device_pool_size != nullptr) {
++      setHypreDevicePoolSize(hypre_device_pool_size);
++    }
+     // without the option, the configuration of the device may be given by
+     // the environment, for instance to run a whole test suite on a GPU
+     if (device_configuration == nullptr) {
+@@ -346,6 +414,13 @@ namespace mfem_mgis {
+                      "cuda, hip, omp or debug), created by "
+                      "mfem_mgis::initialize. No device is created by "
+                      "default.");
++    static auto hypre_device_pool_size = 0.;
++    parser.AddOption(&hypre_device_pool_size,
++                     Finalizer::hypre_device_pool_size_short_option,
++                     Finalizer::hypre_device_pool_size_option,
++                     "Size in GiB of the pool of memory allocated at once by "
++                     "hypre on the GPU (Umpire), set by "
++                     "mfem_mgis::initialize. Default of hypre if not given.");
+ #ifdef MFEM_USE_PETSC
+     static bool use_petsc = false;
+     static const char* petscrc_file = "";
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 72a9114ba0..2ce89db087 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1107,6 +1107,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+   set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
+ endif()
+ 
++# HypreDevicePoolSizeTest executable: size of the pool of memory of hypre on
++# the GPU, given by the option of mfem-mgis or by its environment variable
++# (no memory allocated on the GPU)
++if(MFEM_USE_MPI)
++  add_test_executable(HypreDevicePoolSizeTest)
++  add_test(NAME HypreDevicePoolSizeTest
++           COMMAND HypreDevicePoolSizeTest --hypre-device-pool-size 0.25
++                   --expected 0.25)
++  add_test(NAME HypreDevicePoolSizeTest-short
++           COMMAND HypreDevicePoolSizeTest -hdps 0.125 --expected 0.125)
++  add_test(NAME HypreDevicePoolSizeTest-environment
++           COMMAND HypreDevicePoolSizeTest --expected 0.5)
++  add_test(NAME HypreDevicePoolSizeTest-option-and-environment
++           COMMAND HypreDevicePoolSizeTest -hdps 0.25 --expected 0.25)
++  set_tests_properties(HypreDevicePoolSizeTest-environment
++                       HypreDevicePoolSizeTest-option-and-environment
++                       PROPERTIES ENVIRONMENT
++                       MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=0.5)
++  add_test(NAME HypreDevicePoolSizeTest-negative
++           COMMAND HypreDevicePoolSizeTest -hdps -1 --expected error)
++  add_test(NAME HypreDevicePoolSizeTest-invalid
++           COMMAND HypreDevicePoolSizeTest -hdps 1x --expected error)
++  add_test(NAME HypreDevicePoolSizeTest-missing
++           COMMAND HypreDevicePoolSizeTest --expected error -hdps)
++endif(MFEM_USE_MPI)
++
+ # DeviceForallTest executable: a kernel of MFEM, compiled as CUDA code
+ # when MFEM is compiled with CUDA (not supported yet with HIP). The test on
+ # the GPU requires one.
+diff --git a/tests/HypreDevicePoolSizeTest.cxx b/tests/HypreDevicePoolSizeTest.cxx
+new file mode 100644
+index 0000000000..e906da1864
+--- /dev/null
++++ b/tests/HypreDevicePoolSizeTest.cxx
+@@ -0,0 +1,82 @@
++/*!
++ * \file   HypreDevicePoolSizeTest.cxx
++ * \brief  Test of the size of the pool of memory of hypre on the GPU, set by
++ * `mfem_mgis::initialize` from the option `--hypre-device-pool-size` (or
++ * `-hdps`) or from the environment variable
++ * `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`. The option `--expected` gives the
++ * expected size in GiB, or `error` if the initialization must fail. No
++ * memory is allocated on the GPU.
++ * \date   11/10/2026
++ */
++
++#include <string>
++#include <cstdlib>
++#include <cstring>
++#include <iostream>
++#include <exception>
++#include "mfem/config/config.hpp"
++#include "mfem/general/optparser.hpp"
++#ifdef MFEM_USE_MPI
++#include "_hypre_utilities.h"
++#endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/Config.hxx"
++
++int main(int argc, char** argv) {
++  // the expected result is read before the initialization, which may fail
++  auto expected = std::string{};
++  for (auto i = 1; i + 1 < argc; ++i) {
++    if (std::strcmp(argv[i], "--expected") == 0) {
++      expected = argv[i + 1];
++    }
++  }
++  if (expected.empty()) {
++    std::cerr << "no expected result given (--expected)\n";
++    return EXIT_FAILURE;
++  }
++  try {
++    mfem_mgis::initialize(argc, argv);
++  } catch (std::exception& e) {
++    std::cout << "initialize: " << e.what() << '\n';
++    mfem_mgis::finalize();
++    if (expected == "error") {
++      return EXIT_SUCCESS;
++    }
++#if defined(MFEM_USE_MPI) && defined(HYPRE_USING_UMPIRE_DEVICE)
++    return EXIT_FAILURE;
++#else
++    // the option is refused if hypre does not use Umpire on the GPU
++    return EXIT_SUCCESS;
++#endif
++  }
++  auto args = mfem::OptionsParser(argc, argv);
++  mfem_mgis::declareDefaultOptions(args);
++  const char* e = "";
++  args.AddOption(&e, "-e", "--expected",
++                 "expected size in GiB, or error if the initialization must "
++                 "fail");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    mfem_mgis::finalize();
++    return EXIT_FAILURE;
++  }
++  auto success = expected != "error";
++  if (!success) {
++    std::cerr << "the initialization did not fail\n";
++  }
++#if defined(MFEM_USE_MPI) && defined(HYPRE_USING_UMPIRE_DEVICE)
++  if (success) {
++    const auto size = hypre_HandleUmpireDevicePoolSize(hypre_handle());
++    const auto value =
++        static_cast<std::size_t>(std::stod(expected) * 1073741824.);
++    std::cout << "size of the pool of memory of hypre on the GPU: " << size
++              << " bytes\n";
++    if (size != value) {
++      std::cerr << "expected " << value << " bytes\n";
++      success = false;
++    }
++  }
++#endif
++  mfem_mgis::finalize();
++  return success ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

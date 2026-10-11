@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
   auto refinements = 3;
   auto steps = 10;
   auto max_iterations = 50;
+  auto verbosity = 0;
   auto prediction = true;
   auto profiling = false;
   auto update_period = 1;
@@ -163,6 +164,8 @@ int main(int argc, char** argv) {
                  "assembled tangent operator (linear solver cg-amg).");
   args.AddOption(&max_iterations, "-mi", "--max-iterations",
                  "Maximum number of Newton iterations per step.");
+  args.AddOption(&verbosity, "-vl", "--verbosity-level",
+                 "Verbosity level of the non linear solver.");
   args.AddOption(&prediction, "-pr", "--prediction", "-no-pr",
                  "--no-prediction",
                  "Elastic prediction at the beginning of each step.");
@@ -411,7 +414,7 @@ int main(int argc, char** argv) {
       abort(EXIT_FAILURE);
     }
     auto solver_parameters =
-        Parameters{{"VerbosityLevel", 0},
+        Parameters{{"VerbosityLevel", verbosity},
                    {"RelativeTolerance", relative_tolerance},
                    {"AbsoluteTolerance", 0.},
                    {"MaximumNumberOfIterations", max_iterations}};
@@ -436,7 +439,11 @@ int main(int argc, char** argv) {
     for (int i = 0; i != steps; ++i) {
       const auto r = problem.solve(ctx, t, dt);
       if (!r.status) {
-        std::cerr << "step " << i + 1 << ": not converged\n";
+        std::cerr << "step " << i + 1 << ": not converged";
+        if (const auto msg = ctx.getErrorMessage(); !msg.empty()) {
+          std::cerr << " (" << msg << ")";
+        }
+        std::cerr << '\n';
         abort(EXIT_FAILURE);
       }
       iterations.push_back(r.iterations);
