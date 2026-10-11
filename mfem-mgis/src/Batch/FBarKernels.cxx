@@ -102,39 +102,12 @@ namespace mfem_mgis::batch::internals {
                             1, a.determinants[e]);
           // deformation gradient at the center
           real F0[9];
-          for (int c = 0; c != gs; ++c) {
-            F0[c] = a.macroscopic_gradients[c];
-          }
-          if (a.derivatives != nullptr) {
-            const auto* const dr =
-                a.derivatives + static_cast<std::size_t>(V * N) * e;
-            real du[V * N];
-            for (int i = 0; i != V; ++i) {
-              for (int j = 0; j != N; ++j) {
-                du[i + V * j] = 0;
-                for (int r = 0; r != N; ++r) {
-                  du[i + V * j] += dr[i + V * r] * iJ[r + N * j];
-                }
-              }
-            }
-            auto d = [&du](const int i, const int j) { return du[i + V * j]; };
-            if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
-              F0[0] += d(0, 0);
-              F0[1] += d(1, 1);
-              F0[2] += d(2, 2);
-              F0[3] += d(0, 1);
-              F0[4] += d(1, 0);
-              F0[5] += d(0, 2);
-              F0[6] += d(2, 0);
-              F0[7] += d(1, 2);
-              F0[8] += d(2, 1);
-            } else {
-              F0[0] += d(0, 0);
-              F0[1] += d(1, 1);
-              F0[3] += d(0, 1);
-              F0[4] += d(1, 0);
-            }
-          }
+          computeDeformationGradientAtCenter<K>(
+              F0, a.macroscopic_gradients,
+              (a.derivatives != nullptr)
+                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
+                  : nullptr,
+              iJ);
           real dJ0[9];
           computeDeterminantDerivative<K>(dJ0, F0);
           a.centers[k] = computeDeterminant<K>(F0);

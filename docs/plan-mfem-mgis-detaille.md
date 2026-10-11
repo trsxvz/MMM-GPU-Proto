@@ -927,7 +927,12 @@ Ordre proposé :
    centre des éléments par une règle d'ordre 0, `F̄ = α F`, tangente
    standard modifiée plus un terme de rang un par élément (voir
    `batch::FBarData`), en 3D et en déformations planes, matrice assemblée,
-   diagonale et action sans matrice ; Faltus reste refusé ;
+   diagonale et action sans matrice. Faltus fait (11/10) : gradient au
+   centre de la même règle, résidu `Σ w Dᵀ α (F - F0)`, tangente
+   `α Σ w Dᵀ D` constante calculée à la volée par paires de nœuds (bloc
+   `d_a · d_b` fois l'identité, `d` différence des dérivées des fonctions
+   de forme au point et au centre), en 3D et en déformations planes
+   (contraintes planes refusées) ;
 10. problèmes périodiques.
 
 Tests : la suite de mfem-mgis passée sur le chemin par lots, cas par cas.

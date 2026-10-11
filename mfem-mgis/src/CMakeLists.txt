@@ -161,6 +161,7 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/InnerForcesKernels.cxx
   Batch/StiffnessMatricesKernels.cxx
   Batch/FBarKernels.cxx
+  Batch/FaltusKernels.cxx
   Batch/ElementsGeometryKernels.cxx)
 # conversions of the vectors exchanged with AmgX in single precision
 if(MFEM_MGIS_HAVE_AMGX)
@@ -179,7 +180,8 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/Gradients.cxx
   Batch/InnerForces.cxx
   Batch/StiffnessMatrices.cxx
-  Batch/FBar.cxx)
+  Batch/FBar.cxx
+  Batch/Faltus.cxx)
 
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
 if(MFEMMGIS_DEVICE_SOURCES)

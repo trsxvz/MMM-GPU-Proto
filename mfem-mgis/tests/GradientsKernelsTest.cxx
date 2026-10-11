@@ -11,8 +11,10 @@
  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
  * materials with macroscopic gradients) and under the plane strain
  * hypothesis (the plane stress hypothesis uses the same operator, but no
- * behaviour of the tests supports it), on the device selected by the
- * `--device` option; refusal of the regularisation of Faltus et al.
+ * behaviour of the tests supports it), also with the FBar formulation and
+ * the regularization of Faltus et al. (hexahedra of orders 1 and 2 and
+ * quadrangles on distorted meshes, tetrahedra), on the device selected by
+ * the `--device` option.
  * \date   09/10/2026
  */
 
@@ -63,7 +65,37 @@ struct Case {
   int refinement = 1;
   //! \brief if true, non zero macroscopic gradients are given
   bool macroscopic_gradients = false;
+  /*!
+   * \brief regularization of the finite strain behaviours: `FBar`,
+   * `Faltus2026` or none if empty
+   */
+  std::string regularization = {};
+  /*!
+   * \brief if true, the vertices of the mesh of the unit cube (square) are
+   * moved by a non linear transformation (see `distortMesh`)
+   */
+  bool distorted_mesh = false;
 };
+
+/*!
+ * \brief moves the vertices of a mesh of the unit cube or of the unit
+ * square by a non linear transformation keeping its faces (sides) in their
+ * planes (lines): the elements are not affine and have different shapes
+ * \param[in, out] m: mesh
+ */
+static void distortMesh(mfem::Mesh& m) {
+  m.Transform([](const mfem::Vector& x, mfem::Vector& y) {
+    using mfem_mgis::real;
+    const auto dim = x.Size();
+    const auto c = [&x, dim](const int i) { return i < dim ? x[i] : real{0}; };
+    y = x;
+    y[0] += real(0.1) * c(0) * (1 - c(0)) * (c(1) + real(0.5) * c(2));
+    y[1] += real(0.1) * c(1) * (1 - c(1)) * (real(0.3) + c(0) * c(2));
+    if (dim == 3) {
+      y[2] += real(0.1) * c(2) * (1 - c(2)) * (c(0) + real(0.7) * c(1));
+    }
+  });
+}  // end of distortMesh
 
 /*!
  * \brief compare the gradients computed by kernels and element by element
@@ -88,8 +120,34 @@ static void testCase(mfem_mgis::Context& ctx,
                           {"Hypothesis", c.hypothesis},
                           {"Parallel", false}}) |
       or_die;
+  if (c.distorted_mesh) {
+    distortMesh(problem.getFiniteElementDiscretization().getMesh<false>());
+  }
   for (const auto& [m, b] : c.materials) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, b) | or_die;
+    if (c.regularization.empty()) {
+      problem.addBehaviourIntegrator(ctx, "Mechanics", m, library, b) | or_die;
+    } else if (c.regularization == "Faltus2026") {
+      // penalization coefficient of the order of the arbitrary tangent
+      // operator blocks and thermodynamic forces of the comparisons, the
+      // differences of the computations being proportional to it: the
+      // computation element by element adds the contributions of `B_q` and
+      // of `B0` to the stiffness matrices separately, with cancellation
+      // errors (for instance on linear tetrahedra, where `B_q = B0`), and
+      // the rounding errors of the deformation gradients computed element
+      // by element and by kernels are multiplied by the coefficient in the
+      // inner forces
+      problem.addBehaviourIntegrator(
+          ctx, "Mechanics", m, library, b,
+          {{"Regularization",
+            Parameters{{"Faltus2026",
+                        Parameters{{"PenalizationCoefficient", 10.}}}}}}) |
+          or_die;
+    } else {
+      problem.addBehaviourIntegrator(
+          ctx, "Mechanics", m, library, b,
+          {{"Regularization", Parameters{{c.regularization, Parameters{}}}}}) |
+          or_die;
+    }
     auto& mat = problem.getMaterial(ctx, m, 0) | or_die;
     if (mat.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
       // a rotation which is not a symmetry of the material, nor its own
@@ -162,15 +220,22 @@ static void testCase(mfem_mgis::Context& ctx,
     if (r == nullptr) {
       continue;
     }
-    if (!derivatives.contains(r)) {
-      check(batch::computeUnknownsDerivatives(ctx, derivatives[r], fes, u, *r),
-            name + ": computation of the derivatives of the unknowns (" +
-                ctx.getErrorMessage() + ")");
-    }
-    if (!geometry.contains(r)) {
-      check(batch::computeElementsGeometry(ctx, geometry[r], fes, *r),
-            name + ": computation of the geometric data (" +
-                ctx.getErrorMessage() + ")");
+    // the integration rule of the material and the additional rules of the
+    // regularizations (center of the elements)
+    auto rules = bi.getAdditionalIntegrationRulesForKernels();
+    rules.push_back(r);
+    for (const auto* const ri : rules) {
+      if (!derivatives.contains(ri)) {
+        check(batch::computeUnknownsDerivatives(ctx, derivatives[ri], fes, u,
+                                                *ri),
+              name + ": computation of the derivatives of the unknowns (" +
+                  ctx.getErrorMessage() + ")");
+      }
+      if (!geometry.contains(ri)) {
+        check(batch::computeElementsGeometry(ctx, geometry[ri], fes, *ri),
+              name + ": computation of the geometric data (" +
+                  ctx.getErrorMessage() + ")");
+      }
     }
     check(bi.computeGradientsByKernels(ctx, derivatives, geometry),
           name + ": computation of the gradients by kernels");
@@ -210,8 +275,12 @@ static void testCase(mfem_mgis::Context& ctx,
       if (fes.GetAttribute(i) != static_cast<int>(m)) {
         continue;
       }
-      bi.computeInnerForces(Fe, *(fes.GetFE(i)),
-                            *(fes.GetElementTransformation(i)));
+      // inner forces of the thermodynamic forces, and the contribution of
+      // the regularization of Faltus et al. (see `updateResidual`)
+      fes.GetElementVDofs(i, vdofs);
+      u.GetSubVector(vdofs, ue);
+      bi.updateResidual(Fe, *(fes.GetFE(i)), *(fes.GetElementTransformation(i)),
+                        ue);
       check(Fe.Size() == g.nd * dim, name + ": size of the inner forces");
       for (int j = 0; j != Fe.Size(); ++j) {
         const auto v = fv[j + static_cast<std::size_t>(g.nd) * dim * i];
@@ -437,39 +506,6 @@ static void testCase(mfem_mgis::Context& ctx,
   check(same_pattern, c.name + ": pattern of the assembled matrix");
 }  // end of testCase
 
-/*!
- * \brief the regularisation of Faltus et al. is refused
- * \param[in] regularisation: regularisation
- */
-static void testRefusal(mfem_mgis::Context& ctx,
-                        const char* const mesh,
-                        const char* const library,
-                        const mfem_mgis::Parameters& regularisation) {
-  using namespace mfem_mgis;
-  auto or_die = ctx.getFatalFailureHandler();
-  auto problem = construct<NonLinearEvolutionProblem>(
-                     ctx, Parameters{{"MeshFileName", mesh},
-                                     {"FiniteElementFamily", "H1"},
-                                     {"FiniteElementOrder", 1},
-                                     {"UnknownsSize", 3},
-                                     {"NumberOfUniformRefinements", 0},
-                                     {"Hypothesis", "Tridimensional"},
-                                     {"BehaviourIntegration", "Batch"},
-                                     {"InnerForcesComputation", "Kernels"},
-                                     {"Parallel", false}}) |
-                 or_die;
-  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
-                                 "SaintVenantKirchhoffElasticity",
-                                 {{"Regularization", regularisation}}) |
-      or_die;
-  auto c = Context{};
-  const auto r = problem.solve(c, 0, 1);
-  const auto msg = std::string{c.getErrorMessage()};
-  check((!r.status) &&
-            (msg.find("can't be computed by kernels") != std::string::npos),
-        "regularisation not refused (" + msg + ")");
-}  // end of testRefusal
-
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -540,11 +576,37 @@ int main(int argc, char** argv) {
                    .hypothesis = "PlaneStrain",
                    .materials = {{1, svk}},
                    .refinement = 0});
+  // regularizations of the finite strain behaviours, on distorted meshes
+  // (elements which are not affine and have different shapes)
+  for (const auto* const regularization : {"FBar", "Faltus2026"}) {
+    const auto rn = std::string{regularization} + ", ";
+    for (const auto order : {1, 2}) {
+      cases.push_back({.name = rn + "hexahedra, distorted mesh, order " +
+                               std::to_string(order),
+                       .mesh = cube,
+                       .hypothesis = "Tridimensional",
+                       .materials = {{1, svk}},
+                       .order = order,
+                       .regularization = regularization,
+                       .distorted_mesh = true});
+    }
+    cases.push_back({.name = rn + "tetrahedra",
+                     .mesh = tetrahedra,
+                     .hypothesis = "Tridimensional",
+                     .materials = {{1, svk}},
+                     .refinement = 0,
+                     .regularization = regularization});
+    cases.push_back({.name = rn + "plane strain, distorted mesh",
+                     .mesh = square,
+                     .hypothesis = "PlaneStrain",
+                     .materials = {{1, svk}},
+                     .refinement = 0,
+                     .regularization = regularization,
+                     .distorted_mesh = true});
+  }
   for (const auto& c : cases) {
     testCase(ctx, library, c);
   }
-  testRefusal(ctx, cube, library,
-              {{"Faltus2026", Parameters{{"PenalizationCoefficient", 1e9}}}});
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }  // end of main

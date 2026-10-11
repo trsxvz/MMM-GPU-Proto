@@ -12,6 +12,7 @@
 
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+#include "MFEMMGIS/Batch/Faltus.hxx"
 #include "IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
 #include "IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
 #include "IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
@@ -120,10 +121,83 @@ namespace mfem_mgis {
     //! \return if the current solution is required for assembling the jacobian
     [[nodiscard]] bool requiresCurrentSolutionForJacobianAssembly()
         const noexcept override;
+    /*!
+     * \brief compute the gradients of an element: the deformation gradients
+     * at the center of the elements computed by kernels no longer match the
+     * gradients (see `batch::FaltusData::valid`)
+     */
+    [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
+                                        mfem::ElementTransformation&,
+                                        const mfem::Vector&) override;
+    /*!
+     * \brief integrate the behaviour on an element: the deformation gradients
+     * at the center of the elements computed by kernels no longer match the
+     * gradients (see `batch::FaltusData::valid`)
+     */
+    [[nodiscard]] bool integrate(const mfem::FiniteElement&,
+                                 mfem::ElementTransformation&,
+                                 const mfem::Vector&,
+                                 const IntegrationType) override;
+    void revert() override;
+    void update() override;
+    /*!
+     * \return true in 3D and in plane strain (see
+     * `batch::isFaltusSupportedByKernels`), all the elements of the material
+     * using the same integration rule: the regularization is computed by
+     * the kernels of `MFEMMGIS/Batch/Faltus.hxx`
+     */
+    [[nodiscard]] bool supportsKernels() const noexcept override;
+    //! \return the integration rule of the center of the elements
+    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
+    getAdditionalIntegrationRulesForKernels() const override;
+    [[nodiscard]] bool computeGradientsByKernels(
+        Context&,
+        const batch::UnknownsDerivativesSet&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addInnerForcesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addStiffnessMatricesByKernels(
+        Context&,
+        const batch::AssembledStiffnessMatrix&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addTangentOperatorActionByKernels(
+        Context&,
+        mfem::Vector&,
+        const mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
+    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
 
    private:
+    /*!
+     * \brief gets the data of the computations by kernels (see
+     * `getKernelsData`) and the geometric data of the center of the elements
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[out] data: data of the computations
+     * \param[out] g0: geometric data of the center of the elements, null if
+     * the material has no element
+     * \param[in] name: name of the calling method
+     * \param[in] g: geometric data of the integration rules
+     */
+    [[nodiscard]] bool getFaltusKernelsData(
+        Context&,
+        BehaviourIntegratorBase::KernelsData&,
+        const batch::ElementsGeometry*&,
+        const char* const,
+        const batch::ElementsGeometrySet&) const noexcept;
     //! \brief penalization coefficient
     const real alpha;
+    //! \brief data of the regularization computed by kernels
+    batch::FaltusData faltus_data;
 #ifndef MFEM_THREAD_SAFE
     /*!
      * \brief matrix used to store the derivatives of the shape functions at

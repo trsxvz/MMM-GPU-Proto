@@ -526,6 +526,11 @@ namespace mfem_mgis {
                 ctx, this->gradients_kernels))) {
           return false;
         }
+        if ((this->inner_forces_kernels) &&
+            (!this->mgis_integrator->checkInnerForcesKernelsSupport(
+                ctx, this->gradients_kernels))) {
+          return false;
+        }
         if (!this->mgis_integrator->setup(ctx, t, dt)) {
           return false;
         }

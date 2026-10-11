@@ -322,6 +322,29 @@ namespace mfem_mgis {
     return true;
   }  // end of checkStiffnessMatricesKernelsSupport
 
+  bool MultiMaterialNonLinearIntegrator::checkInnerForcesKernelsSupport(
+      Context& ctx, const bool gradients_kernels) const noexcept {
+    if (gradients_kernels) {
+      return true;
+    }
+    for (size_type m = 0;
+         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
+      for (const auto& bi : this->behaviour_integrators[m]) {
+        if (bi->requiresCurrentSolutionForResidualAssembly()) {
+          return ctx.registerErrorMessage(
+              "the inner forces of the behaviour integrator of material '" +
+              std::to_string(m) +
+              "' depend on the current estimate of the solution "
+              "(regularization of Faltus et al. for instance): they can only "
+              "be computed "
+              "by kernels from gradients computed by kernels "
+              "(GradientsComputation set to Kernels)");
+        }
+      }
+    }
+    return true;
+  }  // end of checkInnerForcesKernelsSupport
+
   bool MultiMaterialNonLinearIntegrator::checkPointByPointIntegrationSupport(
       Context& ctx) const noexcept {
     auto ctx2 = Context{};
@@ -413,10 +436,9 @@ namespace mfem_mgis {
               "mechanical behaviours, small or finite strain, stationary non "
               "linear heat transfer behaviours, transient term of the heat "
               "equation and micromorphic damage behaviours, in 3D, plane "
-              "strain and plane stress, without regularization other than "
-              "FBar (3D and plane strain), all "
-              "the elements of the material using the same integration "
-              "rule)");
+              "strain and plane stress, the regularizations FBar and of "
+              "Faltus et al. in 3D and in plane strain only, all the "
+              "elements of the material using the same integration rule)");
         }
       }
     }

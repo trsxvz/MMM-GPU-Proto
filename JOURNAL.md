@@ -3976,3 +3976,28 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   deux raffinements sur le GPU échoue dès le premier pas ; ex4 affiche
   désormais la cause des échecs de résolution (mfem-mgis-examples
   db0ce2a).
+
+### 2026-10-11 (matin), régularisation de Faltus par noyaux (fin de L7.9)
+
+- Module `batch/Faltus` de mfem-mgis (ed19e652f2, tests 8e4a341cfd) :
+  gradient au centre F0 calculé avec les gradients par noyaux (règle
+  d'ordre 0 partagée avec FBar, calcul de F0 factorisé), gardé par
+  `update`, rétabli par `revert` ; résidu `Σ w Dᵀ α (F - F0)`, `D = B -
+  B0` ; tangente `α Σ w Dᵀ D`, indépendante des inconnues, calculée à la
+  volée par paires de nœuds : pour un gradient de la transformation, le
+  bloc des nœuds a et b est `d_a · d_b` fois l'identité (`d` : différence
+  des dérivées de la fonction de forme au point et au centre), soit
+  environ 20 fois moins de calcul que terme à terme. Forces intérieures
+  par noyaux sans gradients par noyaux refusées à la mise en place.
+- Tests : maillages déformés (éléments non affines et tous différents,
+  option `distorted_mesh`), aussi pour FBar ; action du sans assemblage
+  comparée à l'opérateur assemblé ; GradientsKernelsTest compare FBar et
+  Faltus terme à terme (hexaèdres d'ordres 1 et 2 déformés, tétraèdres,
+  quadrangles déformés), avec un coefficient de pénalisation de 10 : les
+  écarts entre calcul élément par élément et noyaux sont proportionnels
+  au coefficient (compensation des termes en B et B0 de la référence,
+  arrondis de F multipliés par α). Suite 183/183, BatchIntegrationTest
+  CPU, debug, GPU, 2 processus CPU et GPU verts, 15 mutations détectées
+  (9 puis 6 sur les noyaux par paires, dont une confusion des jacobiens
+  du point et du centre que seuls les maillages déformés voient).
+  Relecture I traitée (aucun résultat faux), relecture J en cours.

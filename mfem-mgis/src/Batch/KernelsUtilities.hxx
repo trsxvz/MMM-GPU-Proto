@@ -284,6 +284,64 @@ namespace mfem_mgis::batch::internals {
   }  // end of computeB
 
   /*!
+   * \brief computes the deformation gradient at the center of an element,
+   * in the order of the gradients of the behaviours (`F11, F22, F33, F12,
+   * F21, F13, F31, F23, F32` in 3D, `F11, F22, F33, F12, F21` in 2D, the
+   * third component being the macroscopic one in 2D)
+   * \tparam K: kind of the gradients (deformation gradient in 3D or in 2D)
+   * \param[out] F0: deformation gradient
+   * \param[in] macroscopic_gradients: macroscopic gradients
+   * \param[in] dr: derivatives of the unknowns with respect to the reference
+   * coordinates at the center of the element (`dr[i + V * r]`, see
+   * `UnknownsDerivatives`), null for null unknowns
+   * \param[in] iJ: inverse of the jacobian at the center (see
+   * `invertJacobian`)
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE inline void computeDeformationGradientAtCenter(
+      real* const F0,
+      const real* const macroscopic_gradients,
+      const real* const dr,
+      const real* const iJ) {
+    static_assert((K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+                  (K == GradientsKind::DEFORMATION_GRADIENT_2D));
+    constexpr auto N = getDimension<K>();
+    constexpr auto V = getUnknownsSize<K>();
+    for (int c = 0; c != getGradientsSize<K>(); ++c) {
+      F0[c] = macroscopic_gradients[c];
+    }
+    if (dr == nullptr) {
+      return;
+    }
+    real du[V * N];
+    for (int i = 0; i != V; ++i) {
+      for (int j = 0; j != N; ++j) {
+        du[i + V * j] = 0;
+        for (int r = 0; r != N; ++r) {
+          du[i + V * j] += dr[i + V * r] * iJ[r + N * j];
+        }
+      }
+    }
+    auto d = [&du](const int i, const int j) { return du[i + V * j]; };
+    if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
+      F0[0] += d(0, 0);
+      F0[1] += d(1, 1);
+      F0[2] += d(2, 2);
+      F0[3] += d(0, 1);
+      F0[4] += d(1, 0);
+      F0[5] += d(0, 2);
+      F0[6] += d(2, 0);
+      F0[7] += d(1, 2);
+      F0[8] += d(2, 1);
+    } else {
+      F0[0] += d(0, 0);
+      F0[1] += d(1, 1);
+      F0[3] += d(0, 1);
+      F0[4] += d(1, 0);
+    }
+  }  // end of computeDeformationGradientAtCenter
+
+  /*!
    * \return the value of the shape function of a node at a point if the
    * operator `B` of the given kind of gradients depends on it (transient
    * term of the heat equation, micromorphic damage), zero otherwise

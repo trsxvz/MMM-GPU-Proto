@@ -10,9 +10,13 @@
 #define LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX
 
 #include <array>
+#include <string>
+#include <vector>
+#include <cstdint>
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Batch/FBar.hxx"
 
 namespace mfem_mgis {
 
@@ -189,6 +193,269 @@ namespace mfem_mgis {
       }
     }
   }  // end of updateJacobian
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::computeGradients(
+      const mfem::FiniteElement& e,
+      mfem::ElementTransformation& tr,
+      const mfem::Vector& u) {
+    this->faltus_data.valid = false;
+    return Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+        H>::computeGradients(e, tr, u);
+  }  // end of computeGradients
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::integrate(
+      const mfem::FiniteElement& e,
+      mfem::ElementTransformation& tr,
+      const mfem::Vector& u,
+      const IntegrationType it) {
+    this->faltus_data.valid = false;
+    return Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::integrate(
+        e, tr, u, it);
+  }  // end of integrate
+
+  template <Hypothesis H>
+  void Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::revert() {
+    // deformation gradients at the center of the elements at the beginning
+    // of the time step
+    batch::revertFaltusData(this->faltus_data);
+    Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::revert();
+  }  // end of revert
+
+  template <Hypothesis H>
+  void Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::update() {
+    batch::updateFaltusData(this->faltus_data);
+    Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::update();
+  }  // end of update
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::supportsKernels()
+      const noexcept {
+    // in plane stress, the axial component of the deformation gradient is
+    // not given by the unknowns
+    if constexpr (H == Hypothesis::PLANESTRESS) {
+      return false;
+    } else {
+      if (!batch::areGradientsKernelsAvailable()) {
+        return false;
+      }
+      // deformation gradient in 3D or in plane strain
+      const auto k = batch::getGradientsKind(this->b);
+      constexpr auto expected =
+          (H == Hypothesis::PLANESTRAIN)
+              ? batch::GradientsKind::DEFORMATION_GRADIENT_2D
+              : batch::GradientsKind::DEFORMATION_GRADIENT_3D;
+      if ((!k.has_value()) || (*k != expected)) {
+        return false;
+      }
+      // all the elements must use the same integration rule
+      return (this->quadrature_space->getNumberOfElements() == 0) ||
+             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+    }
+  }  // end of supportsKernels
+
+  template <Hypothesis H>
+  std::vector<const mfem::IntegrationRule*>
+  Faltus2026RegularizedIsotropicBehaviourIntegrator<
+      H>::getAdditionalIntegrationRulesForKernels() const {
+    const auto* const r0 =
+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+    if (r0 == nullptr) {
+      return {};
+    }
+    return {r0};
+  }  // end of getAdditionalIntegrationRulesForKernels
+
+  template <Hypothesis H>
+  bool
+  Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::getFaltusKernelsData(
+      Context& ctx,
+      BehaviourIntegratorBase::KernelsData& data,
+      const batch::ElementsGeometry*& g0,
+      const char* const name,
+      const batch::ElementsGeometrySet& g) const noexcept {
+    g0 = nullptr;
+    if (!this->getKernelsData(ctx, data, name, g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    const auto p0 = g.find(
+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space)));
+    if (p0 == g.end()) {
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": the geometric data are not computed for the center of the "
+          "elements");
+    }
+    g0 = &(p0->second);
+    return true;
+  }  // end of getFaltusKernelsData
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::
+      computeGradientsByKernels(Context& ctx,
+                                const batch::UnknownsDerivativesSet& d,
+                                const batch::ElementsGeometrySet& g) noexcept {
+    // deformation gradients at the integration points
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::computeGradientsByKernels(ctx, d, g)) {
+      return false;
+    }
+    // deformation gradients at the center of the elements
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0, "computeGradientsByKernels",
+                                    g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    const auto p0 = d.find(g0->rule);
+    if (p0 == d.end()) {
+      return ctx.registerErrorMessage(
+          "computeGradientsByKernels: the derivatives of the unknowns are not "
+          "computed for the center of the elements");
+    }
+    return batch::computeFaltusCenters(ctx, this->faltus_data, *this,
+                                       &(p0->second), *g0, data.kind);
+  }  // end of computeGradientsByKernels
+
+  template <Hypothesis H>
+  bool
+  Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::addInnerForcesByKernels(
+      Context& ctx,
+      mfem::Vector& f,
+      const batch::ElementsGeometrySet& g) noexcept {
+    // inner forces of the standard finite strain formulation
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addInnerForcesByKernels(ctx, f, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0, "addInnerForcesByKernels",
+                                    g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    const auto gsize = static_cast<std::int64_t>(this->s1.gradients_stride);
+    if ((this->faltus_data.valid) &&
+        (static_cast<std::int64_t>(this->faltus_data.centers.Size()) !=
+         gsize * this->quadrature_space->getNumberOfElements())) {
+      // before the first computation of the gradients (prediction of the
+      // first time step): null unknowns
+      if (!batch::computeFaltusCenters(ctx, this->faltus_data, *this, nullptr,
+                                       *g0, data.kind)) {
+        return false;
+      }
+    }
+    return batch::addFaltusInnerForces(ctx, f, this->faltus_data, *this,
+                                       this->alpha, *(data.geometry), *g0,
+                                       data.kind);
+  }  // end of addInnerForcesByKernels
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
+      H>::addStiffnessMatricesByKernels(Context& ctx,
+                                        mfem::Vector& m,
+                                        const batch::ElementsGeometrySet&
+                                            g) noexcept {
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addStiffnessMatricesByKernels(ctx, m, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0,
+                                    "addStiffnessMatricesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
+                                             this->alpha, *(data.geometry), *g0,
+                                             data.kind);
+  }  // end of addStiffnessMatricesByKernels
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::
+      addStiffnessMatricesByKernels(
+          Context& ctx,
+          const batch::AssembledStiffnessMatrix& m,
+          const batch::ElementsGeometrySet& g) noexcept {
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addStiffnessMatricesByKernels(ctx, m, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0,
+                                    "addStiffnessMatricesByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
+                                             this->alpha, *(data.geometry), *g0,
+                                             data.kind);
+  }  // end of addStiffnessMatricesByKernels
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
+      H>::addTangentOperatorActionByKernels(Context& ctx,
+                                            mfem::Vector& y,
+                                            const mfem::Vector& x,
+                                            const batch::ElementsGeometrySet&
+                                                g) noexcept {
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addTangentOperatorActionByKernels(ctx, y, x, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0,
+                                    "addTangentOperatorActionByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFaltusTangentOperatorAction(
+        ctx, y, *(this->quadrature_space), x, this->alpha, *(data.geometry),
+        *g0, data.kind);
+  }  // end of addTangentOperatorActionByKernels
+
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
+      H>::addTangentOperatorDiagonalByKernels(Context& ctx,
+                                              mfem::Vector& d,
+                                              const batch::ElementsGeometrySet&
+                                                  g) noexcept {
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addTangentOperatorDiagonalByKernels(ctx, d, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(ctx, data, g0,
+                                    "addTangentOperatorDiagonalByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFaltusStiffnessMatricesDiagonals(
+        ctx, d, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
+        data.kind);
+  }  // end of addTangentOperatorDiagonalByKernels
 
 }  // end of namespace mfem_mgis
 

@@ -250,7 +250,8 @@ namespace mfem_mgis {
     // the kernels compute the inner forces and the stiffness matrices from
     // the thermodynamic forces and the tangent operator blocks only: the
     // behaviour integrators whose residual or jacobian also depend on the
-    // unknowns (regularisations, such as Faltus2026) are refused
+    // unknowns (regularisations) are refused, unless they override this
+    // method (FBar formulation and regularisation of Faltus et al.)
     if ((this->requiresCurrentSolutionForResidualAssembly()) ||
         (this->requiresCurrentSolutionForJacobianAssembly())) {
       return false;
