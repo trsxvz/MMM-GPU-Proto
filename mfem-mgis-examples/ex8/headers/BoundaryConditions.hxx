@@ -61,6 +61,8 @@ class FieldUpdaterModel : public mfem_mgis::ModelBase {
     for (auto& val : *Pow_s0) val = p0;
     for (auto& val : *Pow_s1) val = p1;
     u_mech->SetFromTrueDofs(*u_mech_true);
+    // the displacement is read on the host by the Robin boundary condition
+    static_cast<void>(u_mech->HostRead());
 
     return {mfem_mgis::ExitStatus::success,
             mfem_mgis::ComputeNextStateOutput{}};

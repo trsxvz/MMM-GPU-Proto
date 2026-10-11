@@ -96,6 +96,42 @@ add_test(NAME rjh_plate
 set_tests_properties(rjh_plate PROPERTIES
     PROCESSORS 2
     ENVIRONMENT OMP_NUM_THREADS=1)
+# the same computation by batches and by kernels (integration of the
+# behaviours by batches, gradients, inner forces and tangent operator
+# computed by kernels, the Robin boundary condition being added to them),
+# compared to the same reference
+add_test(NAME rjh_plate-kernels
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        $<TARGET_FILE:rjh_plate>
+        -m ${rjh_plate_mesh}.msh
+        -lsMc MUMPSSolver
+        -rf ${rjh_plate_mesh}-statistics.ref
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set(rjh_plate_kernels_environment
+    "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+set_tests_properties(rjh_plate-kernels PROPERTIES
+    PROCESSORS 2
+    ENVIRONMENT "${rjh_plate_kernels_environment}")
+# the same computations on a GPU (see ../config/TestMode.cmake)
+if(MFEM_MGIS_EXAMPLES_CUDA_TESTS)
+  foreach(_variant "" "-kernels")
+    add_test(NAME rjh_plate${_variant}-cuda
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+            $<TARGET_FILE:rjh_plate>
+            -m ${rjh_plate_mesh}.msh
+            -lsMc MUMPSSolver
+            -rf ${rjh_plate_mesh}-statistics.ref
+            --device cuda
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(rjh_plate${_variant}-cuda PROPERTIES
+        PROCESSORS 2
+        RESOURCE_LOCK gpu)
+  endforeach()
+  set_tests_properties(rjh_plate-cuda PROPERTIES
+      ENVIRONMENT OMP_NUM_THREADS=1)
+  set_tests_properties(rjh_plate-kernels-cuda PROPERTIES
+      ENVIRONMENT "${rjh_plate_kernels_environment}")
+endif()
 
 # comparison of the swelling model to its exact value
 add_test(NAME u3si2_swelling

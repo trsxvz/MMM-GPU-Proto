@@ -36,3 +36,22 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
 else()
   message(STATUS "Test mode of the examples: restricted")
 endif()
+
+# Tests on a GPU, selected by the MFEM_MGIS_EXAMPLES_GPU_TESTS option (off by
+# default, a GPU being required when the tests are run): the examples which
+# support it are also tested on a CUDA device, if MFEM is compiled with CUDA
+# (as described by mfem-mgis, which must be found before this file is
+# included). The MFEM_MGIS_EXAMPLES_CUDA_TESTS variable is then true.
+option(MFEM_MGIS_EXAMPLES_GPU_TESTS "Test the examples on a GPU too" OFF)
+set(MFEM_MGIS_EXAMPLES_CUDA_TESTS OFF)
+if(MFEM_MGIS_EXAMPLES_GPU_TESTS)
+  get_property(_mfem_mgis_examples_mfem_use_cuda GLOBAL
+               PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
+  if(_mfem_mgis_examples_mfem_use_cuda STREQUAL "YES")
+    set(MFEM_MGIS_EXAMPLES_CUDA_TESTS ON)
+    message(STATUS "Tests of the examples on a GPU: CUDA")
+  else()
+    message(STATUS "Tests of the examples on a GPU: none, MFEM is not "
+                   "compiled with CUDA")
+  endif()
+endif()

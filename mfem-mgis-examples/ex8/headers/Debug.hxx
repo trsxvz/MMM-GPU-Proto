@@ -55,6 +55,8 @@ inline FieldStatistics computeFieldStatistics(const std::vector<double>& values,
  */
 inline std::vector<double> getOwnedNodalValues(const mfem::ParGridFunction& f) {
   const auto& fes = *(f.ParFESpace());
+  // the values may have been computed on the device
+  const auto* const data = f.HostRead();
   auto values = std::vector<double>{};
   for (int i = 0; i != fes.GetNDofs(); ++i) {
     // a node shared between processes is counted by its owner only
@@ -62,11 +64,11 @@ inline std::vector<double> getOwnedNodalValues(const mfem::ParGridFunction& f) {
       continue;
     }
     if (fes.GetVDim() == 1) {
-      values.push_back(f(fes.DofToVDof(i, 0)));
+      values.push_back(data[fes.DofToVDof(i, 0)]);
     } else {
       auto n2 = 0.0;
       for (int d = 0; d != fes.GetVDim(); ++d) {
-        const auto c = f(fes.DofToVDof(i, d));
+        const auto c = data[fes.DofToVDof(i, d)];
         n2 += c * c;
       }
       values.push_back(std::sqrt(n2));
