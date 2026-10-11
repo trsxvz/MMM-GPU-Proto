@@ -1,0 +1,268 @@
+Options used:
+   --device cuda
+   --hypre-device-pool-size 0.5
+   --donot-use-petsc
+   --petsc-configuration-file 
+   --order 1
+   --nbsteps 10
+   --end-time 1
+   --reference-file 
+   --linearsolver HypreFGMRES
+   --preconditioner HypreBoomerAMG
+   --refinement 2
+   --no-profiling
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas/ssna303/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+   --no-paraview
+   --no-use-fbar
+dofs 1461915
+iteration 0 from 0 to 0.1
+
+substep: 0 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 1 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 2 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 3 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 4 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 5 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 6 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 7 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 8 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+
+substep: 9 (computation of the tangent operator: computeElementsGeometry: ! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 879869968 ) failed with error: out of memory
+    Backtrace: 21 frames
+    0 0x7bd9d783c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7bd9d783c11e]
+    1 0x7bd9d78465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7bd9d78465a9]
+    2 0x7bd99dc73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7bd99dc73d4e]
+    3 0x7bd99dcb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7bd99dcb57b9]
+    4 0x7bd99dcd4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7bd99dcd4644]
+    5 0x7bd99dc46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7bd99dc46f83]
+    6 0x7bd9d7847522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7bd9d7847522]
+    7 0x7bd9d7847803 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem8internal23UmpireDeviceMemorySpace5AllocERNS0_6MemoryE+0x63) [0x7bd9d7847803]
+    8 0x7bd9d784256f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem13MemoryManager12GetDevicePtrEPKvmb+0x14f) [0x7bd9d784256f]
+    9 0x64a36531f798 No dladdr: ./ssna303_3d_hypre(+0x155798) [0x64a36531f798]
+    10 0x64a3652e89cb No dladdr: ./ssna303_3d_hypre(+0x11e9cb) [0x64a3652e89cb]
+    11 0x64a3652e9e61 No dladdr: ./ssna303_3d_hypre(+0x11fe61) [0x64a3652e9e61]
+    12 0x64a36529fc80 No dladdr: ./ssna303_3d_hypre(+0xd5c80) [0x64a36529fc80]
+    13 0x64a3652a63aa No dladdr: ./ssna303_3d_hypre(+0xdc3aa) [0x64a3652a63aa]
+    14 0x64a3652a08e1 No dladdr: ./ssna303_3d_hypre(+0xd68e1) [0x64a3652a08e1]
+    15 0x64a36529b3a9 No dladdr: ./ssna303_3d_hypre(+0xd13a9) [0x64a36529b3a9]
+    16 0x64a36526a063 No dladdr: ./ssna303_3d_hypre(+0xa0063) [0x64a36526a063]
+    17 0x64a36521ac32 No dladdr: ./ssna303_3d_hypre(+0x50c32) [0x64a36521ac32]
+    18 0x7bd9d0e2a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bd9d0e2a1ca]
+    19 0x7bd9d0e2a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bd9d0e2a28b]
+    20 0x64a36521cb05 No dladdr: ./ssna303_3d_hypre(+0x52b05) [0x64a36521cb05])
+maximum number of substeps
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+  Proc: [[41785,0],0]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------

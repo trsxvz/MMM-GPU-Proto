@@ -48,7 +48,16 @@ cœurs.
 - Deux raffinements sur le GPU, sans FBar : échec dès le premier pas (10
   redécoupages, puis arrêt), sans message dans la sortie. ex4 affiche
   depuis la cause de l'échec de chaque résolution (mfem-mgis-examples
-  db0ce2a) : à relancer pour la connaître.
+  db0ce2a). Relancé seul à 7 h 35 : la mémoire du GPU est épuisée (au
+  plus 15,2 Gio sur 16) ; l'allocation de 880 Mo des jacobiens de la
+  règle d'intégration (premier calcul des données géométriques, gardées
+  ensuite) échoue au premier calcul de la tangente. Avec 27 points par
+  hexaèdre (règle de mfem-mgis pour ces éléments), le maillage compte
+  environ 12 millions de points : les blocs de la tangente (81 réels par
+  point) occupent à eux seuls près de 7,9 Gio (estimation à partir de la
+  taille de l'allocation, non mesurée). Ce raffinement ne tient pas sur
+  ce GPU sans réduire la mémoire aux points (règle à 8 points, blocs de
+  la tangente en simple précision ou calculés à la volée).
 
 Répartition à un raffinement (`cas/resume-profilage.py`, secondes, total
 avec la mise en place) :
