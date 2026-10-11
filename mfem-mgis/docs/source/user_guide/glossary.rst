@@ -749,14 +749,15 @@ CPP example:
 
 .. code-block:: cpp
 
+  auto ctx = mfem_mgis::Context{};
   auto fed = std::make_shared<mfem_mgis::FiniteElementDiscretization>(
-      mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
-      {"FiniteElementFamily", "H1"},
-      {"FiniteElementOrder", 2},
-      {"UnknownsSize", 3},
-      {"NumberOfUniformRefinements", 2},
-      {"Parallel", true}});
-  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(fed);
+      ctx, mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
+                                 {"FiniteElementFamily", "H1"},
+                                 {"FiniteElementOrder", 2},
+                                 {"UnknownsSize", 3},
+                                 {"NumberOfUniformRefinements", 2},
+                                 {"Parallel", true}});
+  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(ctx, fed);
 
 
 Material parameters

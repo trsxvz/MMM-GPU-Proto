@@ -118,8 +118,9 @@ Example:
 
 .. code-block:: c++
 
+    auto ctx = mfem_mgis::Context{};
     auto fed = std::make_shared<mfem_mgis::FiniteElementDiscretization>(
-      mfem_mgis::Parameters{{"MeshFileName", "output-mesh."},
+      ctx, mfem_mgis::Parameters{{"MeshFileName", "output-mesh."},
                             {"MeshReadMode", "Restart"},
                             {"FiniteElementFamily", "H1"},
                             {"FiniteElementOrder", p.order},
