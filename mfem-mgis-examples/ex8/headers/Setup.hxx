@@ -25,6 +25,10 @@ struct TestParameters {
   const char* precond_meca =
       "HypreBoomerAMG";  // preconditioner associated with the mechanical
                          // solver, ignored by direct solvers
+  // non linear solver of the mechanical problem: Newton, or NewtonK0 (the
+  // tangent systems are solved by GMRES preconditioned by the elastic
+  // operator, factorized by MUMPS at each time step)
+  const char* nonlinear_solver_meca = "Newton";
   // reference statistics of the fields, no comparison if empty
   const char* reference_file = "";
   int order = 1;                // finite element order

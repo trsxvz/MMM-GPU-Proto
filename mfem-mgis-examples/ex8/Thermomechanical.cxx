@@ -40,6 +40,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.precond_meca, "-pcMc", "--preconditioner-mechanics",
                  "Preconditioner of the linear solver of the mechanical "
                  "problem.");
+  args.AddOption(&p.nonlinear_solver_meca, "-nlsMc",
+                 "--nonlinear-solver-mechanics",
+                 "Non linear solver of the mechanical problem: Newton, or "
+                 "NewtonK0 (Newton method whose tangent systems are solved "
+                 "by GMRES preconditioned by the elastic operator, "
+                 "factorized by MUMPS at each time step).");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -128,15 +134,40 @@ int main(int argc, char* argv[]) {
                                 {"Name", "Thermal"}}) |
       or_die;
 
-  auto mechanics_model =
-      mfem_mgis::make_shared<mfem_mgis::NonLinearModel>(
-          ctx, mesh,
-          mfem_mgis::Parameters{{"FiniteElementFamily", "H1"},
-                                {"FiniteElementOrder", p.order},
-                                {"Hypothesis", "Tridimensional"},
-                                {"UnknownsSize", 3},
-                                {"Name", "Mechanics"}}) |
-      or_die;
+  auto mechanics_parameters =
+      mfem_mgis::Parameters{{"FiniteElementFamily", "H1"},
+                            {"FiniteElementOrder", p.order},
+                            {"Hypothesis", "Tridimensional"},
+                            {"UnknownsSize", 3},
+                            {"Name", "Mechanics"}};
+  const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
+  if (nonlinear_solver_meca == "NewtonK0") {
+    // the elastic operator depends on the temperature: it is factorized at
+    // each time step
+    const auto newton_k0 = mfem_mgis::Parameters{
+        {"Method", "NewtonK0"},
+        {"ElasticOperatorUpdate", "EachResolution"},
+        {"ElasticOperatorLinearSolver",
+         mfem_mgis::Parameters{
+             {"MUMPSSolver", mfem_mgis::Parameters{{"Symmetric", true}}}}},
+        {"TangentLinearSolver",
+         mfem_mgis::Parameters{
+             {"GMRESSolver",
+              mfem_mgis::Parameters{{"RelativeTolerance", 1e-9},
+                                    {"MaximumNumberOfIterations", 1000}}}}}};
+    mechanics_parameters.insert(
+        ctx, "NonLinearSolver",
+        mfem_mgis::Parameters{{"FixedPoint", newton_k0}}) |
+        or_die;
+  } else if (nonlinear_solver_meca != "Newton") {
+    ctx.log() << "invalid non linear solver of the mechanical problem '"
+              << nonlinear_solver_meca << "' (expected Newton or NewtonK0)\n";
+    mfem_mgis::finalize();
+    return EXIT_FAILURE;
+  }
+  auto mechanics_model = mfem_mgis::make_shared<mfem_mgis::NonLinearModel>(
+                             ctx, mesh, mechanics_parameters) |
+                         or_die;
 
   auto& heat_transfer = heat_transfer_model->getProblem();
   auto& mechanics = mechanics_model->getProblem();

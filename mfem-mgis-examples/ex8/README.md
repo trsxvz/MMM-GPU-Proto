@@ -127,6 +127,7 @@ The following tests are run by `ctest`:
 
 - `rjh_plate` runs the simulation on 2 processes with the default mesh and compares the statistics of the temperature and of the displacement to the reference values of `assemblage_hexa-statistics.ref`. In the restricted test mode, used by default in the debug and coverage builds, it uses the coarser mesh `assemblage_hexa_coarse.msh` and the reference values of `assemblage_hexa_coarse-statistics.ref`;
 - `rjh_plate-kernels` runs the same simulation with the integration of the behaviours by batches and the gradients, the inner forces and the tangent operator computed by kernels (environment variables of mfem-mgis), compared to the same reference;
-- `rjh_plate-cuda` and `rjh_plate-kernels-cuda` run both simulations on a CUDA device, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set (see the main README);
+- `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step instead of the tangent operator at each iteration), compared to the same reference;
+- `rjh_plate-cuda` and `rjh_plate-kernels-cuda` run the first two simulations on a CUDA device, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set (see the main README);
 - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
 - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`).

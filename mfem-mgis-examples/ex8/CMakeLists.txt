@@ -112,6 +112,20 @@ set(rjh_plate_kernels_environment
 set_tests_properties(rjh_plate-kernels PROPERTIES
     PROCESSORS 2
     ENVIRONMENT "${rjh_plate_kernels_environment}")
+# the mechanical problem solved by the NewtonK0 method (tangent systems
+# solved by GMRES preconditioned by the elastic operator, factorized by
+# MUMPS at each time step), all the computations being made by kernels
+add_test(NAME rjh_plate-newton-k0
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        $<TARGET_FILE:rjh_plate>
+        -m ${rjh_plate_mesh}.msh
+        -lsMc MUMPSSolver
+        -nlsMc NewtonK0
+        -rf ${rjh_plate_mesh}-statistics.ref
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(rjh_plate-newton-k0 PROPERTIES
+    PROCESSORS 2
+    ENVIRONMENT "${rjh_plate_kernels_environment}")
 # the same computations on a GPU (see ../config/TestMode.cmake)
 if(MFEM_MGIS_EXAMPLES_CUDA_TESTS)
   foreach(_variant "" "-kernels")

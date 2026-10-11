@@ -8,8 +8,9 @@
  * problems), for scalar and vector spaces of orders 1 and 2; a local matrix
  * with another pattern or other arrays on one process, or with its columns
  * sorted in other arrays, makes all the processes compute the pattern
- * again; a non conforming space is refused. To be run on several
- * processes.
+ * again; a non conforming space is refused, as any space when hypre
+ * computes on the GPU (device given by the MFEM_MGIS_DEVICE environment
+ * variable). To be run on several processes.
  * \date   11/10/2026
  */
 
@@ -105,6 +106,13 @@ static void testCase(mfem::ParMesh& mesh,
   auto ctx = Context{};
   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
+  // when hypre computes on the GPU, the global matrix is the product of
+  // hypre on the GPU: the space is refused
+  if (isHypreUsingGPU()) {
+    check(!batch::GlobalStiffnessMatrix::isSupported(fes),
+          name + ": space accepted while hypre computes on the GPU");
+    return;
+  }
   check(batch::GlobalStiffnessMatrix::isSupported(fes),
         name + ": conforming space not supported");
   auto dofs = mfem::Array<int>{};
