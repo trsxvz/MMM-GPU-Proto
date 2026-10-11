@@ -44,6 +44,9 @@ int main(int argc, char** argv) {
   const char* reference_file = "";
   const char* petscrc_file = "rc_ex10p";
   auto order = 1;
+  // order of the integration rules of the behaviour integrator, the default
+  // rule of mfem-mgis if negative
+  auto integration_rule_order = -1;
   auto nbsteps = 50;
   auto end_time = mfem_mgis::real{1};
   auto profiling = false;
@@ -55,6 +58,9 @@ int main(int argc, char** argv) {
   if (!mfem_mgis::usePETSc()) mfem_mgis::setPETSc(petscrc_file);
   args.AddOption(&order, "-o", "--order",
                  "Finite element order (polynomial degree).");
+  args.AddOption(&integration_rule_order, "-iro", "--integration-rule-order",
+                 "Order of the integration rules (for instance 3 for 8 points "
+                 "by element instead of 27), default rule if negative.");
   args.AddOption(&nbsteps, "-ns", "--nbsteps", "Number of time steps.");
   args.AddOption(
       &end_time, "-et", "--end-time",
@@ -82,17 +88,21 @@ int main(int argc, char** argv) {
 
   {
     // loading the mesh and timer
-    auto problem =
-        mfem_mgis::construct<mfem_mgis::NonLinearEvolutionProblem>(
-            ctx,
-            mfem_mgis::Parameters{{"MeshFileName", mesh_file},
-                                  {"FiniteElementFamily", "H1"},
-                                  {"FiniteElementOrder", order},
-                                  {"UnknownsSize", dim},
-                                  {"NumberOfUniformRefinements", refinement},
-                                  {"Hypothesis", "Tridimensional"},
-                                  {"Parallel", true}}) |
-        or_die;
+    auto parameters =
+        mfem_mgis::Parameters{{"MeshFileName", mesh_file},
+                              {"FiniteElementFamily", "H1"},
+                              {"FiniteElementOrder", order},
+                              {"UnknownsSize", dim},
+                              {"NumberOfUniformRefinements", refinement},
+                              {"Hypothesis", "Tridimensional"},
+                              {"Parallel", true}};
+    if (integration_rule_order >= 0) {
+      parameters.insert(ctx, "IntegrationRuleOrder", integration_rule_order) |
+          or_die;
+    }
+    auto problem = mfem_mgis::construct<mfem_mgis::NonLinearEvolutionProblem>(
+                       ctx, parameters) |
+                   or_die;
 
     // 2 1 "Volume"
     problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
