@@ -101,6 +101,16 @@ int main() {
   auto a = mfem_mgis::batch::AssembledStiffnessMatrix{};
   return ((f != nullptr) && (a.searched_entries == nullptr)) ? 0 : 1;
 }" MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)
+# the assembly of the global matrix with the pattern and the exchanges kept
+# (mfem-mgis branch globale, October 11, 2026), timed by the benchmark if
+# available
+unset(MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX CACHE)
+check_cxx_source_compiles("
+#include \"MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx\"
+int main() {
+  auto* const f = &mfem_mgis::batch::GlobalStiffnessMatrix::isSupported;
+  return (f != nullptr) ? 0 : 1;
+}" MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX)
 unset(CMAKE_REQUIRED_INCLUDES)
 unset(CMAKE_REQUIRED_LIBRARIES)
 if(MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)

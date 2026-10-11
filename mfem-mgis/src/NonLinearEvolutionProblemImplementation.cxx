@@ -775,6 +775,30 @@ namespace mfem_mgis {
                                      *(this->mgis_integrator),
                                      this->getFiniteElementSpace(), this->Grad);
     auto* const pfes = this->ParFESpace();
+    if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
+      // global matrix whose pattern and exchanges between processes are
+      // computed once, if the finite element space allows it (checked once,
+      // collectively)
+      if (!this->global_tangent_operator_checked) {
+        this->global_tangent_operator_checked = true;
+        if (batch::GlobalStiffnessMatrix::isSupported(*pfes)) {
+          this->global_tangent_operator =
+              std::make_unique<batch::GlobalStiffnessMatrix>(*pfes);
+        }
+      }
+      if (this->global_tangent_operator != nullptr) {
+        auto ctx = Context{};
+        auto* const K =
+            this->global_tangent_operator->assemble(ctx, *(this->Grad));
+        raiseOnFailureOnAnyProcess(this->getFiniteElementDiscretization(), ctx,
+                                   K != nullptr,
+                                   "computation of the tangent operator");
+        // the matrix is owned by `global_tangent_operator`
+        this->pGrad.Reset(K, false);
+        K->EliminateBC(this->ess_tdof_list, mfem::Operator::DIAG_ONE);
+        return *K;
+      }
+    }
     this->pGrad.Clear();
     mfem::OperatorHandle dA(this->pGrad.Type());
     mfem::OperatorHandle Ph(this->pGrad.Type());

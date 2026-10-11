@@ -1034,6 +1034,20 @@ if(MFEM_MGIS_HAVE_TFEL)
                COMMAND GradientsKernelsTest --device cuda
                        ${gradients_kernels_test_arguments})
     endif()
+    # GlobalStiffnessMatrixTest executable: global matrix assembled from the
+    # local matrices with a pattern and exchanges computed once, compared to
+    # the product of hypre, on one, two and four processes
+    if(MFEM_USE_MPI)
+      add_test_executable(GlobalStiffnessMatrixTest)
+      foreach(_np 1 2 4)
+        add_test(NAME GlobalStiffnessMatrixTest-np${_np}
+                 COMMAND mpirun -n ${_np} ./GlobalStiffnessMatrixTest
+                         --mesh
+                         ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh)
+        set_tests_properties(GlobalStiffnessMatrixTest-np${_np}
+                             PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+      endforeach()
+    endif()
     # IntegrationRuleOrderTest executable: order of the integration rules
     # of the behaviour integrators given by the user, point by point and by
     # kernels, on the host and on the debug device of MFEM (UMFPack)

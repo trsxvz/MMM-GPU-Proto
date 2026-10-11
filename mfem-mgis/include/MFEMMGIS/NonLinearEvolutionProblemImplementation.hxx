@@ -14,6 +14,7 @@
 #include "mfem/fem/nonlinearform.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/fem/pnonlinearform.hpp"
+#include "MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx"
 #endif /* MFEM_USE_MPI */
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
@@ -132,6 +133,17 @@ namespace mfem_mgis {
     std::vector<
         std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<true>>>
         postprocessings;
+    /*!
+     * \brief global tangent operator assembled from the local matrix by
+     * `assembleTangentOperatorByKernels`, the pattern of the global matrix and
+     * the exchanges between processes being computed once, if the finite
+     * element space allows it (see `batch::GlobalStiffnessMatrix`), null
+     * otherwise (product of hypre at each assembly)
+     */
+    mutable std::unique_ptr<batch::GlobalStiffnessMatrix>
+        global_tangent_operator;
+    //! \brief if true, the support of `global_tangent_operator` was checked
+    mutable bool global_tangent_operator_checked = false;
   };  // end of struct NonLinearEvolutionProblemImplementation
 
 #endif /* MFEM_USE_MPI */

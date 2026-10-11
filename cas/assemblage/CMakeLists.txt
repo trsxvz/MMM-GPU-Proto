@@ -1,5 +1,9 @@
 add_executable(assemblage assemblage.cxx)
 target_link_libraries(assemblage PRIVATE mfem-mgis::MFEMMGIS)
+if(MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX)
+  target_compile_definitions(assemblage
+    PRIVATE MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX)
+endif()
 add_mfront_library(assemblage-behaviours
   "${MFEM_MGIS_SOURCE_DIR}/tests/IsotropicLinearHardeningPlasticity.mfront"
   "${MFEM_MGIS_SOURCE_DIR}/tests/SaintVenantKirchhoffElasticity.mfront"

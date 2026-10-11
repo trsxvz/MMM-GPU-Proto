@@ -181,7 +181,8 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/InnerForces.cxx
   Batch/StiffnessMatrices.cxx
   Batch/FBar.cxx
-  Batch/Faltus.cxx)
+  Batch/Faltus.cxx
+  Batch/GlobalStiffnessMatrix.cxx)
 
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
 if(MFEMMGIS_DEVICE_SOURCES)

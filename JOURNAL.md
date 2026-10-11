@@ -4085,3 +4085,25 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   thermique ×1,22, poutre ×1,05, la résolution dominant
   (`results/jacobiennes-gpu-2026-10-11`). Suite 185/185, 9 mutations
   détectées, relecture O traitée (rien au-dessus de 1/5).
+
+### 2026-10-11 (fin de matinée), matrice globale avec motif et échanges gardés
+
+- mfem-mgis e111df8454 : `batch::GlobalStiffnessMatrix`. Pour un espace
+  conforme, chaque entrée de la matrice locale va à une entrée fixe de la
+  matrice globale : le premier assemblage calcule le motif (produit de
+  hypre sur une matrice de uns), la position de chaque entrée locale ou sa
+  place dans le message vers le processus propriétaire de sa ligne ; les
+  suivants copient, échangent (`MPI_Alltoallv`) et additionnent les
+  valeurs. Si le motif local (tableaux) ou l'espace change sur un
+  processus, tous refont la mise en place. Utilisé par la tangente
+  assemblée par noyaux quand hypre n'utilise pas le GPU.
+- Banc sur 8 processus (`results/matrice-globale-2026-10-11`) : poutre
+  15,4 -> 2,5 ms, thermique 36,8 -> 1,7 ms. Bout en bout
+  (`results/matrice-globale-bout-en-bout-2026-10-11`) : tangente ×2,4
+  (thermique) et ×1,8 (poutre), mêmes solutions. Suite 188/188,
+  GlobalStiffnessMatrixTest sur 1, 2 et 4 processus, 9 mutations
+  détectées (la mutation qui n'utilise pas la classe ne change que le
+  temps), relecture P traitée (rien au-dessus de 2/5).
+- Piège : la bibliothèque de lois des tests (`BehaviourTest`) n'est ni dans
+  `all` ni dans `build-tests` ; une construction séparée doit la construire
+  explicitement, sinon une douzaine de tests parallèles échouent.

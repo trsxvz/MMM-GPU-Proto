@@ -1,0 +1,52 @@
+== poutre, tétraèdres P1 (r4): mpirun -n 8 ./assemblage -r 4 -n 10 -t mechanics -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 24.09 ms
+assembly with positions: median 9.003 ms
+block diagonal matrix and product Pt A P: median 15.43 ms
+elimination of the essential degrees of freedom: median 0.2743 ms
+global matrix with the pattern and the exchanges kept: first assembly 32.25 ms, median 2.464 ms, relative difference with the product of hypre 0
+elements 24576, degrees of freedom per element 12, entries 602649, positions 7.078 MB (65.44 ms)
+assembly without positions: median 23.93 ms, minimum 23.87 ms
+assembly with positions: median 8.957 ms, minimum 8.917 ms
+entries searched with the positions 0
+ratio of the medians 2.672, maximum difference 0 (maximum value 0.1258)
+   statut 0
+== thermique, tétraèdres P1 (r5): mpirun -n 8 ./assemblage -r 5 -n 10 -t thermal -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 49.11 ms
+assembly with positions: median 14.05 ms
+block diagonal matrix and product Pt A P: median 36.77 ms
+elimination of the essential degrees of freedom: median 0.1645 ms
+global matrix with the pattern and the exchanges kept: first assembly 45.74 ms, median 1.701 ms, relative difference with the product of hypre 0
+elements 196608, degrees of freedom per element 4, entries 513313, positions 6.291 MB (34.27 ms)
+assembly without positions: median 48.28 ms, minimum 48.13 ms
+assembly with positions: median 13.74 ms, minimum 13.64 ms
+entries searched with the positions 0
+ratio of the medians 3.514, maximum difference 0 (maximum value 0.09865)
+   statut 0
+== grandes transformations, hexaèdres Q1 27 points (r4): mpirun -n 8 ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 7.803 ms
+assembly with positions: median 6.424 ms
+block diagonal matrix and product Pt A P: median 3.049 ms
+elimination of the essential degrees of freedom: median 0.1652 ms
+global matrix with the pattern and the exchanges kept: first assembly 7.073 ms, median 0.1519 ms, relative difference with the product of hypre 1.434e-16
+elements 512, degrees of freedom per element 24, entries 140625, positions 0.5898 MB (4.135 ms)
+assembly without positions: median 7.803 ms, minimum 7.714 ms
+assembly with positions: median 6.416 ms, minimum 6.349 ms
+entries searched with the positions 0
+ratio of the medians 1.216, maximum difference 0 (maximum value 0.05494)
+   statut 0
+== tétraèdres P2, mécanique (r3): mpirun -n 8 ./assemblage -r 3 -o 2 -n 10 -t mechanics -p
+8 processes, maxima over the processes, first process:
+assembly without positions: median 31.26 ms
+assembly with positions: median 15.18 ms
+block diagonal matrix and product Pt A P: median 22 ms
+elimination of the essential degrees of freedom: median 1.033 ms
+global matrix with the pattern and the exchanges kept: first assembly 65.22 ms, median 5.803 ms, relative difference with the product of hypre 0
+elements 3072, degrees of freedom per element 30, entries 1141065, positions 5.53 MB (45.54 ms)
+assembly without positions: median 30.67 ms, minimum 30.18 ms
+assembly with positions: median 14.8 ms, minimum 14.55 ms
+entries searched with the positions 0
+ratio of the medians 2.072, maximum difference 0 (maximum value 0.1781)
+   statut 0

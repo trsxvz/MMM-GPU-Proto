@@ -12,8 +12,9 @@
  * construction of the global matrix from the local ones is also timed, as
  * made by mfem-mgis (`assembleTangentOperatorByKernels`): block diagonal
  * matrix, product `Pᵀ A P` of hypre, elimination of the degrees of freedom
- * of a clamped end (boundary 1); the times are the maxima over the
- * processes.
+ * of a clamped end (boundary 1), and, if mfem-mgis provides it, the
+ * assembly by `batch::GlobalStiffnessMatrix` (pattern and exchanges kept);
+ * the times are the maxima over the processes.
  */
 
 #include <cmath>
@@ -46,6 +47,9 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+#ifdef MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX
+#include "MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx"
+#endif /* MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX */
 
 //! \return the median of a list of times
 static double median(std::vector<double> v) {
@@ -266,6 +270,12 @@ int main(int argc, char** argv) {
   // `NonLinearEvolutionProblemImplementation::assembleTangentOperatorByKernels`
   auto global = std::vector<double>{};
   auto elimination = std::vector<double>{};
+  // assembly by `batch::GlobalStiffnessMatrix`: first assembly (pattern and
+  // exchanges), following assemblies, relative difference with the product
+  // of hypre
+  auto kept_setup = -1.;
+  auto kept = std::vector<double>{};
+  auto kept_difference = -1.;
   if (parallel) {
     const auto& pfes = fed.getFiniteElementSpace<true>();
     const auto& pmesh = fed.getMesh<true>();
@@ -296,6 +306,51 @@ int main(int argc, char** argv) {
       MPI_Barrier(MPI_COMM_WORLD);
       elimination.push_back(elapsed(t1));
     }
+#ifdef MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX
+    if (batch::GlobalStiffnessMatrix::isSupported(pfes)) {
+      auto g = batch::GlobalStiffnessMatrix(pfes);
+      assemble(positions);
+      MPI_Barrier(MPI_COMM_WORLD);
+      const auto t0 = clock::now();
+      g.assemble(ctx, *matrix) | or_die;
+      MPI_Barrier(MPI_COMM_WORLD);
+      kept_setup = elapsed(t0);
+      for (int i = 0; i != repetitions; ++i) {
+        assemble(positions);
+        MPI_Barrier(MPI_COMM_WORLD);
+        const auto t1 = clock::now();
+        g.assemble(ctx, *matrix) | or_die;
+        MPI_Barrier(MPI_COMM_WORLD);
+        kept.push_back(elapsed(t1));
+      }
+      // comparison with the product of hypre, by products with a vector
+      auto dA = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      auto Ph = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      auto R = mfem::OperatorHandle(mfem::Operator::Hypre_ParCSR);
+      dA.MakeSquareBlockDiag(pfes.GetComm(), pfes.GlobalVSize(),
+                             pfes.GetDofOffsets(), matrix.get());
+      Ph.ConvertFrom(P);
+      R.MakePtAP(dA, Ph);
+      auto* const K = g.assemble(ctx, *matrix) | or_die;
+      auto x = mfem::Vector(pfes.GetTrueVSize());
+      auto* const xv = x.HostWrite();
+      for (int i = 0; i != x.Size(); ++i) {
+        xv[i] = std::cos(0.3 * i);
+      }
+      auto y = mfem::Vector(pfes.GetTrueVSize());
+      auto yr = mfem::Vector(pfes.GetTrueVSize());
+      K->Mult(x, y);
+      R.As<mfem::HypreParMatrix>()->Mult(x, yr);
+      auto d = 0.;
+      auto m = 0.;
+      for (int i = 0; i != y.Size(); ++i) {
+        d = std::max(d, std::abs(y(i) - yr(i)));
+        m = std::max(m, std::abs(yr(i)));
+      }
+      kept_difference = maximumOverProcesses(d, true) /
+                        maximumOverProcesses(m, true);
+    }
+#endif /* MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX */
   }
   const auto ne = fes.GetNE();
   const auto n = (ne == 0) ? 0 : dofs.Size() / ne;
@@ -327,6 +382,12 @@ int main(int argc, char** argv) {
               << median(global) << " ms\n"
               << "elimination of the essential degrees of freedom: median "
               << median(elimination) << " ms\n";
+    if (!kept.empty()) {
+      std::cout << "global matrix with the pattern and the exchanges kept: "
+                << "first assembly " << kept_setup << " ms, median "
+                << median(kept) << " ms, relative difference with the "
+                << "product of hypre " << kept_difference << '\n';
+    }
   }
   std::cout << std::setprecision(4) << "elements " << ne
             << ", degrees of freedom per element " << n << ", entries " << nnz
