@@ -112,6 +112,19 @@ set(rjh_plate_kernels_environment
 set_tests_properties(rjh_plate-kernels PROPERTIES
     PROCESSORS 2
     ENVIRONMENT "${rjh_plate_kernels_environment}")
+# the tangent operator of the mechanical problem given to MUMPS as a
+# symmetric positive definite matrix, compared to the same reference
+add_test(NAME rjh_plate-mumps-spd
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        $<TARGET_FILE:rjh_plate>
+        -m ${rjh_plate_mesh}.msh
+        -lsMc MUMPSSolver
+        -msMc SymmetricPositiveDefinite
+        -rf ${rjh_plate_mesh}-statistics.ref
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(rjh_plate-mumps-spd PROPERTIES
+    PROCESSORS 2
+    ENVIRONMENT "${rjh_plate_kernels_environment}")
 # the mechanical problem solved by the NewtonK0 method (tangent systems
 # solved by GMRES preconditioned by the elastic operator, factorized by
 # MUMPS at each time step), all the computations being made by kernels

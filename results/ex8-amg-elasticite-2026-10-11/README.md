@@ -14,7 +14,10 @@ Construction `build/examples-post-ex8` (ex8 avec les options `-oMc` et
   déplacements) dans les deux calculs.
 - Les options d'élasticité (interpolation par modes rigides) font pire
   que les options de systèmes essayées auparavant (environ 240
-  itérations, 93 s) : 441 itérations de PCG en moyenne par résolution
+  itérations, 93 s, mesure du 11/10 après-midi notée dans `JOURNAL.md`,
+  sans sortie brute conservée) : 441 itérations de PCG en moyenne par résolution
   (29 résolutions). La plaque est mince et ses matériaux contrastés :
-  BoomerAMG ne convient pas tel quel. MUMPS reste le choix pour la
-  mécanique d'ex8.
+  BoomerAMG ne convient pas tel quel (le premier niveau grossit peu :
+  28 548 puis 22 482 lignes, complexité d'opérateur 3,6 ; l'explication
+  par la géométrie et les matériaux n'est pas vérifiée). MUMPS reste le
+  choix pour la mécanique d'ex8.

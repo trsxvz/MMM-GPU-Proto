@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <iostream>
 #include <cstdlib>
 #include <cstdint>
@@ -77,6 +78,38 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
       or_die;
 }
 
+/*!
+ * \return the parameters of the MUMPS solver of mfem-mgis for the symmetry
+ * of the matrices given by the option -msMc, or for the default symmetry if
+ * this option is not given. The symmetric modes give the lower triangle of
+ * the matrices to MUMPS without checking their symmetry: a non symmetric
+ * matrix would slow down or break the convergence of the Newton method.
+ * \param[in] symmetry: value of the option -msMc
+ * \param[in] default_symmetry: default symmetry
+ */
+inline mfem_mgis::Parameters getMUMPSSolverParameters(
+    const std::string_view symmetry, const std::string_view default_symmetry) {
+  const auto s = symmetry.empty() ? default_symmetry : symmetry;
+  if (s.empty()) {
+    // no symmetry given
+    return mfem_mgis::Parameters{};
+  }
+  if (s == "SymmetricIndefinite") {
+    return mfem_mgis::Parameters{{"Symmetric", true}};
+  }
+  if (s == "SymmetricPositiveDefinite") {
+    return mfem_mgis::Parameters{{"Symmetric", true},
+                                 {"PositiveDefinite", true}};
+  }
+  if (s != "Unsymmetric") {
+    mfem_mgis::abort(
+        "Invalid symmetry of the matrices given to MUMPS: " + std::string{s} +
+        " (expected Unsymmetric, SymmetricIndefinite or "
+        "SymmetricPositiveDefinite)");
+  }
+  return mfem_mgis::Parameters{};
+}  // end of getMUMPSSolverParameters
+
 template <typename Problem>
 inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                                    mfem_mgis::Context& ctx,
@@ -98,6 +131,23 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
     precond = param.precond_meca;
   } else {
     mfem_mgis::abort("unknown physics (" + physics_type + ")");
+  }
+  // options of the mechanical problem without effect on its linear solver
+  if (physics_type == "mechanics") {
+    if ((*param.amg_strategy_meca != '\0') &&
+        ((!contains(iterative_solvers, solver)) ||
+         (precond != "HypreBoomerAMG"))) {
+      mfem_mgis::Profiler::Utils::Message(
+          "warning: the option -amgMc is ignored (no BoomerAMG preconditioner "
+          "for the mechanical problem)");
+    }
+    if ((*param.mumps_symmetry_meca != '\0') &&
+        (!contains(direct_solvers, solver)) &&
+        (std::string_view{param.nonlinear_solver_meca} != "NewtonK0")) {
+      mfem_mgis::Profiler::Utils::Message(
+          "warning: the option -msMc is ignored (the linear solver of the "
+          "mechanical problem is not MUMPS)");
+    }
   }
 
   if (contains(iterative_solvers, solver)) {
@@ -133,7 +183,11 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
   }
 
   else if (contains(direct_solvers, solver)) {
-    p.setLinearSolver(ctx, solver, mfem_mgis::Parameters{}) | or_die;
+    const auto solverParameters =
+        (physics_type == "mechanics")
+            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric")
+            : mfem_mgis::Parameters{};
+    p.setLinearSolver(ctx, solver, solverParameters) | or_die;
   }
 
   else {

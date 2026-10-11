@@ -4326,3 +4326,17 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (rangement byVDIM) demandent 441 itérations en moyenne, 201 s contre
   23,5 s avec MUMPS (2 processus). Options `-oMc` et `-amgMc` ajoutées à
   ex8.
+
+### 2026-10-11 (soir), ex8 : matrices symétriques pour MUMPS
+
+- La tangente de la mécanique d'ex8 est symétrique : donnée à MUMPS comme
+  symétrique définie positive (option `-msMc` d'ex8, paramètres
+  `Symmetric` et `PositiveDefinite` du solveur MUMPS de mfem-mgis), mêmes
+  itérations et résultats, factorisations 29 % plus rapides sur le CPU
+  (2 processus) et 36 % sur le GPU (sur l'hôte). ex8 tout sur le GPU :
+  16,5 -> 12,4 s (`results/ex8-mumps-symetrique-2026-10-11`).
+- Relecture courte traitée : option `-msMc` aussi pour l'opérateur
+  élastique de NewtonK0, avertissements des options sans effet, README
+  d'ex8, test `rjh_plate-mumps-spd` (mfem-mgis-examples 03c347e). Sur le
+  GPU, le second poste d'ex8 est maintenant la résolution thermique
+  (GMRES et BoomerAMG, 3,15 s pour 35 résolutions).
