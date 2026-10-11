@@ -1,0 +1,72 @@
+From db0ce2a5755b21828bee1904b6d4a3bce4818d24 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 07:09:05 +0200
+Subject: [PATCH] ex4: reason of the failure of a resolution printed with the
+ substep
+
+---
+ ex4/ssna303_hypre.cxx | 8 +++++++-
+ ex4/ssna303_mumps.cxx | 8 +++++++-
+ ex4/ssna303_petsc.cxx | 8 +++++++-
+ 3 files changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
+index 4f57622..4b6400f 100644
+--- a/ex4/ssna303_hypre.cxx
++++ b/ex4/ssna303_hypre.cxx
+@@ -250,7 +250,13 @@ int main(int argc, char** argv) {
+           }
+           problem.update(ctx) | or_die;
+         } else {
+-          std::cout << "\nsubstep: " << niter << '\n';
++          // reason of the failure, if reported (the messages are cleared)
++          const auto msg = ctx.getErrorMessage();
++          std::cout << "\nsubstep: " << niter;
++          if (!msg.empty()) {
++            std::cout << " (" << msg << ")";
++          }
++          std::cout << '\n';
+           nsteps *= 2;
+           dt2 /= 2;
+           ++niter;
+diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
+index d3e53e3..4cbf93c 100644
+--- a/ex4/ssna303_mumps.cxx
++++ b/ex4/ssna303_mumps.cxx
+@@ -210,7 +210,13 @@ int main(int argc, char** argv) {
+         }
+         problem.update(ctx) | or_die;
+       } else {
+-        std::cout << "\nsubstep: " << niter << '\n';
++        // reason of the failure, if reported (the messages are cleared)
++        const auto msg = ctx.getErrorMessage();
++        std::cout << "\nsubstep: " << niter;
++        if (!msg.empty()) {
++          std::cout << " (" << msg << ")";
++        }
++        std::cout << '\n';
+         nsteps *= 2;
+         dt2 /= 2;
+         ++niter;
+diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
+index cd21e7e..215eb00 100644
+--- a/ex4/ssna303_petsc.cxx
++++ b/ex4/ssna303_petsc.cxx
+@@ -173,7 +173,13 @@ int main(int argc, char** argv) {
+           }
+           problem.update(ctx) | or_die;
+         } else {
+-          std::cout << "\nsubstep: " << niter << '\n';
++          // reason of the failure, if reported (the messages are cleared)
++          const auto msg = ctx.getErrorMessage();
++          std::cout << "\nsubstep: " << niter;
++          if (!msg.empty()) {
++            std::cout << " (" << msg << ")";
++          }
++          std::cout << '\n';
+           nsteps *= 2;
+           dt2 /= 2;
+           ++niter;
+-- 
+2.43.0
+

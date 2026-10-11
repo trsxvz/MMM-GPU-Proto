@@ -1,0 +1,1026 @@
+From b1a8c682aebc447cfbf474d325cd7d51ab889d29 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 08:31:50 +0200
+Subject: [PATCH] FBar kernels: modified tangent operator applied on the fly
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The tangent operator of the FBar formulation, `K' = α K + v ⊗ c` (`v = K
+F`, `c = dα/dF`), was stored at the integration points (the square of the
+number of components of the gradients, 81 values per point in 3D) in
+addition to the tangent operator blocks of the behaviour. It is now
+applied on the fly by the kernels of the stiffness matrices, which
+multiply the tangent operator blocks by vectors: `K' x = α K x + v (c ·
+x)`. Only `v` and `c` are stored (18 values per point in 3D, 63 values
+less), which matters for large meshes (about 6 GB less for 12 million
+integration points).
+
+New optional argument of `addStiffnessMatrices`,
+`addStiffnessMatricesDiagonals` and `addTangentOperatorAction`: the
+scaling and update of rank one of the tangent operator blocks at each
+point (`TangentOperatorModification`, deformation gradients only),
+applied by `multiplyByTangentOperator` in the kernels (compiled only for
+the deformation gradients). The functions of the FBar formulation take
+the tangent operator blocks of the behaviour, and check that they are the
+ones from which `v` and `c` were computed, and the sizes of the data.
+---
+ include/MFEMMGIS/Batch/FBar.hxx               | 45 +++++++--
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  | 37 +++++++-
+ .../FBarBehaviourIntegratorCRTPBase.hxx       | 13 +++
+ .../FBarBehaviourIntegratorCRTPBase.ixx       | 54 ++++++++---
+ src/Batch/FBar.cxx                            | 86 +++++++++++------
+ src/Batch/FBarKernels.cxx                     | 10 +-
+ src/Batch/FBarKernels.hxx                     | 19 ++--
+ src/Batch/StiffnessMatrices.cxx               | 63 ++++++++----
+ src/Batch/StiffnessMatricesKernels.cxx        | 95 ++++++++++++++-----
+ src/Batch/StiffnessMatricesKernels.hxx        | 10 ++
+ 10 files changed, 324 insertions(+), 108 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
+index 5561b594be..5187785ae0 100644
+--- a/include/MFEMMGIS/Batch/FBar.hxx
++++ b/include/MFEMMGIS/Batch/FBar.hxx
+@@ -46,9 +46,14 @@ namespace mfem_mgis::batch {
+    * `dα/dF0 = α / (ie J0) dJ0/dF0`, `B0` being the operator `B` at the
+    * center of the element. It is computed as the stiffness matrix of the
+    * standard formulation with the tangent operator `K'_q = α K_q + (K_q F)
+-   * ⊗ dα/dF`, plus the matrix of rank one `a ⊗ b`, `a = Σ_q w_q det J_q α
+-   * / (ie J0) B_qᵀ K_q F`, `b = B0ᵀ dJ0/dF0` (derivative of `J0` with
+-   * respect to the unknowns of the element). In plane strain, the third
++   * ⊗ dα/dF`, applied by the kernels of the stiffness matrices without being
++   * stored (only `v = K_q F` and `c = dα/dF` are stored, see
++   * `TangentOperatorModification`), plus the matrix of rank one `a ⊗ b`,
++   * `a = Σ_q w_q det J_q α / (ie J0) B_qᵀ K_q F`, `b = B0ᵀ dJ0/dF0`
++   * (derivative of `J0` with respect to the unknowns of the element). The
++   * functions computing the stiffness matrices must be given the tangent
++   * operator blocks from which `v` and `c` are computed (checked by
++   * `tangent_operator_blocks`). In plane strain, the third
+    * component of `F` and of the derivatives of the determinants are
+    * ignored, as by the FBar behaviour integrators (`F̄33 = 1`).
+    *
+@@ -77,10 +82,19 @@ namespace mfem_mgis::batch {
+     //! \brief vectors `a` of the elements of the material (as `b`)
+     mfem::Vector a;
+     /*!
+-     * \brief tangent operator `K'` at the integration points of the
+-     * material, point by point (see `computeFBarTangentOperator`)
++     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
++     * at the integration points of the material, point by point (see
++     * `computeFBarTangentOperator`)
+      */
+-    mfem::Vector tangent_operator;
++    mfem::Vector tangent_v;
++    //! \brief vectors `c = dα/dF` of the tangent operator `K'`
++    mfem::Vector tangent_c;
++    /*!
++     * \brief tangent operator blocks of the behaviour from which `v` and `c`
++     * are computed: the functions computing the stiffness matrices check
++     * that they are given the same blocks
++     */
++    const real* tangent_operator_blocks = nullptr;
+     //! \brief workspace: `α / (ie J0) K F` at the integration points
+     mfem::Vector pseudo_stresses;
+     /*!
+@@ -182,9 +196,10 @@ namespace mfem_mgis::batch {
+    */
+   MFEM_MGIS_EXPORT void revertFBarData(FBarData&);
+   /*!
+-   * \brief computes the tangent operator `K'` at the integration points of
+-   * a material and the vectors `a` of its elements, from the tangent
+-   * operator blocks of its behaviour (see `FBarData`)
++   * \brief computes the vectors `v` and `c` of the tangent operator `K'` at
++   * the integration points of a material and the vectors `a` of its
++   * elements, from the tangent operator blocks of its behaviour (see
++   * `FBarData`)
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in, out] data: data of the FBar formulation
+@@ -210,6 +225,8 @@ namespace mfem_mgis::batch {
+    * \param[in, out] m: matrices element by element
+    * \param[in] data: data of the FBar formulation
+    * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks of the behaviour in the global
++   * frame (see `computeFBarTangentOperator`)
+    * \param[in] g: geometric data of the integration rule of the material
+    * \param[in] k: kind of the gradients
+    */
+@@ -218,6 +235,7 @@ namespace mfem_mgis::batch {
+       mfem::Vector&,
+       const FBarData&,
+       const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+   /*!
+@@ -229,6 +247,8 @@ namespace mfem_mgis::batch {
+    * \param[in, out] m: assembled matrix
+    * \param[in] data: data of the FBar formulation
+    * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks of the behaviour in the global
++   * frame (see `computeFBarTangentOperator`)
+    * \param[in] g: geometric data of the integration rule of the material
+    * \param[in] k: kind of the gradients
+    */
+@@ -237,6 +257,7 @@ namespace mfem_mgis::batch {
+       const AssembledStiffnessMatrix&,
+       const FBarData&,
+       const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+   /*!
+@@ -247,6 +268,8 @@ namespace mfem_mgis::batch {
+    * \param[in, out] d: values element by element
+    * \param[in] data: data of the FBar formulation
+    * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks of the behaviour in the global
++   * frame (see `computeFBarTangentOperator`)
+    * \param[in] g: geometric data of the integration rule of the material
+    * \param[in] k: kind of the gradients
+    */
+@@ -255,6 +278,7 @@ namespace mfem_mgis::batch {
+       mfem::Vector&,
+       const FBarData&,
+       const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+   /*!
+@@ -266,6 +290,8 @@ namespace mfem_mgis::batch {
+    * \param[in, out] y: action, element by element
+    * \param[in] data: data of the FBar formulation
+    * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks of the behaviour in the global
++   * frame (see `computeFBarTangentOperator`)
+    * \param[in] x: values element by element
+    * \param[in] g: geometric data of the integration rule of the material
+    * \param[in] k: kind of the gradients
+@@ -275,6 +301,7 @@ namespace mfem_mgis::batch {
+       mfem::Vector&,
+       const FBarData&,
+       const PartialQuadratureSpace&,
++      const mgis::FieldView<const real>&,
+       const mfem::Vector&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index 237670575f..6cd5350237 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -30,6 +30,27 @@ namespace mfem_mgis {
+ 
+ namespace mfem_mgis::batch {
+ 
++  /*!
++   * \brief scaling and update of rank one of the tangent operator blocks at
++   * each integration point of a material, `K' = α K + v ⊗ c` (tangent
++   * operator of the FBar formulation, see `FBarData`), applied by the
++   * kernels when they multiply the tangent operator blocks by a vector:
++   * `K' x = α K x + v (c · x)`, the modified blocks not being stored. Only
++   * supported for the deformation gradients. The arrays are given for all
++   * the points of the material, in the order of its quadrature space (one
++   * coefficient, and as many values of `v` and of `c` as components of the
++   * gradients, point by point), located on the device if a device is
++   * enabled; the modification is not applied if `coefficients` is null.
++   */
++  struct MFEM_MGIS_EXPORT TangentOperatorModification {
++    //! \brief coefficients `α` at the points of the material
++    const real* coefficients = nullptr;
++    //! \brief vectors `v` at the points of the material, point by point
++    const real* v = nullptr;
++    //! \brief vectors `c` at the points of the material, point by point
++    const real* c = nullptr;
++  };
++
+   /*!
+    * \brief adds the stiffness matrices of the elements of a material, `Σ Bᵀ
+    * K B w det J` summed over the integration points, to matrices stored
+@@ -48,6 +69,7 @@ namespace mfem_mgis::batch {
+    * is enabled
+    * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients, which defines the operator `B`
++   * \param[in] mod: modification of the tangent operator blocks, if any
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
+       Context&,
+@@ -55,7 +77,8 @@ namespace mfem_mgis::batch {
+       const PartialQuadratureSpace&,
+       const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+-      const GradientsKind) noexcept;
++      const GradientsKind,
++      const TangentOperatorModification& = {}) noexcept;
+ 
+   /*!
+    * \brief adds the diagonals of the stiffness matrices of the elements of a
+@@ -68,6 +91,7 @@ namespace mfem_mgis::batch {
+    * \param[in] K: tangent operator blocks in the global frame
+    * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients
++   * \param[in] mod: modification of the tangent operator blocks, if any
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesDiagonals(
+       Context&,
+@@ -75,7 +99,8 @@ namespace mfem_mgis::batch {
+       const PartialQuadratureSpace&,
+       const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+-      const GradientsKind) noexcept;
++      const GradientsKind,
++      const TangentOperatorModification& = {}) noexcept;
+   /*!
+    * \brief adds the action of the stiffness matrices of the elements of a
+    * material, computed from the tangent operator blocks without assembling
+@@ -92,6 +117,7 @@ namespace mfem_mgis::batch {
+    * \param[in] x: values element by element
+    * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients
++   * \param[in] mod: modification of the tangent operator blocks, if any
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool addTangentOperatorAction(
+       Context&,
+@@ -100,7 +126,8 @@ namespace mfem_mgis::batch {
+       const mgis::FieldView<const real>&,
+       const mfem::Vector&,
+       const ElementsGeometry&,
+-      const GradientsKind) noexcept;
++      const GradientsKind,
++      const TangentOperatorModification& = {}) noexcept;
+ 
+   /*!
+    * \brief sparse matrix in which the stiffness matrices of the elements are
+@@ -175,6 +202,7 @@ namespace mfem_mgis::batch {
+    * \param[in] K: tangent operator blocks in the global frame
+    * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients, which defines the operator `B`
++   * \param[in] mod: modification of the tangent operator blocks, if any
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
+       Context&,
+@@ -182,7 +210,8 @@ namespace mfem_mgis::batch {
+       const PartialQuadratureSpace&,
+       const mgis::FieldView<const real>&,
+       const ElementsGeometry&,
+-      const GradientsKind) noexcept;
++      const GradientsKind,
++      const TangentOperatorModification& = {}) noexcept;
+ 
+ }  // end of namespace mfem_mgis::batch
+ 
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+index f02afaceb6..629436ce91 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+@@ -102,6 +102,19 @@ namespace mfem_mgis {
+         KernelsData&,
+         const char* const,
+         const batch::ElementsGeometrySet&) noexcept;
++    /*!
++     * \brief calls a function with the tangent operator blocks of the
++     * behaviour in the global frame, readable on the device if a device is
++     * enabled, the exceptions being reported in the execution context
++     * \return the result of the function, false on exception
++     * \param[in, out] ctx: execution context
++     * \param[in] name: name of the calling method, for the messages
++     * \param[in] f: function taking the tangent operator blocks
++     */
++    template <typename Function>
++    [[nodiscard]] bool callWithTangentOperatorBlocks(Context&,
++                                                     const char* const,
++                                                     const Function&) noexcept;
+     /*!
+      * \brief constructor
+      * \param[in] s: quadrature space
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index f6fbae98ed..5f3aa8aad0 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -676,6 +676,20 @@ namespace mfem_mgis {
+     }
+   }  // end of prepareFBarTangentOperatorForKernels
+ 
++  template <typename Child, Hypothesis H>
++  template <typename Function>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::callWithTangentOperatorBlocks(
++      Context& ctx, const char* const name, const Function& f) noexcept {
++    try {
++      return f(this->readTangentOperatorBlocks(mfem::Device::IsEnabled()));
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{name} + ": " + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unknown exception");
++    }
++  }  // end of callWithTangentOperatorBlocks
++
+   template <typename Child, Hypothesis H>
+   bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
+       Context& ctx,
+@@ -689,9 +703,13 @@ namespace mfem_mgis {
+     if (data.rule == nullptr) {
+       return true;
+     }
+-    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
+-                                           *(this->quadrature_space),
+-                                           *(data.geometry), data.kind);
++    return this->callWithTangentOperatorBlocks(
++        ctx, "addStiffnessMatricesByKernels",
++        [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
++          return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
++                                                 *(this->quadrature_space), Kb,
++                                                 *(data.geometry), data.kind);
++        });
+   }  // end of addStiffnessMatricesByKernels
+ 
+   template <typename Child, Hypothesis H>
+@@ -707,9 +725,13 @@ namespace mfem_mgis {
+     if (data.rule == nullptr) {
+       return true;
+     }
+-    return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
+-                                           *(this->quadrature_space),
+-                                           *(data.geometry), data.kind);
++    return this->callWithTangentOperatorBlocks(
++        ctx, "addStiffnessMatricesByKernels",
++        [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
++          return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
++                                                 *(this->quadrature_space), Kb,
++                                                 *(data.geometry), data.kind);
++        });
+   }  // end of addStiffnessMatricesByKernels
+ 
+   template <typename Child, Hypothesis H>
+@@ -727,9 +749,13 @@ namespace mfem_mgis {
+     if (data.rule == nullptr) {
+       return true;
+     }
+-    return batch::addFBarTangentOperatorAction(ctx, y, this->fbar_data,
+-                                               *(this->quadrature_space), x,
+-                                               *(data.geometry), data.kind);
++    return this->callWithTangentOperatorBlocks(
++        ctx, "addTangentOperatorActionByKernels",
++        [this, &ctx, &y, &x, &data](const mgis::FieldView<const real>& Kb) {
++          return batch::addFBarTangentOperatorAction(
++              ctx, y, this->fbar_data, *(this->quadrature_space), Kb, x,
++              *(data.geometry), data.kind);
++        });
+   }  // end of addTangentOperatorActionByKernels
+ 
+   template <typename Child, Hypothesis H>
+@@ -746,9 +772,13 @@ namespace mfem_mgis {
+     if (data.rule == nullptr) {
+       return true;
+     }
+-    return batch::addFBarStiffnessMatricesDiagonals(
+-        ctx, d, this->fbar_data, *(this->quadrature_space), *(data.geometry),
+-        data.kind);
++    return this->callWithTangentOperatorBlocks(
++        ctx, "addTangentOperatorDiagonalByKernels",
++        [this, &ctx, &d, &data](const mgis::FieldView<const real>& Kb) {
++          return batch::addFBarStiffnessMatricesDiagonals(
++              ctx, d, this->fbar_data, *(this->quadrature_space), Kb,
++              *(data.geometry), data.kind);
++        });
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
+   template <typename Child, Hypothesis H>
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index ee495b713c..91fb402afa 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -209,13 +209,15 @@ namespace mfem_mgis::batch {
+ 
+   /*!
+    * \return the arguments of the kernels adding the matrices of rank one,
+-   * or an error
++   * or an error if the tangent operator of the FBar formulation is not
++   * computed or was computed from other tangent operator blocks than `K`
+    */
+   static bool getFBarRankOneKernelArguments(
+       Context& ctx,
+       internals::FBarRankOneKernelArguments& a,
+       const FBarData& data,
+       const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
+       const ElementsGeometry& g,
+       const GradientsKind k,
+       const bool use_device,
+@@ -224,13 +226,24 @@ namespace mfem_mgis::batch {
+     const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+     const auto& elements = qs.getElements();
+     const auto size = n * elements.Size();
++    const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
++    const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
+     if ((!data.has_tangent_operator) ||
+         (static_cast<std::int64_t>(data.a.Size()) != size) ||
+-        (static_cast<std::int64_t>(data.b.Size()) != size)) {
++        (static_cast<std::int64_t>(data.b.Size()) != size) ||
++        (static_cast<std::int64_t>(data.coefficients.Size()) != np) ||
++        (static_cast<std::int64_t>(data.tangent_v.Size()) != np * gsize) ||
++        (static_cast<std::int64_t>(data.tangent_c.Size()) != np * gsize)) {
+       return ctx.registerErrorMessage(
+           std::string{name} +
+           ": the tangent operator of the FBar formulation is not computed");
+     }
++    if (K.data() != data.tangent_operator_blocks) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the tangent operator blocks are not the ones from which the "
++          "tangent operator of the FBar formulation is computed");
++    }
+     if (std::int64_t{elements.Size()} * threads_per_element >
+         std::numeric_limits<int>::max()) {
+       return ctx.registerErrorMessage(std::string{name} +
+@@ -244,19 +257,18 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of getFBarRankOneKernelArguments
+ 
+-  //! \return a view of the tangent operator `K'`
+-  static mgis::FieldView<const real> getFBarTangentOperator(
+-      const FBarData& data,
+-      const PartialQuadratureSpace& qs,
+-      const GradientsKind k,
+-      const bool use_device) {
+-    const auto np = qs.getNumberOfIntegrationPoints();
+-    const auto nc = getGradientsSize(k) * getGradientsSize(k);
+-    const auto s = std::span<const real>(
+-        data.tangent_operator.Read(use_device),
+-        static_cast<std::size_t>(data.tangent_operator.Size()));
+-    return mgis::makePointByPointFieldView(s, np, nc, nc);
+-  }  // end of getFBarTangentOperator
++  /*!
++   * \return the modification of the tangent operator blocks of the behaviour
++   * giving the tangent operator `K'` of the FBar formulation
++   * \param[in] data: data of the FBar formulation
++   * \param[in] use_device: if true, the arrays are read on the device
++   */
++  static TangentOperatorModification getFBarTangentOperatorModification(
++      const FBarData& data, const bool use_device) {
++    return {.coefficients = data.coefficients.Read(use_device),
++            .v = data.tangent_v.Read(use_device),
++            .c = data.tangent_c.Read(use_device)};
++  }  // end of getFBarTangentOperatorModification
+ 
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+@@ -343,6 +355,7 @@ namespace mfem_mgis::batch {
+ #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       data.has_tangent_operator = false;
++      data.tangent_operator_blocks = nullptr;
+       const auto& elements = qs.getElements();
+       const auto& offsets = qs.getElementOffsets();
+       const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
+@@ -361,7 +374,8 @@ namespace mfem_mgis::batch {
+             "components of the tangent operator blocks");
+       }
+       const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+-      if ((!resizeFBarArray(ctx, data.tangent_operator, np * gsize * gsize)) ||
++      if ((!resizeFBarArray(ctx, data.tangent_v, np * gsize)) ||
++          (!resizeFBarArray(ctx, data.tangent_c, np * gsize)) ||
+           (!resizeFBarArray(ctx, data.pseudo_stresses, np * gsize)) ||
+           (!resizeFBarArray(ctx, data.a, n * elements.Size()))) {
+         return false;
+@@ -384,7 +398,8 @@ namespace mfem_mgis::batch {
+         a.tangent_operator = K.data();
+         a.point_stride = static_cast<long long>(K.getPointStride());
+         a.component_stride = static_cast<long long>(K.getComponentStride());
+-        a.modified_tangent_operator = data.tangent_operator.Write(use_device);
++        a.v = data.tangent_v.Write(use_device);
++        a.c = data.tangent_c.Write(use_device);
+         a.pseudo_stresses = data.pseudo_stresses.Write(use_device);
+         a.number_of_elements = elements.Size();
+         a.nq = r->GetNPoints();
+@@ -402,6 +417,7 @@ namespace mfem_mgis::batch {
+           return false;
+         }
+       }
++      data.tangent_operator_blocks = K.data();
+       data.has_tangent_operator = true;
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+@@ -418,12 +434,14 @@ namespace mfem_mgis::batch {
+                                 mfem::Vector& m,
+                                 const FBarData& data,
+                                 const PartialQuadratureSpace& qs,
++                                const mgis::FieldView<const real>& K,
+                                 const ElementsGeometry& g,
+                                 const GradientsKind k) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+     static_cast<void>(data);
+     static_cast<void>(qs);
++    static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
+     return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
+@@ -433,13 +451,13 @@ namespace mfem_mgis::batch {
+       auto a = internals::FBarRankOneKernelArguments{};
+       // one thread per entry of the matrices
+       const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
+                                          "addFBarStiffnessMatrices", n * n)) {
+         return false;
+       }
+-      if (!addStiffnessMatrices(ctx, m, qs,
+-                                getFBarTangentOperator(data, qs, k, use_device),
+-                                g, k)) {
++      if (!addStiffnessMatrices(
++              ctx, m, qs, K, g, k,
++              getFBarTangentOperatorModification(data, use_device))) {
+         return false;
+       }
+       if (a.number_of_elements != 0) {
+@@ -461,12 +479,14 @@ namespace mfem_mgis::batch {
+                                 const AssembledStiffnessMatrix& m,
+                                 const FBarData& data,
+                                 const PartialQuadratureSpace& qs,
++                                const mgis::FieldView<const real>& K,
+                                 const ElementsGeometry& g,
+                                 const GradientsKind k) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+     static_cast<void>(data);
+     static_cast<void>(qs);
++    static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
+     return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
+@@ -476,13 +496,13 @@ namespace mfem_mgis::batch {
+       auto a = internals::FBarRankOneKernelArguments{};
+       // one thread per row of the matrices
+       if (!getFBarRankOneKernelArguments(
+-              ctx, a, data, qs, g, k, use_device, "addFBarStiffnessMatrices",
++              ctx, a, data, qs, K, g, k, use_device, "addFBarStiffnessMatrices",
+               std::int64_t{g.nd} * getUnknownsSize(k))) {
+         return false;
+       }
+-      if (!addStiffnessMatrices(ctx, m, qs,
+-                                getFBarTangentOperator(data, qs, k, use_device),
+-                                g, k)) {
++      if (!addStiffnessMatrices(
++              ctx, m, qs, K, g, k,
++              getFBarTangentOperatorModification(data, use_device))) {
+         return false;
+       }
+       if (a.number_of_elements != 0) {
+@@ -519,12 +539,14 @@ namespace mfem_mgis::batch {
+                                          mfem::Vector& d,
+                                          const FBarData& data,
+                                          const PartialQuadratureSpace& qs,
++                                         const mgis::FieldView<const real>& K,
+                                          const ElementsGeometry& g,
+                                          const GradientsKind k) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(d);
+     static_cast<void>(data);
+     static_cast<void>(qs);
++    static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
+     return reportFBarKernelsNotCompiled(ctx,
+@@ -535,14 +557,14 @@ namespace mfem_mgis::batch {
+       auto a = internals::FBarRankOneKernelArguments{};
+       // one thread per degree of freedom
+       if (!getFBarRankOneKernelArguments(
+-              ctx, a, data, qs, g, k, use_device,
++              ctx, a, data, qs, K, g, k, use_device,
+               "addFBarStiffnessMatricesDiagonals",
+               std::int64_t{g.nd} * getUnknownsSize(k))) {
+         return false;
+       }
+       if (!addStiffnessMatricesDiagonals(
+-              ctx, d, qs, getFBarTangentOperator(data, qs, k, use_device), g,
+-              k)) {
++              ctx, d, qs, K, g, k,
++              getFBarTangentOperatorModification(data, use_device))) {
+         return false;
+       }
+       if (a.number_of_elements != 0) {
+@@ -564,6 +586,7 @@ namespace mfem_mgis::batch {
+                                     mfem::Vector& y,
+                                     const FBarData& data,
+                                     const PartialQuadratureSpace& qs,
++                                    const mgis::FieldView<const real>& K,
+                                     const mfem::Vector& x,
+                                     const ElementsGeometry& g,
+                                     const GradientsKind k) noexcept {
+@@ -571,6 +594,7 @@ namespace mfem_mgis::batch {
+     static_cast<void>(y);
+     static_cast<void>(data);
+     static_cast<void>(qs);
++    static_cast<void>(K);
+     static_cast<void>(x);
+     static_cast<void>(g);
+     static_cast<void>(k);
+@@ -580,13 +604,13 @@ namespace mfem_mgis::batch {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+       // one thread per element
+-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
+                                          "addFBarTangentOperatorAction", 1)) {
+         return false;
+       }
+       if (!addTangentOperatorAction(
+-              ctx, y, qs, getFBarTangentOperator(data, qs, k, use_device), x, g,
+-              k)) {
++              ctx, y, qs, K, x, g, k,
++              getFBarTangentOperatorModification(data, use_device))) {
+         return false;
+       }
+       if (a.number_of_elements != 0) {
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index f0cb9fc707..b38f5a6b94 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -216,11 +216,13 @@ namespace mfem_mgis::batch::internals {
+           v[r] += Kv(r, col) * F[col];
+         }
+       }
+-      auto* const Km = a.modified_tangent_operator + o * sgs * sgs;
++      // vectors of the modification of the tangent operator, `K' = α K + v
++      // ⊗ c`, applied by the kernels of the stiffness matrices
++      auto* const vo = a.v + o * sgs;
++      auto* const co = a.c + o * sgs;
+       for (int r = 0; r != gs; ++r) {
+-        for (int col = 0; col != gs; ++col) {
+-          Km[r * gs + col] = alpha * Kv(r, col) + v[r] * c[col];
+-        }
++        vo[r] = v[r];
++        co[r] = c[r];
+       }
+       auto* const s = a.pseudo_stresses + o * sgs;
+       for (int r = 0; r != gs; ++r) {
+diff --git a/src/Batch/FBarKernels.hxx b/src/Batch/FBarKernels.hxx
+index 6c357de74c..99b646f682 100644
+--- a/src/Batch/FBarKernels.hxx
++++ b/src/Batch/FBarKernels.hxx
+@@ -83,8 +83,9 @@ namespace mfem_mgis::batch::internals {
+   };
+ 
+   /*!
+-   * \brief arguments of the kernel computing the tangent operator `K'` and
+-   * the pseudo-stresses `α / (ie J0) K F` at the integration points of a
++   * \brief arguments of the kernel computing the vectors `v = K F` and `c =
++   * dα/dF` of the tangent operator `K' = α K + v ⊗ c` and the
++   * pseudo-stresses `α / (ie J0) K F` at the integration points of a
+    * material
+    */
+   struct FBarTangentOperatorKernelArguments {
+@@ -104,8 +105,13 @@ namespace mfem_mgis::batch::internals {
+     long long point_stride = 0;
+     //! \brief stride between two components of the tangent operator blocks
+     long long component_stride = 0;
+-    //! \brief tangent operator `K'`, point by point
+-    real* modified_tangent_operator = nullptr;
++    /*!
++     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`,
++     * point by point
++     */
++    real* v = nullptr;
++    //! \brief vectors `c = dα/dF`, point by point
++    real* c = nullptr;
+     //! \brief pseudo-stresses, point by point
+     real* pseudo_stresses = nullptr;
+     //! \brief number of elements of the material
+@@ -152,8 +158,9 @@ namespace mfem_mgis::batch::internals {
+                                  const FBarGradientsKernelArguments&,
+                                  const bool);
+   /*!
+-   * \brief launches the kernel computing the tangent operator `K'` and the
+-   * pseudo-stresses: one thread per integration point
++   * \brief launches the kernel computing the vectors `v` and `c` of the
++   * tangent operator `K'` and the pseudo-stresses: one thread per
++   * integration point
+    * \param[in] k: kind of the gradients
+    * \param[in] a: arguments
+    * \param[in] d: if true, the kernel runs on the device
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index c60b0345fb..5e8d95251b 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -43,6 +43,7 @@ namespace mfem_mgis::batch {
+    * \param[in] K: tangent operator blocks
+    * \param[in] g: geometric data
+    * \param[in] k: kind of the gradients
++   * \param[in] mod: modification of the tangent operator blocks
+    * \param[in] use_device: if true, the pointers are located on the device
+    * \param[in] name: name of the calling function, for the error messages
+    * \param[in] diagonals: if true, the kernels compute the diagonals of the
+@@ -57,6 +58,7 @@ namespace mfem_mgis::batch {
+       const mgis::FieldView<const real>& K,
+       const ElementsGeometry& g,
+       const GradientsKind k,
++      const TangentOperatorModification& mod,
+       const bool use_device,
+       const std::string& name,
+       const bool diagonals) {
+@@ -105,6 +107,19 @@ namespace mfem_mgis::batch {
+     a.tangent_operator = K.data();
+     a.point_stride = static_cast<long long>(K.getPointStride());
+     a.component_stride = static_cast<long long>(K.getComponentStride());
++    if (mod.coefficients != nullptr) {
++      if ((mod.v == nullptr) || (mod.c == nullptr) ||
++          ((k != GradientsKind::DEFORMATION_GRADIENT_3D) &&
++           (k != GradientsKind::DEFORMATION_GRADIENT_2D))) {
++        return ctx.registerErrorMessage(
++            name +
++            ": invalid modification of the tangent operator blocks (vectors "
++            "not given, or gradients which are not deformation gradients)");
++      }
++      a.modification_coefficients = mod.coefficients;
++      a.modification_v = mod.v;
++      a.modification_c = mod.c;
++    }
+     a.elements = elements.Read(use_device);
+     a.offsets = offsets.Read(use_device);
+     a.shape_functions_gradients = g.maps->G.Read(use_device);
+@@ -123,13 +138,15 @@ namespace mfem_mgis::batch {
+                             const PartialQuadratureSpace& qs,
+                             const mgis::FieldView<const real>& K,
+                             const ElementsGeometry& g,
+-                            const GradientsKind k) noexcept {
++                            const GradientsKind k,
++                            const TangentOperatorModification& mod) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+     static_cast<void>(qs);
+     static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
++    static_cast<void>(mod);
+     return ctx.registerErrorMessage(
+         "addStiffnessMatrices: the kernels computing the stiffness matrices "
+         "are not compiled (MFEM compiled with HIP)");
+@@ -138,7 +155,7 @@ namespace mfem_mgis::batch {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+       auto error = false;
+-      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
++      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k, mod,
+                                                use_device,
+                                                "addStiffnessMatrices", false)) {
+         return !error;
+@@ -162,18 +179,21 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatrices
+ 
+-  bool addStiffnessMatricesDiagonals(Context& ctx,
+-                                     mfem::Vector& d,
+-                                     const PartialQuadratureSpace& qs,
+-                                     const mgis::FieldView<const real>& K,
+-                                     const ElementsGeometry& g,
+-                                     const GradientsKind k) noexcept {
++  bool addStiffnessMatricesDiagonals(
++      Context& ctx,
++      mfem::Vector& d,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const TangentOperatorModification& mod) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(d);
+     static_cast<void>(qs);
+     static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
++    static_cast<void>(mod);
+     return ctx.registerErrorMessage(
+         "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
+         "matrices are not compiled (MFEM compiled with HIP)");
+@@ -183,7 +203,7 @@ namespace mfem_mgis::batch {
+       auto a = internals::StiffnessMatricesKernelArguments{};
+       auto error = false;
+       if (!getStiffnessMatricesKernelArguments(
+-              ctx, a, error, qs, K, g, k, use_device,
++              ctx, a, error, qs, K, g, k, mod, use_device,
+               "addStiffnessMatricesDiagonals", true)) {
+         return !error;
+       }
+@@ -207,13 +227,15 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatricesDiagonals
+ 
+-  bool addTangentOperatorAction(Context& ctx,
+-                                mfem::Vector& y,
+-                                const PartialQuadratureSpace& qs,
+-                                const mgis::FieldView<const real>& K,
+-                                const mfem::Vector& x,
+-                                const ElementsGeometry& g,
+-                                const GradientsKind k) noexcept {
++  bool addTangentOperatorAction(
++      Context& ctx,
++      mfem::Vector& y,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const mfem::Vector& x,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const TangentOperatorModification& mod) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(y);
+     static_cast<void>(qs);
+@@ -221,6 +243,7 @@ namespace mfem_mgis::batch {
+     static_cast<void>(x);
+     static_cast<void>(g);
+     static_cast<void>(k);
++    static_cast<void>(mod);
+     return ctx.registerErrorMessage(
+         "addTangentOperatorAction: the kernels computing the stiffness "
+         "matrices are not compiled (MFEM compiled with HIP)");
+@@ -232,7 +255,7 @@ namespace mfem_mgis::batch {
+       // one thread per element: the check of the number of threads made for
+       // the diagonals (one thread per node) is sufficient
+       if (!getStiffnessMatricesKernelArguments(
+-              ctx, a, error, qs, K, g, k, use_device,
++              ctx, a, error, qs, K, g, k, mod, use_device,
+               "addTangentOperatorAction", true)) {
+         return !error;
+       }
+@@ -416,13 +439,15 @@ namespace mfem_mgis::batch {
+                             const PartialQuadratureSpace& qs,
+                             const mgis::FieldView<const real>& K,
+                             const ElementsGeometry& g,
+-                            const GradientsKind k) noexcept {
++                            const GradientsKind k,
++                            const TangentOperatorModification& mod) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+     static_cast<void>(qs);
+     static_cast<void>(K);
+     static_cast<void>(g);
+     static_cast<void>(k);
++    static_cast<void>(mod);
+     return ctx.registerErrorMessage(
+         "addStiffnessMatrices: the kernels computing the stiffness matrices "
+         "are not compiled (MFEM compiled with HIP)");
+@@ -442,7 +467,7 @@ namespace mfem_mgis::batch {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+       auto error = false;
+-      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
++      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k, mod,
+                                                use_device,
+                                                "addStiffnessMatrices", false)) {
+         return !error;
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 4e577423b1..00ba3e1dbf 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -135,6 +135,51 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of addUnknownsBlock
+ 
++  /*!
++   * \brief product of the tangent operator blocks at a point by a vector,
++   * `y = K x`, or `y = α K x + v (c · x)` if the blocks are modified (see
++   * `TangentOperatorModification`)
++   * \tparam K: kind of the gradients
++   * \param[out] y: product
++   * \param[in] a: arguments of the kernels
++   * \param[in] o: offset of the point in the material
++   * \param[in] x: vector (one value per component of the gradients)
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline void multiplyByTangentOperator(
++      real* const y,
++      const StiffnessMatricesKernelArguments& a,
++      const long long o,
++      const real* const x) {
++    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++    const auto* const t = a.tangent_operator + o * a.point_stride;
++    const auto cs = a.component_stride;
++    for (std::size_t r1 = 0; r1 != gs; ++r1) {
++      y[r1] = 0;
++      for (std::size_t r2 = 0; r2 != gs; ++r2) {
++        y[r1] += getTangentOperatorComponent<K>(t, r1, r2, cs) * x[r2];
++      }
++    }
++    // the tangent operator blocks are only modified for the deformation
++    // gradients (FBar formulation)
++    constexpr auto deformation_gradient =
++        (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
++        (K == GradientsKind::DEFORMATION_GRADIENT_2D);
++    if (deformation_gradient && (a.modification_coefficients != nullptr)) {
++      const auto so = static_cast<std::size_t>(o);
++      const auto* const v = a.modification_v + gs * so;
++      const auto* const c = a.modification_c + gs * so;
++      const auto alpha = a.modification_coefficients[so];
++      auto cx = real{0};
++      for (std::size_t r = 0; r != gs; ++r) {
++        cx += c[r] * x[r];
++      }
++      for (std::size_t r1 = 0; r1 != gs; ++r1) {
++        y[r1] = alpha * y[r1] + v[r1] * cx;
++      }
++    }
++  }  // end of multiplyByTangentOperator
++
+   /*!
+    * \brief version of `launchStiffnessMatricesKernel` used without device:
+    * one iteration per element, the physical derivatives of the shape functions,
+@@ -183,12 +228,17 @@ namespace mfem_mgis::batch::internals {
+           computeB<K>(op.B, dN,
+                       getShapeFunctionValue<K>(a.shape_functions, q, nq, node));
+           for (std::size_t d = 0; d != V; ++d) {
++            // column of `B` (number of components known at compile time)
++            constexpr auto ngs =
++                static_cast<std::size_t>(getGradientsSize<K>());
++            real Bd[9];
++            for (std::size_t r = 0; r != ngs; ++r) {
++              Bd[r] = op.B[r][d];
++            }
++            real KBd[9];
++            multiplyByTangentOperator<K>(KBd, a, o2, Bd);
+             for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-              op.KB[r1][d] = 0;
+-              for (std::size_t r2 = 0; r2 != gs; ++r2) {
+-                op.KB[r1][d] +=
+-                    getTangentOperatorComponent<K>(t, r1, r2, cs) * op.B[r2][d];
+-              }
++              op.KB[r1][d] = KBd[r1];
+             }
+           }
+         }
+@@ -278,19 +328,21 @@ namespace mfem_mgis::batch::internals {
+                     getShapeFunctionValue<K>(a.shape_functions, q, nq, nb));
+         const auto o2 =
+             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
+-        const auto* const t = a.tangent_operator + o2 * a.point_stride;
+-        const auto cs = a.component_stride;
++        // tangent operator blocks of the point, read by `addUnknownsBlock`
++        [[maybe_unused]] const auto* const t =
++            a.tangent_operator + o2 * a.point_stride;
++        [[maybe_unused]] const auto cs = a.component_stride;
+         const auto w = a.weights[q] * detJ;
+         // K B_b, then B_aᵀ (K B_b)
+         for (std::size_t d = 0; d != V; ++d) {
+-          real KB[9];
+-          for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-            KB[r1] = 0;
+-            for (std::size_t r2 = 0; r2 != gs; ++r2) {
+-              KB[r1] +=
+-                  getTangentOperatorComponent<K>(t, r1, r2, cs) * Bb[r2][d];
+-            }
++          // column of `B` (number of components known at compile time)
++          constexpr auto ngs = static_cast<std::size_t>(getGradientsSize<K>());
++          real Bd[9];
++          for (std::size_t r = 0; r != ngs; ++r) {
++            Bd[r] = Bb[r][d];
+           }
++          real KB[9];
++          multiplyByTangentOperator<K>(KB, a, o2, Bd);
+           for (std::size_t c = 0; c != V; ++c) {
+             auto v = real{0};
+             for (std::size_t r1 = 0; r1 != gs; ++r1) {
+@@ -436,16 +488,13 @@ namespace mfem_mgis::batch::internals {
+             // increment of the thermodynamic forces, K B x
+             const auto o = static_cast<long long>(a.offsets[k]) +
+                            static_cast<long long>(q);
+-            const auto* const t = a.tangent_operator + o * a.point_stride;
+-            const auto cs = a.component_stride;
++            // tangent operator blocks of the point, for the derivatives with
++            // respect to the unknowns
++            [[maybe_unused]] const auto* const t =
++                a.tangent_operator + o * a.point_stride;
++            [[maybe_unused]] const auto cs = a.component_stride;
+             real ds[gs];
+-            for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-              ds[r1] = 0;
+-              for (std::size_t r2 = 0; r2 != gs; ++r2) {
+-                ds[r1] +=
+-                    getTangentOperatorComponent<K>(t, r1, r2, cs) * dg[r2];
+-              }
+-            }
++            multiplyByTangentOperator<K>(ds, a, o, dg);
+             if constexpr (hasUnknownsBlock<K>()) {
+               // increment of the unknowns at the point, N x, times the
+               // derivatives of the thermodynamic forces with respect to the
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index 7428068803..c05c73af5d 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -49,6 +49,16 @@ namespace mfem_mgis::batch::internals {
+     long long point_stride = 0;
+     //! \brief stride between two components of the tangent operator blocks
+     long long component_stride = 0;
++    /*!
++     * \brief coefficients `α` of the modification of the tangent operator
++     * blocks at the points, `K' = α K + v ⊗ c` (see
++     * `TangentOperatorModification`), null if the blocks are not modified
++     */
++    const real* modification_coefficients = nullptr;
++    //! \brief vectors `v` of the modification, point by point
++    const real* modification_v = nullptr;
++    //! \brief vectors `c` of the modification, point by point
++    const real* modification_c = nullptr;
+     //! \brief matrices element by element
+     real* matrices = nullptr;
+     //! \brief number of elements of the material
+-- 
+2.43.0
+

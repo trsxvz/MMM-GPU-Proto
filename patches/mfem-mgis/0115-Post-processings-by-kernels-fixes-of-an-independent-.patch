@@ -1,0 +1,894 @@
+From affeddab216cb7c3afed87f8fb6fedd8c5f6562b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 21:06:44 +0200
+Subject: [PATCH] Post-processings by kernels: fixes of an independent review
+
+- The values at the nodes fall back to the computation element by
+  element for the elements with more than 32 degrees of freedom (the
+  local projections by kernels threw an exception, which terminated the
+  noexcept exports), and for the Bernstein basis, which is not nodal.
+- The mass matrices of the L2 projection are computed by the kernel of
+  mfem-mgis for all the elements, in the ordering of the element matrices
+  of MFEM (lexicographic for the tensor bases), instead of the full
+  assembly of mfem::MassIntegrator for the tensor bases, which gave
+  nodes to a mesh without nodes (slowing down the computations element
+  by element which followed). The operator of the implicit gradient
+  regularization is assembled element by element.
+- The choice of the kernels for the L2 projections is made by all the
+  processes, as for the values at the nodes: a local choice could lead
+  the processes to different collective operations (blocking with a mesh
+  mixing quadrangles and triangles). The Bernstein basis and the devices
+  of libCEED (assembly without element restriction) are refused.
+- The local projections use the absolute values of the determinants of
+  the jacobians: the Cholesky factorization failed for elements of
+  negative orientation.
+- computeMeasure and computeIntegral compute the geometric data of the
+  elements of the material only (computeElementsGeometry with a list of
+  elements): the data of the whole mesh were computed for each material
+  (49.8 s instead of 0.04 s for 1000 materials).
+- The lexicographic ordering of the dofs is copied from the finite element
+  before being read on the device (the debug device protected the memory
+  of the finite element on the host).
+- An invalid MFEM_MGIS_POST_PROCESSINGS_COMPUTATION is reported by
+  initialize. gatherValues refuses more values than an int can index.
+- PostProcessingsKernelsTest: non finite values detected, check that the
+  mesh is not given nodes, variants with the dofs ordered by vector
+  dimension and of order 3 (values at the nodes element by element).
+- Documentation updated.
+---
+ docs/source/user_guide/batch_computations.rst | 27 ++++--
+ include/MFEMMGIS/Batch/ElementsGeometry.hxx   | 19 ++++
+ .../Batch/IntegrationPointsFunctions.hxx      | 17 +++-
+ src/AbstractBehaviourIntegrator.cxx           |  4 +-
+ src/Batch/ElementsGeometry.cxx                | 62 +++++++++----
+ src/Batch/IntegrationPointsFunctions.cxx      | 38 +++++++-
+ .../IntegrationPointsFunctionsKernels.cxx     | 24 +++--
+ .../IntegrationPointsFunctionsKernels.hxx     |  9 ++
+ src/Config.cxx                                |  5 +
+ src/L2Projection.cxx                          | 92 +++++++++++++------
+ src/PartialQuadratureFunction.cxx             | 20 ++--
+ tests/CMakeLists.txt                          |  7 ++
+ tests/PostProcessingsKernelsTest.cxx          | 41 ++++++++-
+ 13 files changed, 284 insertions(+), 81 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 277b4c9241..e3575c523c 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -357,27 +357,34 @@ the post-processings are also made by kernels, on the device if a device
+ is enabled, when the environment variable
+ :code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is :code:`Kernels`
+ (:code:`ElementByElement` by default; the variable is read at each
+-computation):
++computation, and an invalid value is reported by
++:code:`mfem_mgis::initialize`):
+ 
+ - :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
+   elements, for the behaviour integrators which support kernels (the
+   weight of an integration point is then :code:`w det J`);
+ - :code:`computeL2Projection` and
+   :code:`computeImplicitGradientRegularization`: right-hand sides by a
+-  kernel; operator assembled on the device by :code:`MFEM`
+-  (:code:`AssemblyLevel::FULL`) for the elements with a tensor basis, and
+-  mass matrices computed by kernels for the other elements (the diffusion
+-  term of the implicit gradient regularization is then assembled element
+-  by element);
++  kernel; for the L2 projection, mass matrices computed by a kernel and
++  assembled by :code:`MFEM` (:code:`AssemblyLevel::FULL`), on the device
++  if a device is enabled; the operator of the implicit gradient
++  regularization is assembled element by element;
+ - :code:`updateGridFunction`, used by the exports of the results at the
+   nodes (:code:`ParaviewExportIntegrationPointResultsAtNodes`): local
+   projections by a kernel, then arithmetic mean at the nodes through the
+   element restriction and, in parallel, the prolongation.
+ 
+-The other cases (functions defined on boundaries or on a part of the
+-mesh, integration rules differing between the elements of a material,
+-elements of different geometries, non conforming meshes for the values at
+-the nodes) are computed element by element.
++The other cases are computed element by element: functions defined on
++boundaries or on a part of the mesh, integration rules differing between
++the elements of a material, elements of different geometries, finite
++element spaces other than the Lagrange elements (Bernstein basis
++included), devices of :code:`libCEED` for the L2 projections, and, for the
++values at the nodes, non conforming meshes and elements with more than 32
++degrees of freedom (hexahedra of order 3, for instance). In parallel, the
++choice is made by all the processes. The mesh is not modified (no nodes
++are given to a mesh without nodes). The values at the nodes and the
++projections computed on the device are valid on the device, and copied on
++the host when read there.
+ :code:`getNumberOfPostProcessingsComputationsByKernels`
+ (:code:`MFEMMGIS/PostProcessingsComputation.hxx`) counts the computations
+ made by kernels. The results only differ from the ones computed element
+diff --git a/include/MFEMMGIS/Batch/ElementsGeometry.hxx b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+index f06543b754..92899ac856 100644
+--- a/include/MFEMMGIS/Batch/ElementsGeometry.hxx
++++ b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+@@ -125,6 +125,25 @@ namespace mfem_mgis::batch {
+       ElementsGeometry&,
+       const mfem::FiniteElementSpace&,
+       const mfem::IntegrationRule&) noexcept;
++  /*!
++   * \brief computes the geometric data of a list of elements of the mesh
++   * for an integration rule, as `computeElementsGeometry`, the data of the
++   * `k`-th element of the list being stored as the ones of the element `k`
++   * (`ne` is the number of elements of the list)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] g: geometric data
++   * \param[in] fes: finite element space
++   * \param[in] ir: integration rule
++   * \param[in] elements: elements (local numbering of the finite element
++   * space)
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsGeometry(
++      Context&,
++      ElementsGeometry&,
++      const mfem::FiniteElementSpace&,
++      const mfem::IntegrationRule&,
++      const mfem::Array<int>&) noexcept;
+ 
+ }  // end of namespace mfem_mgis::batch
+ 
+diff --git a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+index f611d8b873..73ed0471af 100644
+--- a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
++++ b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+@@ -12,6 +12,7 @@
+ 
+ #include <optional>
+ #include "mfem/linalg/vector.hpp"
++#include "mfem/fem/fespace.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+ 
+@@ -51,7 +52,9 @@ namespace mfem_mgis::batch {
+    * \param[in] qs: partial quadrature space. All its elements must use the
+    * integration rule of the geometric data.
+    * \param[in] v: values of the function (see `gatherValues`), or null
+-   * \param[in] g: geometric data
++   * \param[in] g: geometric data of all the elements of the mesh, or of the
++   * elements of the space only (`computeElementsGeometry` with the list of
++   * the elements of the space), recognized by their number of elements
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> computeIntegral(
+       Context&,
+@@ -129,16 +132,22 @@ namespace mfem_mgis::batch {
+    * \brief computes, or adds, the mass matrices of all the elements of a
+    * scalar finite element space, `N_i N_j w det J` summed over the points of
+    * the integration rule of the geometric data, in the layout of the
+-   * element matrices of MFEM (`nd x nd x ne`, native ordering of the
+-   * degrees of freedom), on the device if a device is enabled
++   * element matrices of MFEM (`nd x nd x ne`), on the device if a device is
++   * enabled
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in, out] m: mass matrices
+    * \param[in] g: geometric data of the finite element space
++   * \param[in] o: ordering of the degrees of freedom (the lexicographic
++   * ordering requires elements with a tensor basis)
+    * \param[in] add: if true, the mass matrices are added to `m`
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool computeMassMatrices(
+-      Context&, mfem::Vector&, const ElementsGeometry&, const bool) noexcept;
++      Context&,
++      mfem::Vector&,
++      const ElementsGeometry&,
++      const mfem::ElementDofOrdering,
++      const bool) noexcept;
+ 
+ }  // end of namespace mfem_mgis::batch
+ 
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 9c017403a5..49e7a5d9e7 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -164,8 +164,10 @@ namespace mfem_mgis {
+     const auto& fespace = qspace.getFiniteElementDiscretization()
+                               .getFiniteElementSpace<parallel>();
+     auto ctx = Context{};
++    // geometric data of the elements of the space only
+     auto g = batch::ElementsGeometry{};
+-    if (!batch::computeElementsGeometry(ctx, g, fespace, *ir)) {
++    if (!batch::computeElementsGeometry(ctx, g, fespace, *ir,
++                                        qspace.getElements())) {
+       return {};
+     }
+     auto values = mfem::Vector{};
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index 638302edbf..1d94b33565 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -51,12 +51,17 @@ namespace mfem_mgis::batch {
+    * \param[out] n: nodes
+    * \param[in] mesh: mesh
+    * \param[in] dim: dimension of the space
++   * \param[in] elements: elements, all the elements of the mesh if null
+    */
+   static bool getTransformationsNodes(Context& ctx,
+                                       TransformationsNodes& n,
+                                       const mfem::Mesh& mesh,
+-                                      const int dim) {
+-    const auto ne = mesh.GetNE();
++                                      const int dim,
++                                      const mfem::Array<int>* const elements) {
++    const auto ne = (elements != nullptr) ? elements->Size() : mesh.GetNE();
++    const auto* const le =
++        (elements != nullptr) ? elements->HostRead() : nullptr;
++    auto element = [le](const int k) { return (le != nullptr) ? le[k] : k; };
+     const auto* const nodes = mesh.GetNodes();
+     if (nodes == nullptr) {
+       // the finite element of the transformations, whose degrees of freedom
+@@ -80,13 +85,13 @@ namespace mfem_mgis::batch {
+     n.element_nodes.SetSize(ne * nd);
+     auto* const en = n.element_nodes.HostWrite();
+     if (nodes == nullptr) {
+-      for (int e = 0; e != ne; ++e) {
+-        const auto* const element = mesh.GetElement(e);
+-        if (element->GetNVertices() != nd) {
++      for (int k = 0; k != ne; ++k) {
++        const auto* const ek = mesh.GetElement(element(k));
++        if (ek->GetNVertices() != nd) {
+           return ctx.registerErrorMessage(
+               "computeElementsGeometry: unexpected number of vertices");
+         }
+-        std::copy_n(element->GetVertices(), nd, en + nd * e);
++        std::copy_n(ek->GetVertices(), nd, en + nd * k);
+       }
+       mesh.GetVertices(n.vertices);
+       n.coordinates = &(n.vertices);
+@@ -97,8 +102,8 @@ namespace mfem_mgis::batch {
+     const auto& nfes = *(nodes->FESpace());
+     auto dofs = mfem::Array<int>{};
+     auto doftrans = mfem::DofTransformation{};
+-    for (int e = 0; e != ne; ++e) {
+-      nfes.GetElementDofs(e, dofs, doftrans);
++    for (int k = 0; k != ne; ++k) {
++      nfes.GetElementDofs(element(k), dofs, doftrans);
+       if ((dofs.Size() != nd) || (!doftrans.IsIdentity())) {
+         return ctx.registerErrorMessage(
+             "computeElementsGeometry: unsupported nodes of the mesh");
+@@ -109,7 +114,7 @@ namespace mfem_mgis::batch {
+           return ctx.registerErrorMessage(
+               "computeElementsGeometry: unsupported nodes of the mesh");
+         }
+-        en[i + nd * e] = dofs[i];
++        en[i + nd * k] = dofs[i];
+       }
+     }
+     n.coordinates = nodes;
+@@ -133,11 +138,13 @@ namespace mfem_mgis::batch {
+    * points and the dimension must be set.
+    * \param[in] mesh: mesh
+    * \param[in] ir: integration rule
++   * \param[in] elements: elements, all the elements of the mesh if null
+    */
+   static bool computeJacobians(Context& ctx,
+                                ElementsGeometry& g,
+                                const mfem::Mesh& mesh,
+-                               const mfem::IntegrationRule& ir) {
++                               const mfem::IntegrationRule& ir,
++                               const mfem::Array<int>* const elements) {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(g);
+     static_cast<void>(mesh);
+@@ -152,7 +159,7 @@ namespace mfem_mgis::batch {
+           "computeElementsGeometry: too many points for the kernel");
+     }
+     auto n = TransformationsNodes{};
+-    if (!getTransformationsNodes(ctx, n, mesh, g.dim)) {
++    if (!getTransformationsNodes(ctx, n, mesh, g.dim, elements)) {
+       return false;
+     }
+     const auto nd = n.fe->GetDof();
+@@ -202,10 +209,16 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeJacobians
+ 
+-  bool computeElementsGeometry(Context& ctx,
+-                               ElementsGeometry& g,
+-                               const mfem::FiniteElementSpace& fes,
+-                               const mfem::IntegrationRule& ir) noexcept {
++  /*!
++   * \brief implementation of the two `computeElementsGeometry` functions
++   * \param[in] elements: elements, all the elements of the mesh if null
++   */
++  static bool computeElementsGeometryImplementation(
++      Context& ctx,
++      ElementsGeometry& g,
++      const mfem::FiniteElementSpace& fes,
++      const mfem::IntegrationRule& ir,
++      const mfem::Array<int>* const elements) noexcept {
+     try {
+       auto& mesh = *(fes.GetMesh());
+       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
+@@ -227,7 +240,7 @@ namespace mfem_mgis::batch {
+       g.rule = &ir;
+       g.dim = mesh.Dimension();
+       g.nq = ir.GetNPoints();
+-      g.ne = fes.GetNE();
++      g.ne = (elements != nullptr) ? elements->Size() : fes.GetNE();
+       if (g.ne == 0) {
+         return true;
+       }
+@@ -246,7 +259,7 @@ namespace mfem_mgis::batch {
+             "cached by the finite element do not match the integration rule");
+       }
+       // the mesh is not modified (see `mfem::Mesh::EnsureNodes`)
+-      if (!computeJacobians(ctx, g, mesh, ir)) {
++      if (!computeJacobians(ctx, g, mesh, ir, elements)) {
+         return false;
+       }
+       g.weights.UseDevice(true);
+@@ -263,6 +276,21 @@ namespace mfem_mgis::batch {
+           "computeElementsGeometry: unknown exception");
+     }
+     return true;
++  }  // end of computeElementsGeometryImplementation
++
++  bool computeElementsGeometry(Context& ctx,
++                               ElementsGeometry& g,
++                               const mfem::FiniteElementSpace& fes,
++                               const mfem::IntegrationRule& ir) noexcept {
++    return computeElementsGeometryImplementation(ctx, g, fes, ir, nullptr);
++  }  // end of computeElementsGeometry
++
++  bool computeElementsGeometry(Context& ctx,
++                               ElementsGeometry& g,
++                               const mfem::FiniteElementSpace& fes,
++                               const mfem::IntegrationRule& ir,
++                               const mfem::Array<int>& elements) noexcept {
++    return computeElementsGeometryImplementation(ctx, g, fes, ir, &elements);
+   }  // end of computeElementsGeometry
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index f794011551..9ecd145138 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -6,6 +6,7 @@
+  * \date   11/10/2026
+  */
+ 
++#include <limits>
+ #include <string>
+ #include <cstdint>
+ #include <exception>
+@@ -36,6 +37,10 @@ namespace mfem_mgis::batch {
+       }
+       const auto nq = (n == 0) ? std::int64_t{0} : ir->GetNPoints();
+       const auto nc = static_cast<std::int64_t>(f.getNumberOfComponents());
++      if (nc * nq * n > std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "gatherValues: too many values for a vector of MFEM");
++      }
+       v.SetSize(static_cast<int>(nc * nq * n));
+       v.UseDevice(true);
+       auto* const pv = v.HostWrite();
+@@ -157,6 +162,8 @@ namespace mfem_mgis::batch {
+                                "computeIntegral")) {
+         return {};
+       }
++      // geometric data of the elements of the space only
++      a.compact_geometry = (g.ne == qs.getElements().Size());
+       auto w = mfem::Array<real>{};
+       return internals::launchIntegralKernel(a, w, use_device);
+     } catch (...) {
+@@ -272,10 +279,12 @@ namespace mfem_mgis::batch {
+   bool computeMassMatrices(Context& ctx,
+                            mfem::Vector& m,
+                            const ElementsGeometry& g,
++                           const mfem::ElementDofOrdering o,
+                            const bool add) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+     static_cast<void>(g);
++    static_cast<void>(o);
+     static_cast<void>(add);
+     return ctx.registerErrorMessage(
+         getUnavailableKernelsMessage("computeMassMatrices"));
+@@ -296,13 +305,40 @@ namespace mfem_mgis::batch {
+     }
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
++      // native index of each degree of freedom in the lexicographic ordering,
++      // copied from the finite element: the arrays of the finite elements,
++      // used by MFEM on the host, are not read on the device (the debug
++      // device of MFEM would protect their memory on the host)
++      auto permutation = mfem::Array<int>{};
++      const int* p = nullptr;
++      if (o == mfem::ElementDofOrdering::LEXICOGRAPHIC) {
++        const auto* const tfe =
++            dynamic_cast<const mfem::TensorBasisElement*>(g.maps->FE);
++        if (tfe == nullptr) {
++          return ctx.registerErrorMessage(
++              std::string{name} +
++              ": the lexicographic ordering requires a tensor basis");
++        }
++        const auto& dof_map = tfe->GetDofMap();
++        if (dof_map.Size() != 0) {
++          if (dof_map.Size() != g.nd) {
++            return ctx.registerErrorMessage(std::string{name} +
++                                            ": invalid lexicographic ordering");
++          }
++          permutation.SetSize(dof_map.Size());
++          for (int i = 0; i != dof_map.Size(); ++i) {
++            permutation[i] = dof_map[i];
++          }
++          p = permutation.Read(use_device);
++        }
++      }
+       auto a = internals::IntegrationRuleKernelArguments{};
+       a.shape_functions = g.maps->B.Read(use_device);
+       a.determinants = g.jacobians->detJ.Read(use_device);
+       a.weights = g.weights.Read(use_device);
+       a.nq = g.nq;
+       auto* const r = add ? m.ReadWrite(use_device) : m.Write(use_device);
+-      internals::launchMassMatricesKernel(a, g.nd, g.ne, r, add, use_device);
++      internals::launchMassMatricesKernel(a, p, g.nd, g.ne, r, add, use_device);
+     } catch (...) {
+       return ctx.registerErrorMessage(getExceptionMessage(name));
+     }
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.cxx b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+index ce198ef97e..c7a269f01a 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.cxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+@@ -23,9 +23,10 @@ namespace mfem_mgis::batch::internals {
+     mfem::reduce(
+         a.number_of_elements, r,
+         [a] MFEM_HOST_DEVICE(const int k, real& s) {
+-          const auto e = static_cast<std::size_t>(a.elements[k]);
+-          const auto nq = static_cast<std::size_t>(a.points.nq);
+           const auto ke = static_cast<std::size_t>(k);
++          const auto e =
++              a.compact_geometry ? ke : static_cast<std::size_t>(a.elements[k]);
++          const auto nq = static_cast<std::size_t>(a.points.nq);
+           for (std::size_t q = 0; q != nq; ++q) {
+             const auto detJ = a.points.determinants[q + nq * e];
+             if (a.values == nullptr) {
+@@ -88,8 +89,12 @@ namespace mfem_mgis::batch::internals {
+               L[i * N + j] = real{0};
+             }
+           }
++          // the absolute values of the determinants are used for the mass
++          // matrix and for the right-hand side, so that the mass matrix is
++          // positive definite for elements of negative orientation, the
++          // projection being unchanged
+           for (std::size_t q = 0; q != nqm; ++q) {
+-            const auto w = m.weights[q] * m.determinants[q + nqm * e];
++            const auto w = m.weights[q] * fabs(m.determinants[q + nqm * e]);
+             for (std::size_t i = 0; i != nd; ++i) {
+               const auto wNi = w * m.shape_functions[q + nqm * i];
+               for (std::size_t j = 0; j <= i; ++j) {
+@@ -106,7 +111,7 @@ namespace mfem_mgis::batch::internals {
+           }
+           for (std::size_t q = 0; q != nq; ++q) {
+             const auto w =
+-                a.points.weights[q] * a.points.determinants[q + nq * e];
++                a.points.weights[q] * fabs(a.points.determinants[q + nq * e]);
+             const auto* const f = a.values + nc * (q + nq * ke);
+             for (std::size_t i = 0; i != nd; ++i) {
+               const auto wNi = w * a.points.shape_functions[q + nq * i];
+@@ -153,13 +158,14 @@ namespace mfem_mgis::batch::internals {
+   }  // end of launchLocalProjectionsKernel
+ 
+   void launchMassMatricesKernel(const IntegrationRuleKernelArguments& m,
++                                const int* const p,
+                                 const int nd,
+                                 const int ne,
+                                 real* const r,
+                                 const bool add,
+                                 const bool use_device) {
+     mfem::forall_switch(
+-        use_device, ne, [m, nd, r, add] MFEM_HOST_DEVICE(int k) {
++        use_device, ne, [m, p, nd, r, add] MFEM_HOST_DEVICE(int k) {
+           const auto e = static_cast<std::size_t>(k);
+           const auto nq = static_cast<std::size_t>(m.nq);
+           const auto n = static_cast<std::size_t>(nd);
+@@ -169,13 +175,17 @@ namespace mfem_mgis::batch::internals {
+               re[i] = real{0};
+             }
+           }
++          // native index of a degree of freedom of the mass matrix
++          auto native = [p](const std::size_t i) {
++            return (p != nullptr) ? static_cast<std::size_t>(p[i]) : i;
++          };
+           // same operations as the mass integrator of MFEM
+           for (std::size_t q = 0; q != nq; ++q) {
+             const auto w = m.weights[q] * m.determinants[q + nq * e];
+             for (std::size_t j = 0; j != n; ++j) {
+-              const auto wNj = w * m.shape_functions[q + nq * j];
++              const auto wNj = w * m.shape_functions[q + nq * native(j)];
+               for (std::size_t i = 0; i != n; ++i) {
+-                re[i + n * j] += wNj * m.shape_functions[q + nq * i];
++                re[i + n * j] += wNj * m.shape_functions[q + nq * native(i)];
+               }
+             }
+           }
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+index bac23db85f..b18fa9d08f 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.hxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+@@ -46,6 +46,12 @@ namespace mfem_mgis::batch::internals {
+     int number_of_elements = 0;
+     //! \brief number of degrees of freedom per element and per component
+     int nd = 0;
++    /*!
++     * \brief if true, the geometric data are the ones of the elements of the
++     * material only, the `k`-th element of the material being the `k`-th
++     * element of the geometric data
++     */
++    bool compact_geometry = false;
+   };
+ 
+   /*!
+@@ -97,6 +103,8 @@ namespace mfem_mgis::batch::internals {
+    * \brief launches the kernel computing, or adding, the mass matrices of
+    * all the elements (`nd x nd x ne`)
+    * \param[in] m: geometric data of the integration rule
++   * \param[in] p: native index of each degree of freedom of the mass
++   * matrices (lexicographic ordering), or null for the native ordering
+    * \param[in] nd: number of degrees of freedom per element
+    * \param[in] ne: number of elements
+    * \param[in, out] r: mass matrices
+@@ -104,6 +112,7 @@ namespace mfem_mgis::batch::internals {
+    * \param[in] d: if true, the kernel runs on the device
+    */
+   void launchMassMatricesKernel(const IntegrationRuleKernelArguments&,
++                                const int* const,
+                                 const int,
+                                 const int,
+                                 real* const,
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 1769194aeb..e8d95dddc2 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -31,6 +31,7 @@
+ #ifdef MFEM_MGIS_HAVE_KOKKOS
+ #include "KokkosRuntime.hxx"
+ #endif /* MFEM_MGIS_HAVE_KOKKOS */
++#include "PostProcessingsComputation.hxx"
+ #include "MGIS/Profiling.hxx"
+ #include <MFEMMGIS/Profiler.hxx>
+ #include "MFEMMGIS/Config.hxx"
+@@ -425,6 +426,10 @@ namespace mfem_mgis {
+              "enable-kokkos), the variable MFEM_MGIS_KOKKOS is ignored\n";
+ #endif /* MFEM_MGIS_HAVE_KOKKOS */
+     }
++    // an invalid choice of the computation of the post-processings is
++    // reported here rather than at the first post-processing (the variable
++    // is read again at each computation)
++    static_cast<void>(internals::usePostProcessingsKernels(may_throw));
+ #ifdef MFEM_USE_PETSC
+     if (this->use_petsc) {
+       if (petscrc_file == nullptr) {
+diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
+index a80c7be231..5d106446c6 100644
+--- a/src/L2Projection.cxx
++++ b/src/L2Projection.cxx
+@@ -12,6 +12,9 @@
+ #include "mfem/mesh/mesh.hpp"
+ #include "mfem/fem/fespace.hpp"
+ #include "mfem/fem/fe/fe_base.hpp"
++#include "mfem/fem/fe_coll.hpp"
++#include "mfem/general/device.hpp"
++#include "mfem/general/backends.hpp"
+ #include "mfem/mesh/submesh/submesh.hpp"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+@@ -515,8 +518,12 @@ namespace mfem_mgis {
+    * post-processings are not computed by kernels (see
+    * `internals::usePostProcessingsKernels`) or if the kernels can't be used:
+    * functions defined on boundaries or on a part of the mesh (submesh),
+-   * elements of a function using different integration rules, geometric data
+-   * which can't be computed by kernels (elements of different geometries)
++   * finite element space of another family than the Lagrange elements,
++   * device of libCEED (whose assembly of the operators does not use the
++   * element restrictions), elements of a function using different
++   * integration rules, geometric data which can't be computed by kernels
++   * (elements of different geometries). In parallel, the decision is made
++   * by all the processes, which then assemble the operator in the same way.
+    * \param[in] fes: scalar finite element space of the projection
+    * \param[in] fcts: functions
+    * \param[in] on_submesh: if true, the projection is made on a submesh
+@@ -532,23 +539,49 @@ namespace mfem_mgis {
+     }
+     auto ctx = Context{};
+     auto d = L2ProjectionKernelsData{};
+-    for (const auto& f : fcts) {
+-      const auto& qs = f.getPartialQuadratureSpace();
+-      auto& v = d.values.emplace_back();
+-      if (qs.getNumberOfElements() == 0) {
+-        continue;
++    const auto ok = [&]() -> bool {
++      const auto* const fec =
++          dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl());
++      if ((fec == nullptr) ||
++          (fec->GetBasisType() == mfem::BasisType::Positive) ||
++          (mfem::Device::Allows(mfem::Backend::CEED_MASK))) {
++        return false;
+       }
+-      const auto* const ir = qs.getUniformIntegrationRule();
+-      if (ir == nullptr) {
+-        return {};
++      for (const auto& f : fcts) {
++        const auto& qs = f.getPartialQuadratureSpace();
++        auto& v = d.values.emplace_back();
++        if (qs.getNumberOfElements() == 0) {
++          continue;
++        }
++        const auto* const ir = qs.getUniformIntegrationRule();
++        if (ir == nullptr) {
++          return false;
++        }
++        auto& g = d.geometries[ir];
++        if ((g.rule == nullptr) &&
++            (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
++          return false;
++        }
++        if (!batch::gatherValues(ctx, v, f)) {
++          return false;
++        }
+       }
+-      auto& g = d.geometries[ir];
+-      if ((g.rule == nullptr) &&
+-          (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
++      return true;
++    }();
++    if constexpr (parallel) {
++#ifdef MFEM_USE_MPI
++      auto lok = static_cast<int>(ok);
++      auto gok = int{};
++      MPI_Allreduce(&lok, &gok, 1, MPI_INT, MPI_MIN, fes.GetComm());
++      if (gok == 0) {
+         return {};
+       }
+-      if (!batch::gatherValues(ctx, v, f)) {
+-        raise(ctx.getErrorMessage());
++#else  /* MFEM_USE_MPI */
++      reportUnsupportedParallelComputations();
++#endif /* MFEM_USE_MPI */
++    } else {
++      if (!ok) {
++        return {};
+       }
+     }
+     return d;
+@@ -599,9 +632,12 @@ namespace mfem_mgis {
+   /*!
+    * \brief integrator of the mass matrices of the elements computed by
+    * kernels (see `batch::computeMassMatrices`), for the assembly of MFEM on
+-   * the device (`AssemblyLevel::FULL`) of the finite element spaces of
+-   * simplices, whose mass matrices are not assembled on the device by MFEM
+-   * 4.10. The integration rule is the one of `mfem::MassIntegrator`.
++   * the device (`AssemblyLevel::FULL`), in the ordering of the element
++   * matrices of MFEM (`mfem::GetEVectorOrdering`). The integration rule is
++   * the one of `mfem::MassIntegrator`. Unlike the assembly of
++   * `mfem::MassIntegrator` on the device, it supports the simplices, and it
++   * does not give nodes to a mesh without nodes (the geometric factors of
++   * MFEM are not used).
+    */
+   struct MassMatricesKernelsIntegrator final
+       : public mfem::BilinearFormIntegrator {
+@@ -617,7 +653,8 @@ namespace mfem_mgis {
+       auto ctx = Context{};
+       auto g = batch::ElementsGeometry{};
+       if ((!batch::computeElementsGeometry(ctx, g, fes, ir)) ||
+-          (!batch::computeMassMatrices(ctx, m, g, add))) {
++          (!batch::computeMassMatrices(ctx, m, g, mfem::GetEVectorOrdering(fes),
++                                       add))) {
+         raise(ctx.getErrorMessage());
+       }
+     }  // end of AssembleEA
+@@ -705,18 +742,13 @@ namespace mfem_mgis {
+         std::in_place, ctx, "L2Projection::Operator", ctx.isProfilingEnabled());
+     BilinearForm<parallel> a(&(*olocal_fespace));
+     auto diffusion = mfem::ConstantCoefficient(d);
+-    // computation by kernels: assembly on the device by MFEM for the elements
+-    // with a tensor basis (quadrangles, hexahedra); for the other elements,
+-    // mass matrices computed by kernels and assembled by MFEM, the diffusion
+-    // term being then assembled element by element
+-    const auto tensor = mfem::UsesTensorBasis(*olocal_fespace);
+-    if ((kernels_data.has_value()) && ((tensor) || (d == 0))) {
++    // computation by kernels of the L2 projection: mass matrices computed by
++    // kernels and assembled by MFEM, on the device if a device is enabled;
++    // the operator of the implicit gradient regularization is assembled
++    // element by element
++    if ((kernels_data.has_value()) && (d == 0)) {
+       a.SetAssemblyLevel(mfem::AssemblyLevel::FULL);
+-      if (tensor) {
+-        a.AddDomainIntegrator(new mfem::MassIntegrator);
+-      } else {
+-        a.AddDomainIntegrator(new MassMatricesKernelsIntegrator);
+-      }
++      a.AddDomainIntegrator(new MassMatricesKernelsIntegrator);
+     } else {
+       a.AddDomainIntegrator(new mfem::MassIntegrator);
+     }
+diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
+index c1285d2c95..f2959f963a 100644
+--- a/src/PartialQuadratureFunction.cxx
++++ b/src/PartialQuadratureFunction.cxx
+@@ -1001,8 +1001,10 @@ namespace mfem_mgis {
+    *
+    * The kernels are used if the post-processings are computed by kernels
+    * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
+-   * Lagrange elements, if the elements of each function use the same
+-   * integration rule and if the geometric data can be computed by kernels.
++   * Lagrange elements (nodal basis) with at most
++   * `batch::maximumNumberOfNodesOfLocalProjections` degrees of freedom, if
++   * the elements of each function use the same integration rule and if the
++   * geometric data can be computed by kernels.
+    * In parallel, the decision is made by all the processes, before any
+    * exchange between them.
+    * \return true if the grid function is updated, false if the kernels can't
+@@ -1027,17 +1029,23 @@ namespace mfem_mgis {
+     auto values = std::vector<mfem::Vector>(fcts.size());
+     const mfem::IntegrationRule* mass_rule = nullptr;
+     const auto ok = [&]() -> bool {
+-      if ((fes.GetMesh()->Nonconforming()) ||
+-          (dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl()) ==
+-           nullptr)) {
++      // Lagrange elements: the value of the local projection at a node is
++      // its nodal value (not for the positive basis of Bernstein)
++      const auto* const fec =
++          dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl());
++      if ((fes.GetMesh()->Nonconforming()) || (fec == nullptr) ||
++          (fec->GetBasisType() == mfem::BasisType::Positive)) {
+         return false;
+       }
+       if (fes.GetNE() == 0) {
+         return true;
+       }
++      const auto& fe = *(fes.GetFE(0));
++      if (fe.GetDof() > batch::maximumNumberOfNodesOfLocalProjections) {
++        return false;
++      }
+       // mass matrices of the elements integrated exactly, as by the
+       // coefficients of the functions
+-      const auto& fe = *(fes.GetFE(0));
+       const auto ow = fes.GetElementTransformation(0)->OrderW();
+       mass_rule =
+           &(mfem::IntRules.Get(fe.GetGeomType(), 2 * fe.GetOrder() + ow));
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 4a15080242..2945d04995 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -631,6 +631,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+   add_post_processings_kernels_test(hexahedra cube_2mat_per.mesh Tridimensional)
+   add_post_processings_kernels_test(tetrahedra beam-tet.mesh Tridimensional)
+   add_post_processings_kernels_test(quadrangles bar.msh PlaneStrain)
++  # degrees of freedom ordered by vector dimension; elements of order 3,
++  # whose values at the nodes are computed element by element (64 degrees of
++  # freedom per hexahedron)
++  add_post_processings_kernels_test(hexahedra-byVDIM cube_2mat_per.mesh
++                                    Tridimensional --ordering byVDIM)
++  add_post_processings_kernels_test(hexahedra-order3 cube_2mat_per.mesh
++                                    Tridimensional --order 3)
+ 
+   # ImplicitGradientRegularizationTest executable
+   add_test_executable(ImplicitGradientRegularizationTest)
+diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
+index b017232f58..e35a0287c3 100644
+--- a/tests/PostProcessingsKernelsTest.cxx
++++ b/tests/PostProcessingsKernelsTest.cxx
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <cmath>
++#include <limits>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -29,6 +30,7 @@
+ #include "MFEMMGIS/L2Projection.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/PostProcessingsComputation.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+ 
+ struct TestParameters {
+   //! \brief mesh
+@@ -39,6 +41,8 @@ struct TestParameters {
+   const char* hypothesis = "Tridimensional";
+   //! \brief order of the finite elements
+   int order = 2;
++  //! \brief ordering of the degrees of freedom
++  const char* ordering = "byNODES";
+   //! \brief parallel computation
+   bool parallel = false;
+ };
+@@ -53,6 +57,8 @@ static TestParameters parseCommandLineOptions(int& argc, char** argv) {
+                  "Modelling hypothesis (Tridimensional or PlaneStrain).");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
++  args.AddOption(&p.ordering, "-O", "--ordering",
++                 "Ordering of the degrees of freedom (byNODES or byVDIM).");
+   args.AddOption(&p.parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "Perform parallel computations.");
+   args.Parse();
+@@ -68,12 +74,19 @@ static void setPostProcessingsComputation(const char* const m) {
+   ::setenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION", m, 1);
+ }  // end of setPostProcessingsComputation
+ 
+-//! \return the largest absolute value of a vector over all the processes
++/*!
++ * \return the largest absolute value of a vector over all the processes, or
++ * an infinite value if a value is not finite
++ */
+ template <bool parallel>
+ static mfem_mgis::real getMaximumAbsoluteValue(const mfem::Vector& v) {
+   const auto* const pv = v.HostRead();
+   auto r = mfem_mgis::real{};
+   for (int i = 0; i != v.Size(); ++i) {
++    if (!std::isfinite(pv[i])) {
++      r = std::numeric_limits<mfem_mgis::real>::infinity();
++      break;
++    }
+     r = std::max(r, std::abs(pv[i]));
+   }
+ #ifdef MFEM_USE_MPI
+@@ -109,7 +122,7 @@ static bool check(mfem_mgis::Context& ctx,
+     std::cout << what << ": largest difference " << e << ", largest value " << s
+               << '\n';
+   }
+-  if (!((s > 0) && (e <= tolerance * s))) {
++  if (!((s > 0) && (std::isfinite(s)) && (e <= tolerance * s))) {
+     return ctx.registerErrorMessage(what + ": the results differ");
+   }
+   return true;
+@@ -125,7 +138,8 @@ static bool check(mfem_mgis::Context& ctx,
+     std::cout << what << ": " << a << " (element by element), " << b
+               << " (kernels)\n";
+   }
+-  if (!((a != 0) && (std::abs(a - b) <= tolerance * std::abs(a)))) {
++  if (!((a != 0) && (std::isfinite(a)) &&
++        (std::abs(a - b) <= tolerance * std::abs(a)))) {
+     return ctx.registerErrorMessage(what + ": the results differ");
+   }
+   return true;
+@@ -213,6 +227,7 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+                       {"FiniteElementFamily", "H1"},
+                       {"FiniteElementOrder", params.order},
+                       {"UnknownsSize", dim},
++                      {"FiniteElementSpaceOrdering", params.ordering},
+                       {"Hypothesis", params.hypothesis},
+                       {"Parallel", parallel}});
+   if (isInvalid(oproblem)) {
+@@ -288,16 +303,32 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+     return ctx.registerErrorMessage(
+         "computations made by kernels with ElementByElement");
+   }
++  // the computations by kernels must not give nodes to the mesh (as the
++  // geometric factors of MFEM would)
++  const auto& mesh = p.getFiniteElementDiscretization().getMesh<parallel>();
++  const auto has_nodes = mesh.GetNodes() != nullptr;
+   setPostProcessingsComputation("Kernels");
+   const auto r2 = compute<parallel>(ctx, p, materials, views(scalar_functions),
+                                     views(vector_functions));
+   if (!r2.has_value()) {
+     return false;
+   }
+-  // two measures and integrals per material, values at the nodes, L2
++  if ((mesh.GetNodes() != nullptr) != has_nodes) {
++    return ctx.registerErrorMessage(
++        "the computations by kernels gave nodes to the mesh");
++  }
++  // two measures and integrals per material, values at the nodes (if the
++  // elements are small enough for the local projections by kernels), L2
+   // projections and implicit gradient regularizations of two functions
+   const auto nk = getNumberOfPostProcessingsComputationsByKernels() - n0;
+-  const auto expected = 2 * materials.size() + 6;
++  const auto nd = p.getFiniteElementDiscretization()
++                      .getFiniteElementSpace<parallel>()
++                      .GetTypicalFE()
++                      ->GetDof();
++  const auto values_at_nodes_by_kernels =
++      nd <= batch::maximumNumberOfNodesOfLocalProjections;
++  const auto expected =
++      2 * materials.size() + (values_at_nodes_by_kernels ? 6 : 4);
+   if (nk != expected) {
+     return ctx.registerErrorMessage(
+         "unexpected number of computations by kernels (" + std::to_string(nk) +
+-- 
+2.43.0
+

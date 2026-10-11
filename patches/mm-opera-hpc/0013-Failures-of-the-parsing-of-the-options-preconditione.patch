@@ -1,0 +1,149 @@
+From 1a3b237adac40751ea364d7803eab9ebdfb6b138 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 19:38:34 +0200
+Subject: [PATCH] Failures of the parsing of the options, preconditioner of the
+ bubble
+
+- The cermet, the bubble and the polycrystal exited with the status 0
+  when an option was refused: a test given an invalid option passed
+  without computation. They now exit with EXIT_FAILURE.
+- The cermet and the polycrystal went on when their output file could
+  not be opened: they now stop with EXIT_FAILURE.
+- The preconditioner of the conjugate gradient solver of the bubble is
+  now BoomerAMG by default: with the diagonal scaling, the default case
+  (mesh single_sphere.msh) does not converge. The README of the bubble
+  and of the cermet describe their new options.
+---
+ bubble/README.md                    |  4 ++++
+ bubble/src/Bubble.cxx               | 10 ++++++----
+ cermet/README.md                    |  4 ++++
+ cermet/cermet.cxx                   |  4 +++-
+ polycrystal/UniaxialPolycrystal.cxx |  4 +++-
+ 5 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/bubble/README.md b/bubble/README.md
+index 995fe6f..231591a 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -56,6 +56,10 @@ Usage: ./test-bubble [options] ...
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
+ | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
++| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
++
++The options of `mfem-mgis` are also accepted, for instance `--device cuda`
++to compute on a GPU.
+ 
+ The command to execute the test-case is
+ 
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 2efc394..d602df9 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -171,7 +171,7 @@ struct TestParameters : PhysicalParameters {
+       "mesh/single_bubble.txt";                  ///< Bubble definitions file
+   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
+   const char* linear_solver_preconditioner =
+-      "HypreDiagScale";     ///< Preconditioner of the linear solver (or none)
++      "HypreBoomerAMG";     ///< Preconditioner of the linear solver (or none)
+   int parallel_mesh = 0;    ///< Flag for parallel mesh format
+   int order = 2;            ///< Finite element order
+   int refinement = 0;       ///< Mesh refinement level
+@@ -211,7 +211,7 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.linear_solver_preconditioner, "",
+                  "--linear-solver-preconditioner",
+                  "Preconditioner of the conjugate gradient solver "
+-                 "(HypreDiagScale by default, HypreBoomerAMG...), none for no "
++                 "(HypreBoomerAMG by default, HypreDiagScale...), none for no "
+                  "preconditioner.");
+   args.AddOption(
+       &p.d_min, "-dm", "--dmin",
+@@ -225,7 +225,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   if (!args.Good()) {
+     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     mfem_mgis::finalize();
+-    exit(0);
++    // an invalid option is a failure, which a test must see
++    exit(EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+     if (mfem_mgis::getMPIrank() == 0)
+@@ -437,7 +438,8 @@ int main(int argc, char** argv) {
+                           mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
+   solverParameters.insert(mfem_mgis::throwing,
+                           mfem_mgis::Parameters{{"Tolerance", 1e-10}});
+-  // diagonal scaling preconditioner by default
++  // algebraic multigrid preconditioner by default: with the diagonal
++  // scaling, the solver does not reach its tolerance on the default mesh
+   if (std::string_view{p.linear_solver_preconditioner} != "none") {
+     auto preconditioner =
+         mfem_mgis::Parameters{{"Name", p.linear_solver_preconditioner}};
+diff --git a/cermet/README.md b/cermet/README.md
+index 545e38f..e3ddb64 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -106,6 +106,7 @@ Usage: ./cermet [options] ...
+ | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+ | `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
++| `-l <string>, --library <string>`           | string | `src/libBehaviour.so` | Material library containing the behaviours of the grains and of the metallic interface.                                                                          |
+ | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
+ | `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh (default = 1).                                                                                                                       |
+ | `-p <int>, --post-processing <int>`         | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
+@@ -115,6 +116,9 @@ Usage: ./cermet [options] ...
+ | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
+ | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+ 
++The options of `mfem-mgis` are also accepted, for instance `--device cuda`
++to compute on a GPU.
++
+ 
+ ### Run it
+ 
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index c2dcbf5..03edd06 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -89,7 +89,8 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+   if (!args.Good()) {
+     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     mfem_mgis::finalize();
+-    exit(0);
++    // an invalid option is a failure, which a test must see
++    exit(EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+     if (mfem_mgis::getMPIrank() == 0)
+@@ -289,6 +290,7 @@ int main(int argc, char **argv) {
+   std::ofstream out(p.output_file);
+   if (!out) {
+     std::cerr << "can't open output file '" << p.output_file << "'\n";
++    return EXIT_FAILURE;
+   }
+   out.precision(14);
+   //
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 91ede63..bef2502 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -301,6 +301,7 @@ int main(int argc, char *argv[]) {
+   std::ofstream out(p.output_file);
+   if (!out) {
+     std::cerr << "can't open output file '" << p.output_file << "'\n";
++    return EXIT_FAILURE;
+   }
+   out.precision(14);
+   // setting the simulation and running it
+@@ -385,7 +386,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   if (!args.Good()) {
+     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     mfem_mgis::finalize();
+-    exit(0);
++    // an invalid option is a failure, which a test must see
++    exit(EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+     if (mfem_mgis::getMPIrank() == 0)
+-- 
+2.43.0
+

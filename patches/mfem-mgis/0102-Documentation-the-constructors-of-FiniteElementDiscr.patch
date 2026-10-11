@@ -1,0 +1,57 @@
+From 96ce4eae0f6a01ddadda5a6c364bdf9658867410 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 12:09:40 +0200
+Subject: [PATCH] Documentation: the constructors of
+ FiniteElementDiscretization and PeriodicNonLinearEvolutionProblem take an
+ execution context
+
+---
+ docs/source/user_guide/glossary.rst         | 15 ++++++++-------
+ docs/source/user_guide/mesh/mesh-reader.rst |  3 ++-
+ 2 files changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 4574b59c7f..86513f52ce 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -749,14 +749,15 @@ CPP example:
+ 
+ .. code-block:: cpp
+ 
++  auto ctx = mfem_mgis::Context{};
+   auto fed = std::make_shared<mfem_mgis::FiniteElementDiscretization>(
+-      mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
+-      {"FiniteElementFamily", "H1"},
+-      {"FiniteElementOrder", 2},
+-      {"UnknownsSize", 3},
+-      {"NumberOfUniformRefinements", 2},
+-      {"Parallel", true}});
+-  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(fed);
++      ctx, mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
++                                 {"FiniteElementFamily", "H1"},
++                                 {"FiniteElementOrder", 2},
++                                 {"UnknownsSize", 3},
++                                 {"NumberOfUniformRefinements", 2},
++                                 {"Parallel", true}});
++  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(ctx, fed);
+ 
+ 
+ Material parameters
+diff --git a/docs/source/user_guide/mesh/mesh-reader.rst b/docs/source/user_guide/mesh/mesh-reader.rst
+index 797b40852e..e7513d7ac5 100644
+--- a/docs/source/user_guide/mesh/mesh-reader.rst
++++ b/docs/source/user_guide/mesh/mesh-reader.rst
+@@ -118,8 +118,9 @@ Example:
+ 
+ .. code-block:: c++
+ 
++    auto ctx = mfem_mgis::Context{};
+     auto fed = std::make_shared<mfem_mgis::FiniteElementDiscretization>(
+-      mfem_mgis::Parameters{{"MeshFileName", "output-mesh."},
++      ctx, mfem_mgis::Parameters{{"MeshFileName", "output-mesh."},
+                             {"MeshReadMode", "Restart"},
+                             {"FiniteElementFamily", "H1"},
+                             {"FiniteElementOrder", p.order},
+-- 
+2.43.0
+

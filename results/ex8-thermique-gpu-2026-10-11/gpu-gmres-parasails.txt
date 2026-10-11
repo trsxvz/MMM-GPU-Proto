@@ -1,0 +1,77 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
+   --libraryALFENI /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreParaSails
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device cuda
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.477772  GB
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+[t-MS-7E47:17366] *** Process received signal ***
+[t-MS-7E47:17366] Signal: Segmentation fault (11)
+[t-MS-7E47:17366] Signal code: Invalid permissions (2)
+[t-MS-7E47:17366] Failing at address: 0x7eb6380000f0
+[t-MS-7E47:17366] [ 0] /lib/x86_64-linux-gnu/libc.so.6(+0x45330)[0x7eba56645330]
+[t-MS-7E47:17366] [ 1] /lib/x86_64-linux-gnu/libc.so.6(+0x1a16d5)[0x7eba567a16d5]
+[t-MS-7E47:17366] [ 2] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(MatrixSetRow+0x92)[0x7eba58443db2]
+[t-MS-7E47:17366] [ 3] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(+0x84250b)[0x7eba5844250b]
+[t-MS-7E47:17366] [ 4] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParaSailsSetup+0x36)[0x7eba58442606]
+[t-MS-7E47:17366] [ 5] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(HYPRE_ParaSailsSetup+0x8a)[0x7eba5846627a]
+[t-MS-7E47:17366] [ 6] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_GMRESSetup+0xdb)[0x7eba5824517b]
+[t-MS-7E47:17366] [ 7] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem10HypreGMRES4MultERKNS_14HypreParVectorERS1_+0x8c)[0x7eba5d1a11fc]
+[t-MS-7E47:17366] [ 8] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem11HypreSolver4MultERKNS_6VectorERS1_+0x2a)[0x7eba5d1b5b8a]
+[t-MS-7E47:17366] [ 9] ./rjh_plate(+0x104cfe)[0x57f095264cfe]
+[t-MS-7E47:17366] [10] ./rjh_plate(+0x194e56)[0x57f0952f4e56]
+[t-MS-7E47:17366] [11] ./rjh_plate(+0x1039a4)[0x57f0952639a4]
+[t-MS-7E47:17366] [12] ./rjh_plate(+0x10417c)[0x57f09526417c]
+[t-MS-7E47:17366] [13] ./rjh_plate(+0x19365c)[0x57f0952f365c]
+[t-MS-7E47:17366] [14] ./rjh_plate(+0xde2a3)[0x57f09523e2a3]
+[t-MS-7E47:17366] [15] ./rjh_plate(+0x1177dc)[0x57f0952777dc]
+[t-MS-7E47:17366] [16] ./rjh_plate(+0x110b12)[0x57f095270b12]
+[t-MS-7E47:17366] [17] ./rjh_plate(+0x11b95c)[0x57f09527b95c]
+[t-MS-7E47:17366] [18] ./rjh_plate(+0x1287c0)[0x57f0952887c0]
+[t-MS-7E47:17366] [19] ./rjh_plate(+0x128f17)[0x57f095288f17]
+[t-MS-7E47:17366] [20] ./rjh_plate(+0x12a50d)[0x57f09528a50d]
+[t-MS-7E47:17366] [21] ./rjh_plate(+0x609a0)[0x57f0951c09a0]
+[t-MS-7E47:17366] [22] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7eba5662a1ca]
+[t-MS-7E47:17366] [23] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7eba5662a28b]
+[t-MS-7E47:17366] [24] ./rjh_plate(+0x642b5)[0x57f0951c42b5]
+[t-MS-7E47:17366] *** End of error message ***
+--------------------------------------------------------------------------
+prterun noticed that process rank 0 with PID 17366 on node t-MS-7E47 exited on
+signal 11 (Segmentation fault).
+--------------------------------------------------------------------------

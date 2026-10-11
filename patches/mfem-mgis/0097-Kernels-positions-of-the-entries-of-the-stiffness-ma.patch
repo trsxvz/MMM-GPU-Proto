@@ -1,0 +1,1148 @@
+From d04acab66c0e886ba37f08ba8c8e796b34dda74f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 09:00:33 +0200
+Subject: [PATCH] Kernels: positions of the entries of the stiffness matrices
+ in the assembled matrix computed once
+
+---
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  53 +++-
+ .../MultiMaterialNonLinearIntegrator.hxx      |  43 ++-
+ src/Batch/FBar.cxx                            |  20 +-
+ src/Batch/FBarKernels.cxx                     |   5 +-
+ src/Batch/Faltus.cxx                          |  29 +-
+ src/Batch/FaltusKernels.cxx                   |   5 +-
+ src/Batch/StiffnessMatrices.cxx               | 157 ++++++++--
+ src/Batch/StiffnessMatricesKernels.cxx        |  33 ++-
+ src/Batch/StiffnessMatricesKernels.hxx        | 132 +++++++++
+ src/MultiMaterialNonLinearIntegrator.cxx      |  53 +++-
+ tests/GradientsKernelsTest.cxx                | 279 +++++++++++++++++-
+ 11 files changed, 744 insertions(+), 65 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index 6cd5350237..9b4c3dae14 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -10,6 +10,8 @@
+ #define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
+ 
+ #include <memory>
++#include <cstddef>
++#include <cstdint>
+ #include "mfem/general/array.hpp"
+ #include "mfem/linalg/vector.hpp"
+ #include "MGIS/FieldView.hxx"
+@@ -145,6 +147,25 @@ namespace mfem_mgis::batch {
+      * `computeElementsDegreesOfFreedom`)
+      */
+     const mfem::Array<int>* element_dofs = nullptr;
++    /*!
++     * \brief positions of the entries of the stiffness matrices of all the
++     * elements in the rows of `matrix` (see
++     * `computeStiffnessMatricesPositions`), or a null pointer or an empty
++     * array: the entries are then searched in their rows. Otherwise, the
++     * array must have `n * n` values per element of the mesh, `n` being the
++     * number of degrees of freedom of an element. The position of an entry
++     * is read first, and used only if it designates the column of the entry
++     * in its row, the entry being searched otherwise (and counted in
++     * `searched_entries`): positions computed for another matrix, with the
++     * same number of values, give the same results, more slowly.
++     */
++    const mfem::Array<std::uint16_t>* positions = nullptr;
++    /*!
++     * \brief if not null, the number of entries whose position, read in
++     * `positions`, does not designate their column, and which are searched
++     * in their rows, is added to this counter
++     */
++    std::size_t* searched_entries = nullptr;
+   };
+ 
+   /*!
+@@ -179,6 +200,35 @@ namespace mfem_mgis::batch {
+   makeAssembledStiffnessMatrix(Context&,
+                                const mfem::FiniteElementSpace&,
+                                const mfem::Array<int>&) noexcept;
++  /*!
++   * \brief computes, on the device if a device is enabled, the positions of
++   * the entries of the stiffness matrices of all the elements in the rows of
++   * an assembled sparse matrix, relative to the first entry of each row:
++   * `n * n` values per element, `n` being its number of degrees of freedom,
++   * the value of the entry `(i, j)` of the element `e` being at the index
++   * `(n * e + i) * n + j`. The assembly of the stiffness matrices then reads
++   * the position of each entry instead of searching it in its row (see
++   * `AssembledStiffnessMatrix::positions`). An entry which is not in the
++   * matrix, or whose relative position does not fit in 16 bits, is given
++   * the largest value of `std::uint16_t` (it is then searched). The
++   * positions take `2 n²` bytes per element, of the order of the size of
++   * the matrix for linear elements. If the mesh has no element, or if the
++   * number of positions does not fit in an `int`, the positions are not
++   * computed and `positions` is left empty.
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] positions: positions
++   * \param[in] fes: finite element space
++   * \param[in] dofs: degrees of freedom of all the elements (see
++   * `computeElementsDegreesOfFreedom`)
++   * \param[in] m: assembled matrix, finalized
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeStiffnessMatricesPositions(
++      Context&,
++      mfem::Array<std::uint16_t>&,
++      const mfem::FiniteElementSpace&,
++      const mfem::Array<int>&,
++      const mfem::SparseMatrix&) noexcept;
+   /*!
+    * \brief sets the values of a sparse matrix to zero, on the device if a
+    * device is enabled
+@@ -191,7 +241,8 @@ namespace mfem_mgis::batch {
+   /*!
+    * \brief adds the stiffness matrices of the elements of a material to an
+    * assembled sparse matrix, on the device if a device is enabled, without
+-   * storing them: the position of each entry is searched in its row (by
++   * storing them: the position of each entry is read in
++   * `AssembledStiffnessMatrix::positions`, or searched in its row (by
+    * bisection for the ordering of `makeAssembledStiffnessMatrix` or sorted
+    * rows, linearly otherwise), and the additions are atomic (several
+    * materials may share degrees of freedom)
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index a0f473b3d1..382b0e7b74 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -8,8 +8,10 @@
+ #ifndef LIB_MFEM_MGIS_MULTIMATERIALNONLINEARINTEGRATOR_HXX
+ #define LIB_MFEM_MGIS_MULTIMATERIALNONLINEARINTEGRATOR_HXX
+ 
++#include <array>
+ #include <memory>
+ #include <vector>
++#include <cstdint>
+ #include "mfem/fem/nonlininteg.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -272,7 +274,20 @@ namespace mfem_mgis {
+      * by kernels, in a sparse matrix on the local vector of the finite
+      * element space, without storing them (see
+      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
+-     * values of the matrix are set to zero first.
++     * values of the matrix are set to zero first. Unless a GPU or the debug
++     * device of MFEM is used, the positions of the entries in the rows of
++     * the matrix are computed at the first call and reused (see
++     * `batch::computeStiffnessMatricesPositions`), separately for the
++     * matrices whose columns are sorted (for example by a direct solver) and
++     * for the others (diagonal first, see `makeAssembledStiffnessMatrix`):
++     * they stay valid for all the matrices created by
++     * `makeAssembledStiffnessMatrix` (same pattern). After an assembly in
++     * which some entries were searched (another matrix, rows reordered),
++     * they are computed again, at most three times for each layout of the
++     * rows, then abandoned (the entries are searched). If their computation
++     * fails, they are abandoned. They take about as much memory as the
++     * matrix for linear elements. With a GPU, the entries are always
++     * searched (the positions gave no gain).
+      * \return true on success
+      * \param[in, out] ctx: execution context
+      * \param[in] fes: finite element space
+@@ -284,6 +299,22 @@ namespace mfem_mgis {
+         Context& ctx,
+         const mfem::FiniteElementSpace& fes,
+         mfem::SparseMatrix& m) noexcept;
++    /*!
++     * \return the number of computations of the positions of the entries of
++     * the stiffness matrices in the rows of the assembled matrices (see
++     * `assembleStiffnessMatrixByKernels`)
++     * \param[in] sorted: if true, for the matrices whose columns are sorted,
++     * otherwise for the others
++     */
++    [[nodiscard]] int getNumberOfStiffnessMatricesPositionsComputations(
++        const bool) const noexcept;
++    /*!
++     * \return true if positions of the entries of the stiffness matrices
++     * are kept (see `assembleStiffnessMatrixByKernels`)
++     * \param[in] sorted: if true, for the matrices whose columns are sorted,
++     * otherwise for the others
++     */
++    [[nodiscard]] bool hasStiffnessMatricesPositions(const bool) const noexcept;
+     //! \return the current time increment
+     [[nodiscard]] real getTimeIncrement() const noexcept;
+     /*!
+@@ -456,6 +487,16 @@ namespace mfem_mgis {
+      * `computeElementsDegreesOfFreedom`
+      */
+     mfem::Array<int> element_dofs;
++    /*!
++     * \brief positions of the entries of the stiffness matrices of all the
++     * elements in the rows of the assembled matrices (see
++     * `batch::computeStiffnessMatricesPositions`), computed by
++     * `assembleStiffnessMatrixByKernels`, for the matrices whose columns are
++     * not sorted (first array) or sorted (second array)
++     */
++    std::array<mfem::Array<std::uint16_t>, 2> stiffness_matrices_positions;
++    //! \brief numbers of computations of `stiffness_matrices_positions`
++    std::array<int, 2> stiffness_matrices_positions_computations = {0, 0};
+     /*!
+      * \brief increments of the unknowns element by element (see
+      * `addTangentOperatorActionByKernels`)
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index 91fb402afa..bf565b7ee3 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -505,23 +505,15 @@ namespace mfem_mgis::batch {
+               getFBarTangentOperatorModification(data, use_device))) {
+         return false;
+       }
++      // the assembled matrix is checked by `addStiffnessMatrices`
+       if (a.number_of_elements != 0) {
+-        auto missing = mfem::Array<int>(1);
+-        missing.HostWrite()[0] = 0;
++        auto counters = mfem::Array<int>{};
+         auto o = internals::SparseMatrixOutput{};
+-        o.number_of_rows = m.matrix->Height();
+-        o.I = m.matrix->ReadI(use_device);
+-        o.J = m.matrix->ReadJ(use_device);
+-        o.values = m.matrix->ReadWriteData(use_device);
+-        o.element_dofs = m.element_dofs->Read(use_device);
+-        o.missing = missing.ReadWrite(use_device);
++        internals::getSparseMatrixOutput(o, counters, m, use_device);
+         internals::launchFBarRankOneMatricesKernel(a, o, use_device);
+-        if (missing.HostRead()[0] != 0) {
+-          return ctx.registerErrorMessage(
+-              "addFBarStiffnessMatrices: " +
+-              std::to_string(missing.HostRead()[0]) +
+-              " entries of the stiffness matrices are not in the pattern of "
+-              "the assembled matrix");
++        if (!internals::checkSparseMatrixOutputCounters(
++                ctx, counters, m, "addFBarStiffnessMatrices")) {
++          return false;
+         }
+       }
+     } catch (std::exception& e) {
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index b38f5a6b94..eacfa5327a 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -303,9 +303,12 @@ namespace mfem_mgis::batch::internals {
+         return;
+       }
+       const auto ai = a.a[sn * sk + static_cast<std::size_t>(i)];
++      const auto begin = o.I[row];
+       const auto end = o.I[row + 1];
+       for (int j = 0; j != a.n; ++j) {
+-        const auto p = findColumn(o.J, o.I[row], end, dofs[j]);
++        const auto p =
++            o.findPosition(e, sn, static_cast<std::size_t>(i),
++                           static_cast<std::size_t>(j), begin, end, dofs[j]);
+         if (p == end) {
+           ::AtomicAdd(o.missing[0], 1);
+         } else {
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index f069b6f7c9..d0e9d5c257 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -368,29 +368,18 @@ namespace mfem_mgis::batch {
+       if (a.number_of_elements == 0) {
+         return true;
+       }
+-      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
+-          (static_cast<std::int64_t>(m.element_dofs->Size()) !=
+-           getNumberOfElementDegreesOfFreedom(g, k) * g.ne)) {
+-        return ctx.registerErrorMessage(
+-            "addFaltusStiffnessMatrices: invalid assembled matrix or degrees "
+-            "of freedom of the elements");
++      if (!internals::checkAssembledStiffnessMatrix(
++              ctx, m, g.ne, getNumberOfElementDegreesOfFreedom(g, k),
++              "addFaltusStiffnessMatrices")) {
++        return false;
+       }
+-      auto missing = mfem::Array<int>(1);
+-      missing.HostWrite()[0] = 0;
++      auto counters = mfem::Array<int>{};
+       auto o = internals::SparseMatrixOutput{};
+-      o.number_of_rows = m.matrix->Height();
+-      o.I = m.matrix->ReadI(use_device);
+-      o.J = m.matrix->ReadJ(use_device);
+-      o.values = m.matrix->ReadWriteData(use_device);
+-      o.element_dofs = m.element_dofs->Read(use_device);
+-      o.missing = missing.ReadWrite(use_device);
++      internals::getSparseMatrixOutput(o, counters, m, use_device);
+       internals::launchFaltusMatricesKernel(k, a, o, use_device);
+-      if (missing.HostRead()[0] != 0) {
+-        return ctx.registerErrorMessage(
+-            "addFaltusStiffnessMatrices: " +
+-            std::to_string(missing.HostRead()[0]) +
+-            " entries of the stiffness matrices are not in the pattern of the "
+-            "assembled matrix");
++      if (!internals::checkSparseMatrixOutputCounters(
++              ctx, counters, m, "addFaltusStiffnessMatrices")) {
++        return false;
+       }
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+index 0165165105..af63963749 100644
+--- a/src/Batch/FaltusKernels.cxx
++++ b/src/Batch/FaltusKernels.cxx
+@@ -277,8 +277,11 @@ namespace mfem_mgis::batch::internals {
+                 ::AtomicAdd(o.missing[0], 1);
+                 continue;
+               }
++              const auto begin = o.I[row];
+               const auto end = o.I[row + 1];
+-              const auto p = findColumn(o.J, o.I[row], end, dofs[nb + snd * v]);
++              const auto p =
++                  o.findPosition(e, snd * V, na + snd * v, nb + snd * v, begin,
++                                 end, dofs[nb + snd * v]);
+               if (p == end) {
+                 ::AtomicAdd(o.missing[0], 1);
+               } else {
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 5e8d95251b..7c413f2249 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -131,6 +131,74 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of getStiffnessMatricesKernelArguments
+ 
++  namespace internals {
++
++    bool checkAssembledStiffnessMatrix(Context& ctx,
++                                       const AssembledStiffnessMatrix& m,
++                                       const std::int64_t ne,
++                                       const std::int64_t n,
++                                       const char* const f) {
++      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
++          (!m.matrix->Finalized())) {
++        return ctx.registerErrorMessage(std::string{f} +
++                                        ": invalid assembled matrix");
++      }
++      if (static_cast<std::int64_t>(m.element_dofs->Size()) != n * ne) {
++        return ctx.registerErrorMessage(
++            std::string{f} +
++            ": unexpected number of degrees of freedom of the elements");
++      }
++      if ((m.positions != nullptr) && (m.positions->Size() != 0) &&
++          (static_cast<std::int64_t>(m.positions->Size()) != n * n * ne)) {
++        return ctx.registerErrorMessage(
++            std::string{f} +
++            ": unexpected number of positions of the entries of the "
++            "stiffness matrices");
++      }
++      return true;
++    }  // end of checkAssembledStiffnessMatrix
++
++    void getSparseMatrixOutput(SparseMatrixOutput& o,
++                               mfem::Array<int>& counters,
++                               const AssembledStiffnessMatrix& m,
++                               const bool use_device) {
++      counters.SetSize(2);
++      auto* const c = counters.HostWrite();
++      c[0] = 0;
++      c[1] = 0;
++      o = SparseMatrixOutput{};
++      o.number_of_rows = m.matrix->Height();
++      o.I = m.matrix->ReadI(use_device);
++      o.J = m.matrix->ReadJ(use_device);
++      o.values = m.matrix->ReadWriteData(use_device);
++      o.element_dofs = m.element_dofs->Read(use_device);
++      if ((m.positions != nullptr) && (m.positions->Size() != 0)) {
++        o.positions = m.positions->Read(use_device);
++      }
++      auto* const dc = counters.ReadWrite(use_device);
++      o.missing = dc;
++      o.searched = dc + 1;
++    }  // end of getSparseMatrixOutput
++
++    bool checkSparseMatrixOutputCounters(Context& ctx,
++                                         const mfem::Array<int>& counters,
++                                         const AssembledStiffnessMatrix& m,
++                                         const char* const f) {
++      const auto* const c = counters.HostRead();
++      if (m.searched_entries != nullptr) {
++        *(m.searched_entries) += static_cast<std::size_t>(c[1]);
++      }
++      if (c[0] != 0) {
++        return ctx.registerErrorMessage(
++            std::string{f} + ": " + std::to_string(c[0]) +
++            " entries of the stiffness matrices are not in the pattern of the "
++            "assembled matrix");
++      }
++      return true;
++    }  // end of checkSparseMatrixOutputCounters
++
++  }  // end of namespace internals
++
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+   bool addStiffnessMatrices(Context& ctx,
+@@ -408,6 +476,63 @@ namespace mfem_mgis::batch {
+     return {};
+   }  // end of makeAssembledStiffnessMatrix
+ 
++  bool computeStiffnessMatricesPositions(Context& ctx,
++                                         mfem::Array<std::uint16_t>& positions,
++                                         const mfem::FiniteElementSpace& fes,
++                                         const mfem::Array<int>& dofs,
++                                         const mfem::SparseMatrix& m) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(positions);
++    static_cast<void>(fes);
++    static_cast<void>(dofs);
++    static_cast<void>(m);
++    return ctx.registerErrorMessage(
++        "computeStiffnessMatricesPositions: the kernels are not compiled "
++        "(MFEM compiled with HIP)");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      positions.SetSize(0);
++      const auto ne = std::int64_t{fes.GetNE()};
++      if (ne == 0) {
++        return true;
++      }
++      const auto n = static_cast<std::int64_t>(dofs.Size()) / ne;
++      if ((n == 0) || (n * ne != dofs.Size())) {
++        return ctx.registerErrorMessage(
++            "computeStiffnessMatricesPositions: invalid number of degrees of "
++            "freedom of the elements");
++      }
++      if (!m.Finalized()) {
++        return ctx.registerErrorMessage(
++            "computeStiffnessMatricesPositions: the matrix is not finalized");
++      }
++      if (n * n * ne > std::int64_t{std::numeric_limits<int>::max()}) {
++        // too many positions for an array of MFEM: the entries are searched
++        return true;
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      positions.SetSize(static_cast<int>(n * n * ne));
++      auto o = internals::SparseMatrixOutput{};
++      o.number_of_rows = m.Height();
++      o.I = m.ReadI(use_device);
++      o.J = m.ReadJ(use_device);
++      o.element_dofs = dofs.Read(use_device);
++      internals::launchStiffnessMatricesPositionsKernel(
++          o, static_cast<int>(ne), static_cast<int>(n),
++          positions.Write(use_device), use_device);
++    } catch (std::exception& e) {
++      positions.SetSize(0);
++      return ctx.registerErrorMessage(
++          std::string{"computeStiffnessMatricesPositions: "} + e.what());
++    } catch (...) {
++      positions.SetSize(0);
++      return ctx.registerErrorMessage(
++          "computeStiffnessMatricesPositions: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeStiffnessMatricesPositions
++
+   bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(m);
+@@ -453,16 +578,10 @@ namespace mfem_mgis::batch {
+         "are not compiled (MFEM compiled with HIP)");
+ #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+-      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
+-          (!m.matrix->Finalized())) {
+-        return ctx.registerErrorMessage(
+-            "addStiffnessMatrices: invalid assembled matrix");
+-      }
+-      const auto ndofs = std::int64_t{g.nd} * getUnknownsSize(k);
+-      if (static_cast<std::int64_t>(m.element_dofs->Size()) != ndofs * g.ne) {
+-        return ctx.registerErrorMessage(
+-            "addStiffnessMatrices: unexpected number of degrees of freedom "
+-            "of the elements");
++      if (!internals::checkAssembledStiffnessMatrix(
++              ctx, m, g.ne, std::int64_t{g.nd} * getUnknownsSize(k),
++              "addStiffnessMatrices")) {
++        return false;
+       }
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+@@ -472,22 +591,12 @@ namespace mfem_mgis::batch {
+                                                "addStiffnessMatrices", false)) {
+         return !error;
+       }
+-      auto missing = mfem::Array<int>(1);
+-      missing.HostWrite()[0] = 0;
++      auto counters = mfem::Array<int>{};
+       auto o = internals::SparseMatrixOutput{};
+-      o.number_of_rows = m.matrix->Height();
+-      o.I = m.matrix->ReadI(use_device);
+-      o.J = m.matrix->ReadJ(use_device);
+-      o.values = m.matrix->ReadWriteData(use_device);
+-      o.element_dofs = m.element_dofs->Read(use_device);
+-      o.missing = missing.ReadWrite(use_device);
++      internals::getSparseMatrixOutput(o, counters, m, use_device);
+       internals::launchStiffnessMatricesKernel(k, a, o, use_device);
+-      if (missing.HostRead()[0] != 0) {
+-        return ctx.registerErrorMessage(
+-            "addStiffnessMatrices: " + std::to_string(missing.HostRead()[0]) +
+-            " entries of the stiffness matrices are not in the pattern of the "
+-            "assembled matrix");
+-      }
++      return internals::checkSparseMatrixOutputCounters(ctx, counters, m,
++                                                        "addStiffnessMatrices");
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(std::string{"addStiffnessMatrices: "} +
+                                       e.what());
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 00ba3e1dbf..afa53200c3 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -7,8 +7,10 @@
+  * \date   09/10/2026
+  */
+ 
++#include <limits>
+ #include <vector>
+ #include <cstddef>
++#include <cstdint>
+ #include "mfem/general/backends.hpp"
+ #include "mfem/general/forall.hpp"
+ #include "KernelsUtilities.hxx"
+@@ -71,10 +73,12 @@ namespace mfem_mgis::batch::internals {
+           ::AtomicAdd(this->o.missing[0], N);
+           continue;
+         }
++        const auto begin = this->o.I[row];
+         const auto end = this->o.I[row + 1];
+         for (std::size_t d = 0; d != N; ++d) {
+           const auto p =
+-              findColumn(this->o.J, this->o.I[row], end, dofs[nb + nd * d]);
++              this->o.findPosition(e, ndofs, na + nd * c, nb + nd * d, begin,
++                                   end, dofs[nb + nd * d]);
+           if (p == end) {
+             ::AtomicAdd(this->o.missing[0], 1);
+           } else if (this->atomic) {
+@@ -429,6 +433,33 @@ namespace mfem_mgis::batch::internals {
+              use_device);
+   }  // end of launchStiffnessMatricesKernel
+ 
++  void launchStiffnessMatricesPositionsKernel(const SparseMatrixOutput& o,
++                                              const int ne,
++                                              const int n,
++                                              std::uint16_t* const positions,
++                                              const bool use_device) {
++    mfem::forall_switch(
++        use_device, ne * n, [o, n, positions] MFEM_HOST_DEVICE(int t) {
++          const auto sn = static_cast<std::size_t>(n);
++          const auto st = static_cast<std::size_t>(t);
++          const auto e = st / sn;
++          const auto i = st - e * sn;
++          const auto* const dofs = o.element_dofs + sn * e;
++          auto* const p = positions + sn * st;
++          const auto row = dofs[i];
++          const auto valid = (row >= 0) && (row < o.number_of_rows);
++          const auto begin = valid ? o.I[row] : 0;
++          const auto end = valid ? o.I[row + 1] : 0;
++          for (std::size_t j = 0; j != sn; ++j) {
++            const auto c = valid ? findColumn(o.J, begin, end, dofs[j]) : end;
++            p[j] = static_cast<std::uint16_t>(
++                ((c != end) && (c - begin < unknown_position))
++                    ? c - begin
++                    : unknown_position);
++          }
++        });
++  }  // end of launchStiffnessMatricesPositionsKernel
++
+   void launchStiffnessMatricesDiagonalsKernel(
+       const GradientsKind k,
+       const StiffnessMatricesKernelArguments& a,
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index c05c73af5d..b6e584def4 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -9,11 +9,30 @@
+ #ifndef LIB_MFEM_MGIS_SRC_BATCH_STIFFNESSMATRICESKERNELS_HXX
+ #define LIB_MFEM_MGIS_SRC_BATCH_STIFFNESSMATRICESKERNELS_HXX
+ 
++#include <limits>
++#include <cstddef>
++#include <cstdint>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
++#include "KernelsUtilities.hxx"
++
++namespace mfem_mgis::batch {
++
++  // forward declaration
++  struct AssembledStiffnessMatrix;
++
++}  // end of namespace mfem_mgis::batch
+ 
+ namespace mfem_mgis::batch::internals {
+ 
++  /*!
++   * \brief position given to the entries which are not in the matrix, or
++   * whose position relative to the first entry of their row does not fit in
++   * 16 bits (see `computeStiffnessMatricesPositions`)
++   */
++  inline constexpr int unknown_position =
++      std::numeric_limits<std::uint16_t>::max();
++
+   //! \brief arguments of the kernels computing the stiffness matrices
+   struct StiffnessMatricesKernelArguments {
+     //! \brief elements of the material
+@@ -83,13 +102,126 @@ namespace mfem_mgis::batch::internals {
+     real* values = nullptr;
+     //! \brief degrees of freedom of the elements
+     const int* element_dofs = nullptr;
++    /*!
++     * \brief positions of the entries of the stiffness matrices of the
++     * elements relative to the first entry of their rows (see
++     * `computeStiffnessMatricesPositions`), or a null pointer
++     */
++    const std::uint16_t* positions = nullptr;
+     /*!
+      * \brief number of entries which are not in the pattern of the matrix,
+      * or whose row is not in the matrix
+      */
+     int* missing = nullptr;
++    /*!
++     * \brief number of entries whose position, given by `positions`, does
++     * not designate their column (they are searched in their rows), or a
++     * null pointer. The entries whose position is unknown are not counted
++     * (see `unknown_position`).
++     */
++    int* searched = nullptr;
++    /*!
++     * \return the position of an entry of the stiffness matrix of an element
++     * in the values of the matrix, or `end` if the entry is not in the
++     * matrix: the position read in `positions` if it designates the column
++     * of the entry, the position searched in the row otherwise (see
++     * `findColumn`, the entry being then counted in `searched`)
++     * \param[in] e: element (in the mesh)
++     * \param[in] n: number of degrees of freedom of an element
++     * \param[in] i: row of the entry in the stiffness matrix of the element
++     * \param[in] j: column of the entry in the stiffness matrix of the
++     * element
++     * \param[in] begin: position of the first entry of the row of the entry
++     * \param[in] end: position after the last entry of the row of the entry
++     * \param[in] c: column of the entry in the matrix
++     */
++    MFEM_HOST_DEVICE int findPosition(const std::size_t e,
++                                      const std::size_t n,
++                                      const std::size_t i,
++                                      const std::size_t j,
++                                      const int begin,
++                                      const int end,
++                                      const int c) const {
++      if (this->positions != nullptr) {
++        const auto o = static_cast<int>(this->positions[(n * e + i) * n + j]);
++        if ((o < end - begin) && (this->J[begin + o] == c)) {
++          return begin + o;
++        }
++        if ((this->searched != nullptr) && (o != unknown_position)) {
++          ::AtomicAdd(this->searched[0], 1);
++        }
++      }
++      return findColumn(this->J, begin, end, c);
++    }
+   };
+ 
++  /*!
++   * \return true if an assembled matrix can receive the stiffness matrices
++   * of the elements, false otherwise (an error message is then registered):
++   * finalized matrix, degrees of freedom of all the elements, positions of
++   * the entries of their stiffness matrices (if any) of the expected sizes
++   * \param[in, out] ctx: execution context
++   * \param[in] m: assembled matrix
++   * \param[in] ne: number of elements of the mesh
++   * \param[in] n: number of degrees of freedom of an element
++   * \param[in] f: calling function (error messages)
++   */
++  [[nodiscard]] bool checkAssembledStiffnessMatrix(
++      Context&,
++      const AssembledStiffnessMatrix&,
++      const std::int64_t,
++      const std::int64_t,
++      const char* const);
++  /*!
++   * \brief fills the destination of the kernels adding the stiffness
++   * matrices of the elements to an assembled matrix, checked by
++   * `checkAssembledStiffnessMatrix`
++   * \param[out] o: destination of the kernels
++   * \param[out] counters: counters of the entries which are not in the
++   * pattern of the matrix (`missing`) and of the entries searched in their
++   * rows (`searched`), set to zero
++   * \param[in] m: assembled matrix
++   * \param[in] use_device: if true, the destination is read on the device
++   */
++  void getSparseMatrixOutput(SparseMatrixOutput&,
++                             mfem::Array<int>&,
++                             const AssembledStiffnessMatrix&,
++                             const bool);
++  /*!
++   * \brief reads the counters filled by a kernel adding the stiffness
++   * matrices of the elements to an assembled matrix: the number of entries
++   * searched in their rows is added to
++   * `AssembledStiffnessMatrix::searched_entries`, if given
++   * \return true if all the entries are in the pattern of the matrix, false
++   * otherwise (an error message is then registered)
++   * \param[in, out] ctx: execution context
++   * \param[in] counters: counters (see `getSparseMatrixOutput`)
++   * \param[in] m: assembled matrix
++   * \param[in] f: calling function (error message)
++   */
++  [[nodiscard]] bool checkSparseMatrixOutputCounters(
++      Context&,
++      const mfem::Array<int>&,
++      const AssembledStiffnessMatrix&,
++      const char* const);
++  /*!
++   * \brief launches the kernel computing the positions of the entries of the
++   * stiffness matrices of all the elements in the rows of an assembled
++   * matrix (see `computeStiffnessMatricesPositions`): one thread per row of
++   * the stiffness matrix of an element
++   * \param[in] o: assembled matrix (`values`, `positions`, `missing` and
++   * `searched` are not used)
++   * \param[in] ne: number of elements of the mesh
++   * \param[in] n: number of degrees of freedom of an element
++   * \param[out] positions: positions (`ne * n * n` values)
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchStiffnessMatricesPositionsKernel(const SparseMatrixOutput&,
++                                              const int,
++                                              const int,
++                                              std::uint16_t* const,
++                                              const bool);
++
+   /*!
+    * \brief launches the kernel adding the stiffness matrices of the
+    * elements of a material to an assembled sparse matrix
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 8f2aea5181..6712c0d1ba 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -12,6 +12,7 @@
+ #include <algorithm>
+ #include <exception>
+ #include "MGIS/Raise.hxx"
++#include "mfem/general/device.hpp"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/restriction.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+@@ -730,6 +731,17 @@ namespace mfem_mgis {
+     return batch::makeAssembledStiffnessMatrix(ctx, fes, this->element_dofs);
+   }  // end of makeAssembledStiffnessMatrix
+ 
++  int MultiMaterialNonLinearIntegrator::
++      getNumberOfStiffnessMatricesPositionsComputations(
++          const bool sorted) const noexcept {
++    return this->stiffness_matrices_positions_computations[sorted ? 1 : 0];
++  }  // end of getNumberOfStiffnessMatricesPositionsComputations
++
++  bool MultiMaterialNonLinearIntegrator::hasStiffnessMatricesPositions(
++      const bool sorted) const noexcept {
++    return this->stiffness_matrices_positions[sorted ? 1 : 0].Size() != 0;
++  }  // end of hasStiffnessMatricesPositions
++
+   bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
+       Context& ctx,
+       const mfem::FiniteElementSpace& fes,
+@@ -741,8 +753,38 @@ namespace mfem_mgis {
+     if (!batch::zeroSparseMatrixValues(ctx, m)) {
+       return false;
+     }
++    // positions of the entries in the rows of the matrix, kept for each
++    // layout of the rows (columns sorted, for example by a direct solver, or
++    // diagonal first, see `batch::makeAssembledStiffnessMatrix`): computed
++    // at the first assembly in this layout, and again after an assembly in
++    // which some of them did not designate their columns (another matrix),
++    // at most three times. They make the assembly 1.1 to 2.9 times faster on
++    // the CPU, but gave no gain on a GPU, where they would use memory: they
++    // are not used with a GPU or the debug device of MFEM. If their
++    // computation fails, the entries are searched.
++    constexpr auto maximum_number_of_positions_computations = 3;
++    const auto layout = m.ColumnsAreSorted() ? 1 : 0;
++    auto& positions = this->stiffness_matrices_positions[layout];
++    auto& computations =
++        this->stiffness_matrices_positions_computations[layout];
++    const auto device = mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
++    if ((!device) && (positions.Size() == 0) &&
++        (computations < maximum_number_of_positions_computations)) {
++      ++computations;
++      auto positions_ctx = Context{};
++      if (!batch::computeStiffnessMatricesPositions(
++              positions_ctx, positions, fes, this->element_dofs, m)) {
++        positions.DeleteAll();
++        computations = maximum_number_of_positions_computations;
++      }
++    }
++    const auto use_positions = (!device) && (positions.Size() != 0);
++    auto searched_entries = std::size_t{};
+     const auto a = batch::AssembledStiffnessMatrix{
+-        .matrix = &m, .element_dofs = &(this->element_dofs)};
++        .matrix = &m,
++        .element_dofs = &(this->element_dofs),
++        .positions = use_positions ? &positions : nullptr,
++        .searched_entries = &searched_entries};
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         if (!bi->addStiffnessMatricesByKernels(ctx, a,
+@@ -751,6 +793,15 @@ namespace mfem_mgis {
+         }
+       }
+     }
++    if (searched_entries != 0) {
++      // positions of another layout of the rows: computed again at the next
++      // assembly, or abandoned
++      if (computations < maximum_number_of_positions_computations) {
++        positions.SetSize(0);
++      } else {
++        positions.DeleteAll();
++      }
++    }
+     return true;
+   }  // end of assembleStiffnessMatrixByKernels
+ 
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 80208d6416..21085f3e30 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -7,7 +7,10 @@
+  * stiffness matrices being stored element by element or assembled in a
+  * sparse matrix): same values as the computations element by element and
+  * the assembly by MFEM, entries outside of the pattern of the sparse
+- * matrix detected, for small and finite strain behaviours, isotropic and
++ * matrix detected, positions of the entries in the rows of the sparse
++ * matrix (`batch::computeStiffnessMatricesPositions`) checked and used,
++ * including positions of another matrix, wrong positions and positions of
++ * a wrong size, for small and finite strain behaviours, isotropic and
+  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
+  * materials with macroscopic gradients) and under the plane strain
+  * hypothesis (the plane stress hypothesis uses the same operator, but no
+@@ -24,7 +27,11 @@
+ #include <array>
+ #include <string>
+ #include <vector>
++#include <cstdint>
++#include <limits>
++#include <optional>
+ #include <algorithm>
++#include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/fem/restriction.hpp"
+@@ -35,6 +42,7 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "MFEMMGIS/Batch/InnerForces.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+@@ -97,6 +105,58 @@ static void distortMesh(mfem::Mesh& m) {
+   });
+ }  // end of distortMesh
+ 
++/*!
++ * \brief checks the positions of the entries of the stiffness matrices of
++ * all the elements in the rows of a matrix (see
++ * `batch::computeStiffnessMatricesPositions`): the position of an entry is
++ * the one of its column in its row, relatively to the first entry of the
++ * row, or the largest value of `std::uint16_t` if the entry is not in the
++ * matrix
++ * \return the number of entries which are not in the matrix
++ * \param[in] name: name of the case
++ * \param[in] positions: positions
++ * \param[in] dofs: degrees of freedom of all the elements
++ * \param[in] ne: number of elements
++ * \param[in] m: matrix
++ */
++static int checkPositions(const std::string& name,
++                          const mfem::Array<std::uint16_t>& positions,
++                          const mfem::Array<int>& dofs,
++                          const int ne,
++                          const mfem::SparseMatrix& m) {
++  constexpr auto unknown = std::numeric_limits<std::uint16_t>::max();
++  const auto n = static_cast<std::size_t>(dofs.Size() / ne);
++  if (static_cast<std::size_t>(positions.Size()) !=
++      n * n * static_cast<std::size_t>(ne)) {
++    check(false, name + ": number of positions");
++    return 0;
++  }
++  const auto* const p = positions.HostRead();
++  const auto* const d = dofs.HostRead();
++  const auto* const I = m.HostReadI();
++  const auto* const J = m.HostReadJ();
++  auto missing = 0;
++  auto wrong = 0;
++  for (std::size_t e = 0; e != static_cast<std::size_t>(ne); ++e) {
++    for (std::size_t i = 0; i != n; ++i) {
++      const auto row = d[n * e + i];
++      for (std::size_t j = 0; j != n; ++j) {
++        const auto* const b = J + I[row];
++        const auto* const f = std::find(b, J + I[row + 1], d[n * e + j]);
++        const auto v = p[(n * e + i) * n + j];
++        if (f == J + I[row + 1]) {
++          ++missing;
++          wrong += (v == unknown) ? 0 : 1;
++        } else {
++          wrong += (v == f - b) ? 0 : 1;
++        }
++      }
++    }
++  }
++  check(wrong == 0, name + ": " + std::to_string(wrong) + " wrong positions");
++  return missing;
++}  // end of checkPositions
++
+ /*!
+  * \brief compare the gradients computed by kernels and element by element
+  * \param[in, out] ctx: execution context
+@@ -348,6 +408,7 @@ static void testCase(mfem_mgis::Context& ctx,
+     // entries by bisection, then linearly), and is sorted to be compared to
+     // the reference
+     auto assembled_matrix = mfem::SparseMatrix(reference_matrix);
++    const auto mfem_ordering = mfem::SparseMatrix(reference_matrix);
+     reference_matrix.SortColumnIndices();
+     auto element_dofs = mfem::Array<int>{};
+     check(batch::computeElementsDegreesOfFreedom(ctx, element_dofs, fes),
+@@ -377,6 +438,91 @@ static void testCase(mfem_mgis::Context& ctx,
+               << " values, maximum difference " << da << " (maximum value "
+               << amax << ")\n";
+     check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
++    // positions of the entries in the rows of the matrix, read instead of
++    // searched: positions of the matrix (no entry searched), positions of
++    // the matrix created by `makeAssembledStiffnessMatrix` (other ordering
++    // of the rows) and wrong positions (a position is used only if it
++    // designates the column of the entry, the other entries being searched
++    // and counted), positions of a wrong size (refused). Returns the number
++    // of entries searched, or nothing if the assembly failed.
++    const auto assemble_with_positions =
++        [&](const mfem::Array<std::uint16_t>& positions,
++            const std::string& what) -> std::optional<std::size_t> {
++      auto matrix = mfem::SparseMatrix(mfem_ordering);
++      auto c2 = Context{};
++      check(batch::zeroSparseMatrixValues(c2, matrix),
++            name + ": initialisation of the assembled matrix");
++      auto searched = std::size_t{};
++      if (!bi.addStiffnessMatricesByKernels(
++              c2,
++              batch::AssembledStiffnessMatrix{.matrix = &matrix,
++                                              .element_dofs = &element_dofs,
++                                              .positions = &positions,
++                                              .searched_entries = &searched},
++              geometry)) {
++        return {};
++      }
++      matrix.SortColumnIndices();
++      const auto* const pv = matrix.HostReadData();
++      auto dp = real{};
++      for (int i = 0; i != reference_matrix.NumNonZeroElems(); ++i) {
++        dp = std::max(dp, std::abs(pv[i] - rv[i]));
++      }
++      std::cout << name << ": assembled matrix, " << what
++                << ", maximum difference " << dp << ", " << searched
++                << " entries searched\n";
++      check(dp <= 1e-13 * amax, name + ": assembled matrix, " + what);
++      return searched;
++    };
++    auto positions = mfem::Array<std::uint16_t>{};
++    check(batch::computeStiffnessMatricesPositions(ctx, positions, fes,
++                                                   element_dofs, mfem_ordering),
++          name + ": positions of the entries (" + ctx.getErrorMessage() + ")");
++    const auto missing = checkPositions(name, positions, element_dofs,
++                                        fes.GetNE(), mfem_ordering);
++    // the matrix contains the entries of the elements of the material only
++    auto other_elements = false;
++    for (int i = 0; i != fes.GetNE(); ++i) {
++      other_elements =
++          other_elements || (fes.GetAttribute(i) != static_cast<int>(m));
++    }
++    check((missing != 0) == other_elements,
++          name + ": positions of the entries outside of the matrix");
++    check(assemble_with_positions(positions, "positions of the matrix") ==
++              std::size_t{0},
++          name + ": assembly with the positions of the matrix");
++    {
++      const auto other =
++          batch::makeAssembledStiffnessMatrix(ctx, fes, element_dofs);
++      auto other_positions = mfem::Array<std::uint16_t>{};
++      check((other != nullptr) &&
++                batch::computeStiffnessMatricesPositions(
++                    ctx, other_positions, fes, element_dofs, *other),
++            name + ": positions of the entries in another matrix (" +
++                ctx.getErrorMessage() + ")");
++      const auto searched = assemble_with_positions(
++          other_positions, "positions of another matrix");
++      check(searched.has_value() && (*searched != 0),
++            name + ": assembly with the positions of another matrix");
++    }
++    {
++      auto wrong_positions = mfem::Array<std::uint16_t>(positions.Size());
++      auto* const wp = wrong_positions.HostWrite();
++      for (int i = 0; i != wrong_positions.Size(); ++i) {
++        wp[i] = static_cast<std::uint16_t>((7 * i) % 13);
++      }
++      const auto searched =
++          assemble_with_positions(wrong_positions, "wrong positions");
++      check(searched.has_value() && (*searched != 0),
++            name + ": assembly with wrong positions");
++      auto empty_positions = mfem::Array<std::uint16_t>{};
++      check(assemble_with_positions(empty_positions, "no positions") ==
++                std::size_t{0},
++            name + ": assembly without positions");
++      wrong_positions.SetSize(positions.Size() - 1);
++      check(!assemble_with_positions(wrong_positions, "positions").has_value(),
++            name + ": positions of a wrong size not detected");
++    }
+     // action and diagonal of the tangent operator computed by kernels
+     // without assembly, compared to the product by the assembled matrix and
+     // to its diagonal
+@@ -454,6 +600,16 @@ static void testCase(mfem_mgis::Context& ctx,
+                                               .element_dofs = &element_dofs},
+               geometry),
+           name + ": entries outside of the pattern of the matrix not detected");
++    auto c3 = Context{};
++    check(!bi.addStiffnessMatricesByKernels(
++              c3,
++              batch::AssembledStiffnessMatrix{.matrix = &diagonal_matrix,
++                                              .element_dofs = &element_dofs,
++                                              .positions = &positions},
++              geometry),
++          name +
++              ": entries outside of the pattern of the matrix not detected "
++              "with the positions of another matrix");
+   }
+   // pattern of the matrix in which the stiffness matrices are assembled: the
+   // one built by MFEM from the matrices of all the elements, the diagonal
+@@ -504,8 +660,128 @@ static void testCase(mfem_mgis::Context& ctx,
+   std::cout << c.name << ": pattern of the assembled matrix, " << nnz
+             << " values\n";
+   check(same_pattern, c.name + ": pattern of the assembled matrix");
++  auto positions = mfem::Array<std::uint16_t>{};
++  check(batch::computeStiffnessMatricesPositions(ctx, positions, fes,
++                                                 element_dofs, *m),
++        c.name + ": positions of the entries (" + ctx.getErrorMessage() + ")");
++  check(checkPositions(c.name, positions, element_dofs, fes.GetNE(), *m) == 0,
++        c.name + ": positions of the entries of the assembled matrix");
+ }  // end of testCase
+ 
++/*!
++ * \brief checks how the multi-material integrator keeps the positions of the
++ * entries of the stiffness matrices (see
++ * `MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels`):
++ * computed once for the matrices created by `makeAssembledStiffnessMatrix`,
++ * once for these matrices with sorted columns (as by a direct solver), even
++ * when the two kinds of matrices are alternated, computed again after an
++ * assembly in another layout of the rows, at most three times, then
++ * abandoned; never computed with a device which is not the host
++ * \param[in, out] ctx: execution context
++ * \param[in] library: behaviour library
++ * \param[in] mesh: mesh of a cube (hexahedra)
++ */
++static void testIntegratorPositions(mfem_mgis::Context& ctx,
++                                    const char* const library,
++                                    const char* const mesh) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem = construct<NonLinearEvolutionProblem>(
++                     ctx, Parameters{{"MeshFileName", mesh},
++                                     {"FiniteElementFamily", "H1"},
++                                     {"FiniteElementOrder", 1},
++                                     {"UnknownsSize", 3},
++                                     {"NumberOfUniformRefinements", 1},
++                                     {"Hypothesis", "Tridimensional"},
++                                     {"Parallel", false}}) |
++                 or_die;
++  auto mi = MultiMaterialNonLinearIntegrator(
++      problem.getFiniteElementDiscretizationPointer(),
++      Hypothesis::TRIDIMENSIONAL);
++  mi.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
++                            "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& mat = mi.getMaterial(ctx, 1, 0) | or_die;
++  mat.synchronizeOnHost();
++  for (std::size_t i = 0; i != mat.K.size(); ++i) {
++    mat.K[i] = std::cos(real(i));
++  }
++  const auto& fes =
++      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
++  const auto m1 = mi.makeAssembledStiffnessMatrix(ctx, fes);
++  const auto m2 = mi.makeAssembledStiffnessMatrix(ctx, fes);
++  check((m1 != nullptr) && (m2 != nullptr),
++        "integrator positions: creation of the matrices");
++  if ((m1 == nullptr) || (m2 == nullptr)) {
++    return;
++  }
++  // matrix in the layout of MFEM (neither sorted nor diagonal first)
++  auto m3 = mfem::SparseMatrix(fes.GetVSize());
++  {
++    auto vdofs = mfem::Array<int>{};
++    auto Ke = mfem::DenseMatrix{};
++    for (int i = 0; i != fes.GetNE(); ++i) {
++      fes.GetElementVDofs(i, vdofs);
++      Ke.SetSize(vdofs.Size());
++      Ke = real{0};
++      m3.AddSubMatrix(vdofs, vdofs, Ke, 0);
++    }
++    m3.Finalize(0);
++  }
++  const auto host = !mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
++  const auto assemble = [&ctx, &mi, &fes](mfem::SparseMatrix& m) {
++    check(mi.assembleStiffnessMatrixByKernels(ctx, fes, m),
++          "integrator positions: assembly (" + ctx.getErrorMessage() + ")");
++  };
++  // expected numbers of computations and positions kept, for the matrices
++  // whose columns are not sorted, then sorted
++  const auto expect = [&mi, host](const std::string& what, const int n1,
++                                  const bool p1, const int n2, const bool p2) {
++    const auto c1 = mi.getNumberOfStiffnessMatricesPositionsComputations(false);
++    const auto c2 = mi.getNumberOfStiffnessMatricesPositionsComputations(true);
++    std::cout << "integrator positions, " << what << ": " << c1 << " and " << c2
++              << " computations\n";
++    check((c1 == (host ? n1 : 0)) &&
++              (mi.hasStiffnessMatricesPositions(false) == (host && p1)) &&
++              (c2 == (host ? n2 : 0)) &&
++              (mi.hasStiffnessMatricesPositions(true) == (host && p2)),
++          "integrator positions: " + what);
++  };
++  assemble(*m1);
++  const auto reference = std::vector<real>(
++      m1->HostReadData(), m1->HostReadData() + m1->NumNonZeroElems());
++  expect("first assembly", 1, true, 0, false);
++  assemble(*m2);
++  assemble(*m1);
++  expect("two matrices of the same layout", 1, true, 0, false);
++  m1->SortColumnIndices();
++  for (int i = 0; i != 3; ++i) {
++    assemble(*m1);
++    assemble(*m2);
++  }
++  expect("sorted and unsorted matrices alternated", 1, true, 1, true);
++  // another layout of the unsorted rows: positions computed again, at most
++  // three times, then abandoned
++  assemble(m3);
++  expect("matrix in another layout", 1, false, 1, true);
++  assemble(*m2);
++  assemble(m3);
++  assemble(*m2);
++  expect("matrices in two layouts alternated", 3, true, 1, true);
++  assemble(m3);
++  assemble(*m2);
++  expect("positions abandoned", 3, false, 1, true);
++  // the assembled values do not depend on the positions
++  const auto* const v = m2->HostReadData();
++  auto same =
++      static_cast<std::size_t>(m2->NumNonZeroElems()) == reference.size();
++  for (std::size_t i = 0; same && (i != reference.size()); ++i) {
++    same = std::abs(v[i] - reference[i]) <=
++           1e-14 * std::max(std::abs(reference[i]), real{1});
++  }
++  check(same, "integrator positions: assembled values");
++}  // end of testIntegratorPositions
++
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+   initialize(argc, argv);
+@@ -610,6 +886,7 @@ int main(int argc, char** argv) {
+   for (const auto& c : cases) {
+     testCase(ctx, library, c);
+   }
++  testIntegratorPositions(ctx, library, cube);
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+

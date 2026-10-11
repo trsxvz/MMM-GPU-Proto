@@ -1,0 +1,128 @@
+From 9338554cd7440952feee58e35025f854ec02c77a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 22:23:44 +0200
+Subject: [PATCH] ParaSails preconditioner: fixes of an independent review
+
+- HypreParaSailsTest: the new operator is assembled before the
+  destruction of the previous one, so that nothing is allocated in the
+  memory freed before the new operator is given: the test detects the
+  defect whatever the allocator. MALLOC_PERTURB_ is removed: with glibc
+  2.39 it does not overwrite the small blocks freed, whose start, where
+  hypre stores the communicator, is overwritten by the allocator anyway
+  (the previous commit message is wrong on this point).
+- VerbosityLevel applied to ParaSails (logging of hypre, whose statistics
+  were printed at each setup), kept for the new operators.
+- The operator is only replaced when the new one is a matrix of hypre, so
+  that MFEM reports other operators as before.
+- Missing include of <string> in the test.
+---
+ src/LinearSolverFactory.cxx  | 21 +++++++++++++++++----
+ tests/CMakeLists.txt         |  5 +----
+ tests/HypreParaSailsTest.cxx | 13 +++++++++----
+ 3 files changed, 27 insertions(+), 12 deletions(-)
+
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index a028c4665c..cd149b761d 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -110,14 +110,16 @@ namespace mfem_mgis::internals {
+    * new preconditioner of hypre with the communicator of the previous
+    * operator, whose memory may then be freed (invalid communicator, see
+    * reproducers/hypre-parasails-operator in the prototype). The operator is
+-   * replaced by the new one before calling this method.
++   * replaced by the new one before calling this method, which reports an
++   * operator which is not a matrix of hypre as before.
+    */
+   struct ReusableHypreParaSails final : public mfem::HypreParaSails {
+     using mfem::HypreParaSails::HypreParaSails;
+     //! \brief set the operator
+     void SetOperator(const mfem::Operator& op) override {
+-      if (this->A != nullptr) {
+-        this->A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++      const auto* const new_A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++      if ((this->A != nullptr) && (new_A != nullptr)) {
++        this->A = new_A;
+       }
+       mfem::HypreParaSails::SetOperator(op);
+     }
+@@ -375,7 +377,18 @@ namespace mfem_mgis {
+           "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
+           "not supported when hypre computes on a GPU");
+     }
+-    return std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
++    auto parasails =
++        std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
++    // statistics of the setups printed by hypre (printed by default by
++    // MFEM), kept for the new operators
++    if (contains(opts, Problem::SolverVerbosityLevel)) {
++      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
++      if (isInvalid(olvl)) {
++        return {};
++      }
++      parasails->SetLogging(*olvl);
++    }
++    return parasails;
+   }  // end of setHypreParaSailsPreconditioner
+ 
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 447395044e..81670ab3ca 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1167,13 +1167,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
+     # HypreParaSailsTest executable: ParaSails preconditioner given a new
+     # operator after the destruction of the previous one, refused when hypre
+-    # computes on a GPU. The memory freed is overwritten, so that reading
+-    # the previous operator gives an invalid communicator
++    # computes on a GPU
+     add_test_executable(HypreParaSailsTest)
+     add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
+     add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
+-    set_tests_properties(HypreParaSailsTest HypreParaSailsTestP
+-                         PROPERTIES ENVIRONMENT MALLOC_PERTURB_=165)
+   endif(MFEM_USE_MPI)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+diff --git a/tests/HypreParaSailsTest.cxx b/tests/HypreParaSailsTest.cxx
+index 8a2a3b4a75..e6b707dcbd 100644
+--- a/tests/HypreParaSailsTest.cxx
++++ b/tests/HypreParaSailsTest.cxx
+@@ -11,6 +11,7 @@
+ 
+ #include <cstdlib>
+ #include <memory>
++#include <string>
+ #include <iostream>
+ #include "mfem/mesh/pmesh.hpp"
+ #include "mfem/fem/pbilinearform.hpp"
+@@ -76,7 +77,9 @@ int main(int argc, char** argv) {
+       Parameters{{"Tolerance", 1e-12},
+                  {"MaximumNumberOfIterations", 1000},
+                  {"VerbosityLevel", 0},
+-                 {"Preconditioner", Parameters{{"Name", "HypreParaSails"}}}});
++                 {"Preconditioner",
++                  Parameters{{"Name", "HypreParaSails"},
++                             {"Options", Parameters{{"VerbosityLevel", 0}}}}}});
+   if (isHypreUsingGPU()) {
+     check(isInvalid(h), "ParaSails is not refused on a GPU");
+     if (verbose && isInvalid(h)) {
+@@ -85,10 +88,12 @@ int main(int argc, char** argv) {
+   } else {
+     check(!isInvalid(h), "ParaSails is refused");
+     if (!isInvalid(h)) {
++      auto A = std::unique_ptr<mfem::HypreParMatrix>{};
+       for (int i = 0; i != 2; ++i) {
+-        // the operator of the previous resolution is destroyed at the end
+-        // of the iteration
+-        const auto A = assemble(fespace, ess_tdofs, 1 + i);
++        // the new operator is assembled before the destruction of the
++        // previous one, so that nothing is allocated in the memory freed
++        // before the new operator is given
++        A = assemble(fespace, ess_tdofs, 1 + i);
+         auto X = mfem::Vector(B->Size());
+         X = 0.0;
+         h.linear_solver->SetOperator(*A);
+-- 
+2.43.0
+

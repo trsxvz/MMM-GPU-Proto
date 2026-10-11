@@ -103,6 +103,28 @@ namespace mfem_mgis::internals {
 
 #endif /* MFEM_HYPRE_VERSION >= 21900 */
 
+  /*!
+   * \brief ParaSails preconditioner of hypre which can be given a new
+   * operator after the destruction of the previous one, as the non linear
+   * solvers do: `mfem::HypreParaSails::SetOperator` (MFEM 4.10) creates the
+   * new preconditioner of hypre with the communicator of the previous
+   * operator, whose memory may then be freed (invalid communicator, see
+   * reproducers/hypre-parasails-operator in the prototype). The operator is
+   * replaced by the new one before calling this method, which reports an
+   * operator which is not a matrix of hypre as before.
+   */
+  struct ReusableHypreParaSails final : public mfem::HypreParaSails {
+    using mfem::HypreParaSails::HypreParaSails;
+    //! \brief set the operator
+    void SetOperator(const mfem::Operator& op) override {
+      const auto* const new_A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+      if ((this->A != nullptr) && (new_A != nullptr)) {
+        this->A = new_A;
+      }
+      mfem::HypreParaSails::SetOperator(op);
+    }
+  };  // end of struct ReusableHypreParaSails
+
 }  // end of namespace mfem_mgis::internals
 
 #endif /* MFEM_USE_MPI */
@@ -347,7 +369,26 @@ namespace mfem_mgis {
     if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
       return {};
     }
-    return std::make_unique<mfem::HypreParaSails>(p.GetComm());
+    // ParaSails only computes on the host: its setup reads the matrix stored
+    // on the device when hypre computes on a GPU (segmentation fault in
+    // MatrixSetRow with hypre 3.2.0 and CUDA 13)
+    if (isHypreUsingGPU()) {
+      return ctx.registerErrorMessage(
+          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
+          "not supported when hypre computes on a GPU");
+    }
+    auto parasails =
+        std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
+    // statistics of the setups printed by hypre (printed by default by
+    // MFEM), kept for the new operators
+    if (contains(opts, Problem::SolverVerbosityLevel)) {
+      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
+      if (isInvalid(olvl)) {
+        return {};
+      }
+      parasails->SetLogging(*olvl);
+    }
+    return parasails;
   }  // end of setHypreParaSailsPreconditioner
 
   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>

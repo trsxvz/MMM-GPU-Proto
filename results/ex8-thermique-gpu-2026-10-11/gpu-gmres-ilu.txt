@@ -1,0 +1,377 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
+   --libraryALFENI /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreILU
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device cuda
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.47768  GB
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 236.542, ||r||/||r_0|| = 0.0335329
+The coupling scheme did not converge for the time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 10000
+Newton iteration  0 : ||r|| = 6829.34, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 91.1287, ||r||/||r_0|| = 0.0133437
+Newton iteration  2 : ||r|| = 0.0640625, ||r||/||r_0|| = 9.38048e-06
+Newton iteration  3 : ||r|| = 3.80171e-08, ||r||/||r_0|| = 5.56674e-12
+Convergence order 1.97479
+
+Newton iteration  0 : ||r|| = 1.17288e+06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 36220.3, ||r||/||r_0|| = 0.0308814
+Newton iteration  2 : ||r|| = 7.33519, ||r||/||r_0|| = 6.25398e-06
+Newton iteration  3 : ||r|| = 7.84028e-07, ||r||/||r_0|| = 6.68462e-13
+Convergence order 1.88737
+
+Newton iteration  0 : ||r|| = 1.6167, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.78288e-05, ||r||/||r_0|| = 1.72133e-05
+Newton iteration  2 : ||r|| = 3.61941e-10, ||r||/||r_0|| = 2.23876e-10
+Convergence order 1.02555
+
+Newton iteration  0 : ||r|| = 307.299, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.000115993, ||r||/||r_0|| = 3.77461e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000462333, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.89469e-10, ||r||/||r_0|| = 8.42399e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.0875316, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.56036e-08, ||r||/||r_0|| = 9.77974e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.47848e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.56036e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 10000.000000 to 20000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10000 to 20000
+Newton iteration  0 : ||r|| = 1019.69, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 24.6983, ||r||/||r_0|| = 0.0242214
+Newton iteration  2 : ||r|| = 0.00538315, ||r||/||r_0|| = 5.27922e-06
+Newton iteration  3 : ||r|| = 4.64036e-10, ||r||/||r_0|| = 4.55076e-13
+Convergence order 1.92933
+
+Newton iteration  0 : ||r|| = 241185, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 75.3028, ||r||/||r_0|| = 0.000312221
+Newton iteration  2 : ||r|| = 0.000908255, ||r||/||r_0|| = 3.76581e-09
+Convergence order 1.40309
+
+Newton iteration  0 : ||r|| = 0.644129, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.4231e-06, ||r||/||r_0|| = 9.97177e-06
+The coupling scheme did not converge for the time step from 10000.000000 to 15000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 10000.000000 to 15000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10000 to 15000
+Newton iteration  0 : ||r|| = 509.844, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.17456, ||r||/||r_0|| = 0.0121107
+The coupling scheme did not converge for the time step from 10000.000000 to 12500.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 10000.000000 to 12500.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10000 to 12500
+Newton iteration  0 : ||r|| = 254.922, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.54364, ||r||/||r_0|| = 0.00605534
+Newton iteration  2 : ||r|| = 2.20552e-05, ||r||/||r_0|| = 8.65173e-08
+Convergence order 2.18455
+
+Newton iteration  0 : ||r|| = 63500.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.49944, ||r||/||r_0|| = 7.0857e-05
+Newton iteration  2 : ||r|| = 5.57472e-06, ||r||/||r_0|| = 8.77904e-11
+Convergence order 1.42349
+
+Newton iteration  0 : ||r|| = 0.105232, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.09777e-07, ||r||/||r_0|| = 1.99347e-06
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 21.8276, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.22154e-07, ||r||/||r_0|| = 2.85031e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.02458e-05, ||r||/||r_0|| = 1
+The coupling scheme did not converge for the time step from 10000.000000 to 11250.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 10000.000000 to 11250.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10000 to 11250
+Newton iteration  0 : ||r|| = 127.461, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.38591, ||r||/||r_0|| = 0.00302767
+Newton iteration  2 : ||r|| = 1.3896e-06, ||r||/||r_0|| = 1.09022e-08
+Convergence order 2.16111
+
+Newton iteration  0 : ||r|| = 32223.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.11717, ||r||/||r_0|| = 3.46695e-05
+Newton iteration  2 : ||r|| = 3.73936e-07, ||r||/||r_0|| = 1.16045e-11
+Convergence order 1.45185
+
+Newton iteration  0 : ||r|| = 0.0473269, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.32862e-08, ||r||/||r_0|| = 9.1462e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.84132, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.53899e-07, ||r||/||r_0|| = 1.56381e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.61243e-05, ||r||/||r_0|| = 1
+The coupling scheme did not converge for the time step from 10000.000000 to 10625.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 10000.000000 to 10625.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10000 to 10625
+Newton iteration  0 : ||r|| = 63.7305, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.0964776, ||r||/||r_0|| = 0.00151384
+Newton iteration  2 : ||r|| = 8.71984e-08, ||r||/||r_0|| = 1.36824e-09
+Convergence order 2.14329
+
+Newton iteration  0 : ||r|| = 16241.5, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.278613, ||r||/||r_0|| = 1.71544e-05
+Newton iteration  2 : ||r|| = 9.06934e-08, ||r||/||r_0|| = 5.58405e-12
+Convergence order 1.3613
+
+Newton iteration  0 : ||r|| = 0.022289, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.67675e-09, ||r||/||r_0|| = 4.34149e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.65041, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.29654e-08, ||r||/||r_0|| = 1.99908e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.15919e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.81007e-10, ||r||/||r_0|| = 5.32193e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00145009, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.66389e-08, ||r||/||r_0|| = 5.97472e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.67264e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.66389e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 10625.000000 to 11294.642857 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 10625 to 11294.6
+Newton iteration  0 : ||r|| = 68.2827, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.110351, ||r||/||r_0|| = 0.0016161
+Newton iteration  2 : ||r|| = 1.13487e-07, ||r||/||r_0|| = 1.66202e-09
+Convergence order 2.145
+
+Newton iteration  0 : ||r|| = 17418.4, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.323907, ||r||/||r_0|| = 1.85957e-05
+Newton iteration  2 : ||r|| = 9.49688e-08, ||r||/||r_0|| = 5.45222e-12
+Convergence order 1.38098
+
+Newton iteration  0 : ||r|| = 0.0254465, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.25146e-08, ||r||/||r_0|| = 4.918e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.29291, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.64248e-08, ||r||/||r_0|| = 1.82177e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.6839e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.83915e-10, ||r||/||r_0|| = 4.421e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00175357, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.71862e-08, ||r||/||r_0|| = 4.97192e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.41127e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.71862e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 11294.642857 to 12031.250000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 11294.6 to 12031.2
+Newton iteration  0 : ||r|| = 75.111, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.13301, ||r||/||r_0|| = 0.00177084
+Newton iteration  2 : ||r|| = 1.63951e-07, ||r||/||r_0|| = 2.18278e-09
+Convergence order 2.14737
+
+Newton iteration  0 : ||r|| = 19155.5, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.397874, ||r||/||r_0|| = 2.07707e-05
+Newton iteration  2 : ||r|| = 9.75847e-08, ||r||/||r_0|| = 5.09435e-12
+Convergence order 1.4117
+
+Newton iteration  0 : ||r|| = 0.029834, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.70126e-08, ||r||/||r_0|| = 5.7024e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.19515, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.04122e-07, ||r||/||r_0|| = 1.68071e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.08712e-05, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.7541e-10, ||r||/||r_0|| = 3.45324e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00218416, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.67822e-08, ||r||/||r_0|| = 3.97324e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.54353e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.67822e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 12031.250000 to 12841.517857 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 12031.2 to 12841.5
+Newton iteration  0 : ||r|| = 82.6221, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.160262, ||r||/||r_0|| = 0.0019397
+Newton iteration  2 : ||r|| = 2.36538e-07, ||r||/||r_0|| = 2.86289e-09
+Convergence order 2.14984
+
+Newton iteration  0 : ||r|| = 21041.1, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.490226, ||r||/||r_0|| = 2.32986e-05
+Newton iteration  2 : ||r|| = 1.02718e-07, ||r||/||r_0|| = 4.8818e-12
+Convergence order 1.44166
+
+Newton iteration  0 : ||r|| = 0.0349719, ||r||/||r_0|| = 1
+The coupling scheme did not converge for the time step from 12031.250000 to 12436.383929 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 12031.250000 to 12436.383929 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 12031.2 to 12436.4
+Newton iteration  0 : ||r|| = 41.311, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.0400654, ||r||/||r_0|| = 0.000969848
+Newton iteration  2 : ||r|| = 1.48285e-08, ||r||/||r_0|| = 3.58949e-10
+Convergence order 2.13443
+
+Newton iteration  0 : ||r|| = 10605, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.122386, ||r||/||r_0|| = 1.15403e-05
+Newton iteration  2 : ||r|| = 9.36854e-08, ||r||/||r_0|| = 8.83404e-12
+Convergence order 1.23862
+
+Newton iteration  0 : ||r|| = 0.0169459, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5.46739e-09, ||r||/||r_0|| = 3.22638e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.51956, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.30963e-08, ||r||/||r_0|| = 2.64511e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.39022e-06, ||r||/||r_0|| = 1
+The coupling scheme did not converge for the time step from 12031.250000 to 12233.816964 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 12031.250000 to 12233.816964 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 12031.2 to 12233.8
+Newton iteration  0 : ||r|| = 20.6555, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.0100164, ||r||/||r_0|| = 0.000484924
+Newton iteration  2 : ||r|| = 1.00499e-09, ||r||/||r_0|| = 4.86546e-11
+Convergence order 2.11161
+
+Newton iteration  0 : ||r|| = 5325.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.03058, ||r||/||r_0|| = 5.74251e-06
+Newton iteration  2 : ||r|| = 9.30981e-08, ||r||/||r_0|| = 1.74826e-11
+Convergence order 1.05259
+
+Newton iteration  0 : ||r|| = 0.00833598, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.37947e-09, ||r||/||r_0|| = 1.65484e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.7318, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.41831e-08, ||r||/||r_0|| = 5.43845e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.08598e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.76097e-10, ||r||/||r_0|| = 0.000121873
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000620902, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.95444e-08, ||r||/||r_0|| = 0.000144217
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.35279e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.95444e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 12233.816964 to 12456.640625 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 12233.8 to 12456.6
+Newton iteration  0 : ||r|| = 22.7211, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.0121057, ||r||/||r_0|| = 0.000532797
+Newton iteration  2 : ||r|| = 1.40298e-09, ||r||/||r_0|| = 6.17481e-11
+Convergence order 2.11885
+
+Newton iteration  0 : ||r|| = 5856.35, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.0372046, ||r||/||r_0|| = 6.35286e-06
+Newton iteration  2 : ||r|| = 9.27509e-08, ||r||/||r_0|| = 1.58377e-11
+Convergence order 1.07817
+
+Newton iteration  0 : ||r|| = 0.0093333, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.68768e-09, ||r||/||r_0|| = 1.80823e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.93886, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.14497e-08, ||r||/||r_0|| = 4.71668e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.52342e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.8513e-10, ||r||/||r_0|| = 0.000109306
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000707499, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.21528e-08, ||r||/||r_0|| = 0.000130252
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.5476e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.21528e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 12456.640625 to 12699.974798 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 12456.6 to 12700
+Newton iteration  0 : ||r|| = 24.8125, ||r||/||r_0|| = 1

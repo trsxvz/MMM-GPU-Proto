@@ -1,0 +1,142 @@
+From d8287e4f079dac5807b6f45222e4f3693ba8d659 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 15:44:06 +0200
+Subject: [PATCH] ex8: option -nlsMc selecting the non linear solver of the
+ mechanical problem
+
+Newton (default), or NewtonK0: Newton method whose tangent systems are
+solved by GMRES preconditioned by the elastic operator, factorized by
+MUMPS at each time step instead of the tangent operator at each iteration.
+The NonLinearSolver parameter is given to the mechanical model. Test
+rjh_plate-newton-k0, all the computations being made by kernels, compared
+to the same reference.
+---
+ ex8/CMakeLists.txt       | 14 ++++++++++++
+ ex8/README.md            |  3 ++-
+ ex8/Thermomechanical.cxx | 49 ++++++++++++++++++++++++++++++++--------
+ ex8/headers/Setup.hxx    |  4 ++++
+ 4 files changed, 60 insertions(+), 10 deletions(-)
+
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index f02f41f..8b19119 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -112,6 +112,20 @@ set(rjh_plate_kernels_environment
+ set_tests_properties(rjh_plate-kernels PROPERTIES
+     PROCESSORS 2
+     ENVIRONMENT "${rjh_plate_kernels_environment}")
++# the mechanical problem solved by the NewtonK0 method (tangent systems
++# solved by GMRES preconditioned by the elastic operator, factorized by
++# MUMPS at each time step), all the computations being made by kernels
++add_test(NAME rjh_plate-newton-k0
++    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
++        $<TARGET_FILE:rjh_plate>
++        -m ${rjh_plate_mesh}.msh
++        -lsMc MUMPSSolver
++        -nlsMc NewtonK0
++        -rf ${rjh_plate_mesh}-statistics.ref
++    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
++set_tests_properties(rjh_plate-newton-k0 PROPERTIES
++    PROCESSORS 2
++    ENVIRONMENT "${rjh_plate_kernels_environment}")
+ # the same computations on a GPU (see ../config/TestMode.cmake)
+ if(MFEM_MGIS_EXAMPLES_CUDA_TESTS)
+   foreach(_variant "" "-kernels")
+diff --git a/ex8/README.md b/ex8/README.md
+index 23a810d..a7edfea 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -127,6 +127,7 @@ The following tests are run by `ctest`:
+ 
+ - `rjh_plate` runs the simulation on 2 processes with the default mesh and compares the statistics of the temperature and of the displacement to the reference values of `assemblage_hexa-statistics.ref`. In the restricted test mode, used by default in the debug and coverage builds, it uses the coarser mesh `assemblage_hexa_coarse.msh` and the reference values of `assemblage_hexa_coarse-statistics.ref`;
+ - `rjh_plate-kernels` runs the same simulation with the integration of the behaviours by batches and the gradients, the inner forces and the tangent operator computed by kernels (environment variables of mfem-mgis), compared to the same reference;
+-- `rjh_plate-cuda` and `rjh_plate-kernels-cuda` run both simulations on a CUDA device, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set (see the main README);
++- `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step instead of the tangent operator at each iteration), compared to the same reference;
++- `rjh_plate-cuda` and `rjh_plate-kernels-cuda` run the first two simulations on a CUDA device, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set (see the main README);
+ - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
+ - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`).
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 3d67eb3..ba90d94 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -40,6 +40,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.precond_meca, "-pcMc", "--preconditioner-mechanics",
+                  "Preconditioner of the linear solver of the mechanical "
+                  "problem.");
++  args.AddOption(&p.nonlinear_solver_meca, "-nlsMc",
++                 "--nonlinear-solver-mechanics",
++                 "Non linear solver of the mechanical problem: Newton, or "
++                 "NewtonK0 (Newton method whose tangent systems are solved "
++                 "by GMRES preconditioned by the elastic operator, "
++                 "factorized by MUMPS at each time step).");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -128,15 +134,40 @@ int main(int argc, char* argv[]) {
+                                 {"Name", "Thermal"}}) |
+       or_die;
+ 
+-  auto mechanics_model =
+-      mfem_mgis::make_shared<mfem_mgis::NonLinearModel>(
+-          ctx, mesh,
+-          mfem_mgis::Parameters{{"FiniteElementFamily", "H1"},
+-                                {"FiniteElementOrder", p.order},
+-                                {"Hypothesis", "Tridimensional"},
+-                                {"UnknownsSize", 3},
+-                                {"Name", "Mechanics"}}) |
+-      or_die;
++  auto mechanics_parameters =
++      mfem_mgis::Parameters{{"FiniteElementFamily", "H1"},
++                            {"FiniteElementOrder", p.order},
++                            {"Hypothesis", "Tridimensional"},
++                            {"UnknownsSize", 3},
++                            {"Name", "Mechanics"}};
++  const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
++  if (nonlinear_solver_meca == "NewtonK0") {
++    // the elastic operator depends on the temperature: it is factorized at
++    // each time step
++    const auto newton_k0 = mfem_mgis::Parameters{
++        {"Method", "NewtonK0"},
++        {"ElasticOperatorUpdate", "EachResolution"},
++        {"ElasticOperatorLinearSolver",
++         mfem_mgis::Parameters{
++             {"MUMPSSolver", mfem_mgis::Parameters{{"Symmetric", true}}}}},
++        {"TangentLinearSolver",
++         mfem_mgis::Parameters{
++             {"GMRESSolver",
++              mfem_mgis::Parameters{{"RelativeTolerance", 1e-9},
++                                    {"MaximumNumberOfIterations", 1000}}}}}};
++    mechanics_parameters.insert(
++        ctx, "NonLinearSolver",
++        mfem_mgis::Parameters{{"FixedPoint", newton_k0}}) |
++        or_die;
++  } else if (nonlinear_solver_meca != "Newton") {
++    ctx.log() << "invalid non linear solver of the mechanical problem '"
++              << nonlinear_solver_meca << "' (expected Newton or NewtonK0)\n";
++    mfem_mgis::finalize();
++    return EXIT_FAILURE;
++  }
++  auto mechanics_model = mfem_mgis::make_shared<mfem_mgis::NonLinearModel>(
++                             ctx, mesh, mechanics_parameters) |
++                         or_die;
+ 
+   auto& heat_transfer = heat_transfer_model->getProblem();
+   auto& mechanics = mechanics_model->getProblem();
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index d3bb235..5c4cc0e 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -25,6 +25,10 @@ struct TestParameters {
+   const char* precond_meca =
+       "HypreBoomerAMG";  // preconditioner associated with the mechanical
+                          // solver, ignored by direct solvers
++  // non linear solver of the mechanical problem: Newton, or NewtonK0 (the
++  // tangent systems are solved by GMRES preconditioned by the elastic
++  // operator, factorized by MUMPS at each time step)
++  const char* nonlinear_solver_meca = "Newton";
+   // reference statistics of the fields, no comparison if empty
+   const char* reference_file = "";
+   int order = 1;                // finite element order
+-- 
+2.43.0
+

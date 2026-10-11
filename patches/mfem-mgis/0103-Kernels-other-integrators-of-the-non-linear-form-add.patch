@@ -1,0 +1,1453 @@
+From 517e33cde4fb2ba5f56ee7766d8f2ad0e9f51f0e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 13:17:56 +0200
+Subject: [PATCH] Kernels: other integrators of the non linear form added to
+ the computations by kernels
+
+When the non linear form contained other integrators than the one of
+mfem-mgis (for instance a Robin boundary condition, given as a boundary
+face integrator, or springs depending on the unknowns, given as a boundary
+integrator), the residual and the tangent operator computed by kernels went
+back to the loops of MFEM on all the elements: the residual was assembled
+by mfem::NonlinearForm::Mult (the integrator of mfem-mgis giving null
+contributions), and the stiffness matrices computed by kernels were stored
+element by element and copied in the matrix by the element loop of MFEM.
+
+The contributions of the domain, boundary and boundary face integrators
+other than the integrator of mfem-mgis are now evaluated by loops copied
+from mfem::NonlinearForm and restricted to them (markers of the attributes
+included), on the host, and added respectively to the local vector of the
+inner forces and to the local matrix assembled by kernels, before the
+passage to the true degrees of freedom: the positions of the entries and
+the global matrix with the pattern kept are used. On a GPU, the local
+vector and the values of the local matrix are copied to the host at each
+evaluation. The former path is kept for the forms with interior face
+integrators or with an extension of MFEM.
+
+The unknowns are prolongated on all the processes before the computations
+which may fail on one process only, and a failure of the other integrators
+is reported on all the processes. The numbers of evaluations of the
+residual with the other integrators and of assemblies of the tangent
+operator by kernels are given by getNumberOfOtherIntegratorsResidualEvaluations
+and getNumberOfTangentOperatorAssembliesByKernels. The user guide
+(batch_computations.rst, boundary_conditions.rst) is updated.
+
+BatchIntegrationTest: springs as a boundary integrator, with or without
+markers, as boundary face integrators with markers, as domain integrators
+with markers on a mesh with two materials, and on an interior boundary
+(boundary face integrator skipped, as by MFEM); a null integrator on the
+interior faces (former path); numbers of evaluations of the residual with
+the other integrators and of assemblies of the tangent operator by
+kernels checked.
+---
+ docs/source/user_guide/batch_computations.rst |  29 +-
+ .../source/user_guide/boundary_conditions.rst |  13 +-
+ .../MFEMMGIS/AbstractBoundaryCondition.hxx    |   5 +-
+ ...onLinearEvolutionProblemImplementation.hxx |  18 +-
+ ...nearEvolutionProblemImplementationBase.hxx |  28 +-
+ ...onLinearEvolutionProblemImplementation.cxx | 372 ++++++++++++-
+ ...nearEvolutionProblemImplementationBase.cxx |  10 +
+ tests/BatchIntegrationTest.cxx                | 498 +++++++++++++++++-
+ tests/CMakeLists.txt                          |   2 +
+ tests/cube-two-materials-interface.mesh       |  46 ++
+ 10 files changed, 958 insertions(+), 63 deletions(-)
+ create mode 100644 tests/cube-two-materials-interface.mesh
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index d3ad43b085..7dbe907e50 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -195,6 +195,8 @@ transformations are computed once for each integration rule: they are not
+ updated if the mesh is modified (refinement, displacement of the nodes or
+ of the vertices).
+ 
++.. _mfem_mgis_batch_computations_other_integrators:
++
+ Boundary conditions and other integrators
+ -----------------------------------------
+ 
+@@ -205,12 +207,20 @@ their contributions are added to the inner forces (see
+ :ref:`mfem_mgis_boundary_conditions`).
+ 
+ The other integrators of the nonlinear form (for instance the ones of a
+-boundary condition depending on the unknowns) are handled as follows:
+-
+-- the residual is assembled by :code:`MFEM`, the inner forces computed by
+-  kernels being added to it;
+-- with :code:`TangentOperatorComputation` set to :code:`Kernels`, the
+-  stiffness matrices are computed by kernels, then assembled with the
++boundary condition depending on the unknowns, such as a Robin boundary
++condition given as a boundary face integrator) are handled as follows:
++
++- the contributions of the domain, boundary and boundary face integrators
++  are evaluated on the host by the loops of :code:`MFEM` restricted to
++  them (markers of the attributes included), and added to the inner forces
++  computed by kernels and, with :code:`TangentOperatorComputation` set to
++  :code:`Kernels`, to the local matrix assembled by kernels. On a GPU, the
++  inner forces and the values of the local matrix are copied to the host
++  at each evaluation;
++- if the nonlinear form contains interior face integrators, or uses an
++  extension of :code:`MFEM`, the residual is assembled by :code:`MFEM`,
++  the inner forces computed by kernels being added to it, and the
++  stiffness matrices computed by kernels are assembled with the
+   contributions of the other integrators by the element loop of
+   :code:`MFEM`;
+ - with :code:`TangentOperatorComputation` set to :code:`MatrixFree`, the
+@@ -225,8 +235,8 @@ Assembly by kernels
+ -------------------
+ 
+ With :code:`TangentOperatorComputation` set to :code:`Kernels`, and a
+-nonlinear form which only contains the integrator of :code:`mfem-mgis`, the
+-tangent operator is assembled as follows:
++nonlinear form without interior face integrators nor extension of
++:code:`MFEM`, the tangent operator is assembled as follows:
+ 
+ - the local matrix of the tangent operator, on the local vector of the
+   finite element space, is created at the first assembly. Its pattern
+@@ -245,6 +255,9 @@ tangent operator is assembled as follows:
+   the columns of the rows are reordered, for instance by a direct solver.
+   They take two bytes per entry of the stiffness matrices of the
+   elements;
++- the contributions of the other integrators of the nonlinear form, if
++  any, are added to this matrix on the host (see
++  :ref:`mfem_mgis_batch_computations_other_integrators`);
+ - in a sequential computation, the matrix is replaced by
+   :math:`P^{T}\,A\,P` on a non conforming mesh, :math:`P` being the
+   prolongation of the finite element space, then the essential degrees of
+diff --git a/docs/source/user_guide/boundary_conditions.rst b/docs/source/user_guide/boundary_conditions.rst
+index ddf2b1120a..ba85758436 100644
+--- a/docs/source/user_guide/boundary_conditions.rst
++++ b/docs/source/user_guide/boundary_conditions.rst
+@@ -99,8 +99,11 @@ contributions to the residual are assembled once, for a unit value, and
+ added to the inner forces, on the device if a device is enabled. If the
+ non linear form contains no other integrator than the one of
+ :code:`mfem-mgis` (no boundary condition depending on the unknowns), the
+-tangent operator can then be assembled by kernels without the assembly of
+-:code:`MFEM`, or applied without assembly (:code:`TangentOperatorComputation`
+-set to :code:`Kernels` or :code:`MatrixFree`). With the inner forces
+-computed element by element, they are integrators of the non linear form,
+-and the tangent operator can't be applied without assembly.
++tangent operator can then be applied without assembly
++(:code:`TangentOperatorComputation` set to :code:`MatrixFree`). With the
++inner forces computed element by element, they are integrators of the non
++linear form, and the tangent operator can't be applied without assembly.
++In both cases, the tangent operator can be assembled by kernels
++(:code:`TangentOperatorComputation` set to :code:`Kernels`), the
++contributions of the other integrators of the non linear form being added
++to the matrix assembled by kernels (see :ref:`mfem_mgis_batch_computations`).
+diff --git a/include/MFEMMGIS/AbstractBoundaryCondition.hxx b/include/MFEMMGIS/AbstractBoundaryCondition.hxx
+index 5b1cc14c3d..65c528323e 100644
+--- a/include/MFEMMGIS/AbstractBoundaryCondition.hxx
++++ b/include/MFEMMGIS/AbstractBoundaryCondition.hxx
+@@ -104,9 +104,8 @@ namespace mfem_mgis {
+      * `InnerForcesComputation`), such a boundary condition is applied by
+      * `addContributionToTheResidual` instead of an integrator of the non
+      * linear form: if the non linear form contains no other integrator than
+-     * the one of mfem-mgis, the tangent operator can then be assembled by
+-     * kernels without the assembly of MFEM, or applied without assembly.
+-     * The default implementation returns false.
++     * the one of mfem-mgis, the tangent operator can then be applied without
++     * assembly. The default implementation returns false.
+      */
+     [[nodiscard]] virtual bool isIndependentOfTheUnknowns() const noexcept;
+     /*!
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+index 0158626a64..73a48ec0ce 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
+@@ -120,10 +120,13 @@ namespace mfem_mgis {
+      * stiffness matrices of the elements being computed and assembled by
+      * kernels (see `TangentOperatorComputation`), the essential degrees of
+      * freedom being eliminated
+-     * \note the non linear form must only contain the integrator of
+-     * mfem-mgis
++     * \param[in] u: unknowns (true degrees of freedom), required if the non
++     * linear form contains other integrators than the integrator of
++     * mfem-mgis, whose contributions are then added (domain, boundary and
++     * boundary face integrators, without interior face integrators)
+      */
+-    mfem::Operator& assembleTangentOperatorByKernels() const;
++    mfem::Operator& assembleTangentOperatorByKernels(
++        const mfem::Vector* const = nullptr) const;
+     //
+     [[nodiscard]] std::optional<real> computePrediction(
+         Context& ctx, const real t, const real dt) noexcept override;
+@@ -235,10 +238,13 @@ namespace mfem_mgis {
+      * stiffness matrices of the elements being computed and assembled by
+      * kernels (see `TangentOperatorComputation`), the essential degrees of
+      * freedom being eliminated
+-     * \note the non linear form must only contain the integrator of
+-     * mfem-mgis
++     * \param[in] u: unknowns (true degrees of freedom), required if the non
++     * linear form contains other integrators than the integrator of
++     * mfem-mgis, whose contributions are then added (domain, boundary and
++     * boundary face integrators, without interior face integrators)
+      */
+-    mfem::Operator& assembleTangentOperatorByKernels() const;
++    mfem::Operator& assembleTangentOperatorByKernels(
++        const mfem::Vector* const = nullptr) const;
+     //
+     [[nodiscard]] std::optional<real> computePrediction(
+         Context& ctx, const real t, const real dt) noexcept override;
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 2613124f81..c74cf64225 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -111,9 +111,10 @@ namespace mfem_mgis {
+      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
+      * `Kernels` (computed for all the elements by kernels from the tangent
+      * operator blocks, on the device if a device is enabled, and assembled
+-     * by kernels in the sparse matrix of the tangent operator if the non
+-     * linear form only contains the integrator of mfem-mgis, by the
+-     * assembly of MFEM otherwise), or
++     * by kernels in the sparse matrix of the tangent operator, the
++     * contributions of the other integrators of the non linear form being
++     * added on the host, except with interior face integrators or an
++     * extension of MFEM, which require the assembly of MFEM), or
+      * `MatrixFree` (the tangent operator is applied without assembly by
+      * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
+      * freedom being constrained by `mfem::ConstrainedOperator`: the linear
+@@ -291,6 +292,21 @@ namespace mfem_mgis {
+         Context& ctx, const real t, const real dt) noexcept override;
+     [[nodiscard]] bool revert(Context& ctx) noexcept override;
+     [[nodiscard]] bool update(Context& ctx) noexcept override;
++    /*!
++     * \return the number of assemblies of the tangent operator by kernels
++     * in the local matrix of the finite element space (the stiffness matrices
++     * of the elements being assembled by kernels, then the contributions of
++     * the other integrators of the non linear form, if any, being added)
++     */
++    [[nodiscard]] size_type getNumberOfTangentOperatorAssembliesByKernels()
++        const noexcept;
++    /*!
++     * \return the number of evaluations of the residual in which the
++     * contributions of the integrators of the non linear form other than the
++     * one of mfem-mgis were added to the inner forces computed by kernels
++     */
++    [[nodiscard]] size_type getNumberOfOtherIntegratorsResidualEvaluations()
++        const noexcept;
+     //! \brief destructor
+     ~NonLinearEvolutionProblemImplementationBase() override;
+ 
+@@ -413,6 +429,12 @@ namespace mfem_mgis {
+      */
+     const std::shared_ptr<size_type> assembled_tangent_operator_revision =
+         std::make_shared<size_type>(0);
++    /*!
++     * \brief number of evaluations of the residual in which the
++     * contributions of the other integrators of the non linear form were
++     * added to the inner forces computed by kernels
++     */
++    mutable size_type other_integrators_residual_evaluations = 0;
+     /*!
+      * \brief local matrix of the operator of the prediction, assembled by
+      * kernels (see `TangentOperatorComputation`), created at the first
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 11123de7b5..d4cb0d58f5 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -80,6 +80,272 @@ namespace mfem_mgis {
+            (f.GetBdrFaceIntegrators().Size() == 0);
+   }  // end of isTheOnlyIntegrator
+ 
++  namespace {
++
++    /*!
++     * \brief gives access to the markers of the integrators of a non linear
++     * form and to its extension, protected members of
++     * `mfem::NonlinearForm`: the pointers to these members are formed in
++     * this derived class, which is never instantiated, and applied to any
++     * non linear form
++     */
++    struct NonlinearFormMembers : mfem::NonlinearForm {
++      //! \return the markers of the domain integrators
++      static const mfem::Array<mfem::Array<int>*>& getDomainMarkers(
++          const mfem::NonlinearForm& f) noexcept {
++        return f.*(&NonlinearFormMembers::dnfi_marker);
++      }
++      //! \return the markers of the boundary integrators
++      static const mfem::Array<mfem::Array<int>*>& getBoundaryMarkers(
++          const mfem::NonlinearForm& f) noexcept {
++        return f.*(&NonlinearFormMembers::bnfi_marker);
++      }
++      //! \return the markers of the boundary face integrators
++      static const mfem::Array<mfem::Array<int>*>& getBoundaryFaceMarkers(
++          const mfem::NonlinearForm& f) noexcept {
++        return f.*(&NonlinearFormMembers::bfnfi_marker);
++      }
++      //! \return true if the form has an extension (partial assembly)
++      static bool hasExtension(const mfem::NonlinearForm& f) noexcept {
++        return f.*(&NonlinearFormMembers::ext) != nullptr;
++      }
++    };
++
++  }  // end of namespace
++
++  /*!
++   * \return true if the integrators of a non linear form other than the
++   * multi-material integrator can be evaluated by
++   * `addOtherIntegratorsContributions`, the
++   * multi-material integrator being one of the domain integrators: the form
++   * has no interior face integrator nor extension
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator
++   */
++  static bool supportsOtherIntegrators(
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi) noexcept {
++    const auto& dnfi = *(f.GetDNFI());
++    return (mi != nullptr) &&
++           (std::find(dnfi.begin(), dnfi.end(), mi) != dnfi.end()) &&
++           (f.GetInteriorFaceIntegrators().Size() == 0) &&
++           (!NonlinearFormMembers::hasExtension(f));
++  }  // end of supportsOtherIntegrators
++
++  /*!
++   * \return the attributes of the elements (or of the boundary elements) on
++   * which at least one of the given integrators, other than the excluded
++   * one, is evaluated, as by the loops of `mfem::NonlinearForm`
++   * \param[in] integrators: integrators
++   * \param[in] markers: markers of the integrators (null for all the
++   * attributes)
++   * \param[in] n: number of attributes
++   * \param[in] excluded: integrator not evaluated
++   * \throw if a marker has less values than the number of attributes
++   */
++  static mfem::Array<int> getEvaluatedAttributes(
++      const mfem::Array<mfem::NonlinearFormIntegrator*>& integrators,
++      const mfem::Array<mfem::Array<int>*>& markers,
++      const int n,
++      const mfem::NonlinearFormIntegrator* const excluded) {
++    auto attributes = mfem::Array<int>(n);
++    attributes = 0;
++    auto all = false;
++    for (int k = 0; k != integrators.Size(); ++k) {
++      if (integrators[k] == excluded) {
++        continue;
++      }
++      if (markers[k] == nullptr) {
++        all = true;
++        continue;
++      }
++      if (markers[k]->Size() < n) {
++        raise("invalid marker of an integrator of the non linear form: " +
++              std::to_string(markers[k]->Size()) + " attributes instead of " +
++              std::to_string(n));
++      }
++      for (int i = 0; i != n; ++i) {
++        attributes[i] |= (*markers[k])[i];
++      }
++    }
++    if (all) {
++      attributes = 1;
++    }
++    return attributes;
++  }  // end of getEvaluatedAttributes
++
++  /*!
++   * \brief adds the contributions of the integrators of a non linear form
++   * other than the multi-material integrator (domain, boundary and boundary
++   * face integrators) to a residual or to a matrix, by the loops of
++   * `mfem::NonlinearForm::Mult` and `mfem::NonlinearForm::GetGradient` (see
++   * `supportsOtherIntegrators`), on the host
++   * \tparam Residual: if true, the contributions to a residual are added,
++   * otherwise the contributions to a matrix
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator, not evaluated
++   * \param[in] u: unknowns (local vector of the finite element space)
++   * \param[in] add: function adding the vector (residual) or the matrix of an
++   * element, given the degrees of freedom
++   */
++  template <bool Residual, typename AddFunction>
++  static void addOtherIntegratorsContributions(
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi,
++      const mfem::Vector& u,
++      const AddFunction& add) {
++    const auto& fes = *(f.FESpace());
++    const auto& mesh = *(fes.GetMesh());
++    const auto& dnfi = *(f.GetDNFI());
++    const auto& bnfi = *(f.GetBNFI());
++    const auto& bfnfi = f.GetBdrFaceIntegrators();
++    const auto& dmarkers = NonlinearFormMembers::getDomainMarkers(f);
++    const auto& bmarkers = NonlinearFormMembers::getBoundaryMarkers(f);
++    const auto& bfmarkers = NonlinearFormMembers::getBoundaryFaceMarkers(f);
++    const auto* const excluded =
++        static_cast<const mfem::NonlinearFormIntegrator*>(mi);
++    const auto nattributes =
++        mesh.attributes.Size() != 0 ? mesh.attributes.Max() : 0;
++    const auto nbattributes =
++        mesh.bdr_attributes.Size() != 0 ? mesh.bdr_attributes.Max() : 0;
++    auto vdofs = mfem::Array<int>{};
++    auto ue = mfem::Vector{};
++    auto ve = mfem::Vector{};
++    auto me = mfem::DenseMatrix{};
++    auto doftrans = mfem::DofTransformation{};
++    // evaluates an integrator on an element and adds its contribution
++    const auto evaluate = [&](mfem::NonlinearFormIntegrator& i,
++                              const mfem::FiniteElement& e,
++                              mfem::ElementTransformation& tr) {
++      if constexpr (Residual) {
++        i.AssembleElementVector(e, tr, ue, ve);
++        doftrans.TransformDual(ve);
++        add(vdofs, ve);
++      } else {
++        i.AssembleElementGrad(e, tr, ue, me);
++        doftrans.TransformDual(me);
++        add(vdofs, me);
++      }
++    };
++    // domain integrators
++    const auto domain =
++        getEvaluatedAttributes(dnfi, dmarkers, nattributes, excluded);
++    if (std::find(domain.begin(), domain.end(), 1) != domain.end()) {
++      for (int i = 0; i != fes.GetNE(); ++i) {
++        const auto attribute = mesh.GetAttribute(i);
++        if (domain[attribute - 1] == 0) {
++          continue;
++        }
++        const auto& e = *(fes.GetFE(i));
++        fes.GetElementVDofs(i, vdofs, doftrans);
++        auto& tr = *(fes.GetElementTransformation(i));
++        u.GetSubVector(vdofs, ue);
++        doftrans.InvTransformPrimal(ue);
++        for (int k = 0; k != dnfi.Size(); ++k) {
++          if ((dnfi[k] == excluded) || ((dmarkers[k] != nullptr) &&
++                                        ((*dmarkers[k])[attribute - 1] == 0))) {
++            continue;
++          }
++          evaluate(*dnfi[k], e, tr);
++        }
++      }
++    }
++    // boundary integrators
++    const auto boundary =
++        getEvaluatedAttributes(bnfi, bmarkers, nbattributes, excluded);
++    if (std::find(boundary.begin(), boundary.end(), 1) != boundary.end()) {
++      for (int i = 0; i != fes.GetNBE(); ++i) {
++        const auto attribute = mesh.GetBdrAttribute(i);
++        if (boundary[attribute - 1] == 0) {
++          continue;
++        }
++        const auto& e = *(fes.GetBE(i));
++        fes.GetBdrElementVDofs(i, vdofs, doftrans);
++        auto& tr = *(fes.GetBdrElementTransformation(i));
++        u.GetSubVector(vdofs, ue);
++        doftrans.InvTransformPrimal(ue);
++        for (int k = 0; k != bnfi.Size(); ++k) {
++          if ((bmarkers[k] != nullptr) &&
++              ((*bmarkers[k])[attribute - 1] == 0)) {
++            continue;
++          }
++          evaluate(*bnfi[k], e, tr);
++        }
++      }
++    }
++    // boundary face integrators, evaluated with the degrees of freedom of
++    // the element of the face
++    const auto faces =
++        getEvaluatedAttributes(bfnfi, bfmarkers, nbattributes, excluded);
++    if (std::find(faces.begin(), faces.end(), 1) != faces.end()) {
++      auto tr = mfem::FaceElementTransformations{};
++      auto tr1 = mfem::IsoparametricTransformation{};
++      auto tr2 = mfem::IsoparametricTransformation{};
++      for (int i = 0; i != fes.GetNBE(); ++i) {
++        const auto attribute = mesh.GetBdrAttribute(i);
++        if (faces[attribute - 1] == 0) {
++          continue;
++        }
++        // interior, shared or non conforming faces are skipped, as by MFEM
++        mesh.GetBdrFaceTransformations(i, tr, tr1, tr2);
++        if (tr.GetGeometryType() == mfem::Geometry::INVALID) {
++          continue;
++        }
++        fes.GetElementVDofs(tr.Elem1No, vdofs);
++        u.GetSubVector(vdofs, ue);
++        const auto& e = *(fes.GetFE(tr.Elem1No));
++        for (int k = 0; k != bfnfi.Size(); ++k) {
++          if ((bfmarkers[k] != nullptr) &&
++              ((*bfmarkers[k])[attribute - 1] == 0)) {
++            continue;
++          }
++          if constexpr (Residual) {
++            bfnfi[k]->AssembleFaceVector(e, e, tr, ue, ve);
++            add(vdofs, ve);
++          } else {
++            bfnfi[k]->AssembleFaceGrad(e, e, tr, ue, me);
++            add(vdofs, me);
++          }
++        }
++      }
++    }
++  }  // end of addOtherIntegratorsContributions
++
++  /*!
++   * \brief adds the contributions of the integrators of a non linear form
++   * other than the multi-material integrator to the local matrix assembled
++   * by kernels (their entries are in the pattern of the elements), on the
++   * host. A failure on one process is reported on all of them.
++   * \param[in] fed: finite element discretization
++   * \param[in] f: non linear form
++   * \param[in] mi: multi-material integrator, not evaluated
++   * \param[in] u: unknowns (local vector of the finite element space),
++   * prolongated by the caller on all the processes
++   * \param[in, out] K: local matrix
++   */
++  static void addOtherIntegratorsContributionsToTheLocalMatrix(
++      const FiniteElementDiscretization& fed,
++      const mfem::NonlinearForm& f,
++      const MultiMaterialNonLinearIntegrator* const mi,
++      const mfem::Vector& u,
++      mfem::SparseMatrix& K) {
++    auto ctx = Context{};
++    auto success = false;
++    try {
++      static_cast<void>(K.HostReadWriteData());
++      addOtherIntegratorsContributions<false>(
++          f, mi, u,
++          [&K](const mfem::Array<int>& dofs, const mfem::DenseMatrix& m) {
++            K.AddSubMatrix(dofs, dofs, m, 0);
++          });
++      success = true;
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++    }
++    raiseOnFailureOnAnyProcess(fed, ctx, success,
++                               "computation of the tangent operator");
++  }  // end of addOtherIntegratorsContributionsToTheLocalMatrix
++
+   /*!
+    * \brief checks that the tangent operator can be applied without assembly
+    * (see `TangentOperatorComputation`): the non linear form must only
+@@ -114,9 +380,13 @@ namespace mfem_mgis {
+    * \param[in] bcs: boundary conditions independent of the unknowns
+    * \param[in] fes: finite element space
+    * \param[in] essential_dofs: essential true degrees of freedom
+-   * \param[out] f: inner forces and contributions of the boundary
+-   * conditions (local vector of the finite element space)
++   * \param[out] f: inner forces, contributions of the boundary conditions
++   * and of the other integrators of the non linear form, if any (local
++   * vector of the finite element space)
+    * \param[in, out] r: residual
++   * \param[in] addOtherContributions: function adding the contributions of
++   * the other integrators of the non linear form to `f`, if not empty, on
++   * the host, called if the previous computations succeeded
+    */
+   static void addInnerForcesComputedByKernels(
+       const FiniteElementDiscretization& fed,
+@@ -125,7 +395,8 @@ namespace mfem_mgis {
+       const mfem::FiniteElementSpace& fes,
+       const mfem::Array<int>& essential_dofs,
+       mfem::Vector& f,
+-      mfem::Vector& r) {
++      mfem::Vector& r,
++      const std::function<void(mfem::Vector&)>& addOtherContributions = {}) {
+     auto ctx = Context{};
+     auto success = false;
+     try {
+@@ -136,6 +407,10 @@ namespace mfem_mgis {
+       for (auto* const bc : bcs) {
+         success = success && bc->addContributionToTheResidual(ctx, f);
+       }
++      if (success && addOtherContributions) {
++        static_cast<void>(f.HostReadWrite());
++        addOtherContributions(f);
++      }
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+     }
+@@ -753,20 +1028,47 @@ namespace mfem_mgis {
+     // assembly of MFEM is skipped if the form has no other integrator
+     const auto only_mfem_mgis =
+         kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if (only_mfem_mgis) {
++    // the contributions of the other integrators of the form are added to
++    // the local vector of the inner forces computed by kernels, if possible
++    const auto others = kernels && (!only_mfem_mgis) &&
++                        supportsOtherIntegrators(*this, this->mgis_integrator);
++    if (only_mfem_mgis || others) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+     }
++    auto addOtherContributions = std::function<void(mfem::Vector&)>{};
++    if (others) {
++      ++(this->other_integrators_residual_evaluations);
++      // the unknowns are prolongated on all the processes (exchanges
++      // between processes) before the computations of the residual, which
++      // may fail on one process only
++      const auto& pu = this->Prolongate(u);
++      addOtherContributions = [this, &pu](mfem::Vector& f) {
++        addOtherIntegratorsContributions<true>(
++            *this, this->mgis_integrator, pu,
++            [&f](const mfem::Array<int>& dofs, const mfem::Vector& v) {
++              f.AddElementVector(dofs, v);
++            });
++      };
++    }
+     addInnerForcesComputedByKernels(
+         this->getFiniteElementDiscretization(),
+         kernels ? this->mgis_integrator : nullptr,
+         this->residual_boundary_conditions, this->getFiniteElementSpace(),
+-        this->ess_tdof_list, this->inner_forces_by_kernels, r);
++        this->ess_tdof_list, this->inner_forces_by_kernels, r,
++        addOtherContributions);
+   }  // end of Mult
+ 
+-  mfem::Operator& NonLinearEvolutionProblemImplementation<
+-      true>::assembleTangentOperatorByKernels() const {
++  mfem::Operator& NonLinearEvolutionProblemImplementation<true>::
++      assembleTangentOperatorByKernels(const mfem::Vector* const u) const {
++    if ((u == nullptr) &&
++        (!isTheOnlyIntegrator(*this, this->mgis_integrator))) {
++      raise(
++          "assembleTangentOperatorByKernels: the unknowns are required to "
++          "add the contributions of the other integrators of the non linear "
++          "form");
++    }
+     // the stiffness matrices are assembled by kernels in the local matrix,
+     // then the global matrix is built as by
+     // `mfem::ParNonlinearForm::GetGradient`
+@@ -774,6 +1076,13 @@ namespace mfem_mgis {
+     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace(), this->Grad);
++    if (u != nullptr) {
++      // the unknowns are prolongated on all the processes (exchanges
++      // between processes) before the evaluation of the other integrators
++      addOtherIntegratorsContributionsToTheLocalMatrix(
++          this->getFiniteElementDiscretization(), *this, this->mgis_integrator,
++          this->Prolongate(*u), *(this->Grad));
++    }
+     auto* const pfes = this->ParFESpace();
+     if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
+       // global matrix whose pattern and exchanges between processes are
+@@ -835,7 +1144,11 @@ namespace mfem_mgis {
+     if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
+       return this->assembleTangentOperatorByKernels();
+     }
+-    // other integrators in the form: the stiffness matrices computed by
++    if (supportsOtherIntegrators(*this, this->mgis_integrator)) {
++      return this->assembleTangentOperatorByKernels(&u);
++    }
++    // other integrators in the form not supported by
++    // `addOtherIntegratorsContributions`: the stiffness matrices computed by
+     // kernels are copied by the element loop of MFEM
+     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+                                       *(this->mgis_integrator),
+@@ -1147,24 +1460,56 @@ namespace mfem_mgis {
+     }
+     const auto only_mfem_mgis =
+         kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
+-    if (only_mfem_mgis) {
++    // the contributions of the other integrators of the form are added to
++    // the local vector of the inner forces computed by kernels, if possible
++    const auto others = kernels && (!only_mfem_mgis) &&
++                        supportsOtherIntegrators(*this, this->mgis_integrator);
++    if (only_mfem_mgis || others) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+     }
++    auto addOtherContributions = std::function<void(mfem::Vector&)>{};
++    if (others) {
++      ++(this->other_integrators_residual_evaluations);
++      // the unknowns are prolongated on all the processes (exchanges
++      // between processes) before the computations of the residual, which
++      // may fail on one process only
++      const auto& pu = this->Prolongate(u);
++      addOtherContributions = [this, &pu](mfem::Vector& f) {
++        addOtherIntegratorsContributions<true>(
++            *this, this->mgis_integrator, pu,
++            [&f](const mfem::Array<int>& dofs, const mfem::Vector& v) {
++              f.AddElementVector(dofs, v);
++            });
++      };
++    }
+     addInnerForcesComputedByKernels(
+         this->getFiniteElementDiscretization(),
+         kernels ? this->mgis_integrator : nullptr,
+         this->residual_boundary_conditions, this->getFiniteElementSpace(),
+-        this->ess_tdof_list, this->inner_forces_by_kernels, r);
++        this->ess_tdof_list, this->inner_forces_by_kernels, r,
++        addOtherContributions);
+   }  // end of Mult
+ 
+-  mfem::Operator& NonLinearEvolutionProblemImplementation<
+-      false>::assembleTangentOperatorByKernels() const {
++  mfem::Operator& NonLinearEvolutionProblemImplementation<false>::
++      assembleTangentOperatorByKernels(const mfem::Vector* const u) const {
++    if ((u == nullptr) &&
++        (!isTheOnlyIntegrator(*this, this->mgis_integrator))) {
++      raise(
++          "assembleTangentOperatorByKernels: the unknowns are required to "
++          "add the contributions of the other integrators of the non linear "
++          "form");
++    }
+     ++(*(this->assembled_tangent_operator_revision));
+     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
+                                      *(this->mgis_integrator),
+                                      this->getFiniteElementSpace(), this->Grad);
++    if (u != nullptr) {
++      addOtherIntegratorsContributionsToTheLocalMatrix(
++          this->getFiniteElementDiscretization(), *this, this->mgis_integrator,
++          this->Prolongate(*u), *(this->Grad));
++    }
+     // as `mfem::NonlinearForm::GetGradient`, the elimination of the
+     // essential degrees of freedom giving the same result as
+     // `EliminateRowCol`, the pattern of the matrix being symmetric
+@@ -1203,6 +1548,9 @@ namespace mfem_mgis {
+     if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
+       return this->assembleTangentOperatorByKernels();
+     }
++    if (supportsOtherIntegrators(*this, this->mgis_integrator)) {
++      return this->assembleTangentOperatorByKernels(&u);
++    }
+     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
+                                       *(this->mgis_integrator),
+                                       this->getFiniteElementSpace());
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 3180ff5f6c..df3903dfcb 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -758,6 +758,16 @@ namespace mfem_mgis {
+            TangentOperatorComputationMode::MATRIX_FREE;
+   }  // end of appliesTangentOperatorWithoutAssembly
+ 
++  size_type NonLinearEvolutionProblemImplementationBase::
++      getNumberOfTangentOperatorAssembliesByKernels() const noexcept {
++    return *(this->assembled_tangent_operator_revision);
++  }  // end of getNumberOfTangentOperatorAssembliesByKernels
++
++  size_type NonLinearEvolutionProblemImplementationBase::
++      getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {
++    return this->other_integrators_residual_evaluations;
++  }  // end of getNumberOfOtherIntegratorsResidualEvaluations
++
+   NonLinearEvolutionProblemImplementationBase::
+       ~NonLinearEvolutionProblemImplementationBase() = default;
+ 
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 332d3620f4..8733eb1a3b 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -18,9 +18,15 @@
+  * applied without assembly with a boundary integrator depending on the
+  * unknowns, of a tangent operator of the FBar formulation and of inner
+  * forces of the regularization of Faltus et al. computed by kernels from
+- * gradients computed element by element;
+- * imposed pressure added to the inner forces computed by kernels, with a
+- * tangent operator assembled by kernels or applied without assembly. With
++ * gradients computed element by element; springs depending on the
++ * unknowns, as a domain, boundary or boundary face integrator, with or
++ * without a marker of the attributes, on an interior boundary or not, added
++ * to the inner forces and to the local matrix computed by kernels (numbers
++ * of evaluations of the residual and of assemblies of the tangent operator
++ * by kernels), or added by the loops of MFEM with an integrator on the
++ * interior faces; imposed pressure added to the inner forces computed
++ * by kernels, with a tangent operator assembled by kernels or applied
++ * without assembly. With
+  * the `--parallel` option, the computations are made in parallel (MUMPS),
+  * only their comparisons are made, to the rounding errors.
+  * \date   09/10/2026
+@@ -31,6 +37,7 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include <memory>
++#include <numeric>
+ #include <span>
+ #include <string>
+ #include <string_view>
+@@ -126,6 +133,38 @@ struct ComputationOptions {
+    * depending on the unknowns besides the one of mfem-mgis
+    */
+   bool springs = false;
++  /*!
++   * \brief if true, the springs are only added at the nodes of the boundary
++   * elements of the attributes 4 (y = 1) and 2 (z = 0), with different
++   * stiffnesses (two boundary integrators with markers of the boundary
++   * attributes), and two boundary face integrators are added on two other
++   * boundary attributes (`FaceSpringsBoundaryCondition`, as the Robin
++   * boundary conditions)
++   */
++  bool face_springs = false;
++  /*!
++   * \brief if true, springs are added at the nodes of the elements of the
++   * materials 1 and 2 of the mesh with two materials, with different
++   * stiffnesses (two domain integrators with markers of the attributes of
++   * the elements, see `second_material_library`)
++   */
++  bool domain_springs = false;
++  /*!
++   * \brief if true, the mesh with two materials has an interior boundary on
++   * the interface between the materials (attribute 7), bearing springs at
++   * the nodes of its boundary elements (boundary integrator, evaluated) and
++   * distributed springs (boundary face integrator, not evaluated, the faces
++   * being interior, as by MFEM), see `second_material_library`
++   */
++  bool interface_springs = false;
++  /*!
++   * \brief if true, a null integrator on the interior faces is added to the
++   * non linear form (`NullInteriorFacesIntegratorBoundaryCondition`): the
++   * computations by kernels fall back to the loops of MFEM on all the
++   * elements, the tangent operator being assembled by MFEM from the
++   * stiffness matrices computed by kernels
++   */
++  bool interior_faces = false;
+   /*!
+    * \brief if true, the temperature at the end of each time step increases
+    * linearly in time, the temperature at the beginning of the time step
+@@ -197,11 +236,30 @@ struct ComputationOptions {
+ };
+ 
+ /*!
+- * \brief springs of uniform stiffness at the nodes of all the boundary
+- * elements, one spring per node and per boundary element: a boundary
++ * \brief sets a marker of the attributes of a mesh
++ * \param[out] marker: marker, whose size is the maximum attribute
++ * \param[in] attributes: attributes of the mesh (of its elements or of its
++ * boundary elements)
++ * \param[in] a: marked attribute
++ */
++static void setAttributeMarker(mfem::Array<int>& marker,
++                               const mfem::Array<int>& attributes,
++                               const int a) {
++  const auto n = attributes.Size() != 0 ? attributes.Max() : 0;
++  marker.SetSize(n);
++  marker = 0;
++  if ((a >= 1) && (a <= n)) {
++    marker[a - 1] = 1;
++  }
++}  // end of setAttributeMarker
++
++/*!
++ * \brief springs of uniform stiffness at the nodes of the boundary elements
++ * (or of the elements), one spring per node and per element: a boundary
+  * condition depending on the unknowns (see
+  * `AbstractBoundaryCondition::isIndependentOfTheUnknowns`), whose integrator
+- * is added to the non linear form besides the one of mfem-mgis
++ * is added to the non linear form besides the one of mfem-mgis, with a
++ * marker of the attributes if an attribute is given
+  */
+ struct SpringsBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
+   //! \brief integrator of the springs of a boundary element
+@@ -227,17 +285,46 @@ struct SpringsBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
+       }
+     }
+   };
++  //! \brief elements bearing the springs
++  enum struct Location { BOUNDARY_ELEMENTS, ELEMENTS };
+   /*!
+    * \brief constructor
+    * \param[in] k: stiffness of the springs
++   * \param[in] l: elements bearing the springs
++   * \param[in] a: attribute of the elements bearing the springs, all of
++   * them if null
+    */
+-  explicit SpringsBoundaryCondition(const mfem_mgis::real k) : stiffness(k) {}
++  explicit SpringsBoundaryCondition(
++      const mfem_mgis::real k,
++      const Location l = Location::BOUNDARY_ELEMENTS,
++      const int a = 0)
++      : stiffness(k), location(l), attribute(a) {}
++  /*!
++   * \brief adds the integrator to a non linear form
++   * \param[in, out] f: non linear form
++   */
++  template <typename NonlinearFormType>
++  void addIntegrator(NonlinearFormType& f) {
++    // the integrator is owned by the form, the marker by this object
++    const auto* const mesh = f.FESpace()->GetMesh();
++    auto* const i = new Integrator(this->stiffness);
++    if ((this->location == Location::ELEMENTS) && (this->attribute == 0)) {
++      f.AddDomainIntegrator(i);
++    } else if (this->location == Location::ELEMENTS) {
++      setAttributeMarker(this->marker, mesh->attributes, this->attribute);
++      f.AddDomainIntegrator(i, this->marker);
++    } else if (this->attribute == 0) {
++      f.AddBoundaryIntegrator(i);
++    } else {
++      setAttributeMarker(this->marker, mesh->bdr_attributes, this->attribute);
++      f.AddBoundaryIntegrator(i, this->marker);
++    }
++  }
+ #ifdef MFEM_USE_MPI
+   bool addNonlinearFormIntegrator(mfem_mgis::Context&,
+                                   mfem_mgis::NonlinearForm<true>& f,
+                                   const mfem::Vector&) noexcept override {
+-    // the integrator is owned by the form
+-    f.AddBoundaryIntegrator(new Integrator(this->stiffness));
++    this->addIntegrator(f);
+     return true;
+   }
+   bool addLinearFormIntegrators(mfem_mgis::Context&,
+@@ -252,7 +339,7 @@ struct SpringsBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
+   bool addNonlinearFormIntegrator(mfem_mgis::Context&,
+                                   mfem_mgis::NonlinearForm<false>& f,
+                                   const mfem::Vector&) noexcept override {
+-    f.AddBoundaryIntegrator(new Integrator(this->stiffness));
++    this->addIntegrator(f);
+     return true;
+   }
+   bool addLinearFormIntegrators(mfem_mgis::Context&,
+@@ -272,6 +359,218 @@ struct SpringsBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
+  private:
+   //! \brief stiffness of the springs
+   const mfem_mgis::real stiffness;
++  //! \brief elements bearing the springs
++  const Location location;
++  //! \brief attribute of the elements bearing the springs, all of them if
++  //! null
++  const int attribute;
++  //! \brief marker of the attributes
++  mfem::Array<int> marker;
++};
++
++/*!
++ * \brief distributed springs on the faces of one boundary attribute, `r_a
++ * = ∫ k u N_a`, evaluated by a boundary face integrator with a marker of the
++ * boundary attributes (as the Robin boundary conditions of the heat
++ * transfer) with the degrees of freedom of the element of the face: a
++ * boundary condition depending on the unknowns, whose integrator is added
++ * to the non linear form besides the one of mfem-mgis
++ */
++struct FaceSpringsBoundaryCondition final
++    : mfem_mgis::AbstractBoundaryCondition {
++  //! \brief integrator of the springs of a boundary face
++  struct Integrator final : mfem::NonlinearFormIntegrator {
++    //! \brief stiffness of the springs (per unit area)
++    const mfem_mgis::real stiffness;
++    explicit Integrator(const mfem_mgis::real k) : stiffness(k) {}
++    /*!
++     * \brief calls a function at each point of the face with the values of
++     * the shape functions of the element and the weight of the point
++     */
++    template <typename Function>
++    static void integrate(const mfem::FiniteElement& e,
++                          mfem::FaceElementTransformations& tr,
++                          const Function& f) {
++      auto N = mfem::Vector(e.GetDof());
++      const auto& ir =
++          mfem::IntRules.Get(tr.GetGeometryType(), 2 * e.GetOrder() + 2);
++      for (int q = 0; q != ir.GetNPoints(); ++q) {
++        const auto& ip = ir.IntPoint(q);
++        tr.SetAllIntPoints(&ip);
++        e.CalcShape(tr.GetElement1IntPoint(), N);
++        f(N, ip.weight * tr.Weight());
++      }
++    }
++    void AssembleFaceVector(const mfem::FiniteElement& e,
++                            const mfem::FiniteElement&,
++                            mfem::FaceElementTransformations& tr,
++                            const mfem::Vector& u,
++                            mfem::Vector& r) override {
++      const auto nd = e.GetDof();
++      const auto vdim = u.Size() / nd;
++      r.SetSize(u.Size());
++      r = mfem_mgis::real{0};
++      integrate(e, tr, [&](const mfem::Vector& N, const mfem_mgis::real w) {
++        for (int c = 0; c != vdim; ++c) {
++          auto uc = mfem_mgis::real{0};
++          for (int a = 0; a != nd; ++a) {
++            uc += N(a) * u(a + nd * c);
++          }
++          for (int a = 0; a != nd; ++a) {
++            r(a + nd * c) += w * this->stiffness * uc * N(a);
++          }
++        }
++      });
++    }
++    void AssembleFaceGrad(const mfem::FiniteElement& e,
++                          const mfem::FiniteElement&,
++                          mfem::FaceElementTransformations& tr,
++                          const mfem::Vector& u,
++                          mfem::DenseMatrix& K) override {
++      const auto nd = e.GetDof();
++      const auto vdim = u.Size() / nd;
++      K.SetSize(u.Size());
++      K = mfem_mgis::real{0};
++      integrate(e, tr, [&](const mfem::Vector& N, const mfem_mgis::real w) {
++        for (int c = 0; c != vdim; ++c) {
++          for (int a = 0; a != nd; ++a) {
++            for (int b = 0; b != nd; ++b) {
++              K(a + nd * c, b + nd * c) += w * this->stiffness * N(a) * N(b);
++            }
++          }
++        }
++      });
++    }
++  };
++  /*!
++   * \brief constructor
++   * \param[in] k: stiffness of the springs (per unit area)
++   * \param[in] a: boundary attribute, the last one of the mesh if null
++   */
++  FaceSpringsBoundaryCondition(const mfem_mgis::real k, const int a)
++      : stiffness(k), attribute(a) {}
++  /*!
++   * \brief adds the integrator to a non linear form, on the faces of the
++   * boundary attribute
++   * \param[in, out] f: non linear form
++   */
++  template <typename NonlinearFormType>
++  void addIntegrator(NonlinearFormType& f) {
++    const auto& attributes = f.FESpace()->GetMesh()->bdr_attributes;
++    const auto n = attributes.Size() != 0 ? attributes.Max() : 0;
++    setAttributeMarker(this->marker, attributes,
++                       this->attribute == 0 ? n : this->attribute);
++    // the integrator is owned by the form, the marker by this object
++    f.AddBdrFaceIntegrator(new Integrator(this->stiffness), this->marker);
++  }
++#ifdef MFEM_USE_MPI
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<true>& f,
++                                  const mfem::Vector&) noexcept override {
++    this->addIntegrator(f);
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<true>&,
++                                mfem_mgis::LinearForm<true>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++#endif /* MFEM_USE_MPI */
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<false>& f,
++                                  const mfem::Vector&) noexcept override {
++    this->addIntegrator(f);
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<false>&,
++                                mfem_mgis::LinearForm<false>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++  bool setup(mfem_mgis::Context&,
++             const mfem_mgis::real,
++             const mfem_mgis::real) noexcept override {
++    return true;
++  }
++
++ private:
++  //! \brief stiffness of the springs (per unit area)
++  const mfem_mgis::real stiffness;
++  //! \brief boundary attribute, the last one of the mesh if null
++  const int attribute;
++  //! \brief marker of the boundary attributes
++  mfem::Array<int> marker;
++};
++
++/*!
++ * \brief a null integrator on the interior faces, added to the non linear
++ * form: the computations by kernels fall back to the loops of MFEM on all
++ * the elements, the integrators on the interior faces not being evaluated
++ * with the other integrators of the non linear form
++ */
++struct NullInteriorFacesIntegratorBoundaryCondition final
++    : mfem_mgis::AbstractBoundaryCondition {
++  //! \brief null integrator on an interior face
++  struct Integrator final : mfem::NonlinearFormIntegrator {
++    void AssembleFaceVector(const mfem::FiniteElement&,
++                            const mfem::FiniteElement&,
++                            mfem::FaceElementTransformations&,
++                            const mfem::Vector& u,
++                            mfem::Vector& r) override {
++      r.SetSize(u.Size());
++      r = mfem_mgis::real{0};
++    }
++    void AssembleFaceGrad(const mfem::FiniteElement&,
++                          const mfem::FiniteElement&,
++                          mfem::FaceElementTransformations&,
++                          const mfem::Vector& u,
++                          mfem::DenseMatrix& K) override {
++      K.SetSize(u.Size());
++      K = mfem_mgis::real{0};
++    }
++  };
++#ifdef MFEM_USE_MPI
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<true>& f,
++                                  const mfem::Vector&) noexcept override {
++    // the integrator is owned by the form
++    f.AddInteriorFaceIntegrator(new Integrator);
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<true>&,
++                                mfem_mgis::LinearForm<true>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++#endif /* MFEM_USE_MPI */
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<false>& f,
++                                  const mfem::Vector&) noexcept override {
++    f.AddInteriorFaceIntegrator(new Integrator);
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<false>&,
++                                mfem_mgis::LinearForm<false>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++  bool setup(mfem_mgis::Context&,
++             const mfem_mgis::real,
++             const mfem_mgis::real) noexcept override {
++    return true;
++  }
+ };
+ 
+ /*!
+@@ -422,6 +721,40 @@ static void checkMatrixFreeOperator(
+         name + ": action of the tangent operator applied without assembly");
+ }  // end of checkMatrixFreeOperator
+ 
++/*!
++ * \return the number of assemblies of the tangent operator by kernels
++ * \param[in] problem: non linear evolution problem
++ */
++static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(
++    const mfem_mgis::NonLinearEvolutionProblem& problem) {
++#ifdef MFEM_USE_MPI
++  if (parallel) {
++    return problem.getImplementation<true>()
++        .getNumberOfTangentOperatorAssembliesByKernels();
++  }
++#endif /* MFEM_USE_MPI */
++  return problem.getImplementation<false>()
++      .getNumberOfTangentOperatorAssembliesByKernels();
++}  // end of getNumberOfTangentOperatorAssembliesByKernels
++
++/*!
++ * \return the number of evaluations of the residual in which the
++ * contributions of the other integrators of the non linear form were added
++ * to the inner forces computed by kernels
++ * \param[in] problem: non linear evolution problem
++ */
++static mfem_mgis::size_type getNumberOfOtherIntegratorsResidualEvaluations(
++    const mfem_mgis::NonLinearEvolutionProblem& problem) {
++#ifdef MFEM_USE_MPI
++  if (parallel) {
++    return problem.getImplementation<true>()
++        .getNumberOfOtherIntegratorsResidualEvaluations();
++  }
++#endif /* MFEM_USE_MPI */
++  return problem.getImplementation<false>()
++      .getNumberOfOtherIntegratorsResidualEvaluations();
++}  // end of getNumberOfOtherIntegratorsResidualEvaluations
++
+ /*!
+  * \return the results of a uniaxial loading of a cube
+  * \param[in, out] ctx: execution context
+@@ -600,11 +933,50 @@ static Results compute(mfem_mgis::Context& ctx,
+           or_die;
+     }
+   }
+-  if (opts.springs) {
++  if (opts.springs && opts.face_springs) {
++    // springs on the boundary elements of the attributes 4 and 2, and two
++    // boundary face integrators, with different markers and stiffnesses
++    for (const auto& [k, a] : {std::pair{1e10, 4}, std::pair{5e9, 2}}) {
++      problem.addBoundaryCondition(
++          ctx,
++          std::make_unique<SpringsBoundaryCondition>(
++              k, SpringsBoundaryCondition::Location::BOUNDARY_ELEMENTS, a)) |
++          or_die;
++    }
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<FaceSpringsBoundaryCondition>(1e11, 0)) |
++        or_die;
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<FaceSpringsBoundaryCondition>(5e10, 1)) |
++        or_die;
++  } else if (opts.springs) {
+     problem.addBoundaryCondition(
+         ctx, std::make_unique<SpringsBoundaryCondition>(1e10)) |
+         or_die;
+   }
++  if (opts.domain_springs) {
++    for (const auto& [k, a] : {std::pair{1e9, 1}, std::pair{5e8, 2}}) {
++      problem.addBoundaryCondition(
++          ctx, std::make_unique<SpringsBoundaryCondition>(
++                   k, SpringsBoundaryCondition::Location::ELEMENTS, a)) |
++          or_die;
++    }
++  }
++  if (opts.interface_springs) {
++    problem.addBoundaryCondition(
++        ctx,
++        std::make_unique<SpringsBoundaryCondition>(
++            1e10, SpringsBoundaryCondition::Location::BOUNDARY_ELEMENTS, 7)) |
++        or_die;
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<FaceSpringsBoundaryCondition>(1e11, 7)) |
++        or_die;
++  }
++  if (opts.interior_faces) {
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<NullInteriorFacesIntegratorBoundaryCondition>()) |
++        or_die;
++  }
+   if (opts.prediction) {
+     problem.setPredictionPolicy(
+         {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+@@ -741,6 +1113,36 @@ static Results compute(mfem_mgis::Context& ctx,
+     }
+     t += dt;
+   }
++  // the tangent operator is assembled by kernels at each Newton iteration,
++  // the contributions of the other integrators of the non linear form being
++  // added to the local matrix, except with an integrator on the interior
++  // faces
++  if ((opts.tangent_operator_kernels) && (!opts.matrix_free)) {
++    const auto n = getNumberOfTangentOperatorAssembliesByKernels(problem);
++    const auto expected =
++        opts.interior_faces ? size_type{0}
++                            : static_cast<size_type>(std::accumulate(
++                                  r.iterations.begin(), r.iterations.end(), 0));
++    check(n == expected,
++          name + ": number of assemblies of the tangent operator by kernels (" +
++              std::to_string(n) + " instead of " + std::to_string(expected) +
++              ")");
++  }
++  // the contributions of the other integrators of the non linear form are
++  // added to the inner forces computed by kernels, except with an
++  // integrator on the interior faces
++  {
++    const auto others =
++        (opts.inner_forces_kernels) &&
++        (opts.springs || opts.domain_springs || opts.interface_springs) &&
++        (!opts.interior_faces);
++    const auto n = getNumberOfOtherIntegratorsResidualEvaluations(problem);
++    check(others == (n != 0),
++          name +
++              ": number of evaluations of the residual with the other "
++              "integrators of the non linear form (" +
++              std::to_string(n) + ")");
++  }
+   const auto& u = problem.getUnknowns(ets);
+   r.u.assign(u.HostRead(), u.HostRead() + u.Size());
+   m.synchronizeOnHostForReading();
+@@ -1313,6 +1715,7 @@ int main(int argc, char** argv) {
+   const char* mesh_2d = "bar.msh";
+   const char* square_mesh = "cube2d.msh";
+   const char* two_materials_mesh = "cube-two-materials.mesh";
++  const char* interface_mesh = "cube-two-materials-interface.mesh";
+   const char* library = "src/libBehaviourTest.so";
+   const char* openmp_library = "";
+   const char* stlpar_library = "";
+@@ -1328,6 +1731,9 @@ int main(int argc, char** argv) {
+   args.AddOption(&two_materials_mesh, "-mm", "--two-materials-mesh",
+                  "mesh of a cube made of two materials (1 and 2), whose "
+                  "boundaries are the ones of the mesh of a cube");
++  args.AddOption(&interface_mesh, "-mi", "--interface-mesh",
++                 "mesh of a cube made of two materials, with an interior "
++                 "boundary on their interface (7)");
+   args.AddOption(&library, "-l", "--library", "behaviour library");
+   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "parallel computations (only their comparisons are made)");
+@@ -1352,6 +1758,9 @@ int main(int argc, char** argv) {
+     if (opts.plane_strain) {
+       return square_mesh;
+     }
++    if (opts.interface_springs) {
++      return interface_mesh;
++    }
+     return opts.second_material_library != nullptr ? two_materials_mesh : mesh;
+   };
+   // tolerance of the comparisons between the integrations point by point
+@@ -1480,8 +1889,8 @@ int main(int argc, char** argv) {
+                         .matrix_free = true},
+                        ", pressure and prediction, matrix free"});
+       // inner forces computed element by element: the imposed pressure is
+-      // an integrator of the non linear form, the stiffness matrices
+-      // computed by kernels being assembled by MFEM
++      // an integrator of the non linear form, whose contributions are added
++      // to the local matrix assembled by kernels
+       cases.push_back({b,
+                        {.prediction = true,
+                         .pressure = true,
+@@ -1491,9 +1900,11 @@ int main(int argc, char** argv) {
+                        "element"});
+     }
+     // springs, depending on the unknowns: an integrator of the non linear
+-    // form besides the one of mfem-mgis, the residual assembled by MFEM
+-    // being completed by the inner forces computed by kernels, and the
+-    // stiffness matrices computed by kernels being assembled by MFEM
++    // form besides the one of mfem-mgis (boundary integrator, then boundary
++    // integrators with markers and boundary face integrators, then domain
++    // integrators with markers, then integrators on an interior boundary),
++    // whose contributions are added to the inner forces and to the local
++    // matrix computed by kernels
+     cases.push_back({"IsotropicLinearHardeningPlasticity",
+                      {.prediction = true,
+                       .pressure = true,
+@@ -1502,6 +1913,42 @@ int main(int argc, char** argv) {
+                       .inner_forces_kernels = true,
+                       .tangent_operator_kernels = true},
+                      ", pressure, springs and prediction"});
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.prediction = true,
++                      .pressure = true,
++                      .springs = true,
++                      .face_springs = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true},
++                     ", pressure, springs on the faces and prediction"});
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.domain_springs = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true,
++                      .second_material_library = library},
++                     ", springs in the materials (two materials)"});
++    // interior boundary: the boundary integrator is evaluated on it, the
++    // boundary face integrator is not, as by MFEM
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.prediction = true,
++                      .interface_springs = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true,
++                      .second_material_library = library},
++                     ", springs on an interior boundary (two materials)"});
++    // springs and a null integrator on the interior faces: the computations
++    // by kernels fall back to the loops of MFEM
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.pressure = true,
++                      .springs = true,
++                      .interior_faces = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true},
++                     ", pressure, springs and interior faces"});
+     cases.push_back({"IsotropicLinearHardeningPlasticity",
+                      {.prediction = true,
+                       .gradients_kernels = true,
+@@ -1595,8 +2042,8 @@ int main(int argc, char** argv) {
+                         .tangent_operator_kernels = true},
+                        ", FBar, plane strain"});
+       // imposed pressure, with the inner forces computed element by
+-      // element: the boundary integrator requires the stiffness matrices
+-      // element by element of the FBar formulation. The residual stagnates
++      // element: the contributions of the boundary integrator are added to
++      // the local matrix assembled by kernels. The residual stagnates
+       // at about 1e-12 times its reference value in parallel, the numbers of
+       // iterations differing by two with a tolerance of 1e-12
+       cases.push_back({b,
+@@ -1608,9 +2055,8 @@ int main(int argc, char** argv) {
+                         .relative_tolerance = 1e-11},
+                        ", FBar, pressure and prediction"});
+       // imposed pressure added to the inner forces computed by kernels, the
+-      // tangent operator being assembled by kernels; springs: the stiffness
+-      // matrices element by element of the FBar formulation are assembled
+-      // by MFEM
++      // tangent operator being assembled by kernels; springs: their
++      // contributions are added to the local matrix assembled by kernels
+       cases.push_back({b,
+                        {.fbar = true,
+                         .prediction = true,
+@@ -1645,9 +2091,9 @@ int main(int argc, char** argv) {
+                       .relative_tolerance = 1e-11},
+                      ", FBar, pressure and prediction, matrix free"});
+     // a material using the FBar formulation and an elastic one, the
+-    // tangent operator being assembled, assembled from the stiffness
+-    // matrices of the elements (imposed pressure, inner forces computed
+-    // element by element), or applied without assembly
++    // tangent operator being assembled by kernels (with the imposed
++    // pressure as an integrator of the non linear form when the inner
++    // forces are computed element by element), or applied without assembly
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+                       .prediction = true,
+@@ -1694,8 +2140,8 @@ int main(int argc, char** argv) {
+                       .order = 2},
+                      ", FBar, order 2"});
+     // regularization of Faltus et al. by kernels: tangent operator assembled
+-    // by kernels, applied without assembly, or assembled by MFEM from the
+-    // stiffness matrices of the elements (springs), in 3D and in plane
++    // by kernels (with or without springs) or applied without assembly, in
++    // 3D and in plane
+     // strain, with two materials and with quadratic elements, on distorted
+     // meshes (elements which are not affine and have different shapes); the
+     // tangent operator computed by kernels with the inner forces computed
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 57bc4f0d93..9ddb7cb5cc 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -821,6 +821,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+       --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
+       --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
+       --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
++      --interface-mesh
++      ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials-interface.mesh
+       --library $<TARGET_FILE:BehaviourTest>)
+   add_test(NAME BatchIntegrationTest
+            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
+diff --git a/tests/cube-two-materials-interface.mesh b/tests/cube-two-materials-interface.mesh
+new file mode 100644
+index 0000000000..283e1dda5d
+--- /dev/null
++++ b/tests/cube-two-materials-interface.mesh
+@@ -0,0 +1,46 @@
++MFEM mesh v1.0
++
++#
++# Unit cube made of two materials, split at x = 0.5: material 1 for
++# x < 0.5, material 2 for x > 0.5. Boundaries numbered as in cube.mesh:
++# y = 0 (1), z = 0 (2), x = 1 (3), y = 1 (4), x = 0 (5), z = 1 (6), and
++# an interior boundary on the interface between the materials, x = 0.5 (7).
++#
++
++dimension
++3
++
++elements
++2
++1 5 0 1 4 3 6 7 10 9
++2 5 1 2 5 4 7 8 11 10
++
++boundary
++11
++5 3 0 6 9 3
++3 3 2 5 11 8
++1 3 0 1 7 6
++1 3 1 2 8 7
++4 3 3 9 10 4
++4 3 4 10 11 5
++2 3 0 3 4 1
++2 3 1 4 5 2
++6 3 6 7 10 9
++6 3 7 8 11 10
++7 3 1 4 10 7
++
++vertices
++12
++3
++0 0 0
++0.5 0 0
++1 0 0
++0 1 0
++0.5 1 0
++1 1 0
++0 0 1
++0.5 0 1
++1 0 1
++0 1 1
++0.5 1 1
++1 1 1
+-- 
+2.43.0
+

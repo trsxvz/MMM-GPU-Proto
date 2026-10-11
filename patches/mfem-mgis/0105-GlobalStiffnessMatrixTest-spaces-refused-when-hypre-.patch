@@ -1,0 +1,49 @@
+From 76c2b50b654307962a1ce926ef08c42538c26b95 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 16:36:24 +0200
+Subject: [PATCH] GlobalStiffnessMatrixTest: spaces refused when hypre computes
+ on the GPU
+
+GlobalStiffnessMatrix::isSupported refuses any space when hypre computes
+on the GPU (the global matrix is then the product of hypre on the GPU),
+but the test expected conforming spaces to be accepted and went on
+assembling: it failed with the whole test suite run on the GPU
+(MFEM_MGIS_DEVICE=cuda), and blocked on four processes. The refusal is now
+checked in this case, and the assemblies are skipped.
+---
+ tests/GlobalStiffnessMatrixTest.cxx | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/tests/GlobalStiffnessMatrixTest.cxx b/tests/GlobalStiffnessMatrixTest.cxx
+index 71b000e85e..97d3f26a79 100644
+--- a/tests/GlobalStiffnessMatrixTest.cxx
++++ b/tests/GlobalStiffnessMatrixTest.cxx
+@@ -8,8 +8,9 @@
+  * problems), for scalar and vector spaces of orders 1 and 2; a local matrix
+  * with another pattern or other arrays on one process, or with its columns
+  * sorted in other arrays, makes all the processes compute the pattern
+- * again; a non conforming space is refused. To be run on several
+- * processes.
++ * again; a non conforming space is refused, as any space when hypre
++ * computes on the GPU (device given by the MFEM_MGIS_DEVICE environment
++ * variable). To be run on several processes.
+  * \date   11/10/2026
+  */
+ 
+@@ -105,6 +106,13 @@ static void testCase(mfem::ParMesh& mesh,
+   auto ctx = Context{};
+   auto fec = mfem::H1_FECollection(order, mesh.Dimension());
+   auto fes = mfem::ParFiniteElementSpace(&mesh, &fec, vdim);
++  // when hypre computes on the GPU, the global matrix is the product of
++  // hypre on the GPU: the space is refused
++  if (isHypreUsingGPU()) {
++    check(!batch::GlobalStiffnessMatrix::isSupported(fes),
++          name + ": space accepted while hypre computes on the GPU");
++    return;
++  }
+   check(batch::GlobalStiffnessMatrix::isSupported(fes),
+         name + ": conforming space not supported");
+   auto dofs = mfem::Array<int>{};
+-- 
+2.43.0
+

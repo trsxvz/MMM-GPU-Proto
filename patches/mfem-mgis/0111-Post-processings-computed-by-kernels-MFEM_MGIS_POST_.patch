@@ -1,0 +1,1825 @@
+From 2e1914daa56f0409127a50b90aaa8c29eeb33b2e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:05:56 +0200
+Subject: [PATCH] Post-processings computed by kernels
+ (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION)
+
+With MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels (ElementByElement by
+default), the computations on functions defined at the integration
+points used by the post-processings are made by kernels, on the device
+if a device is enabled, instead of loops over the elements evaluating
+their transformations point by point:
+
+- computeMeasure and computeIntegral, for the behaviour integrators
+  supporting kernels (weights w det J): reduction over the elements;
+- computeL2Projection and the implicit gradient regularization: right-hand
+  sides by a kernel, summed by the element restriction of MFEM; operator
+  assembled by MFEM on the device (AssemblyLevel::FULL) for the elements
+  with a tensor basis, element by element otherwise;
+- updateGridFunction (values at the nodes, arithmetic mean of the local
+  projections): local projections by a kernel (exact mass matrices,
+  Cholesky factorization), sums and counts by the element restriction,
+  then over the processes by the prolongation, the choice being made by
+  all the processes before any exchange.
+
+The kernels are declared in MFEMMGIS/Batch/IntegrationPointsFunctions.hxx.
+The other cases (functions on submeshes or boundaries, integration rules
+differing between elements, non conforming meshes, elements of different
+geometries) keep the computations element by element. The counter
+getNumberOfPostProcessingsComputationsByKernels makes the choice
+observable.
+
+The L2 projection keeps the operator handle given by FormLinearSystem,
+which owns the matrix built by the full assembly (a reference to it was
+kept beyond its lifetime).
+
+Test: PostProcessingsKernelsTest compares both computations (measures,
+integrals, values at the nodes, L2 projections of a scalar and of a
+vector function) on hexahedra with two materials, tetrahedra and
+quadrangles, on the host, on the debug device, on two processes and on
+the GPU.
+---
+ include/CMakeLists.txt                        |   2 +
+ .../Batch/IntegrationPointsFunctions.hxx      | 130 +++++++
+ .../MFEMMGIS/PostProcessingsComputation.hxx   |  31 ++
+ src/AbstractBehaviourIntegrator.cxx           |  62 ++++
+ src/Batch/IntegrationPointsFunctions.cxx      | 272 ++++++++++++++
+ .../IntegrationPointsFunctionsKernels.cxx     | 155 ++++++++
+ .../IntegrationPointsFunctionsKernels.hxx     |  98 +++++
+ src/CMakeLists.txt                            |   3 +
+ src/L2Projection.cxx                          | 159 +++++++-
+ src/PartialQuadratureFunction.cxx             | 148 ++++++++
+ src/PostProcessingsComputation.cxx            |  52 +++
+ src/PostProcessingsComputation.hxx            |  31 ++
+ tests/CMakeLists.txt                          |  39 ++
+ tests/PostProcessingsKernelsTest.cxx          | 339 ++++++++++++++++++
+ 14 files changed, 1507 insertions(+), 14 deletions(-)
+ create mode 100644 include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+ create mode 100644 include/MFEMMGIS/PostProcessingsComputation.hxx
+ create mode 100644 src/Batch/IntegrationPointsFunctions.cxx
+ create mode 100644 src/Batch/IntegrationPointsFunctionsKernels.cxx
+ create mode 100644 src/Batch/IntegrationPointsFunctionsKernels.hxx
+ create mode 100644 src/PostProcessingsComputation.cxx
+ create mode 100644 src/PostProcessingsComputation.hxx
+ create mode 100644 tests/PostProcessingsKernelsTest.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 223eb59347..a823b62e82 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -2,6 +2,7 @@ mfem_mgis_header(MFEMMGIS MGISForward.hxx)
+ mfem_mgis_header(MFEMMGIS MFEMForward.hxx)
+ mfem_mgis_header(MFEMMGIS Config.hxx)
+ mfem_mgis_header(MFEMMGIS Config.ixx)
++mfem_mgis_header(MFEMMGIS PostProcessingsComputation.hxx)
+ mfem_mgis_header(MFEMMGIS ExitStatus.hxx)
+ mfem_mgis_header(MFEMMGIS ExitStatus.ixx)
+ mfem_mgis_header(MFEMMGIS MPI.hxx)
+@@ -42,6 +43,7 @@ endif()
+ mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
++mfem_mgis_header(MFEMMGIS/Batch IntegrationPointsFunctions.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch GlobalStiffnessMatrix.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch FBar.hxx)
+diff --git a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+new file mode 100644
+index 0000000000..d712dd2fbf
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+@@ -0,0 +1,130 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
++ * \brief  This file declares the computations by kernels on functions
++ * defined at the integration points of a material, used by the
++ * post-processings: integral, right-hand side of the L2 projection, local
++ * projections at the nodes of the elements
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
++#define LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX
++
++#include <optional>
++#include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++
++namespace mfem_mgis {
++  // forward declarations
++  struct PartialQuadratureSpace;
++  struct ImmutablePartialQuadratureFunctionView;
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief gathers the values of a function at the integration points of the
++   * elements of its partial quadrature space in a vector of MFEM, which may
++   * then be used on the device: the component `c` at the point `q` of the
++   * `k`-th element of the space is stored at `c + nc * (q + nq * k)`, `nc`
++   * being the number of components of the function and `nq` the number of
++   * points per element. The values are read on the host.
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] v: values
++   * \param[in] f: function. All the elements of its space must use the same
++   * integration rule.
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool gatherValues(
++      Context&,
++      mfem::Vector&,
++      const ImmutablePartialQuadratureFunctionView&) noexcept;
++
++  /*!
++   * \return the integral, over the elements of a partial quadrature space
++   * owned by this process, of a scalar function given by its values at the
++   * integration points (`w det J` being the weight of a point), or the
++   * measure of these elements if no values are given, computed on the device
++   * if a device is enabled, or an empty value on failure
++   * \param[in, out] ctx: execution context
++   * \param[in] qs: partial quadrature space. All its elements must use the
++   * integration rule of the geometric data.
++   * \param[in] v: values of the function (see `gatherValues`), or null
++   * \param[in] g: geometric data
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> computeIntegral(
++      Context&,
++      const PartialQuadratureSpace&,
++      const mfem::Vector*,
++      const ElementsGeometry&) noexcept;
++
++  /*!
++   * \brief adds the right-hand side of the L2 projection of a component of a
++   * function given at the integration points of the elements of a partial
++   * quadrature space, `N f w det J` summed over the points of each element,
++   * to a vector of values element by element of a scalar finite element
++   * space, in the layout of the element restriction of MFEM (`nd x ne`,
++   * native ordering of the degrees of freedom), on the device if a device is
++   * enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] r: values element by element
++   * \param[in] qs: partial quadrature space. All its elements must use the
++   * integration rule of the geometric data.
++   * \param[in] v: values of the function (see `gatherValues`)
++   * \param[in] nc: number of components of the function
++   * \param[in] c: component
++   * \param[in] g: geometric data of the finite element space for the
++   * integration rule of the space
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addL2ProjectionRightHandSide(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const mfem::Vector&,
++      const size_type,
++      const size_type,
++      const ElementsGeometry&) noexcept;
++
++  /*!
++   * \brief maximal number of degrees of freedom per element and per
++   * component of the local projections computed by kernels
++   */
++  inline constexpr int maximumNumberOfNodesOfLocalProjections = 32;
++
++  /*!
++   * \brief computes the values at the nodes of the local L2 projections, on
++   * each element of a partial quadrature space, of a function given at its
++   * integration points, in a vector of values element by element of a
++   * finite element space of Lagrange elements (layout of the element
++   * restriction of MFEM, `nd x nc x ne`, native ordering of the degrees of
++   * freedom), on the device if a device is enabled. The mass matrix of each
++   * element is integrated by the integration rule of `m`, the right-hand
++   * side by the one of the quadrature space (`g`), and the local system is
++   * solved by a Cholesky factorization. The values of the other elements
++   * are not modified.
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] r: values element by element
++   * \param[in] qs: partial quadrature space. All its elements must use the
++   * integration rule of `g`.
++   * \param[in] v: values of the function (see `gatherValues`)
++   * \param[in] nc: number of components of the function
++   * \param[in] g: geometric data of the finite element space for the
++   * integration rule of the quadrature space
++   * \param[in] m: geometric data of the finite element space for the
++   * integration rule of the mass matrices
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeLocalProjections(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const mfem::Vector&,
++      const size_type,
++      const ElementsGeometry&,
++      const ElementsGeometry&) noexcept;
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX */
+diff --git a/include/MFEMMGIS/PostProcessingsComputation.hxx b/include/MFEMMGIS/PostProcessingsComputation.hxx
+new file mode 100644
+index 0000000000..8f901dd3a5
+--- /dev/null
++++ b/include/MFEMMGIS/PostProcessingsComputation.hxx
+@@ -0,0 +1,31 @@
++/*!
++ * \file   include/MFEMMGIS/PostProcessingsComputation.hxx
++ * \brief  This file declares the counter of the computations made by
++ * kernels for the post-processings
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_POSTPROCESSINGSCOMPUTATION_HXX
++#define LIB_MFEM_MGIS_POSTPROCESSINGSCOMPUTATION_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \return the number of computations on functions defined at the
++   * integration points made by kernels since the start of the program:
++   * integrals and measures (`computeIntegral`, `computeMeasure`), L2
++   * projections and implicit gradient regularizations, values at the nodes
++   * (`updateGridFunction`). The computations are made by kernels if the
++   * environment variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is
++   * `Kernels` and if the kernels support them; otherwise, they are made
++   * element by element. This counter makes the choice observable, for the
++   * tests.
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] size_type
++  getNumberOfPostProcessingsComputationsByKernels() noexcept;
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_POSTPROCESSINGSCOMPUTATION_HXX */
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 195eeddcd0..9c017403a5 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <cmath>
++#include <optional>
+ #include <cstdlib>
+ #include <algorithm>
+ #include "mfem/fem/fespace.hpp"
+@@ -18,6 +19,9 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
++#include "PostProcessingsComputation.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -128,9 +132,63 @@ namespace mfem_mgis {
+     }
+   }  // end of performLoopOverIntegrationPoints
+ 
++  /*!
++   * \return the integral of a scalar function, or the measure if no function
++   * is given, over the elements of the quadrature space of a behaviour
++   * integrator owned by this process, computed by kernels, or an empty value
++   * if the post-processings are not computed by kernels (see
++   * `internals::usePostProcessingsKernels`) or if the behaviour integrator
++   * does not support kernels: the weight of an integration point is then
++   * `w det J`, as for all the behaviour integrators of mfem-mgis, or if the
++   * geometric data of the elements can't be computed by kernels (elements of
++   * different geometries)
++   * \param[in] bi: behaviour integrator
++   * \param[in] f: function, or null
++   */
++  template <bool parallel>
++  static std::optional<real> computeLocalIntegralByKernels(
++      attributes::MayThrow,
++      const AbstractBehaviourIntegrator& bi,
++      const ImmutablePartialQuadratureFunctionView* const f) {
++    if ((!internals::usePostProcessingsKernels(may_throw)) ||
++        (!bi.supportsKernels())) {
++      return {};
++    }
++    const auto& qspace = bi.getPartialQuadratureSpace();
++    const auto* const ir = qspace.getUniformIntegrationRule();
++    if (ir == nullptr) {
++      // no element owned by this process
++      internals::countPostProcessingComputationByKernels();
++      return real{0};
++    }
++    const auto& fespace = qspace.getFiniteElementDiscretization()
++                              .getFiniteElementSpace<parallel>();
++    auto ctx = Context{};
++    auto g = batch::ElementsGeometry{};
++    if (!batch::computeElementsGeometry(ctx, g, fespace, *ir)) {
++      return {};
++    }
++    auto values = mfem::Vector{};
++    if ((f != nullptr) && (!batch::gatherValues(ctx, values, *f))) {
++      raise(ctx.getErrorMessage());
++    }
++    const auto r = batch::computeIntegral(ctx, qspace,
++                                          f != nullptr ? &values : nullptr, g);
++    if (!r.has_value()) {
++      raise(ctx.getErrorMessage());
++    }
++    internals::countPostProcessingComputationByKernels();
++    return r;
++  }  // end of computeLocalIntegralByKernels
++
+   template <bool parallel>
+   static real BehaviourIntegrator_computeMeasure(
+       const AbstractBehaviourIntegrator& bi) {
++    const auto rk =
++        computeLocalIntegralByKernels<parallel>(may_throw, bi, nullptr);
++    if (rk.has_value()) {
++      return *rk;
++    }
+     auto r = real{};
+     auto integrate =
+         [&r, &bi](const mfem::FiniteElement&, mfem::ElementTransformation& tr,
+@@ -162,6 +220,10 @@ namespace mfem_mgis {
+   static real BehaviourIntegrator_computeScalarIntegral(
+       const AbstractBehaviourIntegrator& bi,
+       const ImmutablePartialQuadratureFunctionView& f) {
++    const auto rk = computeLocalIntegralByKernels<parallel>(may_throw, bi, &f);
++    if (rk.has_value()) {
++      return *rk;
++    }
+     const auto* const values = f.getValues().data() + f.getDataOffset();
+     auto r = real{};
+     if (f.getDataStride() == 1) {
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+new file mode 100644
+index 0000000000..5646531580
+--- /dev/null
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -0,0 +1,272 @@
++/*!
++ * \file   src/Batch/IntegrationPointsFunctions.cxx
++ * \brief  This file implements the computations by kernels on functions
++ * defined at the integration points of a material (host part: checks and
++ * arguments of the kernels)
++ * \date   11/10/2026
++ */
++
++#include <string>
++#include <cstdint>
++#include <exception>
++#include "mfem/general/device.hpp"
++#include "mfem/fem/fe/fe_base.hpp"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/PartialQuadratureFunction.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "IntegrationPointsFunctionsKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++namespace mfem_mgis::batch {
++
++  bool gatherValues(Context& ctx,
++                    mfem::Vector& v,
++                    const ImmutablePartialQuadratureFunctionView& f) noexcept {
++    try {
++      const auto& qs = f.getPartialQuadratureSpace();
++      const auto& elements = qs.getElements();
++      const auto& offsets = qs.getElementOffsets();
++      const auto n = static_cast<std::int64_t>(elements.Size());
++      const auto* const ir = qs.getUniformIntegrationRule();
++      if ((n != 0) && (ir == nullptr)) {
++        return ctx.registerErrorMessage(
++            "gatherValues: the elements of the partial quadrature space do "
++            "not use the same integration rule");
++      }
++      const auto nq = (n == 0) ? std::int64_t{0} : ir->GetNPoints();
++      const auto nc = static_cast<std::int64_t>(f.getNumberOfComponents());
++      v.SetSize(static_cast<int>(nc * nq * n));
++      v.UseDevice(true);
++      auto* const pv = v.HostWrite();
++      const auto* const po = offsets.HostRead();
++      for (std::int64_t k = 0; k != n; ++k) {
++        for (std::int64_t q = 0; q != nq; ++q) {
++          const auto values =
++              f.getIntegrationPointValues(static_cast<size_type>(po[k] + q));
++          for (std::int64_t c = 0; c != nc; ++c) {
++            pv[c + nc * (q + nq * k)] = values[c];
++          }
++        }
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"gatherValues: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage("gatherValues: unknown exception");
++    }
++    return true;
++  }  // end of gatherValues
++
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++
++  /*!
++   * \brief checks the geometric data of a partial quadrature space and the
++   * size of the values of a function, and fills the arguments of the
++   * kernels
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] a: arguments of the kernels
++   * \param[in] qs: partial quadrature space
++   * \param[in] v: values of the function, or null
++   * \param[in] nc: number of components of the function
++   * \param[in] g: geometric data
++   * \param[in] use_device: if true, the data are read on the device
++   * \param[in] name: name of the calling function, for the messages
++   */
++  static bool makeKernelArguments(
++      Context& ctx,
++      internals::IntegrationPointsFunctionsKernelArguments& a,
++      const PartialQuadratureSpace& qs,
++      const mfem::Vector* const v,
++      const size_type nc,
++      const ElementsGeometry& g,
++      const bool use_device,
++      const char* const name) {
++    const auto& elements = qs.getElements();
++    if ((g.rule == nullptr) || (g.maps == nullptr) ||
++        (g.jacobians == nullptr) ||
++        (qs.getUniformIntegrationRule() != g.rule)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the elements of the partial quadrature space do not use the "
++          "integration rule of the geometric data");
++    }
++    if (nc == 0) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": invalid number of components");
++    }
++    const auto size =
++        std::int64_t{g.nq} * static_cast<std::int64_t>(nc) * elements.Size();
++    if ((v != nullptr) && (static_cast<std::int64_t>(v->Size()) != size)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": unexpected size of the values of the function");
++    }
++    a.elements = elements.Read(use_device);
++    a.points.shape_functions = g.maps->B.Read(use_device);
++    a.points.determinants = g.jacobians->detJ.Read(use_device);
++    a.points.weights = g.weights.Read(use_device);
++    a.points.nq = g.nq;
++    a.values = (v != nullptr) ? v->Read(use_device) : nullptr;
++    a.nc = static_cast<int>(nc);
++    a.number_of_elements = elements.Size();
++    a.nd = g.nd;
++    return true;
++  }  // end of makeKernelArguments
++
++  //! \return an error message reporting an exception
++  static std::string getExceptionMessage(const char* const name) {
++    try {
++      throw;
++    } catch (std::exception& e) {
++      return std::string{name} + ": " + e.what();
++    } catch (...) {
++    }
++    return std::string{name} + ": unknown exception";
++  }  // end of getExceptionMessage
++
++#else /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  //! \return an error message reporting kernels which are not compiled
++  static std::string getUnavailableKernelsMessage(const char* const name) {
++    return std::string{name} +
++           ": the kernels on the functions at the integration points are not "
++           "compiled (MFEM compiled with HIP)";
++  }  // end of getUnavailableKernelsMessage
++
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  std::optional<real> computeIntegral(Context& ctx,
++                                      const PartialQuadratureSpace& qs,
++                                      const mfem::Vector* const v,
++                                      const ElementsGeometry& g) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(qs);
++    static_cast<void>(v);
++    static_cast<void>(g);
++    return ctx.registerErrorMessage(
++        getUnavailableKernelsMessage("computeIntegral"));
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    if (qs.getElements().Size() == 0) {
++      return real{0};
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::IntegrationPointsFunctionsKernelArguments{};
++      if (!makeKernelArguments(ctx, a, qs, v, 1, g, use_device,
++                               "computeIntegral")) {
++        return {};
++      }
++      auto w = mfem::Array<real>{};
++      return internals::launchIntegralKernel(a, w, use_device);
++    } catch (...) {
++      return ctx.registerErrorMessage(getExceptionMessage("computeIntegral"));
++    }
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeIntegral
++
++  bool addL2ProjectionRightHandSide(Context& ctx,
++                                    mfem::Vector& r,
++                                    const PartialQuadratureSpace& qs,
++                                    const mfem::Vector& v,
++                                    const size_type nc,
++                                    const size_type c,
++                                    const ElementsGeometry& g) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(r);
++    static_cast<void>(qs);
++    static_cast<void>(v);
++    static_cast<void>(nc);
++    static_cast<void>(c);
++    static_cast<void>(g);
++    return ctx.registerErrorMessage(
++        getUnavailableKernelsMessage("addL2ProjectionRightHandSide"));
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto* const name = "addL2ProjectionRightHandSide";
++    if (qs.getElements().Size() == 0) {
++      return true;
++    }
++    if (c >= nc) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": invalid component");
++    }
++    if (static_cast<std::int64_t>(r.Size()) != std::int64_t{g.nd} * g.ne) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": unexpected size of the values element by element");
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::IntegrationPointsFunctionsKernelArguments{};
++      if (!makeKernelArguments(ctx, a, qs, &v, nc, g, use_device, name)) {
++        return false;
++      }
++      internals::launchL2ProjectionRightHandSideKernel(
++          a, static_cast<int>(c), r.ReadWrite(use_device), use_device);
++    } catch (...) {
++      return ctx.registerErrorMessage(getExceptionMessage(name));
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addL2ProjectionRightHandSide
++
++  bool computeLocalProjections(Context& ctx,
++                               mfem::Vector& r,
++                               const PartialQuadratureSpace& qs,
++                               const mfem::Vector& v,
++                               const size_type nc,
++                               const ElementsGeometry& g,
++                               const ElementsGeometry& m) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(r);
++    static_cast<void>(qs);
++    static_cast<void>(v);
++    static_cast<void>(nc);
++    static_cast<void>(g);
++    static_cast<void>(m);
++    return ctx.registerErrorMessage(
++        getUnavailableKernelsMessage("computeLocalProjections"));
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto* const name = "computeLocalProjections";
++    if (qs.getElements().Size() == 0) {
++      return true;
++    }
++    if ((m.rule == nullptr) || (m.maps == nullptr) ||
++        (m.jacobians == nullptr) || (m.nd != g.nd) || (m.ne != g.ne)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": inconsistent geometric data of the mass matrices");
++    }
++    if (g.nd > maximumNumberOfNodesOfLocalProjections) {
++      return ctx.registerErrorMessage(
++          std::string{name} + ": too many degrees of freedom per element (" +
++          std::to_string(g.nd) + ", at most " +
++          std::to_string(maximumNumberOfNodesOfLocalProjections) + ")");
++    }
++    if (static_cast<std::int64_t>(r.Size()) !=
++        std::int64_t{g.nd} * static_cast<std::int64_t>(nc) * g.ne) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": unexpected size of the values element by element");
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::IntegrationPointsFunctionsKernelArguments{};
++      if (!makeKernelArguments(ctx, a, qs, &v, nc, g, use_device, name)) {
++        return false;
++      }
++      auto am = internals::IntegrationRuleKernelArguments{};
++      am.shape_functions = m.maps->B.Read(use_device);
++      am.determinants = m.jacobians->detJ.Read(use_device);
++      am.weights = m.weights.Read(use_device);
++      am.nq = m.nq;
++      internals::launchLocalProjectionsKernel(a, am, r.ReadWrite(use_device),
++                                              use_device);
++    } catch (...) {
++      return ctx.registerErrorMessage(getExceptionMessage(name));
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeLocalProjections
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.cxx b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+new file mode 100644
+index 0000000000..7b69f77a2f
+--- /dev/null
++++ b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+@@ -0,0 +1,155 @@
++/*!
++ * \file   src/Batch/IntegrationPointsFunctionsKernels.cxx
++ * \brief  This file implements the kernels computing integrals, right-hand
++ * sides of L2 projections and local projections of functions defined at
++ * the integration points of a material. It contains kernels of MFEM: it is
++ * compiled as CUDA code when MFEM is compiled with CUDA.
++ * \date   11/10/2026
++ */
++
++#include <cmath>
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "mfem/general/reducers.hpp"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
++#include "IntegrationPointsFunctionsKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  real launchIntegralKernel(const IntegrationPointsFunctionsKernelArguments& a,
++                            mfem::Array<real>& w,
++                            const bool use_device) {
++    auto r = real{};
++    mfem::reduce(
++        a.number_of_elements, r,
++        [a] MFEM_HOST_DEVICE(const int k, real& s) {
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto nq = static_cast<std::size_t>(a.points.nq);
++          const auto ke = static_cast<std::size_t>(k);
++          for (std::size_t q = 0; q != nq; ++q) {
++            const auto detJ = a.points.determinants[q + nq * e];
++            if (a.values == nullptr) {
++              s += a.points.weights[q] * detJ;
++            } else {
++              s += a.points.weights[q] * (detJ * a.values[q + nq * ke]);
++            }
++          }
++        },
++        mfem::SumReducer<real>{}, use_device, w);
++    return r;
++  }  // end of launchIntegralKernel
++
++  void launchL2ProjectionRightHandSideKernel(
++      const IntegrationPointsFunctionsKernelArguments& a,
++      const int c,
++      real* const r,
++      const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a, c, r] MFEM_HOST_DEVICE(int k) {
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto nq = static_cast<std::size_t>(a.points.nq);
++          const auto nd = static_cast<std::size_t>(a.nd);
++          const auto nc = static_cast<std::size_t>(a.nc);
++          const auto ke = static_cast<std::size_t>(k);
++          auto* const re = r + nd * e;
++          for (std::size_t q = 0; q != nq; ++q) {
++            const auto f =
++                a.values[static_cast<std::size_t>(c) + nc * (q + nq * ke)];
++            // same operations as the integrators of the L2 projection
++            const auto w =
++                a.points.weights[q] * (a.points.determinants[q + nq * e] * f);
++            for (std::size_t i = 0; i != nd; ++i) {
++              re[i] += w * a.points.shape_functions[q + nq * i];
++            }
++          }
++        });
++  }  // end of launchL2ProjectionRightHandSideKernel
++
++  void launchLocalProjectionsKernel(
++      const IntegrationPointsFunctionsKernelArguments& a,
++      const IntegrationRuleKernelArguments& m,
++      real* const r,
++      const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a, m, r] MFEM_HOST_DEVICE(int k) {
++          constexpr auto N =
++              static_cast<std::size_t>(maximumNumberOfNodesOfLocalProjections);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto nq = static_cast<std::size_t>(a.points.nq);
++          const auto nqm = static_cast<std::size_t>(m.nq);
++          const auto nd = static_cast<std::size_t>(a.nd);
++          const auto nc = static_cast<std::size_t>(a.nc);
++          const auto ke = static_cast<std::size_t>(k);
++          // lower part of the mass matrix of the element, then of its
++          // Cholesky factor (row major, N x N)
++          real L[N * N];
++          for (std::size_t i = 0; i != nd; ++i) {
++            for (std::size_t j = 0; j <= i; ++j) {
++              L[i * N + j] = real{0};
++            }
++          }
++          for (std::size_t q = 0; q != nqm; ++q) {
++            const auto w = m.weights[q] * m.determinants[q + nqm * e];
++            for (std::size_t i = 0; i != nd; ++i) {
++              const auto wNi = w * m.shape_functions[q + nqm * i];
++              for (std::size_t j = 0; j <= i; ++j) {
++                L[i * N + j] += wNi * m.shape_functions[q + nqm * j];
++              }
++            }
++          }
++          // right-hand sides, stored in the values of the element
++          auto* const re = r + nd * nc * e;
++          for (std::size_t c = 0; c != nc; ++c) {
++            for (std::size_t i = 0; i != nd; ++i) {
++              re[i + nd * c] = real{0};
++            }
++          }
++          for (std::size_t q = 0; q != nq; ++q) {
++            const auto w =
++                a.points.weights[q] * a.points.determinants[q + nq * e];
++            const auto* const f = a.values + nc * (q + nq * ke);
++            for (std::size_t i = 0; i != nd; ++i) {
++              const auto wNi = w * a.points.shape_functions[q + nq * i];
++              for (std::size_t c = 0; c != nc; ++c) {
++                re[i + nd * c] += wNi * f[c];
++              }
++            }
++          }
++          // Cholesky factorization of the mass matrix
++          for (std::size_t j = 0; j != nd; ++j) {
++            auto d = L[j * N + j];
++            for (std::size_t p = 0; p != j; ++p) {
++              d -= L[j * N + p] * L[j * N + p];
++            }
++            const auto ljj = sqrt(d);
++            L[j * N + j] = ljj;
++            for (std::size_t i = j + 1; i != nd; ++i) {
++              auto s = L[i * N + j];
++              for (std::size_t p = 0; p != j; ++p) {
++                s -= L[i * N + p] * L[j * N + p];
++              }
++              L[i * N + j] = s / ljj;
++            }
++          }
++          // resolutions, component by component
++          for (std::size_t c = 0; c != nc; ++c) {
++            auto* const x = re + nd * c;
++            for (std::size_t i = 0; i != nd; ++i) {
++              auto s = x[i];
++              for (std::size_t p = 0; p != i; ++p) {
++                s -= L[i * N + p] * x[p];
++              }
++              x[i] = s / L[i * N + i];
++            }
++            for (std::size_t i = nd; i-- != 0;) {
++              auto s = x[i];
++              for (std::size_t p = i + 1; p != nd; ++p) {
++                s -= L[p * N + i] * x[p];
++              }
++              x[i] = s / L[i * N + i];
++            }
++          }
++        });
++  }  // end of launchLocalProjectionsKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+new file mode 100644
+index 0000000000..36ef12e374
+--- /dev/null
++++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+@@ -0,0 +1,98 @@
++/*!
++ * \file   src/Batch/IntegrationPointsFunctionsKernels.hxx
++ * \brief  This file declares the kernels computing integrals, right-hand
++ * sides of L2 projections and local projections of functions defined at
++ * the integration points of a material (internal header)
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX
++
++#include "mfem/general/array.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  //! \brief geometric data of an integration rule used by the kernels
++  struct IntegrationRuleKernelArguments {
++    /*!
++     * \brief values of the shape functions on the reference element (`nq x
++     * nd`)
++     */
++    const real* shape_functions = nullptr;
++    //! \brief determinants of the jacobians (`nq x ne`)
++    const real* determinants = nullptr;
++    //! \brief weights of the integration points on the reference element
++    const real* weights = nullptr;
++    //! \brief number of integration points per element
++    int nq = 0;
++  };
++
++  //! \brief arguments of the kernels on functions at the integration points
++  struct IntegrationPointsFunctionsKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    //! \brief geometric data of the integration rule of the material
++    IntegrationRuleKernelArguments points;
++    /*!
++     * \brief values of the function (`nc x nq x number_of_elements`), or
++     * null for the measure
++     */
++    const real* values = nullptr;
++    //! \brief number of components of the function
++    int nc = 1;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++  };
++
++  /*!
++   * \return the integral of a scalar function over the elements of a
++   * material, or their measure if no values are given
++   * \param[in] a: arguments
++   * \param[in] w: workspace of the reduction
++   * \param[in] d: if true, the kernel runs on the device (if a device is
++   * enabled), and the pointers of the arguments are located on the device
++   */
++  [[nodiscard]] real launchIntegralKernel(
++      const IntegrationPointsFunctionsKernelArguments&,
++      mfem::Array<real>&,
++      const bool);
++
++  /*!
++   * \brief launches the kernel adding the right-hand side of the L2
++   * projection of a component of a function to values element by element
++   * (`nd x ne`)
++   * \param[in] a: arguments
++   * \param[in] c: component
++   * \param[in, out] r: values element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchL2ProjectionRightHandSideKernel(
++      const IntegrationPointsFunctionsKernelArguments&,
++      const int,
++      real* const,
++      const bool);
++
++  /*!
++   * \brief launches the kernel computing the values at the nodes of the
++   * local projections of a function (`nd x nc x ne`), the number of degrees
++   * of freedom per element being at most
++   * `maximumNumberOfNodesOfLocalProjections`
++   * \param[in] a: arguments
++   * \param[in] m: geometric data of the integration rule of the mass
++   * matrices
++   * \param[in, out] r: values element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchLocalProjectionsKernel(
++      const IntegrationPointsFunctionsKernelArguments&,
++      const IntegrationRuleKernelArguments&,
++      real* const,
++      const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX */
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index cc4acd3165..c00bdf856c 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -26,6 +26,7 @@ list(APPEND MFEMMGIS_SOURCES
+   MaterialArrays.cxx
+   MaterialQuantityProviderSearch.cxx
+   AbstractBehaviourIntegrator.cxx
++  PostProcessingsComputation.cxx
+   BehaviourIntegratorBase.cxx
+   BehaviourIntegratorFactory.cxx
+   MatrixFreeTangentOperator.cxx
+@@ -159,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/MFEMFieldOperations.cxx
+   Batch/GradientsKernels.cxx
+   Batch/InnerForcesKernels.cxx
++  Batch/IntegrationPointsFunctionsKernels.cxx
+   Batch/StiffnessMatricesKernels.cxx
+   Batch/FBarKernels.cxx
+   Batch/FaltusKernels.cxx
+@@ -179,6 +181,7 @@ list(APPEND MFEMMGIS_SOURCES
+   Batch/ElementsGeometry.cxx
+   Batch/Gradients.cxx
+   Batch/InnerForces.cxx
++  Batch/IntegrationPointsFunctions.cxx
+   Batch/StiffnessMatrices.cxx
+   Batch/FBar.cxx
+   Batch/Faltus.cxx
+diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
+index eaa87b0bb5..5df26a4abd 100644
+--- a/src/L2Projection.cxx
++++ b/src/L2Projection.cxx
+@@ -6,8 +6,11 @@
+  * \date   14/01/2026
+  */
+ 
++#include <vector>
++#include <optional>
+ #include "mfem/mesh/mesh.hpp"
+ #include "mfem/fem/fespace.hpp"
++#include "mfem/fem/fe/fe_base.hpp"
+ #include "mfem/mesh/submesh/submesh.hpp"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+@@ -20,10 +23,14 @@
+ #endif
+ 
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/L2Projection.hxx"
++#include "PostProcessingsComputation.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -486,6 +493,107 @@ namespace mfem_mgis {
+     return true;
+   }  // end of checkUpdateFunctionsArguments
+ 
++  /*!
++   * \brief data of the computation by kernels of the right-hand sides of the
++   * L2 projections of functions defined at the integration points: geometric
++   * data of the finite element space of the projection for the integration
++   * rules of the functions, and values of the functions (see
++   * `batch::gatherValues`)
++   */
++  struct L2ProjectionKernelsData {
++    //! \brief geometric data, by integration rule
++    batch::ElementsGeometrySet geometries;
++    //! \brief values of the functions
++    std::vector<mfem::Vector> values;
++  };
++
++  /*!
++   * \return the data of the computation by kernels of the right-hand sides
++   * of the L2 projections of functions, or an empty value if the
++   * post-processings are not computed by kernels (see
++   * `internals::usePostProcessingsKernels`) or if the kernels can't be used:
++   * functions defined on boundaries or on a part of the mesh (submesh),
++   * elements of a function using different integration rules, geometric data
++   * which can't be computed by kernels (elements of different geometries)
++   * \param[in] fes: scalar finite element space of the projection
++   * \param[in] fcts: functions
++   * \param[in] on_submesh: if true, the projection is made on a submesh
++   */
++  template <bool parallel>
++  static std::optional<L2ProjectionKernelsData> makeL2ProjectionKernelsData(
++      attributes::MayThrow,
++      const FiniteElementSpace<parallel>& fes,
++      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
++      const bool on_submesh) {
++    if ((on_submesh) || (!internals::usePostProcessingsKernels(may_throw))) {
++      return {};
++    }
++    auto ctx = Context{};
++    auto d = L2ProjectionKernelsData{};
++    for (const auto& f : fcts) {
++      const auto& qs = f.getPartialQuadratureSpace();
++      auto& v = d.values.emplace_back();
++      if (qs.getNumberOfElements() == 0) {
++        continue;
++      }
++      const auto* const ir = qs.getUniformIntegrationRule();
++      if (ir == nullptr) {
++        return {};
++      }
++      auto& g = d.geometries[ir];
++      if ((g.rule == nullptr) &&
++          (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
++        return {};
++      }
++      if (!batch::gatherValues(ctx, v, f)) {
++        raise(ctx.getErrorMessage());
++      }
++    }
++    return d;
++  }  // end of makeL2ProjectionKernelsData
++
++  /*!
++   * \brief computes by kernels the right-hand side of the L2 projection of a
++   * component of functions (see `batch::addL2ProjectionRightHandSide`),
++   * summed over the elements by the element restriction of MFEM
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] b: right-hand side
++   * \param[in] fes: scalar finite element space of the projection
++   * \param[in] fcts: functions
++   * \param[in] d: data of the computation by kernels
++   * \param[in] c: component
++   */
++  template <bool parallel>
++  [[nodiscard]] static bool computeL2ProjectionRightHandSideByKernels(
++      Context& ctx,
++      mfem::Vector& b,
++      const FiniteElementSpace<parallel>& fes,
++      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
++      const L2ProjectionKernelsData& d,
++      const size_type c) {
++    const auto* const r =
++        fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++    auto e = mfem::Vector(r->Height());
++    e.UseDevice(true);
++    e = real{0};
++    for (size_type i = 0; i != fcts.size(); ++i) {
++      const auto& f = fcts[i];
++      const auto& qs = f.getPartialQuadratureSpace();
++      if (qs.getNumberOfElements() == 0) {
++        continue;
++      }
++      const auto& g = d.geometries.at(qs.getUniformIntegrationRule());
++      if (!batch::addL2ProjectionRightHandSide(
++              ctx, e, qs, d.values[i], f.getNumberOfComponents(), c, g)) {
++        return false;
++      }
++    }
++    b.UseDevice(true);
++    r->MultTranspose(e, b);
++    return true;
++  }  // end of computeL2ProjectionRightHandSideByKernels
++
+   template <bool parallel>
+   static bool updatePartialQuadratureRegularization_impl(
+       Context& ctx,
+@@ -545,8 +653,19 @@ namespace mfem_mgis {
+           std::make_unique<GridFunction<parallel>>(&(*olocal_fespace));
+       return local_gridfunction.get();
+     }();
++    // computation by kernels: right-hand sides by kernels, operator
++    // assembled by MFEM, on the device if a device is enabled
++    const auto kernels_data = makeL2ProjectionKernelsData<parallel>(
++        may_throw, *olocal_fespace, fcts, r.submesh != nullptr);
+     // Regularization operator
+     BilinearForm<parallel> a(&(*olocal_fespace));
++    // assembly by MFEM on the device: supported for the elements with a
++    // tensor basis only (quadrangles, hexahedra) by MFEM 4.10
++    if ((kernels_data.has_value()) && (olocal_fespace->GetNE() != 0) &&
++        (dynamic_cast<const mfem::TensorBasisElement*>(
++             olocal_fespace->GetFE(0)) != nullptr)) {
++      a.SetAssemblyLevel(mfem::AssemblyLevel::FULL);
++    }
+     add_regularization_operator(a);
+     a.Assemble();
+     // resolution(s)
+@@ -557,29 +676,38 @@ namespace mfem_mgis {
+       }
+       // right-hand side
+       LinearForm<parallel> b(&(*olocal_fespace));
+-      if (rfespace.GetVDim() == 1) {
+-        if (use_parent_elements) {
+-          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
+-              r.submesh->GetParentElementIDMap(), fcts));
+-        } else {
+-          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegrator(fcts));
++      if (kernels_data.has_value()) {
++        if (!computeL2ProjectionRightHandSideByKernels<parallel>(
++                ctx, b, *olocal_fespace, fcts, *kernels_data, c)) {
++          return false;
+         }
+       } else {
+-        if (use_parent_elements) {
+-          b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
+-              r.submesh->GetParentElementIDMap(), fcts, c));
++        if (rfespace.GetVDim() == 1) {
++          if (use_parent_elements) {
++            b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
++                r.submesh->GetParentElementIDMap(), fcts));
++          } else {
++            b.AddDomainIntegrator(
++                new ScalarL2ProjectionRHSFormIntegrator(fcts));
++          }
+         } else {
+-          b.AddDomainIntegrator(
+-              new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
++          if (use_parent_elements) {
++            b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
++                r.submesh->GetParentElementIDMap(), fcts, c));
++          } else {
++            b.AddDomainIntegrator(
++                new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
++          }
+         }
++        b.Assemble();
+       }
+-      b.Assemble();
+       // resolution
+       mfem::Array<int> boundary_dofs;
+-      std::conditional_t<parallel, mfem::HypreParMatrix, mfem::SparseMatrix> A;
++      // the operator handle owns the matrix built by the full assembly
++      auto A = mfem::OperatorHandle{};
+       mfem::Vector B, X;
+       a.FormLinearSystem(boundary_dofs, *x, b, A, X, B);
+-      l.linear_solver->SetOperator(A);
++      l.linear_solver->SetOperator(*A);
+       l.linear_solver->Mult(B, X);
+       clearHypreErrors();
+       auto* const isolver =
+@@ -612,6 +740,9 @@ namespace mfem_mgis {
+         }
+       }
+     }
++    if (kernels_data.has_value()) {
++      internals::countPostProcessingComputationByKernels();
++    }
+     return true;
+   }  // end of updatePartialQuadratureRegularization_impl
+ 
+diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
+index 164532c42b..c1285d2c95 100644
+--- a/src/PartialQuadratureFunction.cxx
++++ b/src/PartialQuadratureFunction.cxx
+@@ -18,10 +18,15 @@
+ #include "mfem/fem/pgridfunc.hpp"
+ #endif /* MFEM_USE_MPI */
+ #include "MGIS/Raise.hxx"
++#include "mfem/fem/fe_coll.hpp"
++#include "mfem/fem/intrules.hpp"
+ 
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
++#include "PostProcessingsComputation.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -986,6 +991,143 @@ namespace mfem_mgis {
+     return makeGridFunction_impl<false>(ctx, fcts, mesh);
+   }
+ 
++  /*!
++   * \brief updates a grid function with the arithmetic mean, at each
++   * degree of freedom, of the local projections of functions on the elements
++   * sharing it (see `batch::computeLocalProjections`), computed by kernels,
++   * as by `ProjectDiscCoefficient` with the arithmetic mean and the
++   * coefficients of the functions (the elements of the mesh without function
++   * contributing a null value)
++   *
++   * The kernels are used if the post-processings are computed by kernels
++   * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
++   * Lagrange elements, if the elements of each function use the same
++   * integration rule and if the geometric data can be computed by kernels.
++   * In parallel, the decision is made by all the processes, before any
++   * exchange between them.
++   * \return true if the grid function is updated, false if the kernels can't
++   * be used (the grid function is then not modified)
++   * \param[in, out] f: grid function, defined on the mesh of the functions
++   * \param[in] fcts: functions
++   */
++  template <bool parallel>
++  [[nodiscard]] static bool updateGridFunctionByKernels(
++      attributes::MayThrow,
++      GridFunction<parallel>& f,
++      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
++    if (!internals::usePostProcessingsKernels(may_throw)) {
++      return false;
++    }
++    const auto& fes =
++        *(static_cast<const FiniteElementSpace<parallel>*>(f.FESpace()));
++    const auto nc = fcts.at(0).getNumberOfComponents();
++    auto ctx = Context{};
++    // geometric data and values of the functions, computed locally
++    auto geometries = batch::ElementsGeometrySet{};
++    auto values = std::vector<mfem::Vector>(fcts.size());
++    const mfem::IntegrationRule* mass_rule = nullptr;
++    const auto ok = [&]() -> bool {
++      if ((fes.GetMesh()->Nonconforming()) ||
++          (dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl()) ==
++           nullptr)) {
++        return false;
++      }
++      if (fes.GetNE() == 0) {
++        return true;
++      }
++      // mass matrices of the elements integrated exactly, as by the
++      // coefficients of the functions
++      const auto& fe = *(fes.GetFE(0));
++      const auto ow = fes.GetElementTransformation(0)->OrderW();
++      mass_rule =
++          &(mfem::IntRules.Get(fe.GetGeomType(), 2 * fe.GetOrder() + ow));
++      if (!batch::computeElementsGeometry(ctx, geometries[mass_rule], fes,
++                                          *mass_rule)) {
++        return false;
++      }
++      for (size_type i = 0; i != fcts.size(); ++i) {
++        const auto& qs = fcts[i].getPartialQuadratureSpace();
++        if (qs.getNumberOfElements() == 0) {
++          continue;
++        }
++        const auto* const ir = qs.getUniformIntegrationRule();
++        if (ir == nullptr) {
++          return false;
++        }
++        auto& g = geometries[ir];
++        if ((g.rule == nullptr) &&
++            (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
++          return false;
++        }
++        if (!batch::gatherValues(ctx, values[i], fcts[i])) {
++          return false;
++        }
++      }
++      return true;
++    }();
++    if constexpr (parallel) {
++#ifdef MFEM_USE_MPI
++      auto lok = static_cast<int>(ok);
++      auto gok = int{};
++      MPI_Allreduce(&lok, &gok, 1, MPI_INT, MPI_MIN, fes.GetComm());
++      if (gok == 0) {
++        return false;
++      }
++#else  /* MFEM_USE_MPI */
++      reportUnsupportedParallelComputations();
++#endif /* MFEM_USE_MPI */
++    } else {
++      if (!ok) {
++        return false;
++      }
++    }
++    // local projections, element by element
++    const auto* const r =
++        fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++    auto e = mfem::Vector(r->Height());
++    e.UseDevice(true);
++    e = real{0};
++    for (size_type i = 0; i != fcts.size(); ++i) {
++      const auto& qs = fcts[i].getPartialQuadratureSpace();
++      if (qs.getNumberOfElements() == 0) {
++        continue;
++      }
++      if (!batch::computeLocalProjections(
++              ctx, e, qs, values[i], nc,
++              geometries.at(qs.getUniformIntegrationRule()),
++              geometries.at(mass_rule))) {
++        raise(ctx.getErrorMessage());
++      }
++    }
++    // sums and numbers of the elements sharing each degree of freedom
++    auto ones = mfem::Vector(r->Height());
++    ones.UseDevice(true);
++    ones = real{1};
++    auto sums = mfem::Vector(r->Width());
++    auto counts = mfem::Vector(r->Width());
++    sums.UseDevice(true);
++    counts.UseDevice(true);
++    r->MultTranspose(e, sums);
++    r->MultTranspose(ones, counts);
++    if constexpr (parallel) {
++      // sums and numbers of the elements of all the processes
++      const auto& p = *(fes.GetProlongationMatrix());
++      auto true_sums = mfem::Vector(p.Width());
++      auto true_counts = mfem::Vector(p.Width());
++      true_sums.UseDevice(true);
++      true_counts.UseDevice(true);
++      p.MultTranspose(sums, true_sums);
++      p.MultTranspose(counts, true_counts);
++      true_sums /= true_counts;
++      p.Mult(true_sums, f);
++    } else {
++      sums /= counts;
++      f = sums;
++    }
++    internals::countPostProcessingComputationByKernels();
++    return true;
++  }  // end of updateGridFunctionByKernels
++
+   template <bool parallel>
+   static void updateGridFunction_impl(
+       GridFunction<parallel>& f,
+@@ -1006,6 +1148,9 @@ namespace mfem_mgis {
+     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
+       raise(ctx.getErrorMessage());
+     }
++    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
++      return;
++    }
+     if (n == 1u) {
+       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);
+       f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
+@@ -1053,6 +1198,9 @@ namespace mfem_mgis {
+     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
+       raise(ctx.getErrorMessage());
+     }
++    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
++      return;
++    }
+     if (n == 1u) {
+       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);
+       f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
+diff --git a/src/PostProcessingsComputation.cxx b/src/PostProcessingsComputation.cxx
+new file mode 100644
+index 0000000000..971a629621
+--- /dev/null
++++ b/src/PostProcessingsComputation.cxx
+@@ -0,0 +1,52 @@
++/*!
++ * \file   src/PostProcessingsComputation.cxx
++ * \brief  This file implements the choice of the computation of the
++ * post-processings
++ * \date   11/10/2026
++ */
++
++#include <atomic>
++#include <string>
++#include <cstdlib>
++#include <string_view>
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/PostProcessingsComputation.hxx"
++#include "PostProcessingsComputation.hxx"
++
++namespace mfem_mgis::internals {
++
++  //! \brief number of the computations made by kernels
++  static std::atomic<size_type>
++      number_of_post_processings_computations_by_kernels{0};
++
++  void countPostProcessingComputationByKernels() noexcept {
++    ++number_of_post_processings_computations_by_kernels;
++  }  // end of countPostProcessingComputationByKernels
++
++  bool usePostProcessingsKernels(attributes::MayThrow) {
++    const auto* const v = "MFEM_MGIS_POST_PROCESSINGS_COMPUTATION";
++    const auto* const e = std::getenv(v);
++    if (e == nullptr) {
++      return false;
++    }
++    const auto value = std::string_view{e};
++    if (value == "ElementByElement") {
++      return false;
++    }
++    if (value == "Kernels") {
++      return true;
++    }
++    mgis::raise("invalid value '" + std::string{value} +
++                "' for environment variable '" + std::string{v} +
++                "' (expected 'ElementByElement' or 'Kernels')");
++  }  // end of usePostProcessingsKernels
++
++}  // end of namespace mfem_mgis::internals
++
++namespace mfem_mgis {
++
++  size_type getNumberOfPostProcessingsComputationsByKernels() noexcept {
++    return internals::number_of_post_processings_computations_by_kernels;
++  }  // end of getNumberOfPostProcessingsComputationsByKernels
++
++}  // end of namespace mfem_mgis
+diff --git a/src/PostProcessingsComputation.hxx b/src/PostProcessingsComputation.hxx
+new file mode 100644
+index 0000000000..0c641cde52
+--- /dev/null
++++ b/src/PostProcessingsComputation.hxx
+@@ -0,0 +1,31 @@
++/*!
++ * \file   src/PostProcessingsComputation.hxx
++ * \brief  This file declares the choice of the computation of the
++ * post-processings (internal header)
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_POSTPROCESSINGSCOMPUTATION_HXX
++#define LIB_MFEM_MGIS_SRC_POSTPROCESSINGSCOMPUTATION_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \return true if the computations on functions defined at the integration
++   * points used by the post-processings (integrals, L2 projections, values
++   * at the nodes) are made by kernels, as given by the environment variable
++   * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`: `ElementByElement` (default)
++   * or `Kernels`. An invalid value is an error.
++   */
++  [[nodiscard]] bool usePostProcessingsKernels(attributes::MayThrow);
++  /*!
++   * \brief counts a computation made by kernels (see
++   * `getNumberOfPostProcessingsComputationsByKernels`)
++   */
++  void countPostProcessingComputationByKernels() noexcept;
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_POSTPROCESSINGSCOMPUTATION_HXX */
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 36f6eb59df..4a15080242 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -593,6 +593,45 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   add_grid_function_on_submesh_test()
+ 
++  # PostProcessingsKernelsTest executable: measures, integrals, values at the
++  # nodes and L2 projections computed by kernels and element by element, on
++  # hexahedra (two materials), tetrahedra and quadrangles, on the host, on the
++  # debug device of MFEM, on two processes and on the GPU
++  add_test_executable(PostProcessingsKernelsTest)
++  function(add_post_processings_kernels_test name mesh hypothesis)
++    set(test "PostProcessingsKernelsTest-${name}")
++    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}"
++               "--library" "$<TARGET_FILE:BehaviourTest>"
++               "--hypothesis" "${hypothesis}" ${ARGN})
++    add_test(NAME ${test} COMMAND ./PostProcessingsKernelsTest ${params})
++    set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
++    add_test(NAME ${test}-debug
++             COMMAND ./PostProcessingsKernelsTest ${params} --device debug)
++    set_property(TEST ${test}-debug PROPERTY DEPENDS BehaviourTest)
++    if(MFEM_USE_MPI)
++      add_test(NAME ${test}P COMMAND mpirun -n 2 ./PostProcessingsKernelsTest
++                                     ${params} --parallel)
++      set_property(TEST ${test}P PROPERTY DEPENDS BehaviourTest)
++    endif(MFEM_USE_MPI)
++    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++      add_test(NAME ${test}-cuda
++               COMMAND ./PostProcessingsKernelsTest ${params} --device cuda)
++      set_tests_properties(${test}-cuda PROPERTIES
++                           DEPENDS BehaviourTest RESOURCE_LOCK gpu)
++      if(MFEM_USE_MPI)
++        add_test(NAME ${test}P-cuda
++                 COMMAND mpirun -n 2 ./PostProcessingsKernelsTest ${params}
++                         --parallel --device cuda)
++        set_tests_properties(${test}P-cuda PROPERTIES
++                             DEPENDS BehaviourTest RESOURCE_LOCK gpu)
++      endif(MFEM_USE_MPI)
++    endif()
++  endfunction()
++
++  add_post_processings_kernels_test(hexahedra cube_2mat_per.mesh Tridimensional)
++  add_post_processings_kernels_test(tetrahedra beam-tet.mesh Tridimensional)
++  add_post_processings_kernels_test(quadrangles bar.msh PlaneStrain)
++
+   # ImplicitGradientRegularizationTest executable
+   add_test_executable(ImplicitGradientRegularizationTest)
+ 
+diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
+new file mode 100644
+index 0000000000..9d5afbe71d
+--- /dev/null
++++ b/tests/PostProcessingsKernelsTest.cxx
+@@ -0,0 +1,339 @@
++/*!
++ * \file   tests/PostProcessingsKernelsTest.cxx
++ * \brief  Comparison of the computations on functions defined at the
++ * integration points made by kernels (environment variable
++ * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`) and element by element:
++ * measures and integrals, values at the nodes (`updateGridFunction`), L2
++ * projections. The use of the kernels is checked by the counter
++ * `getNumberOfPostProcessingsComputationsByKernels`.
++ * \date   11/10/2026
++ */
++
++#include <cmath>
++#include <memory>
++#include <string>
++#include <vector>
++#include <optional>
++#include <string_view>
++#include <cstdlib>
++#include <iostream>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/PartialQuadratureFunction.hxx"
++#include "MFEMMGIS/L2Projection.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/PostProcessingsComputation.hxx"
++
++struct TestParameters {
++  //! \brief mesh
++  const char* mesh_file = nullptr;
++  //! \brief library of the behaviours of the tests
++  const char* library = nullptr;
++  //! \brief modelling hypothesis
++  const char* hypothesis = "Tridimensional";
++  //! \brief order of the finite elements
++  int order = 2;
++  //! \brief parallel computation
++  bool parallel = false;
++};
++
++static TestParameters parseCommandLineOptions(int& argc, char** argv) {
++  auto p = TestParameters{};
++  mfem::OptionsParser args(argc, argv);
++  mfem_mgis::declareDefaultOptions(args);
++  args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
++  args.AddOption(&p.library, "-l", "--library", "Material library.");
++  args.AddOption(&p.hypothesis, "-H", "--hypothesis",
++                 "Modelling hypothesis (Tridimensional or PlaneStrain).");
++  args.AddOption(&p.order, "-o", "--order",
++                 "Finite element order (polynomial degree).");
++  args.AddOption(&p.parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "Perform parallel computations.");
++  args.Parse();
++  if ((!args.Good()) || (p.mesh_file == nullptr) || (p.library == nullptr)) {
++    args.PrintUsage(std::cout);
++    std::exit(EXIT_FAILURE);
++  }
++  return p;
++}  // end of parseCommandLineOptions
++
++//! \brief selects the computation of the post-processings
++static void setPostProcessingsComputation(const char* const m) {
++  ::setenv("MFEM_MGIS_POST_PROCESSINGS_COMPUTATION", m, 1);
++}  // end of setPostProcessingsComputation
++
++//! \return the largest absolute value of a vector over all the processes
++template <bool parallel>
++static mfem_mgis::real getMaximumAbsoluteValue(const mfem::Vector& v) {
++  const auto* const pv = v.HostRead();
++  auto r = mfem_mgis::real{};
++  for (int i = 0; i != v.Size(); ++i) {
++    r = std::max(r, std::abs(pv[i]));
++  }
++#ifdef MFEM_USE_MPI
++  if constexpr (parallel) {
++    MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
++  }
++#endif /* MFEM_USE_MPI */
++  return r;
++}  // end of getMaximumAbsoluteValue
++
++/*!
++ * \return true if two vectors are equal, up to a relative tolerance of the
++ * largest absolute value of the first one
++ */
++template <bool parallel>
++static bool check(mfem_mgis::Context& ctx,
++                  const std::string& what,
++                  const mfem::Vector& a,
++                  const mfem::Vector& b,
++                  const mfem_mgis::real tolerance) {
++  if (a.Size() != b.Size()) {
++    return ctx.registerErrorMessage(what + ": vectors of different sizes");
++  }
++  auto d = mfem::Vector(a.Size());
++  const auto* const pa = a.HostRead();
++  const auto* const pb = b.HostRead();
++  for (int i = 0; i != a.Size(); ++i) {
++    d[i] = pa[i] - pb[i];
++  }
++  const auto e = getMaximumAbsoluteValue<parallel>(d);
++  const auto s = getMaximumAbsoluteValue<parallel>(a);
++  if (mfem_mgis::getMPIrank() == 0) {
++    std::cout << what << ": largest difference " << e << ", largest value " << s
++              << '\n';
++  }
++  if (!((s > 0) && (e <= tolerance * s))) {
++    return ctx.registerErrorMessage(what + ": the results differ");
++  }
++  return true;
++}  // end of check
++
++//! \return true if two values are equal, up to a relative tolerance
++static bool check(mfem_mgis::Context& ctx,
++                  const std::string& what,
++                  const mfem_mgis::real a,
++                  const mfem_mgis::real b,
++                  const mfem_mgis::real tolerance) {
++  if (mfem_mgis::getMPIrank() == 0) {
++    std::cout << what << ": " << a << " (element by element), " << b
++              << " (kernels)\n";
++  }
++  if (!((a != 0) && (std::abs(a - b) <= tolerance * std::abs(a)))) {
++    return ctx.registerErrorMessage(what + ": the results differ");
++  }
++  return true;
++}  // end of check
++
++//! \brief results of the computations
++template <bool parallel>
++struct Results {
++  //! \brief measures of the materials
++  std::vector<mfem_mgis::real> measures;
++  //! \brief integrals of the scalar function on the materials
++  std::vector<mfem_mgis::real> integrals;
++  //! \brief values at the nodes of the scalar and vector functions
++  std::vector<mfem::Vector> nodes;
++  //! \brief L2 projections of the scalar and vector functions
++  std::vector<mfem::Vector> projections;
++};
++
++/*!
++ * \brief computes the measures, integrals, values at the nodes and L2
++ * projections of a scalar function and of a function with three components
++ * on all the materials
++ */
++template <bool parallel>
++static std::optional<Results<parallel>> compute(
++    mfem_mgis::Context& ctx,
++    mfem_mgis::NonLinearEvolutionProblem& p,
++    const std::vector<int>& materials,
++    const std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView>&
++        scalar_functions,
++    const std::vector<mfem_mgis::ImmutablePartialQuadratureFunctionView>&
++        vector_functions) {
++  using namespace mfem_mgis;
++  auto r = Results<parallel>{};
++  for (size_type i = 0; i != materials.size(); ++i) {
++    const auto obi = p.getBehaviourIntegrator(ctx, materials[i], 0);
++    if (isInvalid(obi)) {
++      return {};
++    }
++    r.measures.push_back(computeMeasure(*obi));
++    r.integrals.push_back(computeIntegral<real>(*obi, scalar_functions[i]));
++  }
++  for (const auto& fcts : {scalar_functions, vector_functions}) {
++    auto gf = makeGridFunction<parallel>(ctx, fcts);
++    if (gf == nullptr) {
++      return {};
++    }
++    updateGridFunction<parallel>(*gf, fcts);
++    r.nodes.emplace_back(*gf);
++    auto& fespace =
++        p.getFiniteElementDiscretization().getFiniteElementSpace<parallel>();
++    auto& f = LinearSolverFactory<parallel>::getFactory();
++    auto s = f.generate(ctx, "CGSolver", fespace,
++                        {{"VerbosityLevel", 0},
++                         {"AbsoluteTolerance", 1e-30},
++                         {"RelativeTolerance", 1e-14},
++                         {"MaximumNumberOfIterations", 10000}});
++    if (isInvalid(s)) {
++      return {};
++    }
++    const auto oprojection = computeL2Projection<parallel>(ctx, s, fcts);
++    if (isInvalid(oprojection)) {
++      return {};
++    }
++    r.projections.emplace_back(*(oprojection->result));
++  }
++  return r;
++}  // end of compute
++
++template <bool parallel>
++static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
++  using namespace mfem_mgis;
++  const auto dim = std::string_view{params.hypothesis} == "PlaneStrain" ? 2 : 3;
++  auto oproblem = construct<NonLinearEvolutionProblem>(
++      ctx, Parameters{{"MeshFileName", params.mesh_file},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", params.order},
++                      {"UnknownsSize", dim},
++                      {"Hypothesis", params.hypothesis},
++                      {"Parallel", parallel}});
++  if (isInvalid(oproblem)) {
++    return false;
++  }
++  auto& p = *oproblem;
++  // a behaviour integrator on each material, and functions defined at its
++  // integration points
++  const auto& attributes =
++      getMaterialsAttributes(p.getFiniteElementDiscretization());
++  auto materials = std::vector<int>{};
++  auto scalar_functions =
++      std::vector<std::shared_ptr<PartialQuadratureFunction>>{};
++  auto vector_functions =
++      std::vector<std::shared_ptr<PartialQuadratureFunction>>{};
++  for (int i = 0; i != attributes.Size(); ++i) {
++    const auto m = attributes[i];
++    if (!p.addBehaviourIntegrator(ctx, "Mechanics", m, params.library,
++                                  "IsotropicLinearElasticity")) {
++      return false;
++    }
++    const auto omaterial = p.getMaterial(ctx, m, 0);
++    if (isInvalid(omaterial)) {
++      return false;
++    }
++    const auto qs = omaterial->getPartialQuadratureSpacePointer();
++    // the functions differ from one material to another
++    const auto c = static_cast<real>(m);
++    auto evaluate = [&qs](const auto f) {
++      return PartialQuadratureFunction::evaluate(
++          qs, [f](const mfem::FiniteElement&, mfem::ElementTransformation& tr) {
++            auto x = mfem::Vector{};
++            tr.Transform(tr.GetIntPoint(), x);
++            return f(x[0], x[1], x.Size() > 2 ? x[2] : real{0});
++          });
++    };
++    scalar_functions.push_back(
++        evaluate([c](const real x, const real y, const real z) {
++          return c + std::cos(x) * y + z * z;
++        }));
++    auto fct = std::make_shared<PartialQuadratureFunction>(qs, 3);
++    const auto f0 = evaluate([c](const real x, const real y, const real z) {
++      return c * x * y - z;
++    });
++    const auto f2 = evaluate([](const real x, const real y, const real z) {
++      return std::exp(-x) * y * y + std::sin(z);
++    });
++    for (size_type o = 0; o != qs->getNumberOfIntegrationPoints(); ++o) {
++      auto values = fct->getIntegrationPointValues(o);
++      values[0] = f0->getIntegrationPointValue(o);
++      values[1] = scalar_functions.back()->getIntegrationPointValue(o);
++      values[2] = f2->getIntegrationPointValue(o);
++    }
++    vector_functions.push_back(fct);
++    materials.push_back(m);
++  }
++  auto views = [](const auto& fcts) {
++    auto r = std::vector<ImmutablePartialQuadratureFunctionView>{};
++    for (const auto& f : fcts) {
++      r.push_back(f->view());
++    }
++    return r;
++  };
++  // element by element, then by kernels
++  setPostProcessingsComputation("ElementByElement");
++  const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
++  const auto r1 = compute<parallel>(ctx, p, materials, views(scalar_functions),
++                                    views(vector_functions));
++  if (!r1.has_value()) {
++    return false;
++  }
++  if (getNumberOfPostProcessingsComputationsByKernels() != n0) {
++    return ctx.registerErrorMessage(
++        "computations made by kernels with ElementByElement");
++  }
++  setPostProcessingsComputation("Kernels");
++  const auto r2 = compute<parallel>(ctx, p, materials, views(scalar_functions),
++                                    views(vector_functions));
++  if (!r2.has_value()) {
++    return false;
++  }
++  // two measures and integrals per material, values at the nodes and L2
++  // projections of two functions
++  const auto nk = getNumberOfPostProcessingsComputationsByKernels() - n0;
++  const auto expected = 2 * materials.size() + 4;
++  if (nk != expected) {
++    return ctx.registerErrorMessage(
++        "unexpected number of computations by kernels (" + std::to_string(nk) +
++        " instead of " + std::to_string(expected) + ")");
++  }
++  auto success = true;
++  for (size_type i = 0; i != materials.size(); ++i) {
++    const auto m = std::to_string(materials[i]);
++    success = check(ctx, "measure of material " + m, r1->measures[i],
++                    r2->measures[i], 1e-12) &&
++              success;
++    success = check(ctx, "integral on material " + m, r1->integrals[i],
++                    r2->integrals[i], 1e-12) &&
++              success;
++  }
++  for (size_type i = 0; i != 2; ++i) {
++    const auto f = std::string{i == 0 ? "scalar" : "vector"} + " function";
++    success = check<parallel>(ctx, "values at the nodes of the " + f,
++                              r1->nodes[i], r2->nodes[i], 1e-12) &&
++              success;
++    success = check<parallel>(ctx, "L2 projection of the " + f,
++                              r1->projections[i], r2->projections[i], 1e-10) &&
++              success;
++  }
++  return success;
++}  // end of test
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const auto params = parseCommandLineOptions(argc, argv);
++  auto ctx = Context{};
++  const auto success = [&ctx, &params] {
++    if (params.parallel) {
++#ifdef MFEM_USE_MPI
++      return test<true>(ctx, params);
++#else  /* MFEM_USE_MPI */
++      reportUnsupportedParallelComputations();
++#endif /* MFEM_USE_MPI */
++    }
++    return test<false>(ctx, params);
++  }();
++  if (!success) {
++    std::cerr << ctx.getErrorMessage() << std::endl;
++    return EXIT_FAILURE;
++  }
++  return EXIT_SUCCESS;
++}  // end of main
+-- 
+2.43.0
+

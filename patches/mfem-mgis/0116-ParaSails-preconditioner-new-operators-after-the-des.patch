@@ -1,0 +1,230 @@
+From 607f895a0dac9d7da6bc4688880702f5ac3e90cc Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 22:07:25 +0200
+Subject: [PATCH] ParaSails preconditioner: new operators after the destruction
+ of the previous ones
+
+mfem::HypreParaSails::SetOperator (MFEM 4.10) creates the new
+preconditioner of hypre with the communicator of the previous operator,
+which the non linear solvers destroy before giving the new one: the
+communicator read is invalid and the second resolution fails (invalid
+communicator or segmentation fault, at the second Newton iteration of
+the thermal problem of ex8 with -pcTh HypreParaSails). The factory now
+creates a ParaSails preconditioner whose operator is replaced by the new
+one before calling this method.
+
+ParaSails only computes on the host: when hypre computes on a GPU, its
+setup reads the matrix stored on the device (segmentation fault in
+MatrixSetRow). The preconditioner is then refused with a message.
+
+HypreParaSailsTest: two resolutions with two operators, the first one
+being destroyed before the second one is given (memory freed overwritten
+by MALLOC_PERTURB_), refusal when hypre computes on a GPU.
+---
+ docs/source/user_guide/glossary.rst |   2 +
+ src/LinearSolverFactory.cxx         |  30 +++++++-
+ tests/CMakeLists.txt                |   9 +++
+ tests/HypreParaSailsTest.cxx        | 110 ++++++++++++++++++++++++++++
+ 4 files changed, 150 insertions(+), 1 deletion(-)
+ create mode 100644 tests/HypreParaSailsTest.cxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 86513f52ce..fe21c1001b 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -520,6 +520,8 @@ Sparse Approximate Inverse (HypreParaSails)
+ 
+ - Description: ParaSails is a parallel implementation of a sparse approximate inverse preconditioner, using a priori sparsity patterns and least-squares (Frobenius norm) minimization.
+ - Preconditioner name: ``HypreParaSails``
++- Not supported when hypre computes on a GPU (ParaSails only computes on
++  the host): the preconditioner is then refused.
+ - Options:
+ 
+ +--------------------+------------------------------------------------+
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index a45f9d56ab..a028c4665c 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -103,6 +103,26 @@ namespace mfem_mgis::internals {
+ 
+ #endif /* MFEM_HYPRE_VERSION >= 21900 */
+ 
++  /*!
++   * \brief ParaSails preconditioner of hypre which can be given a new
++   * operator after the destruction of the previous one, as the non linear
++   * solvers do: `mfem::HypreParaSails::SetOperator` (MFEM 4.10) creates the
++   * new preconditioner of hypre with the communicator of the previous
++   * operator, whose memory may then be freed (invalid communicator, see
++   * reproducers/hypre-parasails-operator in the prototype). The operator is
++   * replaced by the new one before calling this method.
++   */
++  struct ReusableHypreParaSails final : public mfem::HypreParaSails {
++    using mfem::HypreParaSails::HypreParaSails;
++    //! \brief set the operator
++    void SetOperator(const mfem::Operator& op) override {
++      if (this->A != nullptr) {
++        this->A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++      }
++      mfem::HypreParaSails::SetOperator(op);
++    }
++  };  // end of struct ReusableHypreParaSails
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* MFEM_USE_MPI */
+@@ -347,7 +367,15 @@ namespace mfem_mgis {
+     if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
+       return {};
+     }
+-    return std::make_unique<mfem::HypreParaSails>(p.GetComm());
++    // ParaSails only computes on the host: its setup reads the matrix stored
++    // on the device when hypre computes on a GPU (segmentation fault in
++    // MatrixSetRow with hypre 3.2.0 and CUDA 13)
++    if (isHypreUsingGPU()) {
++      return ctx.registerErrorMessage(
++          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
++          "not supported when hypre computes on a GPU");
++    }
++    return std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
+   }  // end of setHypreParaSailsPreconditioner
+ 
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 2945d04995..447395044e 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1165,6 +1165,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_test_executable(HypreILUTest)
+     add_test(NAME HypreILUTest COMMAND HypreILUTest)
+     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
++    # HypreParaSailsTest executable: ParaSails preconditioner given a new
++    # operator after the destruction of the previous one, refused when hypre
++    # computes on a GPU. The memory freed is overwritten, so that reading
++    # the previous operator gives an invalid communicator
++    add_test_executable(HypreParaSailsTest)
++    add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
++    add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
++    set_tests_properties(HypreParaSailsTest HypreParaSailsTestP
++                         PROPERTIES ENVIRONMENT MALLOC_PERTURB_=165)
+   endif(MFEM_USE_MPI)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+diff --git a/tests/HypreParaSailsTest.cxx b/tests/HypreParaSailsTest.cxx
+new file mode 100644
+index 0000000000..8a2a3b4a75
+--- /dev/null
++++ b/tests/HypreParaSailsTest.cxx
+@@ -0,0 +1,110 @@
++/*!
++ * \file   tests/HypreParaSailsTest.cxx
++ * \brief  Test of the ParaSails preconditioner of hypre (preconditioner
++ * `HypreParaSails` of the factory of linear solvers): two resolutions with
++ * two operators, the first one being destroyed before the second one is
++ * given, as the non linear solvers do (`mfem::HypreParaSails::SetOperator`
++ * reads the communicator of the previous operator). When hypre computes on
++ * a GPU, where ParaSails is not supported, the preconditioner is refused.
++ * \date   11/10/2026
++ */
++
++#include <cstdlib>
++#include <memory>
++#include <iostream>
++#include "mfem/mesh/pmesh.hpp"
++#include "mfem/fem/pbilinearform.hpp"
++#include "mfem/fem/plinearform.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++/*!
++ * \return the matrix of a diffusion problem on a cube, with homogeneous
++ * Dirichlet conditions, owned by the caller
++ * \param[in] fespace: finite element space
++ * \param[in] ess_tdofs: degrees of freedom of the Dirichlet conditions
++ * \param[in] k: conductivity
++ */
++static std::unique_ptr<mfem::HypreParMatrix> assemble(
++    mfem_mgis::FiniteElementSpace<true>& fespace,
++    const mfem::Array<int>& ess_tdofs,
++    const mfem_mgis::real k) {
++  auto c = mfem::ConstantCoefficient(k);
++  auto a = mfem_mgis::BilinearForm<true>(&fespace);
++  a.AddDomainIntegrator(new mfem::DiffusionIntegrator(c));
++  a.Assemble();
++  a.Finalize();
++  auto A = std::unique_ptr<mfem::HypreParMatrix>(a.ParallelAssemble());
++  delete A->EliminateRowsCols(ess_tdofs);
++  return A;
++}  // end of assemble
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto smesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
++  auto pmesh = Mesh<true>(MPI_COMM_WORLD, smesh);
++  auto fec = mfem::H1_FECollection(1, 3);
++  auto fespace = FiniteElementSpace<true>(&pmesh, &fec);
++  auto boundaries = mfem::Array<int>(pmesh.bdr_attributes.Max());
++  boundaries = 1;
++  auto ess_tdofs = mfem::Array<int>{};
++  fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
++  auto one = mfem::ConstantCoefficient(1.);
++  auto b = LinearForm<true>(&fespace);
++  b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++  b.Assemble();
++  auto B = std::unique_ptr<mfem::HypreParVector>(b.ParallelAssemble());
++  B->SetSubVector(ess_tdofs, 0.);
++  const auto verbose = fespace.GetMyRank() == 0;
++  auto ctx = Context{};
++  auto& factory = LinearSolverFactory<true>::getFactory();
++  auto h = factory.generate(
++      ctx, "HypreGMRES", fespace,
++      Parameters{{"Tolerance", 1e-12},
++                 {"MaximumNumberOfIterations", 1000},
++                 {"VerbosityLevel", 0},
++                 {"Preconditioner", Parameters{{"Name", "HypreParaSails"}}}});
++  if (isHypreUsingGPU()) {
++    check(isInvalid(h), "ParaSails is not refused on a GPU");
++    if (verbose && isInvalid(h)) {
++      std::cout << "refused: " << ctx.getErrorMessage() << '\n';
++    }
++  } else {
++    check(!isInvalid(h), "ParaSails is refused");
++    if (!isInvalid(h)) {
++      for (int i = 0; i != 2; ++i) {
++        // the operator of the previous resolution is destroyed at the end
++        // of the iteration
++        const auto A = assemble(fespace, ess_tdofs, 1 + i);
++        auto X = mfem::Vector(B->Size());
++        X = 0.0;
++        h.linear_solver->SetOperator(*A);
++        h.linear_solver->Mult(*B, X);
++        const auto oit = getNumberOfIterationsAtConvergence(*(h.linear_solver));
++        check(hasConverged(*(h.linear_solver)) && oit.has_value() && (*oit > 0),
++              "resolution " + std::to_string(i) + ": no convergence");
++        if (verbose) {
++          std::cout << "resolution " << i << ": "
++                    << (oit.has_value() ? *oit : -1) << " iterations\n";
++        }
++      }
++    }
++  }
++  if (verbose) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

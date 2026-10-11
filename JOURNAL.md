@@ -4340,3 +4340,22 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   d'ex8, test `rjh_plate-mumps-spd` (mfem-mgis-examples 03c347e). Sur le
   GPU, le second poste d'ex8 est maintenant la résolution thermique
   (GMRES et BoomerAMG, 3,15 s pour 35 résolutions).
+
+### 2026-10-11 (soir), ex8 : solveur de la thermique sur le GPU, ParaSails
+
+- Thermique d'ex8 sur le GPU (`results/ex8-thermique-gpu-2026-10-11`) :
+  MUMPS sur l'hôte (`-lsTh MUMPSSolver`) est le plus rapide, ex8 12,6 ->
+  11,5 s (thermique 4,26 -> 3,03 s). GMRES de hypre sur le GPU met 100 ms
+  par résolution pour 9 516 inconnues, avec BoomerAMG comme avec
+  DiagScale. ILU(0), imposé sur le GPU, ne converge pas (arrêté à
+  600 s) ; ILU(1) par blocs converge sur le CPU.
+- ParaSails plantait partout. Deux défauts : `mfem::HypreParaSails::SetOperator`
+  (MFEM 4.10 et branche principale) lit le communicateur de l'opérateur
+  précédent, que les solveurs non linéaires ont déjà détruit
+  (`reproducers/hypre-parasails-operator`) ; ParaSails ne calcule que sur
+  l'hôte et plante quand hypre calcule sur le GPU. mfem-mgis 607f895a0d
+  (branche parasails) : préconditionneur de la fabrique qui pointe sur le
+  nouvel opérateur avant l'appel, refus sur le GPU, test
+  `HypreParaSailsTest` (mutation détectée). Après correction, ParaSails
+  reste trop faible pour la thermique d'ex8 (2 000 à 5 600 itérations de
+  GMRES, puis stagnation).

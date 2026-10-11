@@ -520,6 +520,8 @@ Sparse Approximate Inverse (HypreParaSails)
 
 - Description: ParaSails is a parallel implementation of a sparse approximate inverse preconditioner, using a priori sparsity patterns and least-squares (Frobenius norm) minimization.
 - Preconditioner name: ``HypreParaSails``
+- Not supported when hypre computes on a GPU (ParaSails only computes on
+  the host): the preconditioner is then refused.
 - Options:
 
 +--------------------+------------------------------------------------+

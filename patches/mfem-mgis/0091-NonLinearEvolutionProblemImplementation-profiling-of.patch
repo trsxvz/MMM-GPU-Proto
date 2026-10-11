@@ -1,0 +1,58 @@
+From f0324f1d9c6d2e5625e317a3e3ae6029d6c68c93 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 05:45:38 +0200
+Subject: [PATCH] NonLinearEvolutionProblemImplementation: profiling of the
+ post-processings
+
+Sections of the profiler for the execution of the post-processings, the
+synchronization of the materials on the host and the execution of each
+post-processing.
+---
+ src/NonLinearEvolutionProblemImplementation.cxx | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 3cf99eb278..3ff2cf608b 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -921,8 +921,10 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
++    CatchTimeSection(ctx, "NLEP::executePostProcessings");
+     // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
++      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
+       try {
+         this->mgis_integrator->synchronizeOnHostForReading();
+       } catch (...) {
+@@ -931,6 +933,7 @@ namespace mfem_mgis {
+     }
+     auto success = true;
+     for (auto& p : this->postprocessings) {
++      CatchTimeSection(ctx, "NLEP::PP::execute");
+       if (!p->execute(ctx, *this, t, dt)) {
+         success = false;
+       }
+@@ -1263,8 +1266,10 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
+       Context& ctx, const real t, const real dt) noexcept {
++    CatchTimeSection(ctx, "NLEP::executePostProcessings");
+     // the post-processings read the materials on the host
+     if (this->mgis_integrator != nullptr) {
++      CatchTimeSection(ctx, "NLEP::PP::synchronizeOnHost");
+       try {
+         this->mgis_integrator->synchronizeOnHostForReading();
+       } catch (...) {
+@@ -1273,6 +1278,7 @@ namespace mfem_mgis {
+     }
+     auto success = true;
+     for (auto& p : this->postprocessings) {
++      CatchTimeSection(ctx, "NLEP::PP::execute");
+       if (!p->execute(ctx, *this, t, dt)) {
+         success = false;
+       }
+-- 
+2.43.0
+

@@ -1,0 +1,139 @@
+From 58e295582868e5c5838988ca69b7456fdc812b5e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 07:47:58 +0200
+Subject: [PATCH] Faltus kernels: quadratic tetrahedra in the tests, checks and
+ documentation
+
+The regularizations are compared term by term on quadratic tetrahedra in
+GradientsKernelsTest: on linear tetrahedra, the deformation gradient is
+uniform in each element and the regularizations change nothing. The
+degrees of freedom of the elements given to the assembly of the
+contribution of the regularization of Faltus et al. are checked;
+documentation of the validity of the data and of the support of the
+kernels.
+---
+ include/MFEMMGIS/Batch/Faltus.hxx               |  5 +++--
+ ...altus2026RegularizedBehaviourIntegrators.hxx |  9 +++++----
+ src/Batch/Faltus.cxx                            | 11 +++++++----
+ tests/BatchIntegrationTest.cxx                  | 17 ++++++++---------
+ tests/GradientsKernelsTest.cxx                  |  5 ++++-
+ 5 files changed, 27 insertions(+), 20 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/Faltus.hxx b/include/MFEMMGIS/Batch/Faltus.hxx
+index d68c15e925..5e82c99e21 100644
+--- a/include/MFEMMGIS/Batch/Faltus.hxx
++++ b/include/MFEMMGIS/Batch/Faltus.hxx
+@@ -64,8 +64,9 @@ namespace mfem_mgis::batch {
+     mfem::Vector centers;
+     /*!
+      * \brief false if the gradients have been computed element by element
+-     * since the last computation of `F0` by kernels: `F0` does not match the
+-     * gradients, and the inner forces can't be computed by kernels
++     * since the last computation of `F0` by kernels, or if this computation
++     * failed: `F0` does not match the gradients, and the inner forces can't
++     * be computed by kernels
+      */
+     bool valid = true;
+     //! \brief copies of the data at the beginning of the time step
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+index e3fc91117d..7ca8339f75 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+@@ -141,10 +141,11 @@ namespace mfem_mgis {
+     void revert() override;
+     void update() override;
+     /*!
+-     * \return true in 3D and in plane strain (see
+-     * `batch::isFaltusSupportedByKernels`), all the elements of the material
+-     * using the same integration rule: the regularization is computed by
+-     * the kernels of `MFEMMGIS/Batch/Faltus.hxx`
++     * \return true in 3D and in plane strain (deformation gradient of the
++     * kind of the hypothesis), if the kernels are available (see
++     * `batch::areGradientsKernelsAvailable`) and if all the elements of the
++     * material use the same integration rule: the regularization is
++     * computed by the kernels of `MFEMMGIS/Batch/Faltus.hxx`
+      */
+     [[nodiscard]] bool supportsKernels() const noexcept override;
+     //! \return the integration rule of the center of the elements
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index 4c801baa67..f069b6f7c9 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -262,8 +262,8 @@ namespace mfem_mgis::batch {
+                             std::int64_t{elements.Size()} * gsize)) {
+         return ctx.registerErrorMessage(
+             "addFaltusInnerForces: the deformation gradients at the center of "
+-            "the elements are not computed by kernels (GradientsComputation "
+-            "set to Kernels)");
++            "the elements are not computed by kernels for the current "
++            "gradients (GradientsComputation set to Kernels)");
+       }
+       if ((m.s1.gradients_stride != getGradientsSize(k)) ||
+           (static_cast<std::int64_t>(f.Size()) !=
+@@ -368,9 +368,12 @@ namespace mfem_mgis::batch {
+       if (a.number_of_elements == 0) {
+         return true;
+       }
+-      if ((m.matrix == nullptr) || (m.element_dofs == nullptr)) {
++      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
++          (static_cast<std::int64_t>(m.element_dofs->Size()) !=
++           getNumberOfElementDegreesOfFreedom(g, k) * g.ne)) {
+         return ctx.registerErrorMessage(
+-            "addFaltusStiffnessMatrices: invalid assembled matrix");
++            "addFaltusStiffnessMatrices: invalid assembled matrix or degrees "
++            "of freedom of the elements");
+       }
+       auto missing = mfem::Array<int>(1);
+       missing.HostWrite()[0] = 0;
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index c96ad27468..332d3620f4 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -13,17 +13,16 @@
+  * assembly; FBar formulation (imposed pressure, springs, two materials,
+  * quadratic elements, plane strain, distorted mesh) and regularization of
+  * Faltus et al. (springs, two materials, quadratic elements, plane strain,
+- * distorted meshes) by kernels;
+- * refusal of an invalid value, of a behaviour integrator which does not
+- * support it, of a tangent operator applied without assembly with a
+- * boundary integrator depending on the unknowns, of a tangent operator of
+- * the FBar formulation and of inner forces of the regularization of Faltus
+- * et al. computed by kernels from gradients computed element by element;
++ * distorted meshes) by kernels; refusal of an invalid value, of a
++ * behaviour integrator which does not support it, of a tangent operator
++ * applied without assembly with a boundary integrator depending on the
++ * unknowns, of a tangent operator of the FBar formulation and of inner
++ * forces of the regularization of Faltus et al. computed by kernels from
++ * gradients computed element by element;
+  * imposed pressure added to the inner forces computed by kernels, with a
+  * tangent operator assembled by kernels or applied without assembly. With
+- * the `--parallel`
+- * option, the computations are made in parallel (MUMPS), only their
+- * comparisons are made, to the rounding errors.
++ * the `--parallel` option, the computations are made in parallel (MUMPS),
++ * only their comparisons are made, to the rounding errors.
+  * \date   09/10/2026
+  */
+ 
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index ec7b8425c5..80208d6416 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -590,10 +590,13 @@ int main(int argc, char** argv) {
+                        .regularization = regularization,
+                        .distorted_mesh = true});
+     }
+-    cases.push_back({.name = rn + "tetrahedra",
++    // quadratic tetrahedra: on linear tetrahedra, the deformation gradient
++    // is uniform in each element, and the regularizations change nothing
++    cases.push_back({.name = rn + "tetrahedra, order 2",
+                      .mesh = tetrahedra,
+                      .hypothesis = "Tridimensional",
+                      .materials = {{1, svk}},
++                     .order = 2,
+                      .refinement = 0,
+                      .regularization = regularization});
+     cases.push_back({.name = rn + "plane strain, distorted mesh",
+-- 
+2.43.0
+

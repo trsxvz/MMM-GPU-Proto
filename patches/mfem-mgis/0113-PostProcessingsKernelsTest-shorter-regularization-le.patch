@@ -1,0 +1,29 @@
+From 0434dfd1de755fecbda5fceaac3195bfeb116150 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:29:33 +0200
+Subject: [PATCH] PostProcessingsKernelsTest: shorter regularization length
+
+With a regularization length of 0.1, the conjugate gradient solver
+without preconditioner of the test needs many iterations: about 30 s on
+the GPU on two processes. A length of 0.02 still exercises the diffusion
+term.
+---
+ tests/PostProcessingsKernelsTest.cxx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
+index 0dc17a0823..b017232f58 100644
+--- a/tests/PostProcessingsKernelsTest.cxx
++++ b/tests/PostProcessingsKernelsTest.cxx
+@@ -195,7 +195,7 @@ static std::optional<Results<parallel>> compute(
+     }
+     r.projections.emplace_back(*(oprojection->result));
+     const auto oregularization =
+-        computeImplicitGradientRegularization<parallel>(ctx, s, fcts, 0.1);
++        computeImplicitGradientRegularization<parallel>(ctx, s, fcts, 0.02);
+     if (isInvalid(oregularization)) {
+       return {};
+     }
+-- 
+2.43.0
+

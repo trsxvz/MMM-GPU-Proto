@@ -1,0 +1,44 @@
+From 36f17509b40323441103459212e3cba536650337 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 05:03:39 +0200
+Subject: [PATCH] BatchIntegrationTest: documentation of testMatrixFreeRefusal
+ put back above it
+
+---
+ tests/BatchIntegrationTest.cxx | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index ec14d77e0e..7188f4803b 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -948,11 +948,6 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+   }
+ }  // end of testElementByElementSequence
+ 
+-/*!
+- * \brief a tangent operator applied without assembly is refused when the
+- * non linear form contains a boundary integrator (imposed pressure): the
+- * resolution fails with an error message, on all the processes
+- */
+ /*!
+  * \brief the tangent operator of the FBar formulation can't be computed by
+  * kernels from gradients computed element by element
+@@ -1021,6 +1016,14 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+             msg + ")");
+ }  // end of testFBarTangentOperatorRefusal
+ 
++/*!
++ * \brief a tangent operator applied without assembly is refused when the
++ * non linear form contains a boundary integrator (imposed pressure): the
++ * resolution fails with an error message, on all the processes
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
+ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+                                   const char* const mesh,
+                                   const char* const library) {
+-- 
+2.43.0
+

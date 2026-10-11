@@ -1,0 +1,398 @@
+From 231b57bcd672fd8655c0e2dc5e9a57fc3e337750 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 05:03:39 +0200
+Subject: [PATCH] FBar kernels: validity of the data, update and revert, thread
+ counts
+
+The data of the FBar formulation computed by kernels are marked invalid
+when the gradients are computed element by element, the tangent operator
+computed by kernels being then refused with an error message. The data at
+the beginning of the time step are saved by `update` and restored by
+`revert`: a prediction after a revert read the data of another state. The
+number of threads by element is taken into account in the check of the
+number of threads of the kernels adding the matrices of rank one.
+
+Tests: two predictions separated by a revert, refusal of the tangent
+operator computed by kernels from gradients computed element by element.
+---
+ include/MFEMMGIS/Batch/FBar.hxx               |  38 +++++++
+ .../FBarBehaviourIntegratorCRTPBase.ixx       |  20 +++-
+ src/Batch/FBar.cxx                            |  69 ++++++++++--
+ tests/BatchIntegrationTest.cxx                | 103 +++++++++++++++---
+ 4 files changed, 202 insertions(+), 28 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
+index b8558244ed..4f64460cb4 100644
+--- a/include/MFEMMGIS/Batch/FBar.hxx
++++ b/include/MFEMMGIS/Batch/FBar.hxx
+@@ -88,6 +88,28 @@ namespace mfem_mgis::batch {
+      * the current tangent operator blocks of the behaviour
+      */
+     bool has_tangent_operator = false;
++    /*!
++     * \brief false if the gradients have been computed element by element
++     * since the last computation of the data by kernels: the data do not
++     * match the current unknowns, and the tangent operator can't be computed
++     * by kernels
++     */
++    bool valid = true;
++    //! \brief copies of the data at the beginning of the time step
++    struct {
++      //! \brief deformation gradients `F`
++      mfem::Vector deformation_gradients;
++      //! \brief coefficients `α`
++      mfem::Vector coefficients;
++      //! \brief data at the center of the elements
++      mfem::Vector centers;
++      //! \brief vectors `b`
++      mfem::Vector b;
++      //! \brief validity of the data (see `FBarData::valid`)
++      bool valid = true;
++      //! \brief if true, the copies are set (see `updateFBarData`)
++      bool defined = false;
++    } beginning_of_time_step;
+   };
+ 
+   /*!
+@@ -143,6 +165,22 @@ namespace mfem_mgis::batch {
+       const Material&,
+       const ElementsGeometry&,
+       const GradientsKind) noexcept;
++  /*!
++   * \brief keeps the data of the FBar formulation, computed for the
++   * converged unknowns of the time step, as the data at the beginning of the
++   * next time step (see `revertFBarData`)
++   * \param[in, out] data: data of the FBar formulation
++   */
++  MFEM_MGIS_EXPORT void updateFBarData(FBarData&);
++  /*!
++   * \brief restores the data of the FBar formulation at the beginning of the
++   * time step, kept by `updateFBarData`, or, before the first update, removes
++   * the data (the data at the beginning of the first time step are computed
++   * for null unknowns, see `initializeFBar`, which supposes that the initial
++   * unknowns are null)
++   * \param[in, out] data: data of the FBar formulation
++   */
++  MFEM_MGIS_EXPORT void revertFBarData(FBarData&);
+   /*!
+    * \brief computes the tangent operator `K'` at the integration points of
+    * a material and the vectors `a` of its elements, from the tangent
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index 7816bfe0ec..c53d19ada0 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -87,6 +87,9 @@ namespace mfem_mgis {
+       }
+       return true;
+     }
++    // the gradients are computed element by element: the data of the FBar
++    // formulation computed by kernels no longer match the unknowns
++    this->fbar_data.valid = false;
+ #ifdef MFEM_THREAD_SAFE
+     mfem::Vector shape0;
+     mfem::DenseMatrix dshape0;
+@@ -236,6 +239,9 @@ namespace mfem_mgis {
+         Traits::updateExternalStateVariablesFromUnknownsValues ||
+         Traits::gradientsComputationRequiresShapeFunctions;
+     auto &child = static_cast<Child &>(*this);
++    // the data of the FBar formulation computed by kernels no longer match
++    // the unknowns
++    this->fbar_data.valid = false;
+     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto &ir = child.getIntegrationRule(e, tr);
+ #ifdef MFEM_THREAD_SAFE
+@@ -517,13 +523,16 @@ namespace mfem_mgis {
+ 
+   template <typename Child, Hypothesis H>
+   void FBarBehaviourIntegratorCRTPBase<Child, H>::revert() {
+-    this->fbar_data.has_tangent_operator = false;
++    // data of the FBar formulation at the beginning of the time step
++    batch::revertFBarData(this->fbar_data);
+     BehaviourIntegratorBase::revert();
+   }  // end of revert
+ 
+   template <typename Child, Hypothesis H>
+   void FBarBehaviourIntegratorCRTPBase<Child, H>::update() {
+-    this->fbar_data.has_tangent_operator = false;
++    // the data of the converged unknowns are the data at the beginning of
++    // the next time step
++    batch::updateFBarData(this->fbar_data);
+     BehaviourIntegratorBase::update();
+   }  // end of update
+ 
+@@ -622,6 +631,13 @@ namespace mfem_mgis {
+     if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
+       return true;
+     }
++    if (!this->fbar_data.valid) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the tangent operator of the FBar formulation can only be "
++          "computed by kernels from gradients computed by kernels "
++          "(GradientsComputation set to Kernels)");
++    }
+     try {
+       if (this->fbar_data.coefficients.Size() != this->n) {
+         // before the first computation of the gradients (prediction of the
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index af4f0f36d2..71d788ebd1 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -36,6 +36,49 @@ namespace mfem_mgis::batch {
+     return &(mfem::IntRules.Get(fes.GetFE(e)->GetGeomType(), 0));
+   }  // end of getElementsCenterIntegrationRule
+ 
++  /*!
++   * \brief copies the values of an array of the memory of MFEM, on the
++   * device if a device is enabled
++   * \param[out] d: destination
++   * \param[in] s: source
++   */
++  static void copyFBarArray(mfem::Vector& d, const mfem::Vector& s) {
++    d.UseDevice(true);
++    d.SetSize(s.Size());
++    if (s.Size() != 0) {
++      d = s;
++    }
++  }  // end of copyFBarArray
++
++  void updateFBarData(FBarData& data) {
++    auto& b = data.beginning_of_time_step;
++    copyFBarArray(b.deformation_gradients, data.deformation_gradients);
++    copyFBarArray(b.coefficients, data.coefficients);
++    copyFBarArray(b.centers, data.centers);
++    copyFBarArray(b.b, data.b);
++    b.valid = data.valid;
++    b.defined = true;
++    data.has_tangent_operator = false;
++  }  // end of updateFBarData
++
++  void revertFBarData(FBarData& data) {
++    const auto& b = data.beginning_of_time_step;
++    if (b.defined) {
++      copyFBarArray(data.deformation_gradients, b.deformation_gradients);
++      copyFBarArray(data.coefficients, b.coefficients);
++      copyFBarArray(data.centers, b.centers);
++      copyFBarArray(data.b, b.b);
++      data.valid = b.valid;
++    } else {
++      data.deformation_gradients.SetSize(0);
++      data.coefficients.SetSize(0);
++      data.centers.SetSize(0);
++      data.b.SetSize(0);
++      data.valid = true;
++    }
++    data.has_tangent_operator = false;
++  }  // end of revertFBarData
++
+   bool isFBarSupportedByKernels(const GradientsKind k) noexcept {
+     return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
+@@ -91,6 +134,7 @@ namespace mfem_mgis::batch {
+     const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
+     const auto vdim = getUnknownsSize(k);
+     data.has_tangent_operator = false;
++    data.valid = true;
+     if ((!resizeFBarArray(ctx, data.deformation_gradients, np * gsize)) ||
+         (!resizeFBarArray(ctx, data.coefficients, np)) ||
+         (!resizeFBarArray(ctx, data.centers,
+@@ -175,7 +219,8 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry& g,
+       const GradientsKind k,
+       const bool use_device,
+-      const char* const name) {
++      const char* const name,
++      const std::int64_t threads_per_element) {
+     const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+     if ((!data.has_tangent_operator) ||
+         (static_cast<std::int64_t>(data.a.Size()) != n * g.ne) ||
+@@ -185,7 +230,7 @@ namespace mfem_mgis::batch {
+           ": the tangent operator of the FBar formulation is not computed");
+     }
+     const auto& elements = qs.getElements();
+-    if (std::int64_t{elements.Size()} * n * n >
++    if (std::int64_t{elements.Size()} * threads_per_element >
+         std::numeric_limits<int>::max()) {
+       return ctx.registerErrorMessage(std::string{name} +
+                                       ": too many elements for the kernels");
+@@ -386,8 +431,10 @@ namespace mfem_mgis::batch {
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
++      // one thread per entry of the matrices
++      const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
+       if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+-                                         "addFBarStiffnessMatrices")) {
++                                         "addFBarStiffnessMatrices", n * n)) {
+         return false;
+       }
+       if (!addStiffnessMatrices(ctx, m, qs,
+@@ -427,8 +474,10 @@ namespace mfem_mgis::batch {
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+-                                         "addFBarStiffnessMatrices")) {
++      // one thread per row of the matrices
++      if (!getFBarRankOneKernelArguments(
++              ctx, a, data, qs, g, k, use_device, "addFBarStiffnessMatrices",
++              std::int64_t{g.nd} * getUnknownsSize(k))) {
+         return false;
+       }
+       if (!addStiffnessMatrices(ctx, m, qs,
+@@ -484,8 +533,11 @@ namespace mfem_mgis::batch {
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+-                                         "addFBarStiffnessMatricesDiagonals")) {
++      // one thread per degree of freedom
++      if (!getFBarRankOneKernelArguments(
++              ctx, a, data, qs, g, k, use_device,
++              "addFBarStiffnessMatricesDiagonals",
++              std::int64_t{g.nd} * getUnknownsSize(k))) {
+         return false;
+       }
+       if (!addStiffnessMatricesDiagonals(
+@@ -527,8 +579,9 @@ namespace mfem_mgis::batch {
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
++      // one thread per element
+       if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+-                                         "addFBarTangentOperatorAction")) {
++                                         "addFBarTangentOperatorAction", 1)) {
+         return false;
+       }
+       if (!addTangentOperatorAction(
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index ccacc66a21..36a2b7ce73 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -492,24 +492,27 @@ static Results compute(mfem_mgis::Context& ctx,
+     setTemperature(t + dt);
+     if (opts.prediction) {
+       // prediction alone: resolution without iteration (which fails), then
+-      // revert
+-      setMaximumNumberOfIterations(0);
+-      auto c = Context{};
+-      std::ignore = problem.solve(c, t, dt);
+-      const auto& p = problem.getUnknowns(ets);
+-      const auto* const pv = p.HostRead();
+-      // the prediction of the first time step is not null: the unknowns
+-      // are not reverted by the failed resolution
+-      check(
+-          (i != 0) || std::any_of(pv, pv + p.Size(),
+-                                  [](const real v) noexcept { return v != 0; }),
+-          name + ": null prediction");
+-      r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
+-      problem.revert(ctx) | or_die;
+-      checkStatesAfterUpdateOrRevert(m, name);
+-      // the revert sets the temperature at the end of the time step to the
+-      // one at the beginning of the time step
+-      setTemperature(t + dt);
++      // revert, twice: the second prediction starts from the state restored
++      // by the revert (for instance the data of the FBar formulation)
++      for (int k = 0; k != 2; ++k) {
++        setMaximumNumberOfIterations(0);
++        auto c = Context{};
++        std::ignore = problem.solve(c, t, dt);
++        const auto& p = problem.getUnknowns(ets);
++        const auto* const pv = p.HostRead();
++        // the prediction of the first time step is not null: the unknowns
++        // are not reverted by the failed resolution
++        check((i != 0) ||
++                  std::any_of(pv, pv + p.Size(),
++                              [](const real v) noexcept { return v != 0; }),
++              name + ": null prediction");
++        r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
++        problem.revert(ctx) | or_die;
++        checkStatesAfterUpdateOrRevert(m, name);
++        // the revert sets the temperature at the end of the time step to
++        // the one at the beginning of the time step
++        setTemperature(t + dt);
++      }
+       setMaximumNumberOfIterations(20);
+     }
+     const auto o = problem.solve(ctx, t, dt);
+@@ -916,6 +919,69 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+  * non linear form contains a boundary integrator (imposed pressure): the
+  * resolution fails with an error message, on all the processes
+  */
++/*!
++ * \brief the tangent operator of the FBar formulation can't be computed by
++ * kernels from gradients computed element by element
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ */
++static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
++                                           const char* const mesh,
++                                           const char* const library) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem =
++      construct<NonLinearEvolutionProblem>(
++          ctx,
++          Parameters{
++              {"MeshFileName", mesh},
++              {"FiniteElementFamily", "H1"},
++              {"FiniteElementOrder", 1},
++              {"UnknownsSize", 3},
++              {"NumberOfUniformRefinements", 0},
++              {"Materials", Parameters{{"Cube", 1}}},
++              {"Boundaries",
++               Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++              {"Hypothesis", "Tridimensional"},
++              {"BehaviourIntegration", "Batch"},
++              {"GradientsComputation", "ElementByElement"},
++              {"TangentOperatorComputation", "Kernels"},
++              {"Parallel", parallel}}) |
++      or_die;
++  problem.addBehaviourIntegrator(
++      ctx, "Mechanics", "Cube", library, "SaintVenantKirchhoffElasticity",
++      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
++      or_die;
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 0},
++       {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
++      or_die;
++  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
++      or_die;
++  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                    {"RelativeTolerance", 1e-12},
++                                    {"AbsoluteTolerance", 0.},
++                                    {"MaximumNumberOfIterations", 10}}) |
++      or_die;
++  auto c = Context{};
++  const auto r = problem.solve(c, 0, 1);
++  const auto msg = std::string{c.getErrorMessage()};
++  check((!r.status) &&
++            (msg.find("gradients computed by kernels") != std::string::npos),
++        "FBar: tangent operator computed by kernels from gradients computed "
++        "element by element accepted (" +
++            msg + ")");
++}  // end of testFBarTangentOperatorRefusal
++
+ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+                                   const char* const mesh,
+                                   const char* const library) {
+@@ -1386,6 +1452,7 @@ int main(int argc, char** argv) {
+     }
+   }
+   testMatrixFreeRefusal(ctx, mesh, library);
++  testFBarTangentOperatorRefusal(ctx, mesh, library);
+   if (parallel) {
+     std::cout << (failures == 0 ? "success" : "failure") << '\n';
+     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+-- 
+2.43.0
+

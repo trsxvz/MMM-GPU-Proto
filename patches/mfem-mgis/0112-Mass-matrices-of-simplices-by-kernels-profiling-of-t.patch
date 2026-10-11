@@ -1,0 +1,451 @@
+From d93acb00a5159f1e934b1be779312eb70b20b943 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:18:35 +0200
+Subject: [PATCH] Mass matrices of simplices by kernels, profiling of the L2
+ projection
+
+- The mass matrices of the elements without a tensor basis (simplices),
+  which MFEM 4.10 does not assemble on the device, are computed by a
+  kernel (batch::computeMassMatrices, integration rule of
+  mfem::MassIntegrator) and given to the full assembly of MFEM by an
+  integrator implementing AssembleEA, when the post-processings are
+  computed by kernels. The operator of the implicit gradient
+  regularization of these elements is still assembled element by
+  element (diffusion term).
+- The regularization operator is given by the coefficient of its
+  diffusion term instead of a function adding the integrators.
+- Profiling sections of the L2 projection: data of the kernels,
+  operator, right-hand sides, resolutions.
+- PostProcessingsKernelsTest also compares the implicit gradient
+  regularizations.
+- Documentation: post-processings in the guide of the computations by
+  batches.
+---
+ docs/source/user_guide/batch_computations.rst | 39 ++++++++
+ .../Batch/IntegrationPointsFunctions.hxx      | 15 +++
+ src/Batch/IntegrationPointsFunctions.cxx      | 41 ++++++++
+ .../IntegrationPointsFunctionsKernels.cxx     | 30 ++++++
+ .../IntegrationPointsFunctionsKernels.hxx     | 17 ++++
+ src/L2Projection.cxx                          | 95 +++++++++++++++----
+ tests/PostProcessingsKernelsTest.cxx          | 23 ++++-
+ 7 files changed, 235 insertions(+), 25 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 239eec8f6a..277b4c9241 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -347,6 +347,45 @@ the operator being assembled, if no boundary condition contributes to the
+ operator of the prediction and, in a sequential computation, if the mesh
+ is conforming.
+ 
++.. _mfem_mgis_batch_computations_post_processings:
++
++Post-processings
++----------------
++
++The computations on functions defined at the integration points used by
++the post-processings are also made by kernels, on the device if a device
++is enabled, when the environment variable
++:code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is :code:`Kernels`
++(:code:`ElementByElement` by default; the variable is read at each
++computation):
++
++- :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
++  elements, for the behaviour integrators which support kernels (the
++  weight of an integration point is then :code:`w det J`);
++- :code:`computeL2Projection` and
++  :code:`computeImplicitGradientRegularization`: right-hand sides by a
++  kernel; operator assembled on the device by :code:`MFEM`
++  (:code:`AssemblyLevel::FULL`) for the elements with a tensor basis, and
++  mass matrices computed by kernels for the other elements (the diffusion
++  term of the implicit gradient regularization is then assembled element
++  by element);
++- :code:`updateGridFunction`, used by the exports of the results at the
++  nodes (:code:`ParaviewExportIntegrationPointResultsAtNodes`): local
++  projections by a kernel, then arithmetic mean at the nodes through the
++  element restriction and, in parallel, the prolongation.
++
++The other cases (functions defined on boundaries or on a part of the
++mesh, integration rules differing between the elements of a material,
++elements of different geometries, non conforming meshes for the values at
++the nodes) are computed element by element.
++:code:`getNumberOfPostProcessingsComputationsByKernels`
++(:code:`MFEMMGIS/PostProcessingsComputation.hxx`) counts the computations
++made by kernels. The results only differ from the ones computed element
++by element by rounding errors. The values of the functions are gathered
++on the host, where the functions of the user are stored, then used on the
++device. The kernels are declared in
++:code:`MFEMMGIS/Batch/IntegrationPointsFunctions.hxx`.
++
+ .. _mfem_mgis_batch_computations_gpu:
+ 
+ Computations on a GPU
+diff --git a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+index d712dd2fbf..f611d8b873 100644
+--- a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
++++ b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+@@ -125,6 +125,21 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry&,
+       const ElementsGeometry&) noexcept;
+ 
++  /*!
++   * \brief computes, or adds, the mass matrices of all the elements of a
++   * scalar finite element space, `N_i N_j w det J` summed over the points of
++   * the integration rule of the geometric data, in the layout of the
++   * element matrices of MFEM (`nd x nd x ne`, native ordering of the
++   * degrees of freedom), on the device if a device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: mass matrices
++   * \param[in] g: geometric data of the finite element space
++   * \param[in] add: if true, the mass matrices are added to `m`
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeMassMatrices(
++      Context&, mfem::Vector&, const ElementsGeometry&, const bool) noexcept;
++
+ }  // end of namespace mfem_mgis::batch
+ 
+ #endif /* LIB_MFEM_MGIS_BATCH_INTEGRATIONPOINTSFUNCTIONS_HXX */
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index 5646531580..f794011551 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -269,4 +269,45 @@ namespace mfem_mgis::batch {
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeLocalProjections
+ 
++  bool computeMassMatrices(Context& ctx,
++                           mfem::Vector& m,
++                           const ElementsGeometry& g,
++                           const bool add) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(g);
++    static_cast<void>(add);
++    return ctx.registerErrorMessage(
++        getUnavailableKernelsMessage("computeMassMatrices"));
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    const auto* const name = "computeMassMatrices";
++    if ((g.rule == nullptr) || (g.maps == nullptr) ||
++        (g.jacobians == nullptr)) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": invalid geometric data");
++    }
++    if (static_cast<std::int64_t>(m.Size()) !=
++        std::int64_t{g.nd} * g.nd * g.ne) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unexpected size of the mass matrices");
++    }
++    if (g.ne == 0) {
++      return true;
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::IntegrationRuleKernelArguments{};
++      a.shape_functions = g.maps->B.Read(use_device);
++      a.determinants = g.jacobians->detJ.Read(use_device);
++      a.weights = g.weights.Read(use_device);
++      a.nq = g.nq;
++      auto* const r = add ? m.ReadWrite(use_device) : m.Write(use_device);
++      internals::launchMassMatricesKernel(a, g.nd, g.ne, r, add, use_device);
++    } catch (...) {
++      return ctx.registerErrorMessage(getExceptionMessage(name));
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeMassMatrices
++
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.cxx b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+index 7b69f77a2f..ce198ef97e 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.cxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+@@ -152,4 +152,34 @@ namespace mfem_mgis::batch::internals {
+         });
+   }  // end of launchLocalProjectionsKernel
+ 
++  void launchMassMatricesKernel(const IntegrationRuleKernelArguments& m,
++                                const int nd,
++                                const int ne,
++                                real* const r,
++                                const bool add,
++                                const bool use_device) {
++    mfem::forall_switch(
++        use_device, ne, [m, nd, r, add] MFEM_HOST_DEVICE(int k) {
++          const auto e = static_cast<std::size_t>(k);
++          const auto nq = static_cast<std::size_t>(m.nq);
++          const auto n = static_cast<std::size_t>(nd);
++          auto* const re = r + n * n * e;
++          if (!add) {
++            for (std::size_t i = 0; i != n * n; ++i) {
++              re[i] = real{0};
++            }
++          }
++          // same operations as the mass integrator of MFEM
++          for (std::size_t q = 0; q != nq; ++q) {
++            const auto w = m.weights[q] * m.determinants[q + nq * e];
++            for (std::size_t j = 0; j != n; ++j) {
++              const auto wNj = w * m.shape_functions[q + nq * j];
++              for (std::size_t i = 0; i != n; ++i) {
++                re[i + n * j] += wNj * m.shape_functions[q + nq * i];
++              }
++            }
++          }
++        });
++  }  // end of launchMassMatricesKernel
++
+ }  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+index 36ef12e374..bac23db85f 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.hxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+@@ -93,6 +93,23 @@ namespace mfem_mgis::batch::internals {
+       real* const,
+       const bool);
+ 
++  /*!
++   * \brief launches the kernel computing, or adding, the mass matrices of
++   * all the elements (`nd x nd x ne`)
++   * \param[in] m: geometric data of the integration rule
++   * \param[in] nd: number of degrees of freedom per element
++   * \param[in] ne: number of elements
++   * \param[in, out] r: mass matrices
++   * \param[in] add: if true, the mass matrices are added to `r`
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchMassMatricesKernel(const IntegrationRuleKernelArguments&,
++                                const int,
++                                const int,
++                                real* const,
++                                const bool,
++                                const bool);
++
+ }  // end of namespace mfem_mgis::batch::internals
+ 
+ #endif /* LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX */
+diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
+index 5df26a4abd..6a4646318b 100644
+--- a/src/L2Projection.cxx
++++ b/src/L2Projection.cxx
+@@ -29,6 +29,7 @@
+ #include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/Profiler.hxx"
+ #include "MFEMMGIS/L2Projection.hxx"
+ #include "PostProcessingsComputation.hxx"
+ 
+@@ -594,14 +595,52 @@ namespace mfem_mgis {
+     return true;
+   }  // end of computeL2ProjectionRightHandSideByKernels
+ 
++  /*!
++   * \brief integrator of the mass matrices of the elements computed by
++   * kernels (see `batch::computeMassMatrices`), for the assembly of MFEM on
++   * the device (`AssemblyLevel::FULL`) of the finite element spaces of
++   * simplices, whose mass matrices are not assembled on the device by MFEM
++   * 4.10. The integration rule is the one of `mfem::MassIntegrator`.
++   */
++  struct MassMatricesKernelsIntegrator final
++      : public mfem::BilinearFormIntegrator {
++    void AssembleEA(const mfem::FiniteElementSpace& fes,
++                    mfem::Vector& m,
++                    const bool add) override {
++      if (fes.GetNE() == 0) {
++        return;
++      }
++      const auto& fe = *(fes.GetFE(0));
++      const auto& ir = mfem::MassIntegrator::GetRule(
++          fe, fe, *(fes.GetElementTransformation(0)));
++      auto ctx = Context{};
++      auto g = batch::ElementsGeometry{};
++      if ((!batch::computeElementsGeometry(ctx, g, fes, ir)) ||
++          (!batch::computeMassMatrices(ctx, m, g, add))) {
++        raise(ctx.getErrorMessage());
++      }
++    }  // end of AssembleEA
++  };
++
++  /*!
++   * \brief computes the regularization of functions defined at the
++   * integration points: L2 projection, operator `M + d K`, where `M` is the
++   * mass matrix and `K` the matrix of the diffusion, if `d` is not null
++   * (implicit gradient regularization)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] r: result
++   * \param[in, out] l: linear solver
++   * \param[in] fcts: functions
++   * \param[in] d: coefficient of the diffusion
++   */
+   template <bool parallel>
+   static bool updatePartialQuadratureRegularization_impl(
+       Context& ctx,
+       L2ProjectionResult<parallel>& r,
+       LinearSolverHandler& l,
+       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+-      std::function<void(BilinearForm<parallel>&)>
+-          add_regularization_operator) {
++      const real d) {
+     if (!checkUpdateFunctionsArguments(ctx, r, l, fcts)) {
+       return false;
+     }
+@@ -655,19 +694,36 @@ namespace mfem_mgis {
+     }();
+     // computation by kernels: right-hand sides by kernels, operator
+     // assembled by MFEM, on the device if a device is enabled
+-    const auto kernels_data = makeL2ProjectionKernelsData<parallel>(
+-        may_throw, *olocal_fespace, fcts, r.submesh != nullptr);
++    const auto kernels_data = [&] {
++      CatchTimeSection(ctx, "L2Projection::KernelsData");
++      return makeL2ProjectionKernelsData<parallel>(may_throw, *olocal_fespace,
++                                                   fcts, r.submesh != nullptr);
++    }();
+     // Regularization operator
++    auto operator_section = std::optional<mgis::ProfilingSection>(
++        std::in_place, ctx, "L2Projection::Operator", ctx.isProfilingEnabled());
+     BilinearForm<parallel> a(&(*olocal_fespace));
+-    // assembly by MFEM on the device: supported for the elements with a
+-    // tensor basis only (quadrangles, hexahedra) by MFEM 4.10
+-    if ((kernels_data.has_value()) && (olocal_fespace->GetNE() != 0) &&
+-        (dynamic_cast<const mfem::TensorBasisElement*>(
+-             olocal_fespace->GetFE(0)) != nullptr)) {
++    auto diffusion = mfem::ConstantCoefficient(d);
++    // computation by kernels: assembly on the device by MFEM for the elements
++    // with a tensor basis (quadrangles, hexahedra); for the other elements,
++    // mass matrices computed by kernels and assembled by MFEM, the diffusion
++    // term being then assembled element by element
++    const auto tensor = mfem::UsesTensorBasis(*olocal_fespace);
++    if ((kernels_data.has_value()) && ((tensor) || (d == 0))) {
+       a.SetAssemblyLevel(mfem::AssemblyLevel::FULL);
++      if (tensor) {
++        a.AddDomainIntegrator(new mfem::MassIntegrator);
++      } else {
++        a.AddDomainIntegrator(new MassMatricesKernelsIntegrator);
++      }
++    } else {
++      a.AddDomainIntegrator(new mfem::MassIntegrator);
++    }
++    if (d != 0) {
++      a.AddDomainIntegrator(new mfem::DiffusionIntegrator(diffusion));
+     }
+-    add_regularization_operator(a);
+     a.Assemble();
++    operator_section.reset();
+     // resolution(s)
+     for (size_type c = 0; c != rfespace.GetVDim(); ++c) {
+       // initialize the solution, if needed
+@@ -675,6 +731,9 @@ namespace mfem_mgis {
+         *x = real{};
+       }
+       // right-hand side
++      auto rhs_section = std::optional<mgis::ProfilingSection>(
++          std::in_place, ctx, "L2Projection::RightHandSide",
++          ctx.isProfilingEnabled());
+       LinearForm<parallel> b(&(*olocal_fespace));
+       if (kernels_data.has_value()) {
+         if (!computeL2ProjectionRightHandSideByKernels<parallel>(
+@@ -701,7 +760,9 @@ namespace mfem_mgis {
+         }
+         b.Assemble();
+       }
++      rhs_section.reset();
+       // resolution
++      CatchTimeSection(ctx, "L2Projection::Solve");
+       mfem::Array<int> boundary_dofs;
+       // the operator handle owns the matrix built by the full assembly
+       auto A = mfem::OperatorHandle{};
+@@ -752,10 +813,8 @@ namespace mfem_mgis {
+       L2ProjectionResult<parallel>& r,
+       LinearSolverHandler& l,
+       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
+-    return updatePartialQuadratureRegularization_impl<parallel>(
+-        ctx, r, l, fcts, [](BilinearForm<parallel>& a) {
+-          a.AddDomainIntegrator(new mfem::MassIntegrator);
+-        });
++    return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l, fcts,
++                                                                0);
+   }  // end of updateL2Projection_impl
+ 
+   template <>
+@@ -828,12 +887,8 @@ namespace mfem_mgis {
+       LinearSolverHandler& l,
+       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+       const real lc) noexcept {
+-    auto c = mfem::ConstantCoefficient(lc * lc);
+-    return updatePartialQuadratureRegularization_impl<parallel>(
+-        ctx, r, l, fcts, [&c](BilinearForm<parallel>& a) {
+-          a.AddDomainIntegrator(new mfem::MassIntegrator);
+-          a.AddDomainIntegrator(new mfem::DiffusionIntegrator(c));
+-        });
++    return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l, fcts,
++                                                                lc * lc);
+   }  // end of updateImplicitGradientRegularization_impl
+ 
+   template <>
+diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
+index 9d5afbe71d..0dc17a0823 100644
+--- a/tests/PostProcessingsKernelsTest.cxx
++++ b/tests/PostProcessingsKernelsTest.cxx
+@@ -4,8 +4,8 @@
+  * integration points made by kernels (environment variable
+  * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`) and element by element:
+  * measures and integrals, values at the nodes (`updateGridFunction`), L2
+- * projections. The use of the kernels is checked by the counter
+- * `getNumberOfPostProcessingsComputationsByKernels`.
++ * projections, implicit gradient regularizations. The use of the kernels is
++ * checked by the counter `getNumberOfPostProcessingsComputationsByKernels`.
+  * \date   11/10/2026
+  */
+ 
+@@ -142,6 +142,9 @@ struct Results {
+   std::vector<mfem::Vector> nodes;
+   //! \brief L2 projections of the scalar and vector functions
+   std::vector<mfem::Vector> projections;
++  //! \brief implicit gradient regularizations of the scalar and vector
++  //! functions
++  std::vector<mfem::Vector> regularizations;
+ };
+ 
+ /*!
+@@ -191,6 +194,12 @@ static std::optional<Results<parallel>> compute(
+       return {};
+     }
+     r.projections.emplace_back(*(oprojection->result));
++    const auto oregularization =
++        computeImplicitGradientRegularization<parallel>(ctx, s, fcts, 0.1);
++    if (isInvalid(oregularization)) {
++      return {};
++    }
++    r.regularizations.emplace_back(*(oregularization->result));
+   }
+   return r;
+ }  // end of compute
+@@ -285,10 +294,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+   if (!r2.has_value()) {
+     return false;
+   }
+-  // two measures and integrals per material, values at the nodes and L2
+-  // projections of two functions
++  // two measures and integrals per material, values at the nodes, L2
++  // projections and implicit gradient regularizations of two functions
+   const auto nk = getNumberOfPostProcessingsComputationsByKernels() - n0;
+-  const auto expected = 2 * materials.size() + 4;
++  const auto expected = 2 * materials.size() + 6;
+   if (nk != expected) {
+     return ctx.registerErrorMessage(
+         "unexpected number of computations by kernels (" + std::to_string(nk) +
+@@ -312,6 +321,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+     success = check<parallel>(ctx, "L2 projection of the " + f,
+                               r1->projections[i], r2->projections[i], 1e-10) &&
+               success;
++    success = check<parallel>(
++                  ctx, "implicit gradient regularization of the " + f,
++                  r1->regularizations[i], r2->regularizations[i], 1e-10) &&
++              success;
+   }
+   return success;
+ }  // end of test
+-- 
+2.43.0
+

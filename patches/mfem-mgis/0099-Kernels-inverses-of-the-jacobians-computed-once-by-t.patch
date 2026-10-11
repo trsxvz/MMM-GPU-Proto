@@ -1,0 +1,829 @@
+From 7af829b3a5185b9ded50e4eef981242e78edab3e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 10:21:41 +0200
+Subject: [PATCH] Kernels: inverses of the jacobians computed once by the
+ geometry kernel
+
+The kernels only used the jacobians of the element transformations through
+their inverses, computed again by each thread at each point (for each pair
+of nodes in the stiffness matrices kernel): nine divisions, eighteen
+multiplications and nine subtractions in double precision, slow on the GPUs
+whose double precision throughput is low. The geometry kernel now computes
+the inverses (same formula, invertJacobian) and stores them instead of the
+jacobians (ElementsJacobians::invJ, same layout, same memory); the
+gradients, inner forces, stiffness matrices, action, FBar and Faltus kernels
+read them (loadInverseJacobian). The values are the same on the host, bit
+for bit, and on a GPU up to the order of the atomic additions.
+
+Assembly of the stiffness matrices on a GPU: 1.7 to 2.2 times faster in
+mechanics, 5.9 times in heat transfer (56 registers instead of 84); on the
+host, a few percent faster.
+---
+ include/MFEMMGIS/Batch/ElementsGeometry.hxx | 26 ++++++---
+ include/MFEMMGIS/Batch/Gradients.hxx        |  4 +-
+ src/Batch/ElementsGeometry.cxx              | 11 ++--
+ src/Batch/ElementsGeometryKernels.cxx       | 32 ++++++++---
+ src/Batch/ElementsGeometryKernels.hxx       | 15 +++--
+ src/Batch/FBar.cxx                          |  3 +-
+ src/Batch/FBarKernels.cxx                   |  5 +-
+ src/Batch/FBarKernels.hxx                   |  9 +--
+ src/Batch/Faltus.cxx                        |  8 +--
+ src/Batch/FaltusKernels.cxx                 | 38 ++++++-------
+ src/Batch/FaltusKernels.hxx                 | 25 +++++----
+ src/Batch/Gradients.cxx                     |  3 +-
+ src/Batch/GradientsKernels.cxx              |  7 ++-
+ src/Batch/GradientsKernels.hxx              |  9 +--
+ src/Batch/InnerForces.cxx                   |  2 +-
+ src/Batch/InnerForcesKernels.cxx            |  3 +-
+ src/Batch/InnerForcesKernels.hxx            |  7 ++-
+ src/Batch/KernelsUtilities.hxx              | 19 +++++++
+ src/Batch/StiffnessMatrices.cxx             |  2 +-
+ src/Batch/StiffnessMatricesKernels.cxx      |  9 ++-
+ src/Batch/StiffnessMatricesKernels.hxx      |  7 ++-
+ tests/ElementsGeometryTest.cxx              | 62 ++++++++++++---------
+ 22 files changed, 188 insertions(+), 118 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/ElementsGeometry.hxx b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+index 2b2d9ddf6f..f06543b754 100644
+--- a/include/MFEMMGIS/Batch/ElementsGeometry.hxx
++++ b/include/MFEMMGIS/Batch/ElementsGeometry.hxx
+@@ -23,15 +23,19 @@ namespace mfem {
+ namespace mfem_mgis::batch {
+ 
+   /*!
+-   * \brief jacobians of the element transformations and their determinants
+-   * at the integration points (see `computeElementsGeometry`)
++   * \brief inverses of the jacobians of the element transformations and
++   * determinants of the jacobians at the integration points (see
++   * `computeElementsGeometry`). The kernels only use the jacobians through
++   * their inverses, which are computed once.
+    */
+   struct MFEM_MGIS_EXPORT ElementsJacobians {
+     /*!
+-     * \brief jacobians at the points (`nq x dim x dim x ne`, layout of
+-     * `mfem::GeometricFactors::J`)
++     * \brief inverses of the jacobians at the points (`nq x dim x dim x
++     * ne`, layout of `mfem::GeometricFactors::J`: the component `(i, j)` of
++     * the inverse at the point `q` of the element `e` is `invJ[q + nq * (i +
++     * dim * (j + dim * e))]`)
+      */
+-    mfem::Vector J;
++    mfem::Vector invJ;
+     //! \brief determinants of the jacobians (`nq x ne`)
+     mfem::Vector detJ;
+   };
+@@ -39,8 +43,8 @@ namespace mfem_mgis::batch {
+   /*!
+    * \brief geometric data of all the elements of the mesh for one
+    * integration rule: gradients of the shape functions on the reference
+-   * element (`mfem::DofToQuad`, owned by the finite element) and jacobians
+-   * of the element transformations
++   * element (`mfem::DofToQuad`, owned by the finite element), inverses and
++   * determinants of the jacobians of the element transformations
+    *
+    * The data are computed once: they are not updated if the mesh is
+    * modified (refinement, displacement of the nodes or of the vertices).
+@@ -54,7 +58,10 @@ namespace mfem_mgis::batch {
+      * integration rule (see `computeElementsGeometry`)
+      */
+     const mfem::DofToQuad* maps = nullptr;
+-    //! \brief jacobians of the element transformations
++    /*!
++     * \brief inverses and determinants of the jacobians of the element
++     * transformations
++     */
+     std::shared_ptr<const ElementsJacobians> jacobians;
+     //! \brief weights of the integration points (in the memory of MFEM)
+     mfem::Vector weights;
+@@ -97,6 +104,9 @@ namespace mfem_mgis::batch {
+    * - for the quadrangles and hexahedra, they assume a tensor product
+    *   integration rule.
+    *
++   * The same kernel computes the determinants and the inverses of the
++   * jacobians, which are the only ones stored (see `ElementsJacobians`).
++   *
+    * The values and gradients of the shape functions of the unknowns
+    * (`maps`) are the ones cached by the finite element of the unknowns: the
+    * integration rule must not be destroyed while the finite element space
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index 4efd93e55f..4f28470cf0 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -45,8 +45,8 @@ namespace mfem_mgis::batch {
+      * coordinate at the `q`-th point of the `e`-th element is the value
+      * `i + vdim * (j + dim * (q + nq * e))`. In the memory of MFEM, valid
+      * on the device if a device is enabled. They are converted to physical
+-     * derivatives by the kernels with the jacobians of the element
+-     * transformations (see `ElementsGeometry`).
++     * derivatives by the kernels with the inverses of the jacobians of the
++     * element transformations (see `ElementsGeometry`).
+      */
+     mfem::Vector values;
+     //! \brief values of the unknowns element by element (workspace)
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index 58ab19df6b..638302edbf 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -124,8 +124,9 @@ namespace mfem_mgis::batch {
+   }  // end of getTransformationsNodes
+ 
+   /*!
+-   * \brief computes the jacobians of the element transformations by a kernel
+-   * from the coordinates of the nodes of the transformations
++   * \brief computes the inverses and the determinants of the jacobians of
++   * the element transformations by a kernel from the coordinates of the
++   * nodes of the transformations
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in, out] g: geometric data. The number of elements, the number of
+@@ -175,8 +176,8 @@ namespace mfem_mgis::batch {
+       }
+     }
+     auto jacobians = std::make_shared<ElementsJacobians>();
+-    jacobians->J.UseDevice(true);
+-    jacobians->J.SetSize(g.nq * g.dim * g.dim * g.ne);
++    jacobians->invJ.UseDevice(true);
++    jacobians->invJ.SetSize(g.nq * g.dim * g.dim * g.ne);
+     jacobians->detJ.UseDevice(true);
+     jacobians->detJ.SetSize(g.nq * g.ne);
+     const auto use_device = mfem::Device::IsEnabled();
+@@ -186,7 +187,7 @@ namespace mfem_mgis::batch {
+     a.node_stride = n.node_stride;
+     a.component_stride = n.component_stride;
+     a.shape_functions_gradients = gradients.Read(use_device);
+-    a.jacobians = jacobians->J.Write(use_device);
++    a.inverse_jacobians = jacobians->invJ.Write(use_device);
+     a.determinants = jacobians->detJ.Write(use_device);
+     a.number_of_elements = g.ne;
+     a.nodes_per_element = nd;
+diff --git a/src/Batch/ElementsGeometryKernels.cxx b/src/Batch/ElementsGeometryKernels.cxx
+index 9f46952941..3b7ac2aabc 100644
+--- a/src/Batch/ElementsGeometryKernels.cxx
++++ b/src/Batch/ElementsGeometryKernels.cxx
+@@ -1,13 +1,14 @@
+ /*!
+  * \file   src/Batch/ElementsGeometryKernels.cxx
+- * \brief  This file implements the kernel computing the jacobians of the
+- * element transformations. It contains kernels of
+- * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
++ * \brief  This file implements the kernel computing the determinants and the
++ * inverses of the jacobians of the element transformations. It contains kernels
++ * of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+  * \date   10/10/2026
+  */
+ 
+ #include <cstddef>
+ #include "mfem/general/forall.hpp"
++#include "KernelsUtilities.hxx"
+ #include "ElementsGeometryKernels.hxx"
+ 
+ namespace mfem_mgis::batch::internals {
+@@ -38,12 +39,6 @@ namespace mfem_mgis::batch::internals {
+           }
+         }
+       }
+-      auto* const Je = a.jacobians + q + nq * dim * dim * e;
+-      for (std::size_t c = 0; c != dim; ++c) {
+-        for (std::size_t r = 0; r != dim; ++r) {
+-          Je[nq * (r + dim * c)] = J[r + 3 * c];
+-        }
+-      }
+       auto det = J[0];
+       if (dim == 2) {
+         det = J[0] * J[4] - J[1] * J[3];
+@@ -53,6 +48,25 @@ namespace mfem_mgis::batch::internals {
+               J[6] * (J[1] * J[5] - J[2] * J[4]);
+       }
+       a.determinants[q + nq * e] = det;
++      // inverse, `iJ[r + dim * c]` being its component `(r, c)`
++      real Jd[9] = {};
++      for (std::size_t c = 0; c != dim; ++c) {
++        for (std::size_t r = 0; r != dim; ++r) {
++          Jd[r + dim * c] = J[r + 3 * c];
++        }
++      }
++      real iJ[9] = {};
++      if (dim == 2) {
++        invertJacobian<2>(iJ, Jd, 1, det);
++      } else if (dim == 3) {
++        invertJacobian<3>(iJ, Jd, 1, det);
++      } else {
++        iJ[0] = 1 / det;
++      }
++      auto* const iJe = a.inverse_jacobians + q + nq * dim * dim * e;
++      for (std::size_t k = 0; k != dim * dim; ++k) {
++        iJe[nq * k] = iJ[k];
++      }
+     });
+   }  // end of launchJacobiansKernel
+ 
+diff --git a/src/Batch/ElementsGeometryKernels.hxx b/src/Batch/ElementsGeometryKernels.hxx
+index c85e80b041..e6ef08e1b1 100644
+--- a/src/Batch/ElementsGeometryKernels.hxx
++++ b/src/Batch/ElementsGeometryKernels.hxx
+@@ -1,6 +1,7 @@
+ /*!
+  * \file   src/Batch/ElementsGeometryKernels.hxx
+- * \brief  This file declares the kernel computing the jacobians of the
++ * \brief  This file declares the kernel computing the determinants and the
++ * inverses of the jacobians of the
+  * element transformations (internal header)
+  * \date   10/10/2026
+  */
+@@ -13,7 +14,8 @@
+ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+-   * \brief arguments of the kernel computing the jacobians of the element
++   * \brief arguments of the kernel computing the determinants and the
++   * inverses of the jacobians of the element
+    * transformations from the coordinates of their nodes (the nodes of the
+    * mesh, or its vertices)
+    */
+@@ -40,10 +42,10 @@ namespace mfem_mgis::batch::internals {
+      */
+     const real* shape_functions_gradients = nullptr;
+     /*!
+-     * \brief jacobians (`nq x dim x dim x ne`, layout of
++     * \brief inverses of the jacobians (`nq x dim x dim x ne`, layout of
+      * `mfem::GeometricFactors::J`)
+      */
+-    real* jacobians = nullptr;
++    real* inverse_jacobians = nullptr;
+     //! \brief determinants of the jacobians (`nq x ne`)
+     real* determinants = nullptr;
+     //! \brief number of elements
+@@ -58,8 +60,9 @@ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+    * \brief launches the kernel computing the jacobians of the element
+-   * transformations and their determinants: one thread per point of an
+-   * element
++   * transformations, their determinants and their inverses (see
++   * `invertJacobian`, the jacobians themselves are not stored): one thread
++   * per point of an element
+    * \param[in] a: arguments
+    * \param[in] d: if true, the kernel runs on the device (if a device is
+    * enabled), and the pointers of the arguments are located on the device
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index bf565b7ee3..bffff99119 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -177,8 +177,7 @@ namespace mfem_mgis::batch {
+     auto ca = internals::FBarCentersKernelArguments{};
+     ca.elements = elements.Read(use_device);
+     ca.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
+-    ca.jacobians = g0.jacobians->J.Read(use_device);
+-    ca.determinants = g0.jacobians->detJ.Read(use_device);
++    ca.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
+     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
+     ca.centers = data.centers.Write(use_device);
+     ca.b = data.b.Write(use_device);
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index eacfa5327a..095dd9b8fb 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -97,9 +97,8 @@ namespace mfem_mgis::batch::internals {
+           const auto e = static_cast<std::size_t>(a.elements[k]);
+           // inverse of the jacobian at the center (one point per element)
+           real iJ[N * N];
+-          invertJacobian<N>(iJ,
+-                            a.jacobians + static_cast<std::size_t>(N * N) * e,
+-                            1, a.determinants[e]);
++          loadInverseJacobian<N>(
++              iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
+           // deformation gradient at the center
+           real F0[9];
+           computeDeformationGradientAtCenter<K>(
+diff --git a/src/Batch/FBarKernels.hxx b/src/Batch/FBarKernels.hxx
+index 99b646f682..db40eb35cb 100644
+--- a/src/Batch/FBarKernels.hxx
++++ b/src/Batch/FBarKernels.hxx
+@@ -26,10 +26,11 @@ namespace mfem_mgis::batch::internals {
+      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
+      */
+     const real* derivatives = nullptr;
+-    //! \brief jacobians at the center of all the elements of the mesh
+-    const real* jacobians = nullptr;
+-    //! \brief determinants of the jacobians at the center of the elements
+-    const real* determinants = nullptr;
++    /*!
++     * \brief inverses of the jacobians at the center of all the elements of
++     * the mesh (see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     /*!
+      * \brief gradients of the shape functions at the center of the
+      * reference element (`dim x nd`)
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index d0e9d5c257..f412f99039 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -130,12 +130,11 @@ namespace mfem_mgis::batch {
+     }
+     a.elements = elements.Read(use_device);
+     a.shape_functions_gradients = g.maps->G.Read(use_device);
+-    a.jacobians = g.jacobians->J.Read(use_device);
++    a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
+     a.determinants = g.jacobians->detJ.Read(use_device);
+     a.weights = g.weights.Read(use_device);
+     a.center_shape_functions_gradients = g0.maps->G.Read(use_device);
+-    a.center_jacobians = g0.jacobians->J.Read(use_device);
+-    a.center_determinants = g0.jacobians->detJ.Read(use_device);
++    a.center_inverse_jacobians = g0.jacobians->invJ.Read(use_device);
+     a.alpha = alpha;
+     a.number_of_elements = elements.Size();
+     a.nd = g.nd;
+@@ -206,8 +205,7 @@ namespace mfem_mgis::batch {
+       auto a = internals::FaltusCentersKernelArguments{};
+       a.elements = elements.Read(use_device);
+       a.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
+-      a.jacobians = g0.jacobians->J.Read(use_device);
+-      a.determinants = g0.jacobians->detJ.Read(use_device);
++      a.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
+       a.centers = data.centers.Write(use_device);
+       a.number_of_elements = elements.Size();
+       for (std::int64_t c = 0; c != gsize; ++c) {
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+index af63963749..2924b080c8 100644
+--- a/src/Batch/FaltusKernels.cxx
++++ b/src/Batch/FaltusKernels.cxx
+@@ -14,24 +14,25 @@
+ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+-   * \brief inverse of the jacobian at the center of an element
++   * \brief reads the inverse of the jacobian at the center of an element
+    * \tparam N: dimension
+    * \param[out] iJ0: inverse of the jacobian
+    * \param[in] a: geometric data
+    * \param[in] e: element of the mesh
+    */
+   template <int N>
+-  MFEM_HOST_DEVICE inline void invertCenterJacobian(
++  MFEM_HOST_DEVICE inline void loadCenterInverseJacobian(
+       real* const iJ0,
+       const FaltusGeometryKernelArguments& a,
+       const std::size_t e) {
+-    invertJacobian<N>(iJ0,
+-                      a.center_jacobians + static_cast<std::size_t>(N * N) * e,
+-                      1, a.center_determinants[e]);
+-  }  // end of invertCenterJacobian
++    loadInverseJacobian<N>(
++        iJ0, a.center_inverse_jacobians + static_cast<std::size_t>(N * N) * e,
++        1);
++  }  // end of loadCenterInverseJacobian
+ 
+   /*!
+-   * \brief inverse of the jacobian at an integration point of an element
++   * \brief reads the inverse of the jacobian at an integration point of an
++   * element
+    * \tparam N: dimension
+    * \return the weight of the point, `w det J`
+    * \param[out] iJ: inverse of the jacobian
+@@ -40,16 +41,16 @@ namespace mfem_mgis::batch::internals {
+    * \param[in] q: integration point
+    */
+   template <int N>
+-  MFEM_HOST_DEVICE inline real invertPointJacobian(
++  MFEM_HOST_DEVICE inline real loadPointInverseJacobian(
+       real* const iJ,
+       const FaltusGeometryKernelArguments& a,
+       const std::size_t e,
+       const std::size_t q) {
+     const auto nq = static_cast<std::size_t>(a.nq);
+     const auto detJ = a.determinants[q + nq * e];
+-    invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++    loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e, nq);
+     return a.weights[q] * detJ;
+-  }  // end of invertPointJacobian
++  }  // end of loadPointInverseJacobian
+ 
+   /*!
+    * \brief computes the block of a node of the operator `D = B - B0` at an
+@@ -142,11 +143,11 @@ namespace mfem_mgis::batch::internals {
+                   (K == GradientsKind::DEFORMATION_GRADIENT_2D));
+     constexpr auto N = getDimension<K>();
+     real iJ0[N * N];
+-    invertCenterJacobian<N>(iJ0, a, e);
++    loadCenterInverseJacobian<N>(iJ0, a, e);
+     auto v = real{0};
+     for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
+       real iJ[N * N];
+-      const auto w = invertPointJacobian<N>(iJ, a, e, q);
++      const auto w = loadPointInverseJacobian<N>(iJ, a, e, q);
+       real da[N];
+       real db[N];
+       computeFaltusDerivativesDifference<N>(da, a, q, na, iJ, iJ0);
+@@ -170,9 +171,8 @@ namespace mfem_mgis::batch::internals {
+           constexpr auto gs = getGradientsSize<K>();
+           const auto e = static_cast<std::size_t>(a.elements[k]);
+           real iJ[N * N];
+-          invertJacobian<N>(iJ,
+-                            a.jacobians + static_cast<std::size_t>(N * N) * e,
+-                            1, a.determinants[e]);
++          loadInverseJacobian<N>(
++              iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
+           computeDeformationGradientAtCenter<K>(
+               a.centers +
+                   static_cast<std::size_t>(gs) * static_cast<std::size_t>(k),
+@@ -200,10 +200,10 @@ namespace mfem_mgis::batch::internals {
+           const auto* const F0 = a.centers + sgs * static_cast<std::size_t>(k);
+           auto* const fe = a.values + nd * V * e;
+           real iJ0[N * N];
+-          invertCenterJacobian<N>(iJ0, g, e);
++          loadCenterInverseJacobian<N>(iJ0, g, e);
+           for (std::size_t q = 0; q != static_cast<std::size_t>(g.nq); ++q) {
+             real iJ[N * N];
+-            const auto w = invertPointJacobian<N>(iJ, g, e, q);
++            const auto w = loadPointInverseJacobian<N>(iJ, g, e, q);
+             const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
+             // α (F - F0)
+             real dF[9];
+@@ -330,10 +330,10 @@ namespace mfem_mgis::batch::internals {
+           const auto* const xe = x + nd * V * e;
+           auto* const ye = y + nd * V * e;
+           real iJ0[N * N];
+-          invertCenterJacobian<N>(iJ0, a, e);
++          loadCenterInverseJacobian<N>(iJ0, a, e);
+           for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
+             real iJ[N * N];
+-            const auto w = invertPointJacobian<N>(iJ, a, e, q);
++            const auto w = loadPointInverseJacobian<N>(iJ, a, e, q);
+             // g[v][j] = Σ_b d_b[j] x_b[v]
+             real g[V][N] = {};
+             for (std::size_t node = 0; node != nd; ++node) {
+diff --git a/src/Batch/FaltusKernels.hxx b/src/Batch/FaltusKernels.hxx
+index 6366bd5208..89805ce415 100644
+--- a/src/Batch/FaltusKernels.hxx
++++ b/src/Batch/FaltusKernels.hxx
+@@ -26,10 +26,11 @@ namespace mfem_mgis::batch::internals {
+      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
+      */
+     const real* derivatives = nullptr;
+-    //! \brief jacobians at the center of all the elements of the mesh
+-    const real* jacobians = nullptr;
+-    //! \brief determinants of the jacobians at the center of the elements
+-    const real* determinants = nullptr;
++    /*!
++     * \brief inverses of the jacobians at the center of all the elements of
++     * the mesh (see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     /*!
+      * \brief deformation gradients `F0` at the center of the elements of
+      * the material (`c + gs * k` for the component `c` of the `k`-th
+@@ -56,8 +57,11 @@ namespace mfem_mgis::batch::internals {
+      * the reference element (`nq x dim x nd`)
+      */
+     const real* shape_functions_gradients = nullptr;
+-    //! \brief jacobians at the integration points of all the elements
+-    const real* jacobians = nullptr;
++    /*!
++     * \brief inverses of the jacobians at the integration points of all the
++     * elements (see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     //! \brief determinants of the jacobians at the integration points
+     const real* determinants = nullptr;
+     //! \brief weights of the integration points
+@@ -67,10 +71,11 @@ namespace mfem_mgis::batch::internals {
+      * reference element (`dim x nd`)
+      */
+     const real* center_shape_functions_gradients = nullptr;
+-    //! \brief jacobians at the center of all the elements
+-    const real* center_jacobians = nullptr;
+-    //! \brief determinants of the jacobians at the center of the elements
+-    const real* center_determinants = nullptr;
++    /*!
++     * \brief inverses of the jacobians at the center of all the elements
++     * (see `ElementsJacobians::invJ`)
++     */
++    const real* center_inverse_jacobians = nullptr;
+     //! \brief penalization coefficient `α`
+     real alpha = 0;
+     //! \brief number of elements of the material
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index bfa0a25cf6..a838b8e8c9 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -422,8 +422,7 @@ namespace mfem_mgis::batch {
+       }
+       a.unknowns_values = d.point_values.Read(use_device);
+     }
+-    a.jacobians = g.jacobians->J.Read(use_device);
+-    a.determinants = g.jacobians->detJ.Read(use_device);
++    a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
+     error = false;
+     return true;
+   }  // end of getGradientsKernelArguments
+diff --git a/src/Batch/GradientsKernels.cxx b/src/Batch/GradientsKernels.cxx
+index b5075cf809..2742fa2063 100644
+--- a/src/Batch/GradientsKernels.cxx
++++ b/src/Batch/GradientsKernels.cxx
+@@ -99,9 +99,10 @@ namespace mfem_mgis::batch::internals {
+           a.derivatives + static_cast<std::size_t>(V * N) * (sq + nq * e);
+       // physical derivatives: du_i/dx_j = sum_r du_i/dxi_r (J^-1)_{rj}
+       real iJ[N * N];
+-      invertJacobian<N>(
+-          iJ, a.jacobians + sq + nq * static_cast<std::size_t>(N * N) * e, nq,
+-          a.determinants[sq + nq * e]);
++      loadInverseJacobian<N>(
++          iJ,
++          a.inverse_jacobians + sq + nq * static_cast<std::size_t>(N * N) * e,
++          nq);
+       real du[V * N];
+       for (int i2 = 0; i2 != V; ++i2) {
+         for (int j = 0; j != N; ++j) {
+diff --git a/src/Batch/GradientsKernels.hxx b/src/Batch/GradientsKernels.hxx
+index bbe064ee9a..63b8c3466f 100644
+--- a/src/Batch/GradientsKernels.hxx
++++ b/src/Batch/GradientsKernels.hxx
+@@ -31,10 +31,11 @@ namespace mfem_mgis::batch::internals {
+      * `gradientsRequireUnknownsValues`)
+      */
+     const real* unknowns_values = nullptr;
+-    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
+-    const real* jacobians = nullptr;
+-    //! \brief determinants of the jacobians (`nq x ne`)
+-    const real* determinants = nullptr;
++    /*!
++     * \brief inverses of the jacobians of the element transformations (`nq x
++     * dim x dim x ne`, see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     //! \brief gradients of the material
+     real* gradients = nullptr;
+     //! \brief number of elements of the material
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+index 6b4666725d..7f9c1c675d 100644
+--- a/src/Batch/InnerForces.cxx
++++ b/src/Batch/InnerForces.cxx
+@@ -97,7 +97,7 @@ namespace mfem_mgis::batch {
+       a.offsets = offsets.Read(use_device);
+       a.shape_functions_gradients = g.maps->G.Read(use_device);
+       a.shape_functions = g.maps->B.Read(use_device);
+-      a.jacobians = g.jacobians->J.Read(use_device);
++      a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
+       a.determinants = g.jacobians->detJ.Read(use_device);
+       a.weights = g.weights.Read(use_device);
+       a.values = f.ReadWrite(use_device);
+diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
+index d4db70192b..13e266204f 100644
+--- a/src/Batch/InnerForcesKernels.cxx
++++ b/src/Batch/InnerForcesKernels.cxx
+@@ -89,7 +89,8 @@ namespace mfem_mgis::batch::internals {
+           for (std::size_t q = 0; q != nq; ++q) {
+             const auto detJ = a.determinants[q + nq * e];
+             real iJ[N * N];
+-            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
++                                   nq);
+             const auto o = static_cast<long long>(a.offsets[k]) +
+                            static_cast<long long>(q);
+             const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
+diff --git a/src/Batch/InnerForcesKernels.hxx b/src/Batch/InnerForcesKernels.hxx
+index b63416edb6..7e78dcd1d4 100644
+--- a/src/Batch/InnerForcesKernels.hxx
++++ b/src/Batch/InnerForcesKernels.hxx
+@@ -30,8 +30,11 @@ namespace mfem_mgis::batch::internals {
+      * nd`), used if the gradients are the values of the unknowns
+      */
+     const real* shape_functions = nullptr;
+-    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
+-    const real* jacobians = nullptr;
++    /*!
++     * \brief inverses of the jacobians of the element transformations (`nq x
++     * dim x dim x ne`, see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     //! \brief determinants of the jacobians (`nq x ne`)
+     const real* determinants = nullptr;
+     //! \brief weights of the integration points on the reference element
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index 72e5657647..7a87cb2167 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -182,6 +182,25 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of invertJacobian
+ 
++  /*!
++   * \brief reads the inverse of the jacobian at a point, computed once by the
++   * kernel of the geometric data (see `ElementsJacobians::invJ`)
++   * \tparam N: dimension
++   * \param[out] iJ: inverse, `iJ[i + N * j]` being the component `(i, j)`
++   * (as computed by `invertJacobian`)
++   * \param[in] invJ: inverse at the point of the element (`nq` points per
++   * element): `invJ[nq * (i + N * j)]` is the component `(i, j)`
++   * \param[in] nq: number of points per element
++   */
++  template <int N>
++  MFEM_HOST_DEVICE inline void loadInverseJacobian(real* const iJ,
++                                                   const real* const invJ,
++                                                   const std::size_t nq) {
++    for (std::size_t k = 0; k != N * N; ++k) {
++      iJ[k] = invJ[nq * k];
++    }
++  }  // end of loadInverseJacobian
++
+   /*!
+    * \brief computes the derivatives of a shape function in the physical
+    * frame: `dN/dx_c = sum_r dN/dxi_r (J^-1)_{rc}`
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index c437d74ec0..e57b56eae1 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -122,7 +122,7 @@ namespace mfem_mgis::batch {
+     a.offsets = offsets.Read(use_device);
+     a.shape_functions_gradients = g.maps->G.Read(use_device);
+     a.shape_functions = g.maps->B.Read(use_device);
+-    a.jacobians = g.jacobians->J.Read(use_device);
++    a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
+     a.determinants = g.jacobians->detJ.Read(use_device);
+     a.weights = g.weights.Read(use_device);
+     error = false;
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 3f554cb4c1..81da52f83f 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -306,7 +306,8 @@ namespace mfem_mgis::batch::internals {
+       for (std::size_t q = 0; q != nq; ++q) {
+         const auto detJ = a.determinants[q + nq * e];
+         real iJ[N * N];
+-        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++        loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
++                               nq);
+         const auto o2 =
+             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
+         const auto* const t = a.tangent_operator + o2 * a.point_stride;
+@@ -392,7 +393,8 @@ namespace mfem_mgis::batch::internals {
+       for (std::size_t q = 0; q != nq; ++q) {
+         const auto detJ = a.determinants[q + nq * e];
+         real iJ[N * N];
+-        invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++        loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
++                               nq);
+         // derivatives of the shape functions in the physical frame, followed
+         // by their values (see `getBOperatorEntries`)
+         real xa[N + 1];
+@@ -567,7 +569,8 @@ namespace mfem_mgis::batch::internals {
+           for (std::size_t q = 0; q != nq; ++q) {
+             const auto detJ = a.determinants[q + nq * e];
+             real iJ[N * N];
+-            invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
++                                   nq);
+             // increment of the gradients, B x, without forming B (see
+             // `getBOperatorEntries`)
+             constexpr auto entries = getBOperatorEntries<K>();
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index 12191f7dc1..2effba4ecb 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -52,8 +52,11 @@ namespace mfem_mgis::batch::internals {
+      * the heat equation)
+      */
+     const real* shape_functions = nullptr;
+-    //! \brief jacobians of the element transformations (`nq x dim x dim x ne`)
+-    const real* jacobians = nullptr;
++    /*!
++     * \brief inverses of the jacobians of the element transformations (`nq x
++     * dim x dim x ne`, see `ElementsJacobians::invJ`)
++     */
++    const real* inverse_jacobians = nullptr;
+     //! \brief determinants of the jacobians (`nq x ne`)
+     const real* determinants = nullptr;
+     //! \brief weights of the integration points on the reference element
+diff --git a/tests/ElementsGeometryTest.cxx b/tests/ElementsGeometryTest.cxx
+index 5b1533730e..aa0556cfbc 100644
+--- a/tests/ElementsGeometryTest.cxx
++++ b/tests/ElementsGeometryTest.cxx
+@@ -2,16 +2,16 @@
+  * \file   ElementsGeometryTest.cxx
+  * \brief  Test of the geometric data of the elements used by the kernels of
+  * the batch path (`mfem_mgis::batch::computeElementsGeometry`): the
+- * jacobians and their determinants at the integration points are the ones
+- * of the element transformations of MFEM, for meshes without nodes (kernel
+- * computing the jacobians from the vertices) of all the geometries, with
+- * distorted and mirrored elements (negative determinants), for parallel
+- * meshes refined non conformingly, for two integration rules allocated
+- * successively at the same address, for curved meshes (kernel computing
+- * the jacobians from the nodes, ordered by nodes or by components, of
+- * order 2 or 3, discontinuous for a periodic mesh) with a rule whose
+- * points are not ordered as a tensor product, and the jacobians are kept
+- * when the nodes of the mesh are modified. The values of the shape
++ * inverses and the determinants of the jacobians at the integration points
++ * are the ones of the element transformations of MFEM, for meshes without
++ * nodes (kernel computing them from the vertices) of all the geometries,
++ * with distorted and mirrored elements (negative determinants), for
++ * parallel meshes refined non conformingly, for two integration rules
++ * allocated successively at the same address, for curved meshes (kernel
++ * computing them from the nodes, ordered by nodes or by components, of
++ * order 2 or 3, discontinuous for a periodic mesh) with a rule whose points
++ * are not ordered as a tensor product, and they are kept when the nodes of
++ * the mesh are modified. The values of the shape
+  * functions of a destroyed rule, cached by the finite element, are
+  * detected. Meshes mixing several geometries, surface meshes and NURBS
+  * meshes are refused.
+@@ -174,14 +174,15 @@ static void compare(mfem::Mesh& mesh,
+   if (g.jacobians == nullptr) {
+     return;
+   }
+-  check((g.jacobians->J.Size() == g.nq * dim * dim * g.ne) &&
++  check((g.jacobians->invJ.Size() == g.nq * dim * dim * g.ne) &&
+             (g.jacobians->detJ.Size() == g.nq * g.ne),
+         name + ": sizes of the jacobians");
+-  const auto* const J = g.jacobians->J.HostRead();
++  const auto* const iJ = g.jacobians->invJ.HostRead();
+   const auto* const detJ = g.jacobians->detJ.HostRead();
+   const auto* const w = g.weights.HostRead();
+-  auto dJ = real{0};
++  auto diJ = real{0};
+   auto ddet = real{0};
++  auto finite = true;
+   auto dw = real{0};
+   auto signs = true;
+   for (int e = 0; e != mesh.GetNE(); ++e) {
+@@ -190,16 +191,22 @@ static void compare(mfem::Mesh& mesh,
+       const auto& ip = ir.IntPoint(q);
+       T.SetIntPoint(&ip);
+       const auto& Jr = T.Jacobian();
++      // inverse of the jacobian of MFEM
++      auto iJr = mfem::DenseMatrix(dim);
++      mfem::CalcInverse(Jr, iJr);
+       auto m = real{0};
++      auto im = real{0};
+       for (int c = 0; c != dim; ++c) {
+         for (int r = 0; r != dim; ++r) {
+           m = std::max(m, std::abs(Jr(r, c)));
++          im = std::max(im, std::abs(iJr(r, c)));
+         }
+       }
+       for (int c = 0; c != dim; ++c) {
+         for (int r = 0; r != dim; ++r) {
+-          const auto v = J[q + g.nq * (r + dim * (c + dim * e))];
+-          dJ = std::max(dJ, std::abs(v - Jr(r, c)) / m);
++          const auto v = iJ[q + g.nq * (r + dim * (c + dim * e))];
++          finite = finite && std::isfinite(v);
++          diJ = std::max(diJ, std::abs(v - iJr(r, c)) / im);
+         }
+       }
+       const auto det = detJ[q + g.nq * e];
+@@ -210,10 +217,11 @@ static void compare(mfem::Mesh& mesh,
+   }
+   if (verbose) {
+     std::cout << name << ": " << g.ne << " elements, " << g.nq
+-              << " points, relative differences " << dJ << " (jacobians), "
+-              << ddet << " (determinants), " << dw << " (weights)\n";
++              << " points, relative differences " << diJ
++              << " (inverses of the jacobians), " << ddet << " (determinants), "
++              << dw << " (weights)\n";
+   }
+-  check(dJ < 1e-13, name + ": jacobians");
++  check(finite && (diJ < 1e-13), name + ": inverses of the jacobians");
+   check(ddet < 1e-13, name + ": determinants");
+   check(dw < 1e-15, name + ": weights");
+   check(signs, name + ": signs of the determinants");
+@@ -319,9 +327,9 @@ static void checkStaleShapeFunctions(mfem::Mesh& mesh,
+ }  // end of checkStaleShapeFunctions
+ 
+ /*!
+- * \brief checks that the jacobians computed for a curved mesh are kept when
+- * its nodes are modified (the geometric factors of the mesh are then
+- * destroyed by MFEM)
++ * \brief checks that the inverses of the jacobians computed for a curved
++ * mesh are kept when its nodes are modified (the geometric factors of the mesh
++ * are then destroyed by MFEM)
+  * \param[in] mesh: mesh with nodes
+  * \param[in] name: name of the check
+  */
+@@ -336,8 +344,8 @@ static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
+     check(false, name + ": " + ctx.getErrorMessage());
+     return;
+   }
+-  const auto* const J = g.jacobians->J.HostRead();
+-  const auto before = std::vector<real>(J, J + g.jacobians->J.Size());
++  const auto* const iJ = g.jacobians->invJ.HostRead();
++  const auto before = std::vector<real>(iJ, iJ + g.jacobians->invJ.Size());
+   // the factors of the mesh are computed, then destroyed
+   static_cast<void>(
+       mesh.GetGeometricFactors(ir, mfem::GeometricFactors::JACOBIANS));
+@@ -349,9 +357,11 @@ static void checkJacobiansLifetime(mfem::Mesh& mesh, const std::string& name) {
+       }
+     }
+   });
+-  const auto* const J2 = g.jacobians->J.HostRead();
+-  check(std::equal(before.begin(), before.end(), J2),
+-        name + ": jacobians modified by the modification of the mesh");
++  const auto* const iJ2 = g.jacobians->invJ.HostRead();
++  check(std::equal(before.begin(), before.end(), iJ2),
++        name +
++            ": inverses of the jacobians modified by the modification of the "
++            "mesh");
+ }  // end of checkJacobiansLifetime
+ 
+ /*!
+-- 
+2.43.0
+

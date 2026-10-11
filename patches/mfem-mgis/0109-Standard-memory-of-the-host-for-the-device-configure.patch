@@ -1,0 +1,272 @@
+From 0c61fbfcb49b4902dfe7afeb026f30db1be7953c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 19:09:38 +0200
+Subject: [PATCH] Standard memory of the host for the device configured by
+ initialize
+
+MFEM compiled with Umpire allocates the memory of the host with Umpire
+as soon as a device is configured (HOST_UMPIRE), Umpire recording each
+allocation in its map of allocations. The temporaries of the loops over
+the elements made on the host (shape functions, element matrices) were
+thus allocated and freed through this map: on the bubble of mm-opera-hpc
+(467109 unknowns) on a GPU, the post-processings (stresses exported at
+the nodes, L2 projection) took 59.8 s instead of 10.7 s, and the whole
+computation 68 s instead of 14 s.
+
+Before the configuration of the device, initialize sets the memory types
+of MFEM: the standard memory of the host, and the default memory of the
+device (DEVICE_UMPIRE if MFEM is compiled with Umpire, DEVICE
+otherwise), or the standard memory of the host on both sides for a
+configuration without GPU. The variable MFEM_MEMORY of MFEM still gives
+them (MFEM_MEMORY=umpire restores the previous behaviour).
+
+Tests: DeviceOptionTest-cpu (standard memory of the host),
+DeviceOptionTest-cpu-umpire (MFEM_MEMORY=umpire, if MFEM is compiled
+with Umpire), DeviceOptionTest-cuda (memories of the host and of the
+device on the GPU).
+---
+ docs/source/user_guide/batch_computations.rst | 12 +++++
+ include/MFEMMGIS/Config.hxx                   |  7 ++-
+ src/Config.cxx                                | 51 +++++++++++++++---
+ tests/CMakeLists.txt                          | 17 ++++++
+ tests/DeviceOptionTest.cxx                    | 54 +++++++++++++++++--
+ 5 files changed, 131 insertions(+), 10 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index df9572fdc4..978b526fba 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -379,6 +379,18 @@ GPUs of the node in a round-robin manner (several processes may share a
+ GPU). On a GPU, each profiling section waits for the end of the kernels
+ launched on the GPU before it is closed.
+ 
++The memory of the host is the standard one, and the memory of the device
++the default one of :code:`MFEM` (:code:`Umpire` if :code:`MFEM` is
++compiled with it), unless the environment variable :code:`MFEM_MEMORY` of
++:code:`MFEM` gives them. :code:`MFEM` compiled with :code:`Umpire`
++otherwise also allocates the memory of the host with :code:`Umpire`, which
++records each allocation, including the temporaries of the loops over the
++elements made on the host: on the bubble of :code:`mm-opera-hpc` on a GPU,
++the post-processings (export of the stresses at the nodes, L2 projection)
++took 59.8 s instead of 10.7 s. :code:`MFEM_MEMORY=umpire` restores this
++behaviour, :code:`MFEM_MEMORY=host` uses the standard memory on both
++sides.
++
+ The :code:`debug` device of :code:`MFEM` keeps the copies of the arrays
+ "on the device" in a separate memory of the host, and detects the accesses
+ to invalid copies, which allows checking the memory accesses of the
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index a1fde04972..170321ae30 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -131,7 +131,12 @@ namespace mfem_mgis {
+    * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
+    * device is created with this configuration (for instance `cuda`), after
+    * the initialization of hypre and before the one of PETSc. The processes
+-   * of a node use the GPUs of the node in turn. With a GPU, the profiling
++   * of a node use the GPUs of the node in turn. The memory of the host is
++   * the standard one, and the memory of the device the default one of MFEM
++   * (Umpire if MFEM is compiled with it), unless the environment variable
++   * `MFEM_MEMORY` of MFEM gives them: MFEM compiled with Umpire otherwise
++   * allocates the memory of the host with Umpire too, which slows down the
++   * computations made on the host. With a GPU, the profiling
+    * sections wait for the end of the kernels launched on the GPU (see
+    * `mgis::setProfilingSynchronization`). An application which uses
+    * this option must neither create its own `mfem::Device` (MFEM refuses a
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e5b01539c6..b5c828ce45 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -172,6 +172,48 @@ namespace mfem_mgis {
+ #endif
+   }  // end of setHypreDevicePoolSize
+ 
++  /*!
++   * \return true if a configuration of the device of MFEM uses a GPU
++   * (`cuda`, `hip`, `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
++   * \param[in] configuration: configuration of the device
++   */
++  static bool usesGPU(const char* const configuration) {
++    const auto c = std::string_view{configuration};
++    return (c.find("cuda") != std::string_view::npos) ||
++           (c.find("hip") != std::string_view::npos) ||
++           (c.find("gpu") != std::string_view::npos);
++  }  // end of usesGPU
++
++  /*!
++   * \brief sets the memory types of MFEM before the configuration of its
++   * device, unless they are given by the environment (variable
++   * `MFEM_MEMORY`, or `MFEM_DEVICE`, with which MFEM ignores this call): the
++   * standard memory of the host, and the default memory of the device
++   * (Umpire if MFEM is compiled with it). MFEM compiled with Umpire
++   * otherwise allocates the memory of the host with Umpire too, which
++   * records each allocation, including the temporaries of the loops over the
++   * elements made on the host: post-processings, assemblies on the host and
++   * exports were about five times slower.
++   * \param[in] configuration: configuration of the device
++   */
++  static void setMemoryTypes(const char* const configuration) {
++    if (std::getenv("MFEM_MEMORY") != nullptr) {
++      return;
++    }
++    if (!usesGPU(configuration)) {
++      mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
++                                   mfem::MemoryType::HOST);
++      return;
++    }
++#ifdef MFEM_USE_UMPIRE
++    mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
++                                 mfem::MemoryType::DEVICE_UMPIRE);
++#else  /* MFEM_USE_UMPIRE */
++    mfem::Device::SetMemoryTypes(mfem::MemoryType::HOST,
++                                 mfem::MemoryType::DEVICE);
++#endif /* MFEM_USE_UMPIRE */
++  }  // end of setMemoryTypes
++
+   /*!
+    * \return the identifier of the GPU used by this process: the processes
+    * of a node use the GPUs of the node in turn (several processes may share
+@@ -181,12 +223,8 @@ namespace mfem_mgis {
+   static int getDeviceIdentifier(const char* const configuration) {
+ #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
+     // MFEM aborts if the number of GPUs is queried on a machine without GPU:
+-    // it is only queried for a configuration using a GPU (`cuda`, `hip`,
+-    // `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
+-    const auto c = std::string_view{configuration};
+-    if ((c.find("cuda") == std::string_view::npos) &&
+-        (c.find("hip") == std::string_view::npos) &&
+-        (c.find("gpu") == std::string_view::npos)) {
++    // it is only queried for a configuration using a GPU
++    if (!usesGPU(configuration)) {
+       return 0;
+     }
+     const auto n = mfem::Device::GetDeviceCount();
+@@ -344,6 +382,7 @@ namespace mfem_mgis {
+             "option '--device' can't be used");
+       }
+       const auto identifier = getDeviceIdentifier(device_configuration);
++      setMemoryTypes(device_configuration);
+       this->device =
+           std::make_unique<mfem::Device>(device_configuration, identifier);
+       // the kernels are launched asynchronously on a GPU: the profiling
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 2f7b99beb8..dd9678019d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1284,6 +1284,23 @@ add_test(NAME DeviceOptionTest-debug
+          COMMAND DeviceOptionTest --device debug --expected debug)
+ add_test(NAME DeviceOptionTest-debug-short
+          COMMAND DeviceOptionTest -dev debug --expected debug)
++# a device on the host or on a GPU, with the standard memory of the host
++# (MFEM compiled with Umpire allocates it with Umpire by default), unless
++# the variable MFEM_MEMORY of MFEM gives it
++add_test(NAME DeviceOptionTest-cpu
++         COMMAND DeviceOptionTest --device cpu --expected cpu)
++if(MFEM_USE_UMPIRE STREQUAL "YES")
++  add_test(NAME DeviceOptionTest-cpu-umpire
++           COMMAND DeviceOptionTest --device cpu --expected cpu
++                   --expected-host-memory umpire)
++  set_tests_properties(DeviceOptionTest-cpu-umpire PROPERTIES
++                       ENVIRONMENT MFEM_MEMORY=umpire)
++endif()
++if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++  add_test(NAME DeviceOptionTest-cuda
++           COMMAND DeviceOptionTest --device cuda --expected gpu)
++  set_tests_properties(DeviceOptionTest-cuda PROPERTIES RESOURCE_LOCK gpu)
++endif()
+ # KokkosOptionTest executable: the option --kokkos and the variable
+ # MFEM_MGIS_KOKKOS initialize Kokkos if mfem-mgis is built with Kokkos;
+ # otherwise, the option is refused and the variable is ignored with a
+diff --git a/tests/DeviceOptionTest.cxx b/tests/DeviceOptionTest.cxx
+index f8caf11a9d..e5ab655d93 100644
+--- a/tests/DeviceOptionTest.cxx
++++ b/tests/DeviceOptionTest.cxx
+@@ -9,18 +9,59 @@
+ #include <cstring>
+ #include <iostream>
+ #include "mfem/general/device.hpp"
++#include "mfem/general/mem_manager.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ 
++/*!
++ * \return true if the memory types of MFEM are the expected ones
++ * \param[in] expected_host_memory: expected memory of the host, `host`
++ * (standard memory) or `umpire`
++ * \param[in] gpu: if true, the device uses a GPU
++ */
++static bool checkMemoryTypes(const char* const expected_host_memory,
++                             const bool gpu) {
++  const auto host = mfem::Device::GetHostMemoryType();
++  const auto device = mfem::Device::GetDeviceMemoryType();
++  std::cout << "memory of the host: " << mfem::MemoryTypeName[int(host)]
++            << ", memory of the device: " << mfem::MemoryTypeName[int(device)]
++            << '\n';
++  if (std::strcmp(expected_host_memory, "umpire") == 0) {
++    return host == mfem::MemoryType::HOST_UMPIRE;
++  }
++  if (std::strcmp(expected_host_memory, "host") != 0) {
++    std::cerr << "invalid expected memory of the host '" << expected_host_memory
++              << "'\n";
++    return false;
++  }
++  if (host != mfem::MemoryType::HOST) {
++    return false;
++  }
++  if (!gpu) {
++    return true;
++  }
++  // default memory of the device of MFEM
++#ifdef MFEM_USE_UMPIRE
++  return device == mfem::MemoryType::DEVICE_UMPIRE;
++#else  /* MFEM_USE_UMPIRE */
++  return device == mfem::MemoryType::DEVICE;
++#endif /* MFEM_USE_UMPIRE */
++}  // end of checkMemoryTypes
++
+ int main(int argc, char** argv) {
+   mfem_mgis::initialize(argc, argv);
+   // `none` if no device is expected, `debug` if the debug device of MFEM is
+-  // expected
++  // expected, `cpu` for a device on the host, `gpu` for a device on a GPU
+   const char* expected = "none";
++  // expected memory of the host for the `cpu` and `gpu` devices: `host` or
++  // `umpire`
++  const char* expected_host_memory = "host";
+   auto args = mfem::OptionsParser(argc, argv);
+   mfem_mgis::declareDefaultOptions(args);
+   args.AddOption(&expected, "-e", "--expected",
+-                 "expected device: none or debug");
++                 "expected device: none, debug, cpu or gpu");
++  args.AddOption(&expected_host_memory, "-ehm", "--expected-host-memory",
++                 "expected memory of the host: host or umpire");
+   args.Parse();
+   if (!args.Good()) {
+     args.PrintUsage(std::cerr);
+@@ -28,15 +69,22 @@ int main(int argc, char** argv) {
+   }
+   const auto configured = mfem::Device::IsConfigured();
+   const auto debug = mfem::Device::Allows(mfem::Backend::DEBUG_DEVICE);
++  const auto gpu =
++      mfem::Device::Allows(mfem::Backend::CUDA_MASK | mfem::Backend::HIP_MASK);
+   auto success = false;
+   if (std::strcmp(expected, "none") == 0) {
+     success = !configured;
+   } else if (std::strcmp(expected, "debug") == 0) {
+     success = configured && debug;
++  } else if (std::strcmp(expected, "cpu") == 0) {
++    success = configured && !debug && !gpu &&
++              checkMemoryTypes(expected_host_memory, false);
++  } else if (std::strcmp(expected, "gpu") == 0) {
++    success = configured && gpu && checkMemoryTypes(expected_host_memory, true);
+   } else {
+     std::cerr << "invalid expected device '" << expected << "'\n";
+   }
+   std::cout << "device configured: " << configured
+-            << ", debug device: " << debug << '\n';
++            << ", debug device: " << debug << ", GPU: " << gpu << '\n';
+   return success ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+

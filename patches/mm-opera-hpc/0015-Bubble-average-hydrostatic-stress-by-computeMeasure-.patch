@@ -1,0 +1,97 @@
+From 79c49a81c7791683605a02443809db731646a3b7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:12:38 +0200
+Subject: [PATCH] Bubble: average hydrostatic stress by computeMeasure and
+ computeIntegral
+
+The average hydrostatic stress was computed by a loop over the elements
+of the mesh, evaluating the element transformation and searching the
+behaviour integrator at each integration point. It is now computed by
+the computeMeasure and computeIntegral functions of mfem-mgis, summed
+over all the processes, which may compute them by kernels (environment
+variable MFEM_MGIS_POST_PROCESSINGS_COMPUTATION). Same outputs.
+---
+ bubble/src/Bubble.cxx | 51 +++++++++----------------------------------
+ 1 file changed, 10 insertions(+), 41 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index e9066fd..79fb2f1 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -15,6 +15,7 @@
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ 
+ #include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/L2Projection.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -268,8 +269,10 @@ void write_bubble_infos(std::ofstream& file_to_write,
+ /**
+  * \brief Calculate the average hydrostatic stress over a material domain
+  *
+- * Integrates the hydrostatic pressure field over all elements and
+- * computes the volume-averaged value using MPI reduction if needed
++ * Integrates the hydrostatic pressure field over the elements of the
++ * material and computes the volume-averaged value over all the processes,
++ * with the functions of mfem-mgis (computed by kernels if the environment
++ * variable MFEM_MGIS_POST_PROCESSINGS_COMPUTATION is Kernels)
+  *
+  * \tparam parallel Whether running in parallel mode
+  * \param os Output stream for results
+@@ -284,47 +287,13 @@ static void calculateAverageHydrostaticStress(
+     const mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& prob,
+     const mfem_mgis::ImmutablePartialQuadratureFunctionView& f) {
+   auto or_die = ctx.getFatalFailureHandler();
+-  const auto& s = f.getPartialQuadratureSpace();
+-  const auto& fed = s.getFiniteElementDiscretization();
+-  const auto& fespace = fed.getFiniteElementSpace<parallel>();
+-  const auto m = s.getId();
+-
+-  mfem_mgis::real integral = 0.;
+-  mfem_mgis::real volume = 0.;
+-
+-  // Loop over all elements in the mesh
+-  for (mfem_mgis::size_type i = 0; i != fespace.GetNE(); ++i) {
+-    // Skip elements not in this material
+-    if (fespace.GetAttribute(i) != m) {
+-      continue;
+-    }
+-    const auto& fe = *(fespace.GetFE(i));
+-    auto& tr = *(fespace.GetElementTransformation(i));
+-    const auto& ir = s.getIntegrationRule(fe, tr);
+-
+-    // Integrate over quadrature points
+-    for (mfem_mgis::size_type g = 0; g != ir.GetNPoints(); ++g) {
+-      const auto& ip = ir.IntPoint(g);
+-      tr.SetIntPoint(&ip);
+-      const auto& bi = prob.getBehaviourIntegrator(ctx, m, 0) | or_die;
+-      const auto w = bi.getIntegrationPointWeight(tr, ip);
+-      integral += f.getIntegrationPointValue(i, g) * w;
+-      volume += w;
+-    }
+-  }
+-
+-  // MPI reduction to get global integral and volume
+-  mfem_mgis::real global_volume = 0.;
+-  mfem_mgis::real global_integral = 0.;
+-  MPI_Reduce(&integral, &global_integral, 1, MPI_DOUBLE, MPI_SUM, 0,
+-             MPI_COMM_WORLD);
+-  MPI_Reduce(&volume, &global_volume, 1, MPI_DOUBLE, MPI_SUM, 0,
+-             MPI_COMM_WORLD);
+-
++  const auto m = f.getPartialQuadratureSpace().getId();
++  const auto& bi = prob.getBehaviourIntegrator(ctx, m, 0) | or_die;
++  const auto volume = mfem_mgis::computeMeasure(bi);
++  const auto integral = mfem_mgis::computeIntegral<mfem_mgis::real>(bi, f);
+   // Write results on rank 0
+   if (mfem_mgis::getMPIrank() == 0) {
+-    os << global_volume << "," << global_integral << ","
+-       << global_integral / global_volume << "\n";
++    os << volume << "," << integral << "," << integral / volume << "\n";
+   }
+ }  // end of calculateAverageHydrostaticStress
+ 
+-- 
+2.43.0
+

@@ -1,0 +1,134 @@
+From 3a907f1f0650e15d79cfcc0c14b14438c3aad511 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 13:53:09 +0200
+Subject: [PATCH] ex8: results computed on the device read on the host, tests
+ on a GPU
+
+On a GPU (--device cuda), the statistics of the temperature and of the
+displacement were computed from the host copy of grid functions whose
+values had been prolongated on the device: the comparison to the reference
+failed (temperatures of the order of 1e9, or zero), although the
+resolutions were correct (same Newton iterations as on the CPU). The values
+are now read through HostRead. The host copy of the displacement read by
+the Robin boundary condition is also synchronized after its update (it was
+not found stale in the tests).
+
+The MFEM_MGIS_EXAMPLES_GPU_TESTS option (off by default) adds the tests of
+the examples on a CUDA device when MFEM is compiled with CUDA: ex8 is
+tested point by point and by kernels on the GPU (rjh_plate-cuda,
+rjh_plate-kernels-cuda), with the same reference.
+---
+ config/TestMode.cmake              | 19 +++++++++++++++++++
+ ex8/CMakeLists.txt                 | 25 +++++++++++++++++++++++--
+ ex8/headers/BoundaryConditions.hxx |  2 ++
+ ex8/headers/Debug.hxx              |  6 ++++--
+ 4 files changed, 48 insertions(+), 4 deletions(-)
+
+diff --git a/config/TestMode.cmake b/config/TestMode.cmake
+index a6b39e3..d72b7a7 100644
+--- a/config/TestMode.cmake
++++ b/config/TestMode.cmake
+@@ -36,3 +36,22 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
+ else()
+   message(STATUS "Test mode of the examples: restricted")
+ endif()
++
++# Tests on a GPU, selected by the MFEM_MGIS_EXAMPLES_GPU_TESTS option (off by
++# default, a GPU being required when the tests are run): the examples which
++# support it are also tested on a CUDA device, if MFEM is compiled with CUDA
++# (as described by mfem-mgis, which must be found before this file is
++# included). The MFEM_MGIS_EXAMPLES_CUDA_TESTS variable is then true.
++option(MFEM_MGIS_EXAMPLES_GPU_TESTS "Test the examples on a GPU too" OFF)
++set(MFEM_MGIS_EXAMPLES_CUDA_TESTS OFF)
++if(MFEM_MGIS_EXAMPLES_GPU_TESTS)
++  get_property(_mfem_mgis_examples_mfem_use_cuda GLOBAL
++               PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
++  if(_mfem_mgis_examples_mfem_use_cuda STREQUAL "YES")
++    set(MFEM_MGIS_EXAMPLES_CUDA_TESTS ON)
++    message(STATUS "Tests of the examples on a GPU: CUDA")
++  else()
++    message(STATUS "Tests of the examples on a GPU: none, MFEM is not "
++                   "compiled with CUDA")
++  endif()
++endif()
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index dd2f131..f02f41f 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -107,10 +107,31 @@ add_test(NAME rjh_plate-kernels
+         -lsMc MUMPSSolver
+         -rf ${rjh_plate_mesh}-statistics.ref
+     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
++set(rjh_plate_kernels_environment
++    "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+ set_tests_properties(rjh_plate-kernels PROPERTIES
+     PROCESSORS 2
+-    ENVIRONMENT
+-    "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
++    ENVIRONMENT "${rjh_plate_kernels_environment}")
++# the same computations on a GPU (see ../config/TestMode.cmake)
++if(MFEM_MGIS_EXAMPLES_CUDA_TESTS)
++  foreach(_variant "" "-kernels")
++    add_test(NAME rjh_plate${_variant}-cuda
++        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
++            $<TARGET_FILE:rjh_plate>
++            -m ${rjh_plate_mesh}.msh
++            -lsMc MUMPSSolver
++            -rf ${rjh_plate_mesh}-statistics.ref
++            --device cuda
++        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
++    set_tests_properties(rjh_plate${_variant}-cuda PROPERTIES
++        PROCESSORS 2
++        RESOURCE_LOCK gpu)
++  endforeach()
++  set_tests_properties(rjh_plate-cuda PROPERTIES
++      ENVIRONMENT OMP_NUM_THREADS=1)
++  set_tests_properties(rjh_plate-kernels-cuda PROPERTIES
++      ENVIRONMENT "${rjh_plate_kernels_environment}")
++endif()
+ 
+ # comparison of the swelling model to its exact value
+ add_test(NAME u3si2_swelling
+diff --git a/ex8/headers/BoundaryConditions.hxx b/ex8/headers/BoundaryConditions.hxx
+index 449cab1..925d098 100644
+--- a/ex8/headers/BoundaryConditions.hxx
++++ b/ex8/headers/BoundaryConditions.hxx
+@@ -61,6 +61,8 @@ class FieldUpdaterModel : public mfem_mgis::ModelBase {
+     for (auto& val : *Pow_s0) val = p0;
+     for (auto& val : *Pow_s1) val = p1;
+     u_mech->SetFromTrueDofs(*u_mech_true);
++    // the displacement is read on the host by the Robin boundary condition
++    static_cast<void>(u_mech->HostRead());
+ 
+     return {mfem_mgis::ExitStatus::success,
+             mfem_mgis::ComputeNextStateOutput{}};
+diff --git a/ex8/headers/Debug.hxx b/ex8/headers/Debug.hxx
+index 4a4ee79..1c51a30 100644
+--- a/ex8/headers/Debug.hxx
++++ b/ex8/headers/Debug.hxx
+@@ -55,6 +55,8 @@ inline FieldStatistics computeFieldStatistics(const std::vector<double>& values,
+  */
+ inline std::vector<double> getOwnedNodalValues(const mfem::ParGridFunction& f) {
+   const auto& fes = *(f.ParFESpace());
++  // the values may have been computed on the device
++  const auto* const data = f.HostRead();
+   auto values = std::vector<double>{};
+   for (int i = 0; i != fes.GetNDofs(); ++i) {
+     // a node shared between processes is counted by its owner only
+@@ -62,11 +64,11 @@ inline std::vector<double> getOwnedNodalValues(const mfem::ParGridFunction& f) {
+       continue;
+     }
+     if (fes.GetVDim() == 1) {
+-      values.push_back(f(fes.DofToVDof(i, 0)));
++      values.push_back(data[fes.DofToVDof(i, 0)]);
+     } else {
+       auto n2 = 0.0;
+       for (int d = 0; d != fes.GetVDim(); ++d) {
+-        const auto c = f(fes.DofToVDof(i, d));
++        const auto c = data[fes.DofToVDof(i, d)];
+         n2 += c * c;
+       }
+       values.push_back(std::sqrt(n2));
+-- 
+2.43.0
+

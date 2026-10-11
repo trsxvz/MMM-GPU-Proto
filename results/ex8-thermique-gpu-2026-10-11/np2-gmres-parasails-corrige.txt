@@ -1,0 +1,704 @@
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 src/libU3SI2-generic.so
+   --libraryALFENI src/libALFENI-generic.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreParaSails
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device 
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.777512  GB
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 236.542, ||r||/||r_0|| = 0.0335329
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429180 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179376 ( 0.76)
+Max setup values time :      0.7
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 10000
+Newton iteration  0 : ||r|| = 6829.34, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 91.1287, ||r||/||r_0|| = 0.0133437
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179586 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 0.0640625, ||r||/||r_0|| = 9.38048e-06
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179598 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  3 : ||r|| = 3.80179e-08, ||r||/||r_0|| = 5.56685e-12
+Convergence order 1.97479
+
+Newton iteration  0 : ||r|| = 1.17288e+06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 36220.3, ||r||/||r_0|| = 0.0308814
+Newton iteration  2 : ||r|| = 7.33519, ||r||/||r_0|| = 6.25398e-06
+Newton iteration  3 : ||r|| = 7.88042e-07, ||r||/||r_0|| = 6.71884e-13
+Convergence order 1.88677
+
+Newton iteration  0 : ||r|| = 1.6167, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179580 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 5000
+Newton iteration  0 : ||r|| = 6772, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 38.9061, ||r||/||r_0|| = 0.00574515
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179610 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 2500
+Newton iteration  0 : ||r|| = 6757.59, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 17.8149, ||r||/||r_0|| = 0.00263628
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179724 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 1250
+Newton iteration  0 : ||r|| = 6753.99, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.7
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 8.50233, ||r||/||r_0|| = 0.00125886
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179784 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 625
+Newton iteration  0 : ||r|| = 6753.08, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+Newton iteration  1 : ||r|| = 4.15053, ||r||/||r_0|| = 0.000614612
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179814 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 0.00012454, ||r||/||r_0|| = 1.8442e-08
+Convergence order 1.40836
+
+Newton iteration  0 : ||r|| = 965459, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1170.4, ||r||/||r_0|| = 0.00121227
+Newton iteration  2 : ||r|| = 1.33666, ||r||/||r_0|| = 1.38449e-06
+Newton iteration  3 : ||r|| = 1.05367e-07, ||r||/||r_0|| = 1.09137e-13
+Convergence order 2.4142
+
+Newton iteration  0 : ||r|| = 0.0842709, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179808 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 312.5
+Newton iteration  0 : ||r|| = 6752.86, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 2.05019, ||r||/||r_0|| = 0.000303604
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179826 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 3.02535e-05, ||r||/||r_0|| = 4.4801e-09
+Convergence order 1.37335
+
+Newton iteration  0 : ||r|| = 958595, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 960.469, ||r||/||r_0|| = 0.00100196
+Newton iteration  2 : ||r|| = 1.31499, ||r||/||r_0|| = 1.37179e-06
+Newton iteration  3 : ||r|| = 1.09374e-07, ||r||/||r_0|| = 1.14098e-13
+Convergence order 2.47245
+
+Newton iteration  0 : ||r|| = 0.0418655, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179820 ( 0.76)
+Max setup values time :      0.6
+*************************************************
+Setup (pattern and values) times:
+  0:      0.6
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 156.250000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 156.250000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 156.25
+Newton iteration  0 : ||r|| = 6752.8, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 1.01884, ||r||/||r_0|| = 0.000150877
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179862 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 7.45418e-06, ||r||/||r_0|| = 1.10386e-09
+Convergence order 1.34394
+
+Newton iteration  0 : ||r|| = 955165, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 911.84, ||r||/||r_0|| = 0.000954642
+Newton iteration  2 : ||r|| = 1.3022, ||r||/||r_0|| = 1.36332e-06
+Newton iteration  3 : ||r|| = 1.08064e-07, ||r||/||r_0|| = 1.13137e-13
+Convergence order 2.48871
+
+Newton iteration  0 : ||r|| = 0.0208656, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179832 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 78.125000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 78.125000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 78.125
+Newton iteration  0 : ||r|| = 6752.79, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 0.507857, ||r||/||r_0|| = 7.5207e-05
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179862 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 1.85001e-06, ||r||/||r_0|| = 2.73962e-10
+Convergence order 1.31884
+
+Newton iteration  0 : ||r|| = 953450, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 898.651, ||r||/||r_0|| = 0.000942526
+Newton iteration  2 : ||r|| = 1.2953, ||r||/||r_0|| = 1.35854e-06
+Newton iteration  3 : ||r|| = 1.0918e-07, ||r||/||r_0|| = 1.1451e-13
+Convergence order 2.48986
+
+Newton iteration  0 : ||r|| = 0.0104161, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179832 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+The coupling scheme did not converge for the time step from 0.000000 to 39.062500 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 39.062500 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 39.0625
+Newton iteration  0 : ||r|| = 6752.78, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  1 : ||r|| = 0.253538, ||r||/||r_0|| = 3.75457e-05
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179862 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+Newton iteration  2 : ||r|| = 4.6078e-07, ||r||/||r_0|| = 6.82355e-11
+Convergence order 1.29717
+
+Newton iteration  0 : ||r|| = 952593, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 894.586, ||r||/||r_0|| = 0.000939107
+Newton iteration  2 : ||r|| = 1.29173, ||r||/||r_0|| = 1.35602e-06
+Newton iteration  3 : ||r|| = 1.06264e-07, ||r||/||r_0|| = 1.11553e-13
+Convergence order 2.49425
+
+Newton iteration  0 : ||r|| = 0.00520385, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179832 ( 0.76)
+Max setup values time :      0.8
+*************************************************
+Setup (pattern and values) times:
+  0:      0.8
+  1:      0.3
+ave:      0.5
+*************************************************
+simulation failed: maximum number of failures or time step rejections reached at time 0.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+After Solving:  memory footprint:  1.38889  GB
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun detected that one or more processes exited with non-zero status, thus causing
+the job to be terminated. The first process to do so was:
+
+  Process name: [[47152,1],1]
+  Exit code:    1
+--------------------------------------------------------------------------

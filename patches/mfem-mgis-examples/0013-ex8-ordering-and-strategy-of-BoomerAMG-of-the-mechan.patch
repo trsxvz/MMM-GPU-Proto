@@ -1,0 +1,77 @@
+From a08c6378f9a256c2e57c12c35c8a4dc2e049628a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:46:32 +0200
+Subject: [PATCH] ex8: ordering and strategy of BoomerAMG of the mechanical
+ problem
+
+Options -oMc (--ordering-mechanics: byNODES, the default, or byVDIM) and
+-amgMc (--amg-strategy-mechanics: System, Elasticity or None, the default
+strategy of mfem-mgis if not given), to try the elasticity options of
+BoomerAMG, which require the degrees of freedom ordered by vector
+dimension.
+---
+ ex8/Thermomechanical.cxx | 7 +++++++
+ ex8/headers/Setup.hxx    | 6 ++++++
+ ex8/headers/Utils.hxx    | 4 ++++
+ 3 files changed, 17 insertions(+)
+
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index ba90d94..1482394 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -46,6 +46,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "NewtonK0 (Newton method whose tangent systems are solved "
+                  "by GMRES preconditioned by the elastic operator, "
+                  "factorized by MUMPS at each time step).");
++  args.AddOption(&p.ordering_meca, "-oMc", "--ordering-mechanics",
++                 "Ordering of the degrees of freedom of the mechanical "
++                 "problem: byNODES (default) or byVDIM.");
++  args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
++                 "Strategy of the BoomerAMG preconditioner of the mechanical "
++                 "problem: System, Elasticity (requires byVDIM) or None.");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -139,6 +145,7 @@ int main(int argc, char* argv[]) {
+                             {"FiniteElementOrder", p.order},
+                             {"Hypothesis", "Tridimensional"},
+                             {"UnknownsSize", 3},
++                            {"FiniteElementSpaceOrdering", p.ordering_meca},
+                             {"Name", "Mechanics"}};
+   const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
+   if (nonlinear_solver_meca == "NewtonK0") {
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index 5c4cc0e..36b6d4c 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -29,6 +29,12 @@ struct TestParameters {
+   // tangent systems are solved by GMRES preconditioned by the elastic
+   // operator, factorized by MUMPS at each time step)
+   const char* nonlinear_solver_meca = "Newton";
++  // ordering of the degrees of freedom of the mechanical problem (byNODES or
++  // byVDIM, which the elasticity options of BoomerAMG require)
++  const char* ordering_meca = "byNODES";
++  // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
++  // None), the default one of mfem-mgis if empty
++  const char* amg_strategy_meca = "";
+   // reference statistics of the fields, no comparison if empty
+   const char* reference_file = "";
+   int order = 1;                // finite element order
+diff --git a/ex8/headers/Utils.hxx b/ex8/headers/Utils.hxx
+index 68baca8..14fc7e6 100644
+--- a/ex8/headers/Utils.hxx
++++ b/ex8/headers/Utils.hxx
+@@ -118,6 +118,10 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+       }
+ 
+       auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};
++      if ((physics_type == "mechanics") && (precond == "HypreBoomerAMG") &&
++          (*param.amg_strategy_meca != '\0')) {
++        options.insert(ctx, "Strategy", param.amg_strategy_meca) | or_die;
++      }
+ 
+       auto preconditioner =
+           mfem_mgis::Parameters{{"Name", precond}, {"Options", options}};
+-- 
+2.43.0
+

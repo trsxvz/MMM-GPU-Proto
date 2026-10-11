@@ -1,0 +1,216 @@
+From 03c347eccb08db375347a07e6d9e043d3cdca58d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 21:46:20 +0200
+Subject: [PATCH] ex8: symmetry of MUMPS for NewtonK0, ignored options
+ reported, documentation
+
+- The option -msMc also applies to the elastic operator factorized by
+  MUMPS with NewtonK0 (SymmetricIndefinite by default, as before); its
+  default for the Newton method is still Unsymmetric. An invalid value is
+  refused even if MUMPS is not used.
+- The options -amgMc and -msMc print a warning when they have no effect
+  (no BoomerAMG preconditioner, linear solver other than MUMPS).
+- The help and the README describe the options -nlsMc, -oMc, -amgMc and
+  -msMc, and the assumption of the symmetric modes of MUMPS (the
+  symmetry is not checked).
+- Test rjh_plate-mumps-spd: the tangent operator given to MUMPS as a
+  symmetric positive definite matrix, compared to the reference.
+---
+ ex8/CMakeLists.txt       | 13 ++++++++
+ ex8/README.md            |  4 +++
+ ex8/Thermomechanical.cxx | 14 +++++++--
+ ex8/headers/Setup.hxx    |  8 +++--
+ ex8/headers/Utils.hxx    | 66 ++++++++++++++++++++++++++++++++--------
+ 5 files changed, 86 insertions(+), 19 deletions(-)
+
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index 8b19119..7f3ae6b 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -112,6 +112,19 @@ set(rjh_plate_kernels_environment
+ set_tests_properties(rjh_plate-kernels PROPERTIES
+     PROCESSORS 2
+     ENVIRONMENT "${rjh_plate_kernels_environment}")
++# the tangent operator of the mechanical problem given to MUMPS as a
++# symmetric positive definite matrix, compared to the same reference
++add_test(NAME rjh_plate-mumps-spd
++    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
++        $<TARGET_FILE:rjh_plate>
++        -m ${rjh_plate_mesh}.msh
++        -lsMc MUMPSSolver
++        -msMc SymmetricPositiveDefinite
++        -rf ${rjh_plate_mesh}-statistics.ref
++    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
++set_tests_properties(rjh_plate-mumps-spd PROPERTIES
++    PROCESSORS 2
++    ENVIRONMENT "${rjh_plate_kernels_environment}")
+ # the mechanical problem solved by the NewtonK0 method (tangent systems
+ # solved by GMRES preconditioned by the elastic operator, factorized by
+ # MUMPS at each time step), all the computations being made by kernels
+diff --git a/ex8/README.md b/ex8/README.md
+index a7edfea..ec80d71 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -82,6 +82,10 @@ Here is a summary table of the available options:
+ | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+ | `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default) or an iterative solver (e.g., `HyprePCG`). |
+ | `-pcMc` | `--preconditioner-mechanics` | Preconditioner associated with the mechanics solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
++| `-nlsMc` | `--nonlinear-solver-mechanics` | Non linear solver of the mechanics problem: `Newton` (default) or `NewtonK0` (tangent systems solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step). |
++| `-oMc` | `--ordering-mechanics` | Ordering of the degrees of freedom of the mechanics problem: `byNODES` (default) or `byVDIM`. |
++| `-amgMc` | `--amg-strategy-mechanics` | Strategy of the `HypreBoomerAMG` preconditioner of the mechanics problem: `System`, `Elasticity` (requires `byVDIM`) or `None` (default: the one of `mfem-mgis`). A warning is printed if the mechanics solver has no BoomerAMG preconditioner. |
++| `-msMc` | `--mumps-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to MUMPS (tangent operator with `Newton`, elastic operator with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to MUMPS without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up its factorizations by about 30 %. |
+ | `-o` | `--order` | Finite element order (polynomial degree, default: `1`). |
+ | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
+ | `-pp`, `-no-pp` | `--post-processing`, `--no-post-processing` | Enables (default) or disables the export of results for ParaView. |
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 3830586..b144378 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -54,8 +54,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "problem: System, Elasticity (requires byVDIM) or None.");
+   args.AddOption(&p.mumps_symmetry_meca, "-msMc", "--mumps-symmetry-mechanics",
+                  "Symmetry of the matrices of the mechanical problem given "
+-                 "to MUMPS: Unsymmetric (default), SymmetricIndefinite or "
+-                 "SymmetricPositiveDefinite.");
++                 "to MUMPS (tangent operator with Newton, elastic operator "
++                 "with NewtonK0): Unsymmetric, SymmetricIndefinite or "
++                 "SymmetricPositiveDefinite (default: Unsymmetric with "
++                 "Newton, SymmetricIndefinite with NewtonK0). The symmetric "
++                 "modes do not check the symmetry: a non symmetric tangent "
++                 "would slow down or break the convergence.");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -104,6 +108,9 @@ int main(int argc, char* argv[]) {
+ 
+   mfem::OptionsParser args(argc, argv);
+   common_parameters(args, p);
++  // an invalid symmetry of the matrices given to MUMPS is refused even if
++  // MUMPS is not used
++  static_cast<void>(getMUMPSSolverParameters(p.mumps_symmetry_meca, ""));
+ 
+   if (p.t_ramp < 0) {
+     ctx.log() << "the duration of the power ramp must not be negative\n";
+@@ -160,7 +167,8 @@ int main(int argc, char* argv[]) {
+         {"ElasticOperatorUpdate", "EachResolution"},
+         {"ElasticOperatorLinearSolver",
+          mfem_mgis::Parameters{
+-             {"MUMPSSolver", mfem_mgis::Parameters{{"Symmetric", true}}}}},
++             {"MUMPSSolver", getMUMPSSolverParameters(p.mumps_symmetry_meca,
++                                                      "SymmetricIndefinite")}}},
+         {"TangentLinearSolver",
+          mfem_mgis::Parameters{
+              {"GMRESSolver",
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index c843067..124b45f 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -35,9 +35,11 @@ struct TestParameters {
+   // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
+   // None), the default one of mfem-mgis if empty
+   const char* amg_strategy_meca = "";
+-  // symmetry of the matrices of the mechanical problem given to MUMPS:
+-  // Unsymmetric (default), SymmetricIndefinite or SymmetricPositiveDefinite
+-  const char* mumps_symmetry_meca = "Unsymmetric";
++  // symmetry of the matrices of the mechanical problem given to MUMPS
++  // (tangent operator with Newton, elastic operator with NewtonK0):
++  // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,
++  // Unsymmetric with Newton and SymmetricIndefinite with NewtonK0
++  const char* mumps_symmetry_meca = "";
+   // reference statistics of the fields, no comparison if empty
+   const char* reference_file = "";
+   int order = 1;                // finite element order
+diff --git a/ex8/headers/Utils.hxx b/ex8/headers/Utils.hxx
+index 258f820..50d8048 100644
+--- a/ex8/headers/Utils.hxx
++++ b/ex8/headers/Utils.hxx
+@@ -78,6 +78,38 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
+       or_die;
+ }
+ 
++/*!
++ * \return the parameters of the MUMPS solver of mfem-mgis for the symmetry
++ * of the matrices given by the option -msMc, or for the default symmetry if
++ * this option is not given. The symmetric modes give the lower triangle of
++ * the matrices to MUMPS without checking their symmetry: a non symmetric
++ * matrix would slow down or break the convergence of the Newton method.
++ * \param[in] symmetry: value of the option -msMc
++ * \param[in] default_symmetry: default symmetry
++ */
++inline mfem_mgis::Parameters getMUMPSSolverParameters(
++    const std::string_view symmetry, const std::string_view default_symmetry) {
++  const auto s = symmetry.empty() ? default_symmetry : symmetry;
++  if (s.empty()) {
++    // no symmetry given
++    return mfem_mgis::Parameters{};
++  }
++  if (s == "SymmetricIndefinite") {
++    return mfem_mgis::Parameters{{"Symmetric", true}};
++  }
++  if (s == "SymmetricPositiveDefinite") {
++    return mfem_mgis::Parameters{{"Symmetric", true},
++                                 {"PositiveDefinite", true}};
++  }
++  if (s != "Unsymmetric") {
++    mfem_mgis::abort(
++        "Invalid symmetry of the matrices given to MUMPS: " + std::string{s} +
++        " (expected Unsymmetric, SymmetricIndefinite or "
++        "SymmetricPositiveDefinite)");
++  }
++  return mfem_mgis::Parameters{};
++}  // end of getMUMPSSolverParameters
++
+ template <typename Problem>
+ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+                                    mfem_mgis::Context& ctx,
+@@ -100,6 +132,23 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+   } else {
+     mfem_mgis::abort("unknown physics (" + physics_type + ")");
+   }
++  // options of the mechanical problem without effect on its linear solver
++  if (physics_type == "mechanics") {
++    if ((*param.amg_strategy_meca != '\0') &&
++        ((!contains(iterative_solvers, solver)) ||
++         (precond != "HypreBoomerAMG"))) {
++      mfem_mgis::Profiler::Utils::Message(
++          "warning: the option -amgMc is ignored (no BoomerAMG preconditioner "
++          "for the mechanical problem)");
++    }
++    if ((*param.mumps_symmetry_meca != '\0') &&
++        (!contains(direct_solvers, solver)) &&
++        (std::string_view{param.nonlinear_solver_meca} != "NewtonK0")) {
++      mfem_mgis::Profiler::Utils::Message(
++          "warning: the option -msMc is ignored (the linear solver of the "
++          "mechanical problem is not MUMPS)");
++    }
++  }
+ 
+   if (contains(iterative_solvers, solver)) {
+     auto solverParameters = mfem_mgis::Parameters{
+@@ -134,19 +183,10 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+   }
+ 
+   else if (contains(direct_solvers, solver)) {
+-    auto solverParameters = mfem_mgis::Parameters{};
+-    if (physics_type == "mechanics") {
+-      const auto symmetry = std::string_view{param.mumps_symmetry_meca};
+-      if (symmetry == "SymmetricIndefinite") {
+-        solverParameters = mfem_mgis::Parameters{{"Symmetric", true}};
+-      } else if (symmetry == "SymmetricPositiveDefinite") {
+-        solverParameters = mfem_mgis::Parameters{{"Symmetric", true},
+-                                                 {"PositiveDefinite", true}};
+-      } else if (symmetry != "Unsymmetric") {
+-        mfem_mgis::abort("Invalid symmetry of the matrices given to MUMPS: " +
+-                         std::string{symmetry});
+-      }
+-    }
++    const auto solverParameters =
++        (physics_type == "mechanics")
++            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric")
++            : mfem_mgis::Parameters{};
+     p.setLinearSolver(ctx, solver, solverParameters) | or_die;
+   }
+ 
+-- 
+2.43.0
+

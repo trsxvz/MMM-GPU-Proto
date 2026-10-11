@@ -1,0 +1,79 @@
+From 25b68bd4733955bc3fb1d3b825ddd8f23b49ec57 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 20:32:06 +0200
+Subject: [PATCH] L2 projection: exceptions reported in the execution context
+
+The computations of the L2 projections and of the implicit gradient
+regularizations, declared noexcept, may throw (invalid value of
+MFEM_MGIS_POST_PROCESSINGS_COMPUTATION, failure of a kernel in the
+assembly of the mass matrices, exceptions of the integrators of the
+right-hand sides): the exceptions are now reported in the execution
+context instead of terminating the program.
+---
+ src/L2Projection.cxx | 30 ++++++++++++++++++++++++++----
+ 1 file changed, 26 insertions(+), 4 deletions(-)
+
+diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
+index 6a4646318b..a80c7be231 100644
+--- a/src/L2Projection.cxx
++++ b/src/L2Projection.cxx
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <vector>
++#include <exception>
+ #include <optional>
+ #include "mfem/mesh/mesh.hpp"
+ #include "mfem/fem/fespace.hpp"
+@@ -807,14 +808,35 @@ namespace mfem_mgis {
+     return true;
+   }  // end of updatePartialQuadratureRegularization_impl
+ 
++  /*!
++   * \brief calls `updatePartialQuadratureRegularization_impl`, the
++   * exceptions being reported in the execution context
++   */
++  template <bool parallel>
++  static bool updatePartialQuadratureRegularization(
++      Context& ctx,
++      L2ProjectionResult<parallel>& r,
++      LinearSolverHandler& l,
++      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
++      const real d) noexcept {
++    try {
++      return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l,
++                                                                  fcts, d);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "updatePartialQuadratureRegularization: unknown exception");
++    }
++  }  // end of updatePartialQuadratureRegularization
++
+   template <bool parallel>
+   static bool updateL2Projection_impl(
+       Context& ctx,
+       L2ProjectionResult<parallel>& r,
+       LinearSolverHandler& l,
+       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
+-    return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l, fcts,
+-                                                                0);
++    return updatePartialQuadratureRegularization<parallel>(ctx, r, l, fcts, 0);
+   }  // end of updateL2Projection_impl
+ 
+   template <>
+@@ -887,8 +909,8 @@ namespace mfem_mgis {
+       LinearSolverHandler& l,
+       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+       const real lc) noexcept {
+-    return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l, fcts,
+-                                                                lc * lc);
++    return updatePartialQuadratureRegularization<parallel>(ctx, r, l, fcts,
++                                                           lc * lc);
+   }  // end of updateImplicitGradientRegularization_impl
+ 
+   template <>
+-- 
+2.43.0
+

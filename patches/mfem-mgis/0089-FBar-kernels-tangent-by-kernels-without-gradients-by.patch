@@ -1,0 +1,428 @@
+From 24780b765c6fed160445c06bcc8c39f62ee6e059 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 05:03:39 +0200
+Subject: [PATCH] FBar kernels: tangent by kernels without gradients by kernels
+ refused at setup
+
+The stiffness matrices of a behaviour integrator depending on the current
+estimate of the solution (FBar formulation) are computed by kernels from
+data computed with the gradients by kernels: the setup of the resolution
+now refuses the stiffness matrices computed by kernels, assembled or
+applied without assembly, with gradients computed element by element
+(`MultiMaterialNonLinearIntegrator::checkStiffnessMatricesKernelsSupport`),
+instead of a failure of the first assembly, seen as a failure of the
+convergence. The validity of the data is kept as a safeguard, checked
+before the tangent operator already computed, which is discarded with the
+data.
+
+Other changes: documentation of `TangentOperatorComputation`, the vector
+`b` written by the kernel computing it, names of the functions passed as C
+strings, refusal tested with a tangent operator applied without assembly,
+prediction in the FBar case with quadratic elements.
+---
+ .../FBarBehaviourIntegratorCRTPBase.ixx       |   9 +-
+ .../MultiMaterialNonLinearIntegrator.hxx      |  16 +++
+ ...nearEvolutionProblemImplementationBase.hxx |   6 +-
+ src/Batch/FBar.cxx                            |   2 +-
+ src/Batch/InnerForces.cxx                     |  18 +--
+ src/MultiMaterialNonLinearIntegrator.cxx      |  23 +++
+ ...nearEvolutionProblemImplementationBase.cxx |   5 +
+ tests/BatchIntegrationTest.cxx                | 131 ++++++++++--------
+ 8 files changed, 143 insertions(+), 67 deletions(-)
+
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index c53d19ada0..f6fbae98ed 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -90,6 +90,7 @@ namespace mfem_mgis {
+     // the gradients are computed element by element: the data of the FBar
+     // formulation computed by kernels no longer match the unknowns
+     this->fbar_data.valid = false;
++    this->fbar_data.has_tangent_operator = false;
+ #ifdef MFEM_THREAD_SAFE
+     mfem::Vector shape0;
+     mfem::DenseMatrix dshape0;
+@@ -242,6 +243,7 @@ namespace mfem_mgis {
+     // the data of the FBar formulation computed by kernels no longer match
+     // the unknowns
+     this->fbar_data.valid = false;
++    this->fbar_data.has_tangent_operator = false;
+     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto &ir = child.getIntegrationRule(e, tr);
+ #ifdef MFEM_THREAD_SAFE
+@@ -628,9 +630,11 @@ namespace mfem_mgis {
+     if (!this->getKernelsData(ctx, data, name, g)) {
+       return false;
+     }
+-    if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
++    if (data.rule == nullptr) {
+       return true;
+     }
++    // safeguard: this case is refused by the setup of the non linear
++    // evolution problem
+     if (!this->fbar_data.valid) {
+       return ctx.registerErrorMessage(
+           std::string{name} +
+@@ -638,6 +642,9 @@ namespace mfem_mgis {
+           "computed by kernels from gradients computed by kernels "
+           "(GradientsComputation set to Kernels)");
+     }
++    if (this->fbar_data.has_tangent_operator) {
++      return true;
++    }
+     try {
+       if (this->fbar_data.coefficients.Size() != this->n) {
+         // before the first computation of the gradients (prediction of the
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index c16f1ba2fa..5f459a78a8 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -140,6 +140,22 @@ namespace mfem_mgis {
+      * \param[in, out] ctx: execution context
+      */
+     [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
++    /*!
++     * \return true if the stiffness matrices of all the behaviour
++     * integrators can be computed by kernels with the given computation of
++     * the gradients: the stiffness matrices of a behaviour integrator
++     * depending on the current estimate of the solution (FBar formulation,
++     * see
++     * `AbstractBehaviourIntegrator::requiresCurrentSolutionForJacobianAssembly`)
++     * are computed from data computed with the gradients by kernels;
++     * otherwise, an error message naming the first behaviour integrator
++     * concerned is registered
++     * \param[in, out] ctx: execution context
++     * \param[in] gradients_kernels: if true, the gradients are computed by
++     * kernels
++     */
++    [[nodiscard]] bool checkStiffnessMatricesKernelsSupport(
++        Context& ctx, const bool gradients_kernels) const noexcept;
+     /*!
+      * \brief compute the gradients of all the behaviour integrators by
+      * kernels (first step of the integration by batches, replacing the calls
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 63ff06a779..7c2ede7b80 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -123,8 +123,10 @@ namespace mfem_mgis {
+      * operator; the non linear form must only contain the integrator of
+      * mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
+      * behaviour integrators and meshes as for `GradientsComputation`, not
+-     * with PETSc. The default value is given by the environment variable
+-     * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
++     * with PETSc; with the FBar formulation, whose stiffness matrices depend
++     * on the current estimate of the solution, they require the gradients
++     * computed by kernels. The default value is given by the environment
++     * variable `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
+      */
+     static const char* const TangentOperatorComputation;
+     //! \brief computations of the tangent operator
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index c5fd78209b..ee495b713c 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -181,7 +181,7 @@ namespace mfem_mgis::batch {
+     ca.determinants = g0.jacobians->detJ.Read(use_device);
+     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
+     ca.centers = data.centers.Write(use_device);
+-    ca.b = data.b.ReadWrite(use_device);
++    ca.b = data.b.Write(use_device);
+     ca.number_of_elements = elements.Size();
+     ca.nd = g0.nd;
+     for (std::int64_t c = 0; c != gsize; ++c) {
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+index d549315a3d..6b4666725d 100644
+--- a/src/Batch/InnerForces.cxx
++++ b/src/Batch/InnerForces.cxx
+@@ -36,7 +36,7 @@ namespace mfem_mgis::batch {
+                                            const ElementsGeometry& g,
+                                            const GradientsKind k,
+                                            const bool by_material_element,
+-                                           const std::string& name) noexcept {
++                                           const char* const name) noexcept {
+ #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+     static_cast<void>(f);
+     static_cast<void>(qs);
+@@ -45,7 +45,7 @@ namespace mfem_mgis::batch {
+     static_cast<void>(k);
+     static_cast<void>(by_material_element);
+     return ctx.registerErrorMessage(
+-        name +
++        std::string{name} +
+         ": the kernels computing the inner forces are not compiled (MFEM "
+         "compiled with HIP)");
+ #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+@@ -58,26 +58,27 @@ namespace mfem_mgis::batch {
+         (g.jacobians == nullptr) ||
+         (qs.getUniformIntegrationRule() != g.rule)) {
+       return ctx.registerErrorMessage(
+-          name +
++          std::string{name} +
+           ": the elements of the material do not use the integration rule of "
+           "the geometric data");
+     }
+     const auto dim = getSpaceDimension(k);
+     if (g.dim != dim) {
+       return ctx.registerErrorMessage(
+-          name + ": unexpected dimension of the space (" +
++          std::string{name} + ": unexpected dimension of the space (" +
+           std::to_string(g.dim) + " instead of " + std::to_string(dim) + ")");
+     }
+     const auto size = std::int64_t{g.nd} * getUnknownsSize(k) *
+                       (by_material_element ? elements.Size() : g.ne);
+     if (static_cast<std::int64_t>(f.Size()) != size) {
+       return ctx.registerErrorMessage(
+-          name + ": unexpected size of the values element by element");
++          std::string{name} +
++          ": unexpected size of the values element by element");
+     }
+     if ((s.getNumberOfPoints() != qs.getNumberOfIntegrationPoints()) ||
+         (s.getNumberOfComponents() != getGradientsSize(k))) {
+       return ctx.registerErrorMessage(
+-          name +
++          std::string{name} +
+           ": unexpected number of points or of components of the "
+           "thermodynamic forces");
+     }
+@@ -102,9 +103,10 @@ namespace mfem_mgis::batch {
+       a.values = f.ReadWrite(use_device);
+       internals::launchInnerForcesKernel(k, a, use_device);
+     } catch (std::exception& e) {
+-      return ctx.registerErrorMessage(name + ": " + e.what());
++      return ctx.registerErrorMessage(std::string{name} + ": " + e.what());
+     } catch (...) {
+-      return ctx.registerErrorMessage(name + ": unknown exception");
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": unknown exception");
+     }
+     return true;
+ #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 8e508d9a56..6ee857b9e3 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -299,6 +299,29 @@ namespace mfem_mgis {
+     return true;
+   }  // end of checkBatchIntegrationSupport
+ 
++  bool MultiMaterialNonLinearIntegrator::checkStiffnessMatricesKernelsSupport(
++      Context& ctx, const bool gradients_kernels) const noexcept {
++    if (gradients_kernels) {
++      return true;
++    }
++    for (size_type m = 0;
++         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
++      for (const auto& bi : this->behaviour_integrators[m]) {
++        if (bi->requiresCurrentSolutionForJacobianAssembly()) {
++          return ctx.registerErrorMessage(
++              "the stiffness matrices of the behaviour integrator of "
++              "material '" +
++              std::to_string(m) +
++              "' depend on the current estimate of the solution (FBar "
++              "formulation): they can only be computed by kernels from "
++              "gradients computed by kernels (GradientsComputation set to "
++              "Kernels)");
++        }
++      }
++    }
++    return true;
++  }  // end of checkStiffnessMatricesKernelsSupport
++
+   bool MultiMaterialNonLinearIntegrator::checkPointByPointIntegrationSupport(
+       Context& ctx) const noexcept {
+     auto ctx2 = Context{};
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 7c9a921786..5b2995df92 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -521,6 +521,11 @@ namespace mfem_mgis {
+             (!this->mgis_integrator->checkKernelsSupport(ctx))) {
+           return false;
+         }
++        if ((this->computesStiffnessMatricesByKernels()) &&
++            (!this->mgis_integrator->checkStiffnessMatricesKernelsSupport(
++                ctx, this->gradients_kernels))) {
++          return false;
++        }
+         if (!this->mgis_integrator->setup(ctx, t, dt)) {
+           return false;
+         }
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 7188f4803b..80ecbeca87 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -28,6 +28,7 @@
+ #include <memory>
+ #include <span>
+ #include <string>
++#include <string_view>
+ #include <tuple>
+ #include <stdexcept>
+ #include <utility>
+@@ -950,7 +951,8 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+ 
+ /*!
+  * \brief the tangent operator of the FBar formulation can't be computed by
+- * kernels from gradients computed element by element
++ * kernels, assembled or applied without assembly, from gradients computed
++ * element by element: the resolution is refused at its setup
+  * \param[in, out] ctx: execution context
+  * \param[in] mesh: mesh
+  * \param[in] library: behaviour library
+@@ -960,60 +962,77 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+                                            const char* const library) {
+   using namespace mfem_mgis;
+   auto or_die = ctx.getFatalFailureHandler();
+-  auto problem =
+-      construct<NonLinearEvolutionProblem>(
+-          ctx,
+-          Parameters{
+-              {"MeshFileName", mesh},
+-              {"FiniteElementFamily", "H1"},
+-              {"FiniteElementOrder", 1},
+-              {"UnknownsSize", 3},
+-              {"NumberOfUniformRefinements", 1},
+-              {"Materials", Parameters{{"Cube", 1}}},
+-              {"Boundaries",
+-               Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
+-              {"Hypothesis", "Tridimensional"},
+-              {"BehaviourIntegration", "Batch"},
+-              {"GradientsComputation", "ElementByElement"},
+-              {"TangentOperatorComputation", "Kernels"},
+-              {"Parallel", parallel}}) |
+-      or_die;
+-  problem.addBehaviourIntegrator(
+-      ctx, "Mechanics", "Cube", library, "SaintVenantKirchhoffElasticity",
+-      {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
+-      or_die;
+-  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
+-  for (auto* s : {&m.s0, &m.s1}) {
+-    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++  for (const auto* const tangent : {"Kernels", "MatrixFree"}) {
++    auto problem =
++        construct<NonLinearEvolutionProblem>(
++            ctx, Parameters{{"MeshFileName", mesh},
++                            {"FiniteElementFamily", "H1"},
++                            {"FiniteElementOrder", 1},
++                            {"UnknownsSize", 3},
++                            {"NumberOfUniformRefinements", 1},
++                            {"Materials", Parameters{{"Cube", 1}}},
++                            {"Boundaries", Parameters{{"Ymin", 1},
++                                                      {"Zmin", 2},
++                                                      {"Xmax", 3},
++                                                      {"Xmin", 5}}},
++                            {"Hypothesis", "Tridimensional"},
++                            {"BehaviourIntegration", "Batch"},
++                            {"GradientsComputation", "ElementByElement"},
++                            {"TangentOperatorComputation", tangent},
++                            {"Parallel", parallel}}) |
+         or_die;
+-  }
+-  for (const auto& [boundary, component] :
+-       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addBehaviourIntegrator(
++        ctx, "Mechanics", "Cube", library, "SaintVenantKirchhoffElasticity",
++        {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
++        or_die;
++    auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++    for (auto* s : {&m.s0, &m.s1}) {
++      mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
++                                                293.15) |
++          or_die;
++    }
++    for (const auto& [boundary, component] :
++         {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++      problem.addUniformDirichletBoundaryCondition(
++          ctx, {{"Boundary", boundary}, {"Component", component}}) |
++          or_die;
++    }
+     problem.addUniformDirichletBoundaryCondition(
+-        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        ctx, {{"Boundary", "Xmax"},
++              {"Component", 0},
++              {"LoadingEvolution",
++               [](const real t) noexcept { return 1e-2 * t; }}}) |
+         or_die;
++    if (std::string_view{tangent} == "MatrixFree") {
++      problem.setLinearSolver(
++          ctx, "CGSolver",
++          {{"VerbosityLevel", 0},
++           {"RelativeTolerance", 1e-14},
++           {"AbsoluteTolerance", 0.},
++           {"MaximumNumberOfIterations", 1000},
++           {"Preconditioner",
++            Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
++          or_die;
++    } else {
++      problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
++                              {}) |
++          or_die;
++    }
++    problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                      {"RelativeTolerance", 1e-12},
++                                      {"AbsoluteTolerance", 0.},
++                                      {"MaximumNumberOfIterations", 10}}) |
++        or_die;
++    auto c = Context{};
++    const auto r = problem.solve(c, 0, 1);
++    const auto msg = std::string{c.getErrorMessage()};
++    check((!r.status) &&
++              (msg.find("gradients computed by kernels") != std::string::npos),
++          "FBar: tangent operator computed by kernels (" +
++              std::string{tangent} +
++              ") from gradients computed element by element accepted (" + msg +
++              ")");
+   }
+-  problem.addUniformDirichletBoundaryCondition(
+-      ctx,
+-      {{"Boundary", "Xmax"},
+-       {"Component", 0},
+-       {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
+-      or_die;
+-  problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver", {}) |
+-      or_die;
+-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                    {"RelativeTolerance", 1e-12},
+-                                    {"AbsoluteTolerance", 0.},
+-                                    {"MaximumNumberOfIterations", 10}}) |
+-      or_die;
+-  auto c = Context{};
+-  const auto r = problem.solve(c, 0, 1);
+-  const auto msg = std::string{c.getErrorMessage()};
+-  check((!r.status) &&
+-            (msg.find("gradients computed by kernels") != std::string::npos),
+-        "FBar: tangent operator computed by kernels from gradients computed "
+-        "element by element accepted (" +
+-            msg + ")");
+ }  // end of testFBarTangentOperatorRefusal
+ 
+ /*!
+@@ -1390,9 +1409,11 @@ int main(int argc, char** argv) {
+                       .matrix_free = true,
+                       .second_material_library = library},
+                      ", FBar, two materials, matrix free"});
+-    // quadratic elements (27 nodes by element)
++    // quadratic elements (27 nodes by element), with a prediction, which
++    // depends on the tangent operator
+     cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                      {.fbar = true,
++                      .prediction = true,
+                       .gradients_kernels = true,
+                       .inner_forces_kernels = true,
+                       .tangent_operator_kernels = true,
+@@ -1516,9 +1537,9 @@ int main(int argc, char** argv) {
+                         .matrix_free = true},
+                        ", matrix free"});
+     }
+-    // a second material whose behaviour is generated by the generic
+-    // interface, integrated on the host, the first one being integrated on
+-    // the device with a device enabled
++    // an elastic material whose behaviour is generated by the generic
++    // interface, integrated on the host, the tested material being
++    // integrated on the device with a device enabled
+     for (const auto kernels : {false, true}) {
+       cases.push_back(
+           {"IsotropicLinearHardeningPlasticity",
+-- 
+2.43.0
+

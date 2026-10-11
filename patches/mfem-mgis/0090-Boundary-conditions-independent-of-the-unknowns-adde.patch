@@ -1,0 +1,943 @@
+From 7e3c66f95341b284f428419956b26d6eef2fe74a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 04:53:55 +0200
+Subject: [PATCH] Boundary conditions independent of the unknowns added to the
+ residual
+
+The contribution to the residual of some boundary conditions is a vector
+independent of the unknowns multiplied by a scalar depending on time only,
+their contribution to the tangent operator being null. Such a boundary
+condition now reports it (new method `isIndependentOfTheUnknowns` of
+`AbstractBoundaryCondition`) and adds its contribution to a residual
+(`addContributionToTheResidual`). The imposed pressure and the heat source
+are such boundary conditions: their contributions are assembled once, for
+a unit value, by the linear form integrators used by the prediction, then
+scaled by the value at the end of the time step, on the device if a
+device is enabled.
+
+With the inner forces computed by kernels, such a boundary condition is no
+longer an integrator of the non linear form: its contribution is added to
+the inner forces computed by kernels before the transfer to the true
+degrees of freedom. If the non linear form contains no other integrator
+than the one of mfem-mgis, the residual is no longer assembled element by
+element on the host, the tangent operator is assembled by kernels without
+the assembly of MFEM, and it can be applied without assembly.
+
+Tests: BatchIntegrationTest compares to the integration point by point
+the imposed pressure added to the inner forces computed by kernels, with
+the tangent operator assembled by kernels or applied without assembly,
+also with the FBar formulation and two materials, the imposed pressure as
+an integrator of the non linear form with the inner forces computed
+element by element, and springs depending on the unknowns, an integrator
+of the non linear form besides the one of mfem-mgis; the refusal of the
+tangent operator applied without assembly is tested with these springs.
+HeatTransferKernelsTest: cases with a heat source, stationary and
+transient.
+---
+ .../source/user_guide/boundary_conditions.rst |  17 ++
+ .../MFEMMGIS/AbstractBoundaryCondition.hxx    |  26 +++
+ ...nearEvolutionProblemImplementationBase.hxx |  14 +-
+ .../UniformHeatSourceBoundaryCondition.hxx    |  21 ++
+ ...niformImposedPressureBoundaryCondition.hxx |  21 ++
+ src/AbstractBoundaryCondition.cxx             |  11 +
+ ...onLinearEvolutionProblemImplementation.cxx |  72 ++++--
+ src/UniformHeatSourceBoundaryCondition.cxx    |  52 ++++-
+ ...niformImposedPressureBoundaryCondition.cxx |  52 ++++-
+ tests/BatchIntegrationTest.cxx                | 211 ++++++++++++++++--
+ tests/HeatTransferKernelsTest.cxx             |  33 ++-
+ 11 files changed, 487 insertions(+), 43 deletions(-)
+
+diff --git a/docs/source/user_guide/boundary_conditions.rst b/docs/source/user_guide/boundary_conditions.rst
+index 64be10a304..ddf2b1120a 100644
+--- a/docs/source/user_guide/boundary_conditions.rst
++++ b/docs/source/user_guide/boundary_conditions.rst
+@@ -87,3 +87,20 @@ linearly with time, on the material named :code:`fuel`:
+                 problem.getFiniteElementDiscretizationPointer(), "fuel",
+                 [&q](const auto t) { return q * t; })) |
+        or_die;
++
++Boundary conditions independent of the unknowns
++===============================================
++
++The :code:`UniformImposedPressure` and :code:`UniformHeatSource` boundary
++conditions do not depend on the unknowns. With the inner
++forces computed by kernels (:code:`InnerForcesComputation` set to
++:code:`Kernels`), they are not integrators of the non linear form: their
++contributions to the residual are assembled once, for a unit value, and
++added to the inner forces, on the device if a device is enabled. If the
++non linear form contains no other integrator than the one of
++:code:`mfem-mgis` (no boundary condition depending on the unknowns), the
++tangent operator can then be assembled by kernels without the assembly of
++:code:`MFEM`, or applied without assembly (:code:`TangentOperatorComputation`
++set to :code:`Kernels` or :code:`MatrixFree`). With the inner forces
++computed element by element, they are integrators of the non linear form,
++and the tangent operator can't be applied without assembly.
+diff --git a/include/MFEMMGIS/AbstractBoundaryCondition.hxx b/include/MFEMMGIS/AbstractBoundaryCondition.hxx
+index 826507b0fb..5b1cc14c3d 100644
+--- a/include/MFEMMGIS/AbstractBoundaryCondition.hxx
++++ b/include/MFEMMGIS/AbstractBoundaryCondition.hxx
+@@ -96,6 +96,32 @@ namespace mfem_mgis {
+     [[nodiscard]] virtual bool setup(Context& ctx,
+                                      const real t,
+                                      const real dt) noexcept = 0;
++    /*!
++     * \return if the contribution of the boundary condition to the residual
++     * is a vector independent of the unknowns multiplied by a scalar which
++     * only depends on time, its contribution to the tangent operator being
++     * null. With the inner forces computed by kernels (parameter
++     * `InnerForcesComputation`), such a boundary condition is applied by
++     * `addContributionToTheResidual` instead of an integrator of the non
++     * linear form: if the non linear form contains no other integrator than
++     * the one of mfem-mgis, the tangent operator can then be assembled by
++     * kernels without the assembly of MFEM, or applied without assembly.
++     * The default implementation returns false.
++     */
++    [[nodiscard]] virtual bool isIndependentOfTheUnknowns() const noexcept;
++    /*!
++     * \brief adds the contribution of a boundary condition independent of
++     * the unknowns (see `isIndependentOfTheUnknowns`) to the residual, at the
++     * end of the time step given to `setup`. The default implementation
++     * reports an error.
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] r: residual, in the layout of the local vectors of the
++     * finite element space (one value per degree of freedom of the
++     * process), on the device if a device is enabled
++     */
++    [[nodiscard]] virtual bool addContributionToTheResidual(
++        Context& ctx, mfem::Vector& r) noexcept;
+     //! \brief destructor
+     virtual ~AbstractBoundaryCondition();
+   };
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 7c2ede7b80..2613124f81 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -121,7 +121,11 @@ namespace mfem_mgis {
+      * `OperatorJacobiSmoother` preconditioner, or with the
+      * `AssembledOperator` preconditioner, built on the assembled tangent
+      * operator; the non linear form must only contain the integrator of
+-     * mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
++     * mfem-mgis). With the inner forces computed by kernels, the boundary
++     * conditions independent of the unknowns (imposed pressure, heat source,
++     * see `AbstractBoundaryCondition::isIndependentOfTheUnknowns`) add their
++     * contributions to the residual without integrator in the non linear
++     * form. `Kernels` and `MatrixFree` are supported for the same
+      * behaviour integrators and meshes as for `GradientsComputation`, not
+      * with PETSc; with the FBar formulation, whose stiffness matrices depend
+      * on the current estimate of the solution, they require the gradients
+@@ -350,6 +354,14 @@ namespace mfem_mgis {
+     MultiMaterialNonLinearIntegrator* const mgis_integrator = nullptr;
+     //! \brief registered boundary conditions
+     std::vector<std::unique_ptr<AbstractBoundaryCondition>> boundary_conditions;
++    /*!
++     * \brief boundary conditions independent of the unknowns whose
++     * contributions to the residual are added to the inner forces computed
++     * by kernels, without integrator in the non linear form (see
++     * `AbstractBoundaryCondition::isIndependentOfTheUnknowns`). They are
++     * owned by `boundary_conditions`.
++     */
++    std::vector<AbstractBoundaryCondition*> residual_boundary_conditions;
+     //! \brief prediction policy
+     PredictionPolicy prediction_policy;
+     //! \brief modelling hypothesis
+diff --git a/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx b/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
+index 31ca5bff7c..09d9202ee4 100644
+--- a/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
++++ b/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
+@@ -133,6 +133,17 @@ namespace mfem_mgis {
+     [[nodiscard]] bool setup(Context& ctx,
+                              const real t,
+                              const real dt) noexcept override;
++    //! \return true: the heat source does not depend on the unknowns
++    [[nodiscard]] bool isIndependentOfTheUnknowns() const noexcept override;
++    /*!
++     * \brief adds the contribution of the heat source to the residual
++     * \param[in, out] ctx: execution context
++     * \param[in, out] r: residual, in the layout of the local vectors of the
++     * finite element space
++     * \return true on success
++     */
++    [[nodiscard]] bool addContributionToTheResidual(
++        Context& ctx, mfem::Vector& r) noexcept override;
+     //! \brief destructor
+     ~UniformHeatSourceBoundaryCondition() override;
+ 
+@@ -151,6 +162,16 @@ namespace mfem_mgis {
+     mfem::Array<mfem_mgis::size_type> materials_markers;
+     //! \brief function returning the value of the heat source
+     std::function<real(const real)> qfct;
++    //! \brief value of the heat source at the end of the time step
++    real heat_source = 0;
++    /*!
++     * \brief contribution of a unit heat source to the residual, in the
++     * layout of the local vectors of the finite element space, assembled by
++     * the first call to `addContributionToTheResidual`
++     */
++    mfem::Vector unit_heat_source_contribution;
++    //! \brief if the contribution of a unit heat source is assembled
++    bool unit_heat_source_contribution_assembled = false;
+     //! \brief underlying integrator
+     UniformHeatSourceNonlinearFormIntegrator* const nfi = nullptr;
+     //! \brief if the integrator must be freed by the destructor
+diff --git a/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx b/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
+index f3a5c2df3e..27d3754461 100644
+--- a/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
++++ b/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
+@@ -136,6 +136,17 @@ namespace mfem_mgis {
+     [[nodiscard]] bool setup(Context& ctx,
+                              const real t,
+                              const real dt) noexcept override;
++    //! \return true: the imposed pressure does not depend on the unknowns
++    [[nodiscard]] bool isIndependentOfTheUnknowns() const noexcept override;
++    /*!
++     * \brief adds the contribution of the imposed pressure to the residual
++     * \param[in, out] ctx: execution context
++     * \param[in, out] r: residual, in the layout of the local vectors of the
++     * finite element space
++     * \return true on success
++     */
++    [[nodiscard]] bool addContributionToTheResidual(
++        Context& ctx, mfem::Vector& r) noexcept override;
+     //! \brief destructor
+     ~UniformImposedPressureBoundaryCondition() override;
+ 
+@@ -154,6 +165,16 @@ namespace mfem_mgis {
+     mfem::Array<mfem_mgis::size_type> boundaries_markers;
+     //! \brief function returning the value of the imposed pressure
+     std::function<real(const real)> prfct;
++    //! \brief value of the imposed pressure at the end of the time step
++    real pressure = 0;
++    /*!
++     * \brief contribution of a unit pressure to the residual, in the layout
++     * of the local vectors of the finite element space, assembled by the
++     * first call to `addContributionToTheResidual`
++     */
++    mfem::Vector unit_pressure_contribution;
++    //! \brief if the contribution of a unit pressure is assembled
++    bool unit_pressure_contribution_assembled = false;
+     //! \brief underlying integrator
+     UniformImposedPressureNonlinearFormIntegrator* const nfi = nullptr;
+     //! \brief if the integrator must be freed by the destructor
+diff --git a/src/AbstractBoundaryCondition.cxx b/src/AbstractBoundaryCondition.cxx
+index cc0412deb9..9c2c7c69d4 100644
+--- a/src/AbstractBoundaryCondition.cxx
++++ b/src/AbstractBoundaryCondition.cxx
+@@ -9,6 +9,17 @@
+ 
+ namespace mfem_mgis {
+ 
++  bool AbstractBoundaryCondition::isIndependentOfTheUnknowns() const noexcept {
++    return false;
++  }  // end of isIndependentOfTheUnknowns
++
++  bool AbstractBoundaryCondition::addContributionToTheResidual(
++      Context& ctx, mfem::Vector&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBoundaryCondition::addContributionToTheResidual: the "
++        "boundary condition depends on the unknowns");
++  }  // end of addContributionToTheResidual
++
+   AbstractBoundaryCondition::~AbstractBoundaryCondition() = default;
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 64a29f0dea..3cf99eb278 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -96,24 +96,32 @@ namespace mfem_mgis {
+       throw(CollectiveFailure(
+           "the tangent operator applied without assembly (parameter "
+           "TangentOperatorComputation set to MatrixFree) requires that the "
+-          "non linear form only contains the integrator of mfem-mgis"));
++          "non linear form only contains the integrator of mfem-mgis (with "
++          "the inner forces computed by kernels, the boundary conditions "
++          "independent of the unknowns, such as an imposed pressure, are not "
++          "integrators of the non linear form)"));
+     }
+   }  // end of checkMatrixFreeTangentOperatorSupport
+ 
+   /*!
+-   * \brief adds the inner forces computed by kernels to the residual (true
+-   * degrees of freedom), and cancels the residual at the essential degrees
+-   * of freedom
++   * \brief adds the inner forces computed by kernels and the contributions
++   * of the boundary conditions independent of the unknowns to the residual
++   * (true degrees of freedom), and cancels the residual at the essential
++   * degrees of freedom
+    * \param[in] fed: finite element discretization
+-   * \param[in, out] mi: multi-material integrator
++   * \param[in, out] mi: multi-material integrator, null if the inner forces
++   * are not computed by kernels
++   * \param[in] bcs: boundary conditions independent of the unknowns
+    * \param[in] fes: finite element space
+    * \param[in] essential_dofs: essential true degrees of freedom
+-   * \param[out] f: inner forces (local vector of the finite element space)
++   * \param[out] f: inner forces and contributions of the boundary
++   * conditions (local vector of the finite element space)
+    * \param[in, out] r: residual
+    */
+   static void addInnerForcesComputedByKernels(
+       const FiniteElementDiscretization& fed,
+-      MultiMaterialNonLinearIntegrator& mi,
++      MultiMaterialNonLinearIntegrator* const mi,
++      const std::vector<AbstractBoundaryCondition*>& bcs,
+       const mfem::FiniteElementSpace& fes,
+       const mfem::Array<int>& essential_dofs,
+       mfem::Vector& f,
+@@ -124,7 +132,10 @@ namespace mfem_mgis {
+       f.UseDevice(true);
+       f.SetSize(fes.GetVSize());
+       f = real{0};
+-      success = mi.addInnerForcesByKernels(ctx, fes, f);
++      success = (mi == nullptr) || mi->addInnerForcesByKernels(ctx, fes, f);
++      for (auto* const bc : bcs) {
++        success = success && bc->addContributionToTheResidual(ctx, f);
++      }
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+     }
+@@ -486,7 +497,8 @@ namespace mfem_mgis {
+         } else {
+           B = b;
+         }
+-        addInnerForcesComputedByKernels(fed, mi, fespace, edofs_list,
++        // the boundary conditions contribute to `b` by their linear forms
++        addInnerForcesComputedByKernels(fed, &mi, {}, fespace, edofs_list,
+                                         *(kernels.inner_forces), B);
+         // elimination in the local matrix, without prolongation
+         const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
+@@ -730,7 +742,9 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<true>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+-    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
++    const auto kernels =
++        (this->inner_forces_kernels) && (this->mgis_integrator != nullptr);
++    if ((!kernels) && (this->residual_boundary_conditions.empty())) {
+       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+       return;
+     }
+@@ -738,16 +752,17 @@ namespace mfem_mgis {
+     // gives null contributions to the residual assembled by MFEM: the
+     // assembly of MFEM is skipped if the form has no other integrator
+     const auto only_mfem_mgis =
+-        isTheOnlyIntegrator(*this, this->mgis_integrator);
++        kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
+     if (only_mfem_mgis) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+     }
+     addInnerForcesComputedByKernels(
+-        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-        this->getFiniteElementSpace(), this->ess_tdof_list,
+-        this->inner_forces_by_kernels, r);
++        this->getFiniteElementDiscretization(),
++        kernels ? this->mgis_integrator : nullptr,
++        this->residual_boundary_conditions, this->getFiniteElementSpace(),
++        this->ess_tdof_list, this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<
+@@ -819,7 +834,13 @@ namespace mfem_mgis {
+     if (f.get() == nullptr) {
+       return ctx.registerErrorMessage("invalid boundary condition");
+     }
+-    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
++    if ((this->inner_forces_kernels) && (f->isIndependentOfTheUnknowns())) {
++      // the contribution of the boundary condition is added to the inner
++      // forces computed by kernels (see `Mult`): the non linear form only
++      // contains the integrator of mfem-mgis, and the tangent operator can
++      // be assembled by kernels or applied without assembly
++      this->residual_boundary_conditions.push_back(f.get());
++    } else if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+       return false;
+     }
+     this->boundary_conditions.push_back(std::move(f));
+@@ -1091,21 +1112,24 @@ namespace mfem_mgis {
+ 
+   void NonLinearEvolutionProblemImplementation<false>::Mult(
+       const mfem::Vector& u, mfem::Vector& r) const {
+-    if ((!this->inner_forces_kernels) || (this->mgis_integrator == nullptr)) {
++    const auto kernels =
++        (this->inner_forces_kernels) && (this->mgis_integrator != nullptr);
++    if ((!kernels) && (this->residual_boundary_conditions.empty())) {
+       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+       return;
+     }
+     const auto only_mfem_mgis =
+-        isTheOnlyIntegrator(*this, this->mgis_integrator);
++        kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
+     if (only_mfem_mgis) {
+       r = real{0};
+     } else {
+       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+     }
+     addInnerForcesComputedByKernels(
+-        this->getFiniteElementDiscretization(), *(this->mgis_integrator),
+-        this->getFiniteElementSpace(), this->ess_tdof_list,
+-        this->inner_forces_by_kernels, r);
++        this->getFiniteElementDiscretization(),
++        kernels ? this->mgis_integrator : nullptr,
++        this->residual_boundary_conditions, this->getFiniteElementSpace(),
++        this->ess_tdof_list, this->inner_forces_by_kernels, r);
+   }  // end of Mult
+ 
+   mfem::Operator& NonLinearEvolutionProblemImplementation<
+@@ -1173,7 +1197,13 @@ namespace mfem_mgis {
+     if (f.get() == nullptr) {
+       return ctx.registerErrorMessage("invalid boundary condition");
+     }
+-    if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
++    if ((this->inner_forces_kernels) && (f->isIndependentOfTheUnknowns())) {
++      // the contribution of the boundary condition is added to the inner
++      // forces computed by kernels (see `Mult`): the non linear form only
++      // contains the integrator of mfem-mgis, and the tangent operator can
++      // be assembled by kernels or applied without assembly
++      this->residual_boundary_conditions.push_back(f.get());
++    } else if (!f->addNonlinearFormIntegrator(ctx, *this, this->u1)) {
+       return false;
+     }
+     this->boundary_conditions.push_back(std::move(f));
+diff --git a/src/UniformHeatSourceBoundaryCondition.cxx b/src/UniformHeatSourceBoundaryCondition.cxx
+index c3eb816166..ff31934ba4 100644
+--- a/src/UniformHeatSourceBoundaryCondition.cxx
++++ b/src/UniformHeatSourceBoundaryCondition.cxx
+@@ -187,7 +187,8 @@ namespace mfem_mgis {
+                                                  const real dt) noexcept {
+     auto success = true;
+     try {
+-      this->nfi->setHeatSource(this->qfct(t + dt));
++      this->heat_source = this->qfct(t + dt);
++      this->nfi->setHeatSource(this->heat_source);
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+       success = false;
+@@ -267,6 +268,55 @@ namespace mfem_mgis {
+     return true;
+   }  // end of addLinearFormIntegrators
+ 
++  bool UniformHeatSourceBoundaryCondition::isIndependentOfTheUnknowns()
++      const noexcept {
++    return true;
++  }  // end of isIndependentOfTheUnknowns
++
++  bool UniformHeatSourceBoundaryCondition::addContributionToTheResidual(
++      Context &ctx, mfem::Vector &r) noexcept {
++    try {
++      auto &v = this->unit_heat_source_contribution;
++      if (!this->unit_heat_source_contribution_assembled) {
++        // the linear form integrator of the prediction, for a unit heat
++        // source, assembled on the host once
++        auto &fed = *(this->finiteElementDiscretization);
++        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
++#ifdef MFEM_USE_MPI
++          if (fed.describesAParallelComputation()) {
++            return &(fed.getFiniteElementSpace<true>());
++          }
++#endif /* MFEM_USE_MPI */
++          return &(fed.getFiniteElementSpace<false>());
++        }();
++        auto markers = mfem::Array<mfem_mgis::size_type>(
++            fes->GetMesh()->attributes.Max());
++        markers = 0;
++        for (const auto &mid : this->mids) {
++          markers[mid - 1] = 1;
++        }
++        auto b = mfem::LinearForm(fes);
++        auto *const form = new UniformHeatSourceLinearFormIntegrator();
++        form->setHeatSource(1);
++        b.AddDomainIntegrator(form, markers);
++        b.Assemble();
++        v.UseDevice(true);
++        v = b;
++        this->unit_heat_source_contribution_assembled = true;
++      }
++      if (r.Size() != v.Size()) {
++        return ctx.registerErrorMessage(
++            "UniformHeatSourceBoundaryCondition::"
++            "addContributionToTheResidual: invalid size of the residual");
++      }
++      r.Add(this->heat_source, v);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++      return false;
++    }
++    return true;
++  }  // end of addContributionToTheResidual
++
+   UniformHeatSourceBoundaryCondition::~UniformHeatSourceBoundaryCondition() {
+     if (this->shallFreeIntegrator) {
+       delete this->nfi;
+diff --git a/src/UniformImposedPressureBoundaryCondition.cxx b/src/UniformImposedPressureBoundaryCondition.cxx
+index 55205803ce..86b8c9718a 100644
+--- a/src/UniformImposedPressureBoundaryCondition.cxx
++++ b/src/UniformImposedPressureBoundaryCondition.cxx
+@@ -203,7 +203,8 @@ namespace mfem_mgis {
+       Context &ctx, const real t, const real dt) noexcept {
+     auto success = true;
+     try {
+-      this->nfi->setPressure(this->prfct(t + dt));
++      this->pressure = this->prfct(t + dt);
++      this->nfi->setPressure(this->pressure);
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+       success = false;
+@@ -283,6 +284,55 @@ namespace mfem_mgis {
+     return true;
+   }  // end of addLinearFormIntegrators
+ 
++  bool UniformImposedPressureBoundaryCondition::isIndependentOfTheUnknowns()
++      const noexcept {
++    return true;
++  }  // end of isIndependentOfTheUnknowns
++
++  bool UniformImposedPressureBoundaryCondition::addContributionToTheResidual(
++      Context &ctx, mfem::Vector &r) noexcept {
++    try {
++      auto &v = this->unit_pressure_contribution;
++      if (!this->unit_pressure_contribution_assembled) {
++        // the linear form integrator of the prediction, for a unit
++        // pressure, assembled on the host once
++        auto &fed = *(this->finiteElementDiscretization);
++        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
++#ifdef MFEM_USE_MPI
++          if (fed.describesAParallelComputation()) {
++            return &(fed.getFiniteElementSpace<true>());
++          }
++#endif /* MFEM_USE_MPI */
++          return &(fed.getFiniteElementSpace<false>());
++        }();
++        auto markers = mfem::Array<mfem_mgis::size_type>(
++            fes->GetMesh()->bdr_attributes.Max());
++        markers = 0;
++        for (const auto &bid : this->bids) {
++          markers[bid - 1] = 1;
++        }
++        auto b = mfem::LinearForm(fes);
++        auto *const form = new UniformImposedPressureLinearFormIntegrator();
++        form->setPressure(1);
++        b.AddBoundaryIntegrator(form, markers);
++        b.Assemble();
++        v.UseDevice(true);
++        v = b;
++        this->unit_pressure_contribution_assembled = true;
++      }
++      if (r.Size() != v.Size()) {
++        return ctx.registerErrorMessage(
++            "UniformImposedPressureBoundaryCondition::"
++            "addContributionToTheResidual: invalid size of the residual");
++      }
++      r.Add(this->pressure, v);
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
++      return false;
++    }
++    return true;
++  }  // end of addContributionToTheResidual
++
+   UniformImposedPressureBoundaryCondition::
+       ~UniformImposedPressureBoundaryCondition() {
+     if (this->shallFreeIntegrator) {
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 80ecbeca87..dac25e429e 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -13,9 +13,11 @@
+  * formulation by kernels (imposed pressure, two materials, quadratic
+  * elements, plane strain); refusal of an invalid value, of a behaviour
+  * integrator which does not support it, of a tangent operator applied
+- * without assembly with a boundary integrator and of a tangent operator of
+- * the FBar formulation computed by kernels from gradients computed element
+- * by element. With the `--parallel`
++ * without assembly with a boundary integrator depending on the unknowns and
++ * of a tangent operator of the FBar formulation computed by kernels from
++ * gradients computed element by element; imposed pressure added to the
++ * inner forces computed by kernels, with a tangent operator assembled by
++ * kernels or applied without assembly. With the `--parallel`
+  * option, the computations are made in parallel (MUMPS), only their
+  * comparisons are made, to the rounding errors.
+  * \date   09/10/2026
+@@ -48,6 +50,7 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
++#include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+ #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
+ 
+ //! \brief number of failed checks
+@@ -108,6 +111,12 @@ struct ComputationOptions {
+    * prediction
+    */
+   bool pressure = false;
++  /*!
++   * \brief if true, springs are added at the nodes of the boundary elements
++   * (`SpringsBoundaryCondition`): the non linear form contains an integrator
++   * depending on the unknowns besides the one of mfem-mgis
++   */
++  bool springs = false;
+   /*!
+    * \brief if true, the temperature at the end of each time step increases
+    * linearly in time, the temperature at the beginning of the time step
+@@ -172,6 +181,84 @@ struct ComputationOptions {
+   mfem_mgis::real relative_tolerance = 1e-12;
+ };
+ 
++/*!
++ * \brief springs of uniform stiffness at the nodes of all the boundary
++ * elements, one spring per node and per boundary element: a boundary
++ * condition depending on the unknowns (see
++ * `AbstractBoundaryCondition::isIndependentOfTheUnknowns`), whose integrator
++ * is added to the non linear form besides the one of mfem-mgis
++ */
++struct SpringsBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
++  //! \brief integrator of the springs of a boundary element
++  struct Integrator final : mfem::NonlinearFormIntegrator {
++    //! \brief stiffness of the springs
++    const mfem_mgis::real stiffness;
++    explicit Integrator(const mfem_mgis::real k) : stiffness(k) {}
++    void AssembleElementVector(const mfem::FiniteElement&,
++                               mfem::ElementTransformation&,
++                               const mfem::Vector& u,
++                               mfem::Vector& r) override {
++      r.SetSize(u.Size());
++      r.Set(this->stiffness, u);
++    }
++    void AssembleElementGrad(const mfem::FiniteElement&,
++                             mfem::ElementTransformation&,
++                             const mfem::Vector& u,
++                             mfem::DenseMatrix& K) override {
++      K.SetSize(u.Size());
++      K = mfem_mgis::real{0};
++      for (int i = 0; i != u.Size(); ++i) {
++        K(i, i) = this->stiffness;
++      }
++    }
++  };
++  /*!
++   * \brief constructor
++   * \param[in] k: stiffness of the springs
++   */
++  explicit SpringsBoundaryCondition(const mfem_mgis::real k) : stiffness(k) {}
++#ifdef MFEM_USE_MPI
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<true>& f,
++                                  const mfem::Vector&) noexcept override {
++    // the integrator is owned by the form
++    f.AddBoundaryIntegrator(new Integrator(this->stiffness));
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<true>&,
++                                mfem_mgis::LinearForm<true>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++#endif /* MFEM_USE_MPI */
++  bool addNonlinearFormIntegrator(mfem_mgis::Context&,
++                                  mfem_mgis::NonlinearForm<false>& f,
++                                  const mfem::Vector&) noexcept override {
++    f.AddBoundaryIntegrator(new Integrator(this->stiffness));
++    return true;
++  }
++  bool addLinearFormIntegrators(mfem_mgis::Context&,
++                                mfem_mgis::BilinearForm<false>&,
++                                mfem_mgis::LinearForm<false>&,
++                                const mfem::Vector&,
++                                const mfem_mgis::real,
++                                const mfem_mgis::real) noexcept override {
++    return true;
++  }
++  bool setup(mfem_mgis::Context&,
++             const mfem_mgis::real,
++             const mfem_mgis::real) noexcept override {
++    return true;
++  }
++
++ private:
++  //! \brief stiffness of the springs
++  const mfem_mgis::real stiffness;
++};
++
+ /*!
+  * \brief set the material axes of an orthotropic behaviour, rotated around
+  * the z axis by an angle varying from one point to another
+@@ -437,6 +524,11 @@ static Results compute(mfem_mgis::Context& ctx,
+           or_die;
+     }
+   }
++  if (opts.springs) {
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<SpringsBoundaryCondition>(1e10)) |
++        or_die;
++  }
+   if (opts.prediction) {
+     problem.setPredictionPolicy(
+         {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+@@ -1037,8 +1129,8 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+ 
+ /*!
+  * \brief a tangent operator applied without assembly is refused when the
+- * non linear form contains a boundary integrator (imposed pressure): the
+- * resolution fails with an error message, on all the processes
++ * non linear form contains a boundary integrator depending on the unknowns:
++ * the resolution fails with an error message, on all the processes
+  * \param[in, out] ctx: execution context
+  * \param[in] mesh: mesh
+  * \param[in] library: behaviour library
+@@ -1081,10 +1173,17 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+         ctx, {{"Boundary", boundary}, {"Component", component}}) |
+         or_die;
+   }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 0},
++       {"LoadingEvolution", [](const real t) noexcept { return 1e-3 * t; }}}) |
++      or_die;
++  // springs, depending on the unknowns (an imposed pressure, independent of
++  // the unknowns, is not an integrator of the non linear form with the
++  // inner forces computed by kernels, and is accepted)
+   problem.addBoundaryCondition(
+-      ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
+-               problem.getFiniteElementDiscretizationPointer(), "Xmax",
+-               [](const real t) noexcept { return -1e8 * t; })) |
++      ctx, std::make_unique<SpringsBoundaryCondition>(1e10)) |
+       or_die;
+   problem.setLinearSolver(
+       ctx, "CGSolver",
+@@ -1106,7 +1205,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+             (msg.find("requires that the non linear form only contains the "
+                       "integrator of mfem-mgis") != std::string::npos),
+         "a tangent operator applied without assembly with a boundary "
+-        "integrator is not refused (" +
++        "integrator depending on the unknowns is not refused (" +
+             msg + ")");
+ }  // end of testMatrixFreeRefusal
+ 
+@@ -1265,6 +1364,10 @@ int main(int argc, char** argv) {
+     }
+     for (const auto* const b :
+          {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity"}) {
++      // the imposed pressure, independent of the unknowns, is added to the
++      // inner forces computed by kernels, without integrator in the non
++      // linear form: the tangent operator is assembled by kernels, or
++      // applied without assembly
+       cases.push_back({b,
+                        {.prediction = true,
+                         .pressure = true,
+@@ -1272,7 +1375,36 @@ int main(int argc, char** argv) {
+                         .inner_forces_kernels = true,
+                         .tangent_operator_kernels = true},
+                        ", pressure and prediction"});
++      cases.push_back({b,
++                       {.prediction = true,
++                        .pressure = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .matrix_free = true},
++                       ", pressure and prediction, matrix free"});
++      // inner forces computed element by element: the imposed pressure is
++      // an integrator of the non linear form, the stiffness matrices
++      // computed by kernels being assembled by MFEM
++      cases.push_back({b,
++                       {.prediction = true,
++                        .pressure = true,
++                        .gradients_kernels = true,
++                        .tangent_operator_kernels = true},
++                       ", pressure and prediction, inner forces element by "
++                       "element"});
+     }
++    // springs, depending on the unknowns: an integrator of the non linear
++    // form besides the one of mfem-mgis, the residual assembled by MFEM
++    // being completed by the inner forces computed by kernels, and the
++    // stiffness matrices computed by kernels being assembled by MFEM
++    cases.push_back({"IsotropicLinearHardeningPlasticity",
++                     {.prediction = true,
++                      .pressure = true,
++                      .springs = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true},
++                     ", pressure, springs and prediction"});
+     cases.push_back({"IsotropicLinearHardeningPlasticity",
+                      {.prediction = true,
+                       .gradients_kernels = true,
+@@ -1365,24 +1497,60 @@ int main(int argc, char** argv) {
+                         .inner_forces_kernels = true,
+                         .tangent_operator_kernels = true},
+                        ", FBar, plane strain"});
+-      // imposed pressure: the boundary integrator requires the stiffness
+-      // matrices element by element of the FBar formulation. The residual
+-      // stagnates at about 1e-12 times its reference value in parallel, the
+-      // numbers of iterations differing by two with a tolerance of 1e-12
++      // imposed pressure, with the inner forces computed element by
++      // element: the boundary integrator requires the stiffness matrices
++      // element by element of the FBar formulation. The residual stagnates
++      // at about 1e-12 times its reference value in parallel, the numbers of
++      // iterations differing by two with a tolerance of 1e-12
+       cases.push_back({b,
+                        {.fbar = true,
+                         .prediction = true,
+                         .pressure = true,
+                         .gradients_kernels = true,
+-                        .inner_forces_kernels = true,
+                         .tangent_operator_kernels = true,
+                         .relative_tolerance = 1e-11},
+                        ", FBar, pressure and prediction"});
++      // imposed pressure added to the inner forces computed by kernels, the
++      // tangent operator being assembled by kernels; springs: the stiffness
++      // matrices element by element of the FBar formulation are assembled
++      // by MFEM
++      cases.push_back({b,
++                       {.fbar = true,
++                        .prediction = true,
++                        .pressure = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .tangent_operator_kernels = true,
++                        .relative_tolerance = 1e-11},
++                       ", FBar, pressure and prediction, kernels"});
++      cases.push_back({b,
++                       {.fbar = true,
++                        .prediction = true,
++                        .springs = true,
++                        .gradients_kernels = true,
++                        .inner_forces_kernels = true,
++                        .tangent_operator_kernels = true,
++                        .relative_tolerance = 1e-11},
++                       ", FBar, springs and prediction"});
+     }
++    // imposed pressure with the inner forces computed by kernels, the
++    // tangent operator being applied without assembly. The tangent operator
++    // of the FBar formulation is not symmetric: with the orthotropic
++    // behaviour, the conjugate gradient of the cases without assembly does
++    // not converge in 10000 iterations
++    cases.push_back({"SaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .prediction = true,
++                      .pressure = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true,
++                      .relative_tolerance = 1e-11},
++                     ", FBar, pressure and prediction, matrix free"});
+     // a material using the FBar formulation and an elastic one, the
+     // tangent operator being assembled, assembled from the stiffness
+-    // matrices of the elements (imposed pressure), or applied without
+-    // assembly
++    // matrices of the elements (imposed pressure, inner forces computed
++    // element by element), or applied without assembly
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+                       .prediction = true,
+@@ -1396,11 +1564,20 @@ int main(int argc, char** argv) {
+                       .prediction = true,
+                       .pressure = true,
+                       .gradients_kernels = true,
+-                      .inner_forces_kernels = true,
+                       .tangent_operator_kernels = true,
+                       .second_material_library = library,
+                       .relative_tolerance = 1e-11},
+                      ", FBar, two materials and pressure"});
++    cases.push_back({"SaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .prediction = true,
++                      .pressure = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true,
++                      .second_material_library = library,
++                      .relative_tolerance = 1e-11},
++                     ", FBar, two materials and pressure, kernels"});
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+                       .prediction = true,
+diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
+index 59d9085cd4..8744a02b9a 100644
+--- a/tests/HeatTransferKernelsTest.cxx
++++ b/tests/HeatTransferKernelsTest.cxx
+@@ -13,12 +13,14 @@
+  * anisotropic behaviour whose conductivity is not symmetric, and for two
+  * materials, with temperatures imposed on several sides (the temperature
+  * depends on all the coordinates), for the behaviours generated by the
+- * generic interface and, if given, by the generic-parallel interface. The
+- * transient temperature lags behind the stationary one.
++ * generic interface and, if given, by the generic-parallel interface, also
++ * with a uniform heat source. The transient temperature lags behind the
++ * stationary one.
+  * \date   10/10/2026
+  */
+ 
+ #include <array>
++#include <memory>
+ #include <cmath>
+ #include <span>
+ #include <string>
+@@ -36,6 +38,7 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
++#include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -73,6 +76,14 @@ struct Case {
+    * `HeatStorage`)
+    */
+   bool transient = false;
++  /*!
++   * \brief if true, a uniform heat source increasing in time is imposed on
++   * the first material (`UniformHeatSourceBoundaryCondition`). With the
++   * inner forces computed by kernels, its contribution is added to the
++   * residual without integrator in the non linear form, also with a
++   * tangent operator applied without assembly.
++   */
++  bool heat_source = false;
+ };
+ 
+ //! \brief options of a computation
+@@ -283,6 +294,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+                [](const real t) noexcept { return 293.15 + 300 * t; }}}) |
+         or_die;
+   }
++  if (c.heat_source) {
++    problem.addBoundaryCondition(
++        ctx, std::make_unique<UniformHeatSourceBoundaryCondition>(
++                 problem.getFiniteElementDiscretizationPointer(), "M1",
++                 [](const real t) noexcept { return 1e4 * t; })) |
++        or_die;
++  }
+   if (opts.matrix_free) {
+     // the tangent operator of the heat transfer behaviours is negative
+     // definite (`j = -k grad(T)`), and the diagonal of the essential degrees
+@@ -446,12 +464,23 @@ static std::vector<Case> getCases(const char* const cube,
+                        .mesh = two_materials,
+                        .materials = {isotropic, orthotropic},
+                        .transient = true});
++      cases.push_back({.name = std::string{n} + ", heat source",
++                       .hypothesis = h,
++                       .mesh = two_materials,
++                       .materials = {isotropic, orthotropic},
++                       .heat_source = true});
+     } else {
+       cases.push_back({.name = std::string{n} + ", transient",
+                        .hypothesis = h,
+                        .mesh = mesh,
+                        .materials = {orthotropic},
+                        .transient = true});
++      cases.push_back({.name = std::string{n} + ", transient, heat source",
++                       .hypothesis = h,
++                       .mesh = mesh,
++                       .materials = {orthotropic},
++                       .transient = true,
++                       .heat_source = true});
+     }
+   }
+   return cases;
+-- 
+2.43.0
+

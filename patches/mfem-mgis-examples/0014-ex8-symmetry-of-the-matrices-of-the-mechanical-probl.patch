@@ -1,0 +1,84 @@
+From 0782d736f762f9b4c0bf52f8aa946b9bdc761246 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 21:33:15 +0200
+Subject: [PATCH] ex8: symmetry of the matrices of the mechanical problem given
+ to MUMPS
+
+Option -msMc (--mumps-symmetry-mechanics): Unsymmetric (default),
+SymmetricIndefinite or SymmetricPositiveDefinite, given to the MUMPS
+solver of mfem-mgis (parameters Symmetric and PositiveDefinite). The
+tangent operator of the mechanical problem of ex8 is symmetric: with
+SymmetricPositiveDefinite, the factorizations take 5.3 s instead of
+7.5 s on two processes, with the same Newton iterations and results.
+---
+ ex8/Thermomechanical.cxx |  4 ++++
+ ex8/headers/Setup.hxx    |  3 +++
+ ex8/headers/Utils.hxx    | 16 +++++++++++++++-
+ 3 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 1482394..3830586 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -52,6 +52,10 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
+                  "Strategy of the BoomerAMG preconditioner of the mechanical "
+                  "problem: System, Elasticity (requires byVDIM) or None.");
++  args.AddOption(&p.mumps_symmetry_meca, "-msMc", "--mumps-symmetry-mechanics",
++                 "Symmetry of the matrices of the mechanical problem given "
++                 "to MUMPS: Unsymmetric (default), SymmetricIndefinite or "
++                 "SymmetricPositiveDefinite.");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index 36b6d4c..c843067 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -35,6 +35,9 @@ struct TestParameters {
+   // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
+   // None), the default one of mfem-mgis if empty
+   const char* amg_strategy_meca = "";
++  // symmetry of the matrices of the mechanical problem given to MUMPS:
++  // Unsymmetric (default), SymmetricIndefinite or SymmetricPositiveDefinite
++  const char* mumps_symmetry_meca = "Unsymmetric";
+   // reference statistics of the fields, no comparison if empty
+   const char* reference_file = "";
+   int order = 1;                // finite element order
+diff --git a/ex8/headers/Utils.hxx b/ex8/headers/Utils.hxx
+index 14fc7e6..258f820 100644
+--- a/ex8/headers/Utils.hxx
++++ b/ex8/headers/Utils.hxx
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <string>
++#include <string_view>
+ #include <iostream>
+ #include <cstdlib>
+ #include <cstdint>
+@@ -133,7 +134,20 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+   }
+ 
+   else if (contains(direct_solvers, solver)) {
+-    p.setLinearSolver(ctx, solver, mfem_mgis::Parameters{}) | or_die;
++    auto solverParameters = mfem_mgis::Parameters{};
++    if (physics_type == "mechanics") {
++      const auto symmetry = std::string_view{param.mumps_symmetry_meca};
++      if (symmetry == "SymmetricIndefinite") {
++        solverParameters = mfem_mgis::Parameters{{"Symmetric", true}};
++      } else if (symmetry == "SymmetricPositiveDefinite") {
++        solverParameters = mfem_mgis::Parameters{{"Symmetric", true},
++                                                 {"PositiveDefinite", true}};
++      } else if (symmetry != "Unsymmetric") {
++        mfem_mgis::abort("Invalid symmetry of the matrices given to MUMPS: " +
++                         std::string{symmetry});
++      }
++    }
++    p.setLinearSolver(ctx, solver, solverParameters) | or_die;
+   }
+ 
+   else {
+-- 
+2.43.0
+

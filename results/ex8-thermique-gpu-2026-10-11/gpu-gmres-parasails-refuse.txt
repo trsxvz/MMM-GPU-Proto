@@ -1,0 +1,54 @@
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 ../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
+   --libraryALFENI ../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreParaSails
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device cuda
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.492372  GB
+setHypreParaSailsPreconditioner: the ParaSails preconditioner is not supported when hypre computes on a GPU
+[t-MS-7E47:22256] *** Process received signal ***
+[t-MS-7E47:22256] Signal: Aborted (6)
+[t-MS-7E47:22256] Signal code:  (-6)
+[t-MS-7E47:22256] [ 0] /lib/x86_64-linux-gnu/libc.so.6(+0x45330)[0x77f93c445330]
+[t-MS-7E47:22256] [ 1] /lib/x86_64-linux-gnu/libc.so.6(pthread_kill+0x11c)[0x77f93c49ec0c]
+[t-MS-7E47:22256] [ 2] /lib/x86_64-linux-gnu/libc.so.6(gsignal+0x1e)[0x77f93c44527e]
+[t-MS-7E47:22256] [ 3] /lib/x86_64-linux-gnu/libc.so.6(abort+0xdf)[0x77f93c4288ff]
+[t-MS-7E47:22256] [ 4] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/install/mgis/lib/libMFrontGenericInterface.so(_ZN4mgis7Context5abortEv+0x58)[0x77f9642b6c28]
+[t-MS-7E47:22256] [ 5] ./rjh_plate(+0x672b7)[0x5601418ef2b7]
+[t-MS-7E47:22256] [ 6] ./rjh_plate(+0x60a9c)[0x5601418e8a9c]
+[t-MS-7E47:22256] [ 7] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x77f93c42a1ca]
+[t-MS-7E47:22256] [ 8] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x77f93c42a28b]
+[t-MS-7E47:22256] [ 9] ./rjh_plate(+0x652b5)[0x5601418ed2b5]
+[t-MS-7E47:22256] *** End of error message ***
+timeout: la commande surveillée a renvoyé un core dump

@@ -1,0 +1,808 @@
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 src/libU3SI2-generic.so
+   --libraryALFENI src/libALFENI-generic.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreParaSails
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 1
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device 
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.769156  GB
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.335194 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.335188 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 7.054015e+03
+Initial L2 norm of residual: 7.054015e+03
+Final L2 norm of residual: 7.001251e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.647343 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.647335 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1944
+Final GMRES Relative Residual Norm = 9.9252e-10
+Newton iteration  1 : ||r|| = 236.542, ||r||/||r_0|| = 0.0335329
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429180 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179376 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.329024 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.328821 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 2.365418e+02
+Initial L2 norm of residual: 2.365418e+02
+Final L2 norm of residual: 1.226178e+02
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.412357 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.412247 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.518377
+The coupling scheme did not converge for the time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 10000
+Newton iteration  0 : ||r|| = 6829.34, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.309244 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.309239 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.829336e+03
+Initial L2 norm of residual: 6.829336e+03
+Final L2 norm of residual: 6.643100e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.673348 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.673334 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1987
+Final GMRES Relative Residual Norm = 9.7273e-10
+Newton iteration  1 : ||r|| = 91.1287, ||r||/||r_0|| = 0.0133437
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179586 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.309711 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.309704 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 9.112870e+01
+Initial L2 norm of residual: 9.112870e+01
+Final L2 norm of residual: 9.093089e-08
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 1.721551 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 1.721514 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 5079
+Final GMRES Relative Residual Norm = 9.97829e-10
+Newton iteration  2 : ||r|| = 0.0640625, ||r||/||r_0|| = 9.38048e-06
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179598 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.309940 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.309939 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.406248e-02
+Initial L2 norm of residual: 6.406248e-02
+false convergence 2, L2 norm of residual: 7.319351e-11
+Final L2 norm of residual: 6.398318e-11
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 1.890645 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 1.890602 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 5626
+Final GMRES Relative Residual Norm = 9.98762e-10
+Newton iteration  3 : ||r|| = 3.80179e-08, ||r||/||r_0|| = 5.56685e-12
+Convergence order 1.97479
+
+Newton iteration  0 : ||r|| = 1.17288e+06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 36220.3, ||r||/||r_0|| = 0.0308814
+Newton iteration  2 : ||r|| = 7.33519, ||r||/||r_0|| = 6.25398e-06
+Newton iteration  3 : ||r|| = 7.86817e-07, ||r||/||r_0|| = 6.7084e-13
+Convergence order 1.88695
+
+Newton iteration  0 : ||r|| = 1.6167, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179580 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.323991 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.323964 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 1.616703e+00
+Initial L2 norm of residual: 1.616703e+00
+Final L2 norm of residual: 1.125881e+00
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.368461 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.368308 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.696405
+The coupling scheme did not converge for the time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 5000
+Newton iteration  0 : ||r|| = 6772, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.323994 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.323985 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.772002e+03
+Initial L2 norm of residual: 6.772002e+03
+Final L2 norm of residual: 6.634921e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.671776 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.671721 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1941
+Final GMRES Relative Residual Norm = 9.79758e-10
+Newton iteration  1 : ||r|| = 38.9061, ||r||/||r_0|| = 0.00574515
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429324 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179610 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.322737 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.322667 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 3.890614e+01
+Initial L2 norm of residual: 3.890614e+01
+Final L2 norm of residual: 2.517587e+01
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.419610 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.419445 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.647092
+The coupling scheme did not converge for the time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 2500
+Newton iteration  0 : ||r|| = 6757.59, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.312133 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.312098 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.757592e+03
+Initial L2 norm of residual: 6.757592e+03
+Final L2 norm of residual: 6.738456e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.599629 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.599582 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1785
+Final GMRES Relative Residual Norm = 9.97168e-10
+Newton iteration  1 : ||r|| = 17.8149, ||r||/||r_0|| = 0.00263628
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179724 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.309953 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.309952 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 1.781491e+01
+Initial L2 norm of residual: 1.781491e+01
+Final L2 norm of residual: 9.761461e+00
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.414631 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.414350 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.547938
+The coupling scheme did not converge for the time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 1250
+Newton iteration  0 : ||r|| = 6753.99, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.308958 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.308929 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.753985e+03
+Initial L2 norm of residual: 6.753985e+03
+Final L2 norm of residual: 6.725032e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.616712 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.616666 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1793
+Final GMRES Relative Residual Norm = 9.95713e-10
+Newton iteration  1 : ||r|| = 8.50233, ||r||/||r_0|| = 0.00125886
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179784 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.310584 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.310574 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 8.502325e+00
+Initial L2 norm of residual: 8.502325e+00
+Final L2 norm of residual: 4.295325e+00
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.370583 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.370506 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.505194
+The coupling scheme did not converge for the time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 625
+Newton iteration  0 : ||r|| = 6753.08, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.314157 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.314120 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.753083e+03
+Initial L2 norm of residual: 6.753083e+03
+Final L2 norm of residual: 6.742318e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.659732 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.659717 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1893
+Final GMRES Relative Residual Norm = 9.98406e-10
+Newton iteration  1 : ||r|| = 4.15053, ||r||/||r_0|| = 0.000614612
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179814 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.312970 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.312963 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 4.150527e+00
+Initial L2 norm of residual: 4.150527e+00
+Final L2 norm of residual: 3.836750e-09
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.817946 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.817918 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 2376
+Final GMRES Relative Residual Norm = 9.24401e-10
+Newton iteration  2 : ||r|| = 0.00012454, ||r||/||r_0|| = 1.8442e-08
+Convergence order 1.40836
+
+Newton iteration  0 : ||r|| = 965459, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1170.4, ||r||/||r_0|| = 0.00121227
+Newton iteration  2 : ||r|| = 1.33666, ||r||/||r_0|| = 1.38449e-06
+Newton iteration  3 : ||r|| = 1.07787e-07, ||r||/||r_0|| = 1.11643e-13
+Convergence order 2.41085
+
+Newton iteration  0 : ||r|| = 0.0842709, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429276 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 179808 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.314586 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.314576 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 8.427088e-02
+Initial L2 norm of residual: 8.427088e-02
+Final L2 norm of residual: 5.056710e-02
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 3.347336 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 3.347235 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 10000
+Final GMRES Relative Residual Norm = 0.600054
+The coupling scheme did not converge for the time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Thermal' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 312.5
+Newton iteration  0 : ||r|| = 6752.86, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+=============================================
+Setup phase times:
+=============================================
+GMRES Setup:
+  wall clock time = 0.307158 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.307137 seconds
+  cpu MFLOPS      = 0.000000
+
+L2 norm of b: 6.752857e+03
+Initial L2 norm of residual: 6.752857e+03
+Final L2 norm of residual: 6.744963e-06
+
+=============================================
+Solve phase times:
+=============================================
+GMRES Solve:
+  wall clock time = 0.627059 seconds
+  wall MFLOPS     = 0.000000
+  cpu clock time  = 0.627041 seconds
+  cpu MFLOPS      = 0.000000
+
+GMRES Iterations = 1866
+Final GMRES Relative Residual Norm = 9.98831e-10
+Newton iteration  1 : ||r|| = 2.05019, ||r||/||r_0|| = 0.000303604
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429372 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************

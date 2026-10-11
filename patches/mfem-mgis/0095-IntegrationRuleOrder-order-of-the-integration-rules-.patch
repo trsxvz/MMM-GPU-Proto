@@ -1,0 +1,1933 @@
+From c941836702ce4f25b52a05d61cc78638a938966b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 07:57:45 +0200
+Subject: [PATCH] IntegrationRuleOrder: order of the integration rules chosen
+ by the user
+
+The behaviour integrators choose their integration rules by the order
+`2 * t.OrderGrad(&e)`: 27 points on the hexahedra of order 1, while 8
+points integrate exactly the elastic stiffness of affine hexahedra of
+order 1. The new optional parameter `IntegrationRuleOrder` of the finite
+element discretization gives the order of the integration rules of all
+the behaviour integrators (`applyIntegrationRuleOrder`): with the order
+3, the hexahedra of order 1 have 8 points, which divides by about 3.4 the
+memory and the work at the integration points. The order is the same for
+all the geometries and orders of the elements (documented: the order 3
+under-integrates the hexahedra of order 2, the orders 0 and 1 give one
+point on the hexahedra). A negative order, and a rule having a weight
+which is not positive (rules of MFEM for some simplices), are refused.
+
+The behaviour integrators build their quadrature spaces with this rule,
+and their `getIntegrationRule` method returns the rule of their
+quadrature space: the integrations, the quadrature spaces and the
+computations by kernels use the same rule.
+
+New test IntegrationRuleOrderTest (on the host and on the debug device of
+MFEM): numbers of points (27 by default, 8 with the order 3), same
+solution on affine hexahedra point by point and by kernels, rule of the
+behaviour integrators checked before the resolution, refusal of a
+negative order. Documentation: developer guide, glossary, change log.
+---
+ CHANGELOG.md                                  |   3 +
+ .../FiniteElementDiscretization.rst           |   1 +
+ docs/source/user_guide/glossary.rst           |   3 +
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ ...sotropicPlaneStrainBehaviourIntegrator.hxx |   4 +-
+ ...ropicTridimensionalBehaviourIntegrator.hxx |   4 +-
+ ...hotropicPlaneStrainBehaviourIntegrator.hxx |   4 +-
+ ...ropicTridimensionalBehaviourIntegrator.hxx |   4 +-
+ .../MFEMMGIS/FiniteElementDiscretization.hxx  |  44 ++++
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...ansientHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |  10 +-
+ ...sotropicPlaneStrainBehaviourIntegrator.cxx |  11 +-
+ ...ropicTridimensionalBehaviourIntegrator.cxx |  11 +-
+ ...hotropicPlaneStrainBehaviourIntegrator.cxx |  11 +-
+ ...ropicTridimensionalBehaviourIntegrator.cxx |  11 +-
+ src/FiniteElementDiscretization.cxx           |  50 +++-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |  10 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |  11 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...ansientHeatTransferBehaviourIntegrator.cxx |  11 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |  10 +-
+ tests/CMakeLists.txt                          |  15 ++
+ tests/IntegrationRuleOrderTest.cxx            | 229 ++++++++++++++++++
+ 59 files changed, 547 insertions(+), 185 deletions(-)
+ create mode 100644 tests/IntegrationRuleOrderTest.cxx
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 8b1a9707b7..efc51ee6cf 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   vector dimension (`byVDIM`) instead of by nodes (`byNODES`, the default). The
+   `Elasticity` strategy of the `HypreBoomerAMG` preconditioner requires
+   `byVDIM`.
++- `IntegrationRuleOrder` parameter, to choose the order of the integration
++  rules of the behaviour integrators (8 points instead of 27 on the
++  hexahedra of order 1 with the order 3).
+ 
+ ### Changed
+ 
+diff --git a/docs/source/developer_guide/main_classes/FiniteElementDiscretization.rst b/docs/source/developer_guide/main_classes/FiniteElementDiscretization.rst
+index 6e7c1772fb..91a1c0e7db 100644
+--- a/docs/source/developer_guide/main_classes/FiniteElementDiscretization.rst
++++ b/docs/source/developer_guide/main_classes/FiniteElementDiscretization.rst
+@@ -63,6 +63,7 @@ In addition to the parameters supported by ``MeshDiscretization``, ``FiniteEleme
+ - ``FiniteElementOrder`` (int): Order of the polynomial approximation.
+ - ``FiniteElementSpaceOrdering`` (string): Ordering of the degrees of freedom, ``byNODES`` (all the values of the first component, then all the values of the second component, etc., default) or ``byVDIM`` (all the components of the first node, then all the components of the second node, etc.). The ``Elasticity`` strategy of the ``HypreBoomerAMG`` preconditioner requires ``byVDIM``.
+ - ``UnknownsSize`` (int): Number of components of the unknowns.
++- ``IntegrationRuleOrder`` (int, optional): Order of the integration rules of the behaviour integrators. By default, each behaviour integrator uses its own rule, of order ``2 * t.OrderGrad(&e)``, i.e. 27 points on the hexahedra of order 1; the order 3 gives 8 points, which integrate exactly the elastic stiffness of affine hexahedra of order 1 and divide by about 3.4 the memory and the work at the integration points. The quadrature spaces of the behaviour integrators and their integrations use the same rule. The order is the same for all the geometries and all the orders of the elements: the order 3 under-integrates the hexahedra of order 2, and the orders 0 and 1 give one point on the hexahedra (hourglass modes). A rule having a weight which is not positive (rules of MFEM for some simplices) is refused.
+ 
+ .. note::
+ 
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 85c2fd4add..3bab8993e3 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -688,6 +688,9 @@ PeriodicNonLinearEvolutionProblem
+ +----------------------------+----------------------------------------------------------+
+ | FiniteElementSpaceOrdering | Ordering of the dofs: byNODES (default), byVDIM [string] |
+ +----------------------------+----------------------------------------------------------+
++| IntegrationRuleOrder       | Order of the integration rules of the behaviour          |
++|                            | integrators, >= 0, optional [int]                        |
+++----------------------------+----------------------------------------------------------+
+ | UnknownsSize               | Number of unknowns, >=1 [int]                            |
+ +----------------------------+----------------------------------------------------------+
+ | NumberOfUniformRefinements | Number of times the mesh is uniformly refined, >= 0 [int]|
+diff --git a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 0c3ca48681..5422e4e8d3 100644
+--- a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -124,8 +124,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         BidimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
+index 784f6d2d11..8a1b36266e 100644
+--- a/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
+@@ -137,8 +137,8 @@ namespace mfem_mgis {
+         FBarIsotropicPlaneStrainBehaviourIntegrator,
+         Hypothesis::PLANESTRAIN>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
+index c037e62b9a..9988d6d0c5 100644
+--- a/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
+@@ -137,8 +137,8 @@ namespace mfem_mgis {
+         FBarIsotropicTridimensionalBehaviourIntegrator,
+         Hypothesis::TRIDIMENSIONAL>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
+index d9670b5516..f76b9072d2 100644
+--- a/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
+@@ -134,8 +134,8 @@ namespace mfem_mgis {
+         FBarOrthotropicPlaneStrainBehaviourIntegrator,
+         Hypothesis::PLANESTRAIN>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
+index ba55d47ab2..b4948f94fa 100644
+--- a/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
+@@ -134,8 +134,8 @@ namespace mfem_mgis {
+         FBarOrthotropicTridimensionalBehaviourIntegrator,
+         Hypothesis::TRIDIMENSIONAL>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/FiniteElementDiscretization.hxx b/include/MFEMMGIS/FiniteElementDiscretization.hxx
+index 15874e4db0..6b7c359a34 100644
+--- a/include/MFEMMGIS/FiniteElementDiscretization.hxx
++++ b/include/MFEMMGIS/FiniteElementDiscretization.hxx
+@@ -12,6 +12,7 @@
+ #include <string>
+ #include <vector>
+ #include <memory>
++#include <optional>
+ #include "MFEMMGIS/Info.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/MeshDiscretization.hxx"
+@@ -31,6 +32,15 @@ namespace mfem_mgis {
+   struct MFEM_MGIS_EXPORT FiniteElementDiscretization : MeshDiscretization {
+     //! \brief string associated to the `UnknownsSize` parameter
+     static const char* const UnknownsSize;
++    /*!
++     * \brief string associated to the `IntegrationRuleOrder` parameter:
++     * order of the integration rules of the behaviour integrators, the
++     * default rule of each behaviour integrator being used if this
++     * parameter is not given (see `applyIntegrationRuleOrder`). The
++     * constructors given a finite element collection and a number of
++     * components don't take it.
++     */
++    static const char* const IntegrationRuleOrder;
+     //! \brief report that no parallel finite element space is defined
+     [[noreturn]] static void reportInvalidParallelFiniteElementSpace();
+     //! \brief report that no sequential finite element space is defined
+@@ -87,6 +97,8 @@ namespace mfem_mgis {
+      * - `FiniteElementSpaceOrdering` (string): ordering of the degrees of
+      * freedom, `byNODES` (default) or `byVDIM`.
+      * - `UnknownsSize` (int): number of components of the unknowns
++     * - `IntegrationRuleOrder` (int, optional): order of the integration
++     * rules of the behaviour integrators (see `applyIntegrationRuleOrder`)
+      */
+     FiniteElementDiscretization(Context& ctx,
+                                 std::shared_ptr<Mesh<false>> m,
+@@ -159,12 +171,20 @@ namespace mfem_mgis {
+     using MeshDiscretization::getMaterialsNames;
+     using MeshDiscretization::setBoundariesNames;
+     using MeshDiscretization::setMaterialsNames;
++    /*!
++     * \return the order of the integration rules of the behaviour
++     * integrators given by the `IntegrationRuleOrder` parameter, if any
++     */
++    [[nodiscard]] std::optional<size_type> getIntegrationRuleOrder()
++        const noexcept;
+     //! \brief destructor
+     ~FiniteElementDiscretization();
+ 
+    private:
+     //! \brief manager of the finite element spaces
+     FiniteElementSpacesManager fespaces_manager;
++    //! \brief order of the integration rules of the behaviour integrators
++    std::optional<size_type> integration_rule_order;
+ #ifdef MFEM_USE_MPI
+     //! \brief parallel finite element space
+     std::shared_ptr<FiniteElementSpace<true>> parallel_fe_space;
+@@ -173,6 +193,30 @@ namespace mfem_mgis {
+     std::shared_ptr<FiniteElementSpace<false>> sequential_fe_space;
+   };  // end of FiniteElementDiscretization
+ 
++  /*!
++   * \return the integration rule of an element of a behaviour integrator:
++   * the rule of the order given by the `IntegrationRuleOrder` parameter of
++   * the discretization, if any, or the default rule of the behaviour
++   * integrator. The behaviour integrators use it to build their quadrature
++   * spaces, whose rules they use for their integrations.
++   *
++   * The order is the same for all the geometries and all the orders of the
++   * elements: the order 3 gives 8 points on the hexahedra, which integrate
++   * exactly the elastic stiffness of affine hexahedra of order 1, but
++   * under-integrate the hexahedra of order 2; the orders 0 and 1 give one
++   * point (hourglass modes, the FBar formulation then being the standard
++   * one and the regularization of Faltus et al. being null). A rule having
++   * a weight which is not positive (rules of MFEM for some simplices) is
++   * refused.
++   * \param[in] fed: finite element discretization
++   * \param[in] e: finite element
++   * \param[in] r: default rule of the behaviour integrator
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] const mfem::IntegrationRule&
++  applyIntegrationRuleOrder(const FiniteElementDiscretization& fed,
++                            const mfem::FiniteElement& e,
++                            const mfem::IntegrationRule& r);
++
+   /*!
+    * \brief return the number of components of the unknowns
+    * \return the number of components (vectorial dimension) of the underlying
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 60167fc341..9ea96825de 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -137,8 +137,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 39ca8b3821..a8fe3352e0 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -140,8 +140,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index e491e2dc57..8113c5e93f 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -172,8 +172,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index a221a6bf08..9ee4f5cc91 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -137,8 +137,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 81bd915f56..9bba5cac89 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -140,8 +140,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index b39109ec50..27b52dba03 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -172,8 +172,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 5013c1780a..086f7b7618 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -139,8 +139,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 0684d9d5be..6017882e1f 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -142,8 +142,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index 345e7bdcbb..68902efc10 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -174,8 +174,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 99d6203370..6c4d0fdb21 100644
+--- a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -127,8 +127,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 5eef00779a..60e872bca8 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -136,8 +136,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 9ddb50f1e4..f46fd423b6 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -138,8 +138,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index 9ed1c1551a..0c362013f6 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -171,8 +171,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 91e16f0c7c..6b69d251c1 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -136,8 +136,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index e3db23cecc..3f58157c28 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -138,8 +138,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index 81f6730ea6..2dae76d5d5 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -171,8 +171,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index cf4dca1041..709bd5ba4d 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -140,8 +140,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 4f66fd4411..6a320b2321 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -140,8 +140,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index ec9a6d8d05..7cbe009118 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -171,8 +171,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+index f8802840ad..219b7bb3db 100644
+--- a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+@@ -160,8 +160,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         TransientHeatTransferBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 51bccc873f..b6a4d78e49 100644
+--- a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -124,8 +124,8 @@ namespace mfem_mgis {
+     friend struct StandardBehaviourIntegratorCRTPBase<
+         TridimensionalMicromorphicDamageBehaviourIntegrator>;
+     /*!
+-     * \brief select the integration rule for the given element and element
+-     * transformation
++     * \brief default integration rule for the given element and element
++     * transformation (see `applyIntegrationRuleOrder`)
+      * \param[in] e: element
+      * \param[in] t: element transformation
+      * \return the integration rule
+diff --git a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index fb8682c102..1a6217b63a 100644
+--- a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -9,6 +9,7 @@
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+@@ -24,10 +25,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   BidimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -58,8 +59,7 @@ namespace mfem_mgis {
+   BidimensionalMicromorphicDamageBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return BidimensionalMicromorphicDamageBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
+   BidimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
+diff --git a/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx b/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
+index 7f4c173728..a0c62a39a9 100644
+--- a/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
++++ b/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -20,10 +22,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   FBarIsotropicPlaneStrainBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -52,8 +54,7 @@ namespace mfem_mgis {
+   FBarIsotropicPlaneStrainBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return FBarIsotropicPlaneStrainBehaviourIntegrator::selectIntegrationRule(
+-        e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   FBarIsotropicPlaneStrainBehaviourIntegrator::RotationMatrix
+diff --git a/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx b/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
+index b92f2ec6f6..b3d3bce14a 100644
+--- a/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
++++ b/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -20,10 +22,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   FBarIsotropicTridimensionalBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -53,8 +55,7 @@ namespace mfem_mgis {
+   FBarIsotropicTridimensionalBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return FBarIsotropicTridimensionalBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   FBarIsotropicTridimensionalBehaviourIntegrator::RotationMatrix
+diff --git a/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx b/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
+index 6e46805064..56396eec69 100644
+--- a/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
++++ b/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -20,10 +22,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   FBarOrthotropicPlaneStrainBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -52,8 +54,7 @@ namespace mfem_mgis {
+   FBarOrthotropicPlaneStrainBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return FBarOrthotropicPlaneStrainBehaviourIntegrator::selectIntegrationRule(
+-        e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   FBarOrthotropicPlaneStrainBehaviourIntegrator::RotationMatrix
+diff --git a/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx b/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
+index 9fbd6a5b96..7f1f1f5d08 100644
+--- a/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
++++ b/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -20,10 +22,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   FBarOrthotropicTridimensionalBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -53,8 +55,7 @@ namespace mfem_mgis {
+   FBarOrthotropicTridimensionalBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return FBarOrthotropicTridimensionalBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   FBarOrthotropicTridimensionalBehaviourIntegrator::RotationMatrix
+diff --git a/src/FiniteElementDiscretization.cxx b/src/FiniteElementDiscretization.cxx
+index 383b91dc5c..f6ce74724a 100644
+--- a/src/FiniteElementDiscretization.cxx
++++ b/src/FiniteElementDiscretization.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <regex>
++#include <string>
+ #include <cctype>
+ #include <utility>
+ #include <fstream>
+@@ -13,6 +14,8 @@
+ #include <algorithm>
+ #include <mfem/mesh/mesh.hpp>
+ #include <mfem/fem/fespace.hpp>
++#include <mfem/fem/intrules.hpp>
++#include <mfem/fem/fe/fe_base.hpp>
+ #ifdef MFEM_USE_MPI
+ #include <mfem/mesh/pmesh.hpp>
+ #include <mfem/fem/pfespace.hpp>
+@@ -26,6 +29,8 @@
+ namespace mfem_mgis {
+ 
+   const char* const FiniteElementDiscretization::UnknownsSize = "UnknownsSize";
++  const char* const FiniteElementDiscretization::IntegrationRuleOrder =
++      "IntegrationRuleOrder";
+ 
+   //! \return list of valid parameters when the mesh is already built
+   [[nodiscard]] static std::vector<std::string>
+@@ -33,6 +38,7 @@ namespace mfem_mgis {
+     auto d =
+         FiniteElementSpacesManager::getFiniteElementCollectionParametersList();
+     d.push_back(FiniteElementDiscretization::UnknownsSize);
++    d.push_back(FiniteElementDiscretization::IntegrationRuleOrder);
+     return d;
+   }  // end of getFiniteElementDiscretizationParametersList
+ 
+@@ -63,12 +69,24 @@ namespace mfem_mgis {
+       const Parameters& params)
+       : MeshDiscretization(m.getMeshDiscretization()), fespaces_manager(m) {
+     CatchTimeSection(ctx, "FED::Constructor");
+-    checkParameters(
+-        throwing, params,
+-        std::vector<std::string>{FiniteElementDiscretization::UnknownsSize});
++    checkParameters(throwing, params,
++                    std::vector<std::string>{
++                        FiniteElementDiscretization::UnknownsSize,
++                        FiniteElementDiscretization::IntegrationRuleOrder});
+     auto or_raise = ctx.getThrowingFailureHandler();
+     const auto usize =
+         get<int>(throwing, params, FiniteElementDiscretization::UnknownsSize);
++    if (params.contains(FiniteElementDiscretization::IntegrationRuleOrder)) {
++      const auto o = get<int>(
++          throwing, params, FiniteElementDiscretization::IntegrationRuleOrder);
++      if (o < 0) {
++        raise(
++            "FiniteElementDiscretization: invalid order of the integration "
++            "rules (" +
++            std::to_string(o) + ")");
++      }
++      this->integration_rule_order = static_cast<size_type>(o);
++    }
+     if (this->describesAParallelComputation()) {
+ #ifdef MFEM_USE_MPI
+       this->parallel_fe_space =
+@@ -165,6 +183,32 @@ namespace mfem_mgis {
+             FiniteElementSpacesManager(ctx, m, c),
+             Parameters{{FiniteElementDiscretization::UnknownsSize, d}}) {}
+ 
++  std::optional<size_type>
++  FiniteElementDiscretization::getIntegrationRuleOrder() const noexcept {
++    return this->integration_rule_order;
++  }  // end of getIntegrationRuleOrder
++
++  const mfem::IntegrationRule& applyIntegrationRuleOrder(
++      const FiniteElementDiscretization& fed,
++      const mfem::FiniteElement& e,
++      const mfem::IntegrationRule& r) {
++    const auto o = fed.getIntegrationRuleOrder();
++    if (!o.has_value()) {
++      return r;
++    }
++    const auto& ir = mfem::IntRules.Get(e.GetGeomType(), static_cast<int>(*o));
++    // some rules of MFEM for the simplices have negative weights
++    for (int i = 0; i != ir.GetNPoints(); ++i) {
++      if (ir.IntPoint(i).weight <= 0) {
++        raise("applyIntegrationRuleOrder: the integration rule of order " +
++              std::to_string(*o) +
++              " of the geometry of an element has a "
++              "weight which is not positive");
++      }
++    }
++    return ir;
++  }  // end of applyIntegrationRuleOrder
++
+   FiniteElementSpacesManager
+   FiniteElementDiscretization::getFiniteElementSpacesManager() const noexcept {
+     return this->fespaces_manager;
+diff --git a/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 42493a06a5..a3c2ef2490 100644
+--- a/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -54,8 +56,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 0c215d8c8e..0eeec6beaf 100644
+--- a/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -57,8 +59,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 6c63db6546..7fbea2c068 100644
+--- a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -59,8 +61,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 0260d076bd..9b1905c841 100644
+--- a/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -54,8 +56,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 7451ba0bf0..f98c81696d 100644
+--- a/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -57,8 +59,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 7207513181..ff505a3869 100644
+--- a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -59,8 +61,7 @@ namespace mfem_mgis {
+   IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 400f265bde..c54b002951 100644
+--- a/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -55,8 +57,7 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 17b5884675..7c59a43fbc 100644
+--- a/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -58,8 +60,7 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 0314692192..18bfc680ba 100644
+--- a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -60,8 +62,7 @@ namespace mfem_mgis {
+   IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index ded59d6d16..1f1e5fa25a 100644
+--- a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -9,6 +9,7 @@
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+@@ -26,10 +27,10 @@ namespace mfem_mgis {
+   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -60,8 +61,7 @@ namespace mfem_mgis {
+   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
+   OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
+diff --git a/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index ca1db8fad6..2e59cc142f 100644
+--- a/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -55,8 +57,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator::
+diff --git a/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 7a148c642b..3e409c9cd0 100644
+--- a/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -57,8 +59,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 1a319d0bb9..dff4c27daf 100644
+--- a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -60,8 +62,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 295a302578..1708105530 100644
+--- a/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -55,8 +57,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index da77a083b1..49fab72c73 100644
+--- a/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -22,10 +24,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -57,8 +59,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 615d846ad9..d59f22ca6f 100644
+--- a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -60,8 +62,7 @@ namespace mfem_mgis {
+   OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index effdd1303f..f4e5f147ce 100644
+--- a/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -56,8 +58,7 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 5b854dca2c..d7bfcd70f1 100644
+--- a/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -23,10 +25,10 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -59,8 +61,7 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator::
+       RotationMatrix
+diff --git a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index e48523daab..47c4579bec 100644
+--- a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -8,6 +8,8 @@
+ #include <cstddef>
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -24,10 +26,10 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+       buildQuadratureSpace(const FiniteElementDiscretization &fed,
+                            const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -60,8 +62,7 @@ namespace mfem_mgis {
+   OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+       getIntegrationRule(const mfem::FiniteElement &e,
+                          const mfem::ElementTransformation &t) const {
+-    return OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+ 
+   bool
+diff --git a/src/TransientHeatTransferBehaviourIntegrator.cxx b/src/TransientHeatTransferBehaviourIntegrator.cxx
+index 10dbcae99b..d20d6d9988 100644
+--- a/src/TransientHeatTransferBehaviourIntegrator.cxx
++++ b/src/TransientHeatTransferBehaviourIntegrator.cxx
+@@ -6,6 +6,8 @@
+ 
+ #include <algorithm>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx"
+ 
+ namespace mfem_mgis {
+@@ -20,10 +22,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   TransientHeatTransferBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -53,8 +55,7 @@ namespace mfem_mgis {
+   TransientHeatTransferBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return TransientHeatTransferBehaviourIntegrator::selectIntegrationRule(e,
+-                                                                           t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }
+   TransientHeatTransferBehaviourIntegrator::RotationMatrix
+   TransientHeatTransferBehaviourIntegrator::getRotationMatrix(
+diff --git a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 1be93ada72..b17bb0dcf0 100644
+--- a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -9,6 +9,7 @@
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx"
+ 
+@@ -24,10 +25,10 @@ namespace mfem_mgis {
+   std::shared_ptr<const PartialQuadratureSpace>
+   TridimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
+       const FiniteElementDiscretization &fed, const size_type m) {
+-    auto selector = [](const mfem::FiniteElement &e,
+-                       const mfem::ElementTransformation &tr)
++    auto selector = [&fed](const mfem::FiniteElement &e,
++                           const mfem::ElementTransformation &tr)
+         -> const mfem::IntegrationRule & {
+-      return selectIntegrationRule(e, tr);
++      return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
+     };  // end of selector
+     return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+   }  // end of buildQuadratureSpace
+@@ -59,8 +60,7 @@ namespace mfem_mgis {
+   TridimensionalMicromorphicDamageBehaviourIntegrator::getIntegrationRule(
+       const mfem::FiniteElement &e,
+       const mfem::ElementTransformation &t) const {
+-    return TridimensionalMicromorphicDamageBehaviourIntegrator::
+-        selectIntegrationRule(e, t);
++    return this->quadrature_space->getIntegrationRule(e, t);
+   }  // end of getIntegrationRule
+ 
+   TridimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 95a837a9a9..421cfa3ffb 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1034,6 +1034,21 @@ if(MFEM_MGIS_HAVE_TFEL)
+                COMMAND GradientsKernelsTest --device cuda
+                        ${gradients_kernels_test_arguments})
+     endif()
++    # IntegrationRuleOrderTest executable: order of the integration rules
++    # of the behaviour integrators given by the user, point by point and by
++    # kernels, on the host and on the debug device of MFEM (UMFPack)
++    if(MFEM_USE_SUITESPARSE)
++      add_test_executable(IntegrationRuleOrderTest)
++      set(integration_rule_order_test_arguments
++          --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++          --library $<TARGET_FILE:BehaviourTest>)
++      add_test(NAME IntegrationRuleOrderTest
++               COMMAND IntegrationRuleOrderTest
++                       ${integration_rule_order_test_arguments})
++      add_test(NAME IntegrationRuleOrderTest-debug
++               COMMAND IntegrationRuleOrderTest --device debug
++                       ${integration_rule_order_test_arguments})
++    endif()
+   endif()
+ 
+   # HypreBoomerAMGTest executable
+diff --git a/tests/IntegrationRuleOrderTest.cxx b/tests/IntegrationRuleOrderTest.cxx
+new file mode 100644
+index 0000000000..3d95356cfc
+--- /dev/null
++++ b/tests/IntegrationRuleOrderTest.cxx
+@@ -0,0 +1,229 @@
++/*!
++ * \file   IntegrationRuleOrderTest.cxx
++ * \brief  Test of the `IntegrationRuleOrder` parameter of the finite
++ * element discretization: the behaviour integrators use the rule of the
++ * given order (8 points on the hexahedra of order 1 for the order 3,
++ * instead of 27 by default) for their quadrature spaces and their
++ * integrations; on a mesh of affine hexahedra, whose elastic stiffness is
++ * integrated exactly by both rules, the solutions are the same, with the
++ * integration point by point and with the computations by kernels; a
++ * negative order is refused.
++ * \date   11/10/2026
++ */
++
++#include <cmath>
++#include <cstdlib>
++#include <iostream>
++#include <optional>
++#include <string>
++#include <vector>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief results of a computation
++struct Results {
++  //! \brief number of integration points of each element of the material
++  mfem_mgis::size_type points_per_element = 0;
++  //! \brief number of points of the rule used by the behaviour integrator
++  int rule_points = 0;
++  //! \brief unknowns at the end of the computation
++  std::vector<mfem_mgis::real> u;
++};
++
++/*!
++ * \return the parameters of the problem
++ * \param[in] mesh: mesh of the unit cube (hexahedra)
++ * \param[in] order: order of the integration rules, if any
++ * \param[in] kernels: if true, the behaviours are integrated by batches and
++ * the gradients, the inner forces and the tangent operator are computed by
++ * kernels
++ */
++static mfem_mgis::Parameters getParameters(const char* const mesh,
++                                           const std::optional<int> order,
++                                           const bool kernels) {
++  using namespace mfem_mgis;
++  const auto* const k = kernels ? "Kernels" : "ElementByElement";
++  auto p = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"BehaviourIntegration", kernels ? "Batch" : "PointByPoint"},
++      {"GradientsComputation", k},
++      {"InnerForcesComputation", k},
++      {"TangentOperatorComputation", k},
++      {"Parallel", false}};
++  if (order.has_value()) {
++    auto ctx = Context{};
++    p.insert(ctx, "IntegrationRuleOrder", *order) |
++        ctx.getFatalFailureHandler();
++  }
++  return p;
++}  // end of getParameters
++
++/*!
++ * \brief elastic computation of a cube clamped on its face x = 0, the
++ * face x = 1 being displaced along x and y (small displacements: the
++ * plastic behaviour stays elastic)
++ * \return the results
++ * \param[in] mesh: mesh of the unit cube (hexahedra)
++ * \param[in] library: behaviour library
++ * \param[in] order: order of the integration rules, if any
++ * \param[in] kernels: computations by kernels
++ */
++static Results compute(const char* const mesh,
++                       const char* const library,
++                       const std::optional<int> order,
++                       const bool kernels) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem = construct<NonLinearEvolutionProblem>(
++                     ctx, getParameters(mesh, order, kernels)) |
++                 or_die;
++  // the displacements stay in the elastic domain of the behaviour
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* s : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto c : {0, 1, 2}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", "Xmin"}, {"Component", c}}) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 0},
++       {"LoadingEvolution", [](const real t) noexcept { return 1e-5 * t; }}}) |
++      or_die;
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 1},
++       {"LoadingEvolution", [](const real t) noexcept { return 2e-5 * t; }}}) |
++      or_die;
++  problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
++  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                    {"RelativeTolerance", 1e-12},
++                                    {"AbsoluteTolerance", 0.},
++                                    {"MaximumNumberOfIterations", 10}}) |
++      or_die;
++  auto r = Results{};
++  const auto& qs = m.getPartialQuadratureSpace();
++  r.points_per_element =
++      qs.getNumberOfIntegrationPoints() / qs.getNumberOfElements();
++  auto& fes =
++      problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
++  auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
++  r.rule_points =
++      bi.getIntegrationRule(*(fes.GetFE(0)), *(fes.GetElementTransformation(0)))
++          .GetNPoints();
++  if (static_cast<size_type>(r.rule_points) != r.points_per_element) {
++    // the integration would read the arrays of the quadrature space out of
++    // their bounds
++    check(false,
++          "the behaviour integrator does not use the rule of its quadrature "
++          "space");
++    return r;
++  }
++  const auto o = problem.solve(ctx, 0, 1);
++  check(o.status, "resolution failed (" + ctx.getErrorMessage() + ")");
++  const auto& u = problem.getUnknowns(ets);
++  const auto* const pu = u.HostRead();
++  r.u.assign(pu, pu + u.Size());
++  return r;
++}  // end of compute
++
++//! \return the relative difference of two vectors
++static mfem_mgis::real getRelativeDifference(
++    const std::vector<mfem_mgis::real>& a,
++    const std::vector<mfem_mgis::real>& b) {
++  using namespace mfem_mgis;
++  if ((a.size() != b.size()) || (a.empty())) {
++    return 1;
++  }
++  auto d = real{};
++  auto n = real{};
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    d = std::max(d, std::abs(a[i] - b[i]));
++    n = std::max(n, std::abs(a[i]));
++  }
++  return d / n;
++}  // end of getRelativeDifference
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of the unit cube (hexahedra)");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  // default rule: 27 points on the hexahedra of order 1
++  const auto r = compute(mesh, library, std::nullopt, false);
++  check((r.points_per_element == 27) && (r.rule_points == 27),
++        "default rule: " + std::to_string(r.points_per_element) +
++            " points per element, " + std::to_string(r.rule_points) +
++            " points in the rule of the behaviour integrator");
++  // rule of order 3: 8 points, same solution on affine hexahedra, point by
++  // point and by kernels
++  for (const auto kernels : {false, true}) {
++    const auto name = std::string{kernels ? "kernels" : "point by point"};
++    const auto r3 = compute(mesh, library, 3, kernels);
++    check((r3.points_per_element == 8) && (r3.rule_points == 8),
++          "rule of order 3, " + name + ": " +
++              std::to_string(r3.points_per_element) + " points per element, " +
++              std::to_string(r3.rule_points) +
++              " points in the rule of the behaviour integrator");
++    const auto d = getRelativeDifference(r.u, r3.u);
++    std::cout << "rule of order 3, " << name
++              << ": relative difference of the unknowns " << d << '\n';
++    check(d < 1e-10, "rule of order 3, " + name + ": different solution");
++  }
++  // a negative order is refused
++  {
++    auto ctx = Context{};
++    const auto p = construct<NonLinearEvolutionProblem>(
++        ctx, getParameters(mesh, -1, false));
++    const auto msg = std::string{ctx.getErrorMessage()};
++    check(isInvalid(p) && (msg.find("invalid order of the integration rules") !=
++                           std::string::npos),
++          "negative order not refused (" + msg + ")");
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

@@ -1,0 +1,130 @@
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 src/libU3SI2-generic.so
+   --libraryALFENI src/libALFENI-generic.so
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreParaSails
+   --linearsolver-mechanics MUMPSSolver
+   --preconditioner-mechanics HypreBoomerAMG
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --mumps-symmetry-mechanics SymmetricPositiveDefinite
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --device 
+   --hypre-device-pool-size 
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.769812  GB
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+** ParaSails Setup Pattern Statistics ***********
+symmetric             : 0
+thresh                : 0.100000
+num_levels            : 1
+Max cost (average)    : 4.1e+09 (4.9e+08)
+Nnz (ratio)           : 429444 ( 1.81)
+Max setup pattern time:      0.0
+*************************************************
+** ParaSails Setup Values Statistics ************
+filter                : 0.100000
+loadbal               : 0.000000
+Final Nnz (ratio)     : 180048 ( 0.76)
+Max setup values time :      0.3
+*************************************************
+Setup (pattern and values) times:
+  0:      0.3
+  1:      0.3
+ave:      0.3
+*************************************************
+Newton iteration  1 : ||r|| = 236.542, ||r||/||r_0|| = 0.0335329
+[t-MS-7E47:17995] *** Process received signal ***
+[t-MS-7E47:17995] Signal: Segmentation fault (11)
+[t-MS-7E47:17995] Signal code: Address not mapped (1)
+[t-MS-7E47:17995] Failing at address: 0x6344c3023f1c
+[t-MS-7E47:17995] [ 0] [t-MS-7E47:17996] *** Process received signal ***
+[t-MS-7E47:17996] Signal: Segmentation fault (11)
+[t-MS-7E47:17996] Signal code: Address not mapped (1)
+[t-MS-7E47:17996] Failing at address: 0x5b5bcc54261f
+/lib/x86_64-linux-gnu/libc.so.6(+0x45330)[0x7b2594e45330]
+[t-MS-7E47:17995] [ 1] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/openmpi-5.0.10-57cvs5dydumy2shauuhl64r4ybhyn2iw/lib/libmpi.so.40(PMPI_Comm_rank+0x37)[0x7b2595aa52a7]
+[t-MS-7E47:17995] [ 2] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MPI_Comm_rank+0x24)[0x7b2596a2c9e4]
+[t-MS-7E47:17995] [ 3] [t-MS-7E47:17996] [ 0] /lib/x86_64-linux-gnu/libc.so.6(+0x45330)[0x7e718ca45330]
+[t-MS-7E47:17996] [ 1] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/openmpi-5.0.10-57cvs5dydumy2shauuhl64r4ybhyn2iw/lib/libmpi.so.40(PMPI_Comm_rank+0x37)[0x7e718d6a52a7]
+[t-MS-7E47:17996] [ 2] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(MatrixCreate+0xa8)[0x7b2596c439e8]
+[t-MS-7E47:17995] [ 4] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MPI_Comm_rank+0x24)[0x7e718e62c9e4]
+[t-MS-7E47:17996] [ 3] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(+0x8424bc)[0x7b2596c424bc]
+[t-MS-7E47:17995] [ 5] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParaSailsSetup+0x36)[0x7b2596c42606]
+[t-MS-7E47:17995] [ 6] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(MatrixCreate+0xa8)[0x7e718e8439e8]
+[t-MS-7E47:17996] [ 4] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(HYPRE_ParaSailsSetup+0x8a)[0x7b2596c6627a]
+[t-MS-7E47:17995] [ 7] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(+0x8424bc)[0x7e718e8424bc]
+[t-MS-7E47:17996] [ 5] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParaSailsSetup+0x36)[0x7e718e842606]
+[t-MS-7E47:17996] [ 6] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_GMRESSetup+0xdb)[0x7b2596a4517b]
+[t-MS-7E47:17995] [ 8] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(HYPRE_ParaSailsSetup+0x8a)[0x7e718e86627a]
+[t-MS-7E47:17996] [ 7] /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_GMRESSetup+0xdb)[0x7e718e64517b]
+[t-MS-7E47:17996] [ 8] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem10HypreGMRES4MultERKNS_14HypreParVectorERS1_+0x8c)[0x7b259b9a11fc]
+[t-MS-7E47:17995] [ 9] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem10HypreGMRES4MultERKNS_14HypreParVectorERS1_+0x8c)[0x7e71935a11fc]
+[t-MS-7E47:17996] [ 9] /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem11HypreSolver4MultERKNS_6VectorERS1_+0x2a)[0x7b259b9b5b8a]
+[t-MS-7E47:17995] [10] ./rjh_plate(+0x104cfe)[0x6342c61a8cfe]
+[t-MS-7E47:17995] [11] ./rjh_plate(+0x194e56)[0x6342c6238e56]
+[t-MS-7E47:17995] [12] ./rjh_plate(+0x1039a4)[0x6342c61a79a4]
+[t-MS-7E47:17995] [13] ./rjh_plate(+0x10417c)[0x6342c61a817c]
+[t-MS-7E47:17995] [14] ./rjh_plate(+0x19365c)[0x6342c623765c]
+[t-MS-7E47:17995] [15] ./rjh_plate(+0xde2a3)[0x6342c61822a3]
+[t-MS-7E47:17995] [16] ./rjh_plate(+0x1177dc)[0x6342c61bb7dc]
+[t-MS-7E47:17995] [17] ./rjh_plate(+0x110b12)[0x6342c61b4b12]
+[t-MS-7E47:17995] [18] ./rjh_plate(+0x11b95c)[0x6342c61bf95c]
+[t-MS-7E47:17995] [19] ./rjh_plate(+0x1287c0)[0x6342c61cc7c0]
+[t-MS-7E47:17995] [20] ./rjh_plate(+0x128f17)[0x6342c61ccf17]
+[t-MS-7E47:17995] [21] ./rjh_plate(+0x12a50d)[0x6342c61ce50d]
+[t-MS-7E47:17995] [22] ./rjh_plate(+0x609a0)[0x6342c61049a0]
+[t-MS-7E47:17995] [23] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7b2594e2a1ca]
+[t-MS-7E47:17995] [24] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7b2594e2a28b]
+[t-MS-7E47:17995] [25] ./rjh_plate(+0x642b5)[0x6342c61082b5]
+[t-MS-7E47:17995] *** End of error message ***
+/home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK4mfem11HypreSolver4MultERKNS_6VectorERS1_+0x2a)[0x7e71935b5b8a]
+[t-MS-7E47:17996] [10] ./rjh_plate(+0x104cfe)[0x5b5e42b75cfe]
+[t-MS-7E47:17996] [11] ./rjh_plate(+0x194e56)[0x5b5e42c05e56]
+[t-MS-7E47:17996] [12] ./rjh_plate(+0x1039a4)[0x5b5e42b749a4]
+[t-MS-7E47:17996] [13] ./rjh_plate(+0x10417c)[0x5b5e42b7517c]
+[t-MS-7E47:17996] [14] ./rjh_plate(+0x19365c)[0x5b5e42c0465c]
+[t-MS-7E47:17996] [15] ./rjh_plate(+0xde2a3)[0x5b5e42b4f2a3]
+[t-MS-7E47:17996] [16] ./rjh_plate(+0x1177dc)[0x5b5e42b887dc]
+[t-MS-7E47:17996] [17] ./rjh_plate(+0x110b12)[0x5b5e42b81b12]
+[t-MS-7E47:17996] [18] ./rjh_plate(+0x11b95c)[0x5b5e42b8c95c]
+[t-MS-7E47:17996] [19] ./rjh_plate(+0x1287c0)[0x5b5e42b997c0]
+[t-MS-7E47:17996] [20] ./rjh_plate(+0x128f17)[0x5b5e42b99f17]
+[t-MS-7E47:17996] [21] ./rjh_plate(+0x12a50d)[0x5b5e42b9b50d]
+[t-MS-7E47:17996] [22] ./rjh_plate(+0x609a0)[0x5b5e42ad19a0]
+[t-MS-7E47:17996] [23] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7e718ca2a1ca]
+[t-MS-7E47:17996] [24] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7e718ca2a28b]
+[t-MS-7E47:17996] [25] ./rjh_plate(+0x642b5)[0x5b5e42ad52b5]
+[t-MS-7E47:17996] *** End of error message ***
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun noticed that process rank 1 with PID 0 on node t-MS-7E47 exited on signal 11 (Segmentation fault).
+--------------------------------------------------------------------------

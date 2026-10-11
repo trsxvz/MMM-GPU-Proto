@@ -1165,6 +1165,12 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_test_executable(HypreILUTest)
     add_test(NAME HypreILUTest COMMAND HypreILUTest)
     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
+    # HypreParaSailsTest executable: ParaSails preconditioner given a new
+    # operator after the destruction of the previous one, refused when hypre
+    # computes on a GPU
+    add_test_executable(HypreParaSailsTest)
+    add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
+    add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)

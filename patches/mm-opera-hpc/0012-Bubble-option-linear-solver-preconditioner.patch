@@ -1,0 +1,76 @@
+From d8b32be05cdb80ba339d7854fbfa74a872a73c26 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 18:54:49 +0200
+Subject: [PATCH] Bubble: option --linear-solver-preconditioner
+
+The preconditioner of the conjugate gradient solver was the diagonal
+scaling of hypre, with which the default case (mesh single_sphere.msh,
+467109 unknowns) fails: the solver stops after 1000 iterations with a
+relative residual of 5.5e-8, above the requested 1e-10, and the Newton
+solver, limited to one iteration, does not converge. The option
+--linear-solver-preconditioner (HypreDiagScale by default, none for no
+preconditioner) chooses it: with HypreBoomerAMG, the default case
+converges in 16 iterations of the conjugate gradient solver.
+---
+ bubble/src/Bubble.cxx | 24 ++++++++++++++++++------
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 990ccd6..2efc394 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -10,6 +10,7 @@
+ 
+ #include <cstdlib>
+ #include <fstream>
++#include <string_view>
+ 
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ 
+@@ -169,6 +170,8 @@ struct TestParameters : PhysicalParameters {
+   const char* bubble_file =
+       "mesh/single_bubble.txt";                  ///< Bubble definitions file
+   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
++  const char* linear_solver_preconditioner =
++      "HypreDiagScale";     ///< Preconditioner of the linear solver (or none)
+   int parallel_mesh = 0;    ///< Flag for parallel mesh format
+   int order = 2;            ///< Finite element order
+   int refinement = 0;       ///< Mesh refinement level
+@@ -205,6 +208,11 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "Scaling factor for the principal stress");
+   args.AddOption(&p.testcase_name, "-n", "--name-case",
+                  "Name of the testcase.");
++  args.AddOption(&p.linear_solver_preconditioner, "",
++                 "--linear-solver-preconditioner",
++                 "Preconditioner of the conjugate gradient solver "
++                 "(HypreDiagScale by default, HypreBoomerAMG...), none for no "
++                 "preconditioner.");
+   args.AddOption(
+       &p.d_min, "-dm", "--dmin",
+       "Distance to evaluate bubble rupture, in µm, default = 0.950.");
+@@ -427,12 +435,16 @@ int main(int argc, char** argv) {
+   mfem_mgis::Parameters solverParameters;
+   solverParameters.insert(mfem_mgis::throwing,
+                           mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
+-  // Use diagonal scaling preconditioner
+-  auto preconditioner = mfem_mgis::Parameters{{"Name", "HypreDiagScale"}};
+-  solverParameters.insert(
+-      mfem_mgis::throwing,
+-      mfem_mgis::Parameters{{"Preconditioner", preconditioner},
+-                            {"Tolerance", 1e-10}});
++  solverParameters.insert(mfem_mgis::throwing,
++                          mfem_mgis::Parameters{{"Tolerance", 1e-10}});
++  // diagonal scaling preconditioner by default
++  if (std::string_view{p.linear_solver_preconditioner} != "none") {
++    auto preconditioner =
++        mfem_mgis::Parameters{{"Name", p.linear_solver_preconditioner}};
++    solverParameters.insert(
++        mfem_mgis::throwing,
++        mfem_mgis::Parameters{{"Preconditioner", preconditioner}});
++  }
+ 
+   // Set up conjugate gradient solver
+   problem.setLinearSolver(ctx, "HyprePCG", solverParameters) | or_die;
+-- 
+2.43.0
+

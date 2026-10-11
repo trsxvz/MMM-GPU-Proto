@@ -1,0 +1,2084 @@
+From ed19e652f249f0bff5f2cec517828a31d8812245 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 07:27:07 +0200
+Subject: [PATCH] Batch: regularization of Faltus et al. by kernels
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The regularization of Faltus et al. (`Faltus2026` behaviour integrators,
+3D and plane strain) adds to the inner forces of an element
+`Σ_q w_q det J_q D_qᵀ α (F_q - F0)` and to its stiffness matrix
+`α Σ_q w_q det J_q D_qᵀ D_q`, `F0` being the deformation gradient at the
+center of the element and `D_q = B_q - B0`. It is now computed by kernels
+(new module `MFEMMGIS/Batch/Faltus.hxx`):
+
+- `F0` is computed with the gradients by kernels, from the derivatives of
+  the unknowns at the center of the elements (rule of order 0, given by
+  `getAdditionalIntegrationRulesForKernels` as for the FBar formulation;
+  computation shared with the FBar formulation in
+  `computeDeformationGradientAtCenter`), kept by `update` and restored by
+  `revert`, and invalid if the gradients are computed element by element;
+- the stiffness matrices do not depend on the unknowns and are computed on
+  the fly: for a deformation gradient, the block of the nodes `a` and `b`
+  of `D_qᵀ D_q` is `d_a · d_b` times the identity, `d` being the
+  difference of the derivatives of the shape functions at the point and at
+  the center. One thread per pair of nodes for the matrices of the
+  elements, per node for the assembled matrix and the diagonal, per element
+  for the action.
+
+The inner forces of a behaviour integrator depending on the current
+estimate of the solution can only be computed by kernels from gradients
+computed by kernels: refused at setup
+(`MultiMaterialNonLinearIntegrator::checkInnerForcesKernelsSupport`). The
+regularization is refused in plane stress, where the axial component of
+the deformation gradient is not given by the unknowns.
+---
+ include/CMakeLists.txt                        |   1 +
+ include/MFEMMGIS/Batch/Faltus.hxx             | 236 ++++++++
+ ...tus2026RegularizedBehaviourIntegrators.hxx |  74 +++
+ ...tus2026RegularizedBehaviourIntegrators.ixx | 267 ++++++++++
+ .../MultiMaterialNonLinearIntegrator.hxx      |  15 +
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |   3 +-
+ src/Batch/FBarKernels.cxx                     |  39 +-
+ src/Batch/Faltus.cxx                          | 502 ++++++++++++++++++
+ src/Batch/FaltusKernels.cxx                   | 438 +++++++++++++++
+ src/Batch/FaltusKernels.hxx                   | 184 +++++++
+ src/Batch/KernelsUtilities.hxx                |  58 ++
+ src/CMakeLists.txt                            |   4 +-
+ src/MultiMaterialNonLinearIntegrator.cxx      |  30 +-
+ ...nearEvolutionProblemImplementationBase.cxx |   5 +
+ 14 files changed, 1817 insertions(+), 39 deletions(-)
+ create mode 100644 include/MFEMMGIS/Batch/Faltus.hxx
+ create mode 100644 src/Batch/Faltus.cxx
+ create mode 100644 src/Batch/FaltusKernels.cxx
+ create mode 100644 src/Batch/FaltusKernels.hxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 985ec82e68..9cd859c5fe 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -44,6 +44,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch FBar.hxx)
++mfem_mgis_header(MFEMMGIS/Batch Faltus.hxx)
+ mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
+ mfem_mgis_header(MFEMMGIS MatrixFreeTangentOperator.hxx)
+ mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
+diff --git a/include/MFEMMGIS/Batch/Faltus.hxx b/include/MFEMMGIS/Batch/Faltus.hxx
+new file mode 100644
+index 0000000000..d68c15e925
+--- /dev/null
++++ b/include/MFEMMGIS/Batch/Faltus.hxx
+@@ -0,0 +1,236 @@
++/*!
++ * \file   include/MFEMMGIS/Batch/Faltus.hxx
++ * \brief  This file declares the computations of the regularization of
++ * Faltus et al. by kernels of MFEM, for all the elements of a material at
++ * once
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_BATCH_FALTUS_HXX
++#define LIB_MFEM_MGIS_BATCH_FALTUS_HXX
++
++#include "mfem/linalg/vector.hpp"
++#include "MGIS/Context.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
++#include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
++
++namespace mfem_mgis {
++  // forward declarations
++  struct Material;
++  struct PartialQuadratureSpace;
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief data of the regularization of Faltus et al. of a material,
++   * computed by kernels.
++   *
++   * The regularization adds to the inner forces of an element
++   *
++   * `Σ_q w_q det J_q D_qᵀ α (F_q - F0)`,
++   *
++   * and to its stiffness matrix
++   *
++   * `α Σ_q w_q det J_q D_qᵀ D_q`,
++   *
++   * `F_q` being the deformation gradient at the integration point (gradient
++   * of the behaviour), `F0` the deformation gradient at the center of the
++   * element, `D_q = B_q - B0`, `B_q` and `B0` being the operators of the
++   * gradients at the integration point and at the center of the element,
++   * and `α` the penalization coefficient. The stiffness matrix does not
++   * depend on the unknowns: it is computed on the fly by the kernels, from
++   * the geometric data of the integration points and of the center of the
++   * elements.
++   *
++   * `F0` is computed with the gradients by kernels (see
++   * `computeFaltusCenters`): the inner forces computed by kernels use the
++   * gradients and `F0` of the last computation of the gradients (or of the
++   * beginning of the time step after a revert, see `revertFaltusData`), and
++   * can't be computed if the gradients have been computed element by element
++   * (see `valid`). Before the first computation of the gradients
++   * (prediction of the first time step), `F0` is computed for null unknowns,
++   * as the data of the FBar formulation: the initial unknowns are supposed
++   * to be null.
++   */
++  struct MFEM_MGIS_EXPORT FaltusData {
++    /*!
++     * \brief deformation gradients `F0` at the center of the elements of the
++     * material (`c + gs * k` for the component `c` of the `k`-th element of
++     * the material, `gs` being the number of components of the gradients)
++     */
++    mfem::Vector centers;
++    /*!
++     * \brief false if the gradients have been computed element by element
++     * since the last computation of `F0` by kernels: `F0` does not match the
++     * gradients, and the inner forces can't be computed by kernels
++     */
++    bool valid = true;
++    //! \brief copies of the data at the beginning of the time step
++    struct {
++      //! \brief deformation gradients `F0`
++      mfem::Vector centers;
++      //! \brief validity of the data (see `FaltusData::valid`)
++      bool valid = true;
++      //! \brief if true, the copies are set (see `updateFaltusData`)
++      bool defined = false;
++    } beginning_of_time_step;
++  };
++
++  /*!
++   * \return true if the regularization of Faltus et al. is supported by the
++   * kernels for the given kind of gradients (deformation gradient in 3D or
++   * in 2D)
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool isFaltusSupportedByKernels(
++      const GradientsKind) noexcept;
++  /*!
++   * \brief computes the deformation gradients `F0` at the center of the
++   * elements of a material
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] data: data of the regularization
++   * \param[in] m: material (macroscopic gradients)
++   * \param[in] d0: derivatives of the unknowns at the center of the
++   * elements, null for null unknowns (before the first computation of the
++   * gradients)
++   * \param[in] g0: geometric data of the center of the elements (see
++   * `getElementsCenterIntegrationRule`)
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool computeFaltusCenters(
++      Context&,
++      FaltusData&,
++      const Material&,
++      const UnknownsDerivatives* const,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief keeps the data of the regularization, computed for the converged
++   * unknowns of the time step, as the data at the beginning of the next time
++   * step (see `revertFaltusData`)
++   * \param[in, out] data: data of the regularization
++   */
++  MFEM_MGIS_EXPORT void updateFaltusData(FaltusData&);
++  /*!
++   * \brief restores the data of the regularization at the beginning of the
++   * time step, kept by `updateFaltusData`, or, before the first update,
++   * removes the data (computed again for null unknowns)
++   * \param[in, out] data: data of the regularization
++   */
++  MFEM_MGIS_EXPORT void revertFaltusData(FaltusData&);
++  /*!
++   * \brief adds the contribution of the regularization to the inner forces
++   * of the elements of a material, in the layout of the element restriction
++   * of MFEM (`nd x vdim x ne`), on the device if a device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] f: values element by element
++   * \param[in] data: data of the regularization
++   * \param[in] m: material (gradients at the end of the time step)
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusInnerForces(
++      Context&,
++      mfem::Vector&,
++      const FaltusData&,
++      const Material&,
++      const real,
++      const ElementsGeometry&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the contribution of the regularization to the stiffness
++   * matrices of the elements of a material, stored element by element (see
++   * `addStiffnessMatrices`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: matrices element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatrices(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const real,
++      const ElementsGeometry&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the contribution of the regularization to an assembled
++   * sparse matrix (see `addStiffnessMatrices`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] m: assembled matrix
++   * \param[in] qs: quadrature space of the material
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatrices(
++      Context&,
++      const AssembledStiffnessMatrix&,
++      const PartialQuadratureSpace&,
++      const real,
++      const ElementsGeometry&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the diagonals of the contribution of the regularization to
++   * the stiffness matrices of the elements of a material (see
++   * `addStiffnessMatricesDiagonals`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] d: values element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatricesDiagonals(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const real,
++      const ElementsGeometry&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++  /*!
++   * \brief adds the action of the contribution of the regularization to the
++   * stiffness matrices of the elements of a material, without assembling
++   * them (see `addTangentOperatorAction`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] y: action, element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] x: values element by element
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusTangentOperatorAction(
++      Context&,
++      mfem::Vector&,
++      const PartialQuadratureSpace&,
++      const mfem::Vector&,
++      const real,
++      const ElementsGeometry&,
++      const ElementsGeometry&,
++      const GradientsKind) noexcept;
++
++}  // end of namespace mfem_mgis::batch
++
++#endif /* LIB_MFEM_MGIS_BATCH_FALTUS_HXX */
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+index fde40c7ccb..e3fc91117d 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+@@ -12,6 +12,7 @@
+ 
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
++#include "MFEMMGIS/Batch/Faltus.hxx"
+ #include "IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ #include "IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ #include "IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+@@ -120,10 +121,83 @@ namespace mfem_mgis {
+     //! \return if the current solution is required for assembling the jacobian
+     [[nodiscard]] bool requiresCurrentSolutionForJacobianAssembly()
+         const noexcept override;
++    /*!
++     * \brief compute the gradients of an element: the deformation gradients
++     * at the center of the elements computed by kernels no longer match the
++     * gradients (see `batch::FaltusData::valid`)
++     */
++    [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
++                                        mfem::ElementTransformation&,
++                                        const mfem::Vector&) override;
++    /*!
++     * \brief integrate the behaviour on an element: the deformation gradients
++     * at the center of the elements computed by kernels no longer match the
++     * gradients (see `batch::FaltusData::valid`)
++     */
++    [[nodiscard]] bool integrate(const mfem::FiniteElement&,
++                                 mfem::ElementTransformation&,
++                                 const mfem::Vector&,
++                                 const IntegrationType) override;
++    void revert() override;
++    void update() override;
++    /*!
++     * \return true in 3D and in plane strain (see
++     * `batch::isFaltusSupportedByKernels`), all the elements of the material
++     * using the same integration rule: the regularization is computed by
++     * the kernels of `MFEMMGIS/Batch/Faltus.hxx`
++     */
++    [[nodiscard]] bool supportsKernels() const noexcept override;
++    //! \return the integration rule of the center of the elements
++    [[nodiscard]] std::vector<const mfem::IntegrationRule*>
++    getAdditionalIntegrationRulesForKernels() const override;
++    [[nodiscard]] bool computeGradientsByKernels(
++        Context&,
++        const batch::UnknownsDerivativesSet&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addInnerForcesByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addStiffnessMatricesByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addStiffnessMatricesByKernels(
++        Context&,
++        const batch::AssembledStiffnessMatrix&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addTangentOperatorActionByKernels(
++        Context&,
++        mfem::Vector&,
++        const mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
++    [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
+ 
+    private:
++    /*!
++     * \brief gets the data of the computations by kernels (see
++     * `getKernelsData`) and the geometric data of the center of the elements
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[out] data: data of the computations
++     * \param[out] g0: geometric data of the center of the elements, null if
++     * the material has no element
++     * \param[in] name: name of the calling method
++     * \param[in] g: geometric data of the integration rules
++     */
++    [[nodiscard]] bool getFaltusKernelsData(
++        Context&,
++        BehaviourIntegratorBase::KernelsData&,
++        const batch::ElementsGeometry*&,
++        const char* const,
++        const batch::ElementsGeometrySet&) const noexcept;
+     //! \brief penalization coefficient
+     const real alpha;
++    //! \brief data of the regularization computed by kernels
++    batch::FaltusData faltus_data;
+ #ifndef MFEM_THREAD_SAFE
+     /*!
+      * \brief matrix used to store the derivatives of the shape functions at
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+index 54afd279e2..9d971f51bb 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+@@ -10,9 +10,13 @@
+ #define LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX
+ 
+ #include <array>
++#include <string>
++#include <vector>
++#include <cstdint>
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Batch/FBar.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -190,6 +194,269 @@ namespace mfem_mgis {
+     }
+   }  // end of updateJacobian
+ 
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::computeGradients(
++      const mfem::FiniteElement& e,
++      mfem::ElementTransformation& tr,
++      const mfem::Vector& u) {
++    this->faltus_data.valid = false;
++    return Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++        H>::computeGradients(e, tr, u);
++  }  // end of computeGradients
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::integrate(
++      const mfem::FiniteElement& e,
++      mfem::ElementTransformation& tr,
++      const mfem::Vector& u,
++      const IntegrationType it) {
++    this->faltus_data.valid = false;
++    return Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::integrate(
++        e, tr, u, it);
++  }  // end of integrate
++
++  template <Hypothesis H>
++  void Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::revert() {
++    // deformation gradients at the center of the elements at the beginning
++    // of the time step
++    batch::revertFaltusData(this->faltus_data);
++    Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::revert();
++  }  // end of revert
++
++  template <Hypothesis H>
++  void Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::update() {
++    batch::updateFaltusData(this->faltus_data);
++    Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>::update();
++  }  // end of update
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::supportsKernels()
++      const noexcept {
++    // in plane stress, the axial component of the deformation gradient is
++    // not given by the unknowns
++    if constexpr (H == Hypothesis::PLANESTRESS) {
++      return false;
++    } else {
++      if (!batch::areGradientsKernelsAvailable()) {
++        return false;
++      }
++      // deformation gradient in 3D or in plane strain
++      const auto k = batch::getGradientsKind(this->b);
++      constexpr auto expected =
++          (H == Hypothesis::PLANESTRAIN)
++              ? batch::GradientsKind::DEFORMATION_GRADIENT_2D
++              : batch::GradientsKind::DEFORMATION_GRADIENT_3D;
++      if ((!k.has_value()) || (*k != expected)) {
++        return false;
++      }
++      // all the elements must use the same integration rule
++      return (this->quadrature_space->getNumberOfElements() == 0) ||
++             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++    }
++  }  // end of supportsKernels
++
++  template <Hypothesis H>
++  std::vector<const mfem::IntegrationRule*>
++  Faltus2026RegularizedIsotropicBehaviourIntegrator<
++      H>::getAdditionalIntegrationRulesForKernels() const {
++    const auto* const r0 =
++        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++    if (r0 == nullptr) {
++      return {};
++    }
++    return {r0};
++  }  // end of getAdditionalIntegrationRulesForKernels
++
++  template <Hypothesis H>
++  bool
++  Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::getFaltusKernelsData(
++      Context& ctx,
++      BehaviourIntegratorBase::KernelsData& data,
++      const batch::ElementsGeometry*& g0,
++      const char* const name,
++      const batch::ElementsGeometrySet& g) const noexcept {
++    g0 = nullptr;
++    if (!this->getKernelsData(ctx, data, name, g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    const auto p0 = g.find(
++        batch::getElementsCenterIntegrationRule(*(this->quadrature_space)));
++    if (p0 == g.end()) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the geometric data are not computed for the center of the "
++          "elements");
++    }
++    g0 = &(p0->second);
++    return true;
++  }  // end of getFaltusKernelsData
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::
++      computeGradientsByKernels(Context& ctx,
++                                const batch::UnknownsDerivativesSet& d,
++                                const batch::ElementsGeometrySet& g) noexcept {
++    // deformation gradients at the integration points
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::computeGradientsByKernels(ctx, d, g)) {
++      return false;
++    }
++    // deformation gradients at the center of the elements
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0, "computeGradientsByKernels",
++                                    g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    const auto p0 = d.find(g0->rule);
++    if (p0 == d.end()) {
++      return ctx.registerErrorMessage(
++          "computeGradientsByKernels: the derivatives of the unknowns are not "
++          "computed for the center of the elements");
++    }
++    return batch::computeFaltusCenters(ctx, this->faltus_data, *this,
++                                       &(p0->second), *g0, data.kind);
++  }  // end of computeGradientsByKernels
++
++  template <Hypothesis H>
++  bool
++  Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::addInnerForcesByKernels(
++      Context& ctx,
++      mfem::Vector& f,
++      const batch::ElementsGeometrySet& g) noexcept {
++    // inner forces of the standard finite strain formulation
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addInnerForcesByKernels(ctx, f, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0, "addInnerForcesByKernels",
++                                    g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    const auto gsize = static_cast<std::int64_t>(this->s1.gradients_stride);
++    if ((this->faltus_data.valid) &&
++        (static_cast<std::int64_t>(this->faltus_data.centers.Size()) !=
++         gsize * this->quadrature_space->getNumberOfElements())) {
++      // before the first computation of the gradients (prediction of the
++      // first time step): null unknowns
++      if (!batch::computeFaltusCenters(ctx, this->faltus_data, *this, nullptr,
++                                       *g0, data.kind)) {
++        return false;
++      }
++    }
++    return batch::addFaltusInnerForces(ctx, f, this->faltus_data, *this,
++                                       this->alpha, *(data.geometry), *g0,
++                                       data.kind);
++  }  // end of addInnerForcesByKernels
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
++      H>::addStiffnessMatricesByKernels(Context& ctx,
++                                        mfem::Vector& m,
++                                        const batch::ElementsGeometrySet&
++                                            g) noexcept {
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addStiffnessMatricesByKernels(ctx, m, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0,
++                                    "addStiffnessMatricesByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
++                                             this->alpha, *(data.geometry), *g0,
++                                             data.kind);
++  }  // end of addStiffnessMatricesByKernels
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<H>::
++      addStiffnessMatricesByKernels(
++          Context& ctx,
++          const batch::AssembledStiffnessMatrix& m,
++          const batch::ElementsGeometrySet& g) noexcept {
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addStiffnessMatricesByKernels(ctx, m, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0,
++                                    "addStiffnessMatricesByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
++                                             this->alpha, *(data.geometry), *g0,
++                                             data.kind);
++  }  // end of addStiffnessMatricesByKernels
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
++      H>::addTangentOperatorActionByKernels(Context& ctx,
++                                            mfem::Vector& y,
++                                            const mfem::Vector& x,
++                                            const batch::ElementsGeometrySet&
++                                                g) noexcept {
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addTangentOperatorActionByKernels(ctx, y, x, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0,
++                                    "addTangentOperatorActionByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFaltusTangentOperatorAction(
++        ctx, y, *(this->quadrature_space), x, this->alpha, *(data.geometry),
++        *g0, data.kind);
++  }  // end of addTangentOperatorActionByKernels
++
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
++      H>::addTangentOperatorDiagonalByKernels(Context& ctx,
++                                              mfem::Vector& d,
++                                              const batch::ElementsGeometrySet&
++                                                  g) noexcept {
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addTangentOperatorDiagonalByKernels(ctx, d, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(ctx, data, g0,
++                                    "addTangentOperatorDiagonalByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFaltusStiffnessMatricesDiagonals(
++        ctx, d, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
++        data.kind);
++  }  // end of addTangentOperatorDiagonalByKernels
++
+ }  // end of namespace mfem_mgis
+ 
+ #endif /* LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX */
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 5f459a78a8..a0f473b3d1 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -156,6 +156,21 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] bool checkStiffnessMatricesKernelsSupport(
+         Context& ctx, const bool gradients_kernels) const noexcept;
++    /*!
++     * \return true if the inner forces of all the behaviour integrators can
++     * be computed by kernels with the given computation of the gradients:
++     * the inner forces of a behaviour integrator depending on the current
++     * estimate of the solution (regularization of Faltus et al., see
++     * `AbstractBehaviourIntegrator::requiresCurrentSolutionForResidualAssembly`)
++     * are computed from data computed with the gradients by kernels;
++     * otherwise, an error message naming the first behaviour integrator
++     * concerned is registered
++     * \param[in, out] ctx: execution context
++     * \param[in] gradients_kernels: if true, the gradients are computed by
++     * kernels
++     */
++    [[nodiscard]] bool checkInnerForcesKernelsSupport(
++        Context& ctx, const bool gradients_kernels) const noexcept;
+     /*!
+      * \brief compute the gradients of all the behaviour integrators by
+      * kernels (first step of the integration by batches, replacing the calls
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 0976e2341a..066e254725 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -250,7 +250,8 @@ namespace mfem_mgis {
+     // the kernels compute the inner forces and the stiffness matrices from
+     // the thermodynamic forces and the tangent operator blocks only: the
+     // behaviour integrators whose residual or jacobian also depend on the
+-    // unknowns (regularisations, such as Faltus2026) are refused
++    // unknowns (regularisations) are refused, unless they override this
++    // method (FBar formulation and regularisation of Faltus et al.)
+     if ((this->requiresCurrentSolutionForResidualAssembly()) ||
+         (this->requiresCurrentSolutionForJacobianAssembly())) {
+       return false;
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index 3e15d5a524..f0cb9fc707 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -102,39 +102,12 @@ namespace mfem_mgis::batch::internals {
+                             1, a.determinants[e]);
+           // deformation gradient at the center
+           real F0[9];
+-          for (int c = 0; c != gs; ++c) {
+-            F0[c] = a.macroscopic_gradients[c];
+-          }
+-          if (a.derivatives != nullptr) {
+-            const auto* const dr =
+-                a.derivatives + static_cast<std::size_t>(V * N) * e;
+-            real du[V * N];
+-            for (int i = 0; i != V; ++i) {
+-              for (int j = 0; j != N; ++j) {
+-                du[i + V * j] = 0;
+-                for (int r = 0; r != N; ++r) {
+-                  du[i + V * j] += dr[i + V * r] * iJ[r + N * j];
+-                }
+-              }
+-            }
+-            auto d = [&du](const int i, const int j) { return du[i + V * j]; };
+-            if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
+-              F0[0] += d(0, 0);
+-              F0[1] += d(1, 1);
+-              F0[2] += d(2, 2);
+-              F0[3] += d(0, 1);
+-              F0[4] += d(1, 0);
+-              F0[5] += d(0, 2);
+-              F0[6] += d(2, 0);
+-              F0[7] += d(1, 2);
+-              F0[8] += d(2, 1);
+-            } else {
+-              F0[0] += d(0, 0);
+-              F0[1] += d(1, 1);
+-              F0[3] += d(0, 1);
+-              F0[4] += d(1, 0);
+-            }
+-          }
++          computeDeformationGradientAtCenter<K>(
++              F0, a.macroscopic_gradients,
++              (a.derivatives != nullptr)
++                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
++                  : nullptr,
++              iJ);
+           real dJ0[9];
+           computeDeterminantDerivative<K>(dJ0, F0);
+           a.centers[k] = computeDeterminant<K>(F0);
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+new file mode 100644
+index 0000000000..4c801baa67
+--- /dev/null
++++ b/src/Batch/Faltus.cxx
+@@ -0,0 +1,502 @@
++/*!
++ * \file   src/Batch/Faltus.cxx
++ * \brief  This file implements the computations of the regularization of
++ * Faltus et al. by kernels of MFEM (see `MFEMMGIS/Batch/Faltus.hxx`)
++ * \date   11/10/2026
++ */
++
++#include <limits>
++#include <string>
++#include <cstdint>
++#include <exception>
++#include "mfem/general/device.hpp"
++#include "mfem/linalg/sparsemat.hpp"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/PartialQuadratureSpace.hxx"
++#include "MFEMMGIS/Batch/FBar.hxx"
++#include "MFEMMGIS/Batch/Faltus.hxx"
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++#include "FaltusKernels.hxx"
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++namespace mfem_mgis::batch {
++
++  /*!
++   * \brief copies the values of an array of the memory of MFEM, on the
++   * device if a device is enabled
++   * \param[out] d: destination
++   * \param[in] s: source
++   */
++  static void copyFaltusArray(mfem::Vector& d, const mfem::Vector& s) {
++    d.UseDevice(true);
++    d.SetSize(s.Size());
++    if (s.Size() != 0) {
++      d = s;
++    }
++  }  // end of copyFaltusArray
++
++  void updateFaltusData(FaltusData& data) {
++    auto& b = data.beginning_of_time_step;
++    copyFaltusArray(b.centers, data.centers);
++    b.valid = data.valid;
++    b.defined = true;
++  }  // end of updateFaltusData
++
++  void revertFaltusData(FaltusData& data) {
++    const auto& b = data.beginning_of_time_step;
++    if (b.defined) {
++      copyFaltusArray(data.centers, b.centers);
++      data.valid = b.valid;
++    } else {
++      data.centers.SetSize(0);
++      data.valid = true;
++    }
++  }  // end of revertFaltusData
++
++  bool isFaltusSupportedByKernels(const GradientsKind k) noexcept {
++    return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
++           (k == GradientsKind::DEFORMATION_GRADIENT_2D);
++  }  // end of isFaltusSupportedByKernels
++
++  //! \brief error reported if the kernels are not compiled
++  [[maybe_unused]] static bool reportFaltusKernelsNotCompiled(
++      Context& ctx, const char* const name) {
++    return ctx.registerErrorMessage(
++        std::string{name} +
++        ": the kernels of the regularization of Faltus et al. are not "
++        "compiled (MFEM compiled with HIP)");
++  }  // end of reportFaltusKernelsNotCompiled
++
++#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
++
++  /*!
++   * \brief checks the geometric data of the integration points and of the
++   * center of the elements of a material, and returns the arguments of the
++   * kernels
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] a: arguments of the kernels
++   * \param[in] qs: quadrature space of the material
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   * \param[in] use_device: if true, the kernels run on the device
++   * \param[in] name: name of the calling function
++   * \param[in] threads_per_element: number of threads per element of the
++   * kernel
++   */
++  static bool getFaltusGeometryKernelArguments(
++      Context& ctx,
++      internals::FaltusGeometryKernelArguments& a,
++      const PartialQuadratureSpace& qs,
++      const real alpha,
++      const ElementsGeometry& g,
++      const ElementsGeometry& g0,
++      const GradientsKind k,
++      const bool use_device,
++      const char* const name,
++      const std::int64_t threads_per_element) {
++    if (!isFaltusSupportedByKernels(k)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the regularization of Faltus et al. requires a deformation "
++          "gradient in 3D or in 2D");
++    }
++    const auto& elements = qs.getElements();
++    if (elements.Size() == 0) {
++      return true;
++    }
++    const auto dim = getSpaceDimension(k);
++    if ((g.rule == nullptr) || (g.maps == nullptr) ||
++        (g.jacobians == nullptr) ||
++        (qs.getUniformIntegrationRule() != g.rule) || (g.dim != dim)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": the elements of the material do not use the integration rule of "
++          "the geometric data");
++    }
++    if ((g0.rule != getElementsCenterIntegrationRule(qs)) || (g0.nq != 1) ||
++        (g0.maps == nullptr) || (g0.jacobians == nullptr) || (g0.dim != dim) ||
++        (g0.nd != g.nd) || (g0.ne != g.ne)) {
++      return ctx.registerErrorMessage(
++          std::string{name} +
++          ": invalid geometric data of the center of the elements");
++    }
++    if (std::int64_t{elements.Size()} * threads_per_element >
++        std::numeric_limits<int>::max()) {
++      return ctx.registerErrorMessage(std::string{name} +
++                                      ": too many elements for the kernels");
++    }
++    a.elements = elements.Read(use_device);
++    a.shape_functions_gradients = g.maps->G.Read(use_device);
++    a.jacobians = g.jacobians->J.Read(use_device);
++    a.determinants = g.jacobians->detJ.Read(use_device);
++    a.weights = g.weights.Read(use_device);
++    a.center_shape_functions_gradients = g0.maps->G.Read(use_device);
++    a.center_jacobians = g0.jacobians->J.Read(use_device);
++    a.center_determinants = g0.jacobians->detJ.Read(use_device);
++    a.alpha = alpha;
++    a.number_of_elements = elements.Size();
++    a.nd = g.nd;
++    a.nq = g.nq;
++    return true;
++  }  // end of getFaltusGeometryKernelArguments
++
++  //! \return the number of degrees of freedom of an element
++  static std::int64_t getNumberOfElementDegreesOfFreedom(
++      const ElementsGeometry& g, const GradientsKind k) {
++    return std::int64_t{g.nd} * getUnknownsSize(k);
++  }  // end of getNumberOfElementDegreesOfFreedom
++
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++
++  bool computeFaltusCenters(Context& ctx,
++                            FaltusData& data,
++                            const Material& m,
++                            const UnknownsDerivatives* const d0,
++                            const ElementsGeometry& g0,
++                            const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(data);
++    static_cast<void>(m);
++    static_cast<void>(d0);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(ctx, "computeFaltusCenters");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      if (!isFaltusSupportedByKernels(k)) {
++        return ctx.registerErrorMessage(
++            "computeFaltusCenters: the regularization of Faltus et al. "
++            "requires a deformation gradient in 3D or in 2D");
++      }
++      const auto& qs = m.getPartialQuadratureSpace();
++      const auto& elements = qs.getElements();
++      const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
++      const auto size = std::int64_t{elements.Size()} * gsize;
++      if (size > std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "computeFaltusCenters: array too large for MFEM");
++      }
++      // valid only after a successful computation
++      data.valid = false;
++      data.centers.UseDevice(true);
++      data.centers.SetSize(static_cast<int>(size));
++      if (elements.Size() == 0) {
++        data.valid = true;
++        return true;
++      }
++      const auto* const r0 = getElementsCenterIntegrationRule(qs);
++      const auto vdim = getUnknownsSize(k);
++      if ((g0.rule != r0) || (g0.nq != 1) || (g0.maps == nullptr) ||
++          (g0.jacobians == nullptr) || (g0.dim != getSpaceDimension(k))) {
++        return ctx.registerErrorMessage(
++            "computeFaltusCenters: invalid geometric data of the center of "
++            "the elements");
++      }
++      if ((d0 != nullptr) && ((d0->rule != r0) || (d0->nq != 1) ||
++                              (d0->vdim != vdim) || (d0->ne != g0.ne))) {
++        return ctx.registerErrorMessage(
++            "computeFaltusCenters: invalid derivatives of the unknowns at the "
++            "center of the elements");
++      }
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto macroscopic_gradients = m.getMacroscopicGradients();
++      auto a = internals::FaltusCentersKernelArguments{};
++      a.elements = elements.Read(use_device);
++      a.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
++      a.jacobians = g0.jacobians->J.Read(use_device);
++      a.determinants = g0.jacobians->detJ.Read(use_device);
++      a.centers = data.centers.Write(use_device);
++      a.number_of_elements = elements.Size();
++      for (std::int64_t c = 0; c != gsize; ++c) {
++        a.macroscopic_gradients[c] = macroscopic_gradients[c];
++      }
++      internals::launchFaltusCentersKernel(k, a, use_device);
++      data.valid = true;
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"computeFaltusCenters: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "computeFaltusCenters: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of computeFaltusCenters
++
++  bool addFaltusInnerForces(Context& ctx,
++                            mfem::Vector& f,
++                            const FaltusData& data,
++                            const Material& m,
++                            const real alpha,
++                            const ElementsGeometry& g,
++                            const ElementsGeometry& g0,
++                            const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(f);
++    static_cast<void>(data);
++    static_cast<void>(m);
++    static_cast<void>(alpha);
++    static_cast<void>(g);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(ctx, "addFaltusInnerForces");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto& qs = m.getPartialQuadratureSpace();
++      const auto& elements = qs.getElements();
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FaltusInnerForcesKernelArguments{};
++      if (!getFaltusGeometryKernelArguments(ctx, a.geometry, qs, alpha, g, g0,
++                                            k, use_device,
++                                            "addFaltusInnerForces", 1)) {
++        return false;
++      }
++      if (elements.Size() == 0) {
++        return true;
++      }
++      const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
++      if ((!data.valid) || (static_cast<std::int64_t>(data.centers.Size()) !=
++                            std::int64_t{elements.Size()} * gsize)) {
++        return ctx.registerErrorMessage(
++            "addFaltusInnerForces: the deformation gradients at the center of "
++            "the elements are not computed by kernels (GradientsComputation "
++            "set to Kernels)");
++      }
++      if ((m.s1.gradients_stride != getGradientsSize(k)) ||
++          (static_cast<std::int64_t>(f.Size()) !=
++           getNumberOfElementDegreesOfFreedom(g, k) * g.ne)) {
++        return ctx.registerErrorMessage(
++            "addFaltusInnerForces: unexpected number of components of the "
++            "gradients or size of the values element by element");
++      }
++      const auto& gradients =
++          m.getArrays().getArray(MaterialArrays::StateArray::GRADIENTS, ets);
++      a.offsets = qs.getElementOffsets().Read(use_device);
++      a.gradients = gradients.Read(use_device);
++      a.point_by_point =
++          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
++      a.number_of_points = qs.getNumberOfIntegrationPoints();
++      a.centers = data.centers.Read(use_device);
++      a.values = f.ReadWrite(use_device);
++      internals::launchFaltusInnerForcesKernel(k, a, use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(std::string{"addFaltusInnerForces: "} +
++                                      e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusInnerForces: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFaltusInnerForces
++
++  bool addFaltusStiffnessMatrices(Context& ctx,
++                                  mfem::Vector& m,
++                                  const PartialQuadratureSpace& qs,
++                                  const real alpha,
++                                  const ElementsGeometry& g,
++                                  const ElementsGeometry& g0,
++                                  const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(qs);
++    static_cast<void>(alpha);
++    static_cast<void>(g);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto n = getNumberOfElementDegreesOfFreedom(g, k);
++      auto a = internals::FaltusGeometryKernelArguments{};
++      // one thread per pair of nodes of an element
++      if (!getFaltusGeometryKernelArguments(
++              ctx, a, qs, alpha, g, g0, k, use_device,
++              "addFaltusStiffnessMatrices", std::int64_t{g.nd} * g.nd)) {
++        return false;
++      }
++      if (a.number_of_elements == 0) {
++        return true;
++      }
++      if (static_cast<std::int64_t>(m.Size()) != n * n * g.ne) {
++        return ctx.registerErrorMessage(
++            "addFaltusStiffnessMatrices: unexpected size of the matrices "
++            "element by element");
++      }
++      internals::launchFaltusMatricesKernel(k, a, m.ReadWrite(use_device),
++                                            use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFaltusStiffnessMatrices: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusStiffnessMatrices: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFaltusStiffnessMatrices
++
++  bool addFaltusStiffnessMatrices(Context& ctx,
++                                  const AssembledStiffnessMatrix& m,
++                                  const PartialQuadratureSpace& qs,
++                                  const real alpha,
++                                  const ElementsGeometry& g,
++                                  const ElementsGeometry& g0,
++                                  const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(m);
++    static_cast<void>(qs);
++    static_cast<void>(alpha);
++    static_cast<void>(g);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::FaltusGeometryKernelArguments{};
++      // one thread per node of an element
++      if (!getFaltusGeometryKernelArguments(
++              ctx, a, qs, alpha, g, g0, k, use_device,
++              "addFaltusStiffnessMatrices", g.nd)) {
++        return false;
++      }
++      if (a.number_of_elements == 0) {
++        return true;
++      }
++      if ((m.matrix == nullptr) || (m.element_dofs == nullptr)) {
++        return ctx.registerErrorMessage(
++            "addFaltusStiffnessMatrices: invalid assembled matrix");
++      }
++      auto missing = mfem::Array<int>(1);
++      missing.HostWrite()[0] = 0;
++      auto o = internals::SparseMatrixOutput{};
++      o.number_of_rows = m.matrix->Height();
++      o.I = m.matrix->ReadI(use_device);
++      o.J = m.matrix->ReadJ(use_device);
++      o.values = m.matrix->ReadWriteData(use_device);
++      o.element_dofs = m.element_dofs->Read(use_device);
++      o.missing = missing.ReadWrite(use_device);
++      internals::launchFaltusMatricesKernel(k, a, o, use_device);
++      if (missing.HostRead()[0] != 0) {
++        return ctx.registerErrorMessage(
++            "addFaltusStiffnessMatrices: " +
++            std::to_string(missing.HostRead()[0]) +
++            " entries of the stiffness matrices are not in the pattern of the "
++            "assembled matrix");
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFaltusStiffnessMatrices: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusStiffnessMatrices: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFaltusStiffnessMatrices
++
++  bool addFaltusStiffnessMatricesDiagonals(Context& ctx,
++                                           mfem::Vector& d,
++                                           const PartialQuadratureSpace& qs,
++                                           const real alpha,
++                                           const ElementsGeometry& g,
++                                           const ElementsGeometry& g0,
++                                           const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(d);
++    static_cast<void>(qs);
++    static_cast<void>(alpha);
++    static_cast<void>(g);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(
++        ctx, "addFaltusStiffnessMatricesDiagonals");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto n = getNumberOfElementDegreesOfFreedom(g, k);
++      auto a = internals::FaltusGeometryKernelArguments{};
++      // one thread per node of an element
++      if (!getFaltusGeometryKernelArguments(
++              ctx, a, qs, alpha, g, g0, k, use_device,
++              "addFaltusStiffnessMatricesDiagonals", g.nd)) {
++        return false;
++      }
++      if (a.number_of_elements == 0) {
++        return true;
++      }
++      if (static_cast<std::int64_t>(d.Size()) != n * g.ne) {
++        return ctx.registerErrorMessage(
++            "addFaltusStiffnessMatricesDiagonals: unexpected size of the "
++            "values element by element");
++      }
++      internals::launchFaltusDiagonalsKernel(k, a, d.ReadWrite(use_device),
++                                             use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFaltusStiffnessMatricesDiagonals: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusStiffnessMatricesDiagonals: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFaltusStiffnessMatricesDiagonals
++
++  bool addFaltusTangentOperatorAction(Context& ctx,
++                                      mfem::Vector& y,
++                                      const PartialQuadratureSpace& qs,
++                                      const mfem::Vector& x,
++                                      const real alpha,
++                                      const ElementsGeometry& g,
++                                      const ElementsGeometry& g0,
++                                      const GradientsKind k) noexcept {
++#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
++    static_cast<void>(y);
++    static_cast<void>(qs);
++    static_cast<void>(x);
++    static_cast<void>(alpha);
++    static_cast<void>(g);
++    static_cast<void>(g0);
++    static_cast<void>(k);
++    return reportFaltusKernelsNotCompiled(ctx,
++                                          "addFaltusTangentOperatorAction");
++#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto n = getNumberOfElementDegreesOfFreedom(g, k);
++      auto a = internals::FaltusGeometryKernelArguments{};
++      // one thread per element
++      if (!getFaltusGeometryKernelArguments(
++              ctx, a, qs, alpha, g, g0, k, use_device,
++              "addFaltusTangentOperatorAction", 1)) {
++        return false;
++      }
++      if (a.number_of_elements == 0) {
++        return true;
++      }
++      if ((static_cast<std::int64_t>(x.Size()) != n * g.ne) ||
++          (static_cast<std::int64_t>(y.Size()) != n * g.ne)) {
++        return ctx.registerErrorMessage(
++            "addFaltusTangentOperatorAction: unexpected size of the values "
++            "element by element");
++      }
++      internals::launchFaltusActionKernel(k, a, x.Read(use_device),
++                                          y.ReadWrite(use_device), use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFaltusTangentOperatorAction: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusTangentOperatorAction: unknown exception");
++    }
++    return true;
++#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
++  }  // end of addFaltusTangentOperatorAction
++
++}  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+new file mode 100644
+index 0000000000..0165165105
+--- /dev/null
++++ b/src/Batch/FaltusKernels.cxx
+@@ -0,0 +1,438 @@
++/*!
++ * \file   src/Batch/FaltusKernels.cxx
++ * \brief  This file implements the kernels of the regularization of Faltus
++ * et al. It contains kernels of MFEM: it is compiled as CUDA code when MFEM
++ * is compiled with CUDA.
++ * \date   11/10/2026
++ */
++
++#include <cstddef>
++#include "mfem/general/forall.hpp"
++#include "KernelsUtilities.hxx"
++#include "FaltusKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief inverse of the jacobian at the center of an element
++   * \tparam N: dimension
++   * \param[out] iJ0: inverse of the jacobian
++   * \param[in] a: geometric data
++   * \param[in] e: element of the mesh
++   */
++  template <int N>
++  MFEM_HOST_DEVICE inline void invertCenterJacobian(
++      real* const iJ0,
++      const FaltusGeometryKernelArguments& a,
++      const std::size_t e) {
++    invertJacobian<N>(iJ0,
++                      a.center_jacobians + static_cast<std::size_t>(N * N) * e,
++                      1, a.center_determinants[e]);
++  }  // end of invertCenterJacobian
++
++  /*!
++   * \brief inverse of the jacobian at an integration point of an element
++   * \tparam N: dimension
++   * \return the weight of the point, `w det J`
++   * \param[out] iJ: inverse of the jacobian
++   * \param[in] a: geometric data
++   * \param[in] e: element of the mesh
++   * \param[in] q: integration point
++   */
++  template <int N>
++  MFEM_HOST_DEVICE inline real invertPointJacobian(
++      real* const iJ,
++      const FaltusGeometryKernelArguments& a,
++      const std::size_t e,
++      const std::size_t q) {
++    const auto nq = static_cast<std::size_t>(a.nq);
++    const auto detJ = a.determinants[q + nq * e];
++    invertJacobian<N>(iJ, a.jacobians + q + nq * N * N * e, nq, detJ);
++    return a.weights[q] * detJ;
++  }  // end of invertPointJacobian
++
++  /*!
++   * \brief computes the block of a node of the operator `D = B - B0` at an
++   * integration point: `D[c][v]` is the derivative of the `c`-th component
++   * of `F - F0` with respect to the `v`-th component of the unknowns at the
++   * node
++   * \tparam K: kind of the gradients
++   * \param[out] D: block of the operator
++   * \param[in] a: geometric data
++   * \param[in] q: integration point
++   * \param[in] node: node
++   * \param[in] iJ: inverse of the jacobian at the point
++   * \param[in] iJ0: inverse of the jacobian at the center
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline void computeFaltusOperator(
++      real (&D)[9][3],
++      const FaltusGeometryKernelArguments& a,
++      const std::size_t q,
++      const std::size_t node,
++      const real* const iJ,
++      const real* const iJ0) {
++    constexpr auto N = getDimension<K>();
++    real dN[N];
++    computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
++                                  static_cast<std::size_t>(a.nq), node, iJ);
++    real dN0[N];
++    computePhysicalDerivatives<N>(dN0, a.center_shape_functions_gradients, 0, 1,
++                                  node, iJ0);
++    real B0[9][3];
++    computeB<K>(D, dN, real{0});
++    computeB<K>(B0, dN0, real{0});
++    for (int c = 0; c != getGradientsSize<K>(); ++c) {
++      for (int v = 0; v != getUnknownsSize<K>(); ++v) {
++        D[c][v] -= B0[c][v];
++      }
++    }
++  }  // end of computeFaltusOperator
++
++  /*!
++   * \brief computes the difference `d = ∇N(q) - ∇N(0)` of the derivatives
++   * of the shape function of a node at an integration point and at the
++   * center of the element. For a deformation gradient, the block of the node
++   * of the operator `D = B - B0` has the components `D[(v, j)][v] = d[j]`,
++   * `(v, j)` being the component `dv/dxj` of the gradient: the block `(a,
++   * b)` of `Dᵀ D` is `d_a · d_b` times the identity
++   * \tparam N: dimension
++   * \param[out] d: difference of the derivatives
++   * \param[in] a: geometric data
++   * \param[in] q: integration point
++   * \param[in] node: node
++   * \param[in] iJ: inverse of the jacobian at the point
++   * \param[in] iJ0: inverse of the jacobian at the center
++   */
++  template <int N>
++  MFEM_HOST_DEVICE inline void computeFaltusDerivativesDifference(
++      real* const d,
++      const FaltusGeometryKernelArguments& a,
++      const std::size_t q,
++      const std::size_t node,
++      const real* const iJ,
++      const real* const iJ0) {
++    real dN0[N];
++    computePhysicalDerivatives<N>(d, a.shape_functions_gradients, q,
++                                  static_cast<std::size_t>(a.nq), node, iJ);
++    computePhysicalDerivatives<N>(dN0, a.center_shape_functions_gradients, 0, 1,
++                                  node, iJ0);
++    for (int c = 0; c != N; ++c) {
++      d[c] -= dN0[c];
++    }
++  }  // end of computeFaltusDerivativesDifference
++
++  /*!
++   * \return the coefficient `α Σ_q w_q d_a · d_b` of the block of the nodes
++   * `a` and `b` of the matrix `α Σ_q w_q Dᵀ D` of an element (see
++   * `computeFaltusDerivativesDifference`)
++   * \tparam K: kind of the gradients (deformation gradient)
++   * \param[in] a: geometric data
++   * \param[in] e: element of the mesh
++   * \param[in] na: first node
++   * \param[in] nb: second node
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline real computeFaltusNodesCoefficient(
++      const FaltusGeometryKernelArguments& a,
++      const std::size_t e,
++      const std::size_t na,
++      const std::size_t nb) {
++    static_assert((K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
++                  (K == GradientsKind::DEFORMATION_GRADIENT_2D));
++    constexpr auto N = getDimension<K>();
++    real iJ0[N * N];
++    invertCenterJacobian<N>(iJ0, a, e);
++    auto v = real{0};
++    for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
++      real iJ[N * N];
++      const auto w = invertPointJacobian<N>(iJ, a, e, q);
++      real da[N];
++      real db[N];
++      computeFaltusDerivativesDifference<N>(da, a, q, na, iJ, iJ0);
++      computeFaltusDerivativesDifference<N>(db, a, q, nb, iJ, iJ0);
++      auto s = real{0};
++      for (int c = 0; c != N; ++c) {
++        s += da[c] * db[c];
++      }
++      v += w * s;
++    }
++    return a.alpha * v;
++  }  // end of computeFaltusNodesCoefficient
++
++  template <GradientsKind K>
++  static void launchFaltusCentersKernel(const FaltusCentersKernelArguments& a,
++                                        const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
++          constexpr auto N = getDimension<K>();
++          constexpr auto V = getUnknownsSize<K>();
++          constexpr auto gs = getGradientsSize<K>();
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          real iJ[N * N];
++          invertJacobian<N>(iJ,
++                            a.jacobians + static_cast<std::size_t>(N * N) * e,
++                            1, a.determinants[e]);
++          computeDeformationGradientAtCenter<K>(
++              a.centers +
++                  static_cast<std::size_t>(gs) * static_cast<std::size_t>(k),
++              a.macroscopic_gradients,
++              (a.derivatives != nullptr)
++                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
++                  : nullptr,
++              iJ);
++        });
++  }  // end of launchFaltusCentersKernel
++
++  template <GradientsKind K>
++  static void launchFaltusInnerForcesKernel(
++      const FaltusInnerForcesKernelArguments& a, const bool use_device) {
++    mfem::forall_switch(
++        use_device, a.geometry.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
++          constexpr auto N = getDimension<K>();
++          constexpr auto V = getUnknownsSize<K>();
++          constexpr auto gs = getGradientsSize<K>();
++          const auto& g = a.geometry;
++          const auto e = static_cast<std::size_t>(g.elements[k]);
++          const auto nd = static_cast<std::size_t>(g.nd);
++          constexpr auto sgs = static_cast<std::size_t>(gs);
++          const auto np = static_cast<std::size_t>(a.number_of_points);
++          const auto* const F0 = a.centers + sgs * static_cast<std::size_t>(k);
++          auto* const fe = a.values + nd * V * e;
++          real iJ0[N * N];
++          invertCenterJacobian<N>(iJ0, g, e);
++          for (std::size_t q = 0; q != static_cast<std::size_t>(g.nq); ++q) {
++            real iJ[N * N];
++            const auto w = invertPointJacobian<N>(iJ, g, e, q);
++            const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
++            // α (F - F0)
++            real dF[9];
++            for (int c = 0; c != gs; ++c) {
++              const auto sc = static_cast<std::size_t>(c);
++              const auto F = a.point_by_point ? a.gradients[o * sgs + sc]
++                                              : a.gradients[sc * np + o];
++              dF[c] = g.alpha * (F - F0[c]);
++            }
++            for (std::size_t node = 0; node != nd; ++node) {
++              real D[9][3];
++              computeFaltusOperator<K>(D, g, q, node, iJ, iJ0);
++              for (int v = 0; v != V; ++v) {
++                auto f = real{0};
++                for (int c = 0; c != gs; ++c) {
++                  f += D[c][v] * dF[c];
++                }
++                fe[node + nd * static_cast<std::size_t>(v)] += w * f;
++              }
++            }
++          }
++        });
++  }  // end of launchFaltusInnerForcesKernel
++
++  template <GradientsKind K>
++  static void launchFaltusMatricesKernel(const FaltusGeometryKernelArguments& a,
++                                         real* const m,
++                                         const bool use_device) {
++    // one thread per pair of nodes: the block of the pair is the coefficient
++    // of the nodes times the identity
++    const auto nd = a.nd;
++    mfem::forall_switch(
++        use_device, a.number_of_elements * nd * nd,
++        [a, m, nd] MFEM_HOST_DEVICE(int t) {
++          constexpr auto V = getUnknownsSize<K>();
++          const auto k = t / (nd * nd);
++          const auto r = t - k * nd * nd;
++          const auto nb = static_cast<std::size_t>(r / nd);
++          const auto na = static_cast<std::size_t>(r) - nb * nd;
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto snd = static_cast<std::size_t>(nd);
++          const auto n = snd * V;
++          const auto s = computeFaltusNodesCoefficient<K>(a, e, na, nb);
++          // row `na + nd * v`, column `nb + nd * v`, stored column by column
++          for (std::size_t v = 0; v != V; ++v) {
++            m[n * n * e + (na + snd * v) + n * (nb + snd * v)] += s;
++          }
++        });
++  }  // end of launchFaltusMatricesKernel
++
++  template <GradientsKind K>
++  static void launchFaltusMatricesKernel(const FaltusGeometryKernelArguments& a,
++                                         const SparseMatrixOutput& o,
++                                         const bool use_device) {
++    // one thread per node of an element (rows of the node)
++    const auto nd = a.nd;
++    mfem::forall_switch(
++        use_device, a.number_of_elements * nd,
++        [a, o, nd] MFEM_HOST_DEVICE(int t) {
++          constexpr auto V = getUnknownsSize<K>();
++          const auto k = t / nd;
++          const auto na = static_cast<std::size_t>(t - k * nd);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto snd = static_cast<std::size_t>(nd);
++          const auto* const dofs = o.element_dofs + snd * V * e;
++          for (std::size_t nb = 0; nb != snd; ++nb) {
++            const auto s = computeFaltusNodesCoefficient<K>(a, e, na, nb);
++            for (std::size_t v = 0; v != V; ++v) {
++              const auto row = dofs[na + snd * v];
++              if ((row < 0) || (row >= o.number_of_rows)) {
++                ::AtomicAdd(o.missing[0], 1);
++                continue;
++              }
++              const auto end = o.I[row + 1];
++              const auto p = findColumn(o.J, o.I[row], end, dofs[nb + snd * v]);
++              if (p == end) {
++                ::AtomicAdd(o.missing[0], 1);
++              } else {
++                ::AtomicAdd(o.values[p], s);
++              }
++            }
++          }
++        });
++  }  // end of launchFaltusMatricesKernel
++
++  template <GradientsKind K>
++  static void launchFaltusDiagonalsKernel(
++      const FaltusGeometryKernelArguments& a,
++      real* const d,
++      const bool use_device) {
++    // one thread per node of an element
++    const auto nd = a.nd;
++    mfem::forall_switch(
++        use_device, a.number_of_elements * nd,
++        [a, d, nd] MFEM_HOST_DEVICE(int t) {
++          constexpr auto V = getUnknownsSize<K>();
++          const auto k = t / nd;
++          const auto na = static_cast<std::size_t>(t - k * nd);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto snd = static_cast<std::size_t>(nd);
++          const auto s = computeFaltusNodesCoefficient<K>(a, e, na, na);
++          for (std::size_t v = 0; v != V; ++v) {
++            d[snd * V * e + na + snd * v] += s;
++          }
++        });
++  }  // end of launchFaltusDiagonalsKernel
++
++  template <GradientsKind K>
++  static void launchFaltusActionKernel(const FaltusGeometryKernelArguments& a,
++                                       const real* const x,
++                                       real* const y,
++                                       const bool use_device) {
++    // one thread per element: `y_a = α Σ_q w_q d_a (Σ_b d_b · x_b)` for each
++    // component of the unknowns
++    mfem::forall_switch(
++        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
++          constexpr auto N = getDimension<K>();
++          constexpr auto V = getUnknownsSize<K>();
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto nd = static_cast<std::size_t>(a.nd);
++          const auto* const xe = x + nd * V * e;
++          auto* const ye = y + nd * V * e;
++          real iJ0[N * N];
++          invertCenterJacobian<N>(iJ0, a, e);
++          for (std::size_t q = 0; q != static_cast<std::size_t>(a.nq); ++q) {
++            real iJ[N * N];
++            const auto w = invertPointJacobian<N>(iJ, a, e, q);
++            // g[v][j] = Σ_b d_b[j] x_b[v]
++            real g[V][N] = {};
++            for (std::size_t node = 0; node != nd; ++node) {
++              real d[N];
++              computeFaltusDerivativesDifference<N>(d, a, q, node, iJ, iJ0);
++              for (std::size_t v = 0; v != V; ++v) {
++                const auto xv = xe[node + nd * v];
++                for (int j = 0; j != N; ++j) {
++                  g[v][j] += d[j] * xv;
++                }
++              }
++            }
++            for (std::size_t node = 0; node != nd; ++node) {
++              real d[N];
++              computeFaltusDerivativesDifference<N>(d, a, q, node, iJ, iJ0);
++              for (std::size_t v = 0; v != V; ++v) {
++                auto s = real{0};
++                for (int j = 0; j != N; ++j) {
++                  s += d[j] * g[v][j];
++                }
++                ye[node + nd * v] += w * a.alpha * s;
++              }
++            }
++          }
++        });
++  }  // end of launchFaltusActionKernel
++
++  void launchFaltusCentersKernel(const GradientsKind k,
++                                 const FaltusCentersKernelArguments& a,
++                                 const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusCentersKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, use_device);
++    } else {
++      launchFaltusCentersKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, use_device);
++    }
++  }  // end of launchFaltusCentersKernel
++
++  void launchFaltusInnerForcesKernel(const GradientsKind k,
++                                     const FaltusInnerForcesKernelArguments& a,
++                                     const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, use_device);
++    } else {
++      launchFaltusInnerForcesKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, use_device);
++    }
++  }  // end of launchFaltusInnerForcesKernel
++
++  void launchFaltusMatricesKernel(const GradientsKind k,
++                                  const FaltusGeometryKernelArguments& a,
++                                  real* const m,
++                                  const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, m, use_device);
++    } else {
++      launchFaltusMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, m, use_device);
++    }
++  }  // end of launchFaltusMatricesKernel
++
++  void launchFaltusMatricesKernel(const GradientsKind k,
++                                  const FaltusGeometryKernelArguments& a,
++                                  const SparseMatrixOutput& o,
++                                  const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, o, use_device);
++    } else {
++      launchFaltusMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, o, use_device);
++    }
++  }  // end of launchFaltusMatricesKernel
++
++  void launchFaltusDiagonalsKernel(const GradientsKind k,
++                                   const FaltusGeometryKernelArguments& a,
++                                   real* const d,
++                                   const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusDiagonalsKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, d, use_device);
++    } else {
++      launchFaltusDiagonalsKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, d, use_device);
++    }
++  }  // end of launchFaltusDiagonalsKernel
++
++  void launchFaltusActionKernel(const GradientsKind k,
++                                const FaltusGeometryKernelArguments& a,
++                                const real* const x,
++                                real* const y,
++                                const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusActionKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, x, y, use_device);
++    } else {
++      launchFaltusActionKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, x, y, use_device);
++    }
++  }  // end of launchFaltusActionKernel
++
++}  // end of namespace mfem_mgis::batch::internals
+diff --git a/src/Batch/FaltusKernels.hxx b/src/Batch/FaltusKernels.hxx
+new file mode 100644
+index 0000000000..6366bd5208
+--- /dev/null
++++ b/src/Batch/FaltusKernels.hxx
+@@ -0,0 +1,184 @@
++/*!
++ * \file   src/Batch/FaltusKernels.hxx
++ * \brief  This file declares the kernels of the regularization of Faltus et
++ * al. (internal header, see `MFEMMGIS/Batch/Faltus.hxx`)
++ * \date   11/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Batch/Gradients.hxx"
++#include "StiffnessMatricesKernels.hxx"
++
++namespace mfem_mgis::batch::internals {
++
++  /*!
++   * \brief arguments of the kernel computing the deformation gradients at
++   * the center of the elements of a material
++   */
++  struct FaltusCentersKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    /*!
++     * \brief derivatives of the unknowns at the center of all the elements
++     * of the mesh (see `UnknownsDerivatives`), null for null unknowns
++     */
++    const real* derivatives = nullptr;
++    //! \brief jacobians at the center of all the elements of the mesh
++    const real* jacobians = nullptr;
++    //! \brief determinants of the jacobians at the center of the elements
++    const real* determinants = nullptr;
++    /*!
++     * \brief deformation gradients `F0` at the center of the elements of
++     * the material (`c + gs * k` for the component `c` of the `k`-th
++     * element of the material)
++     */
++    real* centers = nullptr;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief macroscopic gradients
++    real macroscopic_gradients[9] = {};
++  };
++
++  /*!
++   * \brief geometric data of the elements of a material used by the kernels
++   * of the regularization: the operator `D = B - B0` at an integration
++   * point, `B` and `B0` being the operators of the gradients at the point
++   * and at the center of the element
++   */
++  struct FaltusGeometryKernelArguments {
++    //! \brief elements of the material
++    const int* elements = nullptr;
++    /*!
++     * \brief gradients of the shape functions at the integration points of
++     * the reference element (`nq x dim x nd`)
++     */
++    const real* shape_functions_gradients = nullptr;
++    //! \brief jacobians at the integration points of all the elements
++    const real* jacobians = nullptr;
++    //! \brief determinants of the jacobians at the integration points
++    const real* determinants = nullptr;
++    //! \brief weights of the integration points
++    const real* weights = nullptr;
++    /*!
++     * \brief gradients of the shape functions at the center of the
++     * reference element (`dim x nd`)
++     */
++    const real* center_shape_functions_gradients = nullptr;
++    //! \brief jacobians at the center of all the elements
++    const real* center_jacobians = nullptr;
++    //! \brief determinants of the jacobians at the center of the elements
++    const real* center_determinants = nullptr;
++    //! \brief penalization coefficient `α`
++    real alpha = 0;
++    //! \brief number of elements of the material
++    int number_of_elements = 0;
++    //! \brief number of degrees of freedom per element and per component
++    int nd = 0;
++    //! \brief number of integration points per element
++    int nq = 0;
++  };
++
++  /*!
++   * \brief arguments of the kernel adding the contribution of the
++   * regularization to the inner forces of the elements of a material
++   */
++  struct FaltusInnerForcesKernelArguments {
++    //! \brief geometric data
++    FaltusGeometryKernelArguments geometry;
++    //! \brief offsets of the integration points of the elements
++    const int* offsets = nullptr;
++    //! \brief deformation gradients at the integration points
++    const real* gradients = nullptr;
++    //! \brief layout of the gradients: true if stored point by point
++    bool point_by_point = true;
++    //! \brief number of integration points of the material
++    int number_of_points = 0;
++    //! \brief deformation gradients `F0` at the center of the elements
++    const real* centers = nullptr;
++    /*!
++     * \brief inner forces, element by element, in the layout of the element
++     * restriction of MFEM (`node + nd * (component + vdim * e)`, `e` being
++     * the element of the mesh)
++     */
++    real* values = nullptr;
++  };
++
++  /*!
++   * \brief launches the kernel computing the deformation gradients at the
++   * center of the elements of a material: one thread per element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusCentersKernel(const GradientsKind,
++                                 const FaltusCentersKernelArguments&,
++                                 const bool);
++  /*!
++   * \brief launches the kernel adding `Σ_q w_q Dᵀ α (F_q - F0)` to the inner
++   * forces of the elements of a material: one thread per element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusInnerForcesKernel(const GradientsKind,
++                                     const FaltusInnerForcesKernelArguments&,
++                                     const bool);
++  /*!
++   * \brief launches the kernel adding `α Σ_q w_q Dᵀ D` to the stiffness
++   * matrices of the elements of a material, stored element by element
++   * (`i + n * (j + n * e)` for the row `i` and the column `j` of the
++   * element `e` of the mesh): one thread per pair of nodes of an element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in, out] m: matrices element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusMatricesKernel(const GradientsKind,
++                                  const FaltusGeometryKernelArguments&,
++                                  real* const,
++                                  const bool);
++  /*!
++   * \brief launches the kernel adding `α Σ_q w_q Dᵀ D` to an assembled
++   * sparse matrix: one thread per node of an element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] o: assembled matrix
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusMatricesKernel(const GradientsKind,
++                                  const FaltusGeometryKernelArguments&,
++                                  const SparseMatrixOutput&,
++                                  const bool);
++  /*!
++   * \brief launches the kernel adding the diagonals of `α Σ_q w_q Dᵀ D` to
++   * values element by element: one thread per node of an element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in, out] v: values element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusDiagonalsKernel(const GradientsKind,
++                                   const FaltusGeometryKernelArguments&,
++                                   real* const,
++                                   const bool);
++  /*!
++   * \brief launches the kernel adding the action of `α Σ_q w_q Dᵀ D` on
++   * values given element by element: one thread per element
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in] x: values element by element
++   * \param[in, out] y: action, element by element
++   * \param[in] d: if true, the kernel runs on the device
++   */
++  void launchFaltusActionKernel(const GradientsKind,
++                                const FaltusGeometryKernelArguments&,
++                                const real* const,
++                                real* const,
++                                const bool);
++
++}  // end of namespace mfem_mgis::batch::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX */
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index a28816329d..658778a26b 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -283,6 +283,64 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of computeB
+ 
++  /*!
++   * \brief computes the deformation gradient at the center of an element,
++   * in the order of the gradients of the behaviours (`F11, F22, F33, F12,
++   * F21, F13, F31, F23, F32` in 3D, `F11, F22, F33, F12, F21` in 2D, the
++   * third component being the macroscopic one in 2D)
++   * \tparam K: kind of the gradients (deformation gradient in 3D or in 2D)
++   * \param[out] F0: deformation gradient
++   * \param[in] macroscopic_gradients: macroscopic gradients
++   * \param[in] dr: derivatives of the unknowns with respect to the reference
++   * coordinates at the center of the element (`dr[i + V * r]`, see
++   * `UnknownsDerivatives`), null for null unknowns
++   * \param[in] iJ: inverse of the jacobian at the center (see
++   * `invertJacobian`)
++   */
++  template <GradientsKind K>
++  MFEM_HOST_DEVICE inline void computeDeformationGradientAtCenter(
++      real* const F0,
++      const real* const macroscopic_gradients,
++      const real* const dr,
++      const real* const iJ) {
++    static_assert((K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
++                  (K == GradientsKind::DEFORMATION_GRADIENT_2D));
++    constexpr auto N = getDimension<K>();
++    constexpr auto V = getUnknownsSize<K>();
++    for (int c = 0; c != getGradientsSize<K>(); ++c) {
++      F0[c] = macroscopic_gradients[c];
++    }
++    if (dr == nullptr) {
++      return;
++    }
++    real du[V * N];
++    for (int i = 0; i != V; ++i) {
++      for (int j = 0; j != N; ++j) {
++        du[i + V * j] = 0;
++        for (int r = 0; r != N; ++r) {
++          du[i + V * j] += dr[i + V * r] * iJ[r + N * j];
++        }
++      }
++    }
++    auto d = [&du](const int i, const int j) { return du[i + V * j]; };
++    if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      F0[0] += d(0, 0);
++      F0[1] += d(1, 1);
++      F0[2] += d(2, 2);
++      F0[3] += d(0, 1);
++      F0[4] += d(1, 0);
++      F0[5] += d(0, 2);
++      F0[6] += d(2, 0);
++      F0[7] += d(1, 2);
++      F0[8] += d(2, 1);
++    } else {
++      F0[0] += d(0, 0);
++      F0[1] += d(1, 1);
++      F0[3] += d(0, 1);
++      F0[4] += d(1, 0);
++    }
++  }  // end of computeDeformationGradientAtCenter
++
+   /*!
+    * \return the value of the shape function of a node at a point if the
+    * operator `B` of the given kind of gradients depends on it (transient
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index a62571bfe0..b9943eb436 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -161,6 +161,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/InnerForcesKernels.cxx
+   Batch/StiffnessMatricesKernels.cxx
+   Batch/FBarKernels.cxx
++  Batch/FaltusKernels.cxx
+   Batch/ElementsGeometryKernels.cxx)
+ # conversions of the vectors exchanged with AmgX in single precision
+ if(MFEM_MGIS_HAVE_AMGX)
+@@ -179,7 +180,8 @@ list(APPEND MFEMMGIS_SOURCES
+   Batch/Gradients.cxx
+   Batch/InnerForces.cxx
+   Batch/StiffnessMatrices.cxx
+-  Batch/FBar.cxx)
++  Batch/FBar.cxx
++  Batch/Faltus.cxx)
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+ if(MFEMMGIS_DEVICE_SOURCES)
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 6ee857b9e3..8f2aea5181 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -322,6 +322,29 @@ namespace mfem_mgis {
+     return true;
+   }  // end of checkStiffnessMatricesKernelsSupport
+ 
++  bool MultiMaterialNonLinearIntegrator::checkInnerForcesKernelsSupport(
++      Context& ctx, const bool gradients_kernels) const noexcept {
++    if (gradients_kernels) {
++      return true;
++    }
++    for (size_type m = 0;
++         m != static_cast<size_type>(this->behaviour_integrators.size()); ++m) {
++      for (const auto& bi : this->behaviour_integrators[m]) {
++        if (bi->requiresCurrentSolutionForResidualAssembly()) {
++          return ctx.registerErrorMessage(
++              "the inner forces of the behaviour integrator of material '" +
++              std::to_string(m) +
++              "' depend on the current estimate of the solution "
++              "(regularization of Faltus et al. for instance): they can only "
++              "be computed "
++              "by kernels from gradients computed by kernels "
++              "(GradientsComputation set to Kernels)");
++        }
++      }
++    }
++    return true;
++  }  // end of checkInnerForcesKernelsSupport
++
+   bool MultiMaterialNonLinearIntegrator::checkPointByPointIntegrationSupport(
+       Context& ctx) const noexcept {
+     auto ctx2 = Context{};
+@@ -413,10 +436,9 @@ namespace mfem_mgis {
+               "mechanical behaviours, small or finite strain, stationary non "
+               "linear heat transfer behaviours, transient term of the heat "
+               "equation and micromorphic damage behaviours, in 3D, plane "
+-              "strain and plane stress, without regularization other than "
+-              "FBar (3D and plane strain), all "
+-              "the elements of the material using the same integration "
+-              "rule)");
++              "strain and plane stress, the regularizations FBar and of "
++              "Faltus et al. in 3D and in plane strain only, all the "
++              "elements of the material using the same integration rule)");
+         }
+       }
+     }
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 5b2995df92..3180ff5f6c 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -526,6 +526,11 @@ namespace mfem_mgis {
+                 ctx, this->gradients_kernels))) {
+           return false;
+         }
++        if ((this->inner_forces_kernels) &&
++            (!this->mgis_integrator->checkInnerForcesKernelsSupport(
++                ctx, this->gradients_kernels))) {
++          return false;
++        }
+         if (!this->mgis_integrator->setup(ctx, t, dt)) {
+           return false;
+         }
+-- 
+2.43.0
+

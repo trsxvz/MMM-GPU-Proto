@@ -1,0 +1,58 @@
+From 557ed565ac321b05367697a53829b78f43110582 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 11 Oct 2026 05:03:39 +0200
+Subject: [PATCH] BatchIntegrationTest: FBar cases with two materials
+ (pressure, matrix free)
+
+The kernels adding the matrices of rank one of the FBar formulation to the
+stiffness matrices of the elements, to the diagonal and to the action of
+the tangent operator are tested with elements whose indices in the mesh
+and in the material differ.
+---
+ tests/BatchIntegrationTest.cxx | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 25ccface49..ec14d77e0e 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -1357,7 +1357,10 @@ int main(int argc, char** argv) {
+                         .relative_tolerance = 1e-11},
+                        ", FBar, pressure and prediction"});
+     }
+-    // a material using the FBar formulation and an elastic one
++    // a material using the FBar formulation and an elastic one, the
++    // tangent operator being assembled, assembled from the stiffness
++    // matrices of the elements (imposed pressure), or applied without
++    // assembly
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+                       .prediction = true,
+@@ -1366,6 +1369,24 @@ int main(int argc, char** argv) {
+                       .tangent_operator_kernels = true,
+                       .second_material_library = library},
+                      ", FBar, two materials"});
++    cases.push_back({"SaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .prediction = true,
++                      .pressure = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .tangent_operator_kernels = true,
++                      .second_material_library = library,
++                      .relative_tolerance = 1e-11},
++                     ", FBar, two materials and pressure"});
++    cases.push_back({"SaintVenantKirchhoffElasticity",
++                     {.fbar = true,
++                      .prediction = true,
++                      .gradients_kernels = true,
++                      .inner_forces_kernels = true,
++                      .matrix_free = true,
++                      .second_material_library = library},
++                     ", FBar, two materials, matrix free"});
+     // quadratic elements (27 nodes by element)
+     cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+-- 
+2.43.0
+
