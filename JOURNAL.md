@@ -4188,3 +4188,21 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   par point sur le GPU et 22,1 s tout par noyaux sur 2 processus CPU.
   L'intégration passe de 19,6 à 0,66 s ; MUMPS fait maintenant 15 s sur
   18,5.
+
+### 2026-10-11 (fin d'après-midi), validations et solveurs de la mécanique d'ex8
+
+- Validations de `docs/validation.md` sur gpu-proto après les lots du
+  jour : noyaux forcés 163/163 ; toute la suite sur le GPU 159/161 (les deux
+  tests qui exigent l'absence de périphérique). GlobalStiffnessMatrixTest
+  supposait la matrice globale acceptée quand hypre calcule sur le GPU,
+  alors que la classe la refuse alors (mfem-mgis 76c2b50b65) ; les tests à
+  4 processus sur le GPU demandent `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1`
+  (hypre réserve 4 Gio par processus). FixedPointSolverTest a échoué une
+  fois sur 26 passages, sans reproduction.
+- Mécanique d'ex8, pour réduire MUMPS (15 s sur 18,5 s sur le GPU) :
+  PCG + BoomerAMG demande environ 240 itérations par résolution (93 s
+  contre 22 s avec MUMPS sur 2 processus) ; NewtonK0 (option `-nlsMc
+  NewtonK0`, mfem-mgis-examples d8287e4) converge comme Newton mais GMRES
+  préconditionné par l'opérateur élastique coûte trop (28,8 s contre
+  13,1 s) ; ModifiedNewton diverge dès le premier pas. Le levier reste un
+  préconditionneur adapté à cette plaque mince aux matériaux contrastés.
