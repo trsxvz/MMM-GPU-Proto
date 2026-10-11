@@ -8,8 +8,10 @@
 #ifndef LIB_MFEM_MGIS_MULTIMATERIALNONLINEARINTEGRATOR_HXX
 #define LIB_MFEM_MGIS_MULTIMATERIALNONLINEARINTEGRATOR_HXX
 
+#include <array>
 #include <memory>
 #include <vector>
+#include <cstdint>
 #include "mfem/fem/nonlininteg.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -272,7 +274,20 @@ namespace mfem_mgis {
      * by kernels, in a sparse matrix on the local vector of the finite
      * element space, without storing them (see
      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
-     * values of the matrix are set to zero first.
+     * values of the matrix are set to zero first. Unless a GPU or the debug
+     * device of MFEM is used, the positions of the entries in the rows of
+     * the matrix are computed at the first call and reused (see
+     * `batch::computeStiffnessMatricesPositions`), separately for the
+     * matrices whose columns are sorted (for example by a direct solver) and
+     * for the others (diagonal first, see `makeAssembledStiffnessMatrix`):
+     * they stay valid for all the matrices created by
+     * `makeAssembledStiffnessMatrix` (same pattern). After an assembly in
+     * which some entries were searched (another matrix, rows reordered),
+     * they are computed again, at most three times for each layout of the
+     * rows, then abandoned (the entries are searched). If their computation
+     * fails, they are abandoned. They take about as much memory as the
+     * matrix for linear elements. With a GPU, the entries are always
+     * searched (the positions gave no gain).
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in] fes: finite element space
@@ -284,6 +299,22 @@ namespace mfem_mgis {
         Context& ctx,
         const mfem::FiniteElementSpace& fes,
         mfem::SparseMatrix& m) noexcept;
+    /*!
+     * \return the number of computations of the positions of the entries of
+     * the stiffness matrices in the rows of the assembled matrices (see
+     * `assembleStiffnessMatrixByKernels`)
+     * \param[in] sorted: if true, for the matrices whose columns are sorted,
+     * otherwise for the others
+     */
+    [[nodiscard]] int getNumberOfStiffnessMatricesPositionsComputations(
+        const bool) const noexcept;
+    /*!
+     * \return true if positions of the entries of the stiffness matrices
+     * are kept (see `assembleStiffnessMatrixByKernels`)
+     * \param[in] sorted: if true, for the matrices whose columns are sorted,
+     * otherwise for the others
+     */
+    [[nodiscard]] bool hasStiffnessMatricesPositions(const bool) const noexcept;
     //! \return the current time increment
     [[nodiscard]] real getTimeIncrement() const noexcept;
     /*!
@@ -456,6 +487,16 @@ namespace mfem_mgis {
      * `computeElementsDegreesOfFreedom`
      */
     mfem::Array<int> element_dofs;
+    /*!
+     * \brief positions of the entries of the stiffness matrices of all the
+     * elements in the rows of the assembled matrices (see
+     * `batch::computeStiffnessMatricesPositions`), computed by
+     * `assembleStiffnessMatrixByKernels`, for the matrices whose columns are
+     * not sorted (first array) or sorted (second array)
+     */
+    std::array<mfem::Array<std::uint16_t>, 2> stiffness_matrices_positions;
+    //! \brief numbers of computations of `stiffness_matrices_positions`
+    std::array<int, 2> stiffness_matrices_positions_computations = {0, 0};
     /*!
      * \brief increments of the unknowns element by element (see
      * `addTangentOperatorActionByKernels`)

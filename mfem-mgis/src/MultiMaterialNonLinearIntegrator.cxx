@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <exception>
 #include "MGIS/Raise.hxx"
+#include "mfem/general/device.hpp"
 #include "mfem/fem/linearform.hpp"
 #include "mfem/fem/restriction.hpp"
 #include "mfem/fem/bilinearform.hpp"
@@ -730,6 +731,17 @@ namespace mfem_mgis {
     return batch::makeAssembledStiffnessMatrix(ctx, fes, this->element_dofs);
   }  // end of makeAssembledStiffnessMatrix
 
+  int MultiMaterialNonLinearIntegrator::
+      getNumberOfStiffnessMatricesPositionsComputations(
+          const bool sorted) const noexcept {
+    return this->stiffness_matrices_positions_computations[sorted ? 1 : 0];
+  }  // end of getNumberOfStiffnessMatricesPositionsComputations
+
+  bool MultiMaterialNonLinearIntegrator::hasStiffnessMatricesPositions(
+      const bool sorted) const noexcept {
+    return this->stiffness_matrices_positions[sorted ? 1 : 0].Size() != 0;
+  }  // end of hasStiffnessMatricesPositions
+
   bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
       Context& ctx,
       const mfem::FiniteElementSpace& fes,
@@ -741,14 +753,53 @@ namespace mfem_mgis {
     if (!batch::zeroSparseMatrixValues(ctx, m)) {
       return false;
     }
+    // positions of the entries in the rows of the matrix, kept for each
+    // layout of the rows (columns sorted, for example by a direct solver, or
+    // diagonal first, see `batch::makeAssembledStiffnessMatrix`): computed
+    // at the first assembly in this layout, and again after an assembly in
+    // which some of them did not designate their columns (another matrix),
+    // at most three times. They make the assembly 1.1 to 2.9 times faster on
+    // the CPU, but gave no gain on a GPU, where they would use memory: they
+    // are not used with a GPU or the debug device of MFEM. If their
+    // computation fails, the entries are searched.
+    constexpr auto maximum_number_of_positions_computations = 3;
+    const auto layout = m.ColumnsAreSorted() ? 1 : 0;
+    auto& positions = this->stiffness_matrices_positions[layout];
+    auto& computations =
+        this->stiffness_matrices_positions_computations[layout];
+    const auto device = mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
+    if ((!device) && (positions.Size() == 0) &&
+        (computations < maximum_number_of_positions_computations)) {
+      ++computations;
+      auto positions_ctx = Context{};
+      if (!batch::computeStiffnessMatricesPositions(
+              positions_ctx, positions, fes, this->element_dofs, m)) {
+        positions.DeleteAll();
+        computations = maximum_number_of_positions_computations;
+      }
+    }
+    const auto use_positions = (!device) && (positions.Size() != 0);
+    auto searched_entries = std::size_t{};
     const auto a = batch::AssembledStiffnessMatrix{
-        .matrix = &m, .element_dofs = &(this->element_dofs)};
+        .matrix = &m,
+        .element_dofs = &(this->element_dofs),
+        .positions = use_positions ? &positions : nullptr,
+        .searched_entries = &searched_entries};
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         if (!bi->addStiffnessMatricesByKernels(ctx, a,
                                                this->elements_geometry)) {
           return false;
         }
+      }
+    }
+    if (searched_entries != 0) {
+      // positions of another layout of the rows: computed again at the next
+      // assembly, or abandoned
+      if (computations < maximum_number_of_positions_computations) {
+        positions.SetSize(0);
+      } else {
+        positions.DeleteAll();
       }
     }
     return true;

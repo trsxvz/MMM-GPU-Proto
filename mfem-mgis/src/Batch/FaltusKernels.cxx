@@ -277,8 +277,11 @@ namespace mfem_mgis::batch::internals {
                 ::AtomicAdd(o.missing[0], 1);
                 continue;
               }
+              const auto begin = o.I[row];
               const auto end = o.I[row + 1];
-              const auto p = findColumn(o.J, o.I[row], end, dofs[nb + snd * v]);
+              const auto p =
+                  o.findPosition(e, snd * V, na + snd * v, nb + snd * v, begin,
+                                 end, dofs[nb + snd * v]);
               if (p == end) {
                 ::AtomicAdd(o.missing[0], 1);
               } else {

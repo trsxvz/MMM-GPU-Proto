@@ -303,9 +303,12 @@ namespace mfem_mgis::batch::internals {
         return;
       }
       const auto ai = a.a[sn * sk + static_cast<std::size_t>(i)];
+      const auto begin = o.I[row];
       const auto end = o.I[row + 1];
       for (int j = 0; j != a.n; ++j) {
-        const auto p = findColumn(o.J, o.I[row], end, dofs[j]);
+        const auto p =
+            o.findPosition(e, sn, static_cast<std::size_t>(i),
+                           static_cast<std::size_t>(j), begin, end, dofs[j]);
         if (p == end) {
           ::AtomicAdd(o.missing[0], 1);
         } else {

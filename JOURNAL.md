@@ -4032,3 +4032,36 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   FBar vérifient qu'elles reçoivent les blocs de la tangente qui ont servi
   à calculer `v` et `c`. Suite 185/185, 3 mutations détectées, relecture
   L traitée (masquage du membre `K`, documentation).
+
+### 2026-10-11 (matin), positions des entrées et matrices sans former B
+
+- mfem-mgis d04acab66c : `batch::computeStiffnessMatricesPositions`
+  calcule une fois la position de chaque entrée des matrices de rigidité
+  des éléments dans sa ligne de la matrice creuse (`std::uint16_t`, relative
+  au début de la ligne). Les trois noyaux d'assemblage (standard, rang un
+  du FBar, Faltus) lisent la position et ne l'utilisent que si elle désigne
+  la colonne de l'entrée ; sinon l'entrée est cherchée et comptée
+  (`AssembledStiffnessMatrix::searched_entries`). L'intégrateur
+  multimatériau garde des positions pour chaque disposition des lignes
+  (colonnes triées par un solveur direct, ou diagonale en tête), sans GPU,
+  les recalcule après un assemblage où des entrées ont été cherchées, au
+  plus trois fois, et passe à la recherche si leur calcul échoue. Sur un
+  cœur : assemblage ×1,1 à ×2,9 ; sur le GPU, aucun gain (positions non
+  utilisées). Relectures M2 et M3 traitées (rien au-dessus de 3/5 ; la
+  détection du banc par CMake échouait toujours), 14 mutations détectées
+  sur 15 (la 15e ne concerne que des lignes de plus de 65 535 entrées).
+- mfem-mgis 4a007e85f2 : produits `K B_b` et `B_aᵀ (K B_b)` des matrices
+  de rigidité, et action de la tangente sans assemblage, écrits avec une
+  table constexpr des entrées non nulles de `B` (`getBOperatorEntries`,
+  comparée à `computeB` à la compilation), dans le même ordre
+  d'opérations : valeurs identiques au bit près sur l'hôte. Noyau des
+  matrices en grandes transformations 3D : 254 registres et 576 octets de
+  pile avant, 64 et 72 après. Assemblage ×1,1 à ×3,1 sur un cœur, ×1,4 à
+  ×1,9 sur le GPU (thermique ×0,94). Relecture N traitée (rien au-dessus
+  de 2/5 ; contrôle à la compilation exact, diagonales seules),
+  12 mutations détectées.
+- Banc `cas/assemblage` (assemblage de toutes les matrices, avec et sans
+  positions, mécanique en petites et grandes transformations, thermique,
+  hôte ou GPU, écriture des valeurs pour comparer deux versions).
+  Résultats : `results/assemblage-positions-2026-10-11-0901`,
+  `results/registres-noyaux-2026-10-11`. Suites 185/185.

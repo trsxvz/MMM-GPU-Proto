@@ -368,29 +368,18 @@ namespace mfem_mgis::batch {
       if (a.number_of_elements == 0) {
         return true;
       }
-      if ((m.matrix == nullptr) || (m.element_dofs == nullptr) ||
-          (static_cast<std::int64_t>(m.element_dofs->Size()) !=
-           getNumberOfElementDegreesOfFreedom(g, k) * g.ne)) {
-        return ctx.registerErrorMessage(
-            "addFaltusStiffnessMatrices: invalid assembled matrix or degrees "
-            "of freedom of the elements");
+      if (!internals::checkAssembledStiffnessMatrix(
+              ctx, m, g.ne, getNumberOfElementDegreesOfFreedom(g, k),
+              "addFaltusStiffnessMatrices")) {
+        return false;
       }
-      auto missing = mfem::Array<int>(1);
-      missing.HostWrite()[0] = 0;
+      auto counters = mfem::Array<int>{};
       auto o = internals::SparseMatrixOutput{};
-      o.number_of_rows = m.matrix->Height();
-      o.I = m.matrix->ReadI(use_device);
-      o.J = m.matrix->ReadJ(use_device);
-      o.values = m.matrix->ReadWriteData(use_device);
-      o.element_dofs = m.element_dofs->Read(use_device);
-      o.missing = missing.ReadWrite(use_device);
+      internals::getSparseMatrixOutput(o, counters, m, use_device);
       internals::launchFaltusMatricesKernel(k, a, o, use_device);
-      if (missing.HostRead()[0] != 0) {
-        return ctx.registerErrorMessage(
-            "addFaltusStiffnessMatrices: " +
-            std::to_string(missing.HostRead()[0]) +
-            " entries of the stiffness matrices are not in the pattern of the "
-            "assembled matrix");
+      if (!internals::checkSparseMatrixOutputCounters(
+              ctx, counters, m, "addFaltusStiffnessMatrices")) {
+        return false;
       }
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(

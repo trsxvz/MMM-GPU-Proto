@@ -8,6 +8,7 @@
 #ifndef LIB_MFEM_MGIS_SRC_BATCH_KERNELSUTILITIES_HXX
 #define LIB_MFEM_MGIS_SRC_BATCH_KERNELSUTILITIES_HXX
 
+#include <array>
 #include <cstddef>
 #include "mfem/general/forall.hpp"
 #include "MFEMMGIS/Config.hxx"
@@ -229,9 +230,9 @@ namespace mfem_mgis::batch::internals {
    * the gradients depend on the values of the unknowns)
    */
   template <GradientsKind K>
-  MFEM_HOST_DEVICE inline void computeB(real (&B)[9][3],
-                                        const real* const dN,
-                                        const real Nv) {
+  MFEM_HOST_DEVICE constexpr void computeB(real (&B)[9][3],
+                                           const real* const dN,
+                                           const real Nv) {
     constexpr auto icste = getInverseOfSquareRootOfTwo();
     for (auto& row : B) {
       for (auto& v : row) {
@@ -282,6 +283,147 @@ namespace mfem_mgis::batch::internals {
       B[0][0] = Nv;
     }
   }  // end of computeB
+
+  /*!
+   * \brief non-zero entry of the block of a node of the operator `B` (see
+   * `computeB`): `B[row][column] = factor * x[source]`, `x` being the
+   * derivatives of the shape function of the node in the physical frame
+   * followed by its value, which is zero for the kinds of gradients which
+   * do not use it (see `getBOperatorEntries` and `usesShapeFunctionsValues`)
+   */
+  struct BOperatorEntry {
+    //! \brief component of the gradients
+    int row;
+    //! \brief component of the unknowns
+    int column;
+    //! \brief index of the derivative of the shape function, or the
+    //! dimension for its value
+    int source;
+    //! \brief factor
+    real factor;
+  };
+
+  /*!
+   * \return the non-zero entries of the block of a node of the operator `B`
+   * (see `computeB`), sorted by rows, then by columns: the products by `B`
+   * written with them skip its zero entries, and add the other terms in the
+   * same order as loops on all the rows and all the columns. The results
+   * are the same as with `B` for finite values, except, with contracted
+   * multiplications and additions, the sign of zero results of underflowing
+   * products. The values multiplied by zero entries of `B` (for example
+   * components of the tangent operator) are not read: non-finite values
+   * there are not propagated.
+   * \tparam K: kind of the gradients
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE constexpr auto getBOperatorEntries() {
+    constexpr auto N = getDimension<K>();
+    constexpr auto icste = getInverseOfSquareRootOfTwo();
+    if constexpr (K == GradientsKind::SMALL_STRAIN_3D) {
+      return std::array<BOperatorEntry, 9>{{{0, 0, 0, 1},
+                                            {1, 1, 1, 1},
+                                            {2, 2, 2, 1},
+                                            {3, 0, 1, icste},
+                                            {3, 1, 0, icste},
+                                            {4, 0, 2, icste},
+                                            {4, 2, 0, icste},
+                                            {5, 1, 2, icste},
+                                            {5, 2, 1, icste}}};
+    } else if constexpr (K == GradientsKind::SMALL_STRAIN_2D) {
+      return std::array<BOperatorEntry, 4>{
+          {{0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 1, icste}, {3, 1, 0, icste}}};
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_3D) {
+      return std::array<BOperatorEntry, 9>{{{0, 0, 0, 1},
+                                            {1, 1, 1, 1},
+                                            {2, 2, 2, 1},
+                                            {3, 0, 1, 1},
+                                            {4, 1, 0, 1},
+                                            {5, 0, 2, 1},
+                                            {6, 2, 0, 1},
+                                            {7, 1, 2, 1},
+                                            {8, 2, 1, 1}}};
+    } else if constexpr (K == GradientsKind::DEFORMATION_GRADIENT_2D) {
+      return std::array<BOperatorEntry, 4>{
+          {{0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 1, 1}, {4, 1, 0, 1}}};
+    } else if constexpr (isTemperatureGradient<K>()) {
+      auto entries = std::array<BOperatorEntry, N>{};
+      for (int c = 0; c != N; ++c) {
+        entries[c] = {c, 0, c, 1};
+      }
+      return entries;
+    } else if constexpr (isMicromorphicDamage<K>()) {
+      auto entries = std::array<BOperatorEntry, N + 1>{};
+      entries[0] = {0, 0, N, 1};
+      for (int c = 0; c != N; ++c) {
+        entries[c + 1] = {c + 1, 0, c, 1};
+      }
+      return entries;
+    } else {
+      static_assert(isTemperature<K>());
+      return std::array<BOperatorEntry, 1>{{{0, 0, N, 1}}};
+    }
+  }  // end of getBOperatorEntries
+
+  /*!
+   * \return true if the entries given by `getBOperatorEntries` are sorted by
+   * rows, then by columns, and give the block of the operator `B` computed
+   * by `computeB` (checked at compile time): both being linear in the
+   * derivatives and the value of the shape function, they are compared for
+   * each of them set to one, the others being zero, which compares each
+   * factor exactly
+   * \tparam K: kind of the gradients
+   */
+  template <GradientsKind K>
+  constexpr bool checkBOperatorEntries() {
+    constexpr auto N = getDimension<K>();
+    auto previous_row = 0;
+    auto previous_column = -1;
+    for (const auto& e : getBOperatorEntries<K>()) {
+      if ((e.row < previous_row) ||
+          ((e.row == previous_row) && (e.column <= previous_column)) ||
+          (e.row >= getGradientsSize<K>()) ||
+          (e.column >= getUnknownsSize<K>()) || (e.source > N)) {
+        return false;
+      }
+      previous_row = e.row;
+      previous_column = e.column;
+    }
+    for (int j = 0; j != N + 1; ++j) {
+      real x[4] = {};
+      x[j] = 1;
+      real B[9][3] = {};
+      computeB<K>(B, x, x[N]);
+      real Be[9][3] = {};
+      for (const auto& e : getBOperatorEntries<K>()) {
+        Be[e.row][e.column] = e.factor * x[e.source];
+      }
+      for (int r = 0; r != 9; ++r) {
+        for (int c = 0; c != 3; ++c) {
+          if ((B[r][c] < Be[r][c]) || (Be[r][c] < B[r][c])) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }  // end of checkBOperatorEntries
+
+  static_assert(checkBOperatorEntries<GradientsKind::SMALL_STRAIN_3D>());
+  static_assert(checkBOperatorEntries<GradientsKind::SMALL_STRAIN_2D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::DEFORMATION_GRADIENT_3D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::DEFORMATION_GRADIENT_2D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::TEMPERATURE_GRADIENT_3D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::TEMPERATURE_GRADIENT_2D>());
+  static_assert(checkBOperatorEntries<GradientsKind::TEMPERATURE_3D>());
+  static_assert(checkBOperatorEntries<GradientsKind::TEMPERATURE_2D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::MICROMORPHIC_DAMAGE_3D>());
+  static_assert(
+      checkBOperatorEntries<GradientsKind::MICROMORPHIC_DAMAGE_2D>());
 
   /*!
    * \brief computes the deformation gradient at the center of an element,

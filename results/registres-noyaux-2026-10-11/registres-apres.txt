@@ -1,12 +1,12 @@
 StiffnessMatricesKernels 8 0 0 zeroValues(double*, int, bool)::{lambda(int)#1}>(int, zeroValues(double*, int, bool)::{lambda(int)#1}):
 StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)9>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 64 0 0 launchTangentOperatorActionKernel<(GradientsKind)8>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
-StiffnessMatricesKernels 40 0 0 launchTangentOperatorActionKernel<(GradientsKind)7>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)7>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 40 0 0 launchTangentOperatorActionKernel<(GradientsKind)6>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
-StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)5>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 44 0 0 launchTangentOperatorActionKernel<(GradientsKind)5>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 56 0 0 launchTangentOperatorActionKernel<(GradientsKind)4>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
-StiffnessMatricesKernels 56 0 0 launchTangentOperatorActionKernel<(GradientsKind)3>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
-StiffnessMatricesKernels 80 0 0 launchTangentOperatorActionKernel<(GradientsKind)2>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)3>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
+StiffnessMatricesKernels 72 0 0 launchTangentOperatorActionKernel<(GradientsKind)2>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 48 0 0 launchTangentOperatorActionKernel<(GradientsKind)1>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 64 0 0 launchTangentOperatorActionKernel<(GradientsKind)0>(StiffnessMatricesKernelArguments const&, double const*, double*, bool)::{lam
 StiffnessMatricesKernels 48 0 0 launchStiffnessMatricesKernel<(GradientsKind)9, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, ElementD
@@ -16,9 +16,9 @@ StiffnessMatricesKernels 40 0 0 launchStiffnessMatricesKernel<(GradientsKind)6, 
 StiffnessMatricesKernels 48 0 0 launchStiffnessMatricesKernel<(GradientsKind)5, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, ElementD
 StiffnessMatricesKernels 94 0 0 launchStiffnessMatricesKernel<(GradientsKind)4, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, ElementD
 StiffnessMatricesKernels 56 0 0 launchStiffnessMatricesKernel<(GradientsKind)3, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, ElementD
-StiffnessMatricesKernels 64 72 0 launchStiffnessMatricesKernel<(GradientsKind)2, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Element
+StiffnessMatricesKernels 58 72 0 launchStiffnessMatricesKernel<(GradientsKind)2, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Element
 StiffnessMatricesKernels 50 0 0 launchStiffnessMatricesKernel<(GradientsKind)1, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, ElementD
-StiffnessMatricesKernels 70 72 0 launchStiffnessMatricesKernel<(GradientsKind)0, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Element
+StiffnessMatricesKernels 60 72 0 launchStiffnessMatricesKernel<(GradientsKind)0, ElementDiagonalsStorage, true>(StiffnessMatricesKernelArguments const&, Element
 StiffnessMatricesKernels 22 0 0 launchStiffnessMatricesPositionsKernel(SparseMatrixOutput const&, int, int, unsigned short*, bool)::{lambda(int)#1}>(int, launch
 StiffnessMatricesKernels 56 0 0 launchStiffnessMatricesKernel<(GradientsKind)9, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMatr
 StiffnessMatricesKernels 84 0 0 launchStiffnessMatricesKernel<(GradientsKind)8, SparseMatrixAssembly, false>(StiffnessMatricesKernelArguments const&, SparseMatr

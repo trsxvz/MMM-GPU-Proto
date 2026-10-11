@@ -10,6 +10,8 @@
 #define LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX
 
 #include <memory>
+#include <cstddef>
+#include <cstdint>
 #include "mfem/general/array.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "MGIS/FieldView.hxx"
@@ -145,6 +147,25 @@ namespace mfem_mgis::batch {
      * `computeElementsDegreesOfFreedom`)
      */
     const mfem::Array<int>* element_dofs = nullptr;
+    /*!
+     * \brief positions of the entries of the stiffness matrices of all the
+     * elements in the rows of `matrix` (see
+     * `computeStiffnessMatricesPositions`), or a null pointer or an empty
+     * array: the entries are then searched in their rows. Otherwise, the
+     * array must have `n * n` values per element of the mesh, `n` being the
+     * number of degrees of freedom of an element. The position of an entry
+     * is read first, and used only if it designates the column of the entry
+     * in its row, the entry being searched otherwise (and counted in
+     * `searched_entries`): positions computed for another matrix, with the
+     * same number of values, give the same results, more slowly.
+     */
+    const mfem::Array<std::uint16_t>* positions = nullptr;
+    /*!
+     * \brief if not null, the number of entries whose position, read in
+     * `positions`, does not designate their column, and which are searched
+     * in their rows, is added to this counter
+     */
+    std::size_t* searched_entries = nullptr;
   };
 
   /*!
@@ -180,6 +201,35 @@ namespace mfem_mgis::batch {
                                const mfem::FiniteElementSpace&,
                                const mfem::Array<int>&) noexcept;
   /*!
+   * \brief computes, on the device if a device is enabled, the positions of
+   * the entries of the stiffness matrices of all the elements in the rows of
+   * an assembled sparse matrix, relative to the first entry of each row:
+   * `n * n` values per element, `n` being its number of degrees of freedom,
+   * the value of the entry `(i, j)` of the element `e` being at the index
+   * `(n * e + i) * n + j`. The assembly of the stiffness matrices then reads
+   * the position of each entry instead of searching it in its row (see
+   * `AssembledStiffnessMatrix::positions`). An entry which is not in the
+   * matrix, or whose relative position does not fit in 16 bits, is given
+   * the largest value of `std::uint16_t` (it is then searched). The
+   * positions take `2 n²` bytes per element, of the order of the size of
+   * the matrix for linear elements. If the mesh has no element, or if the
+   * number of positions does not fit in an `int`, the positions are not
+   * computed and `positions` is left empty.
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[out] positions: positions
+   * \param[in] fes: finite element space
+   * \param[in] dofs: degrees of freedom of all the elements (see
+   * `computeElementsDegreesOfFreedom`)
+   * \param[in] m: assembled matrix, finalized
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool computeStiffnessMatricesPositions(
+      Context&,
+      mfem::Array<std::uint16_t>&,
+      const mfem::FiniteElementSpace&,
+      const mfem::Array<int>&,
+      const mfem::SparseMatrix&) noexcept;
+  /*!
    * \brief sets the values of a sparse matrix to zero, on the device if a
    * device is enabled
    * \return true on success
@@ -191,7 +241,8 @@ namespace mfem_mgis::batch {
   /*!
    * \brief adds the stiffness matrices of the elements of a material to an
    * assembled sparse matrix, on the device if a device is enabled, without
-   * storing them: the position of each entry is searched in its row (by
+   * storing them: the position of each entry is read in
+   * `AssembledStiffnessMatrix::positions`, or searched in its row (by
    * bisection for the ordering of `makeAssembledStiffnessMatrix` or sorted
    * rows, linearly otherwise), and the additions are atomic (several
    * materials may share degrees of freedom)

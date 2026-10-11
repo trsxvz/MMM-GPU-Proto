@@ -505,23 +505,15 @@ namespace mfem_mgis::batch {
               getFBarTangentOperatorModification(data, use_device))) {
         return false;
       }
+      // the assembled matrix is checked by `addStiffnessMatrices`
       if (a.number_of_elements != 0) {
-        auto missing = mfem::Array<int>(1);
-        missing.HostWrite()[0] = 0;
+        auto counters = mfem::Array<int>{};
         auto o = internals::SparseMatrixOutput{};
-        o.number_of_rows = m.matrix->Height();
-        o.I = m.matrix->ReadI(use_device);
-        o.J = m.matrix->ReadJ(use_device);
-        o.values = m.matrix->ReadWriteData(use_device);
-        o.element_dofs = m.element_dofs->Read(use_device);
-        o.missing = missing.ReadWrite(use_device);
+        internals::getSparseMatrixOutput(o, counters, m, use_device);
         internals::launchFBarRankOneMatricesKernel(a, o, use_device);
-        if (missing.HostRead()[0] != 0) {
-          return ctx.registerErrorMessage(
-              "addFBarStiffnessMatrices: " +
-              std::to_string(missing.HostRead()[0]) +
-              " entries of the stiffness matrices are not in the pattern of "
-              "the assembled matrix");
+        if (!internals::checkSparseMatrixOutputCounters(
+                ctx, counters, m, "addFBarStiffnessMatrices")) {
+          return false;
         }
       }
     } catch (std::exception& e) {

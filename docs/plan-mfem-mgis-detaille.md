@@ -650,7 +650,13 @@ Travail :
 - `TangentOperator=Assembled` (c) : matrices élémentaires des noyaux,
   puis `HypreParMatrix`. Sur CPU d'abord. Motif creux, matrice hypre et
   schéma de communication gardés d'une itération à l'autre (seules les
-  valeurs changent).
+  valeurs changent). Fait (11/10) : positions des entrées des matrices
+  élémentaires dans les lignes de la matrice creuse calculées une fois,
+  sans GPU (`computeStiffnessMatricesPositions`, assemblage ×1,1 à ×2,9 sur
+  un cœur, sans gain sur le GPU), et produits `K B` et `Bᵀ K B` écrits sans
+  former `B` (table constexpr des entrées non nulles : 254 puis 64
+  registres en grandes transformations 3D, assemblage ×1,1 à ×3,1 sur un
+  cœur et ×1,4 à ×1,9 sur le GPU, résultats identiques).
 - `TangentOperator=MatrixFree` (a) : action des noyaux, diagonale et
   blocs nodaux pour les lisseurs, AMG construit une fois sur l'opérateur
   élastique assemblé.
