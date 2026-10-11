@@ -118,6 +118,10 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
       }
 
       auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};
+      if ((physics_type == "mechanics") && (precond == "HypreBoomerAMG") &&
+          (*param.amg_strategy_meca != '\0')) {
+        options.insert(ctx, "Strategy", param.amg_strategy_meca) | or_die;
+      }
 
       auto preconditioner =
           mfem_mgis::Parameters{{"Name", precond}, {"Options", options}};

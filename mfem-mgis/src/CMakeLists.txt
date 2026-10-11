@@ -26,6 +26,7 @@ list(APPEND MFEMMGIS_SOURCES
   MaterialArrays.cxx
   MaterialQuantityProviderSearch.cxx
   AbstractBehaviourIntegrator.cxx
+  PostProcessingsComputation.cxx
   BehaviourIntegratorBase.cxx
   BehaviourIntegratorFactory.cxx
   MatrixFreeTangentOperator.cxx
@@ -159,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/MFEMFieldOperations.cxx
   Batch/GradientsKernels.cxx
   Batch/InnerForcesKernels.cxx
+  Batch/IntegrationPointsFunctionsKernels.cxx
   Batch/StiffnessMatricesKernels.cxx
   Batch/FBarKernels.cxx
   Batch/FaltusKernels.cxx
@@ -179,6 +181,7 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/ElementsGeometry.cxx
   Batch/Gradients.cxx
   Batch/InnerForces.cxx
+  Batch/IntegrationPointsFunctions.cxx
   Batch/StiffnessMatrices.cxx
   Batch/FBar.cxx
   Batch/Faltus.cxx

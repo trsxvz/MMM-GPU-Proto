@@ -593,6 +593,52 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   add_grid_function_on_submesh_test()
 
+  # PostProcessingsKernelsTest executable: measures, integrals, values at the
+  # nodes and L2 projections computed by kernels and element by element, on
+  # hexahedra (two materials), tetrahedra and quadrangles, on the host, on the
+  # debug device of MFEM, on two processes and on the GPU
+  add_test_executable(PostProcessingsKernelsTest)
+  function(add_post_processings_kernels_test name mesh hypothesis)
+    set(test "PostProcessingsKernelsTest-${name}")
+    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}"
+               "--library" "$<TARGET_FILE:BehaviourTest>"
+               "--hypothesis" "${hypothesis}" ${ARGN})
+    add_test(NAME ${test} COMMAND ./PostProcessingsKernelsTest ${params})
+    set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
+    add_test(NAME ${test}-debug
+             COMMAND ./PostProcessingsKernelsTest ${params} --device debug)
+    set_property(TEST ${test}-debug PROPERTY DEPENDS BehaviourTest)
+    if(MFEM_USE_MPI)
+      add_test(NAME ${test}P COMMAND mpirun -n 2 ./PostProcessingsKernelsTest
+                                     ${params} --parallel)
+      set_property(TEST ${test}P PROPERTY DEPENDS BehaviourTest)
+    endif(MFEM_USE_MPI)
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME ${test}-cuda
+               COMMAND ./PostProcessingsKernelsTest ${params} --device cuda)
+      set_tests_properties(${test}-cuda PROPERTIES
+                           DEPENDS BehaviourTest RESOURCE_LOCK gpu)
+      if(MFEM_USE_MPI)
+        add_test(NAME ${test}P-cuda
+                 COMMAND mpirun -n 2 ./PostProcessingsKernelsTest ${params}
+                         --parallel --device cuda)
+        set_tests_properties(${test}P-cuda PROPERTIES
+                             DEPENDS BehaviourTest RESOURCE_LOCK gpu)
+      endif(MFEM_USE_MPI)
+    endif()
+  endfunction()
+
+  add_post_processings_kernels_test(hexahedra cube_2mat_per.mesh Tridimensional)
+  add_post_processings_kernels_test(tetrahedra beam-tet.mesh Tridimensional)
+  add_post_processings_kernels_test(quadrangles bar.msh PlaneStrain)
+  # degrees of freedom ordered by vector dimension; elements of order 3,
+  # whose values at the nodes are computed element by element (64 degrees of
+  # freedom per hexahedron)
+  add_post_processings_kernels_test(hexahedra-byVDIM cube_2mat_per.mesh
+                                    Tridimensional --ordering byVDIM)
+  add_post_processings_kernels_test(hexahedra-order3 cube_2mat_per.mesh
+                                    Tridimensional --order 3)
+
   # ImplicitGradientRegularizationTest executable
   add_test_executable(ImplicitGradientRegularizationTest)
 

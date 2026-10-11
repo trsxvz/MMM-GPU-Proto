@@ -29,6 +29,12 @@ struct TestParameters {
   // tangent systems are solved by GMRES preconditioned by the elastic
   // operator, factorized by MUMPS at each time step)
   const char* nonlinear_solver_meca = "Newton";
+  // ordering of the degrees of freedom of the mechanical problem (byNODES or
+  // byVDIM, which the elasticity options of BoomerAMG require)
+  const char* ordering_meca = "byNODES";
+  // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
+  // None), the default one of mfem-mgis if empty
+  const char* amg_strategy_meca = "";
   // reference statistics of the fields, no comparison if empty
   const char* reference_file = "";
   int order = 1;                // finite element order

@@ -6,8 +6,15 @@
  * \date   14/01/2026
  */
 
+#include <vector>
+#include <exception>
+#include <optional>
 #include "mfem/mesh/mesh.hpp"
 #include "mfem/fem/fespace.hpp"
+#include "mfem/fem/fe/fe_base.hpp"
+#include "mfem/fem/fe_coll.hpp"
+#include "mfem/general/device.hpp"
+#include "mfem/general/backends.hpp"
 #include "mfem/mesh/submesh/submesh.hpp"
 #include "mfem/fem/linearform.hpp"
 #include "mfem/fem/bilinearform.hpp"
@@ -20,10 +27,15 @@
 #endif
 
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/L2Projection.hxx"
+#include "PostProcessingsComputation.hxx"
 
 namespace mfem_mgis {
 
@@ -486,14 +498,187 @@ namespace mfem_mgis {
     return true;
   }  // end of checkUpdateFunctionsArguments
 
+  /*!
+   * \brief data of the computation by kernels of the right-hand sides of the
+   * L2 projections of functions defined at the integration points: geometric
+   * data of the finite element space of the projection for the integration
+   * rules of the functions, and values of the functions (see
+   * `batch::gatherValues`)
+   */
+  struct L2ProjectionKernelsData {
+    //! \brief geometric data, by integration rule
+    batch::ElementsGeometrySet geometries;
+    //! \brief values of the functions
+    std::vector<mfem::Vector> values;
+  };
+
+  /*!
+   * \return the data of the computation by kernels of the right-hand sides
+   * of the L2 projections of functions, or an empty value if the
+   * post-processings are not computed by kernels (see
+   * `internals::usePostProcessingsKernels`) or if the kernels can't be used:
+   * functions defined on boundaries or on a part of the mesh (submesh),
+   * finite element space of another family than the Lagrange elements,
+   * device of libCEED (whose assembly of the operators does not use the
+   * element restrictions), elements of a function using different
+   * integration rules, geometric data which can't be computed by kernels
+   * (elements of different geometries). In parallel, the decision is made
+   * by all the processes, which then assemble the operator in the same way.
+   * \param[in] fes: scalar finite element space of the projection
+   * \param[in] fcts: functions
+   * \param[in] on_submesh: if true, the projection is made on a submesh
+   */
+  template <bool parallel>
+  static std::optional<L2ProjectionKernelsData> makeL2ProjectionKernelsData(
+      attributes::MayThrow,
+      const FiniteElementSpace<parallel>& fes,
+      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+      const bool on_submesh) {
+    if ((on_submesh) || (!internals::usePostProcessingsKernels(may_throw))) {
+      return {};
+    }
+    auto ctx = Context{};
+    auto d = L2ProjectionKernelsData{};
+    const auto ok = [&]() -> bool {
+      const auto* const fec =
+          dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl());
+      if ((fec == nullptr) ||
+          (fec->GetBasisType() == mfem::BasisType::Positive) ||
+          (mfem::Device::Allows(mfem::Backend::CEED_MASK))) {
+        return false;
+      }
+      for (const auto& f : fcts) {
+        const auto& qs = f.getPartialQuadratureSpace();
+        auto& v = d.values.emplace_back();
+        if (qs.getNumberOfElements() == 0) {
+          continue;
+        }
+        const auto* const ir = qs.getUniformIntegrationRule();
+        if (ir == nullptr) {
+          return false;
+        }
+        auto& g = d.geometries[ir];
+        if ((g.rule == nullptr) &&
+            (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
+          return false;
+        }
+        if (!batch::gatherValues(ctx, v, f)) {
+          return false;
+        }
+      }
+      return true;
+    }();
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      auto lok = static_cast<int>(ok);
+      auto gok = int{};
+      MPI_Allreduce(&lok, &gok, 1, MPI_INT, MPI_MIN, fes.GetComm());
+      if (gok == 0) {
+        return {};
+      }
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      if (!ok) {
+        return {};
+      }
+    }
+    return d;
+  }  // end of makeL2ProjectionKernelsData
+
+  /*!
+   * \brief computes by kernels the right-hand side of the L2 projection of a
+   * component of functions (see `batch::addL2ProjectionRightHandSide`),
+   * summed over the elements by the element restriction of MFEM
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[out] b: right-hand side
+   * \param[in] fes: scalar finite element space of the projection
+   * \param[in] fcts: functions
+   * \param[in] d: data of the computation by kernels
+   * \param[in] c: component
+   */
+  template <bool parallel>
+  [[nodiscard]] static bool computeL2ProjectionRightHandSideByKernels(
+      Context& ctx,
+      mfem::Vector& b,
+      const FiniteElementSpace<parallel>& fes,
+      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+      const L2ProjectionKernelsData& d,
+      const size_type c) {
+    const auto* const r =
+        fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+    auto e = mfem::Vector(r->Height());
+    e.UseDevice(true);
+    e = real{0};
+    for (size_type i = 0; i != fcts.size(); ++i) {
+      const auto& f = fcts[i];
+      const auto& qs = f.getPartialQuadratureSpace();
+      if (qs.getNumberOfElements() == 0) {
+        continue;
+      }
+      const auto& g = d.geometries.at(qs.getUniformIntegrationRule());
+      if (!batch::addL2ProjectionRightHandSide(
+              ctx, e, qs, d.values[i], f.getNumberOfComponents(), c, g)) {
+        return false;
+      }
+    }
+    b.UseDevice(true);
+    r->MultTranspose(e, b);
+    return true;
+  }  // end of computeL2ProjectionRightHandSideByKernels
+
+  /*!
+   * \brief integrator of the mass matrices of the elements computed by
+   * kernels (see `batch::computeMassMatrices`), for the assembly of MFEM on
+   * the device (`AssemblyLevel::FULL`), in the ordering of the element
+   * matrices of MFEM (`mfem::GetEVectorOrdering`). The integration rule is
+   * the one of `mfem::MassIntegrator`. Unlike the assembly of
+   * `mfem::MassIntegrator` on the device, it supports the simplices, and it
+   * does not give nodes to a mesh without nodes (the geometric factors of
+   * MFEM are not used).
+   */
+  struct MassMatricesKernelsIntegrator final
+      : public mfem::BilinearFormIntegrator {
+    void AssembleEA(const mfem::FiniteElementSpace& fes,
+                    mfem::Vector& m,
+                    const bool add) override {
+      if (fes.GetNE() == 0) {
+        return;
+      }
+      const auto& fe = *(fes.GetFE(0));
+      const auto& ir = mfem::MassIntegrator::GetRule(
+          fe, fe, *(fes.GetElementTransformation(0)));
+      auto ctx = Context{};
+      auto g = batch::ElementsGeometry{};
+      if ((!batch::computeElementsGeometry(ctx, g, fes, ir)) ||
+          (!batch::computeMassMatrices(ctx, m, g, mfem::GetEVectorOrdering(fes),
+                                       add))) {
+        raise(ctx.getErrorMessage());
+      }
+    }  // end of AssembleEA
+  };
+
+  /*!
+   * \brief computes the regularization of functions defined at the
+   * integration points: L2 projection, operator `M + d K`, where `M` is the
+   * mass matrix and `K` the matrix of the diffusion, if `d` is not null
+   * (implicit gradient regularization)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] r: result
+   * \param[in, out] l: linear solver
+   * \param[in] fcts: functions
+   * \param[in] d: coefficient of the diffusion
+   */
   template <bool parallel>
   static bool updatePartialQuadratureRegularization_impl(
       Context& ctx,
       L2ProjectionResult<parallel>& r,
       LinearSolverHandler& l,
       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
-      std::function<void(BilinearForm<parallel>&)>
-          add_regularization_operator) {
+      const real d) {
     if (!checkUpdateFunctionsArguments(ctx, r, l, fcts)) {
       return false;
     }
@@ -545,10 +730,33 @@ namespace mfem_mgis {
           std::make_unique<GridFunction<parallel>>(&(*olocal_fespace));
       return local_gridfunction.get();
     }();
+    // computation by kernels: right-hand sides by kernels, operator
+    // assembled by MFEM, on the device if a device is enabled
+    const auto kernels_data = [&] {
+      CatchTimeSection(ctx, "L2Projection::KernelsData");
+      return makeL2ProjectionKernelsData<parallel>(may_throw, *olocal_fespace,
+                                                   fcts, r.submesh != nullptr);
+    }();
     // Regularization operator
+    auto operator_section = std::optional<mgis::ProfilingSection>(
+        std::in_place, ctx, "L2Projection::Operator", ctx.isProfilingEnabled());
     BilinearForm<parallel> a(&(*olocal_fespace));
-    add_regularization_operator(a);
+    auto diffusion = mfem::ConstantCoefficient(d);
+    // computation by kernels of the L2 projection: mass matrices computed by
+    // kernels and assembled by MFEM, on the device if a device is enabled;
+    // the operator of the implicit gradient regularization is assembled
+    // element by element
+    if ((kernels_data.has_value()) && (d == 0)) {
+      a.SetAssemblyLevel(mfem::AssemblyLevel::FULL);
+      a.AddDomainIntegrator(new MassMatricesKernelsIntegrator);
+    } else {
+      a.AddDomainIntegrator(new mfem::MassIntegrator);
+    }
+    if (d != 0) {
+      a.AddDomainIntegrator(new mfem::DiffusionIntegrator(diffusion));
+    }
     a.Assemble();
+    operator_section.reset();
     // resolution(s)
     for (size_type c = 0; c != rfespace.GetVDim(); ++c) {
       // initialize the solution, if needed
@@ -556,30 +764,44 @@ namespace mfem_mgis {
         *x = real{};
       }
       // right-hand side
+      auto rhs_section = std::optional<mgis::ProfilingSection>(
+          std::in_place, ctx, "L2Projection::RightHandSide",
+          ctx.isProfilingEnabled());
       LinearForm<parallel> b(&(*olocal_fespace));
-      if (rfespace.GetVDim() == 1) {
-        if (use_parent_elements) {
-          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
-              r.submesh->GetParentElementIDMap(), fcts));
-        } else {
-          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegrator(fcts));
+      if (kernels_data.has_value()) {
+        if (!computeL2ProjectionRightHandSideByKernels<parallel>(
+                ctx, b, *olocal_fespace, fcts, *kernels_data, c)) {
+          return false;
         }
       } else {
-        if (use_parent_elements) {
-          b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
-              r.submesh->GetParentElementIDMap(), fcts, c));
+        if (rfespace.GetVDim() == 1) {
+          if (use_parent_elements) {
+            b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
+                r.submesh->GetParentElementIDMap(), fcts));
+          } else {
+            b.AddDomainIntegrator(
+                new ScalarL2ProjectionRHSFormIntegrator(fcts));
+          }
         } else {
-          b.AddDomainIntegrator(
-              new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
+          if (use_parent_elements) {
+            b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
+                r.submesh->GetParentElementIDMap(), fcts, c));
+          } else {
+            b.AddDomainIntegrator(
+                new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
+          }
         }
+        b.Assemble();
       }
-      b.Assemble();
+      rhs_section.reset();
       // resolution
+      CatchTimeSection(ctx, "L2Projection::Solve");
       mfem::Array<int> boundary_dofs;
-      std::conditional_t<parallel, mfem::HypreParMatrix, mfem::SparseMatrix> A;
+      // the operator handle owns the matrix built by the full assembly
+      auto A = mfem::OperatorHandle{};
       mfem::Vector B, X;
       a.FormLinearSystem(boundary_dofs, *x, b, A, X, B);
-      l.linear_solver->SetOperator(A);
+      l.linear_solver->SetOperator(*A);
       l.linear_solver->Mult(B, X);
       clearHypreErrors();
       auto* const isolver =
@@ -612,8 +834,33 @@ namespace mfem_mgis {
         }
       }
     }
+    if (kernels_data.has_value()) {
+      internals::countPostProcessingComputationByKernels();
+    }
     return true;
   }  // end of updatePartialQuadratureRegularization_impl
+
+  /*!
+   * \brief calls `updatePartialQuadratureRegularization_impl`, the
+   * exceptions being reported in the execution context
+   */
+  template <bool parallel>
+  static bool updatePartialQuadratureRegularization(
+      Context& ctx,
+      L2ProjectionResult<parallel>& r,
+      LinearSolverHandler& l,
+      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
+      const real d) noexcept {
+    try {
+      return updatePartialQuadratureRegularization_impl<parallel>(ctx, r, l,
+                                                                  fcts, d);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "updatePartialQuadratureRegularization: unknown exception");
+    }
+  }  // end of updatePartialQuadratureRegularization
 
   template <bool parallel>
   static bool updateL2Projection_impl(
@@ -621,10 +868,7 @@ namespace mfem_mgis {
       L2ProjectionResult<parallel>& r,
       LinearSolverHandler& l,
       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
-    return updatePartialQuadratureRegularization_impl<parallel>(
-        ctx, r, l, fcts, [](BilinearForm<parallel>& a) {
-          a.AddDomainIntegrator(new mfem::MassIntegrator);
-        });
+    return updatePartialQuadratureRegularization<parallel>(ctx, r, l, fcts, 0);
   }  // end of updateL2Projection_impl
 
   template <>
@@ -697,12 +941,8 @@ namespace mfem_mgis {
       LinearSolverHandler& l,
       const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
       const real lc) noexcept {
-    auto c = mfem::ConstantCoefficient(lc * lc);
-    return updatePartialQuadratureRegularization_impl<parallel>(
-        ctx, r, l, fcts, [&c](BilinearForm<parallel>& a) {
-          a.AddDomainIntegrator(new mfem::MassIntegrator);
-          a.AddDomainIntegrator(new mfem::DiffusionIntegrator(c));
-        });
+    return updatePartialQuadratureRegularization<parallel>(ctx, r, l, fcts,
+                                                           lc * lc);
   }  // end of updateImplicitGradientRegularization_impl
 
   template <>

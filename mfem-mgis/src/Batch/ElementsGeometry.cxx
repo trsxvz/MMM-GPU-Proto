@@ -51,12 +51,17 @@ namespace mfem_mgis::batch {
    * \param[out] n: nodes
    * \param[in] mesh: mesh
    * \param[in] dim: dimension of the space
+   * \param[in] elements: elements, all the elements of the mesh if null
    */
   static bool getTransformationsNodes(Context& ctx,
                                       TransformationsNodes& n,
                                       const mfem::Mesh& mesh,
-                                      const int dim) {
-    const auto ne = mesh.GetNE();
+                                      const int dim,
+                                      const mfem::Array<int>* const elements) {
+    const auto ne = (elements != nullptr) ? elements->Size() : mesh.GetNE();
+    const auto* const le =
+        (elements != nullptr) ? elements->HostRead() : nullptr;
+    auto element = [le](const int k) { return (le != nullptr) ? le[k] : k; };
     const auto* const nodes = mesh.GetNodes();
     if (nodes == nullptr) {
       // the finite element of the transformations, whose degrees of freedom
@@ -80,13 +85,13 @@ namespace mfem_mgis::batch {
     n.element_nodes.SetSize(ne * nd);
     auto* const en = n.element_nodes.HostWrite();
     if (nodes == nullptr) {
-      for (int e = 0; e != ne; ++e) {
-        const auto* const element = mesh.GetElement(e);
-        if (element->GetNVertices() != nd) {
+      for (int k = 0; k != ne; ++k) {
+        const auto* const ek = mesh.GetElement(element(k));
+        if (ek->GetNVertices() != nd) {
           return ctx.registerErrorMessage(
               "computeElementsGeometry: unexpected number of vertices");
         }
-        std::copy_n(element->GetVertices(), nd, en + nd * e);
+        std::copy_n(ek->GetVertices(), nd, en + nd * k);
       }
       mesh.GetVertices(n.vertices);
       n.coordinates = &(n.vertices);
@@ -97,8 +102,8 @@ namespace mfem_mgis::batch {
     const auto& nfes = *(nodes->FESpace());
     auto dofs = mfem::Array<int>{};
     auto doftrans = mfem::DofTransformation{};
-    for (int e = 0; e != ne; ++e) {
-      nfes.GetElementDofs(e, dofs, doftrans);
+    for (int k = 0; k != ne; ++k) {
+      nfes.GetElementDofs(element(k), dofs, doftrans);
       if ((dofs.Size() != nd) || (!doftrans.IsIdentity())) {
         return ctx.registerErrorMessage(
             "computeElementsGeometry: unsupported nodes of the mesh");
@@ -109,7 +114,7 @@ namespace mfem_mgis::batch {
           return ctx.registerErrorMessage(
               "computeElementsGeometry: unsupported nodes of the mesh");
         }
-        en[i + nd * e] = dofs[i];
+        en[i + nd * k] = dofs[i];
       }
     }
     n.coordinates = nodes;
@@ -133,11 +138,13 @@ namespace mfem_mgis::batch {
    * points and the dimension must be set.
    * \param[in] mesh: mesh
    * \param[in] ir: integration rule
+   * \param[in] elements: elements, all the elements of the mesh if null
    */
   static bool computeJacobians(Context& ctx,
                                ElementsGeometry& g,
                                const mfem::Mesh& mesh,
-                               const mfem::IntegrationRule& ir) {
+                               const mfem::IntegrationRule& ir,
+                               const mfem::Array<int>* const elements) {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(g);
     static_cast<void>(mesh);
@@ -152,7 +159,7 @@ namespace mfem_mgis::batch {
           "computeElementsGeometry: too many points for the kernel");
     }
     auto n = TransformationsNodes{};
-    if (!getTransformationsNodes(ctx, n, mesh, g.dim)) {
+    if (!getTransformationsNodes(ctx, n, mesh, g.dim, elements)) {
       return false;
     }
     const auto nd = n.fe->GetDof();
@@ -202,10 +209,16 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeJacobians
 
-  bool computeElementsGeometry(Context& ctx,
-                               ElementsGeometry& g,
-                               const mfem::FiniteElementSpace& fes,
-                               const mfem::IntegrationRule& ir) noexcept {
+  /*!
+   * \brief implementation of the two `computeElementsGeometry` functions
+   * \param[in] elements: elements, all the elements of the mesh if null
+   */
+  static bool computeElementsGeometryImplementation(
+      Context& ctx,
+      ElementsGeometry& g,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::IntegrationRule& ir,
+      const mfem::Array<int>* const elements) noexcept {
     try {
       auto& mesh = *(fes.GetMesh());
       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
@@ -227,7 +240,7 @@ namespace mfem_mgis::batch {
       g.rule = &ir;
       g.dim = mesh.Dimension();
       g.nq = ir.GetNPoints();
-      g.ne = fes.GetNE();
+      g.ne = (elements != nullptr) ? elements->Size() : fes.GetNE();
       if (g.ne == 0) {
         return true;
       }
@@ -246,7 +259,7 @@ namespace mfem_mgis::batch {
             "cached by the finite element do not match the integration rule");
       }
       // the mesh is not modified (see `mfem::Mesh::EnsureNodes`)
-      if (!computeJacobians(ctx, g, mesh, ir)) {
+      if (!computeJacobians(ctx, g, mesh, ir, elements)) {
         return false;
       }
       g.weights.UseDevice(true);
@@ -263,6 +276,21 @@ namespace mfem_mgis::batch {
           "computeElementsGeometry: unknown exception");
     }
     return true;
+  }  // end of computeElementsGeometryImplementation
+
+  bool computeElementsGeometry(Context& ctx,
+                               ElementsGeometry& g,
+                               const mfem::FiniteElementSpace& fes,
+                               const mfem::IntegrationRule& ir) noexcept {
+    return computeElementsGeometryImplementation(ctx, g, fes, ir, nullptr);
+  }  // end of computeElementsGeometry
+
+  bool computeElementsGeometry(Context& ctx,
+                               ElementsGeometry& g,
+                               const mfem::FiniteElementSpace& fes,
+                               const mfem::IntegrationRule& ir,
+                               const mfem::Array<int>& elements) noexcept {
+    return computeElementsGeometryImplementation(ctx, g, fes, ir, &elements);
   }  // end of computeElementsGeometry
 
 }  // end of namespace mfem_mgis::batch

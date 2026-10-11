@@ -15,6 +15,7 @@
 #include "MGIS/Function/TFEL/Mechanics.hxx"
 
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/L2Projection.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -268,8 +269,10 @@ void write_bubble_infos(std::ofstream& file_to_write,
 /**
  * \brief Calculate the average hydrostatic stress over a material domain
  *
- * Integrates the hydrostatic pressure field over all elements and
- * computes the volume-averaged value using MPI reduction if needed
+ * Integrates the hydrostatic pressure field over the elements of the
+ * material and computes the volume-averaged value over all the processes,
+ * with the functions of mfem-mgis (computed by kernels if the environment
+ * variable MFEM_MGIS_POST_PROCESSINGS_COMPUTATION is Kernels)
  *
  * \tparam parallel Whether running in parallel mode
  * \param os Output stream for results
@@ -284,47 +287,13 @@ static void calculateAverageHydrostaticStress(
     const mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& prob,
     const mfem_mgis::ImmutablePartialQuadratureFunctionView& f) {
   auto or_die = ctx.getFatalFailureHandler();
-  const auto& s = f.getPartialQuadratureSpace();
-  const auto& fed = s.getFiniteElementDiscretization();
-  const auto& fespace = fed.getFiniteElementSpace<parallel>();
-  const auto m = s.getId();
-
-  mfem_mgis::real integral = 0.;
-  mfem_mgis::real volume = 0.;
-
-  // Loop over all elements in the mesh
-  for (mfem_mgis::size_type i = 0; i != fespace.GetNE(); ++i) {
-    // Skip elements not in this material
-    if (fespace.GetAttribute(i) != m) {
-      continue;
-    }
-    const auto& fe = *(fespace.GetFE(i));
-    auto& tr = *(fespace.GetElementTransformation(i));
-    const auto& ir = s.getIntegrationRule(fe, tr);
-
-    // Integrate over quadrature points
-    for (mfem_mgis::size_type g = 0; g != ir.GetNPoints(); ++g) {
-      const auto& ip = ir.IntPoint(g);
-      tr.SetIntPoint(&ip);
-      const auto& bi = prob.getBehaviourIntegrator(ctx, m, 0) | or_die;
-      const auto w = bi.getIntegrationPointWeight(tr, ip);
-      integral += f.getIntegrationPointValue(i, g) * w;
-      volume += w;
-    }
-  }
-
-  // MPI reduction to get global integral and volume
-  mfem_mgis::real global_volume = 0.;
-  mfem_mgis::real global_integral = 0.;
-  MPI_Reduce(&integral, &global_integral, 1, MPI_DOUBLE, MPI_SUM, 0,
-             MPI_COMM_WORLD);
-  MPI_Reduce(&volume, &global_volume, 1, MPI_DOUBLE, MPI_SUM, 0,
-             MPI_COMM_WORLD);
-
+  const auto m = f.getPartialQuadratureSpace().getId();
+  const auto& bi = prob.getBehaviourIntegrator(ctx, m, 0) | or_die;
+  const auto volume = mfem_mgis::computeMeasure(bi);
+  const auto integral = mfem_mgis::computeIntegral<mfem_mgis::real>(bi, f);
   // Write results on rank 0
   if (mfem_mgis::getMPIrank() == 0) {
-    os << global_volume << "," << global_integral << ","
-       << global_integral / global_volume << "\n";
+    os << volume << "," << integral << "," << integral / volume << "\n";
   }
 }  // end of calculateAverageHydrostaticStress
 
@@ -640,14 +609,20 @@ int main(int argc, char** argv) {
 
     // Compute and export principal stress and hydrostatic stress
     // field
-    auto end = mfem_mgis::Material::END_OF_TIME_STEP;
-    mfem_mgis::computeFirstEigenStress(ctx, eig, m, end);
-    mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end);
+    {
+      CatchTimeSection(ctx, "Bubble::EigenAndHydrostaticStresses");
+      auto end = mfem_mgis::Material::END_OF_TIME_STEP;
+      mfem_mgis::computeFirstEigenStress(ctx, eig, m, end);
+      mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end);
+    }
 
     // calculate the average hydrostatic stress on the rev
-    calculateAverageHydrostaticStress<true>(
-        mfem_mgis::may_abort, ctx, outfile_sighydr,
-        problem.getImplementation<true>(), hyp);
+    {
+      CatchTimeSection(ctx, "Bubble::AverageHydrostaticStress");
+      calculateAverageHydrostaticStress<true>(
+          mfem_mgis::may_abort, ctx, outfile_sighydr,
+          problem.getImplementation<true>(), hyp);
+    }
 
     // L2 projection of the first eigenstress at the nodes
     // for better visualization
@@ -661,11 +636,14 @@ int main(int argc, char** argv) {
                           mfem_mgis::Parameters{{"Name", "HypreILU"}}}}) |
         or_die;
 
-    auto projection =
-        mfem_mgis::computeL2Projection<true>(ctx, linear_solver, {eig});
+    auto projection = [&ctx, &linear_solver, &eig] {
+      CatchTimeSection(ctx, "Bubble::L2Projection");
+      return mfem_mgis::computeL2Projection<true>(ctx, linear_solver, {eig});
+    }();
 
     auto eigenstress_gf_ptr = projection->result.get();
 
+    CatchTimeSection(ctx, "Bubble::ExportFirstEigenStress");
     mfem::ParaViewDataCollection exporter("Eigenstress-pp");
     exporter.SetDataFormat(mfem::VTKFormat::BINARY);
     exporter.RegisterField("FirstEigenStress", eigenstress_gf_ptr);

@@ -4282,3 +4282,47 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   14,8 s ; peu d'effet quand tout est calculé par noyaux (poutre,
   polycristal, ex8 avec les lois cuda : 18,6 -> 16,9 s, la condition de
   Robin étant évaluée sur l'hôte).
+
+### 2026-10-11 (soir), post-traitements par noyaux (lot L8)
+
+- Mesure de départ (bulle de mm-opera-hpc, 467 109 inconnues, après le
+  correctif de la mémoire de l'hôte) : sur le GPU, 10,5 s de
+  post-traitements sur 14 s ; export des contraintes aux nœuds 4,5 s,
+  projection L2 4,4 s, moyenne hydrostatique 1,0 s.
+- mfem-mgis (branche post-traitements) : avec
+  `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels`, intégrales et mesures
+  par réduction, second membre de la projection L2 par noyau et
+  opérateur assemblé par MFEM sur le périphérique (masse des simplexes
+  calculée par noyau, MFEM 4.10 ne la faisant pas), valeurs aux nœuds par
+  projections locales et moyenne par la restriction aux éléments et la
+  prolongation (décision prise par tous les processus avant tout
+  échange). Les autres cas restent élément par élément ; un compteur
+  rend le choix observable. Défaut corrigé en route : la projection L2
+  gardait une référence à une matrice détruite en assemblage complet.
+- Test de comparaison des deux chemins (hexaèdres à deux matériaux,
+  tétraèdres, quadrangles ; hôte, débogage, deux processus, GPU), écarts
+  de l'ordre de 1e-14 ; suites complètes 181/181 (noyaux forcés) et
+  174/174 ; six mutations détectées.
+- Bulle (`results/post-traitements-noyaux-2026-10-11`) : GPU 14,8 ->
+  5,3 s (post-traitements 11,3 -> 1,9 s), un cœur du CPU 33,2 -> 25,2 s.
+  Avec le correctif de la mémoire de l'hôte, la bulle sur le GPU est
+  passée de 69 s à 5,3 s. mm-opera-hpc : sections de profilage des
+  post-traitements de la bulle, moyenne par `computeMeasure` et
+  `computeIntegral`.
+- Relecture indépendante du lot (un défaut 4/5, cinq 3/5) traitée :
+  repli élément par élément au-delà de 32 degrés de liberté par élément
+  (l'export s'arrêtait), masse calculée par le noyau pour tous les
+  éléments (l'assemblage de MFEM donnait des nœuds aux maillages qui n'en
+  avaient pas), décision collective des projections L2 (blocage possible
+  sur un maillage mixte), géométrie des seuls éléments du matériau pour
+  les intégrales (1000 matériaux : 49,8 s contre 0,04 s). Suites 180/180
+  (noyaux forcés et défaut), mutations 6/6, variantes GPU 15/15 ; bulle
+  inchangée (5,32 s sur le GPU).
+
+### 2026-10-11 (soir), ex8 : BoomerAMG avec les options d'élasticité
+
+- Résultat négatif (`results/ex8-amg-elasticite-2026-10-11`) : pour la
+  mécanique d'ex8, PCG et BoomerAMG avec les options d'élasticité
+  (rangement byVDIM) demandent 441 itérations en moyenne, 201 s contre
+  23,5 s avec MUMPS (2 processus). Options `-oMc` et `-amgMc` ajoutées à
+  ex8.

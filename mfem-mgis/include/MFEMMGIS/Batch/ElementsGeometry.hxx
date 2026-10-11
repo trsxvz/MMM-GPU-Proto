@@ -125,6 +125,25 @@ namespace mfem_mgis::batch {
       ElementsGeometry&,
       const mfem::FiniteElementSpace&,
       const mfem::IntegrationRule&) noexcept;
+  /*!
+   * \brief computes the geometric data of a list of elements of the mesh
+   * for an integration rule, as `computeElementsGeometry`, the data of the
+   * `k`-th element of the list being stored as the ones of the element `k`
+   * (`ne` is the number of elements of the list)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[out] g: geometric data
+   * \param[in] fes: finite element space
+   * \param[in] ir: integration rule
+   * \param[in] elements: elements (local numbering of the finite element
+   * space)
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsGeometry(
+      Context&,
+      ElementsGeometry&,
+      const mfem::FiniteElementSpace&,
+      const mfem::IntegrationRule&,
+      const mfem::Array<int>&) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

@@ -31,6 +31,7 @@
 #ifdef MFEM_MGIS_HAVE_KOKKOS
 #include "KokkosRuntime.hxx"
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
+#include "PostProcessingsComputation.hxx"
 #include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
@@ -425,6 +426,10 @@ namespace mfem_mgis {
              "enable-kokkos), the variable MFEM_MGIS_KOKKOS is ignored\n";
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
     }
+    // an invalid choice of the computation of the post-processings is
+    // reported here rather than at the first post-processing (the variable
+    // is read again at each computation)
+    static_cast<void>(internals::usePostProcessingsKernels(may_throw));
 #ifdef MFEM_USE_PETSC
     if (this->use_petsc) {
       if (petscrc_file == nullptr) {

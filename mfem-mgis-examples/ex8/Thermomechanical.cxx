@@ -46,6 +46,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "NewtonK0 (Newton method whose tangent systems are solved "
                  "by GMRES preconditioned by the elastic operator, "
                  "factorized by MUMPS at each time step).");
+  args.AddOption(&p.ordering_meca, "-oMc", "--ordering-mechanics",
+                 "Ordering of the degrees of freedom of the mechanical "
+                 "problem: byNODES (default) or byVDIM.");
+  args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
+                 "Strategy of the BoomerAMG preconditioner of the mechanical "
+                 "problem: System, Elasticity (requires byVDIM) or None.");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -139,6 +145,7 @@ int main(int argc, char* argv[]) {
                             {"FiniteElementOrder", p.order},
                             {"Hypothesis", "Tridimensional"},
                             {"UnknownsSize", 3},
+                            {"FiniteElementSpaceOrdering", p.ordering_meca},
                             {"Name", "Mechanics"}};
   const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
   if (nonlinear_solver_meca == "NewtonK0") {

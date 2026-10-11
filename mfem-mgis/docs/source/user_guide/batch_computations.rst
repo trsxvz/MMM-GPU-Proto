@@ -347,6 +347,52 @@ the operator being assembled, if no boundary condition contributes to the
 operator of the prediction and, in a sequential computation, if the mesh
 is conforming.
 
+.. _mfem_mgis_batch_computations_post_processings:
+
+Post-processings
+----------------
+
+The computations on functions defined at the integration points used by
+the post-processings are also made by kernels, on the device if a device
+is enabled, when the environment variable
+:code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is :code:`Kernels`
+(:code:`ElementByElement` by default; the variable is read at each
+computation, and an invalid value is reported by
+:code:`mfem_mgis::initialize`):
+
+- :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
+  elements, for the behaviour integrators which support kernels (the
+  weight of an integration point is then :code:`w det J`);
+- :code:`computeL2Projection` and
+  :code:`computeImplicitGradientRegularization`: right-hand sides by a
+  kernel; for the L2 projection, mass matrices computed by a kernel and
+  assembled by :code:`MFEM` (:code:`AssemblyLevel::FULL`), on the device
+  if a device is enabled; the operator of the implicit gradient
+  regularization is assembled element by element;
+- :code:`updateGridFunction`, used by the exports of the results at the
+  nodes (:code:`ParaviewExportIntegrationPointResultsAtNodes`): local
+  projections by a kernel, then arithmetic mean at the nodes through the
+  element restriction and, in parallel, the prolongation.
+
+The other cases are computed element by element: functions defined on
+boundaries or on a part of the mesh, integration rules differing between
+the elements of a material, elements of different geometries, finite
+element spaces other than the Lagrange elements (Bernstein basis
+included), devices of :code:`libCEED` for the L2 projections, and, for the
+values at the nodes, non conforming meshes and elements with more than 32
+degrees of freedom (hexahedra of order 3, for instance). In parallel, the
+choice is made by all the processes. The mesh is not modified (no nodes
+are given to a mesh without nodes). The values at the nodes and the
+projections computed on the device are valid on the device, and copied on
+the host when read there.
+:code:`getNumberOfPostProcessingsComputationsByKernels`
+(:code:`MFEMMGIS/PostProcessingsComputation.hxx`) counts the computations
+made by kernels. The results only differ from the ones computed element
+by element by rounding errors. The values of the functions are gathered
+on the host, where the functions of the user are stored, then used on the
+device. The kernels are declared in
+:code:`MFEMMGIS/Batch/IntegrationPointsFunctions.hxx`.
+
 .. _mfem_mgis_batch_computations_gpu:
 
 Computations on a GPU

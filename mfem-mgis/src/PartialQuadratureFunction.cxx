@@ -18,10 +18,15 @@
 #include "mfem/fem/pgridfunc.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MGIS/Raise.hxx"
+#include "mfem/fem/fe_coll.hpp"
+#include "mfem/fem/intrules.hpp"
 
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+#include "PostProcessingsComputation.hxx"
 
 namespace mfem_mgis {
 
@@ -986,6 +991,151 @@ namespace mfem_mgis {
     return makeGridFunction_impl<false>(ctx, fcts, mesh);
   }
 
+  /*!
+   * \brief updates a grid function with the arithmetic mean, at each
+   * degree of freedom, of the local projections of functions on the elements
+   * sharing it (see `batch::computeLocalProjections`), computed by kernels,
+   * as by `ProjectDiscCoefficient` with the arithmetic mean and the
+   * coefficients of the functions (the elements of the mesh without function
+   * contributing a null value)
+   *
+   * The kernels are used if the post-processings are computed by kernels
+   * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
+   * Lagrange elements (nodal basis) with at most
+   * `batch::maximumNumberOfNodesOfLocalProjections` degrees of freedom, if
+   * the elements of each function use the same integration rule and if the
+   * geometric data can be computed by kernels.
+   * In parallel, the decision is made by all the processes, before any
+   * exchange between them.
+   * \return true if the grid function is updated, false if the kernels can't
+   * be used (the grid function is then not modified)
+   * \param[in, out] f: grid function, defined on the mesh of the functions
+   * \param[in] fcts: functions
+   */
+  template <bool parallel>
+  [[nodiscard]] static bool updateGridFunctionByKernels(
+      attributes::MayThrow,
+      GridFunction<parallel>& f,
+      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
+    if (!internals::usePostProcessingsKernels(may_throw)) {
+      return false;
+    }
+    const auto& fes =
+        *(static_cast<const FiniteElementSpace<parallel>*>(f.FESpace()));
+    const auto nc = fcts.at(0).getNumberOfComponents();
+    auto ctx = Context{};
+    // geometric data and values of the functions, computed locally
+    auto geometries = batch::ElementsGeometrySet{};
+    auto values = std::vector<mfem::Vector>(fcts.size());
+    const mfem::IntegrationRule* mass_rule = nullptr;
+    const auto ok = [&]() -> bool {
+      // Lagrange elements: the value of the local projection at a node is
+      // its nodal value (not for the positive basis of Bernstein)
+      const auto* const fec =
+          dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl());
+      if ((fes.GetMesh()->Nonconforming()) || (fec == nullptr) ||
+          (fec->GetBasisType() == mfem::BasisType::Positive)) {
+        return false;
+      }
+      if (fes.GetNE() == 0) {
+        return true;
+      }
+      const auto& fe = *(fes.GetFE(0));
+      if (fe.GetDof() > batch::maximumNumberOfNodesOfLocalProjections) {
+        return false;
+      }
+      // mass matrices of the elements integrated exactly, as by the
+      // coefficients of the functions
+      const auto ow = fes.GetElementTransformation(0)->OrderW();
+      mass_rule =
+          &(mfem::IntRules.Get(fe.GetGeomType(), 2 * fe.GetOrder() + ow));
+      if (!batch::computeElementsGeometry(ctx, geometries[mass_rule], fes,
+                                          *mass_rule)) {
+        return false;
+      }
+      for (size_type i = 0; i != fcts.size(); ++i) {
+        const auto& qs = fcts[i].getPartialQuadratureSpace();
+        if (qs.getNumberOfElements() == 0) {
+          continue;
+        }
+        const auto* const ir = qs.getUniformIntegrationRule();
+        if (ir == nullptr) {
+          return false;
+        }
+        auto& g = geometries[ir];
+        if ((g.rule == nullptr) &&
+            (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
+          return false;
+        }
+        if (!batch::gatherValues(ctx, values[i], fcts[i])) {
+          return false;
+        }
+      }
+      return true;
+    }();
+    if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+      auto lok = static_cast<int>(ok);
+      auto gok = int{};
+      MPI_Allreduce(&lok, &gok, 1, MPI_INT, MPI_MIN, fes.GetComm());
+      if (gok == 0) {
+        return false;
+      }
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    } else {
+      if (!ok) {
+        return false;
+      }
+    }
+    // local projections, element by element
+    const auto* const r =
+        fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+    auto e = mfem::Vector(r->Height());
+    e.UseDevice(true);
+    e = real{0};
+    for (size_type i = 0; i != fcts.size(); ++i) {
+      const auto& qs = fcts[i].getPartialQuadratureSpace();
+      if (qs.getNumberOfElements() == 0) {
+        continue;
+      }
+      if (!batch::computeLocalProjections(
+              ctx, e, qs, values[i], nc,
+              geometries.at(qs.getUniformIntegrationRule()),
+              geometries.at(mass_rule))) {
+        raise(ctx.getErrorMessage());
+      }
+    }
+    // sums and numbers of the elements sharing each degree of freedom
+    auto ones = mfem::Vector(r->Height());
+    ones.UseDevice(true);
+    ones = real{1};
+    auto sums = mfem::Vector(r->Width());
+    auto counts = mfem::Vector(r->Width());
+    sums.UseDevice(true);
+    counts.UseDevice(true);
+    r->MultTranspose(e, sums);
+    r->MultTranspose(ones, counts);
+    if constexpr (parallel) {
+      // sums and numbers of the elements of all the processes
+      const auto& p = *(fes.GetProlongationMatrix());
+      auto true_sums = mfem::Vector(p.Width());
+      auto true_counts = mfem::Vector(p.Width());
+      true_sums.UseDevice(true);
+      true_counts.UseDevice(true);
+      p.MultTranspose(sums, true_sums);
+      p.MultTranspose(counts, true_counts);
+      true_sums /= true_counts;
+      p.Mult(true_sums, f);
+    } else {
+      sums /= counts;
+      f = sums;
+    }
+    internals::countPostProcessingComputationByKernels();
+    return true;
+  }  // end of updateGridFunctionByKernels
+
   template <bool parallel>
   static void updateGridFunction_impl(
       GridFunction<parallel>& f,
@@ -1005,6 +1155,9 @@ namespace mfem_mgis {
     auto ctx = Context{};
     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
       raise(ctx.getErrorMessage());
+    }
+    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
+      return;
     }
     if (n == 1u) {
       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);
@@ -1052,6 +1205,9 @@ namespace mfem_mgis {
     auto ctx = Context{};
     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
       raise(ctx.getErrorMessage());
+    }
+    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
+      return;
     }
     if (n == 1u) {
       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);

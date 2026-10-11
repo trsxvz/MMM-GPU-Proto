@@ -7,6 +7,7 @@
  */
 
 #include <cmath>
+#include <optional>
 #include <cstdlib>
 #include <algorithm>
 #include "mfem/fem/fespace.hpp"
@@ -18,6 +19,9 @@
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+#include "PostProcessingsComputation.hxx"
 
 namespace mfem_mgis {
 
@@ -128,9 +132,65 @@ namespace mfem_mgis {
     }
   }  // end of performLoopOverIntegrationPoints
 
+  /*!
+   * \return the integral of a scalar function, or the measure if no function
+   * is given, over the elements of the quadrature space of a behaviour
+   * integrator owned by this process, computed by kernels, or an empty value
+   * if the post-processings are not computed by kernels (see
+   * `internals::usePostProcessingsKernels`) or if the behaviour integrator
+   * does not support kernels: the weight of an integration point is then
+   * `w det J`, as for all the behaviour integrators of mfem-mgis, or if the
+   * geometric data of the elements can't be computed by kernels (elements of
+   * different geometries)
+   * \param[in] bi: behaviour integrator
+   * \param[in] f: function, or null
+   */
+  template <bool parallel>
+  static std::optional<real> computeLocalIntegralByKernels(
+      attributes::MayThrow,
+      const AbstractBehaviourIntegrator& bi,
+      const ImmutablePartialQuadratureFunctionView* const f) {
+    if ((!internals::usePostProcessingsKernels(may_throw)) ||
+        (!bi.supportsKernels())) {
+      return {};
+    }
+    const auto& qspace = bi.getPartialQuadratureSpace();
+    const auto* const ir = qspace.getUniformIntegrationRule();
+    if (ir == nullptr) {
+      // no element owned by this process
+      internals::countPostProcessingComputationByKernels();
+      return real{0};
+    }
+    const auto& fespace = qspace.getFiniteElementDiscretization()
+                              .getFiniteElementSpace<parallel>();
+    auto ctx = Context{};
+    // geometric data of the elements of the space only
+    auto g = batch::ElementsGeometry{};
+    if (!batch::computeElementsGeometry(ctx, g, fespace, *ir,
+                                        qspace.getElements())) {
+      return {};
+    }
+    auto values = mfem::Vector{};
+    if ((f != nullptr) && (!batch::gatherValues(ctx, values, *f))) {
+      raise(ctx.getErrorMessage());
+    }
+    const auto r = batch::computeIntegral(ctx, qspace,
+                                          f != nullptr ? &values : nullptr, g);
+    if (!r.has_value()) {
+      raise(ctx.getErrorMessage());
+    }
+    internals::countPostProcessingComputationByKernels();
+    return r;
+  }  // end of computeLocalIntegralByKernels
+
   template <bool parallel>
   static real BehaviourIntegrator_computeMeasure(
       const AbstractBehaviourIntegrator& bi) {
+    const auto rk =
+        computeLocalIntegralByKernels<parallel>(may_throw, bi, nullptr);
+    if (rk.has_value()) {
+      return *rk;
+    }
     auto r = real{};
     auto integrate =
         [&r, &bi](const mfem::FiniteElement&, mfem::ElementTransformation& tr,
@@ -162,6 +222,10 @@ namespace mfem_mgis {
   static real BehaviourIntegrator_computeScalarIntegral(
       const AbstractBehaviourIntegrator& bi,
       const ImmutablePartialQuadratureFunctionView& f) {
+    const auto rk = computeLocalIntegralByKernels<parallel>(may_throw, bi, &f);
+    if (rk.has_value()) {
+      return *rk;
+    }
     const auto* const values = f.getValues().data() + f.getDataOffset();
     auto r = real{};
     if (f.getDataStride() == 1) {
