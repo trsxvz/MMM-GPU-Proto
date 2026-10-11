@@ -1,0 +1,115 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Fixed point iteration  0 : ||r|| = 252279, ||r||/||r_0|| = 0.000193236
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 25917.2, ||r||/||r_0|| = 1.98516e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.000251869
+Fixed point iteration  2 : ||r|| = 5.95733, ||r||/||r_0|| = 4.5631e-09
+Fixed point iteration  0 : ||r|| = 287522, ||r||/||r_0|| = 0.000220231
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 22653.3, ||r||/||r_0|| = 1.73516e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.000288158
+Fixed point iteration  2 : ||r|| = 6.60337, ||r||/||r_0|| = 5.05794e-09
+Fixed point iteration  0 : ||r|| = 287527, ||r||/||r_0|| = 0.000220235
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 22669.7, ||r||/||r_0|| = 1.73641e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.00028795
+Fixed point iteration  2 : ||r|| = 6.56226, ||r||/||r_0|| = 5.02646e-09
+Fixed point iteration  0 : ||r|| = 344384, ||r||/||r_0|| = 0.000263786
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 37895.1, ||r||/||r_0|| = 2.90262e-05
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0117166
+Fixed point iteration  2 : ||r|| = 564.171, ||r||/||r_0|| = 4.32135e-07
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0115705
+Fixed point iteration  3 : ||r|| = 4.84114, ||r||/||r_0|| = 3.70814e-09
+Fixed point iteration  0 : ||r|| = 1.99321e+06, ||r||/||r_0|| = 0.00152673
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 246149, ||r||/||r_0|| = 0.000188541
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0277482
+Fixed point iteration  2 : ||r|| = 12983.4, ||r||/||r_0|| = 9.94478e-06
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0226894
+Fixed point iteration  3 : ||r|| = 291.978, ||r||/||r_0|| = 2.23644e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0223569
+Fixed point iteration  4 : ||r|| = 4.97992, ||r||/||r_0|| = 3.81444e-09
+Fixed point iteration  0 : ||r|| = 3.31411e+06, ||r||/||r_0|| = 0.00253849
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 564970, ||r||/||r_0|| = 0.000432747
+Fixed point iteration  1 : relative tolerance of the linear solver 0.052957
+Fixed point iteration  2 : ||r|| = 35443.9, ||r||/||r_0|| = 2.71488e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.00231232
+Fixed point iteration  3 : ||r|| = 90.7188, ||r||/||r_0|| = 6.94873e-08
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0719556
+Fixed point iteration  4 : ||r|| = 5.78067, ||r||/||r_0|| = 4.42778e-09
+Fixed point iteration  0 : ||r|| = 3.64145e+06, ||r||/||r_0|| = 0.00278922
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 810087, ||r||/||r_0|| = 0.000620497
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0524287
+Fixed point iteration  2 : ||r|| = 51104.2, ||r||/||r_0|| = 3.9144e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.00428581
+Fixed point iteration  3 : ||r|| = 301.642, ||r||/||r_0|| = 2.31047e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0216406
+Fixed point iteration  4 : ||r|| = 5.42143, ||r||/||r_0|| = 4.15262e-09
+Fixed point iteration  0 : ||r|| = 3.78434e+06, ||r||/||r_0|| = 0.00289867
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 865954, ||r||/||r_0|| = 0.00066329
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0570736
+Fixed point iteration  2 : ||r|| = 59602.7, ||r||/||r_0|| = 4.56535e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.00384872
+Fixed point iteration  3 : ||r|| = 3049.29, ||r||/||r_0|| = 2.33564e-06
+Fixed point iteration  3 : relative tolerance of the linear solver 0.0477099
+Fixed point iteration  4 : ||r|| = 118.42, ||r||/||r_0|| = 9.07054e-08
+Fixed point iteration  4 : relative tolerance of the linear solver 0.0551235
+Fixed point iteration  5 : ||r|| = 5.82153, ||r||/||r_0|| = 4.45908e-09
+Fixed point iteration  0 : ||r|| = 3.8632e+06, ||r||/||r_0|| = 0.00295907
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 916196, ||r||/||r_0|| = 0.000701773
+Fixed point iteration  1 : relative tolerance of the linear solver 0.0524057
+Fixed point iteration  2 : ||r|| = 52674.6, ||r||/||r_0|| = 4.03469e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0100928
+Fixed point iteration  3 : ||r|| = 797.175, ||r||/||r_0|| = 6.10607e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.00818858
+Fixed point iteration  4 : ||r|| = 5.42879, ||r||/||r_0|| = 4.15826e-09
+Fixed point iteration  0 : ||r|| = 3.90585e+06, ||r||/||r_0|| = 0.00299174
+Fixed point iteration  0 : relative tolerance of the linear solver 0.1
+Fixed point iteration  1 : ||r|| = 917409, ||r||/||r_0|| = 0.000702702
+Fixed point iteration  1 : relative tolerance of the linear solver 0.050084
+Fixed point iteration  2 : ||r|| = 62311.2, ||r||/||r_0|| = 4.77281e-05
+Fixed point iteration  2 : relative tolerance of the linear solver 0.0099582
+Fixed point iteration  3 : ||r|| = 1092.94, ||r||/||r_0|| = 8.37155e-07
+Fixed point iteration  3 : relative tolerance of the linear solver 0.00784291
+Fixed point iteration  4 : ||r|| = 8.07519, ||r||/||r_0|| = 6.1853e-09
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.8370457 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 1.708 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------|
+ |    name                                       |    number Of Calls |            time(s) |            part(%) |
+ |--------------------------------------------------------------------------------------------------------------|
+ | > root                                       |                  1 |           1.969266 |        100.000000% |
+ | |--> Mesh::Constructor                       |                  1 |           0.129744 |          6.588432% |
+ |    |--> Mesh::LoadMesh                       |                  1 |           0.000236 |          0.011999% |
+ |    |--> Mesh::Run_ParUniformRefinement       |                  4 |           0.129373 |          6.569622% |
+ | |--> FED::Constructor                        |                  1 |           0.131923 |          6.699086% |
+ | |--> NLEPIB::updateLinearSolver              |                  1 |           0.000002 |          0.000100% |
+ | |--> NLEP::solve                             |                 10 |           1.662622 |         84.428518% |
+ |    |--> NLEPIB::setup                        |                 10 |           0.000666 |          0.033810% |
+ |    |--> NLEPIB::solve                        |                 10 |           1.661940 |         84.393865% |
+ |       |--> NLEPIB::computePrediction         |                 10 |           0.415191 |         21.083523% |
+ |          |--> PRED::integrate                |                 10 |           0.044299 |          2.249495% |
+ |          |--> PRED::forms                    |                 10 |           0.002336 |          0.118602% |
+ |          |--> PRED::assemble                 |                 10 |           0.109233 |          5.546873% |
+ |          |--> PRED::solve                    |                 10 |           0.255233 |         12.960804% |
+ |       |--> FPS::Mult                         |                 10 |           1.246720 |         63.308859% |
+ |          |--> FPS::integrate                 |                 45 |           0.116543 |          5.918071% |
+ |             |--> NS::getJacobian             |                  1 |           0.064944 |          3.297886% |
+ |             |--> NS::setLinearSolverOperator |                  1 |           0.000097 |          0.004945% |
+ |          |--> NS::computeResidual            |                 44 |           0.006733 |          0.341891% |
+ |          |--> NS::getJacobian                |                 34 |           0.082874 |          4.208362% |
+ |          |--> NS::setLinearSolverOperator    |                 34 |           0.000026 |          0.001321% |
+ |          |--> MFEM::Mult(r,c)                |                 34 |           1.039313 |         52.776646% |
+ | |--> NLEPIB::update                          |                 10 |           0.044975 |          2.283864% |
+ |-- end timetable ---------------------------------------------------------------------------------------------|
