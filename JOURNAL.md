@@ -4359,3 +4359,14 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `HypreParaSailsTest` (mutation détectée). Après correction, ParaSails
   reste trop faible pour la thermique d'ex8 (2 000 à 5 600 itérations de
   GMRES, puis stagnation).
+
+### 2026-10-11 (soir), intégration amont de mfem-mgis
+
+- `docs/integration-amont.md` : section mfem-mgis, découpage des 115
+  commits de `gpu-proto` en onze contributions ordonnées par dépendances
+  (corrections, fonctionnalités sans GPU, configuration GPU, chemin GPU
+  du code existant, données des matériaux, lots, noyaux, point fixe,
+  post-traitements, Kokkos et AmgX facultatifs), dépendances envers TFEL
+  et MGIS, vérifications. Section MGIS complétée (rangements, opérations
+  de copie, profilage). Relecture indépendante traitée (classement des
+  conditions aux limites, dépendances envers MGIS, corrections oubliées).

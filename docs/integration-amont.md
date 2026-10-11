@@ -1,7 +1,7 @@
 # Intégration amont
 
 Ce document propose un découpage des changements en contributions pour les
-dépôts officiels de TFEL et de MGIS. Chaque contribution doit pouvoir être
+dépôts officiels de TFEL, de MGIS et de mfem-mgis. Chaque contribution doit pouvoir être
 relue et testée seule.
 
 Certains commits du prototype mêlent plusieurs sujets. Les contributions
@@ -80,8 +80,155 @@ elles lisent le contrat. Les détails sont dans [mgis.md](mgis.md).
    GPU, ressources mémoire et leurs en-têtes.
 4. **Propriétés matériau** : chargement des propriétés `generic-parallel`
    et fonction `evaluate`.
-5. **Documentation** : page web des lots et notes de version.
+5. **Rangements et opérations de copie** : rangement des tableaux d'un
+   gestionnaire (`MaterialDataManagerInitializer::layout`), opérations de
+   copie (`FieldOperations`), fichiers HDF5 et liaisons C, Fortran et
+   Python qui suivent le rangement.
+6. **Profilage** : fonction de synchronisation appelée autour des
+   sections mesurées, pour attendre les noyaux lancés sur un GPU.
+7. **Documentation** : page web des lots et notes de version.
 
 Le test CUDA de MGIS demande un GPU NVIDIA. Il est désactivé par défaut
 (option `enable-generic-parallel-cuda-tests`), pour que l'intégration
 continue de MGIS reste sur CPU.
+
+## mfem-mgis
+
+La branche `gpu-proto` de mfem-mgis part de la branche principale
+officielle (fusion de la PR #472, rangement des inconnues par dimension,
+déjà en amont). L'ordre suit les dépendances :
+
+- les contributions 1 et 2 ne demandent ni le TFEL ni le MGIS du
+  prototype ;
+- la contribution 3 demande la synchronisation du profilage de MGIS
+  (sixième contribution de MGIS) ;
+- la contribution 5 demande l'emplacement des tableaux et les rangements
+  de MGIS (troisième et cinquième contributions de MGIS) ;
+- à partir de la contribution 6, l'interface `generic-parallel` de TFEL
+  (quatrième contribution de TFEL) et les lots de MGIS (deuxième
+  contribution de MGIS).
+
+Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
+
+1. **Corrections du code existant**, sans code GPU :
+   - préconditionneur ParaSails redonné à un nouvel opérateur après la
+     destruction du précédent (défaut de `mfem::HypreParaSails`) ;
+   - réglages de l'ILU de hypre réappliqués après chaque nouvel opérateur
+     (MFEM les remet aux valeurs par défaut) ;
+   - tolérance absolue des solveurs de Krylov de hypre (refusée, ou donnée
+     comme tolérance relative à FGMRES) ;
+   - noms courts des options déclarées par `declareDefaultOptions` (`-up`,
+     `-no-up`, `petscrc_file`) ignorés par `initialize` ;
+   - exception levée par l'opérateur tangent pendant la correction de
+     Newton : échec de la résolution en séquentiel, message puis
+     `MPI_Abort` en parallèle, au lieu de `std::terminate` ;
+   - exceptions des projections L2, déclarées `noexcept`, rapportées dans
+     le contexte d'exécution ;
+   - prédiction séquentielle : diagonale mise à un aux degrés de liberté
+     imposés, comme en parallèle ;
+   - CMake : plusieurs dossiers rendus par `tfel-config`, une ligne de
+     `env.sh` par dossier ;
+   - documentation des constructeurs qui prennent un contexte
+     d'exécution.
+2. **Fonctionnalités sans GPU**, utiles sur CPU :
+   - ordre des règles d'intégration choisi par l'utilisateur
+     (`IntegrationRuleOrder` : avec l'ordre 3, 8 points au lieu de 27 sur
+     les hexaèdres d'ordre 1) ;
+   - options de BoomerAMG (seuil de connexion, grossissement,
+     interpolation, relaxation, cycles), réappliquées après chaque nouvel
+     opérateur ;
+   - Newton inexact (tolérance du solveur linéaire adaptée au résidu,
+     Eisenstat et Walker) ;
+   - lisseurs de Jacobi et de Chebyshev de MFEM comme préconditionneurs ;
+   - paramètres du problème transmis par les constructeurs de
+     `PeriodicNonLinearEvolutionProblem` ;
+   - `TransientHeatTransfer` en déformations planes et en contraintes
+     planes ;
+   - sections de profilage (préparation du solveur linéaire, prédiction,
+     fin de pas, post-traitements).
+3. **Construction et configuration pour le GPU** :
+   - MFEM compilé avec CUDA, sources contenant des noyaux de MFEM
+     compilées comme du code CUDA ;
+   - option `--device` d'`initialize` (un GPU par processus, périphérique
+     déjà configuré par le programme, périphérique créé avant PETSc) ;
+   - réserve de mémoire de hypre sur le GPU ;
+   - mémoire de l'hôte standard pour le périphérique configuré par
+     `initialize` : avec MFEM compilé avec Umpire, les vecteurs
+     temporaires des boucles de l'hôte sur les éléments passaient par
+     Umpire (2 à 5 fois plus lents) ;
+   - sections de profilage qui attendent les noyaux lancés.
+4. **Chemin GPU du code existant** : toute la suite de tests sur le GPU
+   (variable `MFEM_MGIS_DEVICE`), et les corrections trouvées ainsi :
+   - accès de l'hôte déclarés à MFEM (`HostRead`, `HostReadWrite`) :
+     composantes des projections L2, valeurs imposées des conditions de
+     Dirichlet, export ParaView, interpolation des champs, erreur L2
+     analytique ;
+   - ILU de hypre limitée au niveau 0 et ParaSails refusé quand hypre
+     calcule sur le GPU (défaillances de hypre).
+5. **Données des matériaux dans la mémoire de MFEM** : tableaux des points
+   d'intégration rangés composante par composante, synchronisés sur
+   l'hôte avant chaque accès de l'hôte, éléments et décalages des espaces
+   de quadrature lisibles sur le GPU, copies des états par des noyaux.
+6. **Intégration des lois par lots**, sur l'hôte et sur le GPU : lots de
+   MGIS, rotations des lois orthotropes, `update` et `revert` sur le GPU,
+   modèles point par point (`PointWiseModel`). L'intégration point par
+   point reste le défaut ; le paramètre `BehaviourIntegration` (ou la
+   variable `MFEM_MGIS_BEHAVIOUR_INTEGRATION`) choisit les lots.
+7. **Mécanique par noyaux** :
+   - géométrie des éléments (jacobiens et leurs inverses calculés une
+     fois), gradients, forces intérieures, matrices de rigidité ;
+   - assemblage direct dans la matrice creuse (motif construit à partir
+     des éléments, positions des entrées calculées une fois, échanges
+     gardés) ;
+   - prédiction, action et diagonale de l'opérateur tangent sans
+     assemblage (`MatrixFree`), préconditionneur sur l'opérateur assemblé
+     (`AssembledOperator`) ;
+   - autres intégrateurs de la forme (Robin, ressorts), conditions aux
+     limites indépendantes des inconnues (pression imposée, source de
+     chaleur) assemblées une fois et ajoutées aux forces intérieures
+     calculées par noyaux.
+
+   Le calcul élément par élément reste le défaut ; les paramètres
+   `GradientsComputation`, `InnerForcesComputation` et
+   `TangentOperatorComputation` (ou les variables correspondantes)
+   choisissent les noyaux.
+8. **Autres formulations par noyaux** : thermique stationnaire et
+   transitoire, endommagement micromorphe, FBar, régularisation de
+   Faltus et al.
+9. **Solveur de point fixe** (`FixedPoint`) : accélérations de MTest,
+   méthode NewtonK0 (opérateur élastique factorisé, tolérance adaptée),
+   prédiction élastique, solveurs itératifs de la fabrique.
+10. **Post-traitements par noyaux** (variable
+    `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`) : intégrales, projections
+    L2, valeurs aux nœuds.
+11. **Facultatif, à proposer plus tard** :
+    - Kokkos initialisé par mfem-mgis (option `enable-kokkos`), pour les
+      lois compilées avec le backend Kokkos ;
+    - solveurs AmgX, qui utilisent directement l'interface C d'AmgX :
+      après la fusion de la correction proposée à AmgX et de sa recette
+      spack.
+
+Beaucoup de commits de `gpu-proto` touchent plusieurs contributions. Par
+exemple, le passage de toute la suite sur le GPU porte des corrections
+(contribution 1), de la configuration (3) et le chemin GPU (4), et
+`LinearSolverFactory.cxx` porte des morceaux de six contributions. Comme
+pour TFEL, les contributions seront reconstruites à partir de l'état
+final, par morceaux de fichier.
+
+### Vérifications pour chaque contribution
+
+- la suite de tests complète de mfem-mgis sur CPU, en séquentiel et sur
+  deux processus ;
+- à partir de la contribution 4, la suite sur le GPU
+  (`MFEM_MGIS_DEVICE=cuda`) ;
+- à partir de la contribution 6, la suite avec les variables qui forcent
+  les lots et les noyaux (`MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
+  `MFEM_MGIS_*_COMPUTATION=Kernels`), sur CPU et sur GPU ;
+- les exemples de mfem-mgis-examples et les cas de mm-opera-hpc suivis par
+  le prototype, avec les mêmes résultats sur CPU et sur GPU à l'arrondi
+  près ;
+- un test pour chaque correction et chaque fonctionnalité (certaines n'en
+  ont pas encore, par exemple les paramètres de
+  `PeriodicNonLinearEvolutionProblem`) ;
+- formatage par `clang-format` limité aux lignes modifiées (le dépôt n'est
+  pas formaté dans son ensemble).
