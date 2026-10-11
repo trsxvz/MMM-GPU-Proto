@@ -4018,3 +4018,17 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 - Motivation : ssna303 à deux raffinements ne tient pas sur le GPU avec
   27 points par élément ; la mesure avec 8 points reste à faire (série de
   mesures arrêtée faute de mémoire, à relancer avec accord).
+
+### 2026-10-11 (matin), FBar par noyaux sans stocker K'
+
+- mfem-mgis b1a8c682ae : la tangente modifiée du FBar, `K' = α K + v ⊗
+  c`, n'est plus stockée aux points (81 réels par point en 3D) ; les
+  noyaux des matrices de rigidité l'appliquent à la volée, `K' x = α K x
+  + v (c · x)`, à partir de `v` et `c` (18 réels par point) : environ 6 Go
+  de moins pour ssna303 à deux raffinements (12 millions de points),
+  cause probable de l'arrêt mémoire. Nouvel argument facultatif des
+  fonctions de matrices de rigidité (`TangentOperatorModification`,
+  compilé pour les seuls gradients de la transformation) ; les fonctions
+  FBar vérifient qu'elles reçoivent les blocs de la tangente qui ont servi
+  à calculer `v` et `c`. Suite 185/185, 3 mutations détectées, relecture
+  L traitée (masquage du membre `K`, documentation).

@@ -209,13 +209,15 @@ namespace mfem_mgis::batch {
 
   /*!
    * \return the arguments of the kernels adding the matrices of rank one,
-   * or an error
+   * or an error if the tangent operator of the FBar formulation is not
+   * computed or was computed from other tangent operator blocks than `K`
    */
   static bool getFBarRankOneKernelArguments(
       Context& ctx,
       internals::FBarRankOneKernelArguments& a,
       const FBarData& data,
       const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
       const ElementsGeometry& g,
       const GradientsKind k,
       const bool use_device,
@@ -224,12 +226,23 @@ namespace mfem_mgis::batch {
     const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
     const auto& elements = qs.getElements();
     const auto size = n * elements.Size();
+    const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
+    const auto gsize = static_cast<std::int64_t>(getGradientsSize(k));
     if ((!data.has_tangent_operator) ||
         (static_cast<std::int64_t>(data.a.Size()) != size) ||
-        (static_cast<std::int64_t>(data.b.Size()) != size)) {
+        (static_cast<std::int64_t>(data.b.Size()) != size) ||
+        (static_cast<std::int64_t>(data.coefficients.Size()) != np) ||
+        (static_cast<std::int64_t>(data.tangent_v.Size()) != np * gsize) ||
+        (static_cast<std::int64_t>(data.tangent_c.Size()) != np * gsize)) {
       return ctx.registerErrorMessage(
           std::string{name} +
           ": the tangent operator of the FBar formulation is not computed");
+    }
+    if (K.data() != data.tangent_operator_blocks) {
+      return ctx.registerErrorMessage(
+          std::string{name} +
+          ": the tangent operator blocks are not the ones from which the "
+          "tangent operator of the FBar formulation is computed");
     }
     if (std::int64_t{elements.Size()} * threads_per_element >
         std::numeric_limits<int>::max()) {
@@ -244,19 +257,18 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of getFBarRankOneKernelArguments
 
-  //! \return a view of the tangent operator `K'`
-  static mgis::FieldView<const real> getFBarTangentOperator(
-      const FBarData& data,
-      const PartialQuadratureSpace& qs,
-      const GradientsKind k,
-      const bool use_device) {
-    const auto np = qs.getNumberOfIntegrationPoints();
-    const auto nc = getGradientsSize(k) * getGradientsSize(k);
-    const auto s = std::span<const real>(
-        data.tangent_operator.Read(use_device),
-        static_cast<std::size_t>(data.tangent_operator.Size()));
-    return mgis::makePointByPointFieldView(s, np, nc, nc);
-  }  // end of getFBarTangentOperator
+  /*!
+   * \return the modification of the tangent operator blocks of the behaviour
+   * giving the tangent operator `K'` of the FBar formulation
+   * \param[in] data: data of the FBar formulation
+   * \param[in] use_device: if true, the arrays are read on the device
+   */
+  static TangentOperatorModification getFBarTangentOperatorModification(
+      const FBarData& data, const bool use_device) {
+    return {.coefficients = data.coefficients.Read(use_device),
+            .v = data.tangent_v.Read(use_device),
+            .c = data.tangent_c.Read(use_device)};
+  }  // end of getFBarTangentOperatorModification
 
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
@@ -343,6 +355,7 @@ namespace mfem_mgis::batch {
 #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       data.has_tangent_operator = false;
+      data.tangent_operator_blocks = nullptr;
       const auto& elements = qs.getElements();
       const auto& offsets = qs.getElementOffsets();
       const auto np = std::int64_t{qs.getNumberOfIntegrationPoints()};
@@ -361,7 +374,8 @@ namespace mfem_mgis::batch {
             "components of the tangent operator blocks");
       }
       const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
-      if ((!resizeFBarArray(ctx, data.tangent_operator, np * gsize * gsize)) ||
+      if ((!resizeFBarArray(ctx, data.tangent_v, np * gsize)) ||
+          (!resizeFBarArray(ctx, data.tangent_c, np * gsize)) ||
           (!resizeFBarArray(ctx, data.pseudo_stresses, np * gsize)) ||
           (!resizeFBarArray(ctx, data.a, n * elements.Size()))) {
         return false;
@@ -384,7 +398,8 @@ namespace mfem_mgis::batch {
         a.tangent_operator = K.data();
         a.point_stride = static_cast<long long>(K.getPointStride());
         a.component_stride = static_cast<long long>(K.getComponentStride());
-        a.modified_tangent_operator = data.tangent_operator.Write(use_device);
+        a.v = data.tangent_v.Write(use_device);
+        a.c = data.tangent_c.Write(use_device);
         a.pseudo_stresses = data.pseudo_stresses.Write(use_device);
         a.number_of_elements = elements.Size();
         a.nq = r->GetNPoints();
@@ -402,6 +417,7 @@ namespace mfem_mgis::batch {
           return false;
         }
       }
+      data.tangent_operator_blocks = K.data();
       data.has_tangent_operator = true;
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
@@ -418,12 +434,14 @@ namespace mfem_mgis::batch {
                                 mfem::Vector& m,
                                 const FBarData& data,
                                 const PartialQuadratureSpace& qs,
+                                const mgis::FieldView<const real>& K,
                                 const ElementsGeometry& g,
                                 const GradientsKind k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
     static_cast<void>(data);
     static_cast<void>(qs);
+    static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
     return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
@@ -433,13 +451,13 @@ namespace mfem_mgis::batch {
       auto a = internals::FBarRankOneKernelArguments{};
       // one thread per entry of the matrices
       const auto n = std::int64_t{g.nd} * getUnknownsSize(k);
-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
                                          "addFBarStiffnessMatrices", n * n)) {
         return false;
       }
-      if (!addStiffnessMatrices(ctx, m, qs,
-                                getFBarTangentOperator(data, qs, k, use_device),
-                                g, k)) {
+      if (!addStiffnessMatrices(
+              ctx, m, qs, K, g, k,
+              getFBarTangentOperatorModification(data, use_device))) {
         return false;
       }
       if (a.number_of_elements != 0) {
@@ -461,12 +479,14 @@ namespace mfem_mgis::batch {
                                 const AssembledStiffnessMatrix& m,
                                 const FBarData& data,
                                 const PartialQuadratureSpace& qs,
+                                const mgis::FieldView<const real>& K,
                                 const ElementsGeometry& g,
                                 const GradientsKind k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
     static_cast<void>(data);
     static_cast<void>(qs);
+    static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
     return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
@@ -476,13 +496,13 @@ namespace mfem_mgis::batch {
       auto a = internals::FBarRankOneKernelArguments{};
       // one thread per row of the matrices
       if (!getFBarRankOneKernelArguments(
-              ctx, a, data, qs, g, k, use_device, "addFBarStiffnessMatrices",
+              ctx, a, data, qs, K, g, k, use_device, "addFBarStiffnessMatrices",
               std::int64_t{g.nd} * getUnknownsSize(k))) {
         return false;
       }
-      if (!addStiffnessMatrices(ctx, m, qs,
-                                getFBarTangentOperator(data, qs, k, use_device),
-                                g, k)) {
+      if (!addStiffnessMatrices(
+              ctx, m, qs, K, g, k,
+              getFBarTangentOperatorModification(data, use_device))) {
         return false;
       }
       if (a.number_of_elements != 0) {
@@ -519,12 +539,14 @@ namespace mfem_mgis::batch {
                                          mfem::Vector& d,
                                          const FBarData& data,
                                          const PartialQuadratureSpace& qs,
+                                         const mgis::FieldView<const real>& K,
                                          const ElementsGeometry& g,
                                          const GradientsKind k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(d);
     static_cast<void>(data);
     static_cast<void>(qs);
+    static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
     return reportFBarKernelsNotCompiled(ctx,
@@ -535,14 +557,14 @@ namespace mfem_mgis::batch {
       auto a = internals::FBarRankOneKernelArguments{};
       // one thread per degree of freedom
       if (!getFBarRankOneKernelArguments(
-              ctx, a, data, qs, g, k, use_device,
+              ctx, a, data, qs, K, g, k, use_device,
               "addFBarStiffnessMatricesDiagonals",
               std::int64_t{g.nd} * getUnknownsSize(k))) {
         return false;
       }
       if (!addStiffnessMatricesDiagonals(
-              ctx, d, qs, getFBarTangentOperator(data, qs, k, use_device), g,
-              k)) {
+              ctx, d, qs, K, g, k,
+              getFBarTangentOperatorModification(data, use_device))) {
         return false;
       }
       if (a.number_of_elements != 0) {
@@ -564,6 +586,7 @@ namespace mfem_mgis::batch {
                                     mfem::Vector& y,
                                     const FBarData& data,
                                     const PartialQuadratureSpace& qs,
+                                    const mgis::FieldView<const real>& K,
                                     const mfem::Vector& x,
                                     const ElementsGeometry& g,
                                     const GradientsKind k) noexcept {
@@ -571,6 +594,7 @@ namespace mfem_mgis::batch {
     static_cast<void>(y);
     static_cast<void>(data);
     static_cast<void>(qs);
+    static_cast<void>(K);
     static_cast<void>(x);
     static_cast<void>(g);
     static_cast<void>(k);
@@ -580,13 +604,13 @@ namespace mfem_mgis::batch {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
       // one thread per element
-      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, g, k, use_device,
+      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
                                          "addFBarTangentOperatorAction", 1)) {
         return false;
       }
       if (!addTangentOperatorAction(
-              ctx, y, qs, getFBarTangentOperator(data, qs, k, use_device), x, g,
-              k)) {
+              ctx, y, qs, K, x, g, k,
+              getFBarTangentOperatorModification(data, use_device))) {
         return false;
       }
       if (a.number_of_elements != 0) {

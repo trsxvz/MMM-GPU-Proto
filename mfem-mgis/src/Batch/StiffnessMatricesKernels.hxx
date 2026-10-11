@@ -49,6 +49,16 @@ namespace mfem_mgis::batch::internals {
     long long point_stride = 0;
     //! \brief stride between two components of the tangent operator blocks
     long long component_stride = 0;
+    /*!
+     * \brief coefficients `α` of the modification of the tangent operator
+     * blocks at the points, `K' = α K + v ⊗ c` (see
+     * `TangentOperatorModification`), null if the blocks are not modified
+     */
+    const real* modification_coefficients = nullptr;
+    //! \brief vectors `v` of the modification, point by point
+    const real* modification_v = nullptr;
+    //! \brief vectors `c` of the modification, point by point
+    const real* modification_c = nullptr;
     //! \brief matrices element by element
     real* matrices = nullptr;
     //! \brief number of elements of the material

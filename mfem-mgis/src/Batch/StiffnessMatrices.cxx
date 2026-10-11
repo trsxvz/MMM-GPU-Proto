@@ -43,6 +43,7 @@ namespace mfem_mgis::batch {
    * \param[in] K: tangent operator blocks
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients
+   * \param[in] mod: modification of the tangent operator blocks
    * \param[in] use_device: if true, the pointers are located on the device
    * \param[in] name: name of the calling function, for the error messages
    * \param[in] diagonals: if true, the kernels compute the diagonals of the
@@ -57,6 +58,7 @@ namespace mfem_mgis::batch {
       const mgis::FieldView<const real>& K,
       const ElementsGeometry& g,
       const GradientsKind k,
+      const TangentOperatorModification& mod,
       const bool use_device,
       const std::string& name,
       const bool diagonals) {
@@ -105,6 +107,19 @@ namespace mfem_mgis::batch {
     a.tangent_operator = K.data();
     a.point_stride = static_cast<long long>(K.getPointStride());
     a.component_stride = static_cast<long long>(K.getComponentStride());
+    if (mod.coefficients != nullptr) {
+      if ((mod.v == nullptr) || (mod.c == nullptr) ||
+          ((k != GradientsKind::DEFORMATION_GRADIENT_3D) &&
+           (k != GradientsKind::DEFORMATION_GRADIENT_2D))) {
+        return ctx.registerErrorMessage(
+            name +
+            ": invalid modification of the tangent operator blocks (vectors "
+            "not given, or gradients which are not deformation gradients)");
+      }
+      a.modification_coefficients = mod.coefficients;
+      a.modification_v = mod.v;
+      a.modification_c = mod.c;
+    }
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.shape_functions_gradients = g.maps->G.Read(use_device);
@@ -123,13 +138,15 @@ namespace mfem_mgis::batch {
                             const PartialQuadratureSpace& qs,
                             const mgis::FieldView<const real>& K,
                             const ElementsGeometry& g,
-                            const GradientsKind k) noexcept {
+                            const GradientsKind k,
+                            const TangentOperatorModification& mod) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
     static_cast<void>(qs);
     static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
+    static_cast<void>(mod);
     return ctx.registerErrorMessage(
         "addStiffnessMatrices: the kernels computing the stiffness matrices "
         "are not compiled (MFEM compiled with HIP)");
@@ -138,7 +155,7 @@ namespace mfem_mgis::batch {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
-      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
+      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k, mod,
                                                use_device,
                                                "addStiffnessMatrices", false)) {
         return !error;
@@ -162,18 +179,21 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatrices
 
-  bool addStiffnessMatricesDiagonals(Context& ctx,
-                                     mfem::Vector& d,
-                                     const PartialQuadratureSpace& qs,
-                                     const mgis::FieldView<const real>& K,
-                                     const ElementsGeometry& g,
-                                     const GradientsKind k) noexcept {
+  bool addStiffnessMatricesDiagonals(
+      Context& ctx,
+      mfem::Vector& d,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(d);
     static_cast<void>(qs);
     static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
+    static_cast<void>(mod);
     return ctx.registerErrorMessage(
         "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
         "matrices are not compiled (MFEM compiled with HIP)");
@@ -183,7 +203,7 @@ namespace mfem_mgis::batch {
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
       if (!getStiffnessMatricesKernelArguments(
-              ctx, a, error, qs, K, g, k, use_device,
+              ctx, a, error, qs, K, g, k, mod, use_device,
               "addStiffnessMatricesDiagonals", true)) {
         return !error;
       }
@@ -207,13 +227,15 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatricesDiagonals
 
-  bool addTangentOperatorAction(Context& ctx,
-                                mfem::Vector& y,
-                                const PartialQuadratureSpace& qs,
-                                const mgis::FieldView<const real>& K,
-                                const mfem::Vector& x,
-                                const ElementsGeometry& g,
-                                const GradientsKind k) noexcept {
+  bool addTangentOperatorAction(
+      Context& ctx,
+      mfem::Vector& y,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const mfem::Vector& x,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(y);
     static_cast<void>(qs);
@@ -221,6 +243,7 @@ namespace mfem_mgis::batch {
     static_cast<void>(x);
     static_cast<void>(g);
     static_cast<void>(k);
+    static_cast<void>(mod);
     return ctx.registerErrorMessage(
         "addTangentOperatorAction: the kernels computing the stiffness "
         "matrices are not compiled (MFEM compiled with HIP)");
@@ -232,7 +255,7 @@ namespace mfem_mgis::batch {
       // one thread per element: the check of the number of threads made for
       // the diagonals (one thread per node) is sufficient
       if (!getStiffnessMatricesKernelArguments(
-              ctx, a, error, qs, K, g, k, use_device,
+              ctx, a, error, qs, K, g, k, mod, use_device,
               "addTangentOperatorAction", true)) {
         return !error;
       }
@@ -416,13 +439,15 @@ namespace mfem_mgis::batch {
                             const PartialQuadratureSpace& qs,
                             const mgis::FieldView<const real>& K,
                             const ElementsGeometry& g,
-                            const GradientsKind k) noexcept {
+                            const GradientsKind k,
+                            const TangentOperatorModification& mod) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
     static_cast<void>(qs);
     static_cast<void>(K);
     static_cast<void>(g);
     static_cast<void>(k);
+    static_cast<void>(mod);
     return ctx.registerErrorMessage(
         "addStiffnessMatrices: the kernels computing the stiffness matrices "
         "are not compiled (MFEM compiled with HIP)");
@@ -442,7 +467,7 @@ namespace mfem_mgis::batch {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
       auto error = false;
-      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k,
+      if (!getStiffnessMatricesKernelArguments(ctx, a, error, qs, K, g, k, mod,
                                                use_device,
                                                "addStiffnessMatrices", false)) {
         return !error;

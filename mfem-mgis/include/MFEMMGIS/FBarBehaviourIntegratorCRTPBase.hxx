@@ -103,6 +103,19 @@ namespace mfem_mgis {
         const char* const,
         const batch::ElementsGeometrySet&) noexcept;
     /*!
+     * \brief calls a function with the tangent operator blocks of the
+     * behaviour in the global frame, readable on the device if a device is
+     * enabled, the exceptions being reported in the execution context
+     * \return the result of the function, false on exception
+     * \param[in, out] ctx: execution context
+     * \param[in] name: name of the calling method, for the messages
+     * \param[in] f: function taking the tangent operator blocks
+     */
+    template <typename Function>
+    [[nodiscard]] bool callWithTangentOperatorBlocks(Context&,
+                                                     const char* const,
+                                                     const Function&) noexcept;
+    /*!
      * \brief constructor
      * \param[in] s: quadrature space
      * \param[in] b_ptr: behaviour

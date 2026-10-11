@@ -83,8 +83,9 @@ namespace mfem_mgis::batch::internals {
   };
 
   /*!
-   * \brief arguments of the kernel computing the tangent operator `K'` and
-   * the pseudo-stresses `α / (ie J0) K F` at the integration points of a
+   * \brief arguments of the kernel computing the vectors `v = K F` and `c =
+   * dα/dF` of the tangent operator `K' = α K + v ⊗ c` and the
+   * pseudo-stresses `α / (ie J0) K F` at the integration points of a
    * material
    */
   struct FBarTangentOperatorKernelArguments {
@@ -104,8 +105,13 @@ namespace mfem_mgis::batch::internals {
     long long point_stride = 0;
     //! \brief stride between two components of the tangent operator blocks
     long long component_stride = 0;
-    //! \brief tangent operator `K'`, point by point
-    real* modified_tangent_operator = nullptr;
+    /*!
+     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`,
+     * point by point
+     */
+    real* v = nullptr;
+    //! \brief vectors `c = dα/dF`, point by point
+    real* c = nullptr;
     //! \brief pseudo-stresses, point by point
     real* pseudo_stresses = nullptr;
     //! \brief number of elements of the material
@@ -152,8 +158,9 @@ namespace mfem_mgis::batch::internals {
                                  const FBarGradientsKernelArguments&,
                                  const bool);
   /*!
-   * \brief launches the kernel computing the tangent operator `K'` and the
-   * pseudo-stresses: one thread per integration point
+   * \brief launches the kernel computing the vectors `v` and `c` of the
+   * tangent operator `K'` and the pseudo-stresses: one thread per
+   * integration point
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
    * \param[in] d: if true, the kernel runs on the device

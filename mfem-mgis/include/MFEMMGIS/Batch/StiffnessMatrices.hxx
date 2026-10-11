@@ -31,6 +31,27 @@ namespace mfem_mgis {
 namespace mfem_mgis::batch {
 
   /*!
+   * \brief scaling and update of rank one of the tangent operator blocks at
+   * each integration point of a material, `K' = α K + v ⊗ c` (tangent
+   * operator of the FBar formulation, see `FBarData`), applied by the
+   * kernels when they multiply the tangent operator blocks by a vector:
+   * `K' x = α K x + v (c · x)`, the modified blocks not being stored. Only
+   * supported for the deformation gradients. The arrays are given for all
+   * the points of the material, in the order of its quadrature space (one
+   * coefficient, and as many values of `v` and of `c` as components of the
+   * gradients, point by point), located on the device if a device is
+   * enabled; the modification is not applied if `coefficients` is null.
+   */
+  struct MFEM_MGIS_EXPORT TangentOperatorModification {
+    //! \brief coefficients `α` at the points of the material
+    const real* coefficients = nullptr;
+    //! \brief vectors `v` at the points of the material, point by point
+    const real* v = nullptr;
+    //! \brief vectors `c` at the points of the material, point by point
+    const real* c = nullptr;
+  };
+
+  /*!
    * \brief adds the stiffness matrices of the elements of a material, `Σ Bᵀ
    * K B w det J` summed over the integration points, to matrices stored
    * element by element, on the device if a device is enabled. The matrix of
@@ -48,6 +69,7 @@ namespace mfem_mgis::batch {
    * is enabled
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients, which defines the operator `B`
+   * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
       Context&,
@@ -55,7 +77,8 @@ namespace mfem_mgis::batch {
       const PartialQuadratureSpace&,
       const mgis::FieldView<const real>&,
       const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      const GradientsKind,
+      const TangentOperatorModification& = {}) noexcept;
 
   /*!
    * \brief adds the diagonals of the stiffness matrices of the elements of a
@@ -68,6 +91,7 @@ namespace mfem_mgis::batch {
    * \param[in] K: tangent operator blocks in the global frame
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients
+   * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesDiagonals(
       Context&,
@@ -75,7 +99,8 @@ namespace mfem_mgis::batch {
       const PartialQuadratureSpace&,
       const mgis::FieldView<const real>&,
       const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      const GradientsKind,
+      const TangentOperatorModification& = {}) noexcept;
   /*!
    * \brief adds the action of the stiffness matrices of the elements of a
    * material, computed from the tangent operator blocks without assembling
@@ -92,6 +117,7 @@ namespace mfem_mgis::batch {
    * \param[in] x: values element by element
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients
+   * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addTangentOperatorAction(
       Context&,
@@ -100,7 +126,8 @@ namespace mfem_mgis::batch {
       const mgis::FieldView<const real>&,
       const mfem::Vector&,
       const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      const GradientsKind,
+      const TangentOperatorModification& = {}) noexcept;
 
   /*!
    * \brief sparse matrix in which the stiffness matrices of the elements are
@@ -175,6 +202,7 @@ namespace mfem_mgis::batch {
    * \param[in] K: tangent operator blocks in the global frame
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients, which defines the operator `B`
+   * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
       Context&,
@@ -182,7 +210,8 @@ namespace mfem_mgis::batch {
       const PartialQuadratureSpace&,
       const mgis::FieldView<const real>&,
       const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      const GradientsKind,
+      const TangentOperatorModification& = {}) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

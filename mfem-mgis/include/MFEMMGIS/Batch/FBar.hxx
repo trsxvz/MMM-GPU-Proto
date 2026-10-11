@@ -46,9 +46,14 @@ namespace mfem_mgis::batch {
    * `dα/dF0 = α / (ie J0) dJ0/dF0`, `B0` being the operator `B` at the
    * center of the element. It is computed as the stiffness matrix of the
    * standard formulation with the tangent operator `K'_q = α K_q + (K_q F)
-   * ⊗ dα/dF`, plus the matrix of rank one `a ⊗ b`, `a = Σ_q w_q det J_q α
-   * / (ie J0) B_qᵀ K_q F`, `b = B0ᵀ dJ0/dF0` (derivative of `J0` with
-   * respect to the unknowns of the element). In plane strain, the third
+   * ⊗ dα/dF`, applied by the kernels of the stiffness matrices without being
+   * stored (only `v = K_q F` and `c = dα/dF` are stored, see
+   * `TangentOperatorModification`), plus the matrix of rank one `a ⊗ b`,
+   * `a = Σ_q w_q det J_q α / (ie J0) B_qᵀ K_q F`, `b = B0ᵀ dJ0/dF0`
+   * (derivative of `J0` with respect to the unknowns of the element). The
+   * functions computing the stiffness matrices must be given the tangent
+   * operator blocks from which `v` and `c` are computed (checked by
+   * `tangent_operator_blocks`). In plane strain, the third
    * component of `F` and of the derivatives of the determinants are
    * ignored, as by the FBar behaviour integrators (`F̄33 = 1`).
    *
@@ -77,10 +82,19 @@ namespace mfem_mgis::batch {
     //! \brief vectors `a` of the elements of the material (as `b`)
     mfem::Vector a;
     /*!
-     * \brief tangent operator `K'` at the integration points of the
-     * material, point by point (see `computeFBarTangentOperator`)
+     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
+     * at the integration points of the material, point by point (see
+     * `computeFBarTangentOperator`)
      */
-    mfem::Vector tangent_operator;
+    mfem::Vector tangent_v;
+    //! \brief vectors `c = dα/dF` of the tangent operator `K'`
+    mfem::Vector tangent_c;
+    /*!
+     * \brief tangent operator blocks of the behaviour from which `v` and `c`
+     * are computed: the functions computing the stiffness matrices check
+     * that they are given the same blocks
+     */
+    const real* tangent_operator_blocks = nullptr;
     //! \brief workspace: `α / (ie J0) K F` at the integration points
     mfem::Vector pseudo_stresses;
     /*!
@@ -182,9 +196,10 @@ namespace mfem_mgis::batch {
    */
   MFEM_MGIS_EXPORT void revertFBarData(FBarData&);
   /*!
-   * \brief computes the tangent operator `K'` at the integration points of
-   * a material and the vectors `a` of its elements, from the tangent
-   * operator blocks of its behaviour (see `FBarData`)
+   * \brief computes the vectors `v` and `c` of the tangent operator `K'` at
+   * the integration points of a material and the vectors `a` of its
+   * elements, from the tangent operator blocks of its behaviour (see
+   * `FBarData`)
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in, out] data: data of the FBar formulation
@@ -210,6 +225,8 @@ namespace mfem_mgis::batch {
    * \param[in, out] m: matrices element by element
    * \param[in] data: data of the FBar formulation
    * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks of the behaviour in the global
+   * frame (see `computeFBarTangentOperator`)
    * \param[in] g: geometric data of the integration rule of the material
    * \param[in] k: kind of the gradients
    */
@@ -218,6 +235,7 @@ namespace mfem_mgis::batch {
       mfem::Vector&,
       const FBarData&,
       const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;
   /*!
@@ -229,6 +247,8 @@ namespace mfem_mgis::batch {
    * \param[in, out] m: assembled matrix
    * \param[in] data: data of the FBar formulation
    * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks of the behaviour in the global
+   * frame (see `computeFBarTangentOperator`)
    * \param[in] g: geometric data of the integration rule of the material
    * \param[in] k: kind of the gradients
    */
@@ -237,6 +257,7 @@ namespace mfem_mgis::batch {
       const AssembledStiffnessMatrix&,
       const FBarData&,
       const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;
   /*!
@@ -247,6 +268,8 @@ namespace mfem_mgis::batch {
    * \param[in, out] d: values element by element
    * \param[in] data: data of the FBar formulation
    * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks of the behaviour in the global
+   * frame (see `computeFBarTangentOperator`)
    * \param[in] g: geometric data of the integration rule of the material
    * \param[in] k: kind of the gradients
    */
@@ -255,6 +278,7 @@ namespace mfem_mgis::batch {
       mfem::Vector&,
       const FBarData&,
       const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;
   /*!
@@ -266,6 +290,8 @@ namespace mfem_mgis::batch {
    * \param[in, out] y: action, element by element
    * \param[in] data: data of the FBar formulation
    * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks of the behaviour in the global
+   * frame (see `computeFBarTangentOperator`)
    * \param[in] x: values element by element
    * \param[in] g: geometric data of the integration rule of the material
    * \param[in] k: kind of the gradients
@@ -275,6 +301,7 @@ namespace mfem_mgis::batch {
       mfem::Vector&,
       const FBarData&,
       const PartialQuadratureSpace&,
+      const mgis::FieldView<const real>&,
       const mfem::Vector&,
       const ElementsGeometry&,
       const GradientsKind) noexcept;

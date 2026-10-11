@@ -136,6 +136,51 @@ namespace mfem_mgis::batch::internals {
   }  // end of addUnknownsBlock
 
   /*!
+   * \brief product of the tangent operator blocks at a point by a vector,
+   * `y = K x`, or `y = α K x + v (c · x)` if the blocks are modified (see
+   * `TangentOperatorModification`)
+   * \tparam K: kind of the gradients
+   * \param[out] y: product
+   * \param[in] a: arguments of the kernels
+   * \param[in] o: offset of the point in the material
+   * \param[in] x: vector (one value per component of the gradients)
+   */
+  template <GradientsKind K>
+  MFEM_HOST_DEVICE inline void multiplyByTangentOperator(
+      real* const y,
+      const StiffnessMatricesKernelArguments& a,
+      const long long o,
+      const real* const x) {
+    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+    const auto* const t = a.tangent_operator + o * a.point_stride;
+    const auto cs = a.component_stride;
+    for (std::size_t r1 = 0; r1 != gs; ++r1) {
+      y[r1] = 0;
+      for (std::size_t r2 = 0; r2 != gs; ++r2) {
+        y[r1] += getTangentOperatorComponent<K>(t, r1, r2, cs) * x[r2];
+      }
+    }
+    // the tangent operator blocks are only modified for the deformation
+    // gradients (FBar formulation)
+    constexpr auto deformation_gradient =
+        (K == GradientsKind::DEFORMATION_GRADIENT_3D) ||
+        (K == GradientsKind::DEFORMATION_GRADIENT_2D);
+    if (deformation_gradient && (a.modification_coefficients != nullptr)) {
+      const auto so = static_cast<std::size_t>(o);
+      const auto* const v = a.modification_v + gs * so;
+      const auto* const c = a.modification_c + gs * so;
+      const auto alpha = a.modification_coefficients[so];
+      auto cx = real{0};
+      for (std::size_t r = 0; r != gs; ++r) {
+        cx += c[r] * x[r];
+      }
+      for (std::size_t r1 = 0; r1 != gs; ++r1) {
+        y[r1] = alpha * y[r1] + v[r1] * cx;
+      }
+    }
+  }  // end of multiplyByTangentOperator
+
+  /*!
    * \brief version of `launchStiffnessMatricesKernel` used without device:
    * one iteration per element, the physical derivatives of the shape functions,
    * the operators `B` and the products `K B` of the nodes being computed once
@@ -183,12 +228,17 @@ namespace mfem_mgis::batch::internals {
           computeB<K>(op.B, dN,
                       getShapeFunctionValue<K>(a.shape_functions, q, nq, node));
           for (std::size_t d = 0; d != V; ++d) {
+            // column of `B` (number of components known at compile time)
+            constexpr auto ngs =
+                static_cast<std::size_t>(getGradientsSize<K>());
+            real Bd[9];
+            for (std::size_t r = 0; r != ngs; ++r) {
+              Bd[r] = op.B[r][d];
+            }
+            real KBd[9];
+            multiplyByTangentOperator<K>(KBd, a, o2, Bd);
             for (std::size_t r1 = 0; r1 != gs; ++r1) {
-              op.KB[r1][d] = 0;
-              for (std::size_t r2 = 0; r2 != gs; ++r2) {
-                op.KB[r1][d] +=
-                    getTangentOperatorComponent<K>(t, r1, r2, cs) * op.B[r2][d];
-              }
+              op.KB[r1][d] = KBd[r1];
             }
           }
         }
@@ -278,19 +328,21 @@ namespace mfem_mgis::batch::internals {
                     getShapeFunctionValue<K>(a.shape_functions, q, nq, nb));
         const auto o2 =
             static_cast<long long>(a.offsets[k]) + static_cast<long long>(q);
-        const auto* const t = a.tangent_operator + o2 * a.point_stride;
-        const auto cs = a.component_stride;
+        // tangent operator blocks of the point, read by `addUnknownsBlock`
+        [[maybe_unused]] const auto* const t =
+            a.tangent_operator + o2 * a.point_stride;
+        [[maybe_unused]] const auto cs = a.component_stride;
         const auto w = a.weights[q] * detJ;
         // K B_b, then B_aᵀ (K B_b)
         for (std::size_t d = 0; d != V; ++d) {
-          real KB[9];
-          for (std::size_t r1 = 0; r1 != gs; ++r1) {
-            KB[r1] = 0;
-            for (std::size_t r2 = 0; r2 != gs; ++r2) {
-              KB[r1] +=
-                  getTangentOperatorComponent<K>(t, r1, r2, cs) * Bb[r2][d];
-            }
+          // column of `B` (number of components known at compile time)
+          constexpr auto ngs = static_cast<std::size_t>(getGradientsSize<K>());
+          real Bd[9];
+          for (std::size_t r = 0; r != ngs; ++r) {
+            Bd[r] = Bb[r][d];
           }
+          real KB[9];
+          multiplyByTangentOperator<K>(KB, a, o2, Bd);
           for (std::size_t c = 0; c != V; ++c) {
             auto v = real{0};
             for (std::size_t r1 = 0; r1 != gs; ++r1) {
@@ -436,16 +488,13 @@ namespace mfem_mgis::batch::internals {
             // increment of the thermodynamic forces, K B x
             const auto o = static_cast<long long>(a.offsets[k]) +
                            static_cast<long long>(q);
-            const auto* const t = a.tangent_operator + o * a.point_stride;
-            const auto cs = a.component_stride;
+            // tangent operator blocks of the point, for the derivatives with
+            // respect to the unknowns
+            [[maybe_unused]] const auto* const t =
+                a.tangent_operator + o * a.point_stride;
+            [[maybe_unused]] const auto cs = a.component_stride;
             real ds[gs];
-            for (std::size_t r1 = 0; r1 != gs; ++r1) {
-              ds[r1] = 0;
-              for (std::size_t r2 = 0; r2 != gs; ++r2) {
-                ds[r1] +=
-                    getTangentOperatorComponent<K>(t, r1, r2, cs) * dg[r2];
-              }
-            }
+            multiplyByTangentOperator<K>(ds, a, o, dg);
             if constexpr (hasUnknownsBlock<K>()) {
               // increment of the unknowns at the point, N x, times the
               // derivatives of the thermodynamic forces with respect to the

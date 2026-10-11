@@ -216,11 +216,13 @@ namespace mfem_mgis::batch::internals {
           v[r] += Kv(r, col) * F[col];
         }
       }
-      auto* const Km = a.modified_tangent_operator + o * sgs * sgs;
+      // vectors of the modification of the tangent operator, `K' = α K + v
+      // ⊗ c`, applied by the kernels of the stiffness matrices
+      auto* const vo = a.v + o * sgs;
+      auto* const co = a.c + o * sgs;
       for (int r = 0; r != gs; ++r) {
-        for (int col = 0; col != gs; ++col) {
-          Km[r * gs + col] = alpha * Kv(r, col) + v[r] * c[col];
-        }
+        vo[r] = v[r];
+        co[r] = c[r];
       }
       auto* const s = a.pseudo_stresses + o * sgs;
       for (int r = 0; r != gs; ++r) {
