@@ -195,6 +195,8 @@ transformations are computed once for each integration rule: they are not
 updated if the mesh is modified (refinement, displacement of the nodes or
 of the vertices).
 
+.. _mfem_mgis_batch_computations_other_integrators:
+
 Boundary conditions and other integrators
 -----------------------------------------
 
@@ -205,12 +207,20 @@ their contributions are added to the inner forces (see
 :ref:`mfem_mgis_boundary_conditions`).
 
 The other integrators of the nonlinear form (for instance the ones of a
-boundary condition depending on the unknowns) are handled as follows:
+boundary condition depending on the unknowns, such as a Robin boundary
+condition given as a boundary face integrator) are handled as follows:
 
-- the residual is assembled by :code:`MFEM`, the inner forces computed by
-  kernels being added to it;
-- with :code:`TangentOperatorComputation` set to :code:`Kernels`, the
-  stiffness matrices are computed by kernels, then assembled with the
+- the contributions of the domain, boundary and boundary face integrators
+  are evaluated on the host by the loops of :code:`MFEM` restricted to
+  them (markers of the attributes included), and added to the inner forces
+  computed by kernels and, with :code:`TangentOperatorComputation` set to
+  :code:`Kernels`, to the local matrix assembled by kernels. On a GPU, the
+  inner forces and the values of the local matrix are copied to the host
+  at each evaluation;
+- if the nonlinear form contains interior face integrators, or uses an
+  extension of :code:`MFEM`, the residual is assembled by :code:`MFEM`,
+  the inner forces computed by kernels being added to it, and the
+  stiffness matrices computed by kernels are assembled with the
   contributions of the other integrators by the element loop of
   :code:`MFEM`;
 - with :code:`TangentOperatorComputation` set to :code:`MatrixFree`, the
@@ -225,8 +235,8 @@ Assembly by kernels
 -------------------
 
 With :code:`TangentOperatorComputation` set to :code:`Kernels`, and a
-nonlinear form which only contains the integrator of :code:`mfem-mgis`, the
-tangent operator is assembled as follows:
+nonlinear form without interior face integrators nor extension of
+:code:`MFEM`, the tangent operator is assembled as follows:
 
 - the local matrix of the tangent operator, on the local vector of the
   finite element space, is created at the first assembly. Its pattern
@@ -245,6 +255,9 @@ tangent operator is assembled as follows:
   the columns of the rows are reordered, for instance by a direct solver.
   They take two bytes per entry of the stiffness matrices of the
   elements;
+- the contributions of the other integrators of the nonlinear form, if
+  any, are added to this matrix on the host (see
+  :ref:`mfem_mgis_batch_computations_other_integrators`);
 - in a sequential computation, the matrix is replaced by
   :math:`P^{T}\,A\,P` on a non conforming mesh, :math:`P` being the
   prolongation of the finite element space, then the essential degrees of

@@ -99,8 +99,11 @@ contributions to the residual are assembled once, for a unit value, and
 added to the inner forces, on the device if a device is enabled. If the
 non linear form contains no other integrator than the one of
 :code:`mfem-mgis` (no boundary condition depending on the unknowns), the
-tangent operator can then be assembled by kernels without the assembly of
-:code:`MFEM`, or applied without assembly (:code:`TangentOperatorComputation`
-set to :code:`Kernels` or :code:`MatrixFree`). With the inner forces
-computed element by element, they are integrators of the non linear form,
-and the tangent operator can't be applied without assembly.
+tangent operator can then be applied without assembly
+(:code:`TangentOperatorComputation` set to :code:`MatrixFree`). With the
+inner forces computed element by element, they are integrators of the non
+linear form, and the tangent operator can't be applied without assembly.
+In both cases, the tangent operator can be assembled by kernels
+(:code:`TangentOperatorComputation` set to :code:`Kernels`), the
+contributions of the other integrators of the non linear form being added
+to the matrix assembled by kernels (see :ref:`mfem_mgis_batch_computations`).

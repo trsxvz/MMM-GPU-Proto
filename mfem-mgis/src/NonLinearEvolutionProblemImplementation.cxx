@@ -80,6 +80,272 @@ namespace mfem_mgis {
            (f.GetBdrFaceIntegrators().Size() == 0);
   }  // end of isTheOnlyIntegrator
 
+  namespace {
+
+    /*!
+     * \brief gives access to the markers of the integrators of a non linear
+     * form and to its extension, protected members of
+     * `mfem::NonlinearForm`: the pointers to these members are formed in
+     * this derived class, which is never instantiated, and applied to any
+     * non linear form
+     */
+    struct NonlinearFormMembers : mfem::NonlinearForm {
+      //! \return the markers of the domain integrators
+      static const mfem::Array<mfem::Array<int>*>& getDomainMarkers(
+          const mfem::NonlinearForm& f) noexcept {
+        return f.*(&NonlinearFormMembers::dnfi_marker);
+      }
+      //! \return the markers of the boundary integrators
+      static const mfem::Array<mfem::Array<int>*>& getBoundaryMarkers(
+          const mfem::NonlinearForm& f) noexcept {
+        return f.*(&NonlinearFormMembers::bnfi_marker);
+      }
+      //! \return the markers of the boundary face integrators
+      static const mfem::Array<mfem::Array<int>*>& getBoundaryFaceMarkers(
+          const mfem::NonlinearForm& f) noexcept {
+        return f.*(&NonlinearFormMembers::bfnfi_marker);
+      }
+      //! \return true if the form has an extension (partial assembly)
+      static bool hasExtension(const mfem::NonlinearForm& f) noexcept {
+        return f.*(&NonlinearFormMembers::ext) != nullptr;
+      }
+    };
+
+  }  // end of namespace
+
+  /*!
+   * \return true if the integrators of a non linear form other than the
+   * multi-material integrator can be evaluated by
+   * `addOtherIntegratorsContributions`, the
+   * multi-material integrator being one of the domain integrators: the form
+   * has no interior face integrator nor extension
+   * \param[in] f: non linear form
+   * \param[in] mi: multi-material integrator
+   */
+  static bool supportsOtherIntegrators(
+      const mfem::NonlinearForm& f,
+      const MultiMaterialNonLinearIntegrator* const mi) noexcept {
+    const auto& dnfi = *(f.GetDNFI());
+    return (mi != nullptr) &&
+           (std::find(dnfi.begin(), dnfi.end(), mi) != dnfi.end()) &&
+           (f.GetInteriorFaceIntegrators().Size() == 0) &&
+           (!NonlinearFormMembers::hasExtension(f));
+  }  // end of supportsOtherIntegrators
+
+  /*!
+   * \return the attributes of the elements (or of the boundary elements) on
+   * which at least one of the given integrators, other than the excluded
+   * one, is evaluated, as by the loops of `mfem::NonlinearForm`
+   * \param[in] integrators: integrators
+   * \param[in] markers: markers of the integrators (null for all the
+   * attributes)
+   * \param[in] n: number of attributes
+   * \param[in] excluded: integrator not evaluated
+   * \throw if a marker has less values than the number of attributes
+   */
+  static mfem::Array<int> getEvaluatedAttributes(
+      const mfem::Array<mfem::NonlinearFormIntegrator*>& integrators,
+      const mfem::Array<mfem::Array<int>*>& markers,
+      const int n,
+      const mfem::NonlinearFormIntegrator* const excluded) {
+    auto attributes = mfem::Array<int>(n);
+    attributes = 0;
+    auto all = false;
+    for (int k = 0; k != integrators.Size(); ++k) {
+      if (integrators[k] == excluded) {
+        continue;
+      }
+      if (markers[k] == nullptr) {
+        all = true;
+        continue;
+      }
+      if (markers[k]->Size() < n) {
+        raise("invalid marker of an integrator of the non linear form: " +
+              std::to_string(markers[k]->Size()) + " attributes instead of " +
+              std::to_string(n));
+      }
+      for (int i = 0; i != n; ++i) {
+        attributes[i] |= (*markers[k])[i];
+      }
+    }
+    if (all) {
+      attributes = 1;
+    }
+    return attributes;
+  }  // end of getEvaluatedAttributes
+
+  /*!
+   * \brief adds the contributions of the integrators of a non linear form
+   * other than the multi-material integrator (domain, boundary and boundary
+   * face integrators) to a residual or to a matrix, by the loops of
+   * `mfem::NonlinearForm::Mult` and `mfem::NonlinearForm::GetGradient` (see
+   * `supportsOtherIntegrators`), on the host
+   * \tparam Residual: if true, the contributions to a residual are added,
+   * otherwise the contributions to a matrix
+   * \param[in] f: non linear form
+   * \param[in] mi: multi-material integrator, not evaluated
+   * \param[in] u: unknowns (local vector of the finite element space)
+   * \param[in] add: function adding the vector (residual) or the matrix of an
+   * element, given the degrees of freedom
+   */
+  template <bool Residual, typename AddFunction>
+  static void addOtherIntegratorsContributions(
+      const mfem::NonlinearForm& f,
+      const MultiMaterialNonLinearIntegrator* const mi,
+      const mfem::Vector& u,
+      const AddFunction& add) {
+    const auto& fes = *(f.FESpace());
+    const auto& mesh = *(fes.GetMesh());
+    const auto& dnfi = *(f.GetDNFI());
+    const auto& bnfi = *(f.GetBNFI());
+    const auto& bfnfi = f.GetBdrFaceIntegrators();
+    const auto& dmarkers = NonlinearFormMembers::getDomainMarkers(f);
+    const auto& bmarkers = NonlinearFormMembers::getBoundaryMarkers(f);
+    const auto& bfmarkers = NonlinearFormMembers::getBoundaryFaceMarkers(f);
+    const auto* const excluded =
+        static_cast<const mfem::NonlinearFormIntegrator*>(mi);
+    const auto nattributes =
+        mesh.attributes.Size() != 0 ? mesh.attributes.Max() : 0;
+    const auto nbattributes =
+        mesh.bdr_attributes.Size() != 0 ? mesh.bdr_attributes.Max() : 0;
+    auto vdofs = mfem::Array<int>{};
+    auto ue = mfem::Vector{};
+    auto ve = mfem::Vector{};
+    auto me = mfem::DenseMatrix{};
+    auto doftrans = mfem::DofTransformation{};
+    // evaluates an integrator on an element and adds its contribution
+    const auto evaluate = [&](mfem::NonlinearFormIntegrator& i,
+                              const mfem::FiniteElement& e,
+                              mfem::ElementTransformation& tr) {
+      if constexpr (Residual) {
+        i.AssembleElementVector(e, tr, ue, ve);
+        doftrans.TransformDual(ve);
+        add(vdofs, ve);
+      } else {
+        i.AssembleElementGrad(e, tr, ue, me);
+        doftrans.TransformDual(me);
+        add(vdofs, me);
+      }
+    };
+    // domain integrators
+    const auto domain =
+        getEvaluatedAttributes(dnfi, dmarkers, nattributes, excluded);
+    if (std::find(domain.begin(), domain.end(), 1) != domain.end()) {
+      for (int i = 0; i != fes.GetNE(); ++i) {
+        const auto attribute = mesh.GetAttribute(i);
+        if (domain[attribute - 1] == 0) {
+          continue;
+        }
+        const auto& e = *(fes.GetFE(i));
+        fes.GetElementVDofs(i, vdofs, doftrans);
+        auto& tr = *(fes.GetElementTransformation(i));
+        u.GetSubVector(vdofs, ue);
+        doftrans.InvTransformPrimal(ue);
+        for (int k = 0; k != dnfi.Size(); ++k) {
+          if ((dnfi[k] == excluded) || ((dmarkers[k] != nullptr) &&
+                                        ((*dmarkers[k])[attribute - 1] == 0))) {
+            continue;
+          }
+          evaluate(*dnfi[k], e, tr);
+        }
+      }
+    }
+    // boundary integrators
+    const auto boundary =
+        getEvaluatedAttributes(bnfi, bmarkers, nbattributes, excluded);
+    if (std::find(boundary.begin(), boundary.end(), 1) != boundary.end()) {
+      for (int i = 0; i != fes.GetNBE(); ++i) {
+        const auto attribute = mesh.GetBdrAttribute(i);
+        if (boundary[attribute - 1] == 0) {
+          continue;
+        }
+        const auto& e = *(fes.GetBE(i));
+        fes.GetBdrElementVDofs(i, vdofs, doftrans);
+        auto& tr = *(fes.GetBdrElementTransformation(i));
+        u.GetSubVector(vdofs, ue);
+        doftrans.InvTransformPrimal(ue);
+        for (int k = 0; k != bnfi.Size(); ++k) {
+          if ((bmarkers[k] != nullptr) &&
+              ((*bmarkers[k])[attribute - 1] == 0)) {
+            continue;
+          }
+          evaluate(*bnfi[k], e, tr);
+        }
+      }
+    }
+    // boundary face integrators, evaluated with the degrees of freedom of
+    // the element of the face
+    const auto faces =
+        getEvaluatedAttributes(bfnfi, bfmarkers, nbattributes, excluded);
+    if (std::find(faces.begin(), faces.end(), 1) != faces.end()) {
+      auto tr = mfem::FaceElementTransformations{};
+      auto tr1 = mfem::IsoparametricTransformation{};
+      auto tr2 = mfem::IsoparametricTransformation{};
+      for (int i = 0; i != fes.GetNBE(); ++i) {
+        const auto attribute = mesh.GetBdrAttribute(i);
+        if (faces[attribute - 1] == 0) {
+          continue;
+        }
+        // interior, shared or non conforming faces are skipped, as by MFEM
+        mesh.GetBdrFaceTransformations(i, tr, tr1, tr2);
+        if (tr.GetGeometryType() == mfem::Geometry::INVALID) {
+          continue;
+        }
+        fes.GetElementVDofs(tr.Elem1No, vdofs);
+        u.GetSubVector(vdofs, ue);
+        const auto& e = *(fes.GetFE(tr.Elem1No));
+        for (int k = 0; k != bfnfi.Size(); ++k) {
+          if ((bfmarkers[k] != nullptr) &&
+              ((*bfmarkers[k])[attribute - 1] == 0)) {
+            continue;
+          }
+          if constexpr (Residual) {
+            bfnfi[k]->AssembleFaceVector(e, e, tr, ue, ve);
+            add(vdofs, ve);
+          } else {
+            bfnfi[k]->AssembleFaceGrad(e, e, tr, ue, me);
+            add(vdofs, me);
+          }
+        }
+      }
+    }
+  }  // end of addOtherIntegratorsContributions
+
+  /*!
+   * \brief adds the contributions of the integrators of a non linear form
+   * other than the multi-material integrator to the local matrix assembled
+   * by kernels (their entries are in the pattern of the elements), on the
+   * host. A failure on one process is reported on all of them.
+   * \param[in] fed: finite element discretization
+   * \param[in] f: non linear form
+   * \param[in] mi: multi-material integrator, not evaluated
+   * \param[in] u: unknowns (local vector of the finite element space),
+   * prolongated by the caller on all the processes
+   * \param[in, out] K: local matrix
+   */
+  static void addOtherIntegratorsContributionsToTheLocalMatrix(
+      const FiniteElementDiscretization& fed,
+      const mfem::NonlinearForm& f,
+      const MultiMaterialNonLinearIntegrator* const mi,
+      const mfem::Vector& u,
+      mfem::SparseMatrix& K) {
+    auto ctx = Context{};
+    auto success = false;
+    try {
+      static_cast<void>(K.HostReadWriteData());
+      addOtherIntegratorsContributions<false>(
+          f, mi, u,
+          [&K](const mfem::Array<int>& dofs, const mfem::DenseMatrix& m) {
+            K.AddSubMatrix(dofs, dofs, m, 0);
+          });
+      success = true;
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
+    }
+    raiseOnFailureOnAnyProcess(fed, ctx, success,
+                               "computation of the tangent operator");
+  }  // end of addOtherIntegratorsContributionsToTheLocalMatrix
+
   /*!
    * \brief checks that the tangent operator can be applied without assembly
    * (see `TangentOperatorComputation`): the non linear form must only
@@ -114,9 +380,13 @@ namespace mfem_mgis {
    * \param[in] bcs: boundary conditions independent of the unknowns
    * \param[in] fes: finite element space
    * \param[in] essential_dofs: essential true degrees of freedom
-   * \param[out] f: inner forces and contributions of the boundary
-   * conditions (local vector of the finite element space)
+   * \param[out] f: inner forces, contributions of the boundary conditions
+   * and of the other integrators of the non linear form, if any (local
+   * vector of the finite element space)
    * \param[in, out] r: residual
+   * \param[in] addOtherContributions: function adding the contributions of
+   * the other integrators of the non linear form to `f`, if not empty, on
+   * the host, called if the previous computations succeeded
    */
   static void addInnerForcesComputedByKernels(
       const FiniteElementDiscretization& fed,
@@ -125,7 +395,8 @@ namespace mfem_mgis {
       const mfem::FiniteElementSpace& fes,
       const mfem::Array<int>& essential_dofs,
       mfem::Vector& f,
-      mfem::Vector& r) {
+      mfem::Vector& r,
+      const std::function<void(mfem::Vector&)>& addOtherContributions = {}) {
     auto ctx = Context{};
     auto success = false;
     try {
@@ -135,6 +406,10 @@ namespace mfem_mgis {
       success = (mi == nullptr) || mi->addInnerForcesByKernels(ctx, fes, f);
       for (auto* const bc : bcs) {
         success = success && bc->addContributionToTheResidual(ctx, f);
+      }
+      if (success && addOtherContributions) {
+        static_cast<void>(f.HostReadWrite());
+        addOtherContributions(f);
       }
     } catch (...) {
       std::ignore = registerExceptionInErrorBacktrace(ctx);
@@ -753,20 +1028,47 @@ namespace mfem_mgis {
     // assembly of MFEM is skipped if the form has no other integrator
     const auto only_mfem_mgis =
         kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if (only_mfem_mgis) {
+    // the contributions of the other integrators of the form are added to
+    // the local vector of the inner forces computed by kernels, if possible
+    const auto others = kernels && (!only_mfem_mgis) &&
+                        supportsOtherIntegrators(*this, this->mgis_integrator);
+    if (only_mfem_mgis || others) {
       r = real{0};
     } else {
       mfem_mgis::NonlinearForm<true>::Mult(u, r);
+    }
+    auto addOtherContributions = std::function<void(mfem::Vector&)>{};
+    if (others) {
+      ++(this->other_integrators_residual_evaluations);
+      // the unknowns are prolongated on all the processes (exchanges
+      // between processes) before the computations of the residual, which
+      // may fail on one process only
+      const auto& pu = this->Prolongate(u);
+      addOtherContributions = [this, &pu](mfem::Vector& f) {
+        addOtherIntegratorsContributions<true>(
+            *this, this->mgis_integrator, pu,
+            [&f](const mfem::Array<int>& dofs, const mfem::Vector& v) {
+              f.AddElementVector(dofs, v);
+            });
+      };
     }
     addInnerForcesComputedByKernels(
         this->getFiniteElementDiscretization(),
         kernels ? this->mgis_integrator : nullptr,
         this->residual_boundary_conditions, this->getFiniteElementSpace(),
-        this->ess_tdof_list, this->inner_forces_by_kernels, r);
+        this->ess_tdof_list, this->inner_forces_by_kernels, r,
+        addOtherContributions);
   }  // end of Mult
 
-  mfem::Operator& NonLinearEvolutionProblemImplementation<
-      true>::assembleTangentOperatorByKernels() const {
+  mfem::Operator& NonLinearEvolutionProblemImplementation<true>::
+      assembleTangentOperatorByKernels(const mfem::Vector* const u) const {
+    if ((u == nullptr) &&
+        (!isTheOnlyIntegrator(*this, this->mgis_integrator))) {
+      raise(
+          "assembleTangentOperatorByKernels: the unknowns are required to "
+          "add the contributions of the other integrators of the non linear "
+          "form");
+    }
     // the stiffness matrices are assembled by kernels in the local matrix,
     // then the global matrix is built as by
     // `mfem::ParNonlinearForm::GetGradient`
@@ -774,6 +1076,13 @@ namespace mfem_mgis {
     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
                                      *(this->mgis_integrator),
                                      this->getFiniteElementSpace(), this->Grad);
+    if (u != nullptr) {
+      // the unknowns are prolongated on all the processes (exchanges
+      // between processes) before the evaluation of the other integrators
+      addOtherIntegratorsContributionsToTheLocalMatrix(
+          this->getFiniteElementDiscretization(), *this, this->mgis_integrator,
+          this->Prolongate(*u), *(this->Grad));
+    }
     auto* const pfes = this->ParFESpace();
     if (this->pGrad.Type() == mfem::Operator::Hypre_ParCSR) {
       // global matrix whose pattern and exchanges between processes are
@@ -835,7 +1144,11 @@ namespace mfem_mgis {
     if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
       return this->assembleTangentOperatorByKernels();
     }
-    // other integrators in the form: the stiffness matrices computed by
+    if (supportsOtherIntegrators(*this, this->mgis_integrator)) {
+      return this->assembleTangentOperatorByKernels(&u);
+    }
+    // other integrators in the form not supported by
+    // `addOtherIntegratorsContributions`: the stiffness matrices computed by
     // kernels are copied by the element loop of MFEM
     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
                                       *(this->mgis_integrator),
@@ -1147,24 +1460,56 @@ namespace mfem_mgis {
     }
     const auto only_mfem_mgis =
         kernels && isTheOnlyIntegrator(*this, this->mgis_integrator);
-    if (only_mfem_mgis) {
+    // the contributions of the other integrators of the form are added to
+    // the local vector of the inner forces computed by kernels, if possible
+    const auto others = kernels && (!only_mfem_mgis) &&
+                        supportsOtherIntegrators(*this, this->mgis_integrator);
+    if (only_mfem_mgis || others) {
       r = real{0};
     } else {
       mfem_mgis::NonlinearForm<false>::Mult(u, r);
+    }
+    auto addOtherContributions = std::function<void(mfem::Vector&)>{};
+    if (others) {
+      ++(this->other_integrators_residual_evaluations);
+      // the unknowns are prolongated on all the processes (exchanges
+      // between processes) before the computations of the residual, which
+      // may fail on one process only
+      const auto& pu = this->Prolongate(u);
+      addOtherContributions = [this, &pu](mfem::Vector& f) {
+        addOtherIntegratorsContributions<true>(
+            *this, this->mgis_integrator, pu,
+            [&f](const mfem::Array<int>& dofs, const mfem::Vector& v) {
+              f.AddElementVector(dofs, v);
+            });
+      };
     }
     addInnerForcesComputedByKernels(
         this->getFiniteElementDiscretization(),
         kernels ? this->mgis_integrator : nullptr,
         this->residual_boundary_conditions, this->getFiniteElementSpace(),
-        this->ess_tdof_list, this->inner_forces_by_kernels, r);
+        this->ess_tdof_list, this->inner_forces_by_kernels, r,
+        addOtherContributions);
   }  // end of Mult
 
-  mfem::Operator& NonLinearEvolutionProblemImplementation<
-      false>::assembleTangentOperatorByKernels() const {
+  mfem::Operator& NonLinearEvolutionProblemImplementation<false>::
+      assembleTangentOperatorByKernels(const mfem::Vector* const u) const {
+    if ((u == nullptr) &&
+        (!isTheOnlyIntegrator(*this, this->mgis_integrator))) {
+      raise(
+          "assembleTangentOperatorByKernels: the unknowns are required to "
+          "add the contributions of the other integrators of the non linear "
+          "form");
+    }
     ++(*(this->assembled_tangent_operator_revision));
     assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
                                      *(this->mgis_integrator),
                                      this->getFiniteElementSpace(), this->Grad);
+    if (u != nullptr) {
+      addOtherIntegratorsContributionsToTheLocalMatrix(
+          this->getFiniteElementDiscretization(), *this, this->mgis_integrator,
+          this->Prolongate(*u), *(this->Grad));
+    }
     // as `mfem::NonlinearForm::GetGradient`, the elimination of the
     // essential degrees of freedom giving the same result as
     // `EliminateRowCol`, the pattern of the matrix being symmetric
@@ -1202,6 +1547,9 @@ namespace mfem_mgis {
     }
     if (isTheOnlyIntegrator(*this, this->mgis_integrator)) {
       return this->assembleTangentOperatorByKernels();
+    }
+    if (supportsOtherIntegrators(*this, this->mgis_integrator)) {
+      return this->assembleTangentOperatorByKernels(&u);
     }
     computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
                                       *(this->mgis_integrator),

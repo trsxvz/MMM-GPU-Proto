@@ -821,6 +821,8 @@ if(MFEM_MGIS_HAVE_TFEL)
       --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
       --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
       --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
+      --interface-mesh
+      ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials-interface.mesh
       --library $<TARGET_FILE:BehaviourTest>)
   add_test(NAME BatchIntegrationTest
            COMMAND BatchIntegrationTest ${batch_integration_test_arguments}

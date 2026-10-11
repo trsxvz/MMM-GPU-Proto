@@ -1,21 +1,29 @@
 /*!
  * \file   thermique.cxx
  * \brief  Stationary non linear heat transfer in a beam (conductivity
- * depending on the temperature, temperatures imposed at both ends), solved
- * by the Newton solver of mfem-mgis, point by point or by kernels, on the
- * host or on the GPU.
+ * depending on the temperature, temperatures imposed at both ends, or a
+ * convective exchange at the second end, given as a boundary face
+ * integrator of the non linear form as the Robin boundary condition of the
+ * example ex8 of mfem-mgis-examples), solved by the Newton solver of
+ * mfem-mgis, point by point or by kernels, on the host or on the GPU.
  */
 
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <functional>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include "mfem/general/optparser.hpp"
+#include "mfem/fem/intrules.hpp"
+#include "mfem/fem/nonlininteg.hpp"
+#include "mfem/linalg/densemat.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
@@ -23,7 +31,142 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+
+/*!
+ * \brief convective exchange on a boundary, `j·n = h (T - T∞)`, evaluated by
+ * a boundary face integrator with the degrees of freedom of the element of
+ * the face, with the sign convention of the heat transfer behaviours of
+ * mfem-mgis (as the Robin boundary condition of the example ex8)
+ */
+struct RobinBoundaryCondition final : mfem_mgis::AbstractBoundaryCondition {
+  using real = mfem_mgis::real;
+  //! \brief integrator of the exchange on a boundary face
+  struct Integrator final : mfem::NonlinearFormIntegrator {
+    //! \brief exchange coefficient
+    const real h;
+    //! \brief temperature of the fluid, updated at each time step
+    const real& external_temperature;
+    Integrator(const real hv, const real& Te)
+        : h(hv), external_temperature(Te) {}
+    //! \brief calls a function at each point of the face
+    template <typename Function>
+    static void integrate(const mfem::FiniteElement& e,
+                          mfem::FaceElementTransformations& tr,
+                          const Function& f) {
+      auto N = mfem::Vector(e.GetDof());
+      const auto& ir =
+          mfem::IntRules.Get(tr.GetGeometryType(), 2 * e.GetOrder() + 2);
+      for (int q = 0; q != ir.GetNPoints(); ++q) {
+        const auto& ip = ir.IntPoint(q);
+        tr.SetAllIntPoints(&ip);
+        e.CalcShape(tr.GetElement1IntPoint(), N);
+        f(N, ip.weight * tr.Weight());
+      }
+    }
+    void AssembleFaceVector(const mfem::FiniteElement& e,
+                            const mfem::FiniteElement&,
+                            mfem::FaceElementTransformations& tr,
+                            const mfem::Vector& T,
+                            mfem::Vector& r) override {
+      r.SetSize(T.Size());
+      r = real{0};
+      integrate(e, tr, [&](const mfem::Vector& N, const real w) {
+        const auto Tq = N * T;
+        r.Add(-w * this->h * (Tq - this->external_temperature), N);
+      });
+    }
+    void AssembleFaceGrad(const mfem::FiniteElement& e,
+                          const mfem::FiniteElement&,
+                          mfem::FaceElementTransformations& tr,
+                          const mfem::Vector& T,
+                          mfem::DenseMatrix& K) override {
+      K.SetSize(T.Size());
+      K = real{0};
+      integrate(e, tr, [&](const mfem::Vector& N, const real w) {
+        mfem::AddMult_a_VVt(-w * this->h, N, K);
+      });
+    }
+  };
+  /*!
+   * \brief constructor
+   * \param[in] b: boundary attribute
+   * \param[in] hv: exchange coefficient
+   * \param[in] Te: temperature of the fluid as a function of time
+   */
+  RobinBoundaryCondition(const int b,
+                         const real hv,
+                         std::function<real(const real)> Te)
+      : boundary(b), h(hv), temperature(std::move(Te)) {}
+  /*!
+   * \brief adds the integrator to a non linear form
+   * \param[in, out] ctx: execution context
+   * \param[in, out] f: non linear form
+   */
+  template <typename NonlinearFormType>
+  bool addIntegrator(mfem_mgis::Context& ctx, NonlinearFormType& f) {
+    const auto& attributes = f.FESpace()->GetMesh()->bdr_attributes;
+    const auto n = attributes.Size() != 0 ? attributes.Max() : 0;
+    if ((this->boundary < 1) || (this->boundary > n)) {
+      return ctx.registerErrorMessage(
+          "RobinBoundaryCondition: invalid boundary attribute");
+    }
+    this->marker.SetSize(n);
+    this->marker = 0;
+    this->marker[this->boundary - 1] = 1;
+    // the integrator is owned by the form, the marker by this object
+    f.AddBdrFaceIntegrator(new Integrator(this->h, this->external_temperature),
+                           this->marker);
+    return true;
+  }
+#ifdef MFEM_USE_MPI
+  bool addNonlinearFormIntegrator(mfem_mgis::Context& ctx,
+                                  mfem_mgis::NonlinearForm<true>& f,
+                                  const mfem::Vector&) noexcept override {
+    return this->addIntegrator(ctx, f);
+  }
+  bool addLinearFormIntegrators(mfem_mgis::Context&,
+                                mfem_mgis::BilinearForm<true>&,
+                                mfem_mgis::LinearForm<true>&,
+                                const mfem::Vector&,
+                                const real,
+                                const real) noexcept override {
+    return true;
+  }
+#endif /* MFEM_USE_MPI */
+  bool addNonlinearFormIntegrator(mfem_mgis::Context& ctx,
+                                  mfem_mgis::NonlinearForm<false>& f,
+                                  const mfem::Vector&) noexcept override {
+    return this->addIntegrator(ctx, f);
+  }
+  bool addLinearFormIntegrators(mfem_mgis::Context&,
+                                mfem_mgis::BilinearForm<false>&,
+                                mfem_mgis::LinearForm<false>&,
+                                const mfem::Vector&,
+                                const real,
+                                const real) noexcept override {
+    return true;
+  }
+  bool setup(mfem_mgis::Context&,
+             const real t,
+             const real dt) noexcept override {
+    this->external_temperature = this->temperature(t + dt);
+    return true;
+  }
+
+ private:
+  //! \brief boundary attribute
+  const int boundary;
+  //! \brief exchange coefficient
+  const real h;
+  //! \brief temperature of the fluid as a function of time
+  const std::function<real(const real)> temperature;
+  //! \brief temperature of the fluid at the end of the time step
+  real external_temperature = 0;
+  //! \brief marker of the boundary attributes
+  mfem::Array<int> marker;
+};
 
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
@@ -42,6 +185,7 @@ int main(int argc, char** argv) {
   auto relative_tolerance = real{1e-8};
   auto linear_tolerance = real{1e-10};
   auto expected_norm = real{-1};
+  auto exchange_coefficient = real{0};
   auto norm_tolerance = real{1e-6};
   mfem::OptionsParser args(argc, argv);
   declareDefaultOptions(args);
@@ -84,6 +228,11 @@ int main(int argc, char** argv) {
                  "negative).");
   args.AddOption(&norm_tolerance, "-nt", "--norm-tolerance",
                  "Relative tolerance of the comparison to the expected norm.");
+  args.AddOption(&exchange_coefficient, "-hc", "--exchange-coefficient",
+                 "If positive, convective exchange coefficient at the second "
+                 "end of the beam, whose fluid is at the temperature imposed "
+                 "otherwise (Robin boundary condition, boundary face "
+                 "integrator).");
   args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
                  "--no-profiling",
                  "Print the time spent in each phase of the computation.");
@@ -140,14 +289,21 @@ int main(int argc, char** argv) {
               {"LoadingEvolution",
                [](const real) noexcept { return 293.15; }}}) |
         or_die;
-    problem.addUniformDirichletBoundaryCondition(
-        ctx, {{"Boundary", 2},
-              {"Component", 0},
-              {"LoadingEvolution",
-               [heating](const real t) noexcept {
-                 return 293.15 + heating * t;
-               }}}) |
-        or_die;
+    const auto end_temperature = [heating](const real t) noexcept {
+      return 293.15 + heating * t;
+    };
+    if (exchange_coefficient > 0) {
+      problem.addBoundaryCondition(
+          ctx, std::make_unique<RobinBoundaryCondition>(2, exchange_coefficient,
+                                                        end_temperature)) |
+          or_die;
+    } else {
+      problem.addUniformDirichletBoundaryCondition(
+          ctx, {{"Boundary", 2},
+                {"Component", 0},
+                {"LoadingEvolution", end_temperature}}) |
+          or_die;
+    }
     const auto ls = std::string{linear_solver};
     if (ls == "mumps") {
       problem.setLinearSolver(ctx, "MUMPSSolver", {}) | or_die;

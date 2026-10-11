@@ -27,6 +27,18 @@ add_test(NAME thermique-noyaux
   COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls gmres-amg -en ${norm})
 set_tests_properties(thermique-noyaux PROPERTIES ENVIRONMENT
   "${kernels};MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+# convective exchange at the second end (Robin boundary condition, boundary
+# face integrator of the non linear form): same temperature point by point
+# and by kernels, the contributions of the boundary face integrator being
+# added to the inner forces and to the local matrix computed by kernels
+set(robin_norm 5502.767622)
+add_test(NAME thermique-robin-umfpack
+  COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -hc 1 -en ${robin_norm})
+add_test(NAME thermique-robin-noyaux
+  COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls gmres-amg -hc 1
+          -en ${robin_norm})
+set_tests_properties(thermique-robin-noyaux PROPERTIES ENVIRONMENT
+  "${kernels};MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
 # the tangent operator applied without assembly, with the GMRES of MFEM and a
 # Jacobi preconditioner
 add_test(NAME thermique-sans-matrice

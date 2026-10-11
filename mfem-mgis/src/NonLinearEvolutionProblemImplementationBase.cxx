@@ -758,6 +758,16 @@ namespace mfem_mgis {
            TangentOperatorComputationMode::MATRIX_FREE;
   }  // end of appliesTangentOperatorWithoutAssembly
 
+  size_type NonLinearEvolutionProblemImplementationBase::
+      getNumberOfTangentOperatorAssembliesByKernels() const noexcept {
+    return *(this->assembled_tangent_operator_revision);
+  }  // end of getNumberOfTangentOperatorAssembliesByKernels
+
+  size_type NonLinearEvolutionProblemImplementationBase::
+      getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {
+    return this->other_integrators_residual_evaluations;
+  }  // end of getNumberOfOtherIntegratorsResidualEvaluations
+
   NonLinearEvolutionProblemImplementationBase::
       ~NonLinearEvolutionProblemImplementationBase() = default;
 

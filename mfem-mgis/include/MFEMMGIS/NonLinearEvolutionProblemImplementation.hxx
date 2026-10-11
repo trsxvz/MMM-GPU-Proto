@@ -120,10 +120,13 @@ namespace mfem_mgis {
      * stiffness matrices of the elements being computed and assembled by
      * kernels (see `TangentOperatorComputation`), the essential degrees of
      * freedom being eliminated
-     * \note the non linear form must only contain the integrator of
-     * mfem-mgis
+     * \param[in] u: unknowns (true degrees of freedom), required if the non
+     * linear form contains other integrators than the integrator of
+     * mfem-mgis, whose contributions are then added (domain, boundary and
+     * boundary face integrators, without interior face integrators)
      */
-    mfem::Operator& assembleTangentOperatorByKernels() const;
+    mfem::Operator& assembleTangentOperatorByKernels(
+        const mfem::Vector* const = nullptr) const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;
@@ -235,10 +238,13 @@ namespace mfem_mgis {
      * stiffness matrices of the elements being computed and assembled by
      * kernels (see `TangentOperatorComputation`), the essential degrees of
      * freedom being eliminated
-     * \note the non linear form must only contain the integrator of
-     * mfem-mgis
+     * \param[in] u: unknowns (true degrees of freedom), required if the non
+     * linear form contains other integrators than the integrator of
+     * mfem-mgis, whose contributions are then added (domain, boundary and
+     * boundary face integrators, without interior face integrators)
      */
-    mfem::Operator& assembleTangentOperatorByKernels() const;
+    mfem::Operator& assembleTangentOperatorByKernels(
+        const mfem::Vector* const = nullptr) const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;

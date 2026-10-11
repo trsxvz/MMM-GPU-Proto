@@ -111,9 +111,10 @@ namespace mfem_mgis {
      * mfem-mgis in the tangent operator: `ElementByElement` (default) or
      * `Kernels` (computed for all the elements by kernels from the tangent
      * operator blocks, on the device if a device is enabled, and assembled
-     * by kernels in the sparse matrix of the tangent operator if the non
-     * linear form only contains the integrator of mfem-mgis, by the
-     * assembly of MFEM otherwise), or
+     * by kernels in the sparse matrix of the tangent operator, the
+     * contributions of the other integrators of the non linear form being
+     * added on the host, except with interior face integrators or an
+     * extension of MFEM, which require the assembly of MFEM), or
      * `MatrixFree` (the tangent operator is applied without assembly by
      * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
      * freedom being constrained by `mfem::ConstrainedOperator`: the linear
@@ -291,6 +292,21 @@ namespace mfem_mgis {
         Context& ctx, const real t, const real dt) noexcept override;
     [[nodiscard]] bool revert(Context& ctx) noexcept override;
     [[nodiscard]] bool update(Context& ctx) noexcept override;
+    /*!
+     * \return the number of assemblies of the tangent operator by kernels
+     * in the local matrix of the finite element space (the stiffness matrices
+     * of the elements being assembled by kernels, then the contributions of
+     * the other integrators of the non linear form, if any, being added)
+     */
+    [[nodiscard]] size_type getNumberOfTangentOperatorAssembliesByKernels()
+        const noexcept;
+    /*!
+     * \return the number of evaluations of the residual in which the
+     * contributions of the integrators of the non linear form other than the
+     * one of mfem-mgis were added to the inner forces computed by kernels
+     */
+    [[nodiscard]] size_type getNumberOfOtherIntegratorsResidualEvaluations()
+        const noexcept;
     //! \brief destructor
     ~NonLinearEvolutionProblemImplementationBase() override;
 
@@ -413,6 +429,12 @@ namespace mfem_mgis {
      */
     const std::shared_ptr<size_type> assembled_tangent_operator_revision =
         std::make_shared<size_type>(0);
+    /*!
+     * \brief number of evaluations of the residual in which the
+     * contributions of the other integrators of the non linear form were
+     * added to the inner forces computed by kernels
+     */
+    mutable size_type other_integrators_residual_evaluations = 0;
     /*!
      * \brief local matrix of the operator of the prediction, assembled by
      * kernels (see `TangentOperatorComputation`), created at the first

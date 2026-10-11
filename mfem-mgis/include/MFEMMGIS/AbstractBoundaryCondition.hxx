@@ -104,9 +104,8 @@ namespace mfem_mgis {
      * `InnerForcesComputation`), such a boundary condition is applied by
      * `addContributionToTheResidual` instead of an integrator of the non
      * linear form: if the non linear form contains no other integrator than
-     * the one of mfem-mgis, the tangent operator can then be assembled by
-     * kernels without the assembly of MFEM, or applied without assembly.
-     * The default implementation returns false.
+     * the one of mfem-mgis, the tangent operator can then be applied without
+     * assembly. The default implementation returns false.
      */
     [[nodiscard]] virtual bool isIndependentOfTheUnknowns() const noexcept;
     /*!
