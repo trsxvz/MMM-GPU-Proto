@@ -15,6 +15,7 @@ User guide
    boundary_conditions.rst
    post_processings/post_processings.rst  
    nonlinear_algorithms.rst
+   batch_computations.rst
    partial_quadrature_functions/partial_quadrature_spaces_and_functions.rst
    glossary.rst
    help.rst

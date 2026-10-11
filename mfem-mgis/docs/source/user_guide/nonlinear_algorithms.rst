@@ -182,3 +182,88 @@ follows:
 
 This reduction of the amplitude is repeated until an estimation of the
 solution that does not lead to an integration failure is found.
+
+.. _mfem_mgis_fixed_point_algorithm:
+
+Fixed point algorithm
+=====================
+
+The nonlinear solver is chosen by the :cxx:`NonLinearSolver` parameter of
+the nonlinear evolution problem: :cxx:`Newton` (default) or
+:cxx:`FixedPoint`, given with its options, which can be changed later by
+the :cxx:`setSolverParameters` method:
+
+.. code-block:: c++
+
+   {"NonLinearSolver",
+    mfem_mgis::Parameters{{"FixedPoint", mfem_mgis::Parameters{...}}}}
+
+The :cxx:`FixedPoint` solver performs the following iterations:
+
+.. math::
+
+   \mathbb{u}^{(n+1)} = \mathbb{u}^{(n)}-\mathbb{S}\,\cdot\,\mathbb{r}\left(\mathbb{u}^{(n)}\right)
+
+where :math:`\mathbb{r}` denotes the residual. The iterations may be
+accelerated (option :cxx:`Acceleration`, for instance :cxx:`Anderson` or
+:cxx:`Cast3M`, none by default).
+
+Methods
+-------
+
+The option :cxx:`Method` selects :math:`\mathbb{S}`:
+
+- :cxx:`ElasticOperator` (default): an exact or approximate inverse of the
+  elastic operator :math:`\mathbb{K}_{0}`, assembled from the elastic
+  operators of the behaviours (option :cxx:`ElasticOperatorComputation`:
+  :cxx:`Prediction`, by default, or :cxx:`Integration`) at each resolution
+  or once (option :cxx:`ElasticOperatorUpdate`: :cxx:`EachResolution`, by
+  default, or :cxx:`Once`). The behaviours are integrated without tangent
+  operator at each iteration.
+- :cxx:`ModifiedNewton`: the inverse of the consistent tangent operator at
+  the first iteration of each resolution, given to the linear solver of the
+  problem.
+- :cxx:`NewtonK0`: Newton's method, the consistent tangent operator being
+  inverted by an iterative solver of :code:`MFEM` (option
+  :cxx:`TangentLinearSolver`, :cxx:`CGSolver` by default, with a relative
+  tolerance of :math:`10^{-4}` and at most 1000 iterations if not given),
+  preconditioned by the linear solver of the elastic operator (option
+  :cxx:`ElasticOperatorLinearSolver`, required), whose setup is kept: for
+  instance :cxx:`HypreBoomerAMG` set up on :math:`\mathbb{K}_{0}` instead
+  of a new setup at each iteration. The tangent operator can be applied
+  without assembly (see :ref:`mfem_mgis_batch_computations_matrix_free`).
+
+The linear solver of the elastic operator (option
+:cxx:`ElasticOperatorLinearSolver`) is one of the linear solvers of the
+problems (see :doc:`glossary`), for instance :cxx:`HypreBoomerAMG` for one
+cycle of BoomerAMG per iteration in a parallel computation. With the
+:cxx:`ElasticOperator` method, if it is not given, the linear solver of the
+problem is used, and set up with :math:`\mathbb{K}_{0}` at each
+resolution.
+
+The relative tolerance of the iterative linear solver of the Newton solver
+and of the :cxx:`NewtonK0` method can be adapted to the decrease of the
+residual (option :cxx:`AdaptiveLinearSolverTolerance`, see
+:doc:`glossary`).
+
+When the integration of the behaviours fails at a new estimate, this
+estimate is replaced by the middle of this estimate and of the previous
+one, ten times at most. The iterations stop if the norm of the residual is
+not finite.
+
+The following options select the :cxx:`NewtonK0` method in a parallel
+computation:
+
+.. code-block:: c++
+
+   const auto newton_k0 = mfem_mgis::Parameters{
+       {"Method", "NewtonK0"},
+       {"ElasticOperatorUpdate", "Once"},
+       {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},
+       {"TangentLinearSolver",
+        mfem_mgis::Parameters{
+            {"CGSolver",
+             mfem_mgis::Parameters{{"RelativeTolerance", 1e-4},
+                                   {"MaximumNumberOfIterations", 1000}}}}}};
+   // given to the problem as
+   // {"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", newton_k0}}}

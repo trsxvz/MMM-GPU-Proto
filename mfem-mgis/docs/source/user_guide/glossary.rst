@@ -418,8 +418,9 @@ Setup Your Preconditioner
 
 The preconditioners are the ones of ``hypre`` (in parallel), the Jacobi
 and Chebyshev smoothers of ``MFEM``, which only use products by the operator
-and its diagonal, and ``AssembledOperator``, which sets up a preconditioner on
-the assembled version of an operator applied without assembly.
+and its diagonal, ``AssembledOperator``, which sets up a preconditioner on
+the assembled version of an operator applied without assembly, and
+``AmgX``, if ``mfem-mgis`` is built with it.
 
 Algebraic MultiGrid (AMG) 
 -------------------------
@@ -612,6 +613,48 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
     auto chebyshev = mfem_mgis::Parameters{
         {"Name", "OperatorChebyshevSmoother"},
         {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
+
+Preconditioner on the assembled operator (AssembledOperator)
+------------------------------------------------------------
+
+Sets up another preconditioner on the assembled version of a tangent
+operator applied without assembly (``TangentOperatorComputation`` set to
+``MatrixFree``, see :ref:`mfem_mgis_batch_computations_matrix_free`).
+
+- Preconditioner name: ``AssembledOperator``
+- Options:
+
++--------------------+--------------------------------------------------+
+| Key                | Description                                      |
++====================+==================================================+
+| ``Preconditioner`` | Preconditioner set up on the assembled operator, |
+|                    | given by its ``Name`` and ``Options``.           |
+|                    | Required.                                        |
++--------------------+--------------------------------------------------+
+| ``UpdatePeriod``   | Number of calls between two setups, 1 by         |
+|                    | default. [int]                                   |
++--------------------+--------------------------------------------------+
+
+**Example:**
+
+.. code-block:: cpp
+
+    auto assembled = mfem_mgis::Parameters{
+        {"Name", "AssembledOperator"},
+        {"Options",
+         mfem_mgis::Parameters{
+             {"UpdatePeriod", 2},
+             {"Preconditioner",
+              mfem_mgis::Parameters{{"Name", "HypreBoomerAMG"}}}}}};
+
+Algebraic multigrid of AmgX (AmgX)
+----------------------------------
+
+- Preconditioner name: ``AmgX``, also available as a linear solver under
+  the same name. The linear solver ``AmgXPCG`` is the conjugate gradient
+  of ``AmgX``.
+- Dependencies: ``mfem-mgis`` built with the CMake option ``enable-amgx``.
+- Options: see :ref:`mfem_mgis_batch_computations_amgx`.
 
 Inexact Newton method (AdaptiveLinearSolverTolerance)
 -----------------------------------------------------

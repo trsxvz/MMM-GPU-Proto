@@ -4107,3 +4107,16 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 - Piège : la bibliothèque de lois des tests (`BehaviourTest`) n'est ni dans
   `all` ni dans `build-tests` ; une construction séparée doit la construire
   explicitement, sinon une douzaine de tests parallèles échouent.
+
+### 2026-10-11 (midi), documentation du chemin par lots (L10)
+
+- mfem-mgis : page du guide `batch_computations.rst` (sélection des calculs
+  par lots et par noyaux, paramètres et variables d'environnement,
+  contrôles, règles d'intégration, ce que les noyaux couvrent, assemblage
+  et application de la tangente, prédiction, GPU, AmgX, exemple,
+  limites), section du solveur FixedPoint dans `nonlinear_algorithms.rst`,
+  préconditionneurs `AssembledOperator` et `AmgX` dans le glossaire.
+  Chaque affirmation vérifiée dans le code ; relecture Q (vérification
+  indépendante des faits) traitée, dont le nom de la bibliothèque de lois
+  produite par l'interface generic-parallel dans l'exemple. Construction
+  Sphinx réduite sans avertissement sur ces pages.
