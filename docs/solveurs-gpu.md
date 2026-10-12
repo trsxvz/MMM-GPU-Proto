@@ -425,7 +425,9 @@ Intérêt pour les petits cas, les configurations mixtes et comme référence.
   change : MFEM ne permet de choisir la réutilisation qu'avant la première
   matrice et s'arrête sur une taille différente). Sur la matrice
   d'élasticité d'ex8, une factorisation prend 0,018 s contre 0,203 s pour
-  MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s
+  MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s, puis 2,6 s avec la
+  thermique aussi par cuDSS (9 516 inconnues : factorisation 6 ms,
+  résolution 1 ms, contre 52 ms par GMRES et BoomerAMG sur l'hôte)
   (`results/cudss-2026-10-12`). Chaque solution est contrôlée par son
   résidu (cuDSS ne signale pas les échecs de la factorisation). L'analyse
   distribuée de cuDSS 0.7.1 échoue pour certaines matrices que MUMPS

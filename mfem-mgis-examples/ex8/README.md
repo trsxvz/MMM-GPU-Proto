@@ -114,6 +114,29 @@ mpirun -np 4 ./rjh_plate \
 
 Iterative solvers are much slower than MUMPS for the mechanics of this problem. With the default mesh, the simulation takes 8 s on 2 processes with MUMPS, about 2 minutes on 2 processes with `CGSolver` or `MINRESSolver` preconditioned by `HypreBoomerAMG`, and 165 s on 4 processes with `HyprePCG`. `GMRESSolver`, `SLISolver` and `BiCGSTABSolver` did not converge within 5 minutes.
 
+### GPU Execution Example
+
+On a CUDA GPU, the direct solver `CuDSSSolver` of mfem-mgis may solve both
+problems. With the reuse of the analysis (`-mra`), the matrices of the
+successive Newton iterations are only factorized:
+
+```bash
+MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
+MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels \
+MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels \
+MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels \
+mpirun -np 1 ./rjh_plate \
+  -m assemblage_hexa.msh --device cuda \
+  -lsTh CuDSSSolver -lsMc CuDSSSolver -msMc SymmetricPositiveDefinite -mra \
+  -et 1e5 -ns 5 -no-pp
+```
+
+With the default mesh, the behaviours compiled for the GPU (interface
+`generic-parallel` of MFront, options `-lU` and `-lA`) and one GPU, the
+simulation takes 2.6 s, against 11.1 s with MUMPS on the host for the
+mechanics and `HypreGMRES` preconditioned by `HypreBoomerAMG` for the heat
+transfer, with the same results.
+
 The results are exported for ParaView:
 
 ```bash

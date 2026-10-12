@@ -4498,3 +4498,9 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   variantes (1, 2 et 3 processus, hypre sur l'hôte), six mutations
   détectées. ex8 sur le GPU : 4,4 à 4,5 s avec hypre sur l'hôte, 5,6 s
   avec hypre sur le GPU.
+- La thermique d'ex8 aussi par cuDSS (`-lsTh CuDSSSolver`, option déjà
+  là) : ses 35 résolutions par GMRES et BoomerAMG (1,83 s) deviennent 35
+  factorisations de 6 ms et résolutions de 1 ms. ex8 sur le GPU : 2,6 s
+  (11,1 s au début de la matinée, ×4,3), mêmes résultats. Exemple
+  d'exécution sur le GPU dans le README d'ex8 (mfem-mgis-examples
+  7578d86).

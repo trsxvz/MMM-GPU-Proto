@@ -61,6 +61,28 @@ symétrique définie positive. Construction `build/examples-mumps`, liée à
   mêmes nombres d'itérations (114) dans les trois cas.
 - Les factorisations ne pèsent plus que 16 % du temps.
 
+## ex8, thermique aussi par cuDSS
+
+Avec les deux solveurs directs sur le GPU (`-lsTh CuDSSSolver -lsMc
+CuDSSSolver -mra`, matrices thermiques données entières, mécaniques par
+leur triangle inférieur ; `resume-thermique.txt`, commandes dans
+`mesure-ex8-gpu-thermique.sh`, cœurs 0 à 3), en secondes :
+
+| hypre | Total | Couplage | Factorisations thermiques (35) | Résolutions thermiques (35) | Factorisations mécaniques (29) |
+|---|---|---|---|---|---|
+| sur l'hôte | 2,78 et 2,77 | 2,60 et 2,59 | 0,22 et 0,21 | 0,036 et 0,034 | 0,68 et 0,68 |
+| sur le GPU | 2,58 et 2,73 | 2,40 et 2,53 | 0,20 et 0,21 | 0,036 et 0,036 | 0,62 et 0,62 |
+
+- Les résolutions thermiques par GMRES et BoomerAMG prenaient 1,83 s
+  (hypre sur l'hôte) : cuDSS factorise la matrice thermique (9 516
+  inconnues) en 6 ms et la résout en 1 ms.
+- ex8 sur le GPU passe de 11,1 s ce matin (MUMPS sans réutilisation,
+  GMRES et BoomerAMG) à 2,6 s, soit ×4,3, mêmes résultats et mêmes
+  itérations (114).
+- hypre ne fait plus que porter les matrices et les vecteurs parallèles :
+  le garder sur le GPU évite les copies entre l'hôte et le GPU des
+  matrices données à cuDSS.
+
 ## Limites de cuDSS distribué
 
 Avec plusieurs processus sur un GPU, l'analyse distribuée de cuDSS 0.7.1
