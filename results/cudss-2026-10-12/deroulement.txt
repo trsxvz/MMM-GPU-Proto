@@ -1,0 +1,12 @@
+== pass 1, mumps-avec, load 1.11
+   exit 0
+== pass 1, cudss-sans, load 1.09
+   exit 0
+== pass 1, cudss-avec, load 1.16
+   exit 0
+== pass 2, mumps-avec, load 1.23
+   exit 0
+== pass 2, cudss-sans, load 1.19
+   exit 0
+== pass 2, cudss-avec, load 1.17
+   exit 0

@@ -1,0 +1,197 @@
+From efeb8b890e4e172fc7c812205751ba87cfc58f69 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 06:18:16 +0200
+Subject: [PATCH] ex8: cuDSS as direct solver
+
+The direct solver CuDSSSolver of mfem-mgis (on the GPU, --device cuda) may
+be chosen for the mechanical (-lsMc) and thermal (-lsTh) problems: the
+options -msMc (symmetry of the matrices) and -mra (reuse of the analysis)
+apply to both direct solvers, MUMPSSolver and CuDSSSolver. With the
+elastic operator of NewtonK0, MUMPS is kept.
+---
+ ex8/README.md            |  8 ++++----
+ ex8/Thermomechanical.cxx | 18 ++++++++++--------
+ ex8/headers/Setup.hxx    |  7 ++++---
+ ex8/headers/Utils.hxx    | 30 +++++++++++++++++-------------
+ 4 files changed, 35 insertions(+), 28 deletions(-)
+
+diff --git a/ex8/README.md b/ex8/README.md
+index 374a71e..41f4080 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -78,15 +78,15 @@ Here is a summary table of the available options:
+ | `-m` | `--mesh` | Path to the mesh file (default: `assemblage_hexa.msh`). |
+ | `-lU` | `--libraryU3SI2` | Path to the compiled MFront library (`.so`) for the U3Si2 material (default: `src/libU3SI2-generic.so`). |
+ | `-lA` | `--libraryALFENI` | Path to the compiled MFront library (`.so`) for the ALFENI material (default: `src/libALFENI-generic.so`). |
+-| `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or the direct solver `MUMPSSolver`. |
++| `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on the GPU only). |
+ | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+-| `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default) or an iterative solver (e.g., `HyprePCG`). |
++| `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on the GPU only, `--device cuda`) or an iterative solver (e.g., `HyprePCG`). |
+ | `-pcMc` | `--preconditioner-mechanics` | Preconditioner associated with the mechanics solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+ | `-nlsMc` | `--nonlinear-solver-mechanics` | Non linear solver of the mechanics problem: `Newton` (default) or `NewtonK0` (tangent systems solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step). |
+ | `-oMc` | `--ordering-mechanics` | Ordering of the degrees of freedom of the mechanics problem: `byNODES` (default) or `byVDIM`. |
+ | `-amgMc` | `--amg-strategy-mechanics` | Strategy of the `HypreBoomerAMG` preconditioner of the mechanics problem: `System`, `Elasticity` (requires `byVDIM`) or `None` (default: the one of `mfem-mgis`). A warning is printed if the mechanics solver has no BoomerAMG preconditioner. |
+-| `-msMc` | `--mumps-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to MUMPS (tangent operator with `Newton`, elastic operator with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to MUMPS without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up its factorizations by about 30 %. |
+-| `-mra` | `--mumps-reuse-analysis` | Reuse the analysis of MUMPS (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (parameter `ReuseAnalysis` of the MUMPS solver of mfem-mgis, which must provide it). Disabled by default (`-no-mra`). On the original mesh, the factorizations of the mechanics problem take about 20 % less time on one process and 26 % less on two. |
++| `-msMc` | `--mumps-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to the direct solver, `MUMPSSolver` or `CuDSSSolver` (tangent operator with `Newton`, elastic operator factorized by MUMPS with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to MUMPS without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up its factorizations by about 30 %. |
++| `-mra` | `--mumps-reuse-analysis` | Reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (parameter `ReuseAnalysis` of the `MUMPSSolver` and `CuDSSSolver` solvers of mfem-mgis, which must provide it). Disabled by default (`-no-mra`). On the original mesh, the factorizations of the mechanics problem take about 20 % less time on one process and 26 % less on two. |
+ | `-o` | `--order` | Finite element order (polynomial degree, default: `1`). |
+ | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
+ | `-pp`, `-no-pp` | `--post-processing`, `--no-post-processing` | Enables (default) or disables the export of results for ParaView. |
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 9d78a5c..9d8f854 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -54,7 +54,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "problem: System, Elasticity (requires byVDIM) or None.");
+   args.AddOption(&p.mumps_symmetry_meca, "-msMc", "--mumps-symmetry-mechanics",
+                  "Symmetry of the matrices of the mechanical problem given "
+-                 "to MUMPS (tangent operator with Newton, elastic operator "
++                 "to the direct solver, MUMPSSolver or CuDSSSolver (tangent "
++                 "operator with Newton, elastic operator factorized by MUMPS "
+                  "with NewtonK0): Unsymmetric, SymmetricIndefinite or "
+                  "SymmetricPositiveDefinite (default: Unsymmetric with "
+                  "Newton, SymmetricIndefinite with NewtonK0). The symmetric "
+@@ -62,11 +63,11 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "would slow down or break the convergence.");
+   args.AddOption(&p.mumps_reuse_analysis, "-mra", "--mumps-reuse-analysis",
+                  "-no-mra", "--no-mumps-reuse-analysis",
+-                 "Reuse the analysis of MUMPS (ordering and symbolic "
+-                 "factorization) for the matrices of the same pattern, as "
+-                 "the tangent operators of the successive Newton iterations "
+-                 "(parameter ReuseAnalysis of the MUMPS solver of "
+-                 "mfem-mgis).");
++                 "Reuse the analysis of the direct solvers (ordering and "
++                 "symbolic factorization) for the matrices of the same "
++                 "pattern, as the tangent operators of the successive Newton "
++                 "iterations (parameter ReuseAnalysis of the MUMPSSolver and "
++                 "CuDSSSolver solvers of mfem-mgis).");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -117,7 +118,8 @@ int main(int argc, char* argv[]) {
+   common_parameters(args, p);
+   // an invalid symmetry of the matrices given to MUMPS is refused even if
+   // MUMPS is not used
+-  static_cast<void>(getMUMPSSolverParameters(p.mumps_symmetry_meca, "", false));
++  static_cast<void>(
++      getDirectSolverParameters(p.mumps_symmetry_meca, "", false));
+ 
+   if (p.t_ramp < 0) {
+     ctx.log() << "the duration of the power ramp must not be negative\n";
+@@ -174,7 +176,7 @@ int main(int argc, char* argv[]) {
+         {"ElasticOperatorUpdate", "EachResolution"},
+         {"ElasticOperatorLinearSolver",
+          mfem_mgis::Parameters{
+-             {"MUMPSSolver", getMUMPSSolverParameters(
++             {"MUMPSSolver", getDirectSolverParameters(
+                                  p.mumps_symmetry_meca, "SymmetricIndefinite",
+                                  p.mumps_reuse_analysis)}}},
+         {"TangentLinearSolver",
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index 7937023..0509a14 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -35,13 +35,14 @@ struct TestParameters {
+   // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
+   // None), the default one of mfem-mgis if empty
+   const char* amg_strategy_meca = "";
+-  // symmetry of the matrices of the mechanical problem given to MUMPS
++  // symmetry of the matrices of the mechanical problem given to the direct
++  // solver (MUMPS or cuDSS)
+   // (tangent operator with Newton, elastic operator with NewtonK0):
+   // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,
+   // Unsymmetric with Newton and SymmetricIndefinite with NewtonK0
+   const char* mumps_symmetry_meca = "";
+-  // reuse the analysis of MUMPS for the matrices of the same pattern
+-  // (parameter ReuseAnalysis of the MUMPS solver of mfem-mgis)
++  // reuse the analysis of the direct solvers for the matrices of the same
++  // pattern (parameter ReuseAnalysis of the direct solvers of mfem-mgis)
+   bool mumps_reuse_analysis = false;
+   // reference statistics of the fields, no comparison if empty
+   const char* reference_file = "";
+diff --git a/ex8/headers/Utils.hxx b/ex8/headers/Utils.hxx
+index 03b13d9..4d31333 100644
+--- a/ex8/headers/Utils.hxx
++++ b/ex8/headers/Utils.hxx
+@@ -25,7 +25,8 @@ inline bool contains(const std::vector<std::string>& list,
+ 
+ // UMFPackSolver is not listed since it is only available for sequential
+ // computations
+-inline const std::vector<std::string> direct_solvers = {"MUMPSSolver"};
++inline const std::vector<std::string> direct_solvers = {"MUMPSSolver",
++                                                        "CuDSSSolver"};
+ 
+ inline const std::vector<std::string> iterative_solvers = {
+     "CGSolver",  "GMRESSolver", "BiCGSTABSolver", "MINRESSolver",
+@@ -79,17 +80,18 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
+ }
+ 
+ /*!
+- * \return the parameters of the MUMPS solver of mfem-mgis for the symmetry
+- * of the matrices given by the option -msMc, or for the default symmetry if
+- * this option is not given. The symmetric modes give the lower triangle of
+- * the matrices to MUMPS without checking their symmetry: a non symmetric
++ * \return the parameters of the direct solvers of mfem-mgis (MUMPS, cuDSS)
++ * for the symmetry of the matrices given by the option -msMc, or for the
++ * default symmetry if this option is not given. The symmetric modes give the
++ * lower triangle of the matrices to the solver without checking their
++ * symmetry: a non symmetric
+  * matrix would slow down or break the convergence of the Newton method.
+  * \param[in] symmetry: value of the option -msMc
+  * \param[in] default_symmetry: default symmetry
+- * \param[in] reuse_analysis: reuse the analysis of MUMPS for the matrices
++ * \param[in] reuse_analysis: reuse the analysis of the solver for the matrices
+  * of the same pattern (option -mra)
+  */
+-inline mfem_mgis::Parameters getMUMPSSolverParameters(
++inline mfem_mgis::Parameters getDirectSolverParameters(
+     const std::string_view symmetry,
+     const std::string_view default_symmetry,
+     const bool reuse_analysis) {
+@@ -102,7 +104,8 @@ inline mfem_mgis::Parameters getMUMPSSolverParameters(
+         mfem_mgis::Parameters{{"Symmetric", true}, {"PositiveDefinite", true}};
+   } else if ((!s.empty()) && (s != "Unsymmetric")) {
+     mfem_mgis::abort(
+-        "Invalid symmetry of the matrices given to MUMPS: " + std::string{s} +
++        "Invalid symmetry of the matrices given to the direct solver: " +
++        std::string{s} +
+         " (expected Unsymmetric, SymmetricIndefinite or "
+         "SymmetricPositiveDefinite)");
+   }
+@@ -112,7 +115,7 @@ inline mfem_mgis::Parameters getMUMPSSolverParameters(
+     parameters.insert(mfem_mgis::attributes::Throwing{}, "ReuseAnalysis", true);
+   }
+   return parameters;
+-}  // end of getMUMPSSolverParameters
++}  // end of getDirectSolverParameters
+ 
+ template <typename Problem>
+ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+@@ -150,7 +153,7 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+         (std::string_view{param.nonlinear_solver_meca} != "NewtonK0")) {
+       mfem_mgis::Profiler::Utils::Message(
+           "warning: the option -msMc is ignored (the linear solver of the "
+-          "mechanical problem is not MUMPS)");
++          "mechanical problem is not a direct solver)");
+     }
+   }
+ 
+@@ -189,9 +192,10 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+   else if (contains(direct_solvers, solver)) {
+     const auto solverParameters =
+         (physics_type == "mechanics")
+-            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric",
+-                                       param.mumps_reuse_analysis)
+-            : getMUMPSSolverParameters("", "", param.mumps_reuse_analysis);
++            ? getDirectSolverParameters(param.mumps_symmetry_meca,
++                                        "Unsymmetric",
++                                        param.mumps_reuse_analysis)
++            : getDirectSolverParameters("", "", param.mumps_reuse_analysis);
+     p.setLinearSolver(ctx, solver, solverParameters) | or_die;
+   }
+ 
+-- 
+2.43.0
+

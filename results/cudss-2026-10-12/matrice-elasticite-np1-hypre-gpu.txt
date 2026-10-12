@@ -1,0 +1,11 @@
+Device configuration: cuda,cpu
+Memory configuration: host-umpire,cuda-umpire
+Use GPU-aware MPI:    no
+hypre on the device
+unknowns: 28548
+MUMPS, no reuse: first 0.25997 s, next ones 0.25345 s each, solve 0.0113582 s, relative residual 4.97047e-15
+MUMPS, reuse: first 0.256209 s, next ones 0.202939 s each, solve 0.0113742 s, relative residual 4.87532e-15
+cuDSS, general, no reuse: first 0.145426 s, next ones 0.126266 s each, solve 0.000929773 s, relative residual 5.97948e-15
+cuDSS, SPD lower, no reuse: first 0.112043 s, next ones 0.111467 s each, solve 3.79018e-05 s, relative residual 6.15197e-15
+cuDSS, general, reuse: first 0.126377 s, next ones 0.0314797 s each, solve 3.85937e-05 s, relative residual 6.0018e-15
+cuDSS, SPD lower, reuse: first 0.112363 s, next ones 0.0182802 s each, solve 2.9255e-05 s, relative residual 6.09301e-15

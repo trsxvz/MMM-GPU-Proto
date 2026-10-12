@@ -1206,20 +1206,66 @@ if(MFEM_USE_MPI)
                        PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
 endif()
 
-# MUMPSReuseAnalysisTest executable: analysis of MUMPS reused for a new
-# operator only if its pattern is the same on all processes. A wrong reuse
-# may block MUMPS: the tests have a time limit
+# DirectSolverReuseAnalysisTest executable: analysis of the direct solvers
+# (MUMPS, cuDSS) reused for a new operator only if its pattern is the same
+# on all processes. A wrong reuse may block the solver: the tests have a
+# time limit
+if(MFEM_USE_MPI AND (MFEM_USE_MUMPS OR MFEM_USE_CUDSS))
+  add_test_executable(DirectSolverReuseAnalysisTest)
+endif()
 if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
-  add_test_executable(MUMPSReuseAnalysisTest)
-  add_test(NAME MUMPSReuseAnalysisTest COMMAND MUMPSReuseAnalysisTest)
-  add_test(NAME MUMPSReuseAnalysisTestP
-           COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest)
-  set_tests_properties(MUMPSReuseAnalysisTest MUMPSReuseAnalysisTestP
+  add_test(NAME DirectSolverReuseAnalysisTest
+           COMMAND DirectSolverReuseAnalysisTest)
+  add_test(NAME DirectSolverReuseAnalysisTestP
+           COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest)
+  # three processes: layout of the first process kept when the one of the
+  # others changes
+  add_test(NAME DirectSolverReuseAnalysisTestP3
+           COMMAND mpirun -n 3 ./DirectSolverReuseAnalysisTest)
+  set_tests_properties(DirectSolverReuseAnalysisTest
+                       DirectSolverReuseAnalysisTestP
+                       DirectSolverReuseAnalysisTestP3
                        PROPERTIES TIMEOUT 120 ENVIRONMENT OMP_NUM_THREADS=1)
   if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
-    add_test(NAME MUMPSReuseAnalysisTestP-cuda
-             COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest --device cuda)
-    set_tests_properties(MUMPSReuseAnalysisTestP-cuda
+    add_test(NAME DirectSolverReuseAnalysisTestP-cuda
+             COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
+                     --device cuda)
+    set_tests_properties(DirectSolverReuseAnalysisTestP-cuda
+                         PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
+                                    ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+endif()
+if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
+  # cuDSS refused without a device on a CUDA GPU, even when the test suite
+  # is run on a GPU (variable MFEM_MGIS_DEVICE)
+  add_test(NAME DirectSolverReuseAnalysisTest-cudss-refused
+           COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver)
+  set_tests_properties(DirectSolverReuseAnalysisTest-cudss-refused
+                       PROPERTIES TIMEOUT 120 ENVIRONMENT MFEM_MGIS_DEVICE=
+                                  ENVIRONMENT_MODIFICATION MFEM_DEVICE=unset:)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME DirectSolverReuseAnalysisTest-cudss-cuda
+             COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver
+                     --device cuda)
+    add_test(NAME DirectSolverReuseAnalysisTestP-cudss-cuda
+             COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
+                     --solver CuDSSSolver --device cuda)
+    add_test(NAME DirectSolverReuseAnalysisTestP3-cudss-cuda
+             COMMAND mpirun -n 3 ./DirectSolverReuseAnalysisTest
+                     --solver CuDSSSolver --device cuda)
+    # hypre on the host: the matrices are stored on the host (accepted on a
+    # GPU reading the pageable memory of the host, refused otherwise)
+    add_test(NAME DirectSolverReuseAnalysisTest-cudss-cuda-hypre-on-host
+             COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver
+                     --device cuda --hypre-on-host)
+    add_test(NAME DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
+             COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
+                     --solver CuDSSSolver --device cuda --hypre-on-host)
+    set_tests_properties(DirectSolverReuseAnalysisTest-cudss-cuda
+                         DirectSolverReuseAnalysisTestP-cudss-cuda
+                         DirectSolverReuseAnalysisTestP3-cudss-cuda
+                         DirectSolverReuseAnalysisTest-cudss-cuda-hypre-on-host
+                         DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
                          PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
                                     ENVIRONMENT OMP_NUM_THREADS=1)
   endif()

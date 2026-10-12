@@ -18,6 +18,7 @@
 #include "mfem/linalg/petsc.hpp"
 #include "mfem/config/config.hpp"
 #include "mfem/fem/fespace.hpp"
+#include "mfem/general/device.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/fem/pfespace.hpp"
 #endif /* MFEM_USE_MPI */
@@ -33,6 +34,7 @@
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "AmgXSolvers.hxx"
 #include "MUMPSSolvers.hxx"
+#include "CuDSSSolvers.hxx"
 
 #ifdef MFEM_USE_MPI
 
@@ -1258,6 +1260,64 @@ namespace mfem_mgis {
 
 #endif /* MFEM_USE_MUMPS */
 
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+
+  [[nodiscard]] static std::function<LinearSolverHandler(
+      Context&, FiniteElementSpace<true>&, const Parameters&)>
+  buildCuDSSSolverGenerator() {
+    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+              const Parameters& params) -> LinearSolverHandler {
+      if (!checkParameters(
+              ctx, params,
+              std::vector<std::string>{"Symmetric", "PositiveDefinite",
+                                       "ReuseAnalysis"})) {
+        return {};
+      }
+      // cuDSS reads the matrices and the vectors on the GPU
+      if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+        return ctx.registerErrorMessage(
+            "CuDSSSolver: the cuDSS solver requires a device on a CUDA GPU "
+            "(option --device cuda of mfem_mgis::initialize)");
+      }
+      // when hypre computes on the host, MFEM gives cuDSS the arrays of the
+      // matrices stored on the host through a copy between device arrays
+      if ((!isHypreUsingGPU()) &&
+          (!internals::canGPUReadPageableHostMemory())) {
+        return ctx.registerErrorMessage(
+            "CuDSSSolver: when hypre computes on the host (option "
+            "--hypre-on-host of mfem_mgis::initialize, or hypre built "
+            "without GPU support), the cuDSS solver requires a GPU reading "
+            "the pageable memory of the host (heterogeneous memory "
+            "management)");
+      }
+      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+      const auto opositive_definite =
+          get_if<bool>(ctx, params, "PositiveDefinite", false);
+      const auto oreuse_analysis =
+          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+      if (isInvalid(osymmetric) || isInvalid(opositive_definite) ||
+          isInvalid(oreuse_analysis)) {
+        return {};
+      }
+      // as MUMPS, the symmetric modes read the lower triangle of the
+      // matrices
+      auto settings = internals::CuDSSSolverSettings{};
+      if (*osymmetric) {
+        settings.matrix_type =
+            *opositive_definite
+                ? mfem::CuDSSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE
+                : mfem::CuDSSSolver::MatType::SYMMETRIC_INDEFINITE;
+        settings.view = mfem::CuDSSSolver::MatViewType::LOWER;
+      }
+      auto s = std::make_unique<internals::CuDSSDirectSolver>(
+          fespace.GetComm(), settings, *oreuse_analysis);
+      return LinearSolverHandler{std::move(s),
+                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+    };
+  }  // end of buildCuDSSSolverGenerator
+
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+
   template <bool parallel>
   static void declareDefaultSolvers(LinearSolverFactory<parallel>& f) {
     auto ctx = Context{};
@@ -1311,6 +1371,9 @@ namespace mfem_mgis {
     if constexpr (parallel) {
 #ifdef MFEM_USE_MUMPS
       check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
+#endif
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+      check(f.add(ctx, "CuDSSSolver", buildCuDSSSolverGenerator()));
 #endif
       check(f.add(ctx, "HyprePCG", buildHyprePCGSolverGenerator()));
       check(f.add(ctx, "HypreBoomerAMG", buildHypreBoomerAMGSolverGenerator()));

@@ -19,6 +19,7 @@
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "AmgXSolvers.hxx"
 #include "MUMPSSolvers.hxx"
+#include "CuDSSSolvers.hxx"
 
 namespace mfem_mgis {
 
@@ -124,6 +125,15 @@ namespace mfem_mgis {
       return aptr->hasConverged();
     }
 #endif /* MFEM_MGIS_HAVE_AMGX */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+    // the failures of the factorization of cuDSS give solutions which are
+    // not finite
+    if (const auto* const cptr =
+            dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
+        cptr != nullptr) {
+      return cptr->hasSucceeded();
+    }
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
 #ifdef MFEM_USE_MPI
     auto check_hypre_solver_convergence =
         []<typename SolverType>(const SolverType* ptr) {
@@ -187,7 +197,7 @@ namespace mfem_mgis {
     return {};
   }  // end of getNumberOfIterationsAtConvergence
 
-  std::optional<size_type> getNumberOfMUMPSAnalyses(
+  std::optional<size_type> getNumberOfAnalyses(
       [[maybe_unused]] const LinearSolver& ls) noexcept {
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
     if (const auto* const s =
@@ -196,8 +206,15 @@ namespace mfem_mgis {
       return s->getNumberOfAnalyses();
     }
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+    if (const auto* const s =
+            dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
+        (s != nullptr) && (s->reusesAnalysis())) {
+      return s->getNumberOfAnalyses();
+    }
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
     return {};
-  }  // end of getNumberOfMUMPSAnalyses
+  }  // end of getNumberOfAnalyses
 
   namespace {
 

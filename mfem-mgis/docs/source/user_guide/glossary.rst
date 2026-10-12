@@ -68,13 +68,75 @@ the processes. The matrix being distributed, MUMPS does not use the
 maximum transversal permutation and computes the scaling at each
 factorization: its analysis only depends on the pattern of the matrix, and
 reusing it does not change the factorization. The function
-``getNumberOfMUMPSAnalyses`` gives the number of analyses made.
+``getNumberOfAnalyses`` gives the number of analyses made.
 
 **Example:**
 
 .. code-block:: cpp
 
   problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}}) | or_die;
+
+cuDSS Solver
+^^^^^^^^^^^^
+
+Direct solver of NVIDIA on the GPU, through the ``CuDSSSolver`` class of
+MFEM.
+
+- Solver name: ``CuDSSSolver``
+- Dependencies:
+
+  - ``MFEM_USE_CUDSS``
+  - parallel
+  - a device on a CUDA GPU (option ``--device cuda`` of
+    ``mfem_mgis::initialize``): the solver is refused otherwise
+  - when hypre computes on the host (option ``--hypre-on-host``), a GPU
+    reading the pageable memory of the host (heterogeneous memory
+    management): the solver is refused otherwise
+  - on several processes, a CUDA-aware MPI and the communication layer of
+    cuDSS (variable ``CUDSS_COMM_LIB``, or the library given to MFEM at its
+    configuration)
+
+- Parameters:
+
++----------------------+----------------------------------------------------+
+| Key                  | Description                                        |
++======================+====================================================+
+| ``Symmetric``        | Specify if the matrix is symmetric: only its lower |
+|                      | triangle is then read. [bool]                      |
++----------------------+----------------------------------------------------+
+| ``PositiveDefinite`` | Specify if the matrix is positive definite. [bool] |
++----------------------+----------------------------------------------------+
+| ``ReuseAnalysis``    | Reuse the analysis (ordering and symbolic          |
+|                      | factorization) of the previous matrix when the new |
+|                      | one has the same pattern on all processes. [bool,  |
+|                      | false by default]                                  |
++----------------------+----------------------------------------------------+
+
+As for MUMPS, the pattern of each new matrix is compared to the one of the
+last analysed matrix, and the function ``getNumberOfAnalyses`` gives the
+number of analyses made. The operators must be ``HypreParMatrix`` objects,
+which exist as long as the solver is used.
+
+cuDSS does not report the failures of the factorization (null pivots,
+matrix declared positive definite which is not): each solution is checked
+by its relative residual, which must be lower than ``1e-3``, and a failure
+is reported by ``hasConverged``, so that the non linear solvers reduce the
+time step. The other errors of cuDSS stop the program.
+
+With cuDSS 0.7.1, the distributed analysis (two processes or more) fails
+for some matrices: when some rows only have a diagonal entry, for
+tridiagonal matrices coupling the processes, or for some uneven
+distributions of the rows (observed with several processes on one GPU).
+The tangent operators of ``mfem-mgis`` keep the entries of the rows of the
+imposed degrees of freedom; on one process, no failure was observed.
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setLinearSolver(ctx, "CuDSSSolver",
+                          {{"Symmetric", true}, {"ReuseAnalysis", true}})
+      | or_die;
 
 UMFPack Solver
 ^^^^^^^^^^^^^^

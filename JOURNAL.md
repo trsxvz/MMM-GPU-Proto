@@ -4468,3 +4468,33 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   deux ; ordonnancements et factorisation approchée BLR sans gain. ex8 sur
   le GPU 11,1 -> 9,7 s, sur CPU (2 processus) 20,5 -> 19,2 s, mêmes
   résultats et mêmes itérations.
+
+### 2026-10-12 (matin), cuDSS sur le GPU
+
+- mfem-mgis (branche cudss, 840683d96f) : solveur `CuDSSSolver` de la
+  fabrique (paramètres `Symmetric`, `PositiveDefinite`, `ReuseAnalysis`,
+  refusé sans GPU CUDA). L'enveloppe `CuDSSDirectSolver` recrée le solveur
+  de MFEM quand la taille ou le motif change (MFEM ne choisit la
+  réutilisation qu'avant la première matrice et s'arrête sur une taille
+  différente). Comparaison des motifs partagée avec MUMPS
+  (`HypreMatrixPattern`) ; `getNumberOfAnalyses` couvre les deux solveurs ;
+  test `DirectSolverReuseAnalysisTest` (option `--solver`), 6/6 sur CPU et
+  GPU. mfem-mgis-examples efeb8b8 : `-lsMc CuDSSSolver` dans ex8.
+- Mesures (`results/cudss-2026-10-12`) : sur la matrice d'élasticité
+  d'ex8, factorisation 0,018 s avec cuDSS (analyse réutilisée) contre
+  0,203 s avec MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s (11,1 s au
+  début de la matinée), mêmes résultats et mêmes itérations.
+- L'analyse distribuée de cuDSS 0.7.1 échoue pour certaines matrices
+  (lignes réduites à leur diagonale, tridiagonale couplant les processus,
+  répartitions inégales ; plusieurs processus sur un GPU) :
+  `reproducers/cudss-distributed`. Un processus n'est pas touché.
+- Relecture Z9 traitée (45afaa0653) : décision collective sur la
+  disposition et le motif (blocage et descripteurs périmés quand un
+  processus gardait sa taille locale), `HypreParMatrix` exigée, refus avec
+  hypre sur l'hôte sauf GPU lisant la mémoire paginable de l'hôte,
+  solutions contrôlées par leur résidu (cuDSS rend une solution finie et
+  fausse pour une matrice définie négative déclarée définie positive),
+  motif d'une matrice sur le GPU comparé sans ses valeurs. Test à 10
+  variantes (1, 2 et 3 processus, hypre sur l'hôte), six mutations
+  détectées. ex8 sur le GPU : 4,4 à 4,5 s avec hypre sur l'hôte, 5,6 s
+  avec hypre sur le GPU.

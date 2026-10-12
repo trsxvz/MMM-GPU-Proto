@@ -54,7 +54,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "problem: System, Elasticity (requires byVDIM) or None.");
   args.AddOption(&p.mumps_symmetry_meca, "-msMc", "--mumps-symmetry-mechanics",
                  "Symmetry of the matrices of the mechanical problem given "
-                 "to MUMPS (tangent operator with Newton, elastic operator "
+                 "to the direct solver, MUMPSSolver or CuDSSSolver (tangent "
+                 "operator with Newton, elastic operator factorized by MUMPS "
                  "with NewtonK0): Unsymmetric, SymmetricIndefinite or "
                  "SymmetricPositiveDefinite (default: Unsymmetric with "
                  "Newton, SymmetricIndefinite with NewtonK0). The symmetric "
@@ -62,11 +63,11 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "would slow down or break the convergence.");
   args.AddOption(&p.mumps_reuse_analysis, "-mra", "--mumps-reuse-analysis",
                  "-no-mra", "--no-mumps-reuse-analysis",
-                 "Reuse the analysis of MUMPS (ordering and symbolic "
-                 "factorization) for the matrices of the same pattern, as "
-                 "the tangent operators of the successive Newton iterations "
-                 "(parameter ReuseAnalysis of the MUMPS solver of "
-                 "mfem-mgis).");
+                 "Reuse the analysis of the direct solvers (ordering and "
+                 "symbolic factorization) for the matrices of the same "
+                 "pattern, as the tangent operators of the successive Newton "
+                 "iterations (parameter ReuseAnalysis of the MUMPSSolver and "
+                 "CuDSSSolver solvers of mfem-mgis).");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -117,7 +118,8 @@ int main(int argc, char* argv[]) {
   common_parameters(args, p);
   // an invalid symmetry of the matrices given to MUMPS is refused even if
   // MUMPS is not used
-  static_cast<void>(getMUMPSSolverParameters(p.mumps_symmetry_meca, "", false));
+  static_cast<void>(
+      getDirectSolverParameters(p.mumps_symmetry_meca, "", false));
 
   if (p.t_ramp < 0) {
     ctx.log() << "the duration of the power ramp must not be negative\n";
@@ -174,7 +176,7 @@ int main(int argc, char* argv[]) {
         {"ElasticOperatorUpdate", "EachResolution"},
         {"ElasticOperatorLinearSolver",
          mfem_mgis::Parameters{
-             {"MUMPSSolver", getMUMPSSolverParameters(
+             {"MUMPSSolver", getDirectSolverParameters(
                                  p.mumps_symmetry_meca, "SymmetricIndefinite",
                                  p.mumps_reuse_analysis)}}},
         {"TangentLinearSolver",

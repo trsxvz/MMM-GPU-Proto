@@ -1,12 +1,16 @@
 /*!
- * \file   tests/MUMPSReuseAnalysisTest.cxx
- * \brief  Test of the `ReuseAnalysis` parameter of the MUMPS solver of the
- * factory of linear solvers: a sequence of operators whose pattern is
+ * \file   tests/DirectSolverReuseAnalysisTest.cxx
+ * \brief  Test of the `ReuseAnalysis` parameter of the direct solvers of the
+ * factory of linear solvers, `MUMPSSolver` (by default) or `CuDSSSolver`
+ * (option `--solver`, refused without a device on a CUDA GPU, and when
+ * hypre computes on the host on a GPU which does not read the pageable
+ * memory of the host): a sequence
+ * of operators whose pattern is
  * kept or changes, each one being destroyed after the next one is given,
  * as the non linear solvers do. Each resolution is checked by its
  * residual, with and without the reuse of the analysis, for symmetric and
  * non symmetric matrices, and, with the reuse, the number of analyses made
- * by MUMPS is checked after each operator: a new analysis is expected if
+ * by the solver is checked after each operator: a new analysis is expected if
  * and only if the pattern changed on one of the processes, including the
  * case where only the global indices of the off-diagonal columns change on
  * all processes.
@@ -22,6 +26,8 @@
 #include <utility>
 #include <optional>
 #include <iostream>
+#include "mfem/general/device.hpp"
+#include "mfem/general/optparser.hpp"
 #include "mfem/mesh/pmesh.hpp"
 #include "mfem/fem/pbilinearform.hpp"
 #include "MFEMMGIS/Config.hxx"
@@ -29,8 +35,37 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 
+#ifdef MFEM_USE_CUDA
+#include <cuda_runtime_api.h>
+#endif /* MFEM_USE_CUDA */
+
 //! \brief number of failed checks
 static int failures = 0;
+
+//! \return true if the cuDSS solver is expected to be refused
+static bool isCuDSSSolverRefused() {
+  if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+    return true;
+  }
+  if (mfem_mgis::isHypreUsingGPU()) {
+    return false;
+  }
+#ifdef MFEM_USE_CUDA
+  // when hypre computes on the host, the GPU must read the pageable memory
+  // of the host
+  auto device = int{};
+  auto pageable_memory_access = int{};
+  if ((cudaGetDevice(&device) != cudaSuccess) ||
+      (cudaDeviceGetAttribute(&pageable_memory_access,
+                              cudaDevAttrPageableMemoryAccess,
+                              device) != cudaSuccess)) {
+    return true;
+  }
+  return pageable_memory_access == 0;
+#else  /* MFEM_USE_CUDA */
+  return true;
+#endif /* MFEM_USE_CUDA */
+}  // end of isCuDSSSolverRefused
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -98,19 +133,37 @@ static TestOperator makeBlockDiagonal(const mfem::HypreParMatrix& A,
   return r;
 }  // end of makeBlockDiagonal
 
+//! \brief number of rows of a process, given its rank
+using RowsPerProcess = int (*)(const int);
+
+//! \return four rows for all processes
+static int fourRows(const int) { return 4; }
+
+//! \return the global index of the first row of a process
+static HYPRE_BigInt getFirstRow(const RowsPerProcess rows, const int rank) {
+  auto first = HYPRE_BigInt{};
+  for (int r = 0; r != rank; ++r) {
+    first += rows(r);
+  }
+  return first;
+}  // end of getFirstRow
+
 /*!
- * \return a matrix with four rows per process, given by the global column
- * index of the off-diagonal coefficient of each row (the diagonal
- * coefficients are equal to 4 and the off-diagonal ones to -1)
+ * \return a matrix given by the global column index of the off-diagonal
+ * coefficient of each row (the diagonal coefficients are equal to 4 and the
+ * off-diagonal ones to -1)
  * \param[in] coupled: global column index of the off-diagonal coefficient
  * of a row, given its global index
+ * \param[in] rows: number of rows of each process
  */
 template <typename CoupledColumn>
-static TestOperator makeCouplingMatrix(const CoupledColumn& coupled) {
-  constexpr auto n = int{4};
-  const auto first = HYPRE_BigInt{n} * mfem::Mpi::WorldRank();
-  const auto size = HYPRE_BigInt{n} * mfem::Mpi::WorldSize();
-  auto rows = std::vector<int>{0};
+static TestOperator makeCouplingMatrix(const CoupledColumn& coupled,
+                                       const RowsPerProcess rows = fourRows) {
+  const auto rank = mfem::Mpi::WorldRank();
+  const auto n = rows(rank);
+  const auto first = getFirstRow(rows, rank);
+  const auto size = getFirstRow(rows, mfem::Mpi::WorldSize());
+  auto offsets = std::vector<int>{0};
   auto columns = std::vector<HYPRE_BigInt>{};
   auto values = std::vector<mfem_mgis::real>{};
   for (int l = 0; l != n; ++l) {
@@ -118,12 +171,12 @@ static TestOperator makeCouplingMatrix(const CoupledColumn& coupled) {
     values.push_back(4);
     columns.push_back(coupled(first + l));
     values.push_back(-1);
-    rows.push_back(static_cast<int>(columns.size()));
+    offsets.push_back(static_cast<int>(columns.size()));
   }
   const auto partition = std::array<HYPRE_BigInt, 2>{first, first + n};
   return {nullptr,
           std::make_unique<mfem::HypreParMatrix>(
-              MPI_COMM_WORLD, n, size, size, rows.data(), columns.data(),
+              MPI_COMM_WORLD, n, size, size, offsets.data(), columns.data(),
               values.data(), partition.data(), partition.data())};
 }  // end of makeCouplingMatrix
 
@@ -153,14 +206,41 @@ static TestOperator makeMatching(const bool swapped) {
  * on two processes or more; on one process, by the column indices of their
  * diagonal blocks.
  * \param[in] offset: offset of the coupled columns, 0 or 2
+ * \param[in] rows: number of rows of each process, two at least
  */
-static TestOperator makeNextProcessCoupling(const HYPRE_BigInt offset) {
+static TestOperator makeNextProcessCoupling(
+    const HYPRE_BigInt offset, const RowsPerProcess rows = fourRows) {
   const auto size = mfem::Mpi::WorldSize();
-  const auto next = HYPRE_BigInt{4} * ((mfem::Mpi::WorldRank() + 1) % size);
-  return makeCouplingMatrix([next, offset](const HYPRE_BigInt i) {
-    return next + offset + ((i + 1) % 2);
-  });
+  const auto next = getFirstRow(rows, (mfem::Mpi::WorldRank() + 1) % size);
+  return makeCouplingMatrix(
+      [next, offset](const HYPRE_BigInt i) {
+        return next + offset + ((i + 1) % 2);
+      },
+      rows);
 }  // end of makeNextProcessCoupling
+
+/*!
+ * \return the number of rows of a process: four, except on two processes
+ * or more, where the last process has six
+ */
+static int sixRowsOnTheLastProcess(const int rank) {
+  const auto size = mfem::Mpi::WorldSize();
+  return ((size > 1) && (rank + 1 == size)) ? 6 : 4;
+}  // end of sixRowsOnTheLastProcess
+
+/*!
+ * \return the number of rows of a process: four, except on three processes
+ * or more, where a row of the second process is moved to the last one, the
+ * layout of the first process being unchanged (cuDSS 0.7.1 fails to
+ * analyse the coupling matrix when two rows are moved)
+ */
+static int rowsMovedToTheLastProcess(const int rank) {
+  const auto size = mfem::Mpi::WorldSize();
+  if (size < 3) {
+    return 4;
+  }
+  return (rank == 1) ? 3 : ((rank + 1 == size) ? 5 : 4);
+}  // end of rowsMovedToTheLastProcess
 
 //! \brief an operator of the sequence
 struct Step {
@@ -174,11 +254,26 @@ struct Step {
    * not checked
    */
   std::optional<bool> pattern_changed;
+  //! \brief if true, some rows of the operator only have a diagonal entry
+  bool diagonal_rows = false;
 };
 
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
+  // name of the solver
+  const char* solver_name = "MUMPSSolver";
+  auto args = mfem::OptionsParser(argc, argv);
+  declareDefaultOptions(args);
+  args.AddOption(&solver_name, "-s", "--solver",
+                 "direct solver: MUMPSSolver or CuDSSSolver");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    finalize();
+    return EXIT_FAILURE;
+  }
+  const auto solver_type = std::string{solver_name};
   auto smesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
   auto pmesh = Mesh<true>(MPI_COMM_WORLD, smesh);
   auto fec = mfem::H1_FECollection(1, 3);
@@ -188,24 +283,44 @@ int main(int argc, char** argv) {
   auto ess_tdofs = mfem::Array<int>{};
   fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
   const auto verbose = fespace.GetMyRank() == 0;
+  if ((solver_type == "CuDSSSolver") && (isCuDSSSolverRefused())) {
+    auto ctx = Context{};
+    const auto h = LinearSolverFactory<true>::getFactory().generate(
+        ctx, solver_name, fespace, Parameters{{"ReuseAnalysis", true}});
+    check(isInvalid(h), "cuDSS accepted");
+    if (verbose) {
+      std::cout << "refused: " << ctx.getErrorMessage() << '\n'
+                << (failures == 0 ? "success" : "failure") << '\n';
+    }
+    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
   const auto reference = assemble(fespace, ess_tdofs, 1);
   // sequence of operators. On one process, the block diagonal operator is
   // the diffusion operator, stored differently: the analysis may be reused
-  // or not.
+  // or not. On three processes or more, the operator whose rows are moved
+  // to the last process does not change the layout of the first process,
+  // and is the previous one on one and two processes. The last operator
+  // changes the number of rows of the last process on two processes or
+  // more (the global number of rows changes on all processes).
   const auto parallel = mfem::Mpi::WorldSize() > 1;
   const auto block_diagonal_pattern_changed =
       parallel ? std::optional<bool>{true} : std::optional<bool>{};
-  const auto steps = std::array<Step, 10>{
+  const auto rows_moved = mfem::Mpi::WorldSize() > 2;
+  const auto steps = std::array<Step, 12>{
       Step{"diffusion", true, true},
       Step{"diffusion, values changed", true, false},
       Step{"diffusion, values changed again", true, false},
       Step{"block diagonal", true, block_diagonal_pattern_changed},
-      Step{"diagonal on the last process", true, true},
-      Step{"diagonal on the last process, values changed", true, false},
+      Step{"diagonal on the last process", true, true, true},
+      Step{"diagonal on the last process, values changed", true, false, true},
       Step{"matching", true, true},
       Step{"swapped matching", true, true},
       Step{"coupling with the next process", false, true},
-      Step{"coupling with the next process, other columns", false, true}};
+      Step{"coupling with the next process, other columns", false, true},
+      Step{"coupling with the next process, rows moved to the last process",
+           false, rows_moved},
+      Step{"coupling with the next process, rows added to the last process",
+           false, true}};
   auto make_operator = [&](const std::size_t i) {
     if (i == 0) {
       return assemble(fespace, ess_tdofs, 1);
@@ -225,31 +340,44 @@ int main(int argc, char** argv) {
       return makeMatching(true);
     } else if (i == 8) {
       return makeNextProcessCoupling(0);
+    } else if (i == 9) {
+      return makeNextProcessCoupling(2);
+    } else if (i == 10) {
+      return makeNextProcessCoupling(2, rowsMovedToTheLastProcess);
     }
-    return makeNextProcessCoupling(2);
+    return makeNextProcessCoupling(0, sixRowsOnTheLastProcess);
   };
   for (const auto reuse : {false, true}) {
     for (const auto symmetric : {false, true}) {
       auto ctx = Context{};
       auto& factory = LinearSolverFactory<true>::getFactory();
-      auto h = factory.generate(ctx, "MUMPSSolver", fespace,
+      auto h = factory.generate(ctx, solver_name, fespace,
                                 Parameters{{"Symmetric", symmetric},
                                            {"PositiveDefinite", symmetric},
                                            {"ReuseAnalysis", reuse}});
-      check(!isInvalid(h), "MUMPS is refused: " + ctx.getErrorMessage());
+      check(!isInvalid(h),
+            solver_type + " is refused: " + ctx.getErrorMessage());
       if (isInvalid(h)) {
         continue;
       }
       const auto& solver = *(h.linear_solver);
       const auto label = std::string{reuse ? "reuse" : "no reuse"} +
                          (symmetric ? ", symmetric" : ", non symmetric");
-      check(getNumberOfMUMPSAnalyses(solver).has_value() == reuse,
+      check(getNumberOfAnalyses(solver).has_value() == reuse,
             label + ": number of analyses " +
                 (reuse ? "not available" : "available"));
       auto op = TestOperator{};
       auto analyses = size_type{};
       for (std::size_t i = 0; i != steps.size(); ++i) {
         if (symmetric && !steps[i].symmetric) {
+          continue;
+        }
+        // the distributed analysis of cuDSS 0.7.1 fails when some rows only
+        // have a diagonal entry (observed with two processes on one GPU);
+        // the matrices of mfem-mgis keep the entries of the rows of the
+        // imposed degrees of freedom
+        if ((solver_type == "CuDSSSolver") && parallel &&
+            steps[i].diagonal_rows) {
           continue;
         }
         const auto step = label + ", " + steps[i].description;
@@ -277,7 +405,7 @@ int main(int argc, char** argv) {
           std::cout << step << ": relative residual " << r / nb;
         }
         if (reuse) {
-          const auto n = getNumberOfMUMPSAnalyses(solver).value_or(0);
+          const auto n = getNumberOfAnalyses(solver).value_or(0);
           if (const auto& changed = steps[i].pattern_changed;
               changed.has_value()) {
             const auto expected = analyses + (*changed ? 1 : 0);
@@ -296,10 +424,36 @@ int main(int argc, char** argv) {
       }
     }
   }
+  if (solver_type == "CuDSSSolver") {
+    // cuDSS does not report the failures of the factorization: the wrong
+    // solution given for a matrix declared positive definite which is not
+    // is detected by its residual and reported by hasConverged
+    auto ctx = Context{};
+    auto h = LinearSolverFactory<true>::getFactory().generate(
+        ctx, solver_name, fespace,
+        Parameters{{"Symmetric", true}, {"PositiveDefinite", true}});
+    check(!isInvalid(h), solver_type + " is refused: " + ctx.getErrorMessage());
+    if (!isInvalid(h)) {
+      const auto op = makeBlockDiagonal(*(reference.A), -1, false);
+      h.linear_solver->SetOperator(*(op.A));
+      auto B = mfem::Vector(op.A->Height());
+      B = 1.0;
+      auto X = mfem::Vector(B.Size());
+      X = 0.0;
+      h.linear_solver->Mult(B, X);
+      check(!hasConverged(*(h.linear_solver)),
+            "failure of the factorization not reported");
+      if (verbose) {
+        std::cout << "negative definite matrix declared positive definite: "
+                  << (hasConverged(*(h.linear_solver)) ? "not " : "")
+                  << "reported\n";
+      }
+    }
+  }
   // a value which is not a boolean is refused
   auto ctx = Context{};
   check(isInvalid(LinearSolverFactory<true>::getFactory().generate(
-            ctx, "MUMPSSolver", fespace, Parameters{{"ReuseAnalysis", 1}})),
+            ctx, solver_name, fespace, Parameters{{"ReuseAnalysis", 1}})),
         "invalid value of ReuseAnalysis accepted");
   if (verbose) {
     std::cout << (failures == 0 ? "success" : "failure") << '\n';

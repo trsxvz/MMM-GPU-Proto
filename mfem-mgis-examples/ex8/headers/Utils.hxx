@@ -25,7 +25,8 @@ inline bool contains(const std::vector<std::string>& list,
 
 // UMFPackSolver is not listed since it is only available for sequential
 // computations
-inline const std::vector<std::string> direct_solvers = {"MUMPSSolver"};
+inline const std::vector<std::string> direct_solvers = {"MUMPSSolver",
+                                                        "CuDSSSolver"};
 
 inline const std::vector<std::string> iterative_solvers = {
     "CGSolver",  "GMRESSolver", "BiCGSTABSolver", "MINRESSolver",
@@ -79,17 +80,18 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
 }
 
 /*!
- * \return the parameters of the MUMPS solver of mfem-mgis for the symmetry
- * of the matrices given by the option -msMc, or for the default symmetry if
- * this option is not given. The symmetric modes give the lower triangle of
- * the matrices to MUMPS without checking their symmetry: a non symmetric
+ * \return the parameters of the direct solvers of mfem-mgis (MUMPS, cuDSS)
+ * for the symmetry of the matrices given by the option -msMc, or for the
+ * default symmetry if this option is not given. The symmetric modes give the
+ * lower triangle of the matrices to the solver without checking their
+ * symmetry: a non symmetric
  * matrix would slow down or break the convergence of the Newton method.
  * \param[in] symmetry: value of the option -msMc
  * \param[in] default_symmetry: default symmetry
- * \param[in] reuse_analysis: reuse the analysis of MUMPS for the matrices
+ * \param[in] reuse_analysis: reuse the analysis of the solver for the matrices
  * of the same pattern (option -mra)
  */
-inline mfem_mgis::Parameters getMUMPSSolverParameters(
+inline mfem_mgis::Parameters getDirectSolverParameters(
     const std::string_view symmetry,
     const std::string_view default_symmetry,
     const bool reuse_analysis) {
@@ -102,7 +104,8 @@ inline mfem_mgis::Parameters getMUMPSSolverParameters(
         mfem_mgis::Parameters{{"Symmetric", true}, {"PositiveDefinite", true}};
   } else if ((!s.empty()) && (s != "Unsymmetric")) {
     mfem_mgis::abort(
-        "Invalid symmetry of the matrices given to MUMPS: " + std::string{s} +
+        "Invalid symmetry of the matrices given to the direct solver: " +
+        std::string{s} +
         " (expected Unsymmetric, SymmetricIndefinite or "
         "SymmetricPositiveDefinite)");
   }
@@ -112,7 +115,7 @@ inline mfem_mgis::Parameters getMUMPSSolverParameters(
     parameters.insert(mfem_mgis::attributes::Throwing{}, "ReuseAnalysis", true);
   }
   return parameters;
-}  // end of getMUMPSSolverParameters
+}  // end of getDirectSolverParameters
 
 template <typename Problem>
 inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
@@ -150,7 +153,7 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
         (std::string_view{param.nonlinear_solver_meca} != "NewtonK0")) {
       mfem_mgis::Profiler::Utils::Message(
           "warning: the option -msMc is ignored (the linear solver of the "
-          "mechanical problem is not MUMPS)");
+          "mechanical problem is not a direct solver)");
     }
   }
 
@@ -189,9 +192,10 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
   else if (contains(direct_solvers, solver)) {
     const auto solverParameters =
         (physics_type == "mechanics")
-            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric",
-                                       param.mumps_reuse_analysis)
-            : getMUMPSSolverParameters("", "", param.mumps_reuse_analysis);
+            ? getDirectSolverParameters(param.mumps_symmetry_meca,
+                                        "Unsymmetric",
+                                        param.mumps_reuse_analysis)
+            : getDirectSolverParameters("", "", param.mumps_reuse_analysis);
     p.setLinearSolver(ctx, solver, solverParameters) | or_die;
   }
 

@@ -60,7 +60,7 @@ plusieurs lignes.
 | KINSOL de SUNDIALS par MFEM (`KINSolver` : point fixe avec Anderson, JFNK, recherche linéaire) | les deux | 6 | SUNDIALS 7.9, MFEM ; demande un opérateur dont `Mult` intègre la loi |
 | Ajout : prédiction par extrapolation de l'incrément de déplacement | les deux | 5 | mfem-mgis |
 | AmgX par `AmgXSolver` de MFEM (point de comparaison avec BoomerAMG, modes MPI) | GPU NVIDIA | 5 | AmgX, MFEM |
-| cuDSS (solveur direct NVIDIA, un ou plusieurs GPU, MPI, refactorisation) | GPU NVIDIA | 5 | cuDSS ; enveloppe `CuDSSSolver` de MFEM 4.10 |
+| cuDSS (solveur direct NVIDIA, un ou plusieurs GPU, MPI, refactorisation) | GPU NVIDIA | 5 | cuDSS ; enveloppe `CuDSSSolver` de MFEM 4.10 ; fait : solveur `CuDSSSolver` de mfem-mgis |
 | Ajout : Krylov pipeliné (CG pipeliné de Ginkgo, `KSPPIPECG` de PETSc) | les deux | 5 | Ginkgo 1.10, PETSc |
 | Ajout : Ratel comme calcul de référence sur le même cas | les deux | 5 | Ratel, PETSc, libCEED |
 | SuperLU_DIST et STRUMPACK sur GPU (enveloppes MFEM existantes) | les deux | 4 | MFEM |
@@ -413,13 +413,26 @@ Intérêt 6, 8 sur GPU grand public.
 
 Intérêt pour les petits cas, les configurations mixtes et comme référence.
 
-- **cuDSS** (intérêt 5) : solveur direct de NVIDIA, un ou plusieurs GPU,
-  MPI. MFEM 4.10 l'enveloppe (`CuDSSSolver`, avec
+- **cuDSS** (intérêt 5, fait le 12/10) : solveur direct de NVIDIA, un ou
+  plusieurs GPU, MPI. MFEM 4.10 l'enveloppe (`CuDSSSolver`, avec
   `SetReorderingReuse` : l'analyse symbolique est gardée quand seule la
   valeur des coefficients change, ce qui est le cas d'une itération de
   Newton à l'autre). La recette spack de MFEM 4.10 accepte cuDSS 0.6 à
   0.7.1 ; l'environnement installe cuDSS 0.7.1 pour CUDA 13 et MFEM avec
-  `+cudss`.
+  `+cudss`. Solveur `CuDSSSolver` de la fabrique de mfem-mgis, avec
+  `Symmetric`, `PositiveDefinite` et `ReuseAnalysis` (motif comparé sur
+  tous les processus, solveur de MFEM recréé quand le motif ou la taille
+  change : MFEM ne permet de choisir la réutilisation qu'avant la première
+  matrice et s'arrête sur une taille différente). Sur la matrice
+  d'élasticité d'ex8, une factorisation prend 0,018 s contre 0,203 s pour
+  MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s
+  (`results/cudss-2026-10-12`). Chaque solution est contrôlée par son
+  résidu (cuDSS ne signale pas les échecs de la factorisation). L'analyse
+  distribuée de cuDSS 0.7.1 échoue pour certaines matrices que MUMPS
+  résout : lignes réduites à leur coefficient diagonal, matrice
+  tridiagonale couplant les processus, certaines répartitions inégales
+  (`reproducers/cudss-distributed`, plusieurs processus sur un GPU) ; un
+  processus n'est pas touché, et les matrices de diffusion passent.
 - **MUMPS sur l'hôte, analyse réutilisée** (fait le 12/10). Dans ex8 sur
   le GPU, les 29 factorisations de MUMPS de la mécanique sont le premier
   poste. Le paramètre `ReuseAnalysis` du solveur `MUMPSSolver` de
@@ -431,9 +444,9 @@ Intérêt pour les petits cas, les configurations mixtes et comme référence.
   11,1 -> 9,7 s, mêmes résultats (`results/mumps-analyse-2026-10-12`).
   Les autres réglages de MUMPS (ordonnancements, factorisation approchée
   BLR) ne gagnent rien sur cette matrice. La même comparaison du motif
-  servirait à `CuDSSSolver` : avec `SetReorderingReuse`, MFEM n'y vérifie
-  que le nombre de coefficients (et s'arrête s'il change), pas leurs
-  colonnes.
+  sert aussi au solveur cuDSS (ci-dessus) : avec `SetReorderingReuse`,
+  MFEM n'y vérifie que le nombre de coefficients (et s'arrête s'il
+  change), pas leurs colonnes.
 - **SuperLU_DIST** (intérêt 4) : factorisation sur GPU (CUDA). MFEM 4.10
   ajoute `SuperLUSolver::SetDeviceOffload`.
 - **STRUMPACK** (intérêt 4) : `STRUMPACKSolverBase::EnableGPU` dans MFEM

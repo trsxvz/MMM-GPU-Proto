@@ -163,6 +163,9 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
      Umpire (2 à 5 fois plus lents) ;
    - hypre sur l'hôte avec le périphérique sur le GPU
      (`--hypre-on-host`), pour les petits systèmes linéaires ;
+   - solveur direct cuDSS sur le GPU (`CuDSSSolver`, enveloppe de
+     `mfem::CuDSSSolver` qui le recrée quand la taille ou le motif change),
+     avec la réutilisation de l'analyse de la contribution 2 ;
    - sections de profilage qui attendent les noyaux lancés.
 4. **Chemin GPU du code existant** : toute la suite de tests sur le GPU
    (variable `MFEM_MGIS_DEVICE`), et les corrections trouvées ainsi :

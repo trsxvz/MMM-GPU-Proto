@@ -1,0 +1,1193 @@
+From 45afaa06538c00f422d255ae5f824d0b0bf51d7c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 06:55:09 +0200
+Subject: [PATCH] CuDSSSolver: fixes of an independent review
+
+- the decision to create a new solver of MFEM is collective: the layout of
+  the matrix (local numbers of rows and columns, global number of rows,
+  first row) and, with ReuseAnalysis, its pattern are compared on all
+  processes, all of them taking part in the reduction (a process keeping
+  its local size skipped it, and a process keeping its local size while
+  the global layout changed kept the descriptors of the previous layout);
+- the operator must be a HypreParMatrix (the SparseMatrix path of MFEM is
+  wrong with a communicator);
+- when hypre computes on the host, MFEM gives cuDSS host arrays through a
+  copy between device arrays: the solver is refused unless the GPU reads
+  the pageable memory of the host;
+- cuDSS does not report the failures of the factorization, which give
+  wrong solutions, finite or not: each solution is checked by its
+  relative residual (1e-3), computed on the device, and a failure is
+  reported by hasConverged;
+- the pattern of a matrix stored on the device is compared without
+  reading its values: its index arrays are copied into buffers allocated
+  when the pattern is recorded (HypreMatrixPatternRecord), nothing being
+  allocated before the collective reduction;
+- documentation: requirements (CUDA-aware MPI on several processes,
+  hypre on the host), failures reported or stopping the program, failures
+  of the distributed analysis of cuDSS 0.7.1;
+- DirectSolverReuseAnalysisTest: a step moving a row between processes
+  (three processes, the layout of the first process being kept), a step
+  adding rows to the last process, a negative definite matrix declared
+  positive definite (failure reported), variants on three processes and
+  with hypre on the host, and the refusal tested without the device
+  configured by the environment.
+
+Six mutations of the cuDSS solver and of the pattern record are detected
+(collective decision short-circuited, no pattern comparison, no residual
+check, pattern forgotten after a reuse, buffers not copied, global
+indices of the off-diagonal columns not compared).
+---
+ docs/source/user_guide/glossary.rst     |  25 +-
+ src/CuDSSSolvers.cxx                    | 105 +++++++--
+ src/CuDSSSolvers.hxx                    |  76 ++++++-
+ src/HypreMatrixPattern.cxx              | 290 ++++++++++++++++--------
+ src/HypreMatrixPattern.hxx              |  64 ++++--
+ src/LinearSolverFactory.cxx             |  11 +
+ src/MUMPSSolvers.cxx                    |   6 +-
+ src/MUMPSSolvers.hxx                    |   5 +-
+ src/SolverUtilities.cxx                 |   9 +
+ tests/CMakeLists.txt                    |  25 +-
+ tests/DirectSolverReuseAnalysisTest.cxx | 161 +++++++++++--
+ 11 files changed, 593 insertions(+), 184 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index c864fae64f..46653bd4e2 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -89,6 +89,12 @@ MFEM.
+   - parallel
+   - a device on a CUDA GPU (option ``--device cuda`` of
+     ``mfem_mgis::initialize``): the solver is refused otherwise
++  - when hypre computes on the host (option ``--hypre-on-host``), a GPU
++    reading the pageable memory of the host (heterogeneous memory
++    management): the solver is refused otherwise
++  - on several processes, a CUDA-aware MPI and the communication layer of
++    cuDSS (variable ``CUDSS_COMM_LIB``, or the library given to MFEM at its
++    configuration)
+ 
+ - Parameters:
+ 
+@@ -108,10 +114,21 @@ MFEM.
+ 
+ As for MUMPS, the pattern of each new matrix is compared to the one of the
+ last analysed matrix, and the function ``getNumberOfAnalyses`` gives the
+-number of analyses made. With cuDSS 0.7.1, the distributed analysis (two
+-processes or more) fails when some rows of the matrix only have a diagonal
+-entry; the tangent operators of ``mfem-mgis`` keep the entries of the rows
+-of the imposed degrees of freedom.
++number of analyses made. The operators must be ``HypreParMatrix`` objects,
++which exist as long as the solver is used.
++
++cuDSS does not report the failures of the factorization (null pivots,
++matrix declared positive definite which is not): each solution is checked
++by its relative residual, which must be lower than ``1e-3``, and a failure
++is reported by ``hasConverged``, so that the non linear solvers reduce the
++time step. The other errors of cuDSS stop the program.
++
++With cuDSS 0.7.1, the distributed analysis (two processes or more) fails
++for some matrices: when some rows only have a diagonal entry, for
++tridiagonal matrices coupling the processes, or for some uneven
++distributions of the rows (observed with several processes on one GPU).
++The tangent operators of ``mfem-mgis`` keep the entries of the rows of the
++imposed degrees of freedom; on one process, no failure was observed.
+ 
+ **Example:**
+ 
+diff --git a/src/CuDSSSolvers.cxx b/src/CuDSSSolvers.cxx
+index e808094f21..cf827569ef 100644
+--- a/src/CuDSSSolvers.cxx
++++ b/src/CuDSSSolvers.cxx
+@@ -9,15 +9,39 @@
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+ 
+ #include <utility>
++#include <cuda_runtime_api.h>
+ #include "mfem/general/error.hpp"
+ 
+ namespace mfem_mgis::internals {
+ 
++  bool canGPUReadPageableHostMemory() {
++    auto device = int{};
++    auto pageable_memory_access = int{};
++    if (cudaGetDevice(&device) != cudaSuccess) {
++      return false;
++    }
++    if (cudaDeviceGetAttribute(&pageable_memory_access,
++                               cudaDevAttrPageableMemoryAccess,
++                               device) != cudaSuccess) {
++      return false;
++    }
++    return pageable_memory_access != 0;
++  }  // end of canGPUReadPageableHostMemory
++
+   CuDSSDirectSolver::CuDSSDirectSolver(const MPI_Comm c,
+                                        const CuDSSSolverSettings& s,
+                                        const bool r)
+       : communicator(c), settings(s), reuse_analysis(r) {}
+ 
++  CuDSSDirectSolver::Layout CuDSSDirectSolver::getLayout(
++      const mfem::HypreParMatrix& A) {
++    const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
++    return {.number_of_rows = A.Height(),
++            .number_of_columns = A.Width(),
++            .global_number_of_rows = hypre_ParCSRMatrixGlobalNumRows(m),
++            .first_row = hypre_ParCSRMatrixFirstRowIndex(m)};
++  }  // end of getLayout
++
+   void CuDSSDirectSolver::makeSolver() {
+     // the previous solver and its device memory are released first
+     this->solver.reset();
+@@ -30,54 +54,89 @@ namespace mfem_mgis::internals {
+ 
+   void CuDSSDirectSolver::SetOperator(const mfem::Operator& op) {
+     const auto* const A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+-    const auto same_size = (this->solver != nullptr) &&
+-                           (this->height == op.Height()) &&
+-                           (this->width == op.Width());
+-    if (!this->reuse_analysis) {
+-      // a new analysis for each matrix, made by MFEM
+-      if (!same_size) {
+-        this->makeSolver();
+-      }
+-      this->height = op.Height();
+-      this->width = op.Width();
+-      this->solver->SetOperator(op);
+-      ++(this->number_of_analyses);
+-      return;
+-    }
++    MFEM_VERIFY(A != nullptr,
++                "CuDSSSolver: the operator must be a HypreParMatrix");
++    const auto l = getLayout(*A);
++    // collective decision: a new solver of MFEM is created on all processes
++    // or on none
++    const auto same_layout = this->layout == l;
+     const auto same =
+-        same_size && (A != nullptr) &&
+-        hasPatternOnAllProcesses(*A, this->pattern, this->communicator);
+-    // the pattern is forgotten until the factorization succeeds: if it
+-    // fails by an exception, the next matrix is analysed again by a new
+-    // solver
+-    auto previous = std::exchange(this->pattern, std::nullopt);
++        this->reuse_analysis
++            ? this->pattern.isSameOnAllProcesses(*A, this->communicator,
++                                                 same_layout)
++            : isTrueOnAllProcesses(same_layout, this->communicator);
++    // the layout and the pattern are forgotten until the factorization
++    // succeeds: if it fails by an exception, the next matrix is given to a
++    // new solver
++    auto previous = std::exchange(this->pattern, HypreMatrixPatternRecord{});
++    this->layout.reset();
+     if (!same) {
+       this->makeSolver();
+     }
+     this->height = op.Height();
+     this->width = op.Width();
++    this->matrix = nullptr;
+     this->solver->SetOperator(op);
++    this->matrix = A;
++    this->layout = l;
++    if (!this->reuse_analysis) {
++      // MFEM analyses each matrix
++      ++(this->number_of_analyses);
++      return;
++    }
+     if (same) {
+       this->pattern = std::move(previous);
+       return;
+     }
+     ++(this->number_of_analyses);
+-    if (A != nullptr) {
+-      this->pattern = getPattern(*A);
+-    }
++    this->pattern.record(*A);
+   }  // end of SetOperator
+ 
++  void CuDSSDirectSolver::checkSolutions(
++      const mfem::Array<const mfem::Vector*>& X,
++      const mfem::Array<mfem::Vector*>& Y) const {
++    // relative bound of the residuals
++    constexpr auto tolerance = real{1e-3};
++    auto succeeded_on_all_processes = true;
++    for (int i = 0; i != Y.Size(); ++i) {
++      const auto& x = *(X[i]);
++      const auto& y = *(Y[i]);
++      // computed where the vectors are
++      this->residual.SetSize(x.Size());
++      this->residual.UseDevice(true);
++      this->matrix->Mult(y, this->residual);
++      this->residual -= x;
++      const auto r2 = mfem::InnerProduct(this->communicator, this->residual,
++                                         this->residual);
++      const auto b2 = mfem::InnerProduct(this->communicator, x, x);
++      // false for values which are not finite
++      succeeded_on_all_processes =
++          succeeded_on_all_processes && (r2 <= tolerance * tolerance * b2);
++    }
++    this->succeeded = succeeded_on_all_processes;
++  }  // end of checkSolutions
++
+   void CuDSSDirectSolver::Mult(const mfem::Vector& x, mfem::Vector& y) const {
+     MFEM_VERIFY(this->solver != nullptr, "no operator given");
+     this->solver->Mult(x, y);
++    auto X = mfem::Array<const mfem::Vector*>(1);
++    auto Y = mfem::Array<mfem::Vector*>(1);
++    X[0] = &x;
++    Y[0] = &y;
++    this->checkSolutions(X, Y);
+   }  // end of Mult
+ 
+   void CuDSSDirectSolver::ArrayMult(const mfem::Array<const mfem::Vector*>& X,
+                                     mfem::Array<mfem::Vector*>& Y) const {
+     MFEM_VERIFY(this->solver != nullptr, "no operator given");
+     this->solver->ArrayMult(X, Y);
++    this->checkSolutions(X, Y);
+   }  // end of ArrayMult
+ 
++  bool CuDSSDirectSolver::hasSucceeded() const noexcept {
++    return this->succeeded;
++  }  // end of hasSucceeded
++
+   bool CuDSSDirectSolver::reusesAnalysis() const noexcept {
+     return this->reuse_analysis;
+   }  // end of reusesAnalysis
+diff --git a/src/CuDSSSolvers.hxx b/src/CuDSSSolvers.hxx
+index 80483bfac0..644e963f71 100644
+--- a/src/CuDSSSolvers.hxx
++++ b/src/CuDSSSolvers.hxx
+@@ -31,19 +31,41 @@ namespace mfem_mgis::internals {
+     mfem::CuDSSSolver::MatViewType view = mfem::CuDSSSolver::MatViewType::FULL;
+   };
+ 
++  /*!
++   * \return true if the current GPU reads the pageable memory of the host
++   * (heterogeneous memory management, or address translation services).
++   * When hypre computes on the host, `mfem::CuDSSSolver` (MFEM 4.10) gives
++   * cuDSS host arrays through a copy between device arrays, which is only
++   * valid on such a GPU.
++   */
++  [[nodiscard]] bool canGPUReadPageableHostMemory();
++
+   /*!
+    * \brief cuDSS solver of the factory of linear solvers.
+    *
+    * `mfem::CuDSSSolver` (MFEM 4.10) stops the program when given a matrix
+-   * whose size differs from the one of the previous matrix, and the reuse
+-   * of its analysis (ordering and symbolic factorization) is chosen before
+-   * its first matrix, after which only the number of coefficients of the
+-   * next matrices is checked (MFEM stops the program if it changes). A new
+-   * `mfem::CuDSSSolver` is thus created when the size of the matrix
+-   * changes and, if the analysis is reused, when its pattern changed on one
+-   * process. With the reuse, the analysis of the previous matrix is reused
+-   * when the new one has the same pattern on all processes, as the
+-   * matrices of the successive iterations of the non linear solvers.
++   * whose local size differs from the one of the previous matrix, keeps the
++   * descriptors of the right-hand side and of the solution of its first
++   * matrix, and the reuse of its analysis (ordering and symbolic
++   * factorization) is chosen before its first matrix, after which only the
++   * number of coefficients of the next matrices is checked (MFEM stops the
++   * program if it changes). A new `mfem::CuDSSSolver` is thus created on
++   * all processes when the layout of the matrix (local and global numbers
++   * of rows, first row) changed on one process and, if the analysis is
++   * reused, when its pattern changed on one process. With the reuse, the
++   * analysis of the previous matrix is reused when the new one has the same
++   * pattern on all processes, as the matrices of the successive iterations
++   * of the non linear solvers.
++   *
++   * cuDSS does not report the failures of the factorization (null pivots,
++   * matrix declared positive definite which is not), which give wrong
++   * solutions, finite or not: each solution is checked by its relative
++   * residual, `|b - A x| <= 1e-3 |b|`, computed where the vectors are. The
++   * result is given by `hasSucceeded`, read by `mfem_mgis::hasConverged`.
++   * The bound only rejects wrong solutions: the relative residual of a
++   * stable factorization is of the order of the precision times the
++   * condition number of the matrix. As for the iterative solvers of MFEM,
++   * the operator must exist as long as the solver is used.
+    */
+   struct CuDSSDirectSolver final : public mfem::Solver {
+     /*!
+@@ -53,21 +75,45 @@ namespace mfem_mgis::internals {
+      * \param[in] r: reuse the analysis for the matrices of the same pattern
+      */
+     CuDSSDirectSolver(MPI_Comm, const CuDSSSolverSettings&, const bool);
+-    //! \brief set the operator
++    //! \brief set the operator, a parallel matrix of hypre
+     void SetOperator(const mfem::Operator&) override;
+     //! \brief solve
+     void Mult(const mfem::Vector&, mfem::Vector&) const override;
+     //! \brief solve for several right-hand sides
+     void ArrayMult(const mfem::Array<const mfem::Vector*>&,
+                    mfem::Array<mfem::Vector*>&) const override;
++    //! \return true if the residuals of the last solutions are small
++    [[nodiscard]] bool hasSucceeded() const noexcept;
+     //! \return true if the analysis is reused
+     [[nodiscard]] bool reusesAnalysis() const noexcept;
+     //! \return the number of analyses made
+     [[nodiscard]] size_type getNumberOfAnalyses() const noexcept;
+ 
+    private:
++    //! \brief layout of a matrix
++    struct Layout {
++      //! \brief comparison operator
++      bool operator==(const Layout&) const = default;
++      //! \brief local number of rows
++      int number_of_rows = 0;
++      //! \brief local number of columns
++      int number_of_columns = 0;
++      //! \brief global number of rows
++      HYPRE_BigInt global_number_of_rows = 0;
++      //! \brief global index of the first local row
++      HYPRE_BigInt first_row = 0;
++    };
++    //! \return the layout of a matrix
++    static Layout getLayout(const mfem::HypreParMatrix&);
+     //! \brief create a new solver of MFEM, the previous one being released
+     void makeSolver();
++    /*!
++     * \brief check the solutions by their relative residuals
++     * \param[in] X: right-hand sides
++     * \param[in] Y: solutions
++     */
++    void checkSolutions(const mfem::Array<const mfem::Vector*>&,
++                        const mfem::Array<mfem::Vector*>&) const;
+     //! \brief communicator
+     const MPI_Comm communicator;
+     //! \brief settings
+@@ -76,10 +122,18 @@ namespace mfem_mgis::internals {
+     const bool reuse_analysis;
+     //! \brief solver of MFEM
+     std::unique_ptr<mfem::CuDSSSolver> solver;
++    //! \brief operator
++    const mfem::HypreParMatrix* matrix = nullptr;
++    //! \brief residual of a solution
++    mutable mfem::Vector residual;
++    //! \brief layout of the matrix of the solver, if any
++    std::optional<Layout> layout;
+     //! \brief pattern of the last analysed matrix, if the analysis is reused
+-    std::optional<HypreMatrixPattern> pattern;
++    HypreMatrixPatternRecord pattern;
+     //! \brief number of analyses made
+     size_type number_of_analyses = 0;
++    //! \brief if true, the residuals of the last solutions are small
++    mutable bool succeeded = true;
+   };  // end of struct CuDSSDirectSolver
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/HypreMatrixPattern.cxx b/src/HypreMatrixPattern.cxx
+index 70ea5d1411..0ccd28697e 100644
+--- a/src/HypreMatrixPattern.cxx
++++ b/src/HypreMatrixPattern.cxx
+@@ -10,6 +10,7 @@
+ 
+ #include <span>
+ #include <cstddef>
++#include <utility>
+ #include <algorithm>
+ 
+ namespace mfem_mgis::internals {
+@@ -17,116 +18,219 @@ namespace mfem_mgis::internals {
+   namespace {
+ 
+     /*!
+-     * \brief view of the pattern of the local part of a matrix, whose
+-     * arrays must be readable on the host
++     * \brief index arrays of a block of the local part of a matrix, where
++     * hypre stores them, and their sizes
+      */
+-    struct HypreMatrixPatternView {
+-      //! \brief number of rows of the matrix
+-      HYPRE_BigInt global_number_of_rows = 0;
+-      //! \brief global index of the first local row
+-      HYPRE_BigInt first_row = 0;
+-      //! \brief global index of the first column of the diagonal block
+-      HYPRE_BigInt first_column = 0;
+-      //! \brief offsets of the rows of the diagonal block
+-      std::span<const HYPRE_Int> diagonal_rows;
+-      //! \brief column indices of the diagonal block
+-      std::span<const HYPRE_Int> diagonal_columns;
+-      //! \brief offsets of the rows of the off-diagonal block
+-      std::span<const HYPRE_Int> off_diagonal_rows;
+-      //! \brief column indices of the off-diagonal block
+-      std::span<const HYPRE_Int> off_diagonal_columns;
+-      //! \brief global indices of the columns of the off-diagonal block
+-      std::span<const HYPRE_BigInt> off_diagonal_column_map;
++    struct BlockIndices {
++      //! \brief offsets of the rows, null if not allocated
++      const HYPRE_Int* rows = nullptr;
++      //! \brief column indices, null if not allocated
++      const HYPRE_Int* columns = nullptr;
++      //! \brief size of the array of the offsets of the rows
++      std::size_t number_of_row_offsets = 0;
++      //! \brief size of the array of the column indices
++      std::size_t number_of_entries = 0;
+     };
+ 
+     /*!
+-     * \return a view of the first values of an array of hypre, empty if the
+-     * array is null
+-     * \param[in] values: values
+-     * \param[in] n: number of values
++     * \return the index arrays of a block
++     * \param[in] b: block
++     * \param[in] host: if true, the arrays are readable on the host and
++     * the number of entries is read in the offsets of the rows
+      */
+-    template <typename ValueType>
+-    std::span<const ValueType> makeView(const ValueType* const values,
+-                                        const HYPRE_Int n) {
+-      if ((values == nullptr) || (n <= 0)) {
+-        return {};
++    BlockIndices getBlockIndices(const hypre_CSRMatrix* const b,
++                                 const bool host) {
++      auto r = BlockIndices{};
++      const auto n = static_cast<std::size_t>(hypre_CSRMatrixNumRows(b));
++      r.rows = hypre_CSRMatrixI(b);
++      r.columns = hypre_CSRMatrixJ(b);
++      if (r.rows == nullptr) {
++        return r;
+       }
+-      return {values, static_cast<std::size_t>(n)};
+-    }  // end of makeView
++      r.number_of_row_offsets = n + 1;
++      const auto nnz = host ? r.rows[n] : hypre_CSRMatrixNumNonzeros(b);
++      if ((r.columns != nullptr) && (nnz > 0)) {
++        r.number_of_entries = static_cast<std::size_t>(nnz);
++      }
++      return r;
++    }  // end of getBlockIndices
++
++    //! \brief index arrays of the local part of a matrix
++    struct MatrixIndices {
++      //! \brief if true, the arrays are readable on the host
++      bool host = true;
++      //! \brief memory location of the arrays of the blocks
++      HYPRE_MemoryLocation location = HYPRE_MEMORY_HOST;
++      //! \brief diagonal block
++      BlockIndices diagonal;
++      //! \brief off-diagonal block
++      BlockIndices off_diagonal;
++      //! \brief global indices of the off-diagonal columns (on the host)
++      std::span<const HYPRE_BigInt> off_diagonal_column_map;
++    };
+ 
+     /*!
+-     * \return a view of the pattern of the local part of a matrix, whose
+-     * arrays must be readable on the host
++     * \return the index arrays of the local part of a matrix
+      * \param[in] A: matrix
+      */
+-    HypreMatrixPatternView view(const mfem::HypreParMatrix& A) {
++    MatrixIndices getMatrixIndices(const mfem::HypreParMatrix& A) {
++      // arrays where hypre reads them
++      A.HypreRead();
+       const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
+       const auto* const diagonal = hypre_ParCSRMatrixDiag(m);
+       const auto* const off_diagonal = hypre_ParCSRMatrixOffd(m);
+-      const auto n = hypre_CSRMatrixNumRows(diagonal);
+-      auto number_of_entries = [n](const std::span<const HYPRE_Int> rows) {
+-        return rows.empty() ? HYPRE_Int{} : rows[static_cast<std::size_t>(n)];
+-      };
+-      auto v = HypreMatrixPatternView{};
+-      v.global_number_of_rows = hypre_ParCSRMatrixGlobalNumRows(m);
+-      v.first_row = hypre_ParCSRMatrixFirstRowIndex(m);
+-      v.first_column = hypre_ParCSRMatrixFirstColDiag(m);
+-      v.diagonal_rows = makeView(hypre_CSRMatrixI(diagonal), n + 1);
+-      v.off_diagonal_rows = makeView(hypre_CSRMatrixI(off_diagonal), n + 1);
+-      v.diagonal_columns = makeView(hypre_CSRMatrixJ(diagonal),
+-                                    number_of_entries(v.diagonal_rows));
+-      v.off_diagonal_columns = makeView(hypre_CSRMatrixJ(off_diagonal),
+-                                        number_of_entries(v.off_diagonal_rows));
+-      v.off_diagonal_column_map =
+-          makeView(hypre_ParCSRMatrixColMapOffd(m),
+-                   hypre_CSRMatrixNumCols(off_diagonal));
+-      return v;
+-    }  // end of view
++      auto r = MatrixIndices{};
++      r.location = hypre_CSRMatrixMemoryLocation(diagonal);
++      const auto l = hypre_GetActualMemLocation(r.location);
++      r.host = (l == hypre_MEMORY_HOST) || (l == hypre_MEMORY_HOST_PINNED) ||
++               (l == hypre_MEMORY_UNIFIED);
++      r.diagonal = getBlockIndices(diagonal, r.host);
++      r.off_diagonal = getBlockIndices(off_diagonal, r.host);
++      const auto* const column_map = hypre_ParCSRMatrixColMapOffd(m);
++      const auto number_of_columns = hypre_CSRMatrixNumCols(off_diagonal);
++      if ((column_map != nullptr) && (number_of_columns > 0)) {
++        r.off_diagonal_column_map = std::span<const HYPRE_BigInt>(
++            column_map, static_cast<std::size_t>(number_of_columns));
++      }
++      return r;
++    }  // end of getMatrixIndices
++
++    /*!
++     * \brief copy an index array to the host, into an array of its size
++     * \param[out] d: destination
++     * \param[in] s: source
++     * \param[in] l: memory location of the source
++     */
++    void copyToHost(std::vector<HYPRE_Int>& d,
++                    const HYPRE_Int* const s,
++                    const HYPRE_MemoryLocation l) {
++      if (!d.empty()) {
++        hypre_TMemcpy(d.data(), s, HYPRE_Int, d.size(), HYPRE_MEMORY_HOST, l);
++      }
++    }  // end of copyToHost
++
++    /*!
++     * \return true if an array of the recorded pattern has the given size
++     * and values
++     * \param[in] recorded: recorded array
++     * \param[in] values: values, readable on the host
++     * \param[in] n: number of values
++     */
++    template <typename ValueType>
++    bool equal(const std::vector<ValueType>& recorded,
++               const ValueType* const values,
++               const std::size_t n) {
++      if (recorded.size() != n) {
++        return false;
++      }
++      return (n == 0) || std::equal(recorded.begin(), recorded.end(), values);
++    }  // end of equal
+ 
+   }  // end of namespace
+ 
+-  HypreMatrixPattern getPattern(const mfem::HypreParMatrix& A) {
+-    auto copy = []<typename ValueType>(const std::span<const ValueType> s) {
+-      return std::vector<ValueType>(s.begin(), s.end());
++  bool HypreMatrixPatternRecord::isSame(const mfem::HypreParMatrix& A) const {
++    if (!this->pattern.has_value()) {
++      return false;
++    }
++    const auto& p = *(this->pattern);
++    const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
++    if ((p.global_number_of_rows != hypre_ParCSRMatrixGlobalNumRows(m)) ||
++        (p.first_row != hypre_ParCSRMatrixFirstRowIndex(m)) ||
++        (p.first_column != hypre_ParCSRMatrixFirstColDiag(m))) {
++      return false;
++    }
++    const auto i = getMatrixIndices(A);
++    if (!equal(p.off_diagonal_column_map, i.off_diagonal_column_map.data(),
++               i.off_diagonal_column_map.size())) {
++      return false;
++    }
++    // sizes of the index arrays
++    if ((p.diagonal_rows.size() != i.diagonal.number_of_row_offsets) ||
++        (p.diagonal_columns.size() != i.diagonal.number_of_entries) ||
++        (p.off_diagonal_rows.size() != i.off_diagonal.number_of_row_offsets) ||
++        (p.off_diagonal_columns.size() != i.off_diagonal.number_of_entries)) {
++      return false;
++    }
++    if (!i.host) {
++      // copies of the index arrays into the buffers, which have the sizes
++      // of the recorded arrays when the pattern was recorded from the device
++      if ((this->buffers.diagonal_rows.size() != p.diagonal_rows.size()) ||
++          (this->buffers.diagonal_columns.size() !=
++           p.diagonal_columns.size()) ||
++          (this->buffers.off_diagonal_rows.size() !=
++           p.off_diagonal_rows.size()) ||
++          (this->buffers.off_diagonal_columns.size() !=
++           p.off_diagonal_columns.size())) {
++        // pattern recorded from the host: a new analysis, conservatively
++        return false;
++      }
++      copyToHost(this->buffers.diagonal_rows, i.diagonal.rows, i.location);
++      copyToHost(this->buffers.diagonal_columns, i.diagonal.columns,
++                 i.location);
++      copyToHost(this->buffers.off_diagonal_rows, i.off_diagonal.rows,
++                 i.location);
++      copyToHost(this->buffers.off_diagonal_columns, i.off_diagonal.columns,
++                 i.location);
++      return (p.diagonal_rows == this->buffers.diagonal_rows) &&
++             (p.diagonal_columns == this->buffers.diagonal_columns) &&
++             (p.off_diagonal_rows == this->buffers.off_diagonal_rows) &&
++             (p.off_diagonal_columns == this->buffers.off_diagonal_columns);
++    }
++    return equal(p.diagonal_rows, i.diagonal.rows,
++                 i.diagonal.number_of_row_offsets) &&
++           equal(p.diagonal_columns, i.diagonal.columns,
++                 i.diagonal.number_of_entries) &&
++           equal(p.off_diagonal_rows, i.off_diagonal.rows,
++                 i.off_diagonal.number_of_row_offsets) &&
++           equal(p.off_diagonal_columns, i.off_diagonal.columns,
++                 i.off_diagonal.number_of_entries);
++  }  // end of isSame
++
++  bool isTrueOnAllProcesses(const bool b, const MPI_Comm c) {
++    auto r = static_cast<int>(b);
++    MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_INT, MPI_LAND, c);
++    return r != 0;
++  }  // end of isTrueOnAllProcesses
++
++  bool HypreMatrixPatternRecord::isSameOnAllProcesses(
++      const mfem::HypreParMatrix& A, const MPI_Comm c, const bool b) const {
++    return isTrueOnAllProcesses(b && this->isSame(A), c);
++  }  // end of isSameOnAllProcesses
++
++  void HypreMatrixPatternRecord::record(const mfem::HypreParMatrix& A) {
++    const auto i = getMatrixIndices(A);
++    const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
++    auto copy = [&i](std::vector<HYPRE_Int>& d, const HYPRE_Int* const s,
++                     const std::size_t n) {
++      d.resize(n);
++      if (i.host) {
++        std::copy(s, s + n, d.begin());
++      } else {
++        copyToHost(d, s, i.location);
++      }
+     };
+-    A.HostRead();
+-    const auto v = view(A);
+-    auto p = HypreMatrixPattern{
+-        .global_number_of_rows = v.global_number_of_rows,
+-        .first_row = v.first_row,
+-        .first_column = v.first_column,
+-        .diagonal_rows = copy(v.diagonal_rows),
+-        .diagonal_columns = copy(v.diagonal_columns),
+-        .off_diagonal_rows = copy(v.off_diagonal_rows),
+-        .off_diagonal_columns = copy(v.off_diagonal_columns),
+-        .off_diagonal_column_map = copy(v.off_diagonal_column_map)};
+-    A.HypreRead();
+-    return p;
+-  }  // end of getPattern
+-
+-  bool hasPattern(const mfem::HypreParMatrix& A, const HypreMatrixPattern& p) {
+-    A.HostRead();
+-    const auto v = view(A);
+-    const auto r =
+-        (p.global_number_of_rows == v.global_number_of_rows) &&
+-        (p.first_row == v.first_row) && (p.first_column == v.first_column) &&
+-        std::ranges::equal(p.diagonal_rows, v.diagonal_rows) &&
+-        std::ranges::equal(p.diagonal_columns, v.diagonal_columns) &&
+-        std::ranges::equal(p.off_diagonal_rows, v.off_diagonal_rows) &&
+-        std::ranges::equal(p.off_diagonal_columns, v.off_diagonal_columns) &&
+-        std::ranges::equal(p.off_diagonal_column_map,
+-                           v.off_diagonal_column_map);
+-    A.HypreRead();
+-    return r;
+-  }  // end of hasPattern
+-
+-  bool hasPatternOnAllProcesses(const mfem::HypreParMatrix& A,
+-                                const std::optional<HypreMatrixPattern>& p,
+-                                const MPI_Comm c) {
+-    auto same = static_cast<int>(p.has_value() && hasPattern(A, *p));
+-    MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_LAND, c);
+-    return same != 0;
+-  }  // end of hasPatternOnAllProcesses
++    auto p = HypreMatrixPattern{};
++    p.global_number_of_rows = hypre_ParCSRMatrixGlobalNumRows(m);
++    p.first_row = hypre_ParCSRMatrixFirstRowIndex(m);
++    p.first_column = hypre_ParCSRMatrixFirstColDiag(m);
++    copy(p.diagonal_rows, i.diagonal.rows, i.diagonal.number_of_row_offsets);
++    copy(p.diagonal_columns, i.diagonal.columns, i.diagonal.number_of_entries);
++    copy(p.off_diagonal_rows, i.off_diagonal.rows,
++         i.off_diagonal.number_of_row_offsets);
++    copy(p.off_diagonal_columns, i.off_diagonal.columns,
++         i.off_diagonal.number_of_entries);
++    p.off_diagonal_column_map.assign(i.off_diagonal_column_map.begin(),
++                                     i.off_diagonal_column_map.end());
++    // buffers of the comparisons, only needed for arrays on the device
++    this->buffers = HypreMatrixPattern{};
++    if (!i.host) {
++      this->buffers.diagonal_rows.resize(p.diagonal_rows.size());
++      this->buffers.diagonal_columns.resize(p.diagonal_columns.size());
++      this->buffers.off_diagonal_rows.resize(p.off_diagonal_rows.size());
++      this->buffers.off_diagonal_columns.resize(p.off_diagonal_columns.size());
++    }
++    this->pattern = std::move(p);
++  }  // end of record
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/HypreMatrixPattern.hxx b/src/HypreMatrixPattern.hxx
+index 3ff3b03253..478a46930c 100644
+--- a/src/HypreMatrixPattern.hxx
++++ b/src/HypreMatrixPattern.hxx
+@@ -30,8 +30,6 @@ namespace mfem_mgis::internals {
+    * solver.
+    */
+   struct HypreMatrixPattern {
+-    //! \brief comparison operator
+-    bool operator==(const HypreMatrixPattern&) const = default;
+     //! \brief number of rows of the matrix
+     HYPRE_BigInt global_number_of_rows = 0;
+     //! \brief global index of the first local row
+@@ -51,30 +49,52 @@ namespace mfem_mgis::internals {
+   };
+ 
+   /*!
+-   * \return the pattern of the local part of a matrix
+-   * \param[in] A: matrix
++   * \brief pattern of the last matrix analysed by a direct solver, compared
++   * to the ones of the next matrices.
++   *
++   * The index arrays of the matrices are read where hypre stores them: in
++   * place on the host, or copied from the device, without their values,
++   * into buffers allocated with the recorded pattern. Nothing is allocated
++   * before the collective reduction of the comparison.
+    */
+-  [[nodiscard]] HypreMatrixPattern getPattern(const mfem::HypreParMatrix&);
+-  /*!
+-   * \return true if the local part of a matrix has the given pattern. The
+-   * matrix is read in place, without allocation.
+-   * \param[in] A: matrix
+-   * \param[in] p: pattern
+-   */
+-  [[nodiscard]] bool hasPattern(const mfem::HypreParMatrix&,
+-                                const HypreMatrixPattern&);
++  struct HypreMatrixPatternRecord {
++    /*!
++     * \return true if, on all the processes of a communicator, a pattern
++     * is recorded, the local part of the given matrix has this pattern and
++     * a local condition holds. Collective: all the processes take part in
++     * the reduction, whatever their local results.
++     * \param[in] A: matrix
++     * \param[in] c: communicator
++     * \param[in] b: local condition
++     */
++    [[nodiscard]] bool isSameOnAllProcesses(const mfem::HypreParMatrix&,
++                                            MPI_Comm,
++                                            const bool = true) const;
++    /*!
++     * \brief record the pattern of the local part of a matrix
++     * \param[in] A: matrix
++     */
++    void record(const mfem::HypreParMatrix&);
++
++   private:
++    //! \return true if the local part of a matrix has the recorded pattern
++    [[nodiscard]] bool isSame(const mfem::HypreParMatrix&) const;
++    //! \brief recorded pattern, if any
++    std::optional<HypreMatrixPattern> pattern;
++    /*!
++     * \brief host copies of the index arrays of a matrix stored on the
++     * device, with the sizes of the recorded pattern
++     */
++    mutable HypreMatrixPattern buffers;
++  };
++
+   /*!
+-   * \return true if the local part of a matrix has the given pattern on all
+-   * the processes of a communicator, false if the pattern is empty on one of
+-   * them. Collective: nothing is allocated before the reduction.
+-   * \param[in] A: matrix
+-   * \param[in] p: pattern of the local part, if any
++   * \return true if a condition holds on all the processes of a
++   * communicator. Collective.
++   * \param[in] b: local condition
+    * \param[in] c: communicator
+    */
+-  [[nodiscard]] bool hasPatternOnAllProcesses(
+-      const mfem::HypreParMatrix&,
+-      const std::optional<HypreMatrixPattern>&,
+-      MPI_Comm);
++  [[nodiscard]] bool isTrueOnAllProcesses(const bool, MPI_Comm);
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index ea9663d3af..0102b1f42b 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -1279,6 +1279,17 @@ namespace mfem_mgis {
+             "CuDSSSolver: the cuDSS solver requires a device on a CUDA GPU "
+             "(option --device cuda of mfem_mgis::initialize)");
+       }
++      // when hypre computes on the host, MFEM gives cuDSS the arrays of the
++      // matrices stored on the host through a copy between device arrays
++      if ((!isHypreUsingGPU()) &&
++          (!internals::canGPUReadPageableHostMemory())) {
++        return ctx.registerErrorMessage(
++            "CuDSSSolver: when hypre computes on the host (option "
++            "--hypre-on-host of mfem_mgis::initialize, or hypre built "
++            "without GPU support), the cuDSS solver requires a GPU reading "
++            "the pageable memory of the host (heterogeneous memory "
++            "management)");
++      }
+       const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+       const auto opositive_definite =
+           get_if<bool>(ctx, params, "PositiveDefinite", false);
+diff --git a/src/MUMPSSolvers.cxx b/src/MUMPSSolvers.cxx
+index a472e61fa5..47b7fcfc8e 100644
+--- a/src/MUMPSSolvers.cxx
++++ b/src/MUMPSSolvers.cxx
+@@ -24,18 +24,18 @@ namespace mfem_mgis::internals {
+       return;
+     }
+     const auto same =
+-        hasPatternOnAllProcesses(*A, this->pattern, this->communicator);
++        this->pattern.isSameOnAllProcesses(*A, this->communicator);
+     this->SetReorderingReuse(same);
+     // the pattern is forgotten until the factorization succeeds: if it
+     // fails by an exception, the next matrix is analysed again
+-    auto previous = std::exchange(this->pattern, std::nullopt);
++    auto previous = std::exchange(this->pattern, HypreMatrixPatternRecord{});
+     mfem::MUMPSSolver::SetOperator(op);
+     if (same) {
+       this->pattern = std::move(previous);
+       return;
+     }
+     ++(this->number_of_analyses);
+-    this->pattern = getPattern(*A);
++    this->pattern.record(*A);
+   }  // end of SetOperator
+ 
+   size_type MUMPSSolverReusingAnalysis::getNumberOfAnalyses() const noexcept {
+diff --git a/src/MUMPSSolvers.hxx b/src/MUMPSSolvers.hxx
+index 4323bd187f..fd7c4c2703 100644
+--- a/src/MUMPSSolvers.hxx
++++ b/src/MUMPSSolvers.hxx
+@@ -13,7 +13,6 @@
+ 
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+ 
+-#include <optional>
+ #include <mpi.h>
+ #include "mfem/linalg/mumps.hpp"
+ #include "MFEMMGIS/Config.hxx"
+@@ -48,8 +47,8 @@ namespace mfem_mgis::internals {
+    private:
+     //! \brief communicator
+     const MPI_Comm communicator;
+-    //! \brief pattern of the last analysed matrix, empty if none
+-    std::optional<HypreMatrixPattern> pattern;
++    //! \brief pattern of the last analysed matrix, if any
++    HypreMatrixPatternRecord pattern;
+     //! \brief number of analyses made
+     size_type number_of_analyses = 0;
+   };  // end of struct MUMPSSolverReusingAnalysis
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index fed648eec7..9e259d6e22 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -125,6 +125,15 @@ namespace mfem_mgis {
+       return aptr->hasConverged();
+     }
+ #endif /* MFEM_MGIS_HAVE_AMGX */
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++    // the failures of the factorization of cuDSS give solutions which are
++    // not finite
++    if (const auto* const cptr =
++            dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
++        cptr != nullptr) {
++      return cptr->hasSucceeded();
++    }
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+ #ifdef MFEM_USE_MPI
+     auto check_hypre_solver_convergence =
+         []<typename SolverType>(const SolverType* ptr) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 3400e39485..acf5bebb0a 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1218,8 +1218,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+            COMMAND DirectSolverReuseAnalysisTest)
+   add_test(NAME DirectSolverReuseAnalysisTestP
+            COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest)
++  # three processes: layout of the first process kept when the one of the
++  # others changes
++  add_test(NAME DirectSolverReuseAnalysisTestP3
++           COMMAND mpirun -n 3 ./DirectSolverReuseAnalysisTest)
+   set_tests_properties(DirectSolverReuseAnalysisTest
+                        DirectSolverReuseAnalysisTestP
++                       DirectSolverReuseAnalysisTestP3
+                        PROPERTIES TIMEOUT 120 ENVIRONMENT OMP_NUM_THREADS=1)
+   if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+     add_test(NAME DirectSolverReuseAnalysisTestP-cuda
+@@ -1231,9 +1236,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+   endif()
+ endif()
+ if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
+-  # cuDSS refused without a device on a CUDA GPU
++  # cuDSS refused without a device on a CUDA GPU, even when the test suite
++  # is run on a GPU (variable MFEM_MGIS_DEVICE)
+   add_test(NAME DirectSolverReuseAnalysisTest-cudss-refused
+            COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver)
++  set_tests_properties(DirectSolverReuseAnalysisTest-cudss-refused
++                       PROPERTIES TIMEOUT 120 ENVIRONMENT MFEM_MGIS_DEVICE=
++                                  ENVIRONMENT_MODIFICATION MFEM_DEVICE=unset:)
+   if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+     add_test(NAME DirectSolverReuseAnalysisTest-cudss-cuda
+              COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver
+@@ -1241,8 +1250,22 @@ if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
+     add_test(NAME DirectSolverReuseAnalysisTestP-cudss-cuda
+              COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
+                      --solver CuDSSSolver --device cuda)
++    add_test(NAME DirectSolverReuseAnalysisTestP3-cudss-cuda
++             COMMAND mpirun -n 3 ./DirectSolverReuseAnalysisTest
++                     --solver CuDSSSolver --device cuda)
++    # hypre on the host: the matrices are stored on the host (accepted on a
++    # GPU reading the pageable memory of the host, refused otherwise)
++    add_test(NAME DirectSolverReuseAnalysisTest-cudss-cuda-hypre-on-host
++             COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver
++                     --device cuda --hypre-on-host)
++    add_test(NAME DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
++             COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
++                     --solver CuDSSSolver --device cuda --hypre-on-host)
+     set_tests_properties(DirectSolverReuseAnalysisTest-cudss-cuda
+                          DirectSolverReuseAnalysisTestP-cudss-cuda
++                         DirectSolverReuseAnalysisTestP3-cudss-cuda
++                         DirectSolverReuseAnalysisTest-cudss-cuda-hypre-on-host
++                         DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
+                          PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
+                                     ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+diff --git a/tests/DirectSolverReuseAnalysisTest.cxx b/tests/DirectSolverReuseAnalysisTest.cxx
+index 5c12665c61..a275b50d23 100644
+--- a/tests/DirectSolverReuseAnalysisTest.cxx
++++ b/tests/DirectSolverReuseAnalysisTest.cxx
+@@ -2,7 +2,9 @@
+  * \file   tests/DirectSolverReuseAnalysisTest.cxx
+  * \brief  Test of the `ReuseAnalysis` parameter of the direct solvers of the
+  * factory of linear solvers, `MUMPSSolver` (by default) or `CuDSSSolver`
+- * (option `--solver`, refused without a device on a CUDA GPU): a sequence
++ * (option `--solver`, refused without a device on a CUDA GPU, and when
++ * hypre computes on the host on a GPU which does not read the pageable
++ * memory of the host): a sequence
+  * of operators whose pattern is
+  * kept or changes, each one being destroyed after the next one is given,
+  * as the non linear solvers do. Each resolution is checked by its
+@@ -33,9 +35,38 @@
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ 
++#ifdef MFEM_USE_CUDA
++#include <cuda_runtime_api.h>
++#endif /* MFEM_USE_CUDA */
++
+ //! \brief number of failed checks
+ static int failures = 0;
+ 
++//! \return true if the cuDSS solver is expected to be refused
++static bool isCuDSSSolverRefused() {
++  if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
++    return true;
++  }
++  if (mfem_mgis::isHypreUsingGPU()) {
++    return false;
++  }
++#ifdef MFEM_USE_CUDA
++  // when hypre computes on the host, the GPU must read the pageable memory
++  // of the host
++  auto device = int{};
++  auto pageable_memory_access = int{};
++  if ((cudaGetDevice(&device) != cudaSuccess) ||
++      (cudaDeviceGetAttribute(&pageable_memory_access,
++                              cudaDevAttrPageableMemoryAccess,
++                              device) != cudaSuccess)) {
++    return true;
++  }
++  return pageable_memory_access == 0;
++#else  /* MFEM_USE_CUDA */
++  return true;
++#endif /* MFEM_USE_CUDA */
++}  // end of isCuDSSSolverRefused
++
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+     std::cerr << "check failed: " << msg << '\n';
+@@ -102,19 +133,37 @@ static TestOperator makeBlockDiagonal(const mfem::HypreParMatrix& A,
+   return r;
+ }  // end of makeBlockDiagonal
+ 
++//! \brief number of rows of a process, given its rank
++using RowsPerProcess = int (*)(const int);
++
++//! \return four rows for all processes
++static int fourRows(const int) { return 4; }
++
++//! \return the global index of the first row of a process
++static HYPRE_BigInt getFirstRow(const RowsPerProcess rows, const int rank) {
++  auto first = HYPRE_BigInt{};
++  for (int r = 0; r != rank; ++r) {
++    first += rows(r);
++  }
++  return first;
++}  // end of getFirstRow
++
+ /*!
+- * \return a matrix with four rows per process, given by the global column
+- * index of the off-diagonal coefficient of each row (the diagonal
+- * coefficients are equal to 4 and the off-diagonal ones to -1)
++ * \return a matrix given by the global column index of the off-diagonal
++ * coefficient of each row (the diagonal coefficients are equal to 4 and the
++ * off-diagonal ones to -1)
+  * \param[in] coupled: global column index of the off-diagonal coefficient
+  * of a row, given its global index
++ * \param[in] rows: number of rows of each process
+  */
+ template <typename CoupledColumn>
+-static TestOperator makeCouplingMatrix(const CoupledColumn& coupled) {
+-  constexpr auto n = int{4};
+-  const auto first = HYPRE_BigInt{n} * mfem::Mpi::WorldRank();
+-  const auto size = HYPRE_BigInt{n} * mfem::Mpi::WorldSize();
+-  auto rows = std::vector<int>{0};
++static TestOperator makeCouplingMatrix(const CoupledColumn& coupled,
++                                       const RowsPerProcess rows = fourRows) {
++  const auto rank = mfem::Mpi::WorldRank();
++  const auto n = rows(rank);
++  const auto first = getFirstRow(rows, rank);
++  const auto size = getFirstRow(rows, mfem::Mpi::WorldSize());
++  auto offsets = std::vector<int>{0};
+   auto columns = std::vector<HYPRE_BigInt>{};
+   auto values = std::vector<mfem_mgis::real>{};
+   for (int l = 0; l != n; ++l) {
+@@ -122,12 +171,12 @@ static TestOperator makeCouplingMatrix(const CoupledColumn& coupled) {
+     values.push_back(4);
+     columns.push_back(coupled(first + l));
+     values.push_back(-1);
+-    rows.push_back(static_cast<int>(columns.size()));
++    offsets.push_back(static_cast<int>(columns.size()));
+   }
+   const auto partition = std::array<HYPRE_BigInt, 2>{first, first + n};
+   return {nullptr,
+           std::make_unique<mfem::HypreParMatrix>(
+-              MPI_COMM_WORLD, n, size, size, rows.data(), columns.data(),
++              MPI_COMM_WORLD, n, size, size, offsets.data(), columns.data(),
+               values.data(), partition.data(), partition.data())};
+ }  // end of makeCouplingMatrix
+ 
+@@ -157,15 +206,42 @@ static TestOperator makeMatching(const bool swapped) {
+  * on two processes or more; on one process, by the column indices of their
+  * diagonal blocks.
+  * \param[in] offset: offset of the coupled columns, 0 or 2
++ * \param[in] rows: number of rows of each process, two at least
+  */
+-static TestOperator makeNextProcessCoupling(const HYPRE_BigInt offset) {
++static TestOperator makeNextProcessCoupling(
++    const HYPRE_BigInt offset, const RowsPerProcess rows = fourRows) {
+   const auto size = mfem::Mpi::WorldSize();
+-  const auto next = HYPRE_BigInt{4} * ((mfem::Mpi::WorldRank() + 1) % size);
+-  return makeCouplingMatrix([next, offset](const HYPRE_BigInt i) {
+-    return next + offset + ((i + 1) % 2);
+-  });
++  const auto next = getFirstRow(rows, (mfem::Mpi::WorldRank() + 1) % size);
++  return makeCouplingMatrix(
++      [next, offset](const HYPRE_BigInt i) {
++        return next + offset + ((i + 1) % 2);
++      },
++      rows);
+ }  // end of makeNextProcessCoupling
+ 
++/*!
++ * \return the number of rows of a process: four, except on two processes
++ * or more, where the last process has six
++ */
++static int sixRowsOnTheLastProcess(const int rank) {
++  const auto size = mfem::Mpi::WorldSize();
++  return ((size > 1) && (rank + 1 == size)) ? 6 : 4;
++}  // end of sixRowsOnTheLastProcess
++
++/*!
++ * \return the number of rows of a process: four, except on three processes
++ * or more, where a row of the second process is moved to the last one, the
++ * layout of the first process being unchanged (cuDSS 0.7.1 fails to
++ * analyse the coupling matrix when two rows are moved)
++ */
++static int rowsMovedToTheLastProcess(const int rank) {
++  const auto size = mfem::Mpi::WorldSize();
++  if (size < 3) {
++    return 4;
++  }
++  return (rank == 1) ? 3 : ((rank + 1 == size) ? 5 : 4);
++}  // end of rowsMovedToTheLastProcess
++
+ //! \brief an operator of the sequence
+ struct Step {
+   //! \brief description
+@@ -207,13 +283,11 @@ int main(int argc, char** argv) {
+   auto ess_tdofs = mfem::Array<int>{};
+   fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
+   const auto verbose = fespace.GetMyRank() == 0;
+-  if ((solver_type == "CuDSSSolver") &&
+-      (!mfem::Device::Allows(mfem::Backend::CUDA_MASK))) {
+-    // cuDSS requires a device on a CUDA GPU
++  if ((solver_type == "CuDSSSolver") && (isCuDSSSolverRefused())) {
+     auto ctx = Context{};
+     const auto h = LinearSolverFactory<true>::getFactory().generate(
+         ctx, solver_name, fespace, Parameters{{"ReuseAnalysis", true}});
+-    check(isInvalid(h), "cuDSS accepted without a device on a CUDA GPU");
++    check(isInvalid(h), "cuDSS accepted");
+     if (verbose) {
+       std::cout << "refused: " << ctx.getErrorMessage() << '\n'
+                 << (failures == 0 ? "success" : "failure") << '\n';
+@@ -223,11 +297,16 @@ int main(int argc, char** argv) {
+   const auto reference = assemble(fespace, ess_tdofs, 1);
+   // sequence of operators. On one process, the block diagonal operator is
+   // the diffusion operator, stored differently: the analysis may be reused
+-  // or not.
++  // or not. On three processes or more, the operator whose rows are moved
++  // to the last process does not change the layout of the first process,
++  // and is the previous one on one and two processes. The last operator
++  // changes the number of rows of the last process on two processes or
++  // more (the global number of rows changes on all processes).
+   const auto parallel = mfem::Mpi::WorldSize() > 1;
+   const auto block_diagonal_pattern_changed =
+       parallel ? std::optional<bool>{true} : std::optional<bool>{};
+-  const auto steps = std::array<Step, 10>{
++  const auto rows_moved = mfem::Mpi::WorldSize() > 2;
++  const auto steps = std::array<Step, 12>{
+       Step{"diffusion", true, true},
+       Step{"diffusion, values changed", true, false},
+       Step{"diffusion, values changed again", true, false},
+@@ -237,7 +316,11 @@ int main(int argc, char** argv) {
+       Step{"matching", true, true},
+       Step{"swapped matching", true, true},
+       Step{"coupling with the next process", false, true},
+-      Step{"coupling with the next process, other columns", false, true}};
++      Step{"coupling with the next process, other columns", false, true},
++      Step{"coupling with the next process, rows moved to the last process",
++           false, rows_moved},
++      Step{"coupling with the next process, rows added to the last process",
++           false, true}};
+   auto make_operator = [&](const std::size_t i) {
+     if (i == 0) {
+       return assemble(fespace, ess_tdofs, 1);
+@@ -257,8 +340,12 @@ int main(int argc, char** argv) {
+       return makeMatching(true);
+     } else if (i == 8) {
+       return makeNextProcessCoupling(0);
++    } else if (i == 9) {
++      return makeNextProcessCoupling(2);
++    } else if (i == 10) {
++      return makeNextProcessCoupling(2, rowsMovedToTheLastProcess);
+     }
+-    return makeNextProcessCoupling(2);
++    return makeNextProcessCoupling(0, sixRowsOnTheLastProcess);
+   };
+   for (const auto reuse : {false, true}) {
+     for (const auto symmetric : {false, true}) {
+@@ -337,6 +424,32 @@ int main(int argc, char** argv) {
+       }
+     }
+   }
++  if (solver_type == "CuDSSSolver") {
++    // cuDSS does not report the failures of the factorization: the wrong
++    // solution given for a matrix declared positive definite which is not
++    // is detected by its residual and reported by hasConverged
++    auto ctx = Context{};
++    auto h = LinearSolverFactory<true>::getFactory().generate(
++        ctx, solver_name, fespace,
++        Parameters{{"Symmetric", true}, {"PositiveDefinite", true}});
++    check(!isInvalid(h), solver_type + " is refused: " + ctx.getErrorMessage());
++    if (!isInvalid(h)) {
++      const auto op = makeBlockDiagonal(*(reference.A), -1, false);
++      h.linear_solver->SetOperator(*(op.A));
++      auto B = mfem::Vector(op.A->Height());
++      B = 1.0;
++      auto X = mfem::Vector(B.Size());
++      X = 0.0;
++      h.linear_solver->Mult(B, X);
++      check(!hasConverged(*(h.linear_solver)),
++            "failure of the factorization not reported");
++      if (verbose) {
++        std::cout << "negative definite matrix declared positive definite: "
++                  << (hasConverged(*(h.linear_solver)) ? "not " : "")
++                  << "reported\n";
++      }
++    }
++  }
+   // a value which is not a boolean is refused
+   auto ctx = Context{};
+   check(isInvalid(LinearSolverFactory<true>::getFactory().generate(
+-- 
+2.43.0
+

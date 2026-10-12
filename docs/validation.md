@@ -138,14 +138,16 @@ Les bibliothèques de lots des tests sont construites par les fonctions de
 mfem-mgis est construit dans `build/mfem-mgis` (ou dans une construction
 séparée par lot, `build/mfem-mgis-<lot>`, avec les cibles `BehaviourTest` et
 `GenericParallelBehaviour-*`, hors de `all` et de `build-tests`). Sa suite
-(237 tests au 12/10/2026, dont 53 variantes qui utilisent le GPU) se lance
+(244 tests au 12/10/2026, dont 58 variantes qui utilisent le GPU) se lance
 de trois façons, qui doivent toutes passer :
 
 - telle quelle : `ctest -j 3 -E
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (184 tests, 184/184 le
-  12/10 sur `gpu-proto` a114b6c870, 182/182 sur 3ad387b002), puis les
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (186 tests, 186/186 le
+  12/10 sur `gpu-proto` 45afaa0653, 182/182 sur 3ad387b002), puis les
   variantes qui utilisent le GPU, `ctest -j 2 -R
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (53 tests) ;
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (58 tests ; les 6
+  variantes GPU de `DirectSolverReuseAnalysisTest`, MUMPS et cuDSS,
+  passent) ;
 - avec tous les calculs forcés aux noyaux du chemin par lots, par les
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,

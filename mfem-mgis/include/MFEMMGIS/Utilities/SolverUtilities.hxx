@@ -115,13 +115,14 @@ namespace mfem_mgis {
   getNumberOfIterationsAtConvergence(const LinearSolver& ls) noexcept;
   /*!
    * \return the number of analyses (ordering and symbolic factorization)
-   * made by a MUMPS solver which reuses its analysis for the matrices of the
-   * same pattern (parameter `ReuseAnalysis` of the `MUMPSSolver` of the
-   * factory of linear solvers), empty for the other solvers
+   * made by a direct solver which reuses its analysis for the matrices of
+   * the same pattern (parameter `ReuseAnalysis` of the `MUMPSSolver` and
+   * `CuDSSSolver` solvers of the factory of linear solvers), empty for the
+   * other solvers
    * \param[in] ls: linear solver
    */
-  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<size_type>
-  getNumberOfMUMPSAnalyses(const LinearSolver& ls) noexcept;
+  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<size_type> getNumberOfAnalyses(
+      const LinearSolver& ls) noexcept;
   /*!
    * \return the relative tolerance of an iterative linear solver (iterative
    * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not

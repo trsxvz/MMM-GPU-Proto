@@ -740,7 +740,8 @@ par vagues, dans les fabriques de mfem-mgis.
 - Ginkgo dans la fabrique : solveurs et préconditionneurs distribués de
   MFEM 4.10 (Schwarz), préconditionneurs locaux (Jacobi par blocs à
   précision adaptative, ILU, ISAI) ; cuDSS par `CuDSSSolver` (réutilisation
-  de l'analyse symbolique) ;
+  de l'analyse symbolique ; fait le 12/10, solveur `CuDSSSolver` de la
+  fabrique, ex8 sur le GPU 9,8 -> 4,4 s) ;
 - AmgX par `AmgXSolver`, avec `UpdateOperator` pour la réutilisation
   complète ;
 - KINSOL (`KINSolver`), avec l'opérateur qui intègre la loi (L3) ;
