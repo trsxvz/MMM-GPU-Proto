@@ -214,6 +214,39 @@ int main(int argc, char *argv[]) {
         "error: an initial tolerance is given without adaptive tolerance");
     std::exit(EXIT_FAILURE);
   }
+  // options of the linear solver of the problem
+  const auto direct_solver =
+      (std::string_view{p.linear_solver} == "MUMPSSolver") ||
+      (std::string_view{p.linear_solver} == "CuDSSSolver");
+  const auto newton_k0 = std::string_view{p.non_linear_solver} == "NewtonK0";
+  if (mfem_mgis::usePETSc()) {
+    if ((direct_solver) || (p.reuse_analysis)) {
+      mfem_mgis::Profiler::Utils::Message(
+          "warning: the options --linear-solver and --reuse-analysis are "
+          "ignored (the linear solver is given by the configuration file of "
+          "PETSc)");
+    }
+  } else if (newton_k0) {
+    if ((direct_solver) || (p.reuse_analysis)) {
+      mfem_mgis::Profiler::Utils::Message(
+          "warning: the options --linear-solver and --reuse-analysis are "
+          "ignored by NewtonK0 (its tangent systems are solved by a "
+          "conjugate gradient preconditioned by the elastic operator)");
+    }
+  } else if (direct_solver) {
+    // the adaptive tolerance requires an iterative solver
+    if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
+      mfem_mgis::Profiler::Utils::Message(
+          "error: the adaptive tolerance of the linear solver "
+          "(--adaptive-linear-solver-tolerance) requires an iterative "
+          "linear solver");
+      std::exit(EXIT_FAILURE);
+    }
+  } else if (p.reuse_analysis) {
+    mfem_mgis::Profiler::Utils::Message(
+        "warning: the option --reuse-analysis is ignored (the linear solver "
+        "is not a direct solver)");
+  }
   if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
     auto adaptive_options = mfem_mgis::Parameters{};
     if (initial_tolerance_given) {
@@ -337,16 +370,19 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.library, "-l", "--library", "Material library.");
   args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
   args.AddOption(&p.linear_solver, "", "--linear-solver",
-                 "linear solver to be used: an iterative solver of the "
-                 "factory of mfem-mgis (HyprePCG by default), or a direct "
-                 "solver, MUMPSSolver or CuDSSSolver (on a CUDA GPU only), "
-                 "for non symmetric matrices");
+                 "linear solver of the Newton method: a Krylov solver of "
+                 "hypre (HyprePCG by default, HypreGMRES or HypreFGMRES, "
+                 "preconditioned by --linear-solver-preconditioner), or a "
+                 "direct solver of mfem-mgis, MUMPSSolver or CuDSSSolver "
+                 "(on a CUDA GPU only), the matrices being given as general "
+                 "(non symmetric) ones; ignored by NewtonK0");
   args.AddOption(&p.reuse_analysis, "", "--reuse-analysis", "",
                  "--no-reuse-analysis",
                  "reuse the analysis of the direct solver (ordering and "
                  "symbolic factorization) for the matrices of the same "
                  "pattern, as the tangent operators of the successive Newton "
-                 "iterations (parameter ReuseAnalysis of mfem-mgis)");
+                 "iterations (parameter ReuseAnalysis of mfem-mgis); "
+                 "ignored, with a warning, without a direct solver");
   args.AddOption(&p.linear_solver_preconditioner, "",
                  "--linear-solver-preconditioner",
                  "preconditioner of the linear solver to be used");
@@ -586,11 +622,6 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
     p.setLinearSolver(ctx, params.linear_solver, direct_solver_parameters) |
         or_die;
     return;
-  }
-  if (params.reuse_analysis) {
-    mfem_mgis::getOutputStream()
-        << "warning: the option --reuse-analysis is ignored (the linear "
-           "solver is not a direct solver)\n";
   }
   // pilote
   constexpr int defaultMaxNumOfIt = 5000;  // MaximumNumberOfIterations

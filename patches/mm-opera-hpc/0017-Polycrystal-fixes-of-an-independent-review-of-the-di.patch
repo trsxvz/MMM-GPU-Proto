@@ -1,0 +1,126 @@
+From 025b782fc291d8e8ec070cc8eff736f1d0768bc1 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 07:54:21 +0200
+Subject: [PATCH] Polycrystal: fixes of an independent review of the direct
+ solver options
+
+- the options of the linear solver are checked after the parsing:
+  --linear-solver and --reuse-analysis are ignored, with a warning, by
+  NewtonK0 (whose tangent systems are solved by a conjugate gradient
+  preconditioned by the elastic operator) and with PETSc; an adaptive
+  tolerance with a direct solver is refused up front (it failed at each
+  step with a message hiding its cause); --reuse-analysis is ignored, with
+  a warning, without a direct solver;
+- help of --linear-solver: the Krylov solvers of hypre accepting the
+  tolerance and the preconditioner, matrices given as general ones;
+- README: rows of the options of the linear and non linear solvers, of
+  the adaptive tolerance and of AmgX.
+---
+ polycrystal/README.md               |  9 ++++-
+ polycrystal/UniaxialPolycrystal.cxx | 51 +++++++++++++++++++++++------
+ 2 files changed, 49 insertions(+), 11 deletions(-)
+
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 2453b5c..c2a4a84 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -82,7 +82,14 @@ Usage: ./uniaxial-polycrystal --help
+ | `-v <int>, --verbosity-level <int>`         | int    | `0`                          | Verbosity level of the output.                                                                                                                |
+ | `-d <double>, --duration <double>`          | double | `200`                        | Duration of the simulation.                                                                                                                   |
+ | `-n <int>, --nstep <int>`                   | int    | `600`                        | Number of simulation steps.                                                                                                                   |
+-| `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver to be used.                                                                                                                     |
++| `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver of the Newton method: a Krylov solver of hypre (`HyprePCG`, `HypreGMRES` or `HypreFGMRES`, preconditioned by `--linear-solver-preconditioner`), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only), the matrices being given as general ones. Ignored by `NewtonK0`. |
++| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver. |
++| `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
++| `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
++| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if negative.                                                                                      |
++| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX).                         |
++| `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
++| `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+ | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
+ | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
+ | `--enable-post-processings`                 | bool   | `false`                      | Execute post-processing steps (default).                                                                                                      |
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 3988980..24f50ea 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -214,6 +214,39 @@ int main(int argc, char *argv[]) {
+         "error: an initial tolerance is given without adaptive tolerance");
+     std::exit(EXIT_FAILURE);
+   }
++  // options of the linear solver of the problem
++  const auto direct_solver =
++      (std::string_view{p.linear_solver} == "MUMPSSolver") ||
++      (std::string_view{p.linear_solver} == "CuDSSSolver");
++  const auto newton_k0 = std::string_view{p.non_linear_solver} == "NewtonK0";
++  if (mfem_mgis::usePETSc()) {
++    if ((direct_solver) || (p.reuse_analysis)) {
++      mfem_mgis::Profiler::Utils::Message(
++          "warning: the options --linear-solver and --reuse-analysis are "
++          "ignored (the linear solver is given by the configuration file of "
++          "PETSc)");
++    }
++  } else if (newton_k0) {
++    if ((direct_solver) || (p.reuse_analysis)) {
++      mfem_mgis::Profiler::Utils::Message(
++          "warning: the options --linear-solver and --reuse-analysis are "
++          "ignored by NewtonK0 (its tangent systems are solved by a "
++          "conjugate gradient preconditioned by the elastic operator)");
++    }
++  } else if (direct_solver) {
++    // the adaptive tolerance requires an iterative solver
++    if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
++      mfem_mgis::Profiler::Utils::Message(
++          "error: the adaptive tolerance of the linear solver "
++          "(--adaptive-linear-solver-tolerance) requires an iterative "
++          "linear solver");
++      std::exit(EXIT_FAILURE);
++    }
++  } else if (p.reuse_analysis) {
++    mfem_mgis::Profiler::Utils::Message(
++        "warning: the option --reuse-analysis is ignored (the linear solver "
++        "is not a direct solver)");
++  }
+   if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
+     auto adaptive_options = mfem_mgis::Parameters{};
+     if (initial_tolerance_given) {
+@@ -337,16 +370,19 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.library, "-l", "--library", "Material library.");
+   args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
+   args.AddOption(&p.linear_solver, "", "--linear-solver",
+-                 "linear solver to be used: an iterative solver of the "
+-                 "factory of mfem-mgis (HyprePCG by default), or a direct "
+-                 "solver, MUMPSSolver or CuDSSSolver (on a CUDA GPU only), "
+-                 "for non symmetric matrices");
++                 "linear solver of the Newton method: a Krylov solver of "
++                 "hypre (HyprePCG by default, HypreGMRES or HypreFGMRES, "
++                 "preconditioned by --linear-solver-preconditioner), or a "
++                 "direct solver of mfem-mgis, MUMPSSolver or CuDSSSolver "
++                 "(on a CUDA GPU only), the matrices being given as general "
++                 "(non symmetric) ones; ignored by NewtonK0");
+   args.AddOption(&p.reuse_analysis, "", "--reuse-analysis", "",
+                  "--no-reuse-analysis",
+                  "reuse the analysis of the direct solver (ordering and "
+                  "symbolic factorization) for the matrices of the same "
+                  "pattern, as the tangent operators of the successive Newton "
+-                 "iterations (parameter ReuseAnalysis of mfem-mgis)");
++                 "iterations (parameter ReuseAnalysis of mfem-mgis); "
++                 "ignored, with a warning, without a direct solver");
+   args.AddOption(&p.linear_solver_preconditioner, "",
+                  "--linear-solver-preconditioner",
+                  "preconditioner of the linear solver to be used");
+@@ -587,11 +623,6 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+         or_die;
+     return;
+   }
+-  if (params.reuse_analysis) {
+-    mfem_mgis::getOutputStream()
+-        << "warning: the option --reuse-analysis is ignored (the linear "
+-           "solver is not a direct solver)\n";
+-  }
+   // pilote
+   constexpr int defaultMaxNumOfIt = 5000;  // MaximumNumberOfIterations
+   auto solverParameters = mfem_mgis::Parameters{};
+-- 
+2.43.0
+
