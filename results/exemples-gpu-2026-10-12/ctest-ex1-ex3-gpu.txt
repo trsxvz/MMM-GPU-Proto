@@ -1,0 +1,19 @@
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
+    Start 113: ex1-batch-cuda
+1/7 Test #113: ex1-batch-cuda ...................   Passed    1.20 sec
+    Start 118: ex3-0-batch-cuda
+2/7 Test #118: ex3-0-batch-cuda .................   Passed    0.77 sec
+    Start 123: ex3-1-batch-cuda
+3/7 Test #123: ex3-1-batch-cuda .................   Passed    0.79 sec
+    Start 128: ex3-2-batch-cuda
+4/7 Test #128: ex3-2-batch-cuda .................   Passed    0.80 sec
+    Start 133: ex3-3-batch-cuda
+5/7 Test #133: ex3-3-batch-cuda .................   Passed    0.80 sec
+    Start 138: ex3-4-batch-cuda
+6/7 Test #138: ex3-4-batch-cuda .................   Passed    0.81 sec
+    Start 143: ex3-5-batch-cuda
+7/7 Test #143: ex3-5-batch-cuda .................   Passed    0.79 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =   5.98 sec

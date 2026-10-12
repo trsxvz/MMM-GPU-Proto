@@ -375,6 +375,26 @@ namespace mfront {
       b.description += this->currentComment;
     }
     auto& res = b.code;
+    // writes a static member, the current token. A static variable is
+    // written `TFEL_STATIC_VARIABLE(v)`, which gives the variable itself in
+    // host code and a temporary copy initialised by a constant expression in
+    // device code, which can't refer to a constexpr static variable defined
+    // in host code (see TFELConfig.hxx).
+    auto writeStaticMember = [this, &res, addClassName](const std::string& n) {
+      const auto previous = std::prev(this->current);
+      if ((previous->value == "->") || (previous->value == ".") ||
+          (previous->value == "::")) {
+        res += n;
+        return;
+      }
+      res += "TFEL_STATIC_VARIABLE(";
+      if (addClassName) {
+        res += this->getClassName();
+        res += "::";
+      }
+      res += n;
+      res += ")";
+    };
     unsigned int openedBlock = 0;
     this->readSpecifiedToken("DSLBase::readNextBlock", delim1);
     this->checkNotEndOfFile("DSLBase::readNextBlock",
@@ -408,15 +428,7 @@ namespace mfront {
     }
     if (smn.find(currentValue) != smn.end()) {
       b.staticMembers.insert(currentValue);
-      const auto previous = std::prev(this->current);
-      if ((previous->value != "->") && (previous->value != ".") &&
-          (previous->value != "::")) {
-        if (addClassName) {
-          res += this->getClassName();
-          res += "::";
-        }
-      }
-      res += currentValue;
+      writeStaticMember(currentValue);
     } else if (mn.find(currentValue) != mn.end()) {
       b.members.insert(currentValue);
       auto cv = std::string{};
@@ -473,15 +485,7 @@ namespace mfront {
       }
       if (smn.find(currentValue) != smn.end()) {
         b.staticMembers.insert(currentValue);
-        const auto previous = std::prev(this->current);
-        if ((previous->value != "->") && (previous->value != ".") &&
-            (previous->value != "::")) {
-          if (addClassName) {
-            res += this->getClassName();
-            res += "::";
-          }
-        }
-        res += currentValue;
+        writeStaticMember(currentValue);
       } else if (mn.find(currentValue) != mn.end()) {
         b.members.insert(currentValue);
         auto cv = std::string{};

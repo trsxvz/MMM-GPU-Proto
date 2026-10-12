@@ -132,12 +132,12 @@ namespace mfront {
    * the time step
    */
   static std::function<
-      std::string(const BehaviourDescription::MaterialPropertyInput&)>&
+      std::string(const BehaviourDescription::MaterialPropertyInput&)>
   modifyVariableForStiffnessTensorComputation(const std::string& cn) {
     using MaterialPropertyInput = BehaviourDescription::MaterialPropertyInput;
     using Modifier = std::function<std::string(const MaterialPropertyInput&)>;
-    static Modifier m =
-        [cn](const BehaviourDescription::MaterialPropertyInput& i) {
+    auto m =
+        Modifier{[cn](const BehaviourDescription::MaterialPropertyInput& i) {
           if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
               (i.category == MaterialPropertyInput::EXTERNALSTATEVARIABLE)) {
             return "this->" + i.name + "_";
@@ -150,7 +150,7 @@ namespace mfront {
                      (i.category == MaterialPropertyInput::PARAMETER)) {
             return "this->" + i.name;
           } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-            return cn + "::" + i.name;
+            return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
           } else {
             tfel::raise(
                 "modifyVariableForStiffnessTensorComputation: "
@@ -158,7 +158,7 @@ namespace mfront {
                 "variable '" +
                 i.name + "'");
           }
-        };
+        }};
     return m;
   }  // end of modifyVariableForStiffnessTensorComputation
 
@@ -167,12 +167,12 @@ namespace mfront {
    * the time step.
    */
   static std::function<
-      std::string(const BehaviourDescription::MaterialPropertyInput&)>&
+      std::string(const BehaviourDescription::MaterialPropertyInput&)>
   modifyVariableForStiffnessTensorComputation2(const std::string& cn) {
     using MaterialPropertyInput = BehaviourDescription::MaterialPropertyInput;
     using Modifier = std::function<std::string(const MaterialPropertyInput&)>;
-    static Modifier m = [cn](const BehaviourDescription::MaterialPropertyInput&
-                                 i) {
+    auto m = Modifier{[cn](const BehaviourDescription::MaterialPropertyInput&
+                               i) {
       if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
           (i.category ==
            MaterialPropertyInput::AUXILIARYSTATEVARIABLEFROMEXTERNALMODEL) ||
@@ -182,7 +182,7 @@ namespace mfront {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return cn + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + cn + "::" + i.name + ")";
       } else {
         tfel::raise(
             "modifyVariableForStiffnessTensorComputation2: "
@@ -190,7 +190,7 @@ namespace mfront {
             "variable '" +
             i.name + "'");
       }
-    };
+    }};
     return m;
   }  // end of modifyVariableForStiffnessTensorComputation2
 
@@ -295,7 +295,8 @@ namespace mfront {
             (i.category == MaterialPropertyInput::PARAMETER)) {
           return "this->" + i.name;
         } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-          return this->bd.getClassName() + "::" + i.name;
+          return "TFEL_STATIC_VARIABLE(" + this->bd.getClassName() +
+                 "::" + i.name + ")";
         } else {
           this->throwRuntimeError(
               "RungeKuttaCodeGeneratorBase::"
@@ -1619,15 +1620,18 @@ namespace mfront {
        << "2>(((sigf)-(this->sig))|((sigf)-(this->sig))) / errabs;\n"
        << "const auto sqra = tfel::math::power<1, 2>(ra);\n"
        << "// test for convergence\n"
-       << "if ((sqra>" << this->bd.getClassName()
-       << "::rkcastem_div)||(!ieee754::isfinite(ra))){\n"
-       << "dt_ /= " << this->bd.getClassName() << "::rkcastem_div;\n";
+       << "if ((sqra>TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_div))||(!ieee754::isfinite(ra))){\n"
+       << "dt_ /= TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_div);\n";
     if (getDebugMode()) {
       os << "cout << \"" << this->bd.getClassName()
          << "::integrate() : multiplying time step by a factor \" << 1/("
-         << this->bd.getClassName() << "::rkcastem_div) << endl;\n";
+         << "TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+         << "::rkcastem_div)) << endl;\n";
     }
-    os << "} else if (ra> " << this->bd.getClassName() << "::rkcastem_borne){\n"
+    os << "} else if (ra> TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_borne)){\n"
        << "dt_ /= sqra;\n";
     if (getDebugMode()) {
       os << "cout << \"" << this->bd.getClassName()
@@ -1662,15 +1666,20 @@ namespace mfront {
        << "converged=true;\n"
        << "}\n"
        << "if(!converged){\n"
-       << "if ((" << this->bd.getClassName() << "::rkcastem_fac)*sqra < 1){\n"
-       << "dt_ *= " << this->bd.getClassName() << "::rkcastem_fac;\n";
+       << "if ((TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_fac))*sqra < 1){\n"
+       << "dt_ *= TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_fac);\n";
     if (getDebugMode()) {
       os << "cout << \"" << this->bd.getClassName()
          << "::integrate() : multiplying time step by a factor \" << "
-         << this->bd.getClassName() << "::rkcastem_fac << endl;\n";
+         << "TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+         << "::rkcastem_fac) << endl;\n";
     }
-    os << "}else if ((sqra< " << this->bd.getClassName() << "::rkcastem_rmin)||"
-       << "(sqra>" << this->bd.getClassName() << "::rkcastem_rmax)){\n";
+    os << "}else if ((sqra< TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_rmin))||"
+       << "(sqra>TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_rmax))){\n";
     os << "dt_ /= sqra;\n";
     if (getDebugMode()) {
       os << "cout << \"" << this->bd.getClassName()
@@ -1681,11 +1690,13 @@ namespace mfront {
        << "}\n"
        << "}\n"
        << "} else { \n"
-       << "dt_ /=  " << this->bd.getClassName() << "::rkcastem_div;\n";
+       << "dt_ /=  TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+       << "::rkcastem_div);\n";
     if (getDebugMode()) {
       os << "cout << \"" << this->bd.getClassName()
          << "::integrate() : multiplying time step by a factor \" << 1/("
-         << this->bd.getClassName() << "::rkcastem_fac) << endl;\n";
+         << "TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
+         << "::rkcastem_fac)) << endl;\n";
     }
     os << "}\n"
        << "if(dt_<dtprec){\n";

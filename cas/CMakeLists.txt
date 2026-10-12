@@ -12,6 +12,17 @@ endif()
 
 find_package(MFEMMGIS REQUIRED)
 find_program(MFRONT mfront REQUIRED)
+# the behaviours are generated again when MFront changes: its executable
+# and its library, which holds the code generators
+get_filename_component(_mfront_prefix "${MFRONT}" DIRECTORY)
+get_filename_component(_mfront_prefix "${_mfront_prefix}" DIRECTORY)
+set(MFRONT_DEPENDENCIES "${MFRONT}")
+foreach(_directory lib lib64)
+  if(EXISTS "${_mfront_prefix}/${_directory}/libTFELMFront.so")
+    list(APPEND MFRONT_DEPENDENCIES
+         "${_mfront_prefix}/${_directory}/libTFELMFront.so")
+  endif()
+endforeach()
 
 include(CTest)
 enable_testing()
@@ -37,7 +48,7 @@ function(add_mfront_library target)
     OUTPUT "${wd}/src/libBehaviour.so"
     COMMAND ${MFRONT} --obuild --interface=generic ${ARGN}
     WORKING_DIRECTORY "${wd}"
-    DEPENDS ${ARGN}
+    DEPENDS ${ARGN} ${MFRONT_DEPENDENCIES}
     COMMENT "MFront: behaviours of ${target}")
   add_custom_target(${target} ALL DEPENDS "${wd}/src/libBehaviour.so")
 endfunction()
@@ -84,7 +95,7 @@ function(add_generic_parallel_mfront_library target name configuration suffix)
             "--configuration-file=${configuration}" ${_include}
             ${_gp_UNPARSED_ARGUMENTS}
     WORKING_DIRECTORY "${_directory}"
-    DEPENDS ${_gp_UNPARSED_ARGUMENTS}
+    DEPENDS ${_gp_UNPARSED_ARGUMENTS} ${MFRONT_DEPENDENCIES}
     COMMENT "MFront: behaviours of ${target}, generic-parallel (${name})")
   add_custom_target(${target}-${name} ALL DEPENDS ${_libraries})
   set(${target}_${name}_FOUND TRUE PARENT_SCOPE)
@@ -217,3 +228,9 @@ add_subdirectory(cermet)
 add_subdirectory(ssna303)
 add_subdirectory(thermique)
 add_subdirectory(ex8)
+add_subdirectory(ex7)
+add_subdirectory(ex6)
+add_subdirectory(ex2)
+add_subdirectory(ex5)
+add_subdirectory(ex1)
+add_subdirectory(ex3)

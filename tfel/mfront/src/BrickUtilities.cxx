@@ -31,7 +31,8 @@ namespace mfront::bbrick {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return bd.getClassName() + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + bd.getClassName() + "::" + i.name +
+               ")";
       } else {
         tfel::raise("unsupported input type for variable '" + i.name + "'");
       }

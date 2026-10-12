@@ -320,7 +320,7 @@ namespace mfront::bbrick {
       }
       throw_if(i.category != MaterialPropertyInput::STATICVARIABLE,
                "unsupported input type for variable '" + i.name + "'");
-      return bd.getClassName() + "::" + i.name;
+      return "TFEL_STATIC_VARIABLE(" + bd.getClassName() + "::" + i.name + ")";
     };
     const auto young = [&bd]() -> std::string {
       if (bd.areElasticMaterialPropertiesDefined()) {

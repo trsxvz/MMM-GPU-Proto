@@ -2849,8 +2849,8 @@ namespace mfront {
           out << "tfel::math::base_type_cast(this->" << pi->name << ")";
         } else if (c == BehaviourDescription::MaterialPropertyInput::
                             STATICVARIABLE) {
-          out << "tfel::math::base_type_cast(" << this->bd.getClassName()
-              << "::" << pi->name << ")";
+          out << "tfel::math::base_type_cast(TFEL_STATIC_VARIABLE("
+              << this->bd.getClassName() << "::" << pi->name << "))";
         } else {
           throw_if(true,
                    "thermal expansion coefficients must depend "
@@ -2880,8 +2880,9 @@ namespace mfront {
               {i.name, "tfel::math::base_type_cast(this->" + i.name + ")"});
         } else if (c == BehaviourDescription::MaterialPropertyInput::
                             STATICVARIABLE) {
-          m.insert({i.name, "tfel::math::base_type_cast(" +
-                                this->bd.getClassName() + "::" + i.name + ")"});
+          m.insert({i.name, "tfel::math::base_type_cast(TFEL_STATIC_VARIABLE(" +
+                                this->bd.getClassName() + "::" + i.name +
+                                "))"});
         } else {
           throw_if(true,
                    "thermal expansion coefficients must depend "
@@ -5479,7 +5480,8 @@ namespace mfront {
              << " = this->" << source << " + this->d" << source << ";\n";
         } else if (md.isStaticVariableName(source)) {
           os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
-             << " = " << bd.getClassName() << "::" << source << ";\n";
+             << " = TFEL_STATIC_VARIABLE(" << bd.getClassName()
+             << "::" << source << ");\n";
         } else {
           os << "mfront_behaviour_variable_" << b.name << ". " << mp.name
              << " = this->" << source << ";\n";
@@ -5559,7 +5561,8 @@ namespace mfront {
              << " = this->d" << source << ";\n";
         } else if (md.isStaticVariableName(source)) {
           os << "mfront_behaviour_variable_" << b.name << ". " << esv.name
-             << " = " << bd.getClassName() << "::" << source << ";\n";
+             << " = TFEL_STATIC_VARIABLE(" << bd.getClassName()
+             << "::" << source << ");\n";
           os << "mfront_behaviour_variable_" << b.name << ". d" << esv.name
              << " = " << esv.type << "{};\n";
         } else {

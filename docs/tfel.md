@@ -476,6 +476,21 @@ changer les résultats sur CPU.
   `mfront` des propriétés matériau.
 - **Même classe de loi sur l'hôte et le GPU**, et comparaison à la
   jacobienne numérique faite seulement sur l'hôte.
+- **Variables statiques.** MFront écrit une variable statique
+  (`@StaticVariable`, `@IntegerConstant`, nombres de systèmes de
+  glissement) `TFEL_STATIC_VARIABLE(v)`, dans les blocs de code et dans les
+  entrées des propriétés matériau. Cette macro de `TFELConfig.hxx` donne la
+  variable elle-même dans le code de l'hôte, qui ne change donc pas, et une
+  copie initialisée par une expression constante, `(decltype(v){v})`, dans
+  le code GPU (`TFEL_DEVICE_CODE`). Le code GPU ne peut pas faire
+  référence à une variable statique constexpr de l'hôte, ce que fait un
+  opérateur qui prend ses arguments par référence dans une expression
+  évaluée à l'exécution, par exemple `T + dT - Tref` avec les quantités
+  (`@UseQt true`, nvcc : « identifier is undefined in device code »).
+  Les algorithmes de Runge-Kutta écrivent aussi ainsi la rigidité
+  recalculée aux étapes intermédiaires et les constantes de rkCastem.
+  Reproducteur : `reproducers/mfront-static-quantity-cuda` ; loi de test
+  `StrainHardeningCreep3`.
 
 ## Corrections du code existant
 
@@ -530,7 +545,20 @@ Divers :
 - loi de test `DigitSeparatorTest` : dérivée de la loi d'écoulement non
   initialisée ;
 - test CUDA des propriétés matériau qui écrivait en mémoire hôte depuis un
-  noyau (masqué par la gestion hétérogène de la mémoire).
+  noyau (masqué par la gestion hétérogène de la mémoire) ;
+- algorithmes de Runge-Kutta : les modificateurs de la rigidité gardaient,
+  dans une lambda statique, le nom de la première loi traitée par un appel
+  de MFront ; avec plusieurs lois dans le même appel, les autres faisaient
+  référence aux variables statiques de la première.
+
+Défauts relevés mais pas encore corrigés (relecture du 12/10) :
+
+- `DDIF2StressPotential` : le test sur les contraintes de rupture est
+  inversé (une seule contrainte non constante est refusée ; avec trois,
+  seule la première est utilisée) ;
+- `IsotropicBehaviourCodeGeneratorBase` : le coefficient de Poisson est
+  converti en `stress` au lieu de `real`, ce qui ne compile pas avec
+  `@UseQt true`.
 
 ## Incompatibilités
 

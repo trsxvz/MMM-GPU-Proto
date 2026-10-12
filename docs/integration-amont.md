@@ -31,7 +31,9 @@ précédentes. Les détails techniques sont dans [tfel.md](tfel.md).
    l'opérateur tangent vérifié avant sa conversion, paramètres transmis à la
    classe de loi et à ses variables de comportement, erreurs portables
    (`tfel::fail`, `abortResolution`, `abortIntegration`), données partagées
-   (`@SharedData`). Les résultats des interfaces existantes ne changent pas.
+   (`@SharedData`), variables statiques écrites `TFEL_STATIC_VARIABLE(v)`
+   (copie dans le code GPU, variable elle-même sur l'hôte). Les résultats
+   des interfaces existantes ne changent pas.
 4. **Interface `generic-parallel` des lois et des modèles**, avec un
    premier ensemble de backends : CUDA, HIP, algorithmes parallèles du C++
    et OpenMP sur l'hôte. Contrat de données versionné, options d'exécution,

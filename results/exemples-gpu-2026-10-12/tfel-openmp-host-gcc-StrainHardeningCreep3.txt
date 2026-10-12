@@ -1,0 +1,1 @@
+openmp-host-gcc: OK=10 FAILED=0 by-variable-OK=3

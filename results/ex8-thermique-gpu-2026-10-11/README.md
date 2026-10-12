@@ -55,11 +55,14 @@ statistiques des champs.
 | GMRES et ParaSails, après correction | échec : pas de temps redécoupés jusqu'à la limite | | |
 
 Les totaux (28 à 30 s) ne sont pas comparables aux 19,9 s de
-`results/ex8-mumps-symetrique-2026-10-11` : les deux processus étaient
-liés aux cœurs 0 à 3, sur une machine partagée avec une autre session.
-Les résolutions de la thermique (1,49 s) et les factorisations de la
-mécanique (5,32 s) sont les mêmes que dans cette mesure. Seules les
-colonnes de la thermique servent à comparer les préconditionneurs.
+`results/ex8-mumps-symetrique-2026-10-11` : ces essais calculent élément
+par élément (sans les variables de mfem-mgis qui choisissent les lots et
+les noyaux), cette mesure-là tout par noyaux. Les résolutions de la
+thermique (1,49 s) et les factorisations de la mécanique (5,32 s) sont les
+mêmes. Seules les colonnes de la thermique servent à comparer les
+préconditionneurs. Mesure refaite le 12/10 (rangs placés par OpenMPI sur
+les cœurs 4 et 5, un cœur chacun) : BoomerAMG 29,4 s, ILU 31,6 s, MUMPS
+32,3 s ; thermique 6,06 s, 8,21 s et 7,20 s.
 
 ## ParaSails
 

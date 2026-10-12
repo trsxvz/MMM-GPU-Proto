@@ -8,8 +8,13 @@
 @AuxiliaryStateVariable stress l,m;
 @AuxiliaryStateVariable stress l_tdt,m_tdt;
 
+// static variable of quantity type, given by reference to an operator in
+// an expression evaluated at run time, in device code (see
+// TFEL_STATIC_VARIABLE). The flow rule is still zero.
+@StaticVariable strainrate de0 = 0;
+
 @FlowRule{
-  f       =  strainrate{0};
+  f       =  de0 + strainrate{0} * p;
   df_dseq =  derivative_type<strainrate,stress>{0};
   df_dp   =  strainrate{0};
 }

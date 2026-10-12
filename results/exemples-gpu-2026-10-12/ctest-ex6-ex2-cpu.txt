@@ -1,0 +1,29 @@
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
+      Start  89: ex6-point-par-point
+ 1/12 Test  #89: ex6-point-par-point ..............   Passed    2.28 sec
+      Start  90: ex6-noyaux
+ 2/12 Test  #90: ex6-noyaux .......................   Passed    0.65 sec
+      Start  91: ex6-batch-openmp
+ 3/12 Test  #91: ex6-batch-openmp .................   Passed    0.72 sec
+      Start  92: ex6-batch-stlpar
+ 4/12 Test  #92: ex6-batch-stlpar .................   Passed    0.71 sec
+      Start  94: ex2-point-par-point
+ 5/12 Test  #94: ex2-point-par-point ..............   Passed    0.95 sec
+      Start  95: ex2-noyaux
+ 6/12 Test  #95: ex2-noyaux .......................   Passed    0.84 sec
+      Start  96: ex2-batch-openmp
+ 7/12 Test  #96: ex2-batch-openmp .................   Passed    0.83 sec
+      Start  97: ex2-batch-stlpar
+ 8/12 Test  #97: ex2-batch-stlpar .................   Passed    0.72 sec
+      Start  99: ex2-fbar-point-par-point
+ 9/12 Test  #99: ex2-fbar-point-par-point .........   Passed    0.77 sec
+      Start 100: ex2-fbar-noyaux
+10/12 Test #100: ex2-fbar-noyaux ..................   Passed    0.83 sec
+      Start 101: ex2-fbar-batch-openmp
+11/12 Test #101: ex2-fbar-batch-openmp ............   Passed    0.82 sec
+      Start 102: ex2-fbar-batch-stlpar
+12/12 Test #102: ex2-fbar-batch-stlpar ............   Passed    0.82 sec
+
+100% tests passed, 0 tests failed out of 12
+
+Total Test time (real) =  10.94 sec

@@ -4370,3 +4370,29 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   et MGIS, vérifications. Section MGIS complétée (rangements, opérations
   de copie, profilage). Relecture indépendante traitée (classement des
   conditions aux limites, dépendances envers MGIS, corrections oubliées).
+
+### 2026-10-12 (nuit), exemples ex1, ex2, ex3, ex5, ex6 et ex7 par lots et sur le GPU
+
+- Six exemples de mfem-mgis-examples suivis par le prototype (`cas/ex1`,
+  `cas/ex2`, `cas/ex3`, `cas/ex5`, `cas/ex6`, `cas/ex7`) : point par
+  point, par noyaux, par lots openmp et stlpar, sur le GPU ; CPU 48/48,
+  GPU 12/12 (`results/exemples-gpu-2026-10-12`). Options ajoutées aux
+  exemples : `-l` (ex2, ex5), `--device` (ex5, ex6).
+- ex7 complet : CPU 2 processus 10,4 s point par point, 6,2 s par noyaux ;
+  GPU 6,5 à 6,8 s, limité par GMRES et BoomerAMG sur un système de 2 634
+  inconnues.
+- Loi d'ex5 refusée par nvcc : variable statique d'une quantité
+  référencée dans le code GPU. TFEL 837338523, puis f1ff18259, d22416824
+  et bf143cf46 après deux relectures : MFront écrit les variables
+  statiques `TFEL_STATIC_VARIABLE(v)` (variable elle-même sur l'hôte,
+  copie dans le code GPU), dans les blocs de code, les entrées des
+  propriétés matériau, les variables de comportement et les algorithmes
+  de Runge-Kutta (dont une lambda statique qui gardait le nom de la
+  première loi). Loi de test `StrainHardeningCreep3` (comparaisons openmp
+  10/10, cuda-nvcc 11/11), reproducteur
+  `reproducers/mfront-static-quantity-cuda`.
+- Piège de mesure : avec `scripts/env.sh` (`OMP_PROC_BIND=spread`),
+  `mpirun --bind-to none taskset -c ...` met tous les processus sur le
+  même cœur ; lancer sans `mpirun` sur un seul cœur est 3 fois plus lent.
+  Les mesures CPU d'ex8 du 11/10 n'étaient pas touchées ; l'écart avec
+  19,9 s venait du calcul élément par élément.

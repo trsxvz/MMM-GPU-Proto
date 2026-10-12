@@ -169,7 +169,8 @@ namespace mfront {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return this->bd.getClassName() + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + this->bd.getClassName() +
+               "::" + i.name + ")";
       } else {
         this->throwRuntimeError(
             "ImplicitCodeGeneratorBase::"
@@ -188,7 +189,8 @@ namespace mfront {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return this->bd.getClassName() + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + this->bd.getClassName() +
+               "::" + i.name + ")";
       } else {
         this->throwRuntimeError(
             "ImplicitCodeGeneratorBase::"
@@ -318,7 +320,8 @@ namespace mfront {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return this->bd.getClassName() + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + this->bd.getClassName() +
+               "::" + i.name + ")";
       } else {
         this->throwRuntimeError(
             "ImplicitCodeGeneratorBase::"
@@ -337,7 +340,8 @@ namespace mfront {
                  (i.category == MaterialPropertyInput::PARAMETER)) {
         return "this->" + i.name;
       } else if (i.category == MaterialPropertyInput::STATICVARIABLE) {
-        return this->bd.getClassName() + "::" + i.name;
+        return "TFEL_STATIC_VARIABLE(" + this->bd.getClassName() +
+               "::" + i.name + ")";
       } else {
         this->throwRuntimeError(
             "ImplicitCodeGeneratorBase::"

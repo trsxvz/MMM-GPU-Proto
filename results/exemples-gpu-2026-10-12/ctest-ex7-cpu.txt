@@ -1,0 +1,13 @@
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
+    Start 84: ex7-point-par-point
+1/4 Test #84: ex7-point-par-point ..............   Passed    2.60 sec
+    Start 85: ex7-noyaux
+2/4 Test #85: ex7-noyaux .......................   Passed    2.21 sec
+    Start 86: ex7-batch-openmp
+3/4 Test #86: ex7-batch-openmp .................   Passed    1.97 sec
+    Start 87: ex7-batch-stlpar
+4/4 Test #87: ex7-batch-stlpar .................   Passed    1.93 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   8.71 sec
