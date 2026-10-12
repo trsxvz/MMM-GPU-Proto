@@ -4417,3 +4417,16 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   comme l'annoncent les notes de version 4.1 ; seule
   `OrthotropicCreep_rkCastem` touchée, même valeur ; messages d'erreur
   remis dans l'ordre).
+
+### 2026-10-12 (nuit), hypre sur l'hôte avec le périphérique sur le GPU
+
+- mfem-mgis 279b5583d4 et 3ad387b002 (relecture Z7) : option
+  `--hypre-on-host` de `initialize` (et variable
+  `MFEM_MGIS_HYPRE_ON_HOST`) : lois, noyaux et MFEM sur le GPU, hypre sur
+  l'hôte. La demande est lue avant l'initialisation de hypre ; le drapeau
+  de MFEM et la politique hôte sont tous deux nécessaires (mutations).
+  Tests GPU 18/18.
+- Mesures (`results/hypre-hote-2026-10-12`) : ex7 complet 6,7 -> 4,4 s
+  sur le GPU (CPU 2 cœurs 6,3 s), ex8 12,5 -> 11,6 s (thermique 4,0 ->
+  2,8 s, comme avec MUMPS). Pour les petits systèmes, le GPU passe devant
+  le CPU.

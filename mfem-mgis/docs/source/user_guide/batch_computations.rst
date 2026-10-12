@@ -529,6 +529,7 @@ GPUs and its memory is located on the device (see
   the strategy :code:`System`, with a warning;
 - the level of fill of :code:`HypreILU` is zero by default, and a greater
   level is refused (see :doc:`glossary`);
+- :code:`HypreParaSails`, which only computes on the host, is refused;
 - the global tangent operator assembled by kernels is computed by the
   triple product of :code:`hypre` at each assembly.
 
@@ -541,6 +542,22 @@ whose size is 4 GiB by default in :code:`hypre` 3.2. The size is set
 before the first allocation of :code:`hypre` on the GPU. If :code:`hypre`
 does not use a pool of :code:`Umpire` on the GPU, the option is refused,
 and the environment variable is ignored with a warning.
+
+For small linear systems, whose resolutions on a GPU are dominated by the
+launches of kernels, :code:`hypre` may compute on the host while the
+behaviours and the computations of :code:`MFEM` and of :code:`mfem-mgis`
+stay on the GPU: option :code:`--hypre-on-host` (or :code:`-hoh`, and
+:code:`--no-hypre-on-host` or :code:`-no-hoh` to cancel it), declared by
+:code:`mfem_mgis::declareDefaultOptions`, or environment variable
+:code:`MFEM_MGIS_HYPRE_ON_HOST` (any non empty value other than
+:code:`0`). :code:`MFEM` then copies the matrices and the vectors given to
+:code:`hypre` on the host, and :code:`mfem::HypreUsingGPU` is false: the
+restrictions listed above do not apply. The option
+:code:`--hypre-device-pool-size` is then refused. The option requires
+:code:`hypre` 2.31.0 or later when :code:`hypre` is built with GPU
+support. :code:`PETSc` may make :code:`hypre` use the GPU again
+(conversion of its matrices located on a GPU for the preconditioners of
+:code:`hypre`).
 
 .. _mfem_mgis_batch_computations_amgx:
 

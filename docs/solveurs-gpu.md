@@ -261,6 +261,15 @@ p-multigrille).
   entre composantes de la matrice utilisée pour l'AMG : complexité plus
   faible, convergence à mesurer en élasticité. Suppose des inconnues
   entrelacées (byVDIM). GPU à vérifier.
+- **Petits systèmes : hypre sur l'hôte** (fait le 12/10). Sous 10 000
+  inconnues environ, une résolution par GMRES et BoomerAMG sur le GPU est
+  dominée par les lancements de noyaux : 100 ms pour les 9 516 inconnues
+  de la thermique d'ex8, contre 42 ms sur deux cœurs. L'option
+  `--hypre-on-host` de `mfem_mgis::initialize` garde les lois et les
+  noyaux sur le GPU et fait calculer hypre sur l'hôte : ex7 complet
+  (2 634 inconnues) 6,7 -> 4,4 s, ex8 12,5 -> 11,6 s
+  (`results/hypre-hote-2026-10-12`). MUMPS sur l'hôte donne le même gain
+  pour la thermique d'ex8 (`results/ex8-thermique-gpu-2026-10-11`).
 
 ### GAMG (PETSc)
 

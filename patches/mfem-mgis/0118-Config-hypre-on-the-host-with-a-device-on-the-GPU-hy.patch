@@ -1,0 +1,413 @@
+From 279b5583d451320929bb0e9b2e200115b043432a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 02:59:26 +0200
+Subject: [PATCH] Config: hypre on the host with a device on the GPU
+ (--hypre-on-host)
+
+The option `--hypre-on-host` (or `-hoh`, `--no-hypre-on-host` and
+`-no-hoh` cancelling it), declared by declareDefaultOptions, or else the
+environment variable MFEM_MGIS_HYPRE_ON_HOST, makes hypre allocate its
+memory and compute on the host while the device of MFEM uses a GPU: the
+behaviours and the computations of MFEM and of mfem-mgis stay on the
+device, and MFEM gives the data of hypre on the host
+(mfem::HypreUsingGPU is false). This is faster for small linear
+systems, whose resolutions on a GPU are dominated by the launches of
+kernels. initialize prevents the configuration of the device from making
+hypre use the GPU (mfem::Hypre::configure_runtime_policy_from_mfem) and
+sets the policy of hypre to the host after it. The size of the pool of
+memory of hypre on the GPU (--hypre-device-pool-size) is then refused.
+
+Tests: DeviceOptionTest checks where hypre computes (--expected-hypre)
+and an expected error of the initialization (--expected-error), with
+four new variants on the GPU (option, environment variable, option
+cancelling the variable, refusal of the pool size);
+HypreILUTestP-cuda-hypre-on-host and
+BatchIntegrationTestP-cuda-hypre-on-host (behaviours and kernels on the
+GPU, hypre on the host). Removing both settings makes the tests fail.
+---
+ docs/source/user_guide/batch_computations.rst | 11 +++
+ include/MFEMMGIS/Config.hxx                   | 12 +++
+ src/Config.cxx                                | 91 +++++++++++++++++++
+ tests/CMakeLists.txt                          | 46 +++++++++-
+ tests/DeviceOptionTest.cxx                    | 60 +++++++++++-
+ 5 files changed, 215 insertions(+), 5 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index e3575c523c..2bd854b512 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -542,6 +542,17 @@ before the first allocation of :code:`hypre` on the GPU. If :code:`hypre`
+ does not use a pool of :code:`Umpire` on the GPU, the option is refused,
+ and the environment variable is ignored with a warning.
+ 
++For small linear systems, whose resolutions on a GPU are dominated by the
++launches of kernels, :code:`hypre` may compute on the host while the
++behaviours and the computations of :code:`MFEM` and of :code:`mfem-mgis`
++stay on the GPU: option :code:`--hypre-on-host` (or :code:`-hoh`, and
++:code:`--no-hypre-on-host` to cancel it), declared by
++:code:`mfem_mgis::declareDefaultOptions`, or environment variable
++:code:`MFEM_MGIS_HYPRE_ON_HOST`. :code:`MFEM` then copies the matrices and
++the vectors given to :code:`hypre` on the host, and
++:code:`mfem::HypreUsingGPU` is false: the restrictions listed above do not
++apply.
++
+ .. _mfem_mgis_batch_computations_amgx:
+ 
+ AmgX
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 6c4378f324..4d52cdf7b5 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -162,6 +162,18 @@ namespace mfem_mgis {
+    * option is an error if hypre does not use Umpire on the GPU; the
+    * environment variable is then ignored with a warning.
+    *
++   * The option `--hypre-on-host` (or `-hoh`, `--no-hypre-on-host` and
++   * `-no-hoh` cancelling it), or else the environment variable
++   * `MFEM_MGIS_HYPRE_ON_HOST` (any non empty value other than `0`), makes
++   * hypre allocate its memory and compute on the host, even if the device
++   * of MFEM uses a GPU: the behaviours and the computations of MFEM and of
++   * mfem-mgis stay on the device, and MFEM copies the matrices and the
++   * vectors given to hypre on the host. This is faster for small linear
++   * systems, whose resolutions on a GPU are dominated by the launches of
++   * kernels. The size of the pool of memory of hypre on the GPU can't be
++   * given by the option `--hypre-device-pool-size` (the environment
++   * variable is accepted).
++   *
+    * The option `--kokkos` (or `-kk`, `--no-kokkos` and `-no-kk` cancelling
+    * it), or else the environment variable `MFEM_MGIS_KOKKOS` (any non empty
+    * value other than `0`), initializes Kokkos after the device of MFEM, on
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e8d95dddc2..6e3f70088b 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -55,6 +55,17 @@ namespace mfem_mgis {
+     static const char* const hypre_device_pool_size_option;
+     //! \brief short name of the option `hypre_device_pool_size_option`
+     static const char* const hypre_device_pool_size_short_option;
++    /*!
++     * \brief option requesting hypre to compute on the host, even if the
++     * device of MFEM uses a GPU
++     */
++    static const char* const hypre_on_host_option;
++    //! \brief short name of the option `hypre_on_host_option`
++    static const char* const hypre_on_host_short_option;
++    //! \brief option cancelling the option `hypre_on_host_option`
++    static const char* const no_hypre_on_host_option;
++    //! \brief short name of the option `no_hypre_on_host_option`
++    static const char* const no_hypre_on_host_short_option;
+     /*!
+      * \brief option requesting the initialization of Kokkos, for the
+      * behaviours generated by the kokkos backend of the generic-parallel
+@@ -123,6 +134,14 @@ namespace mfem_mgis {
+ 
+   const char* const Finalizer::hypre_device_pool_size_short_option = "-hdps";
+ 
++  const char* const Finalizer::hypre_on_host_option = "--hypre-on-host";
++
++  const char* const Finalizer::hypre_on_host_short_option = "-hoh";
++
++  const char* const Finalizer::no_hypre_on_host_option = "--no-hypre-on-host";
++
++  const char* const Finalizer::no_hypre_on_host_short_option = "-no-hoh";
++
+   const char* const Finalizer::kokkos_option = "--kokkos";
+ 
+   const char* const Finalizer::kokkos_short_option = "-kk";
+@@ -173,6 +192,29 @@ namespace mfem_mgis {
+ #endif
+   }  // end of setHypreDevicePoolSize
+ 
++  /*!
++   * \brief makes hypre allocate its memory and compute on the host, after
++   * the configuration of the device of MFEM, which makes hypre use the GPU
++   * of the device unless `mfem::Hypre::configure_runtime_policy_from_mfem`
++   * is false. MFEM then gives the data of hypre on the host
++   * (`mfem::HypreUsingGPU` is false), and the other computations of MFEM
++   * and of mfem-mgis stay on the device.
++   */
++  static void setHypreOnHost() {
++#if defined(MFEM_USE_MPI) && defined(HYPRE_USING_GPU)
++#if MFEM_HYPRE_VERSION >= 23100
++    // the functions only store the policy: their results, the global error
++    // flag of hypre, may report a previous error
++    static_cast<void>(HYPRE_SetMemoryLocation(HYPRE_MEMORY_HOST));
++    static_cast<void>(HYPRE_SetExecutionPolicy(HYPRE_EXEC_HOST));
++#else  /* MFEM_HYPRE_VERSION >= 23100 */
++    mgis::raise(
++        "initialize: hypre can't compute on the host when it is built with "
++        "GPU support and older than 2.31.0");
++#endif /* MFEM_HYPRE_VERSION >= 23100 */
++#endif /* defined(MFEM_USE_MPI) && defined(HYPRE_USING_GPU) */
++  }  // end of setHypreOnHost
++
+   /*!
+    * \return true if a configuration of the device of MFEM uses a GPU
+    * (`cuda`, `hip`, `gpu` and their variants `ceed-cuda`, `raja-gpu`, ...)
+@@ -284,6 +326,8 @@ namespace mfem_mgis {
+     const char* device_configuration = nullptr;
+     const char* hypre_device_pool_size = nullptr;
+     auto hypre_device_pool_size_from_environment = false;
++    // hypre on the host, requested by the option or by the environment
++    auto hypre_on_host_requested = std::optional<bool>{};
+     // initialization of Kokkos, requested by the option or by the
+     // environment
+     auto kokkos_requested = std::optional<bool>{};
+@@ -313,6 +357,16 @@ namespace mfem_mgis {
+         hypre_device_pool_size = *a;
+         continue;
+       }
++      if ((std::strcmp(*a, hypre_on_host_option) == 0) ||
++          (std::strcmp(*a, hypre_on_host_short_option) == 0)) {
++        hypre_on_host_requested = true;
++        continue;
++      }
++      if ((std::strcmp(*a, no_hypre_on_host_option) == 0) ||
++          (std::strcmp(*a, no_hypre_on_host_short_option) == 0)) {
++        hypre_on_host_requested = false;
++        continue;
++      }
+       if ((std::strcmp(*a, device_option) == 0) ||
+           (std::strcmp(*a, device_short_option) == 0)) {
+         if (device_configuration != nullptr) {
+@@ -358,10 +412,31 @@ namespace mfem_mgis {
+         hypre_device_pool_size_from_environment = true;
+       }
+     }
++    if (!hypre_on_host_requested.has_value()) {
++      const auto* const e = std::getenv("MFEM_MGIS_HYPRE_ON_HOST");
++      hypre_on_host_requested =
++          (e != nullptr) && (*e != '\0') && (std::string_view{e} != "0");
++    }
++    const auto hypre_on_host = *hypre_on_host_requested;
+     if (hypre_device_pool_size != nullptr) {
++      if (hypre_on_host && (!hypre_device_pool_size_from_environment)) {
++        mgis::raise(
++            "initialize: the size of the pool of memory of hypre on the GPU "
++            "can't be given when hypre computes on the host");
++      }
+       setHypreDevicePoolSize(hypre_device_pool_size,
+                              hypre_device_pool_size_from_environment);
+     }
++#ifdef MFEM_USE_MPI
++    // the configuration of the device of MFEM does not make hypre use the
++    // GPU (nor initialize its libraries on the GPU); the policy of hypre is
++    // then set to the host after this configuration, whatever the defaults
++    // of hypre (each of these settings is sufficient with hypre 3.2, whose
++    // default policy is the host)
++    if (hypre_on_host) {
++      mfem::Hypre::configure_runtime_policy_from_mfem = false;
++    }
++#endif /* MFEM_USE_MPI */
+     // without the option, the configuration of the device may be given by
+     // the environment, for instance to run a whole test suite on a GPU
+     if (device_configuration == nullptr) {
+@@ -394,6 +469,11 @@ namespace mfem_mgis {
+         gpu_identifier = identifier;
+       }
+     }
++    // hypre on the host, after the configuration of the device (by this
++    // function or by the program)
++    if (hypre_on_host) {
++      setHypreOnHost();
++    }
+     // Kokkos, after the device of MFEM, whose GPU it uses; requested by the
+     // option or by the environment
+     auto kokkos_from_environment = false;
+@@ -580,6 +660,17 @@ namespace mfem_mgis {
+                      "mfem_mgis::initialize. Default of hypre if not given.");
+     // read by `initialize`: only declared here, so that the parser accepts
+     // it
++    static bool hypre_on_host = false;
++    parser.AddOption(
++        &hypre_on_host, Finalizer::hypre_on_host_short_option,
++        Finalizer::hypre_on_host_option,
++        Finalizer::no_hypre_on_host_short_option,
++        Finalizer::no_hypre_on_host_option,
++        "hypre computes on the host, even if the MFEM device uses a GPU "
++        "(for small linear systems), set by mfem_mgis::initialize. Given by "
++        "the variable MFEM_MGIS_HYPRE_ON_HOST if not given.");
++    // read by `initialize`: only declared here, so that the parser accepts
++    // it
+     static bool kokkos = false;
+     parser.AddOption(
+         &kokkos, Finalizer::kokkos_short_option, Finalizer::kokkos_option,
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 81670ab3ca..749430ff09 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -922,7 +922,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+                COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                        --device cuda ${batch_integration_test_arguments}
+                        ${batch_integration_test_cuda_library})
++      # behaviours, kernels and assembly on the GPU, hypre on the host
++      add_test(NAME BatchIntegrationTestP-cuda-hypre-on-host
++               COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
++                       --device cuda --hypre-on-host
++                       ${batch_integration_test_arguments}
++                       ${batch_integration_test_cuda_library})
+       set_tests_properties(BatchIntegrationTestP-cuda
++                           BatchIntegrationTestP-cuda-hypre-on-host
+                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+     endif()
+   endif()
+@@ -1165,6 +1172,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_test_executable(HypreILUTest)
+     add_test(NAME HypreILUTest COMMAND HypreILUTest)
+     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
++    # hypre on the host with a device on the GPU: the levels of fill of the
++    # host are available
++    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++      add_test(NAME HypreILUTestP-cuda-hypre-on-host
++               COMMAND mpirun -n 2 ./HypreILUTest --device cuda
++                       --hypre-on-host)
++      set_tests_properties(HypreILUTestP-cuda-hypre-on-host
++                           PROPERTIES RESOURCE_LOCK gpu)
++    endif()
+     # HypreParaSailsTest executable: ParaSails preconditioner given a new
+     # operator after the destruction of the previous one, refused when hypre
+     # computes on a GPU
+@@ -1351,8 +1367,34 @@ if(MFEM_USE_UMPIRE STREQUAL "YES")
+ endif()
+ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+   add_test(NAME DeviceOptionTest-cuda
+-           COMMAND DeviceOptionTest --device cuda --expected gpu)
+-  set_tests_properties(DeviceOptionTest-cuda PROPERTIES RESOURCE_LOCK gpu)
++           COMMAND DeviceOptionTest --device cuda --expected gpu
++                   --expected-hypre device)
++  # hypre on the host with a device on the GPU, requested by the option or
++  # by the environment; the size of the pool of memory of hypre on the GPU
++  # is then refused
++  add_test(NAME DeviceOptionTest-cuda-hypre-on-host
++           COMMAND DeviceOptionTest --device cuda --hypre-on-host
++                   --expected gpu --expected-hypre host)
++  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-environment
++           COMMAND DeviceOptionTest --device cuda --expected gpu
++                   --expected-hypre host)
++  set_tests_properties(DeviceOptionTest-cuda-hypre-on-host-environment
++                       PROPERTIES ENVIRONMENT MFEM_MGIS_HYPRE_ON_HOST=1)
++  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-cancelled
++           COMMAND DeviceOptionTest --device cuda --no-hypre-on-host
++                   --expected gpu --expected-hypre device)
++  set_tests_properties(DeviceOptionTest-cuda-hypre-on-host-cancelled
++                       PROPERTIES ENVIRONMENT MFEM_MGIS_HYPRE_ON_HOST=1)
++  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-pool-size
++           COMMAND DeviceOptionTest --device cuda --hypre-on-host
++                   --hypre-device-pool-size 1 --expected gpu
++                   --expected-error "when hypre computes on the host")
++  set_tests_properties(DeviceOptionTest-cuda
++                       DeviceOptionTest-cuda-hypre-on-host
++                       DeviceOptionTest-cuda-hypre-on-host-environment
++                       DeviceOptionTest-cuda-hypre-on-host-cancelled
++                       DeviceOptionTest-cuda-hypre-on-host-pool-size
++                       PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+ # KokkosOptionTest executable: the option --kokkos and the variable
+ # MFEM_MGIS_KOKKOS initialize Kokkos if mfem-mgis is built with Kokkos;
+diff --git a/tests/DeviceOptionTest.cxx b/tests/DeviceOptionTest.cxx
+index 4853bbedac..32d01ceb6f 100644
+--- a/tests/DeviceOptionTest.cxx
++++ b/tests/DeviceOptionTest.cxx
+@@ -1,13 +1,15 @@
+ /*!
+  * \file   DeviceOptionTest.cxx
+  * \brief  Test of the `--device` option, which creates the MFEM device in
+- * `mfem_mgis::initialize`
++ * `mfem_mgis::initialize`, and of the `--hypre-on-host` option
+  * \date   09/10/2026
+  */
+ 
+ #include <cstdlib>
+ #include <cstring>
+ #include <iostream>
++#include <string>
++#include <string_view>
+ #include "mfem/general/device.hpp"
+ #include "mfem/general/mem_manager.hpp"
+ #include "mfem/general/optparser.hpp"
+@@ -58,20 +60,61 @@ static bool checkMemoryTypes(const char* const expected_host_memory,
+ #endif /* MFEM_USE_UMPIRE */
+ }  // end of checkMemoryTypes
+ 
++/*!
++ * \return the value of the option `--expected-error`, empty if the option
++ * is not given. The arguments are read before the initialization of
++ * mfem-mgis, which may fail.
++ * \param[in] argc: number of arguments
++ * \param[in] argv: arguments
++ */
++static std::string getExpectedError(const int argc, char** const argv) {
++  for (int i = 1; i + 1 < argc; ++i) {
++    if (std::strcmp(argv[i], "--expected-error") == 0) {
++      return argv[i + 1];
++    }
++  }
++  return {};
++}  // end of getExpectedError
++
+ int main(int argc, char** argv) {
+-  mfem_mgis::initialize(argc, argv);
++  // an error of the initialization is expected if the option
++  // `--expected-error` gives a part of its message
++  const auto expected_error = getExpectedError(argc, argv);
++  try {
++    mfem_mgis::initialize(argc, argv);
++  } catch (std::exception& e) {
++    std::cout << "initialize: " << e.what() << '\n';
++    mfem_mgis::finalize();
++    const auto found = (!expected_error.empty()) &&
++                       (std::string_view{e.what()}.find(expected_error) !=
++                        std::string_view::npos);
++    return found ? EXIT_SUCCESS : EXIT_FAILURE;
++  }
++  if (!expected_error.empty()) {
++    std::cerr << "the initialization did not fail\n";
++    return EXIT_FAILURE;
++  }
+   // `none` if no device is expected, `debug` if the debug device of MFEM is
+   // expected, `cpu` for a device on the host, `gpu` for a device on a GPU
+   const char* expected = "none";
+   // expected memory of the host for the `cpu` and `gpu` devices: `host` or
+   // `umpire`
+   const char* expected_host_memory = "host";
++  // where hypre is expected to compute: `host`, `device` or `any`
++  const char* expected_hypre = "any";
+   auto args = mfem::OptionsParser(argc, argv);
+   mfem_mgis::declareDefaultOptions(args);
+   args.AddOption(&expected, "-e", "--expected",
+                  "expected device: none, debug, cpu or gpu");
+   args.AddOption(&expected_host_memory, "-ehm", "--expected-host-memory",
+                  "expected memory of the host: host or umpire");
++  args.AddOption(&expected_hypre, "-eh", "--expected-hypre",
++                 "where hypre is expected to compute: host, device or any");
++  // read before the initialization
++  const char* expected_error_option = "";
++  args.AddOption(&expected_error_option, "-ee", "--expected-error",
++                 "part of the message of the expected error of the "
++                 "initialization");
+   args.Parse();
+   if (!args.Good()) {
+     args.PrintUsage(std::cerr);
+@@ -94,7 +137,18 @@ int main(int argc, char** argv) {
+   } else {
+     std::cerr << "invalid expected device '" << expected << "'\n";
+   }
++  const auto hypre_on_gpu = mfem_mgis::isHypreUsingGPU();
++  if (std::strcmp(expected_hypre, "host") == 0) {
++    success = success && !hypre_on_gpu;
++  } else if (std::strcmp(expected_hypre, "device") == 0) {
++    success = success && hypre_on_gpu;
++  } else if (std::strcmp(expected_hypre, "any") != 0) {
++    std::cerr << "invalid expected location of hypre '" << expected_hypre
++              << "'\n";
++    success = false;
++  }
+   std::cout << "device configured: " << configured
+-            << ", debug device: " << debug << ", GPU: " << gpu << '\n';
++            << ", debug device: " << debug << ", GPU: " << gpu
++            << ", hypre on the GPU: " << hypre_on_gpu << '\n';
+   return success ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+

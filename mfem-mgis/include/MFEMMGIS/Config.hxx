@@ -162,6 +162,25 @@ namespace mfem_mgis {
    * option is an error if hypre does not use Umpire on the GPU; the
    * environment variable is then ignored with a warning.
    *
+   * The option `--hypre-on-host` (or `-hoh`, `--no-hypre-on-host` and
+   * `-no-hoh` cancelling it), or else the environment variable
+   * `MFEM_MGIS_HYPRE_ON_HOST` (any non empty value other than `0`), makes
+   * hypre allocate its memory and compute on the host, even if the device
+   * of MFEM uses a GPU: the behaviours and the computations of MFEM and of
+   * mfem-mgis stay on the device, and MFEM copies the matrices and the
+   * vectors given to hypre on the host. This is faster for small linear
+   * systems, whose resolutions on a GPU are dominated by the launches of
+   * kernels. The request is read before the initialization of hypre, so
+   * that neither this initialization nor the configuration of the device
+   * (by this function, by the program or by the variable `MFEM_DEVICE`)
+   * make hypre use the GPU. The size of the pool of memory of hypre on the
+   * GPU can't be given by the option `--hypre-device-pool-size` (the
+   * environment variable is accepted). The option is an error if hypre is
+   * built with GPU support and older than 2.31.0; the environment
+   * variable is then ignored with a warning. PETSc may make hypre use the
+   * GPU again (conversion of its matrices located on a GPU for the
+   * preconditioners of hypre).
+   *
    * The option `--kokkos` (or `-kk`, `--no-kokkos` and `-no-kk` cancelling
    * it), or else the environment variable `MFEM_MGIS_KOKKOS` (any non empty
    * value other than `0`), initializes Kokkos after the device of MFEM, on

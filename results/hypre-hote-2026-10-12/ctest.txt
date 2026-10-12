@@ -1,0 +1,41 @@
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/mfem-mgis-hypre
+      Start 154: BatchIntegrationTestP-cuda
+ 1/18 Test #154: BatchIntegrationTestP-cuda ...........................   Passed   62.72 sec
+      Start 155: BatchIntegrationTestP-cuda-hypre-on-host
+ 2/18 Test #155: BatchIntegrationTestP-cuda-hypre-on-host .............   Passed   32.23 sec
+      Start 181: HypreILUTest
+ 3/18 Test #181: HypreILUTest .........................................   Passed    0.69 sec
+      Start 182: HypreILUTestP
+ 4/18 Test #182: HypreILUTestP ........................................   Passed    0.50 sec
+      Start 183: HypreILUTestP-cuda-hypre-on-host
+ 5/18 Test #183: HypreILUTestP-cuda-hypre-on-host .....................   Passed    0.73 sec
+      Start 216: DeviceOptionTest-none
+ 6/18 Test #216: DeviceOptionTest-none ................................   Passed    0.43 sec
+      Start 217: DeviceOptionTest-debug
+ 7/18 Test #217: DeviceOptionTest-debug ...............................   Passed    0.45 sec
+      Start 218: DeviceOptionTest-debug-short
+ 8/18 Test #218: DeviceOptionTest-debug-short .........................   Passed    0.41 sec
+      Start 219: DeviceOptionTest-cpu
+ 9/18 Test #219: DeviceOptionTest-cpu .................................   Passed    0.45 sec
+      Start 220: DeviceOptionTest-cpu-umpire
+10/18 Test #220: DeviceOptionTest-cpu-umpire ..........................   Passed    0.43 sec
+      Start 221: DeviceOptionTest-cuda
+11/18 Test #221: DeviceOptionTest-cuda ................................   Passed    0.53 sec
+      Start 222: DeviceOptionTest-cuda-hypre-on-host
+12/18 Test #222: DeviceOptionTest-cuda-hypre-on-host ..................   Passed    0.55 sec
+      Start 223: DeviceOptionTest-cuda-hypre-on-host-environment
+13/18 Test #223: DeviceOptionTest-cuda-hypre-on-host-environment ......   Passed    0.52 sec
+      Start 224: DeviceOptionTest-cuda-hypre-on-host-cancelled
+14/18 Test #224: DeviceOptionTest-cuda-hypre-on-host-cancelled ........   Passed    0.53 sec
+      Start 225: DeviceOptionTest-cuda-hypre-on-host-pool-size
+15/18 Test #225: DeviceOptionTest-cuda-hypre-on-host-pool-size ........   Passed    0.40 sec
+      Start 226: DeviceOptionTest-cuda-hypre-on-host-mfem-device
+16/18 Test #226: DeviceOptionTest-cuda-hypre-on-host-mfem-device ......   Passed    0.53 sec
+      Start 227: DeviceOptionTest-cuda-hypre-on-host-program-device
+17/18 Test #227: DeviceOptionTest-cuda-hypre-on-host-program-device ...   Passed    0.51 sec
+      Start 228: DeviceOptionTest-cuda-program-device
+18/18 Test #228: DeviceOptionTest-cuda-program-device .................   Passed    0.52 sec
+
+100% tests passed, 0 tests failed out of 18
+
+Total Test time (real) = 103.14 sec

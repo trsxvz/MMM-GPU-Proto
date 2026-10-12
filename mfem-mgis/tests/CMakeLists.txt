@@ -922,8 +922,17 @@ if(MFEM_MGIS_HAVE_TFEL)
                COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
                        --device cuda ${batch_integration_test_arguments}
                        ${batch_integration_test_cuda_library})
+      # behaviours, kernels and assembly on the GPU, hypre on the host
+      add_test(NAME BatchIntegrationTestP-cuda-hypre-on-host
+               COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                       --device cuda --hypre-on-host
+                       ${batch_integration_test_arguments}
+                       ${batch_integration_test_cuda_library})
       set_tests_properties(BatchIntegrationTestP-cuda
+                           BatchIntegrationTestP-cuda-hypre-on-host
                            PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+      set_tests_properties(BatchIntegrationTestP-cuda-hypre-on-host
+                           PROPERTIES RESOURCE_LOCK gpu)
     endif()
   endif()
 
@@ -1165,6 +1174,15 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_test_executable(HypreILUTest)
     add_test(NAME HypreILUTest COMMAND HypreILUTest)
     add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
+    # hypre on the host with a device on the GPU: the levels of fill of the
+    # host are available
+    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+      add_test(NAME HypreILUTestP-cuda-hypre-on-host
+               COMMAND mpirun -n 2 ./HypreILUTest --device cuda
+                       --hypre-on-host)
+      set_tests_properties(HypreILUTestP-cuda-hypre-on-host
+                           PROPERTIES RESOURCE_LOCK gpu)
+    endif()
     # HypreParaSailsTest executable: ParaSails preconditioner given a new
     # operator after the destruction of the previous one, refused when hypre
     # computes on a GPU
@@ -1351,8 +1369,52 @@ if(MFEM_USE_UMPIRE STREQUAL "YES")
 endif()
 if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
   add_test(NAME DeviceOptionTest-cuda
-           COMMAND DeviceOptionTest --device cuda --expected gpu)
-  set_tests_properties(DeviceOptionTest-cuda PROPERTIES RESOURCE_LOCK gpu)
+           COMMAND DeviceOptionTest --device cuda --expected gpu
+                   --expected-hypre device)
+  # hypre on the host with a device on the GPU, requested by the option or
+  # by the environment; the size of the pool of memory of hypre on the GPU
+  # is then refused
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host
+           COMMAND DeviceOptionTest --device cuda --hypre-on-host
+                   --expected gpu --expected-hypre host)
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-environment
+           COMMAND DeviceOptionTest --device cuda --expected gpu
+                   --expected-hypre host)
+  set_tests_properties(DeviceOptionTest-cuda-hypre-on-host-environment
+                       PROPERTIES ENVIRONMENT MFEM_MGIS_HYPRE_ON_HOST=1)
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-cancelled
+           COMMAND DeviceOptionTest --device cuda --no-hypre-on-host
+                   --expected gpu --expected-hypre device)
+  set_tests_properties(DeviceOptionTest-cuda-hypre-on-host-cancelled
+                       PROPERTIES ENVIRONMENT MFEM_MGIS_HYPRE_ON_HOST=1)
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-pool-size
+           COMMAND DeviceOptionTest --device cuda --hypre-on-host
+                   --hypre-device-pool-size 1 --expected gpu
+                   --expected-error "when hypre computes on the host")
+  # device configured before the initialization of hypre, by the variable
+  # MFEM_DEVICE of MFEM (with the memory of the host chosen by MFEM), or
+  # by the program after the initialization of mfem-mgis
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-mfem-device
+           COMMAND DeviceOptionTest --hypre-on-host --expected gpu
+                   --expected-host-memory any --expected-hypre host)
+  set_tests_properties(DeviceOptionTest-cuda-hypre-on-host-mfem-device
+                       PROPERTIES ENVIRONMENT MFEM_DEVICE=cuda)
+  add_test(NAME DeviceOptionTest-cuda-hypre-on-host-program-device
+           COMMAND DeviceOptionTest --hypre-on-host --create-device cuda
+                   --expected gpu --expected-host-memory any
+                   --expected-hypre host)
+  add_test(NAME DeviceOptionTest-cuda-program-device
+           COMMAND DeviceOptionTest --create-device cuda --expected gpu
+                   --expected-host-memory any --expected-hypre device)
+  set_tests_properties(DeviceOptionTest-cuda
+                       DeviceOptionTest-cuda-hypre-on-host
+                       DeviceOptionTest-cuda-hypre-on-host-environment
+                       DeviceOptionTest-cuda-hypre-on-host-cancelled
+                       DeviceOptionTest-cuda-hypre-on-host-pool-size
+                       DeviceOptionTest-cuda-hypre-on-host-mfem-device
+                       DeviceOptionTest-cuda-hypre-on-host-program-device
+                       DeviceOptionTest-cuda-program-device
+                       PROPERTIES RESOURCE_LOCK gpu)
 endif()
 # KokkosOptionTest executable: the option --kokkos and the variable
 # MFEM_MGIS_KOKKOS initialize Kokkos if mfem-mgis is built with Kokkos;
