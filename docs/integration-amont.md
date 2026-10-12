@@ -158,6 +158,8 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
      `initialize` : avec MFEM compilé avec Umpire, les vecteurs
      temporaires des boucles de l'hôte sur les éléments passaient par
      Umpire (2 à 5 fois plus lents) ;
+   - hypre sur l'hôte avec le périphérique sur le GPU
+     (`--hypre-on-host`), pour les petits systèmes linéaires ;
    - sections de profilage qui attendent les noyaux lancés.
 4. **Chemin GPU du code existant** : toute la suite de tests sur le GPU
    (variable `MFEM_MGIS_DEVICE`), et les corrections trouvées ainsi :
