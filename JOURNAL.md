@@ -4515,3 +4515,12 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   résolution) ; NewtonK0 avec K0 factorisé une fois par cuDSS 2,7 à 3,0 s
   contre 1,85 s avec un cycle de BoomerAMG (67 ms contre 22 ms par
   résolution tangente). cuDSS convient aux petits systèmes (ex7, ex8).
+- Relecture Z10 des exemples et du cas poutre traitée (aucun défaut grave)
+  : mfem-mgis-examples 4ed849e (noms longs des options d'ex8 sans
+  « mumps », options validées juste après la lecture avec des messages qui
+  les nomment, avertissements pour les options sans effet, README d'ex7 et
+  d'ex8, commande GPU complète d'ex8 et référence comparable, test
+  `mox2-mumps`) ; cas poutre : `-mra` transmis à l'opérateur élastique
+  (`-els mumps|cudss`), symétries décrites dans l'aide, avertissement sans
+  solveur direct, liste complète des solveurs dans `cas/README.md`. Tests
+  d'ex7 et d'ex8 sur CPU 6/6.

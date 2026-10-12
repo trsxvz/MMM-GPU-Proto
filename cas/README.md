@@ -8,8 +8,11 @@ mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
   déformations, 3D (maillage `beam-tet.mesh` et loi
   `IsotropicLinearHardeningPlasticity` des tests de mfem-mgis). Résolue
   par le Newton de mfem-mgis, avec prédiction élastique. Solveurs
-  linéaires : `pcg-amg` (PCG de hypre et BoomerAMG), `mumps`, `umfpack`
-  (séquentiel). Options principales : `-r` (raffinements), `-n` (pas),
+  linéaires : `pcg-amg` (PCG de hypre et BoomerAMG), `cg-amg`,
+  `cg-jacobi`, `cg-chebyshev`, `cg-amgx`, `amgx-pcg`, et les solveurs
+  directs `mumps` (matrices symétriques), `cudss` (sur un GPU, matrices
+  symétriques définies positives) et `umfpack` (séquentiel). Options
+  principales : `-r` (raffinements), `-n` (pas),
   `-ls`, `-lt` (tolérance du solveur itératif), `--profiling`, `--device`.
   Le bilan donne le nombre d'inconnues, la norme de la solution finale
   (identique pour tous les solveurs) et les itérations de Newton par pas.
@@ -64,8 +67,9 @@ adaptative (`-alst EisenstatWalker1 -alsti 0.1`), multigrille de K0
 (`-els amg|amgx`, `-amgo` options de BoomerAMG, `-amgxo`, `-amgxc`,
 `-amgxs` pour AmgX), verbosité du solveur non linéaire (`-vl`), solveur
 direct cuDSS sur le GPU (`-ls cudss`, `-els cudss`, demande un mfem-mgis
-qui le fournit) et réutilisation de l'analyse des solveurs directs
-(`-mra`). L'outil
+qui le fournit) et réutilisation de l'analyse des solveurs directs, du
+problème comme de l'opérateur élastique (`-mra`, ignorée avec un
+avertissement sans solveur direct). L'outil
 `poutre-k0` résout l'opérateur élastique K0 seul, mise en place et
 résolutions chronométrées à part. Les options de mfem-mgis s'appliquent à
 tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`), et les

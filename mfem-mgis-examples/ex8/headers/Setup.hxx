@@ -36,14 +36,14 @@ struct TestParameters {
   // None), the default one of mfem-mgis if empty
   const char* amg_strategy_meca = "";
   // symmetry of the matrices of the mechanical problem given to the direct
-  // solver (MUMPS or cuDSS)
-  // (tangent operator with Newton, elastic operator with NewtonK0):
+  // solvers (tangent operator with Newton, elastic operator with NewtonK0):
   // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,
   // Unsymmetric with Newton and SymmetricIndefinite with NewtonK0
-  const char* mumps_symmetry_meca = "";
-  // reuse the analysis of the direct solvers for the matrices of the same
+  const char* matrix_symmetry_meca = "";
+  // reuse the analysis of the direct solvers (thermal and mechanical
+  // problems, elastic operator of NewtonK0) for the matrices of the same
   // pattern (parameter ReuseAnalysis of the direct solvers of mfem-mgis)
-  bool mumps_reuse_analysis = false;
+  bool reuse_analysis = false;
   // reference statistics of the fields, no comparison if empty
   const char* reference_file = "";
   int order = 1;                // finite element order

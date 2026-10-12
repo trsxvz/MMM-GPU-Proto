@@ -121,6 +121,42 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  // the linear solver and the symmetry of the matrices are checked even if
+  // they are not used
+  auto refuse = [](const std::string& message) {
+    mfem_mgis::getErrorStream() << message << '\n';
+    mfem_mgis::finalize();
+    std::exit(EXIT_FAILURE);
+  };
+  const auto solver = std::string_view{p.linear_solver};
+  const auto direct_solver =
+      (solver == "MUMPSSolver") || (solver == "CuDSSSolver");
+  if ((solver != "HypreGMRES") && (!direct_solver)) {
+    refuse("invalid value '" + std::string{solver} +
+           "' of the option -ls (--linear-solver): expected HypreGMRES, "
+           "MUMPSSolver or CuDSSSolver");
+  }
+  const auto symmetry = std::string_view{p.matrix_symmetry};
+  if ((symmetry != "Unsymmetric") && (symmetry != "SymmetricIndefinite") &&
+      (symmetry != "SymmetricPositiveDefinite")) {
+    refuse("invalid value '" + std::string{symmetry} +
+           "' of the option -ms (--matrix-symmetry): expected Unsymmetric, "
+           "SymmetricIndefinite or SymmetricPositiveDefinite");
+  }
+  // options without effect
+  if (mfem_mgis::usePETSc()) {
+    if ((solver != "HypreGMRES") || (symmetry != "Unsymmetric") ||
+        (p.reuse_analysis)) {
+      mfem_mgis::getOutputStream()
+          << "warning: the options -ls, -ms and -mra are ignored (the "
+             "linear solver is given by the configuration file of PETSc)\n";
+    }
+  } else if ((!direct_solver) &&
+             ((symmetry != "Unsymmetric") || (p.reuse_analysis))) {
+    mfem_mgis::getOutputStream()
+        << "warning: the options -ms and -mra are ignored (the linear "
+           "solver is not a direct solver)\n";
+  }
 }
 
 template <typename Implementation>
@@ -263,7 +299,7 @@ void setup_properties(mfem_mgis::attributes::MayAbort,
 /*!
  * \return the parameters of a direct solver of mfem-mgis (MUMPSSolver,
  * CuDSSSolver)
- * \param[in] p: command line options
+ * \param[in] p: command line options, checked by `common_parameters`
  */
 static mfem_mgis::Parameters getDirectSolverParameters(
     const TestParameters& p) {
@@ -274,10 +310,6 @@ static mfem_mgis::Parameters getDirectSolverParameters(
   } else if (s == "SymmetricPositiveDefinite") {
     parameters =
         mfem_mgis::Parameters{{"Symmetric", true}, {"PositiveDefinite", true}};
-  } else if (s != "Unsymmetric") {
-    mfem_mgis::abort("invalid symmetry of the matrices '" + std::string{s} +
-                     "' (expected Unsymmetric, SymmetricIndefinite or "
-                     "SymmetricPositiveDefinite)");
   }
   if (p.reuse_analysis) {
     // only given if requested, for the versions of mfem-mgis without this
@@ -296,16 +328,13 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                             const mfem_mgis::real Tol = 1e-12) {
   CatchTimeSection(ctx, "set_linear_solver");
   auto or_die = ctx.getFatalFailureHandler();
+  // option checked by `common_parameters`
   const auto solver = std::string_view{test_parameters.linear_solver};
   if ((solver == "MUMPSSolver") || (solver == "CuDSSSolver")) {
     p.setLinearSolver(ctx, std::string{solver},
                       getDirectSolverParameters(test_parameters)) |
         or_die;
     return;
-  }
-  if (solver != "HypreGMRES") {
-    mfem_mgis::abort("invalid linear solver '" + std::string{solver} +
-                     "' (expected HypreGMRES, MUMPSSolver or CuDSSSolver)");
   }
   // preconditioner hypreBoomerAMG
   auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};

@@ -82,6 +82,18 @@ set(mox2_test_options --no-post-processing --order 2 --mesh mesh/OneSphere.msh
 set(test "mox2")
 add_test(NAME ${test} COMMAND mox2 ${mox2_test_options})
 
+# a direct solver (MUMPS, symmetric positive definite matrices) gives the
+# same mean stresses
+if(MFEM_USE_MUMPS)
+  add_test(NAME ${test}-mumps
+           COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                   $<TARGET_FILE:mox2> ${mox2_test_options}
+                   -ls MUMPSSolver -ms SymmetricPositiveDefinite)
+  set_tests_properties(${test}-mumps PROPERTIES
+                       RESOURCE_LOCK avgStress PROCESSORS 2
+                       ENVIRONMENT OMP_NUM_THREADS=1)
+endif()
+
 if(MFEM_USE_PETSC)
   add_test(NAME ${test}-petsc
            COMMAND mox2 ${mox2_test_options}

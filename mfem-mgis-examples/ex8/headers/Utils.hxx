@@ -80,16 +80,29 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
 }
 
 /*!
- * \return the parameters of the direct solvers of mfem-mgis (MUMPS, cuDSS)
- * for the symmetry of the matrices given by the option -msMc, or for the
- * default symmetry if this option is not given. The symmetric modes give the
- * lower triangle of the matrices to the solver without checking their
- * symmetry: a non symmetric
- * matrix would slow down or break the convergence of the Newton method.
- * \param[in] symmetry: value of the option -msMc
+ * \return true if a symmetry of the matrices given to the direct solvers is
+ * valid: empty (default symmetry), Unsymmetric, SymmetricIndefinite or
+ * SymmetricPositiveDefinite
+ * \param[in] symmetry: symmetry
+ */
+inline bool isValidMatrixSymmetry(const std::string_view symmetry) {
+  return symmetry.empty() || (symmetry == "Unsymmetric") ||
+         (symmetry == "SymmetricIndefinite") ||
+         (symmetry == "SymmetricPositiveDefinite");
+}  // end of isValidMatrixSymmetry
+
+/*!
+ * \return the parameters of the direct solvers of mfem-mgis (MUMPSSolver,
+ * CuDSSSolver) for the symmetry of the matrices given by the option -msMc,
+ * or for the default symmetry if this option is not given. The symmetric
+ * modes give the lower triangle of the matrices to the solver without
+ * checking their symmetry: a non symmetric matrix would slow down or break
+ * the convergence of the Newton method.
+ * \param[in] symmetry: value of the option -msMc, checked by
+ * `isValidMatrixSymmetry`
  * \param[in] default_symmetry: default symmetry
- * \param[in] reuse_analysis: reuse the analysis of the solver for the matrices
- * of the same pattern (option -mra)
+ * \param[in] reuse_analysis: reuse the analysis of the solver for the
+ * matrices of the same pattern (option -mra)
  */
 inline mfem_mgis::Parameters getDirectSolverParameters(
     const std::string_view symmetry,
@@ -148,7 +161,7 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
           "warning: the option -amgMc is ignored (no BoomerAMG preconditioner "
           "for the mechanical problem)");
     }
-    if ((*param.mumps_symmetry_meca != '\0') &&
+    if ((*param.matrix_symmetry_meca != '\0') &&
         (!contains(direct_solvers, solver)) &&
         (std::string_view{param.nonlinear_solver_meca} != "NewtonK0")) {
       mfem_mgis::Profiler::Utils::Message(
@@ -192,10 +205,9 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
   else if (contains(direct_solvers, solver)) {
     const auto solverParameters =
         (physics_type == "mechanics")
-            ? getDirectSolverParameters(param.mumps_symmetry_meca,
-                                        "Unsymmetric",
-                                        param.mumps_reuse_analysis)
-            : getDirectSolverParameters("", "", param.mumps_reuse_analysis);
+            ? getDirectSolverParameters(param.matrix_symmetry_meca,
+                                        "Unsymmetric", param.reuse_analysis)
+            : getDirectSolverParameters("", "", param.reuse_analysis);
     p.setLinearSolver(ctx, solver, solverParameters) | or_die;
   }
 

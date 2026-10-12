@@ -52,7 +52,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
                  "Strategy of the BoomerAMG preconditioner of the mechanical "
                  "problem: System, Elasticity (requires byVDIM) or None.");
-  args.AddOption(&p.mumps_symmetry_meca, "-msMc", "--mumps-symmetry-mechanics",
+  args.AddOption(&p.matrix_symmetry_meca, "-msMc",
+                 "--matrix-symmetry-mechanics",
                  "Symmetry of the matrices of the mechanical problem given "
                  "to the direct solver, MUMPSSolver or CuDSSSolver (tangent "
                  "operator with Newton, elastic operator factorized by MUMPS "
@@ -61,8 +62,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "Newton, SymmetricIndefinite with NewtonK0). The symmetric "
                  "modes do not check the symmetry: a non symmetric tangent "
                  "would slow down or break the convergence.");
-  args.AddOption(&p.mumps_reuse_analysis, "-mra", "--mumps-reuse-analysis",
-                 "-no-mra", "--no-mumps-reuse-analysis",
+  args.AddOption(&p.reuse_analysis, "-mra", "--reuse-analysis", "-no-mra",
+                 "--no-reuse-analysis",
                  "Reuse the analysis of the direct solvers (ordering and "
                  "symbolic factorization) for the matrices of the same "
                  "pattern, as the tangent operators of the successive Newton "
@@ -116,10 +117,23 @@ int main(int argc, char* argv[]) {
 
   mfem::OptionsParser args(argc, argv);
   common_parameters(args, p);
-  // an invalid symmetry of the matrices given to MUMPS is refused even if
-  // MUMPS is not used
-  static_cast<void>(
-      getDirectSolverParameters(p.mumps_symmetry_meca, "", false));
+  // an invalid symmetry of the matrices given to the direct solvers is
+  // refused even if no direct solver is used
+  if (!isValidMatrixSymmetry(p.matrix_symmetry_meca)) {
+    ctx.log() << "invalid value '" << p.matrix_symmetry_meca
+              << "' of the option -msMc (--matrix-symmetry-mechanics): "
+                 "expected Unsymmetric, SymmetricIndefinite or "
+                 "SymmetricPositiveDefinite\n";
+    mfem_mgis::finalize();
+    return EXIT_FAILURE;
+  }
+  // the reuse of the analysis only applies to the direct solvers
+  if ((p.reuse_analysis) && (!contains(direct_solvers, p.solver_thermo)) &&
+      (!contains(direct_solvers, p.solver_meca)) &&
+      (std::string_view{p.nonlinear_solver_meca} != "NewtonK0")) {
+    mfem_mgis::Profiler::Utils::Message(
+        "warning: the option -mra is ignored (no direct solver)");
+  }
 
   if (p.t_ramp < 0) {
     ctx.log() << "the duration of the power ramp must not be negative\n";
@@ -176,9 +190,9 @@ int main(int argc, char* argv[]) {
         {"ElasticOperatorUpdate", "EachResolution"},
         {"ElasticOperatorLinearSolver",
          mfem_mgis::Parameters{
-             {"MUMPSSolver", getDirectSolverParameters(
-                                 p.mumps_symmetry_meca, "SymmetricIndefinite",
-                                 p.mumps_reuse_analysis)}}},
+             {"MUMPSSolver", getDirectSolverParameters(p.matrix_symmetry_meca,
+                                                       "SymmetricIndefinite",
+                                                       p.reuse_analysis)}}},
         {"TangentLinearSolver",
          mfem_mgis::Parameters{
              {"GMRESSolver",
