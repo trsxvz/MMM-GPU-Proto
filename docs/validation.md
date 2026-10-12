@@ -183,7 +183,21 @@ de trois façons, qui doivent toutes passer :
   différences dès le premier pas, quel que soit l'emplacement de hypre),
   puis l'action de la tangente sans assemblage ; avec la tangente
   assemblée sur l'hôte, les 478 premières lignes d'itérations sont
-  identiques d'un passage à l'autre.
+  identiques d'un passage à l'autre. La seconde source est en fait la
+  même : dans le sous-test sans assemblage, l'opérateur élastique K0 du
+  préconditionneur est assemblé par noyaux avec des additions atomiques
+  (l'action par noyaux et la réduction de MFEM sont déterministes).
+  L'assemblage ordonné (paramètre `TangentOperatorAssembly` à `Ordered`,
+  variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) supprime ces écarts :
+  matrices élémentaires stockées, puis ajoutées par un fil par ligne de la
+  matrice, dans un ordre fixe. Avec lui, quatre passages de
+  `FixedPointSolverTest` sur le GPU, noyaux forcés, donnent des historiques
+  identiques bit à bit (les deux variantes du diagnostic), contre trois
+  historiques différents en trois passages avec l'assemblage atomique
+  (`scratch/nuit-2026-10-12/determinisme-ordonne`, non suivi). Le test
+  `FixedPointSolverTest-kernels-ordered-cuda` passe donc toujours ; les
+  cas ordonnés de `BatchIntegrationTest` vérifient que deux calculs
+  identiques donnent les mêmes résultats bit à bit.
 
 L'option `enable-kokkos` (initialisation de Kokkos par mfem-mgis) se
 valide dans deux constructions séparées : `build/mfem-mgis-kokkos-off`

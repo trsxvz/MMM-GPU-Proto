@@ -35,7 +35,7 @@ Selecting the computations
 Parameters and environment variables
 ------------------------------------
 
-The computations are selected by four parameters of the nonlinear
+The computations are selected by five parameters of the nonlinear
 evolution problem, given to its constructor with the parameters of the
 finite element discretization (see :ref:`mfem_mgis_batch_computations_example`).
 The default value of each parameter can be changed by an environment
@@ -66,6 +66,10 @@ suite, with the batch path:
      - :code:`ElementByElement`, :code:`Kernels`, :code:`MatrixFree`
      - :code:`ElementByElement`
      - :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`
+   * - :code:`TangentOperatorAssembly`
+     - :code:`Atomic`, :code:`Ordered`
+     - :code:`Atomic`
+     - :code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`
 
 A parameter given to the problem takes precedence over the environment
 variable, which only replaces the default value. The environment variables
@@ -255,6 +259,23 @@ nonlinear form without interior face integrators nor extension of
   the columns of the rows are reordered, for instance by a direct solver.
   They take two bytes per entry of the stiffness matrices of the
   elements;
+- with :code:`TangentOperatorAssembly` set to :code:`Ordered`, the
+  stiffness matrices of all the elements are first stored element by
+  element (:math:`n^{2}` values per element, :math:`n` being the number of
+  degrees of freedom of an element), then added to the matrix by one
+  thread per row, which adds the contributions to its row in a fixed
+  order: by element, then by row and column of the stiffness matrices of
+  the elements. The values of the matrix are then the same at each
+  assembly, also on a GPU, where the order of the atomic additions changes
+  from one run to the next, and with it the last digits of the results.
+  In the sequential computations of the tests of :code:`mfem-mgis` on a
+  GPU, the results are then the same at each run; other operations, such
+  as the products of :code:`hypre` on several processes, may still change
+  their last digits. This also applies to the elastic operator of the
+  fixed point solver. The stiffness matrices of all the elements must fit
+  in an array of :code:`MFEM` (fewer than :math:`2^{31}` values). The
+  parameter has no effect when the stiffness matrices are computed element
+  by element;
 - the contributions of the other integrators of the nonlinear form, if
   any, are added to this matrix on the host (see
   :ref:`mfem_mgis_batch_computations_other_integrators`);

@@ -239,6 +239,68 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] bool zeroSparseMatrixValues(
       Context&, mfem::SparseMatrix&) noexcept;
   /*!
+   * \brief rows of the stiffness matrices of the elements contributing to
+   * each row of an assembled matrix (see `computeElementsRows`), stored as
+   * the pattern of a sparse matrix: the contributions to the row `r` are the
+   * values of `entries` from `offsets[r]` to `offsets[r + 1]`, each value
+   * being `n * e + i`, where `e` is an element of the mesh, `i` a row of its
+   * stiffness matrix and `n` the number of degrees of freedom of an element.
+   * They are sorted by element, then by row of the stiffness matrix of the
+   * element.
+   */
+  struct MFEM_MGIS_EXPORT ElementsRows {
+    //! \brief offsets of the rows of the assembled matrix
+    mfem::Array<int> offsets;
+    //! \brief rows of the stiffness matrices of the elements
+    mfem::Array<int> entries;
+  };
+  /*!
+   * \brief computes, on the host, the rows of the stiffness matrices of the
+   * elements contributing to each row of an assembled matrix (see
+   * `ElementsRows`)
+   * \return true on success, false if a degree of freedom is not a row of
+   * the matrix
+   * \param[in, out] ctx: execution context
+   * \param[out] r: rows of the stiffness matrices of the elements
+   * \param[in] dofs: degrees of freedom of all the elements (see
+   * `computeElementsDegreesOfFreedom`)
+   * \param[in] n: number of degrees of freedom of an element
+   * \param[in] nrows: number of rows of the assembled matrix
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsRows(
+      Context&,
+      ElementsRows&,
+      const mfem::Array<int>&,
+      const int,
+      const int) noexcept;
+  /*!
+   * \brief adds stiffness matrices stored element by element (see
+   * `addStiffnessMatrices`) to an assembled sparse matrix, on the device if
+   * a device is enabled, by one thread per row of the matrix. Each thread
+   * adds the contributions to its row in the order of `ElementsRows`, then
+   * of the columns of the stiffness matrices of the elements: unlike the
+   * atomic additions of `addStiffnessMatrices`, whose order depends on the
+   * scheduling of the threads on a device, the values are the same at each
+   * assembly. The entries are searched in their rows
+   * (`AssembledStiffnessMatrix::positions` is not used). The pattern of the
+   * matrix must contain the entries of the stiffness matrices of all the
+   * elements of the mesh, as the one of `makeAssembledStiffnessMatrix`.
+   * \return true on success, false if an entry is not in the pattern of the
+   * matrix, or if the rows do not match the degrees of freedom of the
+   * elements
+   * \param[in, out] ctx: execution context
+   * \param[in, out] m: assembled matrix
+   * \param[in] r: rows of the stiffness matrices of the elements contributing
+   * to each row of the matrix
+   * \param[in] k: stiffness matrices of all the elements of the mesh, stored
+   * element by element (`n * n` values per element)
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesByRows(
+      Context&,
+      const AssembledStiffnessMatrix&,
+      const ElementsRows&,
+      const mfem::Vector&) noexcept;
+  /*!
    * \brief adds the stiffness matrices of the elements of a material to an
    * assembled sparse matrix, on the device if a device is enabled, without
    * storing them: the position of each entry is read in

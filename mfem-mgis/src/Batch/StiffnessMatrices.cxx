@@ -8,6 +8,7 @@
 
 #include <tuple>
 #include <limits>
+#include <utility>
 #include <memory>
 #include <string>
 #include <vector>
@@ -556,6 +557,103 @@ namespace mfem_mgis::batch {
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of zeroSparseMatrixValues
+
+  bool computeElementsRows(Context& ctx,
+                           ElementsRows& r,
+                           const mfem::Array<int>& dofs,
+                           const int n,
+                           const int nrows) noexcept {
+    try {
+      if ((n <= 0) || (nrows < 0) || (dofs.Size() % n != 0)) {
+        return ctx.registerErrorMessage(
+            "computeElementsRows: invalid number of degrees of freedom of an "
+            "element or of rows");
+      }
+      // built in a local object, so that `r` is left unchanged on failure
+      auto rows = ElementsRows{};
+      const auto* const d = dofs.HostRead();
+      rows.offsets.SetSize(nrows + 1);
+      auto* const o = rows.offsets.HostWrite();
+      std::fill(o, o + nrows + 1, 0);
+      for (int k = 0; k != dofs.Size(); ++k) {
+        if ((d[k] < 0) || (d[k] >= nrows)) {
+          return ctx.registerErrorMessage(
+              "computeElementsRows: the degree of freedom " +
+              std::to_string(d[k]) + " is not a row of the matrix");
+        }
+        ++o[d[k] + 1];
+      }
+      std::partial_sum(o, o + nrows + 1, o);
+      // the rows of the stiffness matrices of the elements, `n * e + i`, are
+      // visited in increasing order, which sorts each row of `r`
+      rows.entries.SetSize(dofs.Size());
+      auto* const entries = rows.entries.HostWrite();
+      auto next = std::vector<int>(o, o + nrows);
+      for (int k = 0; k != dofs.Size(); ++k) {
+        entries[next[d[k]]++] = k;
+      }
+      std::swap(r, rows);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(std::string{"computeElementsRows: "} +
+                                      e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage("computeElementsRows: unknown exception");
+    }
+    return true;
+  }  // end of computeElementsRows
+
+  bool addStiffnessMatricesByRows(Context& ctx,
+                                  const AssembledStiffnessMatrix& m,
+                                  const ElementsRows& r,
+                                  const mfem::Vector& k) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(m);
+    static_cast<void>(r);
+    static_cast<void>(k);
+    return ctx.registerErrorMessage(
+        "addStiffnessMatricesByRows: the kernels are not compiled (MFEM "
+        "compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+    try {
+      const auto nv = (m.element_dofs != nullptr)
+                          ? std::int64_t{m.element_dofs->Size()}
+                          : std::int64_t{};
+      const auto n = (nv != 0) ? std::int64_t{k.Size()} / nv : std::int64_t{};
+      if ((nv == 0) || (n == 0) || (n * nv != std::int64_t{k.Size()}) ||
+          (nv % n != 0)) {
+        return ctx.registerErrorMessage(
+            "addStiffnessMatricesByRows: unexpected size of the stiffness "
+            "matrices of the elements");
+      }
+      if (!internals::checkAssembledStiffnessMatrix(
+              ctx, m, nv / n, n, "addStiffnessMatricesByRows")) {
+        return false;
+      }
+      if ((r.offsets.Size() != m.matrix->Height() + 1) ||
+          (std::int64_t{r.entries.Size()} != nv)) {
+        return ctx.registerErrorMessage(
+            "addStiffnessMatricesByRows: the rows of the stiffness matrices "
+            "of the elements do not match the matrix");
+      }
+      const auto use_device = mfem::Device::IsEnabled();
+      auto counters = mfem::Array<int>{};
+      auto o = internals::SparseMatrixOutput{};
+      internals::getSparseMatrixOutput(o, counters, m, use_device);
+      internals::launchStiffnessMatricesByRowsKernel(
+          o, r.offsets.Read(use_device), r.entries.Read(use_device),
+          k.Read(use_device), static_cast<int>(n), use_device);
+      return internals::checkSparseMatrixOutputCounters(
+          ctx, counters, m, "addStiffnessMatricesByRows");
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addStiffnessMatricesByRows: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesByRows: unknown exception");
+    }
+    return true;
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of addStiffnessMatricesByRows
 
   bool addStiffnessMatrices(Context& ctx,
                             const AssembledStiffnessMatrix& m,

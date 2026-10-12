@@ -45,17 +45,21 @@ namespace mfem_mgis {
   const char* const
       NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation =
           "TangentOperatorComputation";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly =
+          "TangentOperatorAssembly";
 
   std::vector<std::string>
   NonLinearEvolutionProblemImplementationBase::getParametersList() {
-    return {NonLinearEvolutionProblemImplementationBase::
-                UseMultiMaterialNonLinearIntegrator,
-            NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
-            NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
-            NonLinearEvolutionProblemImplementationBase::GradientsComputation,
-            NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
-            NonLinearEvolutionProblemImplementationBase::
-                TangentOperatorComputation};
+    return {
+        NonLinearEvolutionProblemImplementationBase::
+            UseMultiMaterialNonLinearIntegrator,
+        NonLinearEvolutionProblemImplementationBase::NonLinearSolver,
+        NonLinearEvolutionProblemImplementationBase::BehaviourIntegration,
+        NonLinearEvolutionProblemImplementationBase::GradientsComputation,
+        NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
+        NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation,
+        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly};
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
@@ -159,6 +163,35 @@ namespace mfem_mgis {
           " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
   }  // end of getTangentOperatorComputation
 
+  /*!
+   * \return true if the stiffness matrices computed by kernels are added to
+   * the sparse matrices in a fixed order, as given by the
+   * `TangentOperatorAssembly` parameter, or by the
+   * `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY` environment variable: `Atomic` or
+   * `Ordered`
+   * \param[in] p: parameters
+   */
+  [[nodiscard]] static bool useOrderedTangentOperatorAssembly(
+      attributes::Throwing, const Parameters& p) {
+    const auto* const n =
+        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly;
+    const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY";
+    const auto* const e = std::getenv(v);
+    const auto d = std::string{e != nullptr ? e : "Atomic"};
+    const auto value = get_if<std::string>(throwing, p, n, d);
+    if (value == "Ordered") {
+      return true;
+    }
+    if (value != "Atomic") {
+      const auto origin = contains(p, n)
+                              ? "parameter '" + std::string{n} + "'"
+                              : "environment variable '" + std::string{v} + "'";
+      raise("invalid value '" + value + "' for " + origin +
+            " (expected 'Atomic' or 'Ordered')");
+    }
+    return false;
+  }  // end of useOrderedTangentOperatorAssembly
+
   NonLinearEvolutionProblemImplementationBase::
       NonLinearEvolutionProblemImplementationBase(
           Context&,
@@ -183,12 +216,16 @@ namespace mfem_mgis {
             NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
             "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
         tangent_operator_computation(
-            getTangentOperatorComputation(throwing, p)) {
+            getTangentOperatorComputation(throwing, p)),
+        ordered_tangent_operator_assembly(
+            useOrderedTangentOperatorAssembly(throwing, p)) {
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->setInnerForcesComputedByKernels(
           this->inner_forces_kernels);
       this->mgis_integrator->setStiffnessMatricesComputedByKernels(
           this->computesStiffnessMatricesByKernels());
+      this->mgis_integrator->setOrderedStiffnessMatricesAssembly(
+          this->ordered_tangent_operator_assembly);
     }
     this->u0 = real{0};
     this->u1 = real{0};
@@ -762,6 +799,15 @@ namespace mfem_mgis {
       getNumberOfTangentOperatorAssembliesByKernels() const noexcept {
     return *(this->assembled_tangent_operator_revision);
   }  // end of getNumberOfTangentOperatorAssembliesByKernels
+
+  size_type NonLinearEvolutionProblemImplementationBase::
+      getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
+    if (this->mgis_integrator == nullptr) {
+      return 0;
+    }
+    return this->mgis_integrator
+        ->getNumberOfOrderedStiffnessMatricesAssemblies();
+  }  // end of getNumberOfOrderedStiffnessMatricesAssemblies
 
   size_type NonLinearEvolutionProblemImplementationBase::
       getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {

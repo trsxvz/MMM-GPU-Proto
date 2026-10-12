@@ -13,7 +13,8 @@
  * assembly; FBar formulation (imposed pressure, springs, two materials,
  * quadratic elements, plane strain, distorted mesh) and regularization of
  * Faltus et al. (springs, two materials, quadratic elements, plane strain,
- * distorted meshes) by kernels; refusal of an invalid value, of a
+ * distorted meshes) by kernels, also with the stiffness matrices added in a
+ * fixed order (`TangentOperatorAssembly`); refusal of an invalid value, of a
  * behaviour integrator which does not support it, of a tangent operator
  * applied without assembly with a boundary integrator depending on the
  * unknowns, of a tangent operator of the FBar formulation and of inner
@@ -194,6 +195,12 @@ struct ComputationOptions {
    * (parameter `TangentOperatorComputation`)
    */
   bool tangent_operator_kernels = false;
+  /*!
+   * \brief if true, the stiffness matrices computed by kernels are added to
+   * the sparse matrices in a fixed order (parameter `TangentOperatorAssembly`
+   * set to `Ordered`), the default assembly being used otherwise
+   */
+  bool ordered_assembly = false;
   /*!
    * \brief if true, the tangent operator is applied without assembly
    * (parameter `TangentOperatorComputation` set to `MatrixFree`), the
@@ -738,6 +745,23 @@ static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(
 }  // end of getNumberOfTangentOperatorAssembliesByKernels
 
 /*!
+ * \return the number of assemblies of the stiffness matrices computed by
+ * kernels made in a fixed order
+ * \param[in] problem: non linear evolution problem
+ */
+static mfem_mgis::size_type getNumberOfOrderedStiffnessMatricesAssemblies(
+    const mfem_mgis::NonLinearEvolutionProblem& problem) {
+#ifdef MFEM_USE_MPI
+  if (parallel) {
+    return problem.getImplementation<true>()
+        .getNumberOfOrderedStiffnessMatricesAssemblies();
+  }
+#endif /* MFEM_USE_MPI */
+  return problem.getImplementation<false>()
+      .getNumberOfOrderedStiffnessMatricesAssemblies();
+}  // end of getNumberOfOrderedStiffnessMatricesAssemblies
+
+/*!
  * \return the number of evaluations of the residual in which the
  * contributions of the other integrators of the non linear form were added
  * to the inner forces computed by kernels
@@ -787,41 +811,42 @@ static Results compute(mfem_mgis::Context& ctx,
                              : Parameters{{"Cube", 1}};
   // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
   // (5) and x = 1 (4)
-  auto problem =
-      construct<NonLinearEvolutionProblem>(
-          ctx,
-          opts.plane_strain
-              ? Parameters{{"MeshFileName", mesh},
-                           {"FiniteElementFamily", "H1"},
-                           {"FiniteElementOrder", opts.order},
-                           {"UnknownsSize", 2},
-                           {"NumberOfUniformRefinements", 0},
-                           {"Materials", Parameters{{"Cube", 1}}},
-                           {"Boundaries",
-                            Parameters{{"Ymin", 5}, {"Xmax", 4}, {"Xmin", 2}}},
-                           {"Hypothesis", "PlaneStrain"},
-                           {"BehaviourIntegration", mode},
-                           {"GradientsComputation", gradients},
-                           {"InnerForcesComputation", inner_forces},
-                           {"TangentOperatorComputation", tangent_operator},
-                           {"Parallel", parallel}}
-              : Parameters{{"MeshFileName", mesh},
-                           {"FiniteElementFamily", "H1"},
-                           {"FiniteElementOrder", opts.order},
-                           {"UnknownsSize", 3},
-                           {"NumberOfUniformRefinements", 1},
-                           {"Materials", materials},
-                           {"Boundaries", Parameters{{"Ymin", 1},
-                                                     {"Zmin", 2},
-                                                     {"Xmax", 3},
-                                                     {"Xmin", 5}}},
-                           {"Hypothesis", "Tridimensional"},
-                           {"BehaviourIntegration", mode},
-                           {"GradientsComputation", gradients},
-                           {"InnerForcesComputation", inner_forces},
-                           {"TangentOperatorComputation", tangent_operator},
-                           {"Parallel", parallel}}) |
-      or_die;
+  auto parameters =
+      opts.plane_strain
+          ? Parameters{{"MeshFileName", mesh},
+                       {"FiniteElementFamily", "H1"},
+                       {"FiniteElementOrder", opts.order},
+                       {"UnknownsSize", 2},
+                       {"NumberOfUniformRefinements", 0},
+                       {"Materials", Parameters{{"Cube", 1}}},
+                       {"Boundaries",
+                        Parameters{{"Ymin", 5}, {"Xmax", 4}, {"Xmin", 2}}},
+                       {"Hypothesis", "PlaneStrain"},
+                       {"BehaviourIntegration", mode},
+                       {"GradientsComputation", gradients},
+                       {"InnerForcesComputation", inner_forces},
+                       {"TangentOperatorComputation", tangent_operator},
+                       {"Parallel", parallel}}
+          : Parameters{
+                {"MeshFileName", mesh},
+                {"FiniteElementFamily", "H1"},
+                {"FiniteElementOrder", opts.order},
+                {"UnknownsSize", 3},
+                {"NumberOfUniformRefinements", 1},
+                {"Materials", materials},
+                {"Boundaries",
+                 Parameters{
+                     {"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
+                {"Hypothesis", "Tridimensional"},
+                {"BehaviourIntegration", mode},
+                {"GradientsComputation", gradients},
+                {"InnerForcesComputation", inner_forces},
+                {"TangentOperatorComputation", tangent_operator},
+                {"Parallel", parallel}};
+  if (opts.ordered_assembly) {
+    parameters.insert(throwing, {{"TangentOperatorAssembly", "Ordered"}});
+  }
+  auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   if (opts.distorted_mesh) {
 #ifdef MFEM_USE_MPI
     if (parallel) {
@@ -1117,6 +1142,16 @@ static Results compute(mfem_mgis::Context& ctx,
   // the contributions of the other integrators of the non linear form being
   // added to the local matrix, except with an integrator on the interior
   // faces
+  // the ordered assembly is used if requested, and only then unless the
+  // environment selects it by default
+  if (opts.tangent_operator_kernels || opts.matrix_free) {
+    const auto no = getNumberOfOrderedStiffnessMatricesAssemblies(problem);
+    if (opts.ordered_assembly) {
+      check(no != 0, name + ": ordered assembly not used");
+    } else if (std::getenv("MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY") == nullptr) {
+      check(no == 0, name + ": ordered assembly used");
+    }
+  }
   if ((opts.tangent_operator_kernels) && (!opts.matrix_free)) {
     const auto n = getNumberOfTangentOperatorAssembliesByKernels(problem);
     const auto expected =
@@ -1917,6 +1952,15 @@ int main(int argc, char** argv) {
                      {.prediction = true,
                       .pressure = true,
                       .springs = true,
+                      .gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .tangent_operator_kernels = true,
+                      .ordered_assembly = true},
+                     ", pressure, springs and prediction, ordered assembly"});
+    cases.push_back({"IsotropicLinearHardeningPlasticity",
+                     {.prediction = true,
+                      .pressure = true,
+                      .springs = true,
                       .face_springs = true,
                       .gradients_kernels = true,
                       .inner_forces_kernels = true,
@@ -1956,6 +2000,14 @@ int main(int argc, char** argv) {
                       .tangent_operator_kernels = true,
                       .second_material_library = library},
                      ", two materials"});
+    cases.push_back({"IsotropicLinearHardeningPlasticity",
+                     {.prediction = true,
+                      .gradients_kernels = true,
+                      .inner_forces_kernels = true,
+                      .tangent_operator_kernels = true,
+                      .ordered_assembly = true,
+                      .second_material_library = library},
+                     ", two materials, ordered assembly"});
     // tangent operator applied without assembly
     for (const auto* const b :
          {"IsotropicLinearHardeningPlasticity",
@@ -2026,6 +2078,14 @@ int main(int argc, char** argv) {
                         .inner_forces_kernels = true,
                         .tangent_operator_kernels = true},
                        ", FBar and prediction"});
+      cases.push_back({b,
+                       {.fbar = true,
+                        .prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true,
+                        .ordered_assembly = true},
+                       ", FBar and prediction, ordered assembly"});
       cases.push_back({b,
                        {.fbar = true,
                         .prediction = true,
@@ -2168,6 +2228,15 @@ int main(int argc, char** argv) {
                         .prediction = true,
                         .gradients_kernels = true,
                         .inner_forces_kernels = true,
+                        .tangent_operator_kernels = true,
+                        .ordered_assembly = true,
+                        .distorted_mesh = true},
+                       ", Faltus and prediction, ordered assembly"});
+      cases.push_back({svk,
+                       {.faltus = true,
+                        .prediction = true,
+                        .gradients_kernels = true,
+                        .inner_forces_kernels = true,
                         .matrix_free = true,
                         .distorted_mesh = true},
                        ", Faltus and prediction, matrix free"});
@@ -2242,9 +2311,19 @@ int main(int argc, char** argv) {
       reference.matrix_free = false;
       reference.assembled_preconditioner = false;
       reference.chebyshev_preconditioner = false;
-      compare(compute(ctx, m, library, b, "PointByPoint", reference),
-              compute(ctx, m, library, b, "Batch", opts),
+      reference.ordered_assembly = false;
+      const auto results = compute(ctx, m, library, b, "Batch", opts);
+      compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
               b + " (kernels" + name + ")", 1e-10);
+      if (opts.ordered_assembly) {
+        // the same results, bit for bit, at each run, also on a GPU, where
+        // the atomic additions give other roundings at each run
+        const auto again = compute(ctx, m, library, b, "Batch", opts);
+        check((again.u == results.u) && (again.sig == results.sig) &&
+                  (again.iterations == results.iterations) &&
+                  (again.predictions == results.predictions),
+              b + " (kernels" + name + "): same results at each run");
+      }
     }
   }
   // behaviours generated by the generic-parallel interface: same results as
@@ -2397,6 +2476,15 @@ int main(int argc, char** argv) {
                       {"BehaviourIntegration", "ByBatches"},
                       {"Parallel", false}});
     check(isInvalid(o), "invalid value of BehaviourIntegration accepted");
+    const auto o2 = construct<NonLinearEvolutionProblem>(
+        c, Parameters{{"MeshFileName", mesh},
+                      {"FiniteElementFamily", "H1"},
+                      {"FiniteElementOrder", 1},
+                      {"UnknownsSize", 3},
+                      {"Hypothesis", "Tridimensional"},
+                      {"TangentOperatorAssembly", "Deterministic"},
+                      {"Parallel", false}});
+    check(isInvalid(o2), "invalid value of TangentOperatorAssembly accepted");
   }
   testRefusal(ctx, mesh_2d, library);
   for (const auto* const mode : {"PointByPoint", "Batch"}) {

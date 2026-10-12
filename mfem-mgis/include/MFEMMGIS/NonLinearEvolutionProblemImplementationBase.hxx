@@ -134,6 +134,23 @@ namespace mfem_mgis {
      * variable `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
      */
     static const char* const TangentOperatorComputation;
+    /*!
+     * \brief name of the parameter selecting the assembly of the stiffness
+     * matrices computed by kernels in the sparse matrices of the tangent
+     * operator and of the elastic operator (see `TangentOperatorComputation`):
+     * `Atomic` (default: they are added without being stored, by atomic
+     * additions whose order depends on the scheduling of the threads on a
+     * GPU, so that the values may differ, in the last digits, from one
+     * assembly to the next) or `Ordered` (they are stored element by
+     * element, then added row by row in a fixed order: the values are the
+     * same at each assembly, at the cost of the storage of the stiffness
+     * matrices of all the elements, see
+     * `MultiMaterialNonLinearIntegrator::setOrderedStiffnessMatricesAssembly`).
+     * The parameter has no effect when the stiffness matrices are computed
+     * element by element. The default value is given by the environment
+     * variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, if defined.
+     */
+    static const char* const TangentOperatorAssembly;
     //! \brief computations of the tangent operator
     enum struct TangentOperatorComputationMode {
       //! \brief stiffness matrices computed element by element, assembled
@@ -301,6 +318,14 @@ namespace mfem_mgis {
     [[nodiscard]] size_type getNumberOfTangentOperatorAssembliesByKernels()
         const noexcept;
     /*!
+     * \return the number of assemblies of the stiffness matrices computed by
+     * kernels made in a fixed order (see `TangentOperatorAssembly`), for the
+     * tangent operator and the other operators assembled by kernels (elastic
+     * operator of the fixed point solver, for instance)
+     */
+    [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
+        const noexcept;
+    /*!
      * \return the number of evaluations of the residual in which the
      * contributions of the integrators of the non linear form other than the
      * one of mfem-mgis were added to the inner forces computed by kernels
@@ -393,6 +418,11 @@ namespace mfem_mgis {
     const bool inner_forces_kernels;
     //! \brief computation of the tangent operator
     const TangentOperatorComputationMode tangent_operator_computation;
+    /*!
+     * \brief if true, the stiffness matrices computed by kernels are added
+     * to the sparse matrices in a fixed order (see `TangentOperatorAssembly`)
+     */
+    const bool ordered_tangent_operator_assembly;
     /*!
      * \return if the stiffness matrices of the elements are computed by
      * kernels: computation by kernels, or tangent operator applied without

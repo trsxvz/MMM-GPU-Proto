@@ -651,6 +651,16 @@ namespace mfem_mgis {
     this->stiffness_matrices_computed_by_kernels = b;
   }  // end of setStiffnessMatricesComputedByKernels
 
+  void MultiMaterialNonLinearIntegrator::setOrderedStiffnessMatricesAssembly(
+      const bool b) noexcept {
+    this->ordered_stiffness_matrices_assembly = b;
+  }  // end of setOrderedStiffnessMatricesAssembly
+
+  size_type MultiMaterialNonLinearIntegrator::
+      getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
+    return this->ordered_stiffness_matrices_assemblies;
+  }  // end of getNumberOfOrderedStiffnessMatricesAssemblies
+
   bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
       Context& ctx,
       const mfem::FiniteElementSpace& fes,
@@ -752,6 +762,41 @@ namespace mfem_mgis {
     }
     if (!batch::zeroSparseMatrixValues(ctx, m)) {
       return false;
+    }
+    if (this->ordered_stiffness_matrices_assembly) {
+      // stiffness matrices stored element by element, then added row by row
+      // in a fixed order
+      if (fes.GetNE() == 0) {
+        ++(this->ordered_stiffness_matrices_assemblies);
+        return true;
+      }
+      const auto n =
+          static_cast<std::int64_t>(this->element_dofs.Size()) / fes.GetNE();
+      if (n * n * fes.GetNE() > std::numeric_limits<int>::max()) {
+        return ctx.registerErrorMessage(
+            "assembleStiffnessMatrixByKernels: too many values to store the "
+            "stiffness matrices of all the elements in the ordered assembly "
+            "(see the TangentOperatorAssembly parameter)");
+      }
+      if (!this->computeStiffnessMatricesByKernels(ctx, fes)) {
+        return false;
+      }
+      if (this->elements_rows.offsets.Size() != m.Height() + 1) {
+        if (!batch::computeElementsRows(
+                ctx, this->elements_rows, this->element_dofs,
+                this->element_dofs.Size() / fes.GetNE(), m.Height())) {
+          return false;
+        }
+      }
+      if (!batch::addStiffnessMatricesByRows(
+              ctx,
+              batch::AssembledStiffnessMatrix{
+                  .matrix = &m, .element_dofs = &(this->element_dofs)},
+              this->elements_rows, this->stiffness_matrices)) {
+        return false;
+      }
+      ++(this->ordered_stiffness_matrices_assemblies);
+      return true;
     }
     // positions of the entries in the rows of the matrix, kept for each
     // layout of the rows (columns sorted, for example by a direct solver, or

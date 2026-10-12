@@ -224,6 +224,27 @@ namespace mfem_mgis::batch::internals {
                                               const bool);
 
   /*!
+   * \brief launches the kernel adding stiffness matrices stored element by
+   * element to an assembled sparse matrix (see `addStiffnessMatricesByRows`):
+   * one thread per row of the matrix, which adds the contributions to its
+   * row in a fixed order, without atomic additions
+   * \param[in] o: assembled matrix (`positions` and `searched` are not used)
+   * \param[in] offsets: offsets of the rows (see `ElementsRows`)
+   * \param[in] entries: rows of the stiffness matrices of the elements
+   * contributing to each row (see `ElementsRows`)
+   * \param[in] k: stiffness matrices of all the elements, stored element by
+   * element, column by column
+   * \param[in] n: number of degrees of freedom of an element
+   * \param[in] use_device: if true, the kernel runs on the device
+   */
+  void launchStiffnessMatricesByRowsKernel(const SparseMatrixOutput&,
+                                           const int* const,
+                                           const int* const,
+                                           const real* const,
+                                           const int,
+                                           const bool);
+
+  /*!
    * \brief launches the kernel adding the stiffness matrices of the
    * elements of a material to an assembled sparse matrix
    * \param[in] k: kind of the gradients

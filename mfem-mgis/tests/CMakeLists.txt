@@ -1045,6 +1045,28 @@ if(MFEM_MGIS_HAVE_TFEL)
                          PROPERTIES ENVIRONMENT
                          "${fixed_point_solver_test_kernels}")
   endforeach()
+  # stiffness matrices added in a fixed order (`TangentOperatorAssembly`):
+  # the same results at each run, also on the GPU, where the atomic additions
+  # make the accelerations of the fixed point solver stagnate in rare runs
+  set(fixed_point_solver_test_ordered ${fixed_point_solver_test_kernels}
+      MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered)
+  set(fixed_point_solver_test_ordered_devices cpu)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    list(APPEND fixed_point_solver_test_ordered_devices cuda)
+  endif()
+  foreach(_device ${fixed_point_solver_test_ordered_devices})
+    add_test(NAME FixedPointSolverTest-kernels-ordered-${_device}
+             COMMAND FixedPointSolverTest --device ${_device}
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(FixedPointSolverTest-kernels-ordered-${_device}
+                         PROPERTIES ENVIRONMENT
+                         "${fixed_point_solver_test_ordered}")
+    if(_device STREQUAL "cuda")
+      set_tests_properties(FixedPointSolverTest-kernels-ordered-${_device}
+                           PROPERTIES RESOURCE_LOCK gpu)
+    endif()
+  endforeach()
 
   # MaterialArraysTest executable: arrays of the materials in the memory of
   # MFEM, on the host, on the debug device of MFEM and on the GPU. The

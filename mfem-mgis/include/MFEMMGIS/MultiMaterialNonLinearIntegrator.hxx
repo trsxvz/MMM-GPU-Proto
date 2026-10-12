@@ -18,6 +18,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
+#include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 
 namespace mfem_mgis {
@@ -229,6 +230,27 @@ namespace mfem_mgis {
      */
     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
     /*!
+     * \brief if true, `assembleStiffnessMatrixByKernels` stores the
+     * stiffness matrices of all the elements (see
+     * `computeStiffnessMatricesByKernels`), then adds them to the sparse
+     * matrix row by row, in a fixed order (see
+     * `batch::addStiffnessMatricesByRows`): the values of the matrix are the
+     * same at each assembly, on a GPU too, at the cost of the storage of the
+     * stiffness matrices of the elements (`n * n * ne` values, which must
+     * fit in an `int`). Otherwise (default), they are added without being
+     * stored, by atomic additions whose order depends on the scheduling of
+     * the threads on a GPU.
+     * \param[in] b: boolean
+     */
+    void setOrderedStiffnessMatricesAssembly(const bool) noexcept;
+    /*!
+     * \return the number of assemblies made by
+     * `assembleStiffnessMatrixByKernels` in a fixed order (see
+     * `setOrderedStiffnessMatricesAssembly`)
+     */
+    [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
+        const noexcept;
+    /*!
      * \brief add the action of the tangent operator, assembled from the
      * stiffness matrices of the elements computed by kernels from the
      * tangent operator blocks, on increments of the unknowns, without
@@ -273,8 +295,10 @@ namespace mfem_mgis {
      * \brief assemble the stiffness matrices of all the elements, computed
      * by kernels, in a sparse matrix on the local vector of the finite
      * element space, without storing them (see
-     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
-     * values of the matrix are set to zero first. Unless a GPU or the debug
+     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
+     * the ordered assembly is selected (see
+     * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
+     * set to zero first. Unless a GPU or the debug
      * device of MFEM is used, the positions of the entries in the rows of
      * the matrix are computed at the first call and reused (see
      * `batch::computeStiffnessMatricesPositions`), separately for the
@@ -287,7 +311,8 @@ namespace mfem_mgis {
      * rows, then abandoned (the entries are searched). If their computation
      * fails, they are abandoned. They take about as much memory as the
      * matrix for linear elements. With a GPU, the entries are always
-     * searched (the positions gave no gain).
+     * searched (the positions gave no gain). See also
+     * `setOrderedStiffnessMatricesAssembly`.
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in] fes: finite element space
@@ -477,10 +502,25 @@ namespace mfem_mgis {
     mfem::Vector inner_forces_element_values;
     //! \brief see `setInnerForcesComputedByKernels`
     bool inner_forces_computed_by_kernels = false;
-    //! \brief stiffness matrices element by element (workspace)
+    /*!
+     * \brief stiffness matrices element by element, computed by
+     * `computeStiffnessMatricesByKernels` (also used by the ordered assembly,
+     * see `setOrderedStiffnessMatricesAssembly`)
+     */
     mfem::Vector stiffness_matrices;
     //! \brief see `setStiffnessMatricesComputedByKernels`
     bool stiffness_matrices_computed_by_kernels = false;
+    //! \brief see `setOrderedStiffnessMatricesAssembly`
+    bool ordered_stiffness_matrices_assembly = false;
+    //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
+    size_type ordered_stiffness_matrices_assemblies = 0;
+    /*!
+     * \brief rows of the stiffness matrices of the elements contributing to
+     * each row of the assembled matrices, computed by
+     * `assembleStiffnessMatrixByKernels` in the ordered assembly (see
+     * `setOrderedStiffnessMatricesAssembly`)
+     */
+    batch::ElementsRows elements_rows;
     /*!
      * \brief degrees of freedom of all the elements (see
      * `batch::computeElementsDegreesOfFreedom`), computed once by

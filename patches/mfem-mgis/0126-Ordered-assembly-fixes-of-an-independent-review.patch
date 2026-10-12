@@ -1,0 +1,406 @@
+From 456c298dd67c909c4b1a1c81a13f5e6deb115cc2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 11:41:13 +0200
+Subject: [PATCH] Ordered assembly: fixes of an independent review
+
+- addStiffnessMatricesByRows: empty stiffness matrices refused before a
+  division by zero; rows which do not match the degrees of freedom of the
+  elements detected by the kernel; required pattern documented.
+- computeElementsRows: the rows are built in a local object, so that they
+  are left unchanged on failure.
+- MultiMaterialNonLinearIntegrator: explicit error when the stiffness
+  matrices of all the elements do not fit in an array of MFEM in the
+  ordered assembly; number of ordered assemblies
+  (`getNumberOfOrderedStiffnessMatricesAssemblies`, also given by the non
+  linear evolution problems), checked by the tests, so that an ignored
+  parameter is detected on the CPU too; documentation.
+- Guide of the computations by kernels: `TangentOperatorAssembly`
+  parameter, ordered assembly, its cost in memory and the extent of the
+  reproducibility (the products of hypre on several processes may still
+  change the last digits); no effect with the stiffness matrices computed
+  element by element.
+---
+ docs/source/user_guide/batch_computations.rst | 23 ++++++++++++++-
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  7 +++--
+ .../MultiMaterialNonLinearIntegrator.hxx      | 28 +++++++++++++++----
+ ...nearEvolutionProblemImplementationBase.hxx | 13 +++++++--
+ src/Batch/StiffnessMatrices.cxx               | 15 ++++++----
+ src/Batch/StiffnessMatricesKernels.cxx        |  5 ++++
+ src/MultiMaterialNonLinearIntegrator.cxx      | 28 +++++++++++++++----
+ ...nearEvolutionProblemImplementationBase.cxx |  9 ++++++
+ tests/BatchIntegrationTest.cxx                | 27 ++++++++++++++++++
+ tests/GradientsKernelsTest.cxx                |  4 +++
+ 10 files changed, 138 insertions(+), 21 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index f7cdcf8240..39b96712bb 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -35,7 +35,7 @@ Selecting the computations
+ Parameters and environment variables
+ ------------------------------------
+ 
+-The computations are selected by four parameters of the nonlinear
++The computations are selected by five parameters of the nonlinear
+ evolution problem, given to its constructor with the parameters of the
+ finite element discretization (see :ref:`mfem_mgis_batch_computations_example`).
+ The default value of each parameter can be changed by an environment
+@@ -66,6 +66,10 @@ suite, with the batch path:
+      - :code:`ElementByElement`, :code:`Kernels`, :code:`MatrixFree`
+      - :code:`ElementByElement`
+      - :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`
++   * - :code:`TangentOperatorAssembly`
++     - :code:`Atomic`, :code:`Ordered`
++     - :code:`Atomic`
++     - :code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`
+ 
+ A parameter given to the problem takes precedence over the environment
+ variable, which only replaces the default value. The environment variables
+@@ -255,6 +259,23 @@ nonlinear form without interior face integrators nor extension of
+   the columns of the rows are reordered, for instance by a direct solver.
+   They take two bytes per entry of the stiffness matrices of the
+   elements;
++- with :code:`TangentOperatorAssembly` set to :code:`Ordered`, the
++  stiffness matrices of all the elements are first stored element by
++  element (:math:`n^{2}` values per element, :math:`n` being the number of
++  degrees of freedom of an element), then added to the matrix by one
++  thread per row, which adds the contributions to its row in a fixed
++  order: by element, then by row and column of the stiffness matrices of
++  the elements. The values of the matrix are then the same at each
++  assembly, also on a GPU, where the order of the atomic additions changes
++  from one run to the next, and with it the last digits of the results.
++  In the sequential computations of the tests of :code:`mfem-mgis` on a
++  GPU, the results are then the same at each run; other operations, such
++  as the products of :code:`hypre` on several processes, may still change
++  their last digits. This also applies to the elastic operator of the
++  fixed point solver. The stiffness matrices of all the elements must fit
++  in an array of :code:`MFEM` (fewer than :math:`2^{31}` values). The
++  parameter has no effect when the stiffness matrices are computed element
++  by element;
+ - the contributions of the other integrators of the nonlinear form, if
+   any, are added to this matrix on the host (see
+   :ref:`mfem_mgis_batch_computations_other_integrators`);
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index c75a03226a..167b0f8c51 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -282,9 +282,12 @@ namespace mfem_mgis::batch {
+    * atomic additions of `addStiffnessMatrices`, whose order depends on the
+    * scheduling of the threads on a device, the values are the same at each
+    * assembly. The entries are searched in their rows
+-   * (`AssembledStiffnessMatrix::positions` is not used).
++   * (`AssembledStiffnessMatrix::positions` is not used). The pattern of the
++   * matrix must contain the entries of the stiffness matrices of all the
++   * elements of the mesh, as the one of `makeAssembledStiffnessMatrix`.
+    * \return true on success, false if an entry is not in the pattern of the
+-   * matrix
++   * matrix, or if the rows do not match the degrees of freedom of the
++   * elements
+    * \param[in, out] ctx: execution context
+    * \param[in, out] m: assembled matrix
+    * \param[in] r: rows of the stiffness matrices of the elements contributing
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index d94ca5e552..4066b45364 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -236,12 +236,20 @@ namespace mfem_mgis {
+      * matrix row by row, in a fixed order (see
+      * `batch::addStiffnessMatricesByRows`): the values of the matrix are the
+      * same at each assembly, on a GPU too, at the cost of the storage of the
+-     * stiffness matrices of the elements. Otherwise (default), they are
+-     * added without being stored, by atomic additions whose order depends on
+-     * the scheduling of the threads on a GPU.
++     * stiffness matrices of the elements (`n * n * ne` values, which must
++     * fit in an `int`). Otherwise (default), they are added without being
++     * stored, by atomic additions whose order depends on the scheduling of
++     * the threads on a GPU.
+      * \param[in] b: boolean
+      */
+     void setOrderedStiffnessMatricesAssembly(const bool) noexcept;
++    /*!
++     * \return the number of assemblies made by
++     * `assembleStiffnessMatrixByKernels` in a fixed order (see
++     * `setOrderedStiffnessMatricesAssembly`)
++     */
++    [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
++        const noexcept;
+     /*!
+      * \brief add the action of the tangent operator, assembled from the
+      * stiffness matrices of the elements computed by kernels from the
+@@ -287,8 +295,10 @@ namespace mfem_mgis {
+      * \brief assemble the stiffness matrices of all the elements, computed
+      * by kernels, in a sparse matrix on the local vector of the finite
+      * element space, without storing them (see
+-     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
+-     * values of the matrix are set to zero first. Unless a GPU or the debug
++     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
++     * the ordered assembly is selected (see
++     * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
++     * set to zero first. Unless a GPU or the debug
+      * device of MFEM is used, the positions of the entries in the rows of
+      * the matrix are computed at the first call and reused (see
+      * `batch::computeStiffnessMatricesPositions`), separately for the
+@@ -492,12 +502,18 @@ namespace mfem_mgis {
+     mfem::Vector inner_forces_element_values;
+     //! \brief see `setInnerForcesComputedByKernels`
+     bool inner_forces_computed_by_kernels = false;
+-    //! \brief stiffness matrices element by element (workspace)
++    /*!
++     * \brief stiffness matrices element by element, computed by
++     * `computeStiffnessMatricesByKernels` (also used by the ordered assembly,
++     * see `setOrderedStiffnessMatricesAssembly`)
++     */
+     mfem::Vector stiffness_matrices;
+     //! \brief see `setStiffnessMatricesComputedByKernels`
+     bool stiffness_matrices_computed_by_kernels = false;
+     //! \brief see `setOrderedStiffnessMatricesAssembly`
+     bool ordered_stiffness_matrices_assembly = false;
++    //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
++    size_type ordered_stiffness_matrices_assemblies = 0;
+     /*!
+      * \brief rows of the stiffness matrices of the elements contributing to
+      * each row of the assembled matrices, computed by
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 4cadc22e5d..d7a2a40289 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -146,8 +146,9 @@ namespace mfem_mgis {
+      * same at each assembly, at the cost of the storage of the stiffness
+      * matrices of all the elements, see
+      * `MultiMaterialNonLinearIntegrator::setOrderedStiffnessMatricesAssembly`).
+-     * The default value is given by the environment variable
+-     * `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, if defined.
++     * The parameter has no effect when the stiffness matrices are computed
++     * element by element. The default value is given by the environment
++     * variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, if defined.
+      */
+     static const char* const TangentOperatorAssembly;
+     //! \brief computations of the tangent operator
+@@ -316,6 +317,14 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] size_type getNumberOfTangentOperatorAssembliesByKernels()
+         const noexcept;
++    /*!
++     * \return the number of assemblies of the stiffness matrices computed by
++     * kernels made in a fixed order (see `TangentOperatorAssembly`), for the
++     * tangent operator and the other operators assembled by kernels (elastic
++     * operator of the fixed point solver, for instance)
++     */
++    [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
++        const noexcept;
+     /*!
+      * \return the number of evaluations of the residual in which the
+      * contributions of the integrators of the non linear form other than the
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 0905fe8cd2..17fc7877d3 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -8,6 +8,7 @@
+ 
+ #include <tuple>
+ #include <limits>
++#include <utility>
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -568,9 +569,11 @@ namespace mfem_mgis::batch {
+             "computeElementsRows: invalid number of degrees of freedom of an "
+             "element or of rows");
+       }
++      // built in a local object, so that `r` is left unchanged on failure
++      auto rows = ElementsRows{};
+       const auto* const d = dofs.HostRead();
+-      r.offsets.SetSize(nrows + 1);
+-      auto* const o = r.offsets.HostWrite();
++      rows.offsets.SetSize(nrows + 1);
++      auto* const o = rows.offsets.HostWrite();
+       std::fill(o, o + nrows + 1, 0);
+       for (int k = 0; k != dofs.Size(); ++k) {
+         if ((d[k] < 0) || (d[k] >= nrows)) {
+@@ -583,12 +586,13 @@ namespace mfem_mgis::batch {
+       std::partial_sum(o, o + nrows + 1, o);
+       // the rows of the stiffness matrices of the elements, `n * e + i`, are
+       // visited in increasing order, which sorts each row of `r`
+-      r.entries.SetSize(dofs.Size());
+-      auto* const entries = r.entries.HostWrite();
++      rows.entries.SetSize(dofs.Size());
++      auto* const entries = rows.entries.HostWrite();
+       auto next = std::vector<int>(o, o + nrows);
+       for (int k = 0; k != dofs.Size(); ++k) {
+         entries[next[d[k]]++] = k;
+       }
++      std::swap(r, rows);
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(std::string{"computeElementsRows: "} +
+                                       e.what());
+@@ -615,7 +619,8 @@ namespace mfem_mgis::batch {
+                           ? std::int64_t{m.element_dofs->Size()}
+                           : std::int64_t{};
+       const auto n = (nv != 0) ? std::int64_t{k.Size()} / nv : std::int64_t{};
+-      if ((nv == 0) || (n * nv != std::int64_t{k.Size()}) || (nv % n != 0)) {
++      if ((nv == 0) || (n == 0) || (n * nv != std::int64_t{k.Size()}) ||
++          (nv % n != 0)) {
+         return ctx.registerErrorMessage(
+             "addStiffnessMatricesByRows: unexpected size of the stiffness "
+             "matrices of the elements");
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index f5c8196fb5..729995fc9e 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -520,6 +520,11 @@ namespace mfem_mgis::batch::internals {
+             const auto e = ei / sn;
+             const auto i = ei - e * sn;
+             const auto* const dofs = o.element_dofs + sn * e;
++            if (dofs[i] != row) {
++              // rows which do not match the degrees of freedom
++              ::AtomicAdd(o.missing[0], static_cast<int>(sn));
++              continue;
++            }
+             // matrix of the element, column by column (see
+             // `ElementMatricesStorage`)
+             const auto* const ke = k + sn * sn * e;
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index a239882e4f..5f278b0e7a 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -656,6 +656,11 @@ namespace mfem_mgis {
+     this->ordered_stiffness_matrices_assembly = b;
+   }  // end of setOrderedStiffnessMatricesAssembly
+ 
++  size_type MultiMaterialNonLinearIntegrator::
++      getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
++    return this->ordered_stiffness_matrices_assemblies;
++  }  // end of getNumberOfOrderedStiffnessMatricesAssemblies
++
+   bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
+       Context& ctx,
+       const mfem::FiniteElementSpace& fes,
+@@ -762,8 +767,17 @@ namespace mfem_mgis {
+       // stiffness matrices stored element by element, then added row by row
+       // in a fixed order
+       if (fes.GetNE() == 0) {
++        ++(this->ordered_stiffness_matrices_assemblies);
+         return true;
+       }
++      const auto n =
++          static_cast<std::int64_t>(this->element_dofs.Size()) / fes.GetNE();
++      if (n * n * fes.GetNE() > std::numeric_limits<int>::max()) {
++        return ctx.registerErrorMessage(
++            "assembleStiffnessMatrixByKernels: too many values to store the "
++            "stiffness matrices of all the elements in the ordered assembly "
++            "(see the TangentOperatorAssembly parameter)");
++      }
+       if (!this->computeStiffnessMatricesByKernels(ctx, fes)) {
+         return false;
+       }
+@@ -774,11 +788,15 @@ namespace mfem_mgis {
+           return false;
+         }
+       }
+-      return batch::addStiffnessMatricesByRows(
+-          ctx,
+-          batch::AssembledStiffnessMatrix{
+-              .matrix = &m, .element_dofs = &(this->element_dofs)},
+-          this->elements_rows, this->stiffness_matrices);
++      if (!batch::addStiffnessMatricesByRows(
++              ctx,
++              batch::AssembledStiffnessMatrix{
++                  .matrix = &m, .element_dofs = &(this->element_dofs)},
++              this->elements_rows, this->stiffness_matrices)) {
++        return false;
++      }
++      ++(this->ordered_stiffness_matrices_assemblies);
++      return true;
+     }
+     // positions of the entries in the rows of the matrix, kept for each
+     // layout of the rows (columns sorted, for example by a direct solver, or
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index eda18f73a1..63352e1a3d 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -800,6 +800,15 @@ namespace mfem_mgis {
+     return *(this->assembled_tangent_operator_revision);
+   }  // end of getNumberOfTangentOperatorAssembliesByKernels
+ 
++  size_type NonLinearEvolutionProblemImplementationBase::
++      getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
++    if (this->mgis_integrator == nullptr) {
++      return 0;
++    }
++    return this->mgis_integrator
++        ->getNumberOfOrderedStiffnessMatricesAssemblies();
++  }  // end of getNumberOfOrderedStiffnessMatricesAssemblies
++
+   size_type NonLinearEvolutionProblemImplementationBase::
+       getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {
+     return this->other_integrators_residual_evaluations;
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 4362557b02..385a04441c 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -744,6 +744,23 @@ static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(
+       .getNumberOfTangentOperatorAssembliesByKernels();
+ }  // end of getNumberOfTangentOperatorAssembliesByKernels
+ 
++/*!
++ * \return the number of assemblies of the stiffness matrices computed by
++ * kernels made in a fixed order
++ * \param[in] problem: non linear evolution problem
++ */
++static mfem_mgis::size_type getNumberOfOrderedStiffnessMatricesAssemblies(
++    const mfem_mgis::NonLinearEvolutionProblem& problem) {
++#ifdef MFEM_USE_MPI
++  if (parallel) {
++    return problem.getImplementation<true>()
++        .getNumberOfOrderedStiffnessMatricesAssemblies();
++  }
++#endif /* MFEM_USE_MPI */
++  return problem.getImplementation<false>()
++      .getNumberOfOrderedStiffnessMatricesAssemblies();
++}  // end of getNumberOfOrderedStiffnessMatricesAssemblies
++
+ /*!
+  * \return the number of evaluations of the residual in which the
+  * contributions of the other integrators of the non linear form were added
+@@ -1125,6 +1142,16 @@ static Results compute(mfem_mgis::Context& ctx,
+   // the contributions of the other integrators of the non linear form being
+   // added to the local matrix, except with an integrator on the interior
+   // faces
++  // the ordered assembly is used if requested, and only then unless the
++  // environment selects it by default
++  if (opts.tangent_operator_kernels || opts.matrix_free) {
++    const auto no = getNumberOfOrderedStiffnessMatricesAssemblies(problem);
++    if (opts.ordered_assembly) {
++      check(no != 0, name + ": ordered assembly not used");
++    } else if (std::getenv("MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY") == nullptr) {
++      check(no == 0, name + ": ordered assembly used");
++    }
++  }
+   if ((opts.tangent_operator_kernels) && (!opts.matrix_free)) {
+     const auto n = getNumberOfTangentOperatorAssembliesByKernels(problem);
+     const auto expected =
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index 589bde9377..68a3b05678 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -889,6 +889,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
+   // ordered assembly (see `setOrderedStiffnessMatricesAssembly`), in the
+   // three layouts of the rows: the same values at each assembly, close to
+   // the ones of the atomic additions
++  check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 0,
++        "integrator positions: no ordered assembly by default");
+   mi.setOrderedStiffnessMatricesAssembly(true);
+   for (auto* const m : {m2.get(), &m3, m1.get()}) {
+     assemble(*m);
+@@ -906,6 +908,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
+             1e-14 * std::max(std::abs(reference[i]), real{1});
+   }
+   check(close, "integrator positions: ordered assembly, assembled values");
++  check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 6,
++        "integrator positions: number of ordered assemblies");
+   mi.setOrderedStiffnessMatricesAssembly(false);
+ }  // end of testIntegratorPositions
+ 
+-- 
+2.43.0
+

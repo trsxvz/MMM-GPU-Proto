@@ -503,6 +503,43 @@ namespace mfem_mgis::batch::internals {
              use_device);
   }  // end of launchStiffnessMatricesKernel
 
+  void launchStiffnessMatricesByRowsKernel(const SparseMatrixOutput& o,
+                                           const int* const offsets,
+                                           const int* const entries,
+                                           const real* const k,
+                                           const int n,
+                                           const bool use_device) {
+    mfem::forall_switch(
+        use_device, o.number_of_rows,
+        [o, offsets, entries, k, n] MFEM_HOST_DEVICE(int row) {
+          const auto sn = static_cast<std::size_t>(n);
+          const auto begin = o.I[row];
+          const auto end = o.I[row + 1];
+          for (auto t = offsets[row]; t != offsets[row + 1]; ++t) {
+            const auto ei = static_cast<std::size_t>(entries[t]);
+            const auto e = ei / sn;
+            const auto i = ei - e * sn;
+            const auto* const dofs = o.element_dofs + sn * e;
+            if (dofs[i] != row) {
+              // rows which do not match the degrees of freedom
+              ::AtomicAdd(o.missing[0], static_cast<int>(sn));
+              continue;
+            }
+            // matrix of the element, column by column (see
+            // `ElementMatricesStorage`)
+            const auto* const ke = k + sn * sn * e;
+            for (std::size_t j = 0; j != sn; ++j) {
+              const auto p = findColumn(o.J, begin, end, dofs[j]);
+              if (p == end) {
+                ::AtomicAdd(o.missing[0], 1);
+              } else {
+                o.values[p] += ke[i + sn * j];
+              }
+            }
+          }
+        });
+  }  // end of launchStiffnessMatricesByRowsKernel
+
   void launchStiffnessMatricesPositionsKernel(const SparseMatrixOutput& o,
                                               const int ne,
                                               const int n,
