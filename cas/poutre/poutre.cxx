@@ -60,6 +60,8 @@ int main(int argc, char** argv) {
   auto prediction = true;
   auto profiling = false;
   auto update_period = 1;
+  // reuse of the analysis of the direct solvers (mumps, cudss)
+  auto reuse_analysis = false;
   auto chebyshev_order = 2;
   auto displacement = real{0.5};
   auto pressure = real{0};
@@ -73,7 +75,8 @@ int main(int argc, char** argv) {
   args.AddOption(&mesh, "-m", "--mesh", "Mesh file.");
   args.AddOption(&library, "-l", "--library", "Behaviour library.");
   args.AddOption(&linear_solver, "-ls", "--linear-solver",
-                 "Linear solver: mumps (parallel), umfpack (sequential), "
+                 "Linear solver: mumps (parallel), cudss (parallel, direct "
+                 "solver on a CUDA GPU), umfpack (sequential), "
                  "pcg-amg (parallel, PCG of hypre and BoomerAMG), cg-amg "
                  "(parallel, conjugate gradient of MFEM and BoomerAMG built on "
                  "the assembled tangent operator) or cg-jacobi "
@@ -116,8 +119,8 @@ int main(int argc, char** argv) {
                  "Linear solver of the elastic operator of the fixed point "
                  "solver: problem (the linear solver of the problem, set up "
                  "at each step), amg (one cycle of BoomerAMG), pcg-amg, "
-                 "mumps, amgx (one cycle of AmgX) or amgx-pcg (conjugate "
-                 "gradient of AmgX).");
+                 "mumps, cudss (direct solver on a CUDA GPU), amgx (one "
+                 "cycle of AmgX) or amgx-pcg (conjugate gradient of AmgX).");
   args.AddOption(&elastic_operator_once, "-k0", "--elastic-operator-once",
                  "-no-k0", "--no-elastic-operator-once",
                  "Elastic operator of the fixed point solver assembled once.");
@@ -173,6 +176,11 @@ int main(int argc, char** argv) {
                  "Maximum number of Newton iterations per step.");
   args.AddOption(&verbosity, "-vl", "--verbosity-level",
                  "Verbosity level of the non linear solver.");
+  args.AddOption(&reuse_analysis, "-mra", "--reuse-analysis", "-no-mra",
+                 "--no-reuse-analysis",
+                 "Reuse the analysis of the direct solvers (mumps, cudss) "
+                 "for the matrices of the same pattern (parameter "
+                 "ReuseAnalysis of mfem-mgis).");
   args.AddOption(&prediction, "-pr", "--prediction", "-no-pr",
                  "--no-prediction",
                  "Elastic prediction at the beginning of each step.");
@@ -303,6 +311,12 @@ int main(int argc, char** argv) {
                        Parameters{{"MUMPSSolver",
                                    Parameters{{"Symmetric", true}}}}) |
             or_die;
+      } else if (els == "cudss") {
+        options.insert(ctx, "ElasticOperatorLinearSolver",
+                       Parameters{{"CuDSSSolver",
+                                   Parameters{{"Symmetric", true},
+                                              {"PositiveDefinite", true}}}}) |
+            or_die;
       } else if (els != "problem") {
         std::cerr << "invalid linear solver of the elastic operator '" << els
                   << "'\n";
@@ -366,8 +380,25 @@ int main(int argc, char** argv) {
       problem.setPredictionPolicy(pp);
     }
     const auto ls = std::string{linear_solver};
+    // parameters of the direct solvers, ReuseAnalysis only given when
+    // requested
+    auto direct_solver_parameters = [reuse_analysis](const bool spd) {
+      auto parameters = Parameters{{"Symmetric", true}};
+      if (spd) {
+        parameters.insert(attributes::Throwing{}, "PositiveDefinite", true);
+      }
+      if (reuse_analysis) {
+        parameters.insert(attributes::Throwing{}, "ReuseAnalysis", true);
+      }
+      return parameters;
+    };
     if (ls == "mumps") {
-      problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}}) |
+      problem.setLinearSolver(ctx, "MUMPSSolver",
+                              direct_solver_parameters(false)) |
+          or_die;
+    } else if (ls == "cudss") {
+      problem.setLinearSolver(ctx, "CuDSSSolver",
+                              direct_solver_parameters(true)) |
           or_die;
     } else if (ls == "umfpack") {
       problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;

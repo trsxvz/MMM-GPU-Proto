@@ -4508,3 +4508,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   mfem-mgis-examples e98e259). Sur le GPU, cuDSS 2,0 s contre 4,3 à
   4,6 s avec GMRES et BoomerAMG ; sur CPU (2 processus), MUMPS 5,4 s
   contre 6,1 s ; mêmes itérations et même comparaison à la référence.
+- Poutre r4 (111 843 inconnues) avec cuDSS (options `-ls cudss`, `-mra`,
+  `-els cudss` du cas, `results/cudss-poutre-2026-10-12`) : le solveur
+  direct ne paie pas à cette taille. Newton avec cuDSS 9,6 s contre 3,1 s
+  avec PCG et BoomerAMG (factorisation 0,235 s contre 68 ms par
+  résolution) ; NewtonK0 avec K0 factorisé une fois par cuDSS 2,7 à 3,0 s
+  contre 1,85 s avec un cycle de BoomerAMG (67 ms contre 22 ms par
+  résolution tangente). cuDSS convient aux petits systèmes (ex7, ex8).

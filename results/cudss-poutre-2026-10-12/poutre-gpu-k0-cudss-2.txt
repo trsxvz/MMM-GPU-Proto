@@ -1,0 +1,74 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Fixed point iteration  0 : ||r|| = 296087, ||r||/||r_0|| = 0.000226792
+Fixed point iteration  1 : ||r|| = 6.29697e-06, ||r||/||r_0|| = 4.82325e-15
+Fixed point iteration  0 : ||r|| = 3.83337e-05, ||r||/||r_0|| = 2.93622e-14
+Fixed point iteration  0 : ||r|| = 2380.88, ||r||/||r_0|| = 1.82367e-06
+Fixed point iteration  1 : ||r|| = 0.489991, ||r||/||r_0|| = 3.75315e-10
+Fixed point iteration  0 : ||r|| = 194214, ||r||/||r_0|| = 0.000148761
+Fixed point iteration  1 : ||r|| = 16532, ||r||/||r_0|| = 1.26629e-05
+Fixed point iteration  2 : ||r|| = 4.80673, ||r||/||r_0|| = 3.68178e-09
+Fixed point iteration  0 : ||r|| = 1.98229e+06, ||r||/||r_0|| = 0.00151836
+Fixed point iteration  1 : ||r|| = 165163, ||r||/||r_0|| = 0.000126509
+Fixed point iteration  2 : ||r|| = 6505.23, ||r||/||r_0|| = 4.98277e-06
+Fixed point iteration  3 : ||r|| = 15.0055, ||r||/||r_0|| = 1.14936e-08
+Fixed point iteration  4 : ||r|| = 0.000520858, ||r||/||r_0|| = 3.98959e-13
+Fixed point iteration  0 : ||r|| = 3.30477e+06, ||r||/||r_0|| = 0.00253133
+Fixed point iteration  1 : ||r|| = 407137, ||r||/||r_0|| = 0.000311852
+Fixed point iteration  2 : ||r|| = 8280.85, ||r||/||r_0|| = 6.34283e-06
+Fixed point iteration  3 : ||r|| = 9.92829, ||r||/||r_0|| = 7.60471e-09
+Fixed point iteration  0 : ||r|| = 3.62989e+06, ||r||/||r_0|| = 0.00278037
+Fixed point iteration  1 : ||r|| = 509929, ||r||/||r_0|| = 0.000390587
+Fixed point iteration  2 : ||r|| = 10466.2, ||r||/||r_0|| = 8.01675e-06
+Fixed point iteration  3 : ||r|| = 39.8268, ||r||/||r_0|| = 3.05058e-08
+Fixed point iteration  4 : ||r|| = 0.00189696, ||r||/||r_0|| = 1.453e-12
+Fixed point iteration  0 : ||r|| = 3.77174e+06, ||r||/||r_0|| = 0.00288902
+Fixed point iteration  1 : ||r|| = 561300, ||r||/||r_0|| = 0.000429936
+Fixed point iteration  2 : ||r|| = 16762.6, ||r||/||r_0|| = 1.28395e-05
+Fixed point iteration  3 : ||r|| = 197.132, ||r||/||r_0|| = 1.50996e-07
+Fixed point iteration  4 : ||r|| = 0.0104948, ||r||/||r_0|| = 8.03867e-12
+Fixed point iteration  0 : ||r|| = 3.85043e+06, ||r||/||r_0|| = 0.00294929
+Fixed point iteration  1 : ||r|| = 582869, ||r||/||r_0|| = 0.000446457
+Fixed point iteration  2 : ||r|| = 23352.4, ||r||/||r_0|| = 1.78871e-05
+Fixed point iteration  3 : ||r|| = 697.665, ||r||/||r_0|| = 5.34386e-07
+Fixed point iteration  4 : ||r|| = 0.0438149, ||r||/||r_0|| = 3.35606e-11
+Fixed point iteration  0 : ||r|| = 3.89321e+06, ||r||/||r_0|| = 0.00298206
+Fixed point iteration  1 : ||r|| = 593166, ||r||/||r_0|| = 0.000454343
+Fixed point iteration  2 : ||r|| = 22912.1, ||r||/||r_0|| = 1.75498e-05
+Fixed point iteration  3 : ||r|| = 1012.83, ||r||/||r_0|| = 7.75788e-07
+Fixed point iteration  4 : ||r|| = 0.0977455, ||r||/||r_0|| = 7.48695e-11
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 0 1 2 4 3 4 4 4 4 | total 27
+time 3.030 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------|
+ |    name                                       |    number Of Calls |            time(s) |            part(%) |
+ |--------------------------------------------------------------------------------------------------------------|
+ | > root                                       |                  1 |           3.180428 |        100.000000% |
+ | |--> Mesh::Constructor                       |                  1 |           0.130702 |          4.109568% |
+ |    |--> Mesh::LoadMesh                       |                  1 |           0.000212 |          0.006669% |
+ |    |--> Mesh::Run_ParUniformRefinement       |                  4 |           0.130386 |          4.099649% |
+ | |--> FED::Constructor                        |                  1 |           0.019672 |          0.618522% |
+ | |--> NLEPIB::updateLinearSolver              |                  1 |           0.000002 |          0.000062% |
+ | |--> NLEP::solve                             |                 10 |           2.975523 |         93.557315% |
+ |    |--> NLEPIB::setup                        |                 10 |           0.000946 |          0.029733% |
+ |    |--> NLEPIB::solve                        |                 10 |           2.974551 |         93.526735% |
+ |       |--> NLEPIB::computePrediction         |                 10 |           0.375711 |         11.813222% |
+ |          |--> PRED::integrate                |                 10 |           0.068367 |          2.149626% |
+ |          |--> PRED::forms                    |                 10 |           0.003133 |          0.098516% |
+ |          |--> PRED::assemble                 |                 10 |           0.110283 |          3.467537% |
+ |          |--> PRED::solve                    |                 10 |           0.187910 |          5.908334% |
+ |       |--> FPS::Mult                         |                 10 |           2.598790 |         81.711959% |
+ |          |--> FPS::integrate                 |                 38 |           0.704622 |         22.154933% |
+ |             |--> NS::getJacobian             |                  1 |           0.060967 |          1.916937% |
+ |             |--> NS::setLinearSolverOperator |                  1 |           0.597847 |         18.797679% |
+ |          |--> NS::computeResidual            |                 37 |           0.005801 |          0.182410% |
+ |          |--> NS::getJacobian                |                 27 |           0.069106 |          2.172868% |
+ |          |--> NS::setLinearSolverOperator    |                 27 |           0.000046 |          0.001441% |
+ |          |--> MFEM::Mult(r,c)                |                 27 |           1.817354 |         57.141812% |
+ | |--> NLEPIB::update                          |                 10 |           0.054529 |          1.714533% |
+ |-- end timetable ---------------------------------------------------------------------------------------------|

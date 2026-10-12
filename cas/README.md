@@ -62,7 +62,10 @@ Options de la poutre ajoutées par les lots suivants : point fixe et
 NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), tolérance
 adaptative (`-alst EisenstatWalker1 -alsti 0.1`), multigrille de K0
 (`-els amg|amgx`, `-amgo` options de BoomerAMG, `-amgxo`, `-amgxc`,
-`-amgxs` pour AmgX), verbosité du solveur non linéaire (`-vl`). L'outil
+`-amgxs` pour AmgX), verbosité du solveur non linéaire (`-vl`), solveur
+direct cuDSS sur le GPU (`-ls cudss`, `-els cudss`, demande un mfem-mgis
+qui le fournit) et réutilisation de l'analyse des solveurs directs
+(`-mra`). L'outil
 `poutre-k0` résout l'opérateur élastique K0 seul, mise en place et
 résolutions chronométrées à part. Les options de mfem-mgis s'appliquent à
 tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`), et les
