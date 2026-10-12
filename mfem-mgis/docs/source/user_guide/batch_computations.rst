@@ -559,6 +559,28 @@ support. :code:`PETSc` may make :code:`hypre` use the GPU again
 (conversion of its matrices located on a GPU for the preconditioners of
 :code:`hypre`).
 
+Direct solver on the GPU
+------------------------
+
+When :code:`MFEM` is built with :code:`cuDSS`, the direct solver
+:code:`CuDSSSolver` of the factory of linear solvers factorizes the
+matrices on the GPU (see :doc:`glossary` for its parameters and
+requirements). With the parameter :code:`ReuseAnalysis`, the analysis
+(ordering and symbolic factorization) of the first matrix is reused for
+the next ones while their pattern does not change, as the tangent
+operators of the successive Newton iterations: only the numerical
+factorization is then made at each iteration.
+
+On small systems, whose iterative resolutions on a GPU are dominated by
+the launches of kernels, the direct solver is much faster than the Krylov
+solvers of :code:`hypre`: on one GPU, a factorization of a mechanical
+matrix of 28 548 unknowns takes about 20 ms with the reuse of the
+analysis, and a resolution a few milliseconds. On large three-dimensional
+problems, the fill-in of the factorization costs more than an algebraic
+multigrid: on a mechanical problem of 111 843 unknowns, a factorization
+takes about 0.24 s, against about 70 ms for a resolution by
+:code:`HyprePCG` preconditioned by :code:`HypreBoomerAMG`.
+
 .. _mfem_mgis_batch_computations_amgx:
 
 AmgX

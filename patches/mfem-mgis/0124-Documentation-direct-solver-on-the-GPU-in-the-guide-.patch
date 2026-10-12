@@ -1,0 +1,53 @@
+From 429f76ded3907c29ddad132a25020e0a45af76fd Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 07:18:19 +0200
+Subject: [PATCH] Documentation: direct solver on the GPU in the guide of the
+ computations by kernels
+
+The section on the GPU of the computations by batches and by kernels
+presents the solver CuDSSSolver and the reuse of its analysis, with the
+orders of magnitude measured on one GPU: much faster than the Krylov
+solvers of hypre on small systems (factorization of about 20 ms for 28 548
+unknowns), slower than an algebraic multigrid on large three-dimensional
+problems (0.24 s for 111 843 unknowns, against about 70 ms for a
+resolution by HyprePCG and HypreBoomerAMG).
+---
+ docs/source/user_guide/batch_computations.rst | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index ac6dae6516..f7cdcf8240 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -559,6 +559,28 @@ support. :code:`PETSc` may make :code:`hypre` use the GPU again
+ (conversion of its matrices located on a GPU for the preconditioners of
+ :code:`hypre`).
+ 
++Direct solver on the GPU
++------------------------
++
++When :code:`MFEM` is built with :code:`cuDSS`, the direct solver
++:code:`CuDSSSolver` of the factory of linear solvers factorizes the
++matrices on the GPU (see :doc:`glossary` for its parameters and
++requirements). With the parameter :code:`ReuseAnalysis`, the analysis
++(ordering and symbolic factorization) of the first matrix is reused for
++the next ones while their pattern does not change, as the tangent
++operators of the successive Newton iterations: only the numerical
++factorization is then made at each iteration.
++
++On small systems, whose iterative resolutions on a GPU are dominated by
++the launches of kernels, the direct solver is much faster than the Krylov
++solvers of :code:`hypre`: on one GPU, a factorization of a mechanical
++matrix of 28 548 unknowns takes about 20 ms with the reuse of the
++analysis, and a resolution a few milliseconds. On large three-dimensional
++problems, the fill-in of the factorization costs more than an algebraic
++multigrid: on a mechanical problem of 111 843 unknowns, a factorization
++takes about 0.24 s, against about 70 ms for a resolution by
++:code:`HyprePCG` preconditioned by :code:`HypreBoomerAMG`.
++
+ .. _mfem_mgis_batch_computations_amgx:
+ 
+ AmgX
+-- 
+2.43.0
+
