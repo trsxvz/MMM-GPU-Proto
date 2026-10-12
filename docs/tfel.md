@@ -554,18 +554,23 @@ Divers :
   constantes (une seule était refusée ; avec trois, seule la première
   était utilisée) et première énergie de rupture utilisée dans les trois
   directions. Vérifié par paires de lois (valeurs constantes et valeurs
-  non constantes égales, MTest dans chaque direction) ;
+  non constantes égales, MTest dans chaque direction). Options : une
+  seule de `softening_slope`, `softening_slopes`, `fracture_energy` et
+  `fracture_energies` (le contrôle n'échouait que si les quatre étaient
+  données), signe des composantes constantes vérifié aussi quand la
+  première ne l'est pas ;
 - DSL isotropes avec `use_stress_update_algorithm` : coefficient de
   Poisson converti en `stress` au lieu de `real`, ce qui ne compilait pas
-  avec `@UseQt true` (loi de test `Plasticity8`, mêmes résultats que
-  `Plasticity6`) ;
-- message de débogage de rkCastem (facteur affiché faux).
-
-Défaut relevé mais pas corrigé : dans rkCastem, le facteur de
-normalisation de l'erreur ne prend jamais `young` (le résultat de
-`checkVariable("young")` est ignoré dans
-`findStressErrorNormalizationFactor`). Le corriger changerait les pas de
-temps des lois existantes : à décider avec les développeurs de TFEL.
+  avec `@UseQt true` (loi de test `Plasticity8`, Poisson fonction de la
+  température, chargement en déformation uniaxiale qui dépend du
+  Poisson) ;
+- rkCastem : la variable `young`, quand elle est définie, sert de facteur
+  de normalisation de l'erreur, comme l'annoncent les notes de version de
+  TFEL 4.1 (le résultat de `checkVariable("young")` était ignoré ; une
+  loi dont le module d'Young n'est qu'une variable statique était
+  refusée). Seule `OrthotropicCreep_rkCastem` parmi les lois de test est
+  touchée, avec la même valeur (`young = D(0,0)`). Messages d'erreur
+  remis dans l'ordre et message de débogage corrigé.
 
 ## Incompatibilités
 

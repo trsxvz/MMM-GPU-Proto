@@ -4409,5 +4409,11 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   par paires de lois constantes et non constantes égales, sous MTest dans
   chaque direction.
 - TFEL fb5c52bc5 : rkCastem, normalisation par une variable statique
-  écrite avec la macro (branche inaccessible : résultat de
-  `checkVariable("young")` ignoré, laissé tel quel), message de débogage.
+  écrite avec la macro, message de débogage.
+- Relecture Z6 traitée : 58890e6f5 (test de `Plasticity8` qui dépend
+  vraiment du Poisson, mutation détectée), 6d11373d0 (DDIF2 : une seule
+  option de pente ou d'énergie, signe des composantes constantes),
+  31c5008d2 (rkCastem : `young` utilisé comme facteur de normalisation,
+  comme l'annoncent les notes de version 4.1 ; seule
+  `OrthotropicCreep_rkCastem` touchée, même valeur ; messages d'erreur
+  remis dans l'ordre).
