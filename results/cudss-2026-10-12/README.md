@@ -83,6 +83,27 @@ leur triangle inférieur ; `resume-thermique.txt`, commandes dans
   le garder sur le GPU évite les copies entre l'hôte et le GPU des
   matrices données à cuDSS.
 
+## ex7 avec les solveurs directs
+
+ex7 complet (40 pas, 2 634 inconnues, cellule périodique), tout par
+noyaux, matrices symétriques définies positives, analyse réutilisée
+(options `-ls`, `-ms` et `-mra` ajoutées à ex7, mfem-mgis-examples
+e98e259). Construction `build/examples-mumps/ex7`, commandes dans
+`mesure-ex7.sh`, durées totales dans `durees-ex7.txt`, en secondes :
+
+| Cas | GMRES et BoomerAMG | Solveur direct |
+|---|---|---|
+| CPU, 2 processus (cœurs 0 à 3), loi generic | 6,17 et 6,08 | MUMPS : 5,41 et 5,36 |
+| GPU, 1 processus, loi cuda, hypre sur l'hôte | 4,61 et 4,32 | cuDSS : 2,08 et 2,02 |
+| GPU, 1 processus, loi cuda, hypre sur le GPU | | cuDSS : 2,35 et 2,37 |
+
+- Sur le GPU, cuDSS divise le temps d'ex7 par 2,1 ; le GPU est 2,6 fois
+  plus rapide que le CPU à deux cœurs.
+- Mêmes itérations (149) et même comparaison à la référence des
+  contraintes moyennes dans tous les cas.
+- Ici, garder hypre sur l'hôte reste plus rapide (2,0 s contre 2,4 s),
+  contrairement à ex8 (cause non analysée).
+
 ## Limites de cuDSS distribué
 
 Avec plusieurs processus sur un GPU, l'analyse distribuée de cuDSS 0.7.1

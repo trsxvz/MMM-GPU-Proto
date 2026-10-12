@@ -91,6 +91,9 @@ Command line | Description
 --nbsteps or -ns | number of time steps, the end time being 5 s (default = 40)
 --order or -o | finite element order (polynomial degree) (default = 2)
 --verbosity-level or -v | verbosity level of the linear solver (default = 0)
+--linear-solver or -ls | linear solver: `HypreGMRES` preconditioned by `HypreBoomerAMG` (default), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only)
+--matrix-symmetry or -ms | symmetry of the matrices given to the direct solver: `Unsymmetric` (default), `SymmetricIndefinite` or `SymmetricPositiveDefinite` (the lower triangle is given without checking the symmetry)
+--reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no)
 --post-processing or -pp, --no-post-processing or -no-pp | export or not the results to Paraview (default = export)
 --reference-file or -rf | file of reference values of the mean stresses in each material, no comparison if empty (default)
 --use-petsc and --petsc-configuration-file | use PETSc with the given configuration file, for example `petscrc` (requires MFEM built with PETSc)
@@ -101,6 +104,17 @@ Example of customized simulation:
 # run the simulation in sequential computing mode with various options
 ./mox2 -r 2 -o 3 --mesh mesh/OneSphere.msh
 ```
+
+The tangent operators of this example are symmetric and positive definite.
+With the default mesh, 40 steps, the behaviour integrated by batches and
+the gradients, the inner forces and the tangent operator computed by
+kernels (environment variables of mfem-mgis), the simulation takes 6.1 s on
+2 processes with `HypreGMRES` and 5.4 s with
+`-ls MUMPSSolver -ms SymmetricPositiveDefinite -mra`. On one GPU, with the
+behaviour compiled for the GPU (interface `generic-parallel` of MFront,
+option `-l`), it takes 4.3 to 4.6 s with `HypreGMRES` (option
+`--hypre-on-host` of mfem-mgis) and 2.0 to 2.1 s with
+`-ls CuDSSSolver -ms SymmetricPositiveDefinite -mra --hypre-on-host`.
 
 ### Parallel computing mode
 

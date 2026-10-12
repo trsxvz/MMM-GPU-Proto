@@ -4504,3 +4504,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (11,1 s au début de la matinée, ×4,3), mêmes résultats. Exemple
   d'exécution sur le GPU dans le README d'ex8 (mfem-mgis-examples
   7578d86).
+- ex7 : choix du solveur linéaire (`-ls`, `-ms`, `-mra` ;
+  mfem-mgis-examples e98e259). Sur le GPU, cuDSS 2,0 s contre 4,3 à
+  4,6 s avec GMRES et BoomerAMG ; sur CPU (2 processus), MUMPS 5,4 s
+  contre 6,1 s ; mêmes itérations et même comparaison à la référence.

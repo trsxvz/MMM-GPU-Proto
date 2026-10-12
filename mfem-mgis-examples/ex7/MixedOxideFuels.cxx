@@ -30,8 +30,9 @@ Imposed strain : eps = a * t, with a = 0.012 s^-1
 [ 0       ,   - a / 2 ,   0 ]
 [ 0       ,         0 ,   a ]
 
-Solver : HypreGMRES
-Preconditioner : HypreBoomerAMG
+Solver : HypreGMRES (default, option -ls), or a direct solver (MUMPSSolver,
+or CuDSSSolver on a CUDA GPU)
+Preconditioner : HypreBoomerAMG (HypreGMRES)
 
 Behavior law parameters : NortonViscoplasticityWithThreshold
 [ parameters       , matrix   , inclusions ]
@@ -58,6 +59,15 @@ struct TestParameters {
   int nbsteps = 40;
   bool post_processing = true;
   int verbosity_level = 0;
+  // linear solver: HypreGMRES, preconditioned by HypreBoomerAMG, or a direct
+  // solver, MUMPSSolver or CuDSSSolver
+  const char* linear_solver = "HypreGMRES";
+  // symmetry of the matrices given to the direct solver: Unsymmetric,
+  // SymmetricIndefinite or SymmetricPositiveDefinite
+  const char* matrix_symmetry = "Unsymmetric";
+  // reuse the analysis of the direct solver for the matrices of the same
+  // pattern (parameter ReuseAnalysis of the direct solvers of mfem-mgis)
+  bool reuse_analysis = false;
 };
 
 void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -78,6 +88,23 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "no comparison if empty.");
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "Verbosity level of the linear solvers.");
+  args.AddOption(&p.linear_solver, "-ls", "--linear-solver",
+                 "Linear solver: HypreGMRES, preconditioned by "
+                 "HypreBoomerAMG (default), or a direct solver, MUMPSSolver "
+                 "or CuDSSSolver (on a CUDA GPU only).");
+  args.AddOption(&p.matrix_symmetry, "-ms", "--matrix-symmetry",
+                 "Symmetry of the matrices given to the direct solver: "
+                 "Unsymmetric (default), SymmetricIndefinite or "
+                 "SymmetricPositiveDefinite. The symmetric modes give the "
+                 "lower triangle of the matrices without checking their "
+                 "symmetry.");
+  args.AddOption(&p.reuse_analysis, "-mra", "--reuse-analysis", "-no-mra",
+                 "--no-reuse-analysis",
+                 "Reuse the analysis of the direct solver (ordering and "
+                 "symbolic factorization) for the matrices of the same "
+                 "pattern, as the tangent operators of the successive "
+                 "Newton iterations (parameter ReuseAnalysis of the direct "
+                 "solvers of mfem-mgis).");
   // options of mfem-mgis, such as the device (--device) and PETSc, handled
   // by mfem_mgis::initialize
   mfem_mgis::declareDefaultOptions(args);
@@ -233,14 +260,53 @@ void setup_properties(mfem_mgis::attributes::MayAbort,
   });
 }
 
+/*!
+ * \return the parameters of a direct solver of mfem-mgis (MUMPSSolver,
+ * CuDSSSolver)
+ * \param[in] p: command line options
+ */
+static mfem_mgis::Parameters getDirectSolverParameters(
+    const TestParameters& p) {
+  const auto s = std::string_view{p.matrix_symmetry};
+  auto parameters = mfem_mgis::Parameters{};
+  if (s == "SymmetricIndefinite") {
+    parameters = mfem_mgis::Parameters{{"Symmetric", true}};
+  } else if (s == "SymmetricPositiveDefinite") {
+    parameters =
+        mfem_mgis::Parameters{{"Symmetric", true}, {"PositiveDefinite", true}};
+  } else if (s != "Unsymmetric") {
+    mfem_mgis::abort("invalid symmetry of the matrices '" + std::string{s} +
+                     "' (expected Unsymmetric, SymmetricIndefinite or "
+                     "SymmetricPositiveDefinite)");
+  }
+  if (p.reuse_analysis) {
+    // only given if requested, for the versions of mfem-mgis without this
+    // parameter
+    parameters.insert(mfem_mgis::attributes::Throwing{}, "ReuseAnalysis", true);
+  }
+  return parameters;
+}  // end of getDirectSolverParameters
+
 template <typename Problem>
 static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                             mfem_mgis::Context& ctx,
                             Problem& p,
+                            const TestParameters& test_parameters,
                             const int verbosity = 0,
                             const mfem_mgis::real Tol = 1e-12) {
   CatchTimeSection(ctx, "set_linear_solver");
   auto or_die = ctx.getFatalFailureHandler();
+  const auto solver = std::string_view{test_parameters.linear_solver};
+  if ((solver == "MUMPSSolver") || (solver == "CuDSSSolver")) {
+    p.setLinearSolver(ctx, std::string{solver},
+                      getDirectSolverParameters(test_parameters)) |
+        or_die;
+    return;
+  }
+  if (solver != "HypreGMRES") {
+    mfem_mgis::abort("invalid linear solver '" + std::string{solver} +
+                     "' (expected HypreGMRES, MUMPSSolver or CuDSSSolver)");
+  }
   // preconditioner hypreBoomerAMG
   auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};
   auto preconditioner =
@@ -372,7 +438,7 @@ int main(int argc, char* argv[]) {
   setup_properties(mfem_mgis::may_abort, ctx, p, problem);
 
   if (!mfem_mgis::usePETSc()) {
-    setLinearSolver(mfem_mgis::may_abort, ctx, problem, p.verbosity_level);
+    setLinearSolver(mfem_mgis::may_abort, ctx, problem, p, p.verbosity_level);
   }
 
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
