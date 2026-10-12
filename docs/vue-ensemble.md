@@ -89,8 +89,8 @@ fonction de lot traite tous ces points en un appel.
 | MGIS : calcul asynchrone | fait, synchrone par défaut | [mgis.md](mgis.md#calcul-asynchrone) |
 | MGIS : vues, rangement composante par composante, fin de pas sur GPU | fait | [mgis.md](mgis.md#vues-et-rangements) |
 | Documentation de TFEL et de MGIS (pages web, Doxygen, commentaires) | à jour avec les changements | [tfel.md](tfel.md#documentation-dans-larbre-de-tfel), [mgis.md](mgis.md#documentation-dans-larbre-de-mgis) |
-| mfem-mgis | lots L0 à L4 et L6 (tranche GPU) faits ; L5 vague 1 en grande partie (point fixe, NewtonK0, Newton inexact, options de BoomerAMG, lisseurs sans matrice) ; L7 : thermique stationnaire par noyaux | [plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md), [solveurs-gpu.md](solveurs-gpu.md) |
-| Performance | poutre r4 sur une RTX 5080 : 1,96 s contre 13,6 s pour Newton sur 8 cœurs ; polycristal 9,6 s contre 29,6 s | `results/L4-*` à `results/L6-*`, [journal](../JOURNAL.md) |
+| mfem-mgis | lots L0 à L10 faits : données des matériaux dans la mémoire de MFEM, intégration par lots, mécanique par noyaux, point fixe et NewtonK0, thermique, micromorphe, FBar, Faltus, conditions aux limites et autres intégrateurs par noyaux, modèles point par point sur le GPU, post-traitements par noyaux, toute la suite de tests sur le GPU ; Kokkos et AmgX facultatifs ; mémoire de l'hôte standard sur le GPU. Tous les exemples de mfem-mgis-examples et les cas de mm-opera-hpc tournent par lots et sur le GPU | [plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md), [solveurs-gpu.md](solveurs-gpu.md), [validation.md](validation.md) |
+| Performance | poutre r4 sur une RTX 5080 : 1,96 s contre 13,6 s pour Newton sur 8 cœurs ; polycristal 9,6 s contre 29,6 s ; ex8 (5 pas) 11,5 s sur le GPU contre 19,8 s sur 2 cœurs par noyaux (MUMPS symétrique) ; bulle de mm-opera-hpc 5,3 s sur le GPU contre 25,2 s sur un cœur. Les petits systèmes linéaires (moins de 10 000 inconnues) restent plus lents sur le GPU | `results/`, [journal](../JOURNAL.md) |
 
 La validation est décrite dans [validation.md](validation.md). Le
 découpage en contributions pour les dépôts officiels est dans

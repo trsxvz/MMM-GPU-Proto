@@ -185,7 +185,19 @@ aux points les pointeurs hôte de ses entrées n'est pas détectée avec HMM.
 La factorisation incomplète ILU(k) de hypre 3.2.0 de niveau 1 ou plus
 plante sur le GPU (reproducteur `reproducers/hypre-ilu-gpu`) : mfem-mgis y
 prend le niveau 0 par défaut et refuse les niveaux supérieurs. La
-factorisation ILUT (`HypreILUType` 1) y fonctionne.
+factorisation ILUT (`HypreILUType` 1) y fonctionne. Le préconditionneur
+ParaSails, qui ne calcule que sur l'hôte, est refusé quand hypre calcule
+sur le GPU.
+
+Les exemples de mfem-mgis-examples et les cas de mm-opera-hpc se valident
+dans `cas/` (construction `build/cas-post`, liée à une installation de
+mfem-mgis et aux constructions des exemples et de mm-opera-hpc) : chaque
+cas garde la vérification de l'exemple (référence ou solution analytique)
+et passe point par point, par noyaux, par lots avec chaque backend de
+l'hôte et sur le GPU. Sur le CPU, `ctest -E
+"cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (les tests Kokkos
+utilisent le GPU) ; sur le GPU, `ctest -R cuda`, les tests qui partagent
+un fichier de sortie ou le GPU étant sérialisés par des verrous.
 
 ## Défauts de compilateurs
 
