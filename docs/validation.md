@@ -150,7 +150,7 @@ de trois façons, qui doivent toutes passer :
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
   `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` et
-  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (163/163 le 11/10, hors variantes
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (182/182 le 12/10, hors variantes
   GPU) ;
 - sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
   l'option `--device cuda` de chaque test), avec ou sans les variables
