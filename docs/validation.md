@@ -138,14 +138,14 @@ Les bibliothèques de lots des tests sont construites par les fonctions de
 mfem-mgis est construit dans `build/mfem-mgis` (ou dans une construction
 séparée par lot, `build/mfem-mgis-<lot>`, avec les cibles `BehaviourTest` et
 `GenericParallelBehaviour-*`, hors de `all` et de `build-tests`). Sa suite
-(234 tests au 12/10/2026, dont 52 variantes qui utilisent le GPU) se lance
+(237 tests au 12/10/2026, dont 53 variantes qui utilisent le GPU) se lance
 de trois façons, qui doivent toutes passer :
 
 - telle quelle : `ctest -j 3 -E
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (182 tests, 182/182 le
-  12/10 sur `gpu-proto` 3ad387b002), puis les variantes qui utilisent le
-  GPU, `ctest -j 2 -R "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (52
-  tests) ;
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (184 tests, 184/184 le
+  12/10 sur `gpu-proto` a114b6c870, 182/182 sur 3ad387b002), puis les
+  variantes qui utilisent le GPU, `ctest -j 2 -R
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (53 tests) ;
 - avec tous les calculs forcés aux noyaux du chemin par lots, par les
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
@@ -155,7 +155,8 @@ de trois façons, qui doivent toutes passer :
 - sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
   l'option `--device cuda` de chaque test), avec ou sans les variables
   précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`,
-  182 tests, 180/182 le 12/10 en 624 s) : des tests simultanés se
+  182 tests, 180/182 le 12/10 en 624 s sans les variables précédentes,
+  179/182 en 652 s avec) : des tests simultanés se
   partagent le GPU et échouent. Les
   tests à 4 processus demandent aussi
   `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1` : hypre réserve sinon 4 Gio par
@@ -163,10 +164,18 @@ de trois façons, qui doivent toutes passer :
   `DeviceOptionTest-none`, qui exigent l'absence de périphérique,
   échouent alors. `FixedPointSolverTest-kernels-cpu`, qui garde
   son option `--device cpu`, et `UnitTestParameters`, qui n'initialise pas
-  mfem-mgis, ne passent alors pas par le GPU. `FixedPointSolverTest` a
-  échoué une fois sur 26 passages sur le GPU avec les noyaux forcés, sans
-  reproduction en 25 passages isolés (certaines accélérations ont un
-  nombre d'itérations sensible aux arrondis).
+  mfem-mgis, ne passent alors pas par le GPU. `FixedPointSolverTest`
+  échoue de temps en temps sur le GPU avec les noyaux forcés : une fois
+  sur 26 passages le 11/10, puis dans la suite du 12/10 et une fois sur 20
+  passages isolés. C'est toujours l'accélération `Crossed2Deltabis` : sur
+  un pas, elle tombe dans un cycle où le résidu relatif stagne vers 1e-10
+  jusqu'à la limite de 1 000 itérations, alors qu'elle converge en 71
+  itérations dans les autres passages. Les sommes faites sur le GPU ne
+  sont pas reproductibles d'un passage à l'autre (même le nombre
+  d'itérations de Newton varie, 8 ou 9) ; le portage de l'algorithme de
+  MTest est fidèle (mêmes historiques, même formule, même seuil de
+  colinéarité) ; sur CPU, où les calculs sont reproductibles, le test
+  passe toujours.
 
 L'option `enable-kokkos` (initialisation de Kokkos par mfem-mgis) se
 valide dans deux constructions séparées : `build/mfem-mgis-kokkos-off`

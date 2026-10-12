@@ -1206,6 +1206,25 @@ if(MFEM_USE_MPI)
                        PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
 endif()
 
+# MUMPSReuseAnalysisTest executable: analysis of MUMPS reused for a new
+# operator only if its pattern is the same on all processes. A wrong reuse
+# may block MUMPS: the tests have a time limit
+if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+  add_test_executable(MUMPSReuseAnalysisTest)
+  add_test(NAME MUMPSReuseAnalysisTest COMMAND MUMPSReuseAnalysisTest)
+  add_test(NAME MUMPSReuseAnalysisTestP
+           COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest)
+  set_tests_properties(MUMPSReuseAnalysisTest MUMPSReuseAnalysisTestP
+                       PROPERTIES TIMEOUT 120 ENVIRONMENT OMP_NUM_THREADS=1)
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME MUMPSReuseAnalysisTestP-cuda
+             COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest --device cuda)
+    set_tests_properties(MUMPSReuseAnalysisTestP-cuda
+                         PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
+                                    ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+endif()
+
 # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
 # iterative linear solvers adapted to the decrease of the residual
 add_test_executable(AdaptiveLinearSolverToleranceTest)

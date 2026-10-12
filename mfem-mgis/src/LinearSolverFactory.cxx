@@ -32,6 +32,7 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "AmgXSolvers.hxx"
+#include "MUMPSSolvers.hxx"
 
 #ifdef MFEM_USE_MPI
 
@@ -1214,10 +1215,22 @@ namespace mfem_mgis {
               const Parameters& params) -> LinearSolverHandler {
       if (!checkParameters(
               ctx, params,
-              std::vector<std::string>{"Symmetric", "PositiveDefinite"})) {
+              std::vector<std::string>{"Symmetric", "PositiveDefinite",
+                                       "ReuseAnalysis"})) {
         return {};
       }
-      auto s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+      const auto oreuse_analysis =
+          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+      if (isInvalid(oreuse_analysis)) {
+        return {};
+      }
+      auto s = std::unique_ptr<mfem::MUMPSSolver>{};
+      if (*oreuse_analysis) {
+        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
+            fespace.GetComm());
+      } else {
+        s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+      }
       const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
       if (isInvalid(osymmetric)) {
         return {};

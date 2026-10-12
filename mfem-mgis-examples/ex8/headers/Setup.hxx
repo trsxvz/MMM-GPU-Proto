@@ -40,6 +40,9 @@ struct TestParameters {
   // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,
   // Unsymmetric with Newton and SymmetricIndefinite with NewtonK0
   const char* mumps_symmetry_meca = "";
+  // reuse the analysis of MUMPS for the matrices of the same pattern
+  // (parameter ReuseAnalysis of the MUMPS solver of mfem-mgis)
+  bool mumps_reuse_analysis = false;
   // reference statistics of the fields, no comparison if empty
   const char* reference_file = "";
   int order = 1;                // finite element order

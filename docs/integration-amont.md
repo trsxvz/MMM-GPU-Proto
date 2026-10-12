@@ -142,6 +142,9 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
    - Newton inexact (tolérance du solveur linéaire adaptée au résidu,
      Eisenstat et Walker) ;
    - lisseurs de Jacobi et de Chebyshev de MFEM comme préconditionneurs ;
+   - analyse de MUMPS réutilisée tant que le motif de la matrice ne change
+     sur aucun processus (`ReuseAnalysis`, nombre d'analyses donné par
+     `getNumberOfMUMPSAnalyses`) ;
    - paramètres du problème transmis par les constructeurs de
      `PeriodicNonLinearEvolutionProblem` ;
    - `TransientHeatTransfer` en déformations planes et en contraintes

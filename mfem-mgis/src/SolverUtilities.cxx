@@ -18,6 +18,7 @@
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "AmgXSolvers.hxx"
+#include "MUMPSSolvers.hxx"
 
 namespace mfem_mgis {
 
@@ -185,6 +186,18 @@ namespace mfem_mgis {
     // reached if the solver is not an iterative solver
     return {};
   }  // end of getNumberOfIterationsAtConvergence
+
+  std::optional<size_type> getNumberOfMUMPSAnalyses(
+      [[maybe_unused]] const LinearSolver& ls) noexcept {
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+    if (const auto* const s =
+            dynamic_cast<const internals::MUMPSSolverReusingAnalysis*>(&ls);
+        s != nullptr) {
+      return s->getNumberOfAnalyses();
+    }
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+    return {};
+  }  // end of getNumberOfMUMPSAnalyses
 
   namespace {
 

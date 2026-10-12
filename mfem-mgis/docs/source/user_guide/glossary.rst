@@ -54,12 +54,26 @@ MUMPS Solver
 +----------------------+----------------------------------------------------+
 | ``PositiveDefinite`` | Specify if the matrix is positive definite. [bool] |
 +----------------------+----------------------------------------------------+
+| ``ReuseAnalysis``    | Reuse the analysis (ordering and symbolic          |
+|                      | factorization) of the previous matrix when the new |
+|                      | one has the same pattern on all processes. [bool,  |
+|                      | false by default]                                  |
++----------------------+----------------------------------------------------+
 
+The matrices of the successive iterations of a non linear solver usually
+have the same pattern: with ``ReuseAnalysis``, only the first one is
+analysed. The pattern of each new matrix is compared to the one of the
+last analysed matrix, and a new analysis is made if it changed on one of
+the processes. The matrix being distributed, MUMPS does not use the
+maximum transversal permutation and computes the scaling at each
+factorization: its analysis only depends on the pattern of the matrix, and
+reusing it does not change the factorization. The function
+``getNumberOfMUMPSAnalyses`` gives the number of analyses made.
 
 **Example:**
 
 .. code-block:: cpp
-  
+
   problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}}) | or_die;
 
 UMFPack Solver

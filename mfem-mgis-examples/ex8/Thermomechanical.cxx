@@ -60,6 +60,13 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "Newton, SymmetricIndefinite with NewtonK0). The symmetric "
                  "modes do not check the symmetry: a non symmetric tangent "
                  "would slow down or break the convergence.");
+  args.AddOption(&p.mumps_reuse_analysis, "-mra", "--mumps-reuse-analysis",
+                 "-no-mra", "--no-mumps-reuse-analysis",
+                 "Reuse the analysis of MUMPS (ordering and symbolic "
+                 "factorization) for the matrices of the same pattern, as "
+                 "the tangent operators of the successive Newton iterations "
+                 "(parameter ReuseAnalysis of the MUMPS solver of "
+                 "mfem-mgis).");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -110,7 +117,7 @@ int main(int argc, char* argv[]) {
   common_parameters(args, p);
   // an invalid symmetry of the matrices given to MUMPS is refused even if
   // MUMPS is not used
-  static_cast<void>(getMUMPSSolverParameters(p.mumps_symmetry_meca, ""));
+  static_cast<void>(getMUMPSSolverParameters(p.mumps_symmetry_meca, "", false));
 
   if (p.t_ramp < 0) {
     ctx.log() << "the duration of the power ramp must not be negative\n";
@@ -167,8 +174,9 @@ int main(int argc, char* argv[]) {
         {"ElasticOperatorUpdate", "EachResolution"},
         {"ElasticOperatorLinearSolver",
          mfem_mgis::Parameters{
-             {"MUMPSSolver", getMUMPSSolverParameters(p.mumps_symmetry_meca,
-                                                      "SymmetricIndefinite")}}},
+             {"MUMPSSolver", getMUMPSSolverParameters(
+                                 p.mumps_symmetry_meca, "SymmetricIndefinite",
+                                 p.mumps_reuse_analysis)}}},
         {"TangentLinearSolver",
          mfem_mgis::Parameters{
              {"GMRESSolver",

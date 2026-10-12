@@ -4440,3 +4440,31 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   passent avec les lois régénérées par le MFront de la nuit (variables
   statiques, DDIF2, Poisson des DSL isotropes, Runge-Kutta), et toute la
   suite de TFEL (6970 tests, CPU) passe.
+- Suite de mfem-mgis sur le GPU avec les noyaux forcés : 179/182, les deux
+  échecs attendus et `FixedPointSolverTest`, dont l'accélération
+  `Crossed2Deltabis` stagne parfois vers 1e-10 sur un pas (1 fois sur 20
+  en passages isolés). Les sommes du GPU ne sont pas reproductibles ;
+  l'algorithme est celui de MTest, porté fidèlement ; le test passe
+  toujours sur CPU.
+
+### 2026-10-12 (matin), réutilisation de l'analyse de MUMPS
+
+- Sur le GPU, ex8 passe 60 % de son temps dans les factorisations de
+  MUMPS de la mécanique (sur l'hôte), la condition de Robin moins de 5 %.
+- mfem-mgis (branche mumps-reuse) : paramètre `ReuseAnalysis` de
+  `MUMPSSolver`. L'analyse de la matrice précédente est réutilisée si le
+  motif de la nouvelle est le même sur tous les processus ; mfem-mgis
+  compare le motif, que `SetReorderingReuse` de MFEM ne vérifie pas
+  (c020804d68). Relecture Z8 traitée (a114b6c870) : solveur dans un
+  en-tête interne, motif comparé sans allocation avant la réduction et
+  oublié pendant la factorisation, nombre d'analyses donné par
+  `getNumberOfMUMPSAnalyses`. Test `MUMPSReuseAnalysisTest` : motif gardé,
+  changé partout, changé sur le dernier processus, ou seulement par les
+  colonnes hors diagonale ou leurs indices globaux, nombre d'analyses
+  vérifié après chaque matrice ; sept mutations détectées.
+  mfem-mgis-examples : option `-mra` d'ex8.
+- Mesures (`results/mumps-analyse-2026-10-12`) : sur la matrice
+  d'élasticité d'ex8, factorisations −20 % sur un processus, −28 % sur
+  deux ; ordonnancements et factorisation approchée BLR sans gain. ex8 sur
+  le GPU 11,1 -> 9,7 s, sur CPU (2 processus) 20,5 -> 19,2 s, mêmes
+  résultats et mêmes itérations.

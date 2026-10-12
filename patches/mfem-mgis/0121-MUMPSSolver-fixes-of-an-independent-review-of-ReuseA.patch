@@ -1,0 +1,833 @@
+From a114b6c870edc8e7678b4c38af17cd94866f872a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 05:41:09 +0200
+Subject: [PATCH] MUMPSSolver: fixes of an independent review of ReuseAnalysis
+
+- the solver is moved to an internal header (src/MUMPSSolvers.hxx) and
+  renamed MUMPSSolverReusingAnalysis; it keeps its communicator for the
+  reduction and only has the constructor taking a communicator;
+- the pattern of the new matrix is compared in place, without any
+  allocation before the collective reduction, and only copied after a
+  new analysis;
+- the stored pattern is forgotten while MUMPS analyses and factorizes the
+  new matrix: if this fails by an exception (MFEM built with exceptions),
+  the next matrix is analysed again instead of being factorized with an
+  analysis of another pattern;
+- the number of analyses made is counted and given by the new function
+  getNumberOfMUMPSAnalyses;
+- MUMPSReuseAnalysisTest checks the number of analyses after each
+  operator (an analysis made if and only if the pattern changed), with a
+  case where only the global indices of the off-diagonal columns change
+  on all processes (MUMPS crashed or blocked when this comparison was
+  removed, without failure of the previous test), two successive reuses,
+  a right-hand side which is not uniform, operators destroyed after their
+  local blocks are no longer used, and a time limit; the test, which uses
+  no behaviour, is declared with the tests of the linear solvers;
+- documentation: the analysis of MUMPS only depends on the pattern of the
+  matrix, which MFEM gives distributed (no maximum transversal
+  permutation, scaling computed at each factorization).
+
+Seven mutations of the solver are detected by the test (no comparison,
+no reduction, global indices or column indices of the off-diagonal block
+not compared, never reused, pattern forgotten after a reuse, analyses not
+counted).
+---
+ docs/source/user_guide/glossary.rst           |  10 +-
+ .../MFEMMGIS/Utilities/SolverUtilities.hxx    |   9 +
+ src/CMakeLists.txt                            |   1 +
+ src/LinearSolverFactory.cxx                   | 101 +--------
+ src/MUMPSSolvers.cxx                          | 115 +++++++++++
+ src/MUMPSSolvers.hxx                          | 102 +++++++++
+ src/SolverUtilities.cxx                       |  13 ++
+ tests/CMakeLists.txt                          |  33 +--
+ tests/MUMPSReuseAnalysisTest.cxx              | 195 +++++++++++++-----
+ 9 files changed, 410 insertions(+), 169 deletions(-)
+ create mode 100644 src/MUMPSSolvers.cxx
+ create mode 100644 src/MUMPSSolvers.hxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 396e1aba0e..4e553e87f6 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -63,10 +63,12 @@ MUMPS Solver
+ The matrices of the successive iterations of a non linear solver usually
+ have the same pattern: with ``ReuseAnalysis``, only the first one is
+ analysed. The pattern of each new matrix is compared to the one of the
+-previous matrix, and a new analysis is made if it changed on one of the
+-processes. The parts of the analysis which depend on the values of the
+-matrix (permutations of non symmetric matrices) then stay the ones
+-computed for the first matrix.
++last analysed matrix, and a new analysis is made if it changed on one of
++the processes. The matrix being distributed, MUMPS does not use the
++maximum transversal permutation and computes the scaling at each
++factorization: its analysis only depends on the pattern of the matrix, and
++reusing it does not change the factorization. The function
++``getNumberOfMUMPSAnalyses`` gives the number of analyses made.
+ 
+ **Example:**
+ 
+diff --git a/include/MFEMMGIS/Utilities/SolverUtilities.hxx b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+index 54c3dfa484..c5965a727c 100644
+--- a/include/MFEMMGIS/Utilities/SolverUtilities.hxx
++++ b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+@@ -113,6 +113,15 @@ namespace mfem_mgis {
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<int>
+   getNumberOfIterationsAtConvergence(const LinearSolver& ls) noexcept;
++  /*!
++   * \return the number of analyses (ordering and symbolic factorization)
++   * made by a MUMPS solver which reuses its analysis for the matrices of the
++   * same pattern (parameter `ReuseAnalysis` of the `MUMPSSolver` of the
++   * factory of linear solvers), empty for the other solvers
++   * \param[in] ls: linear solver
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<size_type>
++  getNumberOfMUMPSAnalyses(const LinearSolver& ls) noexcept;
+   /*!
+    * \return the relative tolerance of an iterative linear solver (iterative
+    * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c00bdf856c..1a4ae2b2c4 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -53,6 +53,7 @@ list(APPEND MFEMMGIS_SOURCES
+   LinearSolverHandler.cxx
+   LinearSolverFactory.cxx
+   AmgXSolvers.cxx
++  MUMPSSolvers.cxx
+   AbstractNonLinearSolver.cxx
+   NonLinearSolverBase.cxx
+   NonLinearSolverFactory.cxx
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index a9ee439f19..f9847a471b 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -11,7 +11,6 @@
+ #include <vector>
+ #include <functional>
+ #include <optional>
+-#include <tuple>
+ #include <utility>
+ #include <algorithm>
+ #include "mfem/linalg/solvers.hpp"
+@@ -33,6 +32,7 @@
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "AmgXSolvers.hxx"
++#include "MUMPSSolvers.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+ 
+@@ -126,102 +126,6 @@ namespace mfem_mgis::internals {
+     }
+   };  // end of struct ReusableHypreParaSails
+ 
+-#ifdef MFEM_USE_MUMPS
+-
+-  /*!
+-   * \brief MUMPS solver which reuses the analysis (ordering and symbolic
+-   * factorization) of the previous matrix when the new one has the same
+-   * pattern on all processes, as the matrices of the successive iterations
+-   * of the non linear solvers.
+-   *
+-   * `mfem::MUMPSSolver::SetReorderingReuse` (MFEM 4.10) does not check the
+-   * pattern of the new matrix, which would be factorized with the analysis
+-   * of the previous one. The pattern of the local part of the matrix (rows,
+-   * column indices of the diagonal and off-diagonal blocks, global indices
+-   * of the off-diagonal columns) is kept and compared to the one of each
+-   * new matrix. The analysis is collective: a new analysis is made on all
+-   * processes if the pattern changed on one of them.
+-   */
+-  struct ReusableMUMPSSolver final : public mfem::MUMPSSolver {
+-    using mfem::MUMPSSolver::MUMPSSolver;
+-    //! \brief set the operator
+-    void SetOperator(const mfem::Operator& op) override {
+-      const auto* const A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+-      if (A == nullptr) {
+-        // error reported by MFEM
+-        mfem::MUMPSSolver::SetOperator(op);
+-        return;
+-      }
+-      auto p = getPattern(*A);
+-      auto same = static_cast<int>(this->pattern.has_value() &&
+-                                   (*(this->pattern) == p));
+-      MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_LAND, A->GetComm());
+-      this->SetReorderingReuse(same != 0);
+-      mfem::MUMPSSolver::SetOperator(op);
+-      this->pattern = std::move(p);
+-    }
+-
+-   private:
+-    //! \brief pattern of the local part of a matrix
+-    struct Pattern {
+-      //! \brief comparison operator
+-      bool operator==(const Pattern&) const = default;
+-      //! \brief number of rows of the matrix
+-      HYPRE_BigInt global_number_of_rows = 0;
+-      //! \brief global index of the first local row
+-      HYPRE_BigInt first_row = 0;
+-      //! \brief global index of the first column of the diagonal block
+-      HYPRE_BigInt first_column = 0;
+-      //! \brief offsets of the rows of the diagonal block
+-      std::vector<HYPRE_Int> diagonal_rows;
+-      //! \brief column indices of the diagonal block
+-      std::vector<HYPRE_Int> diagonal_columns;
+-      //! \brief offsets of the rows of the off-diagonal block
+-      std::vector<HYPRE_Int> off_diagonal_rows;
+-      //! \brief column indices of the off-diagonal block
+-      std::vector<HYPRE_Int> off_diagonal_columns;
+-      //! \brief global indices of the columns of the off-diagonal block
+-      std::vector<HYPRE_BigInt> off_diagonal_column_map;
+-    };
+-    //! \return a copy of the first `n` values of an array of hypre
+-    template <typename ValueType>
+-    static std::vector<ValueType> copy(const ValueType* const values,
+-                                       const HYPRE_Int n) {
+-      if ((values == nullptr) || (n <= 0)) {
+-        return {};
+-      }
+-      return std::vector<ValueType>(values, values + n);
+-    }
+-    //! \return the pattern of the local part of a matrix
+-    static Pattern getPattern(const mfem::HypreParMatrix& A) {
+-      A.HostRead();
+-      const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
+-      const auto* const diagonal = hypre_ParCSRMatrixDiag(m);
+-      const auto* const off_diagonal = hypre_ParCSRMatrixOffd(m);
+-      const auto n = hypre_CSRMatrixNumRows(diagonal);
+-      auto block_pattern = [n](const hypre_CSRMatrix* const b) {
+-        const auto* const rows = hypre_CSRMatrixI(b);
+-        const auto nnz = (rows == nullptr) ? HYPRE_Int{} : rows[n];
+-        return std::pair{copy(rows, n + 1), copy(hypre_CSRMatrixJ(b), nnz)};
+-      };
+-      auto p = Pattern{};
+-      p.global_number_of_rows = hypre_ParCSRMatrixGlobalNumRows(m);
+-      p.first_row = hypre_ParCSRMatrixFirstRowIndex(m);
+-      p.first_column = hypre_ParCSRMatrixFirstColDiag(m);
+-      std::tie(p.diagonal_rows, p.diagonal_columns) = block_pattern(diagonal);
+-      std::tie(p.off_diagonal_rows, p.off_diagonal_columns) =
+-          block_pattern(off_diagonal);
+-      p.off_diagonal_column_map = copy(hypre_ParCSRMatrixColMapOffd(m),
+-                                       hypre_CSRMatrixNumCols(off_diagonal));
+-      A.HypreRead();
+-      return p;
+-    }
+-    //! \brief pattern of the last matrix
+-    std::optional<Pattern> pattern;
+-  };  // end of struct ReusableMUMPSSolver
+-
+-#endif /* MFEM_USE_MUMPS */
+-
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* MFEM_USE_MPI */
+@@ -1322,7 +1226,8 @@ namespace mfem_mgis {
+       }
+       auto s = std::unique_ptr<mfem::MUMPSSolver>{};
+       if (*oreuse_analysis) {
+-        s = std::make_unique<internals::ReusableMUMPSSolver>(fespace.GetComm());
++        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
++            fespace.GetComm());
+       } else {
+         s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+       }
+diff --git a/src/MUMPSSolvers.cxx b/src/MUMPSSolvers.cxx
+new file mode 100644
+index 0000000000..28fa39fbb6
+--- /dev/null
++++ b/src/MUMPSSolvers.cxx
+@@ -0,0 +1,115 @@
++/*!
++ * \file   src/MUMPSSolvers.cxx
++ * \brief  This file implements the MUMPS solver which reuses its analysis
++ * for the matrices of the same pattern
++ * \date   12/10/2026
++ */
++
++#include "MUMPSSolvers.hxx"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++
++#include <utility>
++#include <algorithm>
++
++namespace mfem_mgis::internals {
++
++  MUMPSSolverReusingAnalysis::MUMPSSolverReusingAnalysis(const MPI_Comm c)
++      : mfem::MUMPSSolver(c),
++        communicator(c) {}  // end of MUMPSSolverReusingAnalysis
++
++  void MUMPSSolverReusingAnalysis::SetOperator(const mfem::Operator& op) {
++    const auto* const A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++    if (A == nullptr) {
++      // error reported by MFEM
++      mfem::MUMPSSolver::SetOperator(op);
++      return;
++    }
++    // the comparison reads the matrix in place: nothing is allocated
++    // before the collective reduction
++    A->HostRead();
++    auto same = static_cast<int>(this->pattern.has_value() &&
++                                 equal(*(this->pattern), view(*A)));
++    A->HypreRead();
++    MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_LAND,
++                  this->communicator);
++    this->SetReorderingReuse(same != 0);
++    // the pattern is forgotten until the factorization succeeds: if it
++    // fails by an exception, the next matrix is analysed again
++    auto previous = std::exchange(this->pattern, std::nullopt);
++    mfem::MUMPSSolver::SetOperator(op);
++    if (same != 0) {
++      this->pattern = std::move(previous);
++      return;
++    }
++    ++(this->number_of_analyses);
++    A->HostRead();
++    this->pattern = copy(view(*A));
++    A->HypreRead();
++  }  // end of SetOperator
++
++  size_type MUMPSSolverReusingAnalysis::getNumberOfAnalyses() const noexcept {
++    return this->number_of_analyses;
++  }  // end of getNumberOfAnalyses
++
++  MUMPSSolverReusingAnalysis::Pattern<MUMPSSolverReusingAnalysis::View>
++  MUMPSSolverReusingAnalysis::view(const mfem::HypreParMatrix& A) {
++    const auto* const m = static_cast<hypre_ParCSRMatrix*>(A);
++    const auto* const diagonal = hypre_ParCSRMatrixDiag(m);
++    const auto* const off_diagonal = hypre_ParCSRMatrixOffd(m);
++    const auto n = hypre_CSRMatrixNumRows(diagonal);
++    auto make_view = []<typename ValueType>(const ValueType* const values,
++                                            const HYPRE_Int s) {
++      if ((values == nullptr) || (s <= 0)) {
++        return View<const ValueType>{};
++      }
++      return View<const ValueType>{values, static_cast<std::size_t>(s)};
++    };
++    auto p = Pattern<View>{};
++    p.global_number_of_rows = hypre_ParCSRMatrixGlobalNumRows(m);
++    p.first_row = hypre_ParCSRMatrixFirstRowIndex(m);
++    p.first_column = hypre_ParCSRMatrixFirstColDiag(m);
++    p.diagonal_rows = make_view(hypre_CSRMatrixI(diagonal), n + 1);
++    p.off_diagonal_rows = make_view(hypre_CSRMatrixI(off_diagonal), n + 1);
++    auto number_of_entries = [n](const View<const HYPRE_Int> rows) {
++      return rows.empty() ? HYPRE_Int{} : rows[static_cast<std::size_t>(n)];
++    };
++    p.diagonal_columns = make_view(hypre_CSRMatrixJ(diagonal),
++                                   number_of_entries(p.diagonal_rows));
++    p.off_diagonal_columns = make_view(hypre_CSRMatrixJ(off_diagonal),
++                                       number_of_entries(p.off_diagonal_rows));
++    p.off_diagonal_column_map = make_view(hypre_ParCSRMatrixColMapOffd(m),
++                                          hypre_CSRMatrixNumCols(off_diagonal));
++    return p;
++  }  // end of view
++
++  MUMPSSolverReusingAnalysis::Pattern<MUMPSSolverReusingAnalysis::Copy>
++  MUMPSSolverReusingAnalysis::copy(const Pattern<View>& v) {
++    auto make_copy = []<typename ValueType>(const View<ValueType> values) {
++      return Copy<ValueType>(values.begin(), values.end());
++    };
++    return {.global_number_of_rows = v.global_number_of_rows,
++            .first_row = v.first_row,
++            .first_column = v.first_column,
++            .diagonal_rows = make_copy(v.diagonal_rows),
++            .diagonal_columns = make_copy(v.diagonal_columns),
++            .off_diagonal_rows = make_copy(v.off_diagonal_rows),
++            .off_diagonal_columns = make_copy(v.off_diagonal_columns),
++            .off_diagonal_column_map = make_copy(v.off_diagonal_column_map)};
++  }  // end of copy
++
++  bool MUMPSSolverReusingAnalysis::equal(const Pattern<Copy>& c,
++                                         const Pattern<View>& v) noexcept {
++    return (c.global_number_of_rows == v.global_number_of_rows) &&
++           (c.first_row == v.first_row) && (c.first_column == v.first_column) &&
++           std::ranges::equal(c.diagonal_rows, v.diagonal_rows) &&
++           std::ranges::equal(c.diagonal_columns, v.diagonal_columns) &&
++           std::ranges::equal(c.off_diagonal_rows, v.off_diagonal_rows) &&
++           std::ranges::equal(c.off_diagonal_columns, v.off_diagonal_columns) &&
++           std::ranges::equal(c.off_diagonal_column_map,
++                              v.off_diagonal_column_map);
++  }  // end of equal
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+diff --git a/src/MUMPSSolvers.hxx b/src/MUMPSSolvers.hxx
+new file mode 100644
+index 0000000000..c6eb5869c2
+--- /dev/null
++++ b/src/MUMPSSolvers.hxx
+@@ -0,0 +1,102 @@
++/*!
++ * \file   src/MUMPSSolvers.hxx
++ * \brief  This file declares the MUMPS solver which reuses its analysis for
++ * the matrices of the same pattern, built by the factory of linear solvers
++ * (internal header)
++ * \date   12/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_MUMPSSOLVERS_HXX
++#define LIB_MFEM_MGIS_SRC_MUMPSSOLVERS_HXX
++
++#include "mfem/config/config.hpp"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++
++#include <span>
++#include <vector>
++#include <optional>
++#include <type_traits>
++#include <mpi.h>
++#include "mfem/linalg/hypre.hpp"
++#include "mfem/linalg/mumps.hpp"
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief MUMPS solver which reuses the analysis (ordering and symbolic
++   * factorization) of the previous matrix when the new one has the same
++   * pattern on all processes, as the matrices of the successive iterations
++   * of the non linear solvers.
++   *
++   * `mfem::MUMPSSolver::SetReorderingReuse` (MFEM 4.10) does not check the
++   * pattern of the new matrix, which would be factorized with the analysis
++   * of the previous one. The pattern of the local part of the last
++   * analysed matrix (rows, column indices of the diagonal and off-diagonal
++   * blocks, global indices of the off-diagonal columns) is kept and
++   * compared to the one of each new matrix. The analysis is collective: a
++   * new analysis is made on all processes if the pattern changed on one of
++   * them.
++   */
++  struct MUMPSSolverReusingAnalysis final : public mfem::MUMPSSolver {
++    /*!
++     * \brief constructor
++     * \param[in] c: communicator
++     */
++    explicit MUMPSSolverReusingAnalysis(MPI_Comm);
++    //! \brief set the operator
++    void SetOperator(const mfem::Operator&) override;
++    //! \return the number of analyses made
++    [[nodiscard]] size_type getNumberOfAnalyses() const noexcept;
++
++   private:
++    //! \brief pattern of the local part of a matrix, viewed or copied
++    template <template <typename> typename Storage>
++    struct Pattern {
++      //! \brief number of rows of the matrix
++      HYPRE_BigInt global_number_of_rows = 0;
++      //! \brief global index of the first local row
++      HYPRE_BigInt first_row = 0;
++      //! \brief global index of the first column of the diagonal block
++      HYPRE_BigInt first_column = 0;
++      //! \brief offsets of the rows of the diagonal block
++      Storage<const HYPRE_Int> diagonal_rows;
++      //! \brief column indices of the diagonal block
++      Storage<const HYPRE_Int> diagonal_columns;
++      //! \brief offsets of the rows of the off-diagonal block
++      Storage<const HYPRE_Int> off_diagonal_rows;
++      //! \brief column indices of the off-diagonal block
++      Storage<const HYPRE_Int> off_diagonal_columns;
++      //! \brief global indices of the columns of the off-diagonal block
++      Storage<const HYPRE_BigInt> off_diagonal_column_map;
++    };
++    //! \brief storage of a view
++    template <typename ValueType>
++    using View = std::span<ValueType>;
++    //! \brief storage of a copy
++    template <typename ValueType>
++    using Copy = std::vector<std::remove_const_t<ValueType>>;
++    /*!
++     * \return a view of the pattern of the local part of a matrix, whose
++     * values must be readable on the host
++     * \param[in] A: matrix
++     */
++    static Pattern<View> view(const mfem::HypreParMatrix&);
++    //! \return a copy of a pattern
++    static Pattern<Copy> copy(const Pattern<View>&);
++    //! \return true if a copied pattern is equal to a viewed one
++    static bool equal(const Pattern<Copy>&, const Pattern<View>&) noexcept;
++    //! \brief communicator
++    const MPI_Comm communicator;
++    //! \brief pattern of the last analysed matrix, empty if none
++    std::optional<Pattern<Copy>> pattern;
++    //! \brief number of analyses made
++    size_type number_of_analyses = 0;
++  };  // end of struct MUMPSSolverReusingAnalysis
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
++
++#endif /* LIB_MFEM_MGIS_SRC_MUMPSSOLVERS_HXX */
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 4d9aedf29d..e9daee2f32 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -18,6 +18,7 @@
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "AmgXSolvers.hxx"
++#include "MUMPSSolvers.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -186,6 +187,18 @@ namespace mfem_mgis {
+     return {};
+   }  // end of getNumberOfIterationsAtConvergence
+ 
++  std::optional<size_type> getNumberOfMUMPSAnalyses(
++      [[maybe_unused]] const LinearSolver& ls) noexcept {
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++    if (const auto* const s =
++            dynamic_cast<const internals::MUMPSSolverReusingAnalysis*>(&ls);
++        s != nullptr) {
++      return s->getNumberOfAnalyses();
++    }
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
++    return {};
++  }  // end of getNumberOfMUMPSAnalyses
++
+   namespace {
+ 
+     /*!
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index f42d108f44..bb6d70bc17 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1189,20 +1189,6 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_test_executable(HypreParaSailsTest)
+     add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
+     add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
+-    # MUMPSReuseAnalysisTest executable: analysis of MUMPS reused for a new
+-    # operator only if its pattern is the same on all processes
+-    if(MFEM_USE_MUMPS)
+-      add_test_executable(MUMPSReuseAnalysisTest)
+-      add_test(NAME MUMPSReuseAnalysisTest COMMAND MUMPSReuseAnalysisTest)
+-      add_test(NAME MUMPSReuseAnalysisTestP
+-               COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest)
+-      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+-        add_test(NAME MUMPSReuseAnalysisTestP-cuda
+-                 COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest --device cuda)
+-        set_tests_properties(MUMPSReuseAnalysisTestP-cuda
+-                             PROPERTIES RESOURCE_LOCK gpu)
+-      endif()
+-    endif(MFEM_USE_MUMPS)
+   endif(MFEM_USE_MPI)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+@@ -1220,6 +1206,25 @@ if(MFEM_USE_MPI)
+                        PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+ endif()
+ 
++# MUMPSReuseAnalysisTest executable: analysis of MUMPS reused for a new
++# operator only if its pattern is the same on all processes. A wrong reuse
++# may block MUMPS: the tests have a time limit
++if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++  add_test_executable(MUMPSReuseAnalysisTest)
++  add_test(NAME MUMPSReuseAnalysisTest COMMAND MUMPSReuseAnalysisTest)
++  add_test(NAME MUMPSReuseAnalysisTestP
++           COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest)
++  set_tests_properties(MUMPSReuseAnalysisTest MUMPSReuseAnalysisTestP
++                       PROPERTIES TIMEOUT 120 ENVIRONMENT OMP_NUM_THREADS=1)
++  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
++    add_test(NAME MUMPSReuseAnalysisTestP-cuda
++             COMMAND mpirun -n 2 ./MUMPSReuseAnalysisTest --device cuda)
++    set_tests_properties(MUMPSReuseAnalysisTestP-cuda
++                         PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
++                                    ENVIRONMENT OMP_NUM_THREADS=1)
++  endif()
++endif()
++
+ # AdaptiveLinearSolverToleranceTest executable: relative tolerance of the
+ # iterative linear solvers adapted to the decrease of the residual
+ add_test_executable(AdaptiveLinearSolverToleranceTest)
+diff --git a/tests/MUMPSReuseAnalysisTest.cxx b/tests/MUMPSReuseAnalysisTest.cxx
+index 4511280c9a..03d6cede00 100644
+--- a/tests/MUMPSReuseAnalysisTest.cxx
++++ b/tests/MUMPSReuseAnalysisTest.cxx
+@@ -1,12 +1,15 @@
+ /*!
+  * \file   tests/MUMPSReuseAnalysisTest.cxx
+  * \brief  Test of the `ReuseAnalysis` parameter of the MUMPS solver of the
+- * factory of linear solvers: a sequence of operators whose pattern is kept,
+- * changes on all processes, changes on the last process only or, on two
+- * processes, only changes by the column indices of the off-diagonal blocks,
+- * each one being destroyed before the next one is given, as the non linear
+- * solvers do. Each resolution is checked by its residual, with and without
+- * the reuse of the analysis, for symmetric and non symmetric matrices.
++ * factory of linear solvers: a sequence of operators whose pattern is
++ * kept or changes, each one being destroyed after the next one is given,
++ * as the non linear solvers do. Each resolution is checked by its
++ * residual, with and without the reuse of the analysis, for symmetric and
++ * non symmetric matrices, and, with the reuse, the number of analyses made
++ * by MUMPS is checked after each operator: a new analysis is expected if
++ * and only if the pattern changed on one of the processes, including the
++ * case where only the global indices of the off-diagonal columns change on
++ * all processes.
+  * \date   12/10/2026
+  */
+ 
+@@ -16,12 +19,15 @@
+ #include <memory>
+ #include <string>
+ #include <vector>
++#include <utility>
++#include <optional>
+ #include <iostream>
+ #include "mfem/mesh/pmesh.hpp"
+ #include "mfem/fem/pbilinearform.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -34,13 +40,13 @@ static void check(const bool b, const std::string& msg) {
+ }  // end of check
+ 
+ /*!
+- * \brief an operator of the sequence and the matrices holding the local
+- * blocks of the block diagonal operators
++ * \brief an operator of the sequence and the matrix holding the local block
++ * of the block diagonal operators
+  */
+ struct TestOperator {
+-  //! \brief local blocks of a block diagonal operator
++  //! \brief local block of a block diagonal operator, used by `A`
+   std::unique_ptr<mfem::SparseMatrix> local_block;
+-  //! \brief operator
++  //! \brief operator, destroyed before `local_block`
+   std::unique_ptr<mfem::HypreParMatrix> A;
+ };
+ 
+@@ -93,29 +99,20 @@ static TestOperator makeBlockDiagonal(const mfem::HypreParMatrix& A,
+ }  // end of makeBlockDiagonal
+ 
+ /*!
+- * \return the matrix `4 I - C - Cᵀ`, where `C` couples each unknown `k` of
+- * the first half of the unknowns with the unknown `h + k` of the second
+- * half, or, if `swapped` is true, with the unknown `h + (k xor 1)`, `h` being
+- * the half of the number of unknowns (four unknowns per process). On two
+- * processes, the two matrices only differ by the column indices of their
+- * off-diagonal blocks: same diagonal blocks, same number of entries per
+- * row, same global indices of the off-diagonal columns.
+- * \param[in] swapped: couplings of the swapped pairs of unknowns
++ * \return a matrix with four rows per process, given by the global column
++ * index of the off-diagonal coefficient of each row (the diagonal
++ * coefficients are equal to 4 and the off-diagonal ones to -1)
++ * \param[in] coupled: global column index of the off-diagonal coefficient
++ * of a row, given its global index
+  */
+-static TestOperator makeMatching(const bool swapped) {
++template <typename CoupledColumn>
++static TestOperator makeCouplingMatrix(const CoupledColumn& coupled) {
+   constexpr auto n = int{4};
+   const auto first = HYPRE_BigInt{n} * mfem::Mpi::WorldRank();
+   const auto size = HYPRE_BigInt{n} * mfem::Mpi::WorldSize();
+-  const auto h = size / 2;
+-  auto coupled = [h, swapped](const HYPRE_BigInt i) {
+-    const auto k = (i < h) ? i : i - h;
+-    const auto l = swapped ? (k ^ 1) : k;
+-    return (i < h) ? h + l : l;
+-  };
+-  auto rows = std::vector<int>{};
++  auto rows = std::vector<int>{0};
+   auto columns = std::vector<HYPRE_BigInt>{};
+   auto values = std::vector<mfem_mgis::real>{};
+-  rows.push_back(0);
+   for (int l = 0; l != n; ++l) {
+     columns.push_back(first + l);
+     values.push_back(4);
+@@ -128,8 +125,57 @@ static TestOperator makeMatching(const bool swapped) {
+           std::make_unique<mfem::HypreParMatrix>(
+               MPI_COMM_WORLD, n, size, size, rows.data(), columns.data(),
+               values.data(), partition.data(), partition.data())};
++}  // end of makeCouplingMatrix
++
++/*!
++ * \return the symmetric matrix `4 I - C - Cᵀ`, where `C` couples each
++ * unknown `k` of the first half of the unknowns with the unknown `h + k` of
++ * the second half, or, if `swapped` is true, with the unknown `h + (k xor
++ * 1)`, `h` being the half of the number of unknowns. On two processes, the
++ * two matrices only differ by the column indices of their off-diagonal
++ * blocks; on one process, by the column indices of their diagonal blocks.
++ * \param[in] swapped: couplings of the swapped pairs of unknowns
++ */
++static TestOperator makeMatching(const bool swapped) {
++  const auto h = HYPRE_BigInt{2} * mfem::Mpi::WorldSize();
++  return makeCouplingMatrix([h, swapped](const HYPRE_BigInt i) {
++    const auto k = (i < h) ? i : i - h;
++    const auto l = swapped ? (k ^ 1) : k;
++    return (i < h) ? h + l : l;
++  });
+ }  // end of makeMatching
+ 
++/*!
++ * \return a non symmetric matrix coupling the row `l` of each process with
++ * the column `offset + ((l + 1) mod 2)` of the next process (of the same
++ * process, outside the diagonal, on one process). The matrices of two
++ * offsets only differ by the global indices of their off-diagonal columns
++ * on two processes or more; on one process, by the column indices of their
++ * diagonal blocks.
++ * \param[in] offset: offset of the coupled columns, 0 or 2
++ */
++static TestOperator makeNextProcessCoupling(const HYPRE_BigInt offset) {
++  const auto size = mfem::Mpi::WorldSize();
++  const auto next = HYPRE_BigInt{4} * ((mfem::Mpi::WorldRank() + 1) % size);
++  return makeCouplingMatrix([next, offset](const HYPRE_BigInt i) {
++    return next + offset + ((i + 1) % 2);
++  });
++}  // end of makeNextProcessCoupling
++
++//! \brief an operator of the sequence
++struct Step {
++  //! \brief description
++  const char* description;
++  //! \brief if true, the operator is symmetric
++  bool symmetric;
++  /*!
++   * \brief if the pattern of the operator differs from the one of the
++   * previous operator of the sequence on one process at least, empty if
++   * not checked
++   */
++  std::optional<bool> pattern_changed;
++};
++
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+   initialize(argc, argv);
+@@ -143,30 +189,44 @@ int main(int argc, char** argv) {
+   fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
+   const auto verbose = fespace.GetMyRank() == 0;
+   const auto reference = assemble(fespace, ess_tdofs, 1);
+-  // sequence of operators: pattern kept, changed on all processes, changed
+-  // on the last process only, kept, changed, changed by the column indices
+-  // of the off-diagonal blocks only on two processes
+-  const auto descriptions =
+-      std::array<const char*, 7>{"diffusion",
+-                                 "diffusion, values changed",
+-                                 "block diagonal",
+-                                 "diagonal on the last process",
+-                                 "diagonal on the last process, values changed",
+-                                 "matching",
+-                                 "swapped matching"};
+-  auto make_operator = [&](const int i) {
++  // sequence of operators. On one process, the block diagonal operator is
++  // the diffusion operator, stored differently: the analysis may be reused
++  // or not.
++  const auto parallel = mfem::Mpi::WorldSize() > 1;
++  const auto block_diagonal_pattern_changed =
++      parallel ? std::optional<bool>{true} : std::optional<bool>{};
++  const auto steps = std::array<Step, 10>{
++      Step{"diffusion", true, true},
++      Step{"diffusion, values changed", true, false},
++      Step{"diffusion, values changed again", true, false},
++      Step{"block diagonal", true, block_diagonal_pattern_changed},
++      Step{"diagonal on the last process", true, true},
++      Step{"diagonal on the last process, values changed", true, false},
++      Step{"matching", true, true},
++      Step{"swapped matching", true, true},
++      Step{"coupling with the next process", false, true},
++      Step{"coupling with the next process, other columns", false, true}};
++  auto make_operator = [&](const std::size_t i) {
+     if (i == 0) {
+       return assemble(fespace, ess_tdofs, 1);
+     } else if (i == 1) {
+       return assemble(fespace, ess_tdofs, 3);
+     } else if (i == 2) {
+-      return makeBlockDiagonal(*(reference.A), 1, false);
++      return assemble(fespace, ess_tdofs, 7);
+     } else if (i == 3) {
+-      return makeBlockDiagonal(*(reference.A), 1, true);
++      return makeBlockDiagonal(*(reference.A), 1, false);
+     } else if (i == 4) {
++      return makeBlockDiagonal(*(reference.A), 1, true);
++    } else if (i == 5) {
+       return makeBlockDiagonal(*(reference.A), 5, true);
++    } else if (i == 6) {
++      return makeMatching(false);
++    } else if (i == 7) {
++      return makeMatching(true);
++    } else if (i == 8) {
++      return makeNextProcessCoupling(0);
+     }
+-    return makeMatching(i == 6);
++    return makeNextProcessCoupling(2);
+   };
+   for (const auto reuse : {false, true}) {
+     for (const auto symmetric : {false, true}) {
+@@ -180,29 +240,58 @@ int main(int argc, char** argv) {
+       if (isInvalid(h)) {
+         continue;
+       }
++      const auto& solver = *(h.linear_solver);
++      const auto label = std::string{reuse ? "reuse" : "no reuse"} +
++                         (symmetric ? ", symmetric" : ", non symmetric");
++      check(getNumberOfMUMPSAnalyses(solver).has_value() == reuse,
++            label + ": number of analyses " +
++                (reuse ? "not available" : "available"));
+       auto op = TestOperator{};
+-      for (int i = 0; i != static_cast<int>(descriptions.size()); ++i) {
+-        // the new operator is built before the destruction of the
+-        // previous one
+-        op = make_operator(i);
++      auto analyses = size_type{};
++      for (std::size_t i = 0; i != steps.size(); ++i) {
++        if (symmetric && !steps[i].symmetric) {
++          continue;
++        }
++        const auto step = label + ", " + steps[i].description;
++        // the previous operator is destroyed after the new one is given
++        auto previous = make_operator(i);
++        std::swap(op, previous);
++        h.linear_solver->SetOperator(*(op.A));
++        // right-hand side depending on the global indices of the rows
++        const auto first_row = op.A->GetRowStarts()[0];
+         auto B = mfem::Vector(op.A->Height());
+-        B = 1.0;
++        for (int r = 0; r != B.Size(); ++r) {
++          B[r] = static_cast<mfem_mgis::real>(1 + first_row + r);
++        }
+         auto X = mfem::Vector(B.Size());
+         X = 0.0;
+-        h.linear_solver->SetOperator(*(op.A));
+         h.linear_solver->Mult(B, X);
+         auto R = mfem::Vector(B.Size());
+         op.A->Mult(X, R);
+         R -= B;
+         const auto r = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, R, R));
+         const auto nb = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, B, B));
+-        const auto label = std::string{reuse ? "reuse" : "no reuse"} +
+-                           (symmetric ? ", symmetric" : ", non symmetric") +
+-                           ", " + descriptions[i];
+         check(r < 1e-10 * nb,
+-              label + ": relative residual " + std::to_string(r / nb));
++              step + ": relative residual " + std::to_string(r / nb));
++        if (verbose) {
++          std::cout << step << ": relative residual " << r / nb;
++        }
++        if (reuse) {
++          const auto n = getNumberOfMUMPSAnalyses(solver).value_or(0);
++          if (const auto& changed = steps[i].pattern_changed;
++              changed.has_value()) {
++            const auto expected = analyses + (*changed ? 1 : 0);
++            check(n == expected, step + ": " + std::to_string(n) +
++                                     " analyses instead of " +
++                                     std::to_string(expected));
++          }
++          if (verbose) {
++            std::cout << ", " << n << " analyses";
++          }
++          analyses = n;
++        }
+         if (verbose) {
+-          std::cout << label << ": relative residual " << r / nb << '\n';
++          std::cout << '\n';
+         }
+       }
+     }
+-- 
+2.43.0
+

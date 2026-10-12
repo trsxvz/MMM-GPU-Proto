@@ -1,0 +1,104 @@
+== np1 automatic
+no reuse: first 0.260187 s, next ones 0.258089 s each
+reuse   : first 0.254208 s, next ones 0.206847 s each
+relative residual of the last solution: 6.21765e-15
+== np1 amd
+no reuse: first 0.495341 s, next ones 0.495538 s each
+reuse   : first 0.494458 s, next ones 0.475927 s each
+relative residual of the last solution: 6.37049e-15
+== np1 amf
+no reuse: first 0.388155 s, next ones 0.379959 s each
+reuse   : first 0.378736 s, next ones 0.359419 s each
+relative residual of the last solution: 6.59881e-15
+== np1 pord
+no reuse: first 0.258903 s, next ones 0.255947 s each
+reuse   : first 0.253024 s, next ones 0.205681 s each
+relative residual of the last solution: 6.21765e-15
+== np1 metis
+no reuse: first 0.257791 s, next ones 0.254933 s each
+reuse   : first 0.25502 s, next ones 0.205022 s each
+relative residual of the last solution: 6.21765e-15
+== np1 scotch
+no reuse: first 0.256606 s, next ones 0.255437 s each
+reuse   : first 0.254313 s, next ones 0.206233 s each
+relative residual of the last solution: 6.21765e-15
+== np1 automatic BLR 1e-10
+no reuse: first 0.297884 s, next ones 0.290513 s each
+reuse   : first 0.292163 s, next ones 0.238225 s each
+relative residual of the last solution: 4.20685e-11
+== np1 automatic BLR 1e-8
+no reuse: first 0.290321 s, next ones 0.287461 s each
+reuse   : first 0.287779 s, next ones 0.234804 s each
+relative residual of the last solution: 1.00989e-08
+== np1 automatic BLR 1e-6
+no reuse: first 0.281385 s, next ones 0.276841 s each
+reuse   : first 0.27818 s, next ones 0.226205 s each
+relative residual of the last solution: 1.14323e-06
+== np2 automatic
+no reuse: first 0.18952 s, next ones 0.189393 s each
+reuse   : first 0.186029 s, next ones 0.135924 s each
+relative residual of the last solution: 6.21363e-15
+== np2 parmetis
+ On return from DMUMPS, INFOG(1)=             -38
+ On return from DMUMPS, INFOG(2)=               0
+ On return from DMUMPS, INFOG(1)=              -3
+
+
+MFEM abort: Error during MUMPS numerical factorization
+ ... in function: virtual void mfem::MUMPSSolver::SetOperator(const mfem::Operator&)
+ ... in file: linalg/mumps.cpp:277
+
+ On return from DMUMPS, INFOG(2)=               2
+
+
+MFEM abort: Error during MUMPS numerical factorization
+ ... in function: virtual void mfem::MUMPSSolver::SetOperator(const mfem::Operator&)
+ ... in file: linalg/mumps.cpp:277
+
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 1 in communicator MPI_COMM_WORLD
+  Proc: [[17965,1],1]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+prterun has exited due to process rank 0 with PID 0 on node t-MS-7E47 calling
+"abort". This may have caused other processes in the application to be
+terminated by signals sent by prterun (as reported here).
+--------------------------------------------------------------------------
+/usr/bin/grep: (entrée standard) : fichiers binaires correspondent
+== np2 ptscotch
+ On return from DMUMPS, INFOG(1)=             -38
+ On return from DMUMPS, INFOG(2)=               0
+ On return from DMUMPS, INFOG(1)=              -3
+ On return from DMUMPS, INFOG(2)=               2
+
+
+MFEM abort: Error during MUMPS numerical factorization
+ ... in function: virtual void mfem::MUMPSSolver::SetOperator(const mfem::Operator&)
+ ... in file: linalg/mumps.cpp:277
+
+
+
+MFEM abort: Error during MUMPS numerical factorization
+ ... in function: virtual void mfem::MUMPSSolver::SetOperator(const mfem::Operator&)
+ ... in file: linalg/mumps.cpp:277
+
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 1 in communicator MPI_COMM_WORLD
+  Proc: [[9014,1],1]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+prterun has exited due to process rank 0 with PID 0 on node t-MS-7E47 calling
+"abort". This may have caused other processes in the application to be
+terminated by signals sent by prterun (as reported here).
+--------------------------------------------------------------------------
+/usr/bin/grep: (entrée standard) : fichiers binaires correspondent

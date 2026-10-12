@@ -86,28 +86,32 @@ inline void add_post_processings(mfem_mgis::attributes::MayAbort,
  * matrix would slow down or break the convergence of the Newton method.
  * \param[in] symmetry: value of the option -msMc
  * \param[in] default_symmetry: default symmetry
+ * \param[in] reuse_analysis: reuse the analysis of MUMPS for the matrices
+ * of the same pattern (option -mra)
  */
 inline mfem_mgis::Parameters getMUMPSSolverParameters(
-    const std::string_view symmetry, const std::string_view default_symmetry) {
+    const std::string_view symmetry,
+    const std::string_view default_symmetry,
+    const bool reuse_analysis) {
   const auto s = symmetry.empty() ? default_symmetry : symmetry;
-  if (s.empty()) {
-    // no symmetry given
-    return mfem_mgis::Parameters{};
-  }
+  auto parameters = mfem_mgis::Parameters{};
   if (s == "SymmetricIndefinite") {
-    return mfem_mgis::Parameters{{"Symmetric", true}};
-  }
-  if (s == "SymmetricPositiveDefinite") {
-    return mfem_mgis::Parameters{{"Symmetric", true},
-                                 {"PositiveDefinite", true}};
-  }
-  if (s != "Unsymmetric") {
+    parameters = mfem_mgis::Parameters{{"Symmetric", true}};
+  } else if (s == "SymmetricPositiveDefinite") {
+    parameters =
+        mfem_mgis::Parameters{{"Symmetric", true}, {"PositiveDefinite", true}};
+  } else if ((!s.empty()) && (s != "Unsymmetric")) {
     mfem_mgis::abort(
         "Invalid symmetry of the matrices given to MUMPS: " + std::string{s} +
         " (expected Unsymmetric, SymmetricIndefinite or "
         "SymmetricPositiveDefinite)");
   }
-  return mfem_mgis::Parameters{};
+  if (reuse_analysis) {
+    // only given if requested, for the versions of mfem-mgis without this
+    // parameter
+    parameters.insert(mfem_mgis::attributes::Throwing{}, "ReuseAnalysis", true);
+  }
+  return parameters;
 }  // end of getMUMPSSolverParameters
 
 template <typename Problem>
@@ -185,8 +189,9 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
   else if (contains(direct_solvers, solver)) {
     const auto solverParameters =
         (physics_type == "mechanics")
-            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric")
-            : mfem_mgis::Parameters{};
+            ? getMUMPSSolverParameters(param.mumps_symmetry_meca, "Unsymmetric",
+                                       param.mumps_reuse_analysis)
+            : getMUMPSSolverParameters("", "", param.mumps_reuse_analysis);
     p.setLinearSolver(ctx, solver, solverParameters) | or_die;
   }
 

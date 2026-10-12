@@ -53,6 +53,7 @@ list(APPEND MFEMMGIS_SOURCES
   LinearSolverHandler.cxx
   LinearSolverFactory.cxx
   AmgXSolvers.cxx
+  MUMPSSolvers.cxx
   AbstractNonLinearSolver.cxx
   NonLinearSolverBase.cxx
   NonLinearSolverFactory.cxx

@@ -420,6 +420,20 @@ Intérêt pour les petits cas, les configurations mixtes et comme référence.
   Newton à l'autre). La recette spack de MFEM 4.10 accepte cuDSS 0.6 à
   0.7.1 ; l'environnement installe cuDSS 0.7.1 pour CUDA 13 et MFEM avec
   `+cudss`.
+- **MUMPS sur l'hôte, analyse réutilisée** (fait le 12/10). Dans ex8 sur
+  le GPU, les 29 factorisations de MUMPS de la mécanique sont le premier
+  poste. Le paramètre `ReuseAnalysis` du solveur `MUMPSSolver` de
+  mfem-mgis garde l'analyse (ordonnancement et factorisation symbolique)
+  tant que le motif de la matrice ne change sur aucun processus :
+  `SetReorderingReuse` de MFEM ne vérifie pas le motif, mfem-mgis le
+  compare avant chaque factorisation. Factorisations −19 % sur le GPU
+  (un processus) et −26 % sur CPU (deux processus), ex8 sur le GPU
+  11,1 -> 9,7 s, mêmes résultats (`results/mumps-analyse-2026-10-12`).
+  Les autres réglages de MUMPS (ordonnancements, factorisation approchée
+  BLR) ne gagnent rien sur cette matrice. La même comparaison du motif
+  servirait à `CuDSSSolver` : avec `SetReorderingReuse`, MFEM n'y vérifie
+  que le nombre de coefficients (et s'arrête s'il change), pas leurs
+  colonnes.
 - **SuperLU_DIST** (intérêt 4) : factorisation sur GPU (CUDA). MFEM 4.10
   ajoute `SuperLUSolver::SetDeviceOffload`.
 - **STRUMPACK** (intérêt 4) : `STRUMPACKSolverBase::EnableGPU` dans MFEM
