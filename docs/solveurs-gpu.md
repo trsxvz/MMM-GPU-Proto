@@ -428,7 +428,12 @@ Intérêt pour les petits cas, les configurations mixtes et comme référence.
   MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s, puis 2,6 s avec la
   thermique aussi par cuDSS (9 516 inconnues : factorisation 6 ms,
   résolution 1 ms, contre 52 ms par GMRES et BoomerAMG sur l'hôte)
-  (`results/cudss-2026-10-12`). Chaque solution est contrôlée par son
+  (`results/cudss-2026-10-12`). Il ne paie pas sur les grands problèmes
+  tridimensionnels (poutre r4, 111 843 inconnues : factorisation 0,24 s
+  contre 68 ms par résolution par PCG et BoomerAMG,
+  `results/cudss-poutre-2026-10-12`) ni sur le polycristal périodique et
+  non symétrique (20 553 inconnues : 132 ms contre 57 ms,
+  `results/cudss-polycristal-2026-10-12`). Chaque solution est contrôlée par son
   résidu (cuDSS ne signale pas les échecs de la factorisation). L'analyse
   distribuée de cuDSS 0.7.1 échoue pour certaines matrices que MUMPS
   résout : lignes réduites à leur coefficient diagonal, matrice

@@ -4524,3 +4524,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (`-els mumps|cudss`), symétries décrites dans l'aide, avertissement sans
   solveur direct, liste complète des solveurs dans `cas/README.md`. Tests
   d'ex7 et d'ex8 sur CPU 6/6.
+- Polycristal de mm-opera-hpc (20 553 inconnues, cellule périodique, non
+  symétrique) avec cuDSS (`--linear-solver CuDSSSolver --reuse-analysis`,
+  mm-opera-hpc 556b3e5, `results/cudss-polycristal-2026-10-12`) : 19,1 s
+  contre 11,4 s avec PCG et BoomerAMG et 8,8 s avec NewtonK0 et
+  Eisenstat-Walker. Factorisation de 132 ms (réutilisation effective :
+  222 ms sans), contre 24 ms pour la matrice d'ex8 de taille voisine :
+  la périodicité et la non-symétrie coûtent cher au solveur direct.

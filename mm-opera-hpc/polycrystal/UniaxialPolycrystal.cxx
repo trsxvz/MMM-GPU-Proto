@@ -91,6 +91,9 @@ struct NumericalParameters {
   const char* amgx_parameters = "";
   //! \brief computations of AmgX in single precision
   bool amgx_single_precision = false;
+  //! \brief reuse the analysis of the direct solvers (MUMPSSolver,
+  //! CuDSSSolver) for the matrices of the same pattern
+  bool reuse_analysis = false;
 };
 
 /*!
@@ -334,7 +337,16 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.library, "-l", "--library", "Material library.");
   args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
   args.AddOption(&p.linear_solver, "", "--linear-solver",
-                 "linear solver to be used");
+                 "linear solver to be used: an iterative solver of the "
+                 "factory of mfem-mgis (HyprePCG by default), or a direct "
+                 "solver, MUMPSSolver or CuDSSSolver (on a CUDA GPU only), "
+                 "for non symmetric matrices");
+  args.AddOption(&p.reuse_analysis, "", "--reuse-analysis", "",
+                 "--no-reuse-analysis",
+                 "reuse the analysis of the direct solver (ordering and "
+                 "symbolic factorization) for the matrices of the same "
+                 "pattern, as the tangent operators of the successive Newton "
+                 "iterations (parameter ReuseAnalysis of mfem-mgis)");
   args.AddOption(&p.linear_solver_preconditioner, "",
                  "--linear-solver-preconditioner",
                  "preconditioner of the linear solver to be used");
@@ -562,6 +574,24 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                             const TestParameters &params) {
   CatchTimeSection(ctx, "set_linear_solver");
   auto or_die = ctx.getFatalFailureHandler();
+  // direct solvers: no tolerance nor preconditioner, ReuseAnalysis only given
+  // when requested (for the versions of mfem-mgis without this parameter)
+  const auto solver = std::string_view{params.linear_solver};
+  if ((solver == "MUMPSSolver") || (solver == "CuDSSSolver")) {
+    auto direct_solver_parameters = mfem_mgis::Parameters{};
+    if (params.reuse_analysis) {
+      direct_solver_parameters.insert(
+          mfem_mgis::throwing, mfem_mgis::Parameters{{"ReuseAnalysis", true}});
+    }
+    p.setLinearSolver(ctx, params.linear_solver, direct_solver_parameters) |
+        or_die;
+    return;
+  }
+  if (params.reuse_analysis) {
+    mfem_mgis::getOutputStream()
+        << "warning: the option --reuse-analysis is ignored (the linear "
+           "solver is not a direct solver)\n";
+  }
   // pilote
   constexpr int defaultMaxNumOfIt = 5000;  // MaximumNumberOfIterations
   auto solverParameters = mfem_mgis::Parameters{};
