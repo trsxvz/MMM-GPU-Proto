@@ -138,27 +138,30 @@ Les bibliothèques de lots des tests sont construites par les fonctions de
 mfem-mgis est construit dans `build/mfem-mgis` (ou dans une construction
 séparée par lot, `build/mfem-mgis-<lot>`, avec les cibles `BehaviourTest` et
 `GenericParallelBehaviour-*`, hors de `all` et de `build-tests`). Sa suite
-(188 tests au 11/10/2026, dont 25 variantes sur le GPU) se lance de trois
-façons, qui doivent toutes passer :
+(234 tests au 12/10/2026, dont 52 variantes qui utilisent le GPU) se lance
+de trois façons, qui doivent toutes passer :
 
-- telle quelle : `ctest -j 3 -E "cuda|gpu|AmgX|HypreDevicePoolSize"` (163
-  tests), puis les variantes qui utilisent le GPU, `ctest -j 2 -R
-  "cuda|gpu|AmgX|HypreDevicePoolSize"` (25 tests) ;
+- telle quelle : `ctest -j 3 -E
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (182 tests, 182/182 le
+  12/10 sur `gpu-proto` 3ad387b002), puis les variantes qui utilisent le
+  GPU, `ctest -j 2 -R "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (52
+  tests) ;
 - avec tous les calculs forcés aux noyaux du chemin par lots, par les
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
   `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` et
-  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (163/163 hors variantes
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (163/163 le 11/10, hors variantes
   GPU) ;
 - sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
   l'option `--device cuda` de chaque test), avec ou sans les variables
   précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`,
-  161 tests) : des tests simultanés se partagent le GPU et échouent. Les
+  182 tests, 180/182 le 12/10 en 624 s) : des tests simultanés se
+  partagent le GPU et échouent. Les
   tests à 4 processus demandent aussi
   `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1` : hypre réserve sinon 4 Gio par
   processus sur le GPU (16 Go). Seuls `DeviceForallTest-cpu` et
   `DeviceOptionTest-none`, qui exigent l'absence de périphérique,
-  échouent alors (159/161). `FixedPointSolverTest-kernels-cpu`, qui garde
+  échouent alors. `FixedPointSolverTest-kernels-cpu`, qui garde
   son option `--device cpu`, et `UnitTestParameters`, qui n'initialise pas
   mfem-mgis, ne passent alors pas par le GPU. `FixedPointSolverTest` a
   échoué une fois sur 26 passages sur le GPU avec les noyaux forcés, sans
