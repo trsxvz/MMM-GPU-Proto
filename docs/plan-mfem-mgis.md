@@ -3,9 +3,11 @@
 Statut : choix retenus le 08/10/2026, première étape (API de vues de MGIS)
 faite le 09/10/2026, plan détaillé le 09/10/2026
 ([plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md)).
-mfem-mgis n'est pas encore modifié (base master `a011d97d6f`, dépôt
-`mfem-mgis/`). Ce plan s'appuie sur TFEL et MGIS tels que décrits dans
-[tfel.md](tfel.md) et [mgis.md](mgis.md).
+Les lots L0 à L10 sont faits (base master `a011d97d6f`, dépôt
+`mfem-mgis/` ; état dans
+[vue-ensemble.md](vue-ensemble.md#état-davancement)). Ce plan s'appuie sur
+TFEL et MGIS tels que décrits dans [tfel.md](tfel.md) et
+[mgis.md](mgis.md).
 
 ## Sommaire
 

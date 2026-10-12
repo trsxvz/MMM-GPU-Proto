@@ -16,12 +16,22 @@ GPU.
   synchrone (par défaut) ou asynchrone. Les données peuvent être rangées
   composante par composante, ou appartenir à l'appelant et être décrites
   par des vues, sur GPU compris, fin de pas comprise.
-- **mfem-mgis**, ses exemples (`mfem-mgis-examples`) et `mm-opera-hpc`
-  ne sont pas encore modifiés. Leurs sources sont suivies ici, à leur
-  version de base, pour que les changements à venir apparaissent comme des
-  différences. Les choix sont faits ; la première étape, l'API de vues de
-  MGIS, est faite ; le plan est découpé en lots
+- **mfem-mgis** intègre les lois par lots, sur CPU et sur GPU. Les données
+  aux points vivent dans la mémoire de MFEM. Gradients, forces
+  intérieures, tangente (assemblée ou sans matrice), prédiction,
+  thermique, micromorphe, FBar et post-traitements sont calculés par
+  noyaux. Des solveurs adaptés au GPU s'ajoutent à Newton : point fixe
+  accéléré, NewtonK0, Newton inexact, solveur direct cuDSS. Toute la suite
+  de tests passe sur le GPU. Le plan suivi est découpé en lots
   ([docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md)).
+- **mfem-mgis-examples** et **mm-opera-hpc** : tous les exemples et les cas
+  (polycristal, cermet, bulle) tournent par lots et sur le GPU. Sur une
+  RTX 5080, la poutre prend 1,96 s contre 13,6 s pour Newton sur 8 cœurs,
+  et ex8 2,6 s contre 19,2 s sur 2 cœurs
+  ([docs/vue-ensemble.md](docs/vue-ensemble.md#état-davancement)).
+- Les changements ne sont pas encore proposés aux dépôts officiels. Leur
+  découpage en contributions est décrit dans
+  [docs/integration-amont.md](docs/integration-amont.md).
 
 ## Différences avec les versions officielles
 
