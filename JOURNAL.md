@@ -4430,3 +4430,12 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   sur le GPU (CPU 2 cœurs 6,3 s), ex8 12,5 -> 11,6 s (thermique 4,0 ->
   2,8 s, comme avec MUMPS). Pour les petits systèmes, le GPU passe devant
   le CPU.
+
+### 2026-10-12 (nuit), validations
+
+- `gpu-proto` de mfem-mgis (3ad387b002) : suite CPU 182/182, avec lots
+  et noyaux forcés 182/182, sur le GPU 180/182 (seuls les deux échecs
+  attendus).
+- TFEL : les 5905 tests du dossier `mfront/tests/behaviours/generic`
+  passent avec les lois régénérées par le MFront de la nuit (variables
+  statiques, DDIF2, Poisson des DSL isotropes, Runge-Kutta).
