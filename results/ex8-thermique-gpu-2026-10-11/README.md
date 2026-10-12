@@ -60,9 +60,7 @@ par élément (sans les variables de mfem-mgis qui choisissent les lots et
 les noyaux), cette mesure-là tout par noyaux. Les résolutions de la
 thermique (1,49 s) et les factorisations de la mécanique (5,32 s) sont les
 mêmes. Seules les colonnes de la thermique servent à comparer les
-préconditionneurs. Mesure refaite le 12/10 (rangs placés par OpenMPI sur
-les cœurs 4 et 5, un cœur chacun) : BoomerAMG 29,4 s, ILU 31,6 s, MUMPS
-32,3 s ; thermique 6,06 s, 8,21 s et 7,20 s.
+préconditionneurs.
 
 ## ParaSails
 

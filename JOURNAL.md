@@ -4393,6 +4393,21 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `reproducers/mfront-static-quantity-cuda`.
 - Piège de mesure : avec `scripts/env.sh` (`OMP_PROC_BIND=spread`),
   `mpirun --bind-to none taskset -c ...` met tous les processus sur le
-  même cœur ; lancer sans `mpirun` sur un seul cœur est 3 fois plus lent.
-  Les mesures CPU d'ex8 du 11/10 n'étaient pas touchées ; l'écart avec
-  19,9 s venait du calcul élément par élément.
+  même cœur. Les mesures CPU d'ex8 du 11/10 n'étaient pas touchées ;
+  l'écart avec 19,9 s venait du calcul élément par élément. Un script de
+  mesure abandonné, resté en fond, a aussi faussé une série : mesures
+  refaites.
+
+### 2026-10-12 (nuit), corrections de MFront relevées par les relectures
+
+- TFEL c9dc10510 : coefficient de Poisson des DSL isotropes avec
+  l'algorithme de mise à jour des contraintes converti en `real` (ne
+  compilait pas avec `@UseQt true`), loi de test `Plasticity8` (mêmes
+  résultats que `Plasticity6`).
+- TFEL 4180d14b2 : brique DDIF2, contraintes et énergies de rupture non
+  constantes (test inversé, première énergie utilisée partout) ; vérifié
+  par paires de lois constantes et non constantes égales, sous MTest dans
+  chaque direction.
+- TFEL fb5c52bc5 : rkCastem, normalisation par une variable statique
+  écrite avec la macro (branche inaccessible : résultat de
+  `checkVariable("young")` ignoré, laissé tel quel), message de débogage.

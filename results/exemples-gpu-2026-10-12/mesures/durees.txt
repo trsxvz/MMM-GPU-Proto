@@ -1,0 +1,19 @@
+Durées totales (horloge, secondes) des passages d'ex7 complet (40 pas),
+mesurées autour de la commande, et commandes utilisées. Lancement depuis
+build/examples-post/ex7 après `source scripts/env.sh`, avec
+OMP_NUM_THREADS=1 ; NOYAUX désigne les variables
+MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch et MFEM_MGIS_GRADIENTS_COMPUTATION,
+MFEM_MGIS_INNER_FORCES_COMPUTATION, MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION
+égales à Kernels ; EX7 désigne
+  ./mox2 --no-post-processing --order 2 --mesh mesh/OneSphere.msh
+         --nbsteps 40 --reference-file OneSphere-avgStress-40steps.ref
+
+ex7-np1-pp-d          15.13  taskset -c 4 EX7
+ex7-np1-noyaux-d       8.03  NOYAUX taskset -c 4 EX7
+ex7-np2-pp-d          10.12  taskset -c 4-7 mpirun -n 2 EX7
+ex7-np2-noyaux-e       6.35  NOYAUX taskset -c 4-7 mpirun -n 2 EX7
+ex7-np2-batch-openmp-e 6.09  NOYAUX taskset -c 4-7 mpirun -n 2 EX7 -l <cas-post>/ex7/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
+ex7-gpu-1              6.67  NOYAUX taskset -c 4-7 EX7 --device cuda -l <cas-post>/ex7/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+ex7-gpu-2              6.74  idem
+ex7-gpu-mpirun-1       6.78  NOYAUX taskset -c 4-7 mpirun -n 1 EX7 --device cuda -l (idem)
+ex7-gpu-mpirun-2       6.51  idem

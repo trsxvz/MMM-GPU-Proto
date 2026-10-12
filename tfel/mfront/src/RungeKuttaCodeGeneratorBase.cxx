@@ -1216,7 +1216,7 @@ namespace mfront {
         }
       }
       if (found_as_static_variable) {
-        return bd.getClassName() + "::" + n;
+        return "TFEL_STATIC_VARIABLE(" + bd.getClassName() + "::" + n + ")";
       }
       tfel::raise("findStressErrorNormalizationFactor: the `" + n +
                   "` variable is not defined as a material property, a static "
@@ -1696,7 +1696,7 @@ namespace mfront {
       os << "cout << \"" << this->bd.getClassName()
          << "::integrate() : multiplying time step by a factor \" << 1/("
          << "TFEL_STATIC_VARIABLE(" << this->bd.getClassName()
-         << "::rkcastem_fac)) << endl;\n";
+         << "::rkcastem_div)) << endl;\n";
     }
     os << "}\n"
        << "if(dt_<dtprec){\n";

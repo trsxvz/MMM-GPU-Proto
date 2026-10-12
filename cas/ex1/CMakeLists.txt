@@ -27,10 +27,12 @@ if(EXISTS "${MFEM_MGIS_EXAMPLES_EX1_DIR}/uniaxial_tensile_test")
     ENVIRONMENT "OMP_NUM_THREADS=1")
   set_tests_properties(ex1-noyaux PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1;${_kernels}")
+  set(_tests ex1-point-par-point ex1-noyaux)
   foreach(_backend ${ex1-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     add_test(NAME ex1-batch-${_backend} COMMAND ${_run} -l "${_library}"
       WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX1_DIR}")
+    list(APPEND _tests ex1-batch-${_backend})
     if(_backend STREQUAL "cuda")
       set_tests_properties(ex1-batch-${_backend} PROPERTIES
         ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_DEVICE=cuda;${_kernels}"
@@ -40,4 +42,11 @@ if(EXISTS "${MFEM_MGIS_EXAMPLES_EX1_DIR}/uniaxial_tensile_test")
         ENVIRONMENT "OMP_NUM_THREADS=2;${_kernels}")
     endif()
   endforeach()
+  # all the tests write the results of each step in the same file of the
+  # build directory of the example
+  set_tests_properties(${_tests} PROPERTIES RESOURCE_LOCK ex1-outputs)
+  if(TEST ex1-batch-cuda)
+    set_tests_properties(ex1-batch-cuda PROPERTIES
+      RESOURCE_LOCK "gpu;ex1-outputs")
+  endif()
 endif()

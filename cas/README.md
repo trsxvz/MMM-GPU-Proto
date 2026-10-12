@@ -47,6 +47,16 @@ mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
   `ssna303_3d_hypre` de mfem-mgis-examples (options `--device`, `-l`,
   `-no-pv`, `-r`). Les tests comparent la force résultante du premier pas
   aux valeurs de référence de l'exemple.
+- `ex1/`, `ex2/`, `ex3/`, `ex5/`, `ex6/`, `ex7/`, `ex8/` : autres exemples
+  de mfem-mgis-examples (traction cyclique, ssna303 en déformations planes
+  avec et sans FBar, cube à deux couches, plaque de Satoh, VER de deux
+  couches, VER de MOX, plaque thermomécanique), avec leurs lois générées
+  par l'interface `generic-parallel` ; l'exécutable est celui de
+  l'exemple (options `-l` et `--device`, ou variable `MFEM_MGIS_DEVICE`
+  pour ex1 et ex3). Chaque test garde la vérification de l'exemple
+  (référence ou solution analytique) : point par point, par noyaux, par
+  lots avec chaque backend et sur le GPU. Les dossiers de construction des
+  exemples sont donnés par `MFEM_MGIS_EXAMPLES_EX<n>_DIR`.
 
 Options de la poutre ajoutées par les lots suivants : point fixe et
 NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), tolérance

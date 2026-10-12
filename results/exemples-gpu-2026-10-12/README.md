@@ -40,32 +40,32 @@ intérieures, matrices de rigidité) et l'intégration de la loi par lots
 
 ## Mesures : ex7 complet (40 pas)
 
-VER de MOX, 656 tétraèdres quadratiques, 2 634 inconnues, 149 itérations
-de Newton dans tous les cas. Processus lancés par `mpirun` et placés par
-OpenMPI sur les cœurs 4 à 7 (un cœur par processus), machine calme, un
-passage (deux sur le GPU).
+VER de MOX, 656 tétraèdres quadratiques, 2 634 inconnues, 109 itérations
+de Newton (149 évaluations du résidu) dans tous les cas. Processus placés
+sur les cœurs 4 à 7 (un cœur par processus), un passage (deux sur le
+GPU). Durées totales et commandes : `mesures/durees.txt` ; tables de temps
+de mfem-mgis : `mesures/*.txt`.
 
 | Variante | Total (s) | Résolution (s) | Jacobienne (s) | Solveur linéaire (s) |
 |---|---|---|---|---|
-| CPU, 1 processus, point par point | 15,0 | 13,9 | 4,58 | 3,13 |
-| CPU, 1 processus, noyaux | 7,7 | 7,1 | 1,12 | 3,10 |
-| CPU, 2 processus, point par point | 10,4 | 9,3 | 2,65 | 3,46 |
-| CPU, 2 processus, noyaux | 6,2 | 5,5 | 0,60 | 3,38 |
-| CPU, 2 processus, lots openmp | 6,2 | 5,5 | 0,60 | 3,39 |
-| GPU, 1 processus, lots cuda | 6,8 et 6,5 | 5,7 | 0,44 | 5,07 et 5,01 |
+| CPU, 1 processus, point par point | 15,1 | 14,3 | 4,69 | 3,26 |
+| CPU, 1 processus, noyaux | 8,0 | 7,3 | 1,22 | 3,18 |
+| CPU, 2 processus, point par point | 10,1 | 9,3 | 2,64 | 3,43 |
+| CPU, 2 processus, noyaux | 6,3 | 5,5 | 0,60 | 3,39 |
+| CPU, 2 processus, lots openmp | 6,1 | 5,5 | 0,60 | 3,38 |
+| GPU, 1 processus, lots cuda | 6,5 à 6,8 | 5,6 à 5,7 | 0,44 | 4,96 à 5,07 |
 
 - Les noyaux divisent par 2 le temps sur le CPU (jacobienne par 4).
 - Sur le GPU, l'intégration et la jacobienne ne coûtent presque plus
-  rien, mais GMRES et BoomerAMG sur le GPU prennent 5,0 s contre 3,1 s
+  rien, mais GMRES et BoomerAMG sur le GPU prennent 5,0 s contre 3,2 s
   sur un cœur : le système (2 634 inconnues) est trop petit pour le GPU,
   comme la thermique d'ex8 (`results/ex8-thermique-gpu-2026-10-11`).
-- Deux pièges de mesure trouvés en route. Avec `scripts/env.sh`
+- Piège de mesure trouvé en route : avec `scripts/env.sh`
   (`OMP_PROC_BIND=spread`), `mpirun --bind-to none taskset -c ...` met
-  tous les processus sur le même cœur : ex7 à 5 pas prenait 95 s au lieu
-  de 2,6 s. Un processus lancé sans `mpirun` sur un seul cœur
-  (`taskset -c 4`) est 3 fois plus lent qu'avec `mpirun -n 1`. Les
-  scripts de mesure du prototype (`cas/mesures-commun.sh`) évitent les
-  deux.
+  tous les processus sur le même cœur (ex7 à 5 pas : 95 s au lieu de
+  2,6 s). Les scripts de mesure du prototype
+  (`cas/mesures-commun.sh`) ne l'utilisent pas ; ici, `taskset` est mis
+  autour de `mpirun`, qui lie un processus par cœur.
 
 ## Variables statiques des quantités sur le GPU
 

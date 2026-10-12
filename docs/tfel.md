@@ -549,16 +549,23 @@ Divers :
 - algorithmes de Runge-Kutta : les modificateurs de la rigidité gardaient,
   dans une lambda statique, le nom de la première loi traitée par un appel
   de MFront ; avec plusieurs lois dans le même appel, les autres faisaient
-  référence aux variables statiques de la première.
+  référence aux variables statiques de la première ;
+- brique DDIF2 : test inversé sur le nombre de contraintes de rupture non
+  constantes (une seule était refusée ; avec trois, seule la première
+  était utilisée) et première énergie de rupture utilisée dans les trois
+  directions. Vérifié par paires de lois (valeurs constantes et valeurs
+  non constantes égales, MTest dans chaque direction) ;
+- DSL isotropes avec `use_stress_update_algorithm` : coefficient de
+  Poisson converti en `stress` au lieu de `real`, ce qui ne compilait pas
+  avec `@UseQt true` (loi de test `Plasticity8`, mêmes résultats que
+  `Plasticity6`) ;
+- message de débogage de rkCastem (facteur affiché faux).
 
-Défauts relevés mais pas encore corrigés (relecture du 12/10) :
-
-- `DDIF2StressPotential` : le test sur les contraintes de rupture est
-  inversé (une seule contrainte non constante est refusée ; avec trois,
-  seule la première est utilisée) ;
-- `IsotropicBehaviourCodeGeneratorBase` : le coefficient de Poisson est
-  converti en `stress` au lieu de `real`, ce qui ne compile pas avec
-  `@UseQt true`.
+Défaut relevé mais pas corrigé : dans rkCastem, le facteur de
+normalisation de l'erreur ne prend jamais `young` (le résultat de
+`checkVariable("young")` est ignoré dans
+`findStressErrorNormalizationFactor`). Le corriger changerait les pas de
+temps des lois existantes : à décider avec les développeurs de TFEL.
 
 ## Incompatibilités
 
