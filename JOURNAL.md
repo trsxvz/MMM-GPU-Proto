@@ -4438,4 +4438,5 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   attendus).
 - TFEL : les 5905 tests du dossier `mfront/tests/behaviours/generic`
   passent avec les lois régénérées par le MFront de la nuit (variables
-  statiques, DDIF2, Poisson des DSL isotropes, Runge-Kutta).
+  statiques, DDIF2, Poisson des DSL isotropes, Runge-Kutta), et toute la
+  suite de TFEL (6970 tests, CPU) passe.
