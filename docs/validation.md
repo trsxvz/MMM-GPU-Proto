@@ -177,7 +177,13 @@ de trois façons, qui doivent toutes passer :
   d'itérations de Newton varie, 8 ou 9) ; le portage de l'algorithme de
   MTest est fidèle (mêmes historiques, même formule, même seuil de
   colinéarité) ; sur CPU, où les calculs sont reproductibles, le test
-  passe toujours.
+  passe toujours. Sources vérifiées le 12/10 (historiques comparés sur
+  plusieurs passages, hypre sur le GPU ou sur l'hôte) : l'assemblage de
+  la tangente par noyaux (additions atomiques dans la matrice creuse ;
+  différences dès le premier pas, quel que soit l'emplacement de hypre),
+  puis l'action de la tangente sans assemblage ; avec la tangente
+  assemblée sur l'hôte, les 478 premières lignes d'itérations sont
+  identiques d'un passage à l'autre.
 
 L'option `enable-kokkos` (initialisation de Kokkos par mfem-mgis) se
 valide dans deux constructions séparées : `build/mfem-mgis-kokkos-off`
