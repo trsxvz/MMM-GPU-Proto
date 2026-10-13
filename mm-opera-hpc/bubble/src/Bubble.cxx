@@ -8,12 +8,14 @@
  * on the principal stress field around them.
  */
 
+#include <string>
 #include <cstdlib>
 #include <fstream>
 #include <string_view>
 
 #include "MGIS/Function/TFEL/Mechanics.hxx"
 
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
@@ -167,7 +169,13 @@ struct PhysicalParameters {
 struct TestParameters : PhysicalParameters {
   const char* mesh_file = "mesh/single_sphere.msh";  ///< Path to mesh file
   const char* behaviour = "Elasticity";              ///< Material behavior law
-  const char* library = "src/libBehaviour.so";       ///< Material library path
+  const char* library = "";  ///< Material library path, given by the user
+  /*!
+   * behaviour library used: the one given by the user (option --library),
+   * or else the one built with the case for the processor of the behaviours
+   * (option --execution)
+   */
+  std::string behaviour_library;
   const char* bubble_file =
       "mesh/single_bubble.txt";                  ///< Bubble definitions file
   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
@@ -194,7 +202,10 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
   args.AddOption(&p.parallel_mesh, "-pm", "--parallel-mesh",
                  "Parallel mesh format or not");
-  args.AddOption(&p.library, "-l", "--library", "Material library.");
+  args.AddOption(&p.library, "-l", "--library",
+                 "Material library. By default, the library built with the "
+                 "case for the CPU or for the GPU, as the option --execution "
+                 "places the behaviours.");
   args.AddOption(&p.bubble_file, "-f", "--bubble-file",
                  "File containing the bubbles.");
   args.AddOption(&p.order, "-o", "--order",
@@ -236,6 +247,12 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+  // behaviour library: given by --library, or else the library built with
+  // the case for the processor of the behaviours (option --execution)
+  p.behaviour_library = std::string_view{p.library}.empty()
+                            ? mfem_mgis::getBehavioursLibrary(
+                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+                            : std::string{p.library};
 }
 
 /**
@@ -430,7 +447,8 @@ int main(int argc, char** argv) {
                                     {"MaximumNumberOfIterations", 1}}) |
       or_die;
   // Add elastic material behavior
-  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library, p.behaviour) |
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
+                                 p.behaviour) |
       or_die;
   auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
 

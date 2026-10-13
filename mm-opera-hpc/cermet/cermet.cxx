@@ -1,8 +1,11 @@
+#include <string_view>
+#include <string>
 #include <fstream>
 #include <cstdlib>
 #include <optional>
 #include <functional>
 
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
@@ -50,7 +53,13 @@ struct TestParameters {
   const char *behaviourGrain = "Mono_UO2_Cosh_Jaco3";
   const char *behaviourMetal = "NortonCr";
   //! \brief library of the behaviours of the grains and of the interface
-  const char* library = "src/libBehaviour.so";
+  const char* library = "";
+  /*!
+   * behaviour library used: the one given by the user (option --library),
+   * or else the one built with the case for the processor of the behaviours
+   * (option --execution)
+   */
+  std::string behaviour_library;
   const char *vector_file = "vectors_5grains.txt";
   int order = 1;
   int refinement = 0;
@@ -71,7 +80,9 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
   args.AddOption(&p.library, "-l", "--library",
                  "Material library containing the behaviours of the grains "
-                 "and of the metallic interface.");
+                 "and of the metallic interface. By default, the library "
+                 "built with the case for the CPU or for the GPU, as the "
+                 "option --execution places the behaviours.");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -99,6 +110,12 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+  // behaviour library: given by --library, or else the library built with
+  // the case for the processor of the behaviours (option --execution)
+  p.behaviour_library = std::string_view{p.library}.empty()
+                            ? mfem_mgis::getBehavioursLibrary(
+                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+                            : std::string{p.library};
 }
 
 static void setup_material_properties(
@@ -166,7 +183,7 @@ static void setup_material_properties(
 
   // TEST metal
   {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library,
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
                                    p.behaviourMetal) |
         or_die;
     auto &metal = problem.getMaterial(ctx, 1, 0) | or_die;
@@ -174,8 +191,8 @@ static void setup_material_properties(
   }
 
   for (int grainID = 2; grainID <= nMat; grainID++) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID, p.library,
-                                   p.behaviourGrain) |
+    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID,
+                                   p.behaviour_library, p.behaviourGrain) |
         or_die;
     auto &grain = problem.getMaterial(ctx, grainID, 0) | or_die;
     set_properties_mono(grain, young1, young2, young3, poisson12, poisson23,

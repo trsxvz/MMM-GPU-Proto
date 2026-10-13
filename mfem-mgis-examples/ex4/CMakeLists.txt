@@ -41,15 +41,10 @@ foreach(input IsotropicLinearHardeningPlasticity.mfront ssna303_3d.msh rc_ex10p
                  COPYONLY)
 endforeach()
 
-# Use mfront to generate libBehaviour.so
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  COMMENT "Performing mfront code generation")
-
-add_custom_target(generate-libBehaviour-ex4 ALL
-  DEPENDS "src/libBehaviour.so")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
+# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx4
+  SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront)
 
 # Define a test that will be called during the "make check"
 function(add_ssna303_3d_test_ex solver nsteps end_time reference_file use_fbar)
@@ -89,12 +84,14 @@ foreach(tg IN ITEMS mumps hypre petsc)
       ((NOT MFEM_USE_MUMPS) AND (${tg} STREQUAL "mumps")))
   else()
     add_executable("ssna303_3d_${tg}" ssna303_${tg}.cxx)
+    target_compile_definitions(ssna303_3d_${tg} PRIVATE
+      MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx4_BEHAVIOURS_DIRECTORY}")
     target_link_libraries(ssna303_3d_${tg} mfem-mgis::MFEMMGIS)
     target_include_directories(ssna303_3d_${tg}
       SYSTEM
       PUBLIC "$<BUILD_INTERFACE:${MFEM_INCLUDE_DIRS}>"
       PUBLIC "$<INSTALL_INTERFACE:${MFEM_INCLUDE_DIRS}>")
-    add_dependencies(check ssna303_3d_${tg} generate-libBehaviour-ex4)
+    add_dependencies(check ssna303_3d_${tg} BehavioursEx4)
     if(${tg} STREQUAL "petsc")
       add_ssna303_3d_test_ex(${tg} 1 0.02 ssna303_3d-force-1step.ref OFF)
     else()
@@ -108,3 +105,23 @@ foreach(tg IN ITEMS mumps hypre petsc)
     endif()
   endif()
 endforeach()
+
+# the same computations on a GPU (see ../config/TestMode.cmake): hypre on the
+# GPU, and MUMPS on the CPU (option --linear-solver-device cpu)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  add_test(NAME ssna303_3d_hypre-gpu
+           COMMAND ssna303_3d_hypre --nbsteps ${ssna303_3d_nsteps}
+                   --end-time ${ssna303_3d_end_time}
+                   --reference-file ssna303_3d-force-10steps.ref
+                   --execution gpu)
+  set_tests_properties(ssna303_3d_hypre-gpu PROPERTIES RESOURCE_LOCK gpu)
+  if(MFEM_USE_MUMPS)
+    add_test(NAME ssna303_3d_mumps-gpu
+             COMMAND ssna303_3d_mumps --nbsteps ${ssna303_3d_nsteps}
+                     --end-time ${ssna303_3d_end_time}
+                     --reference-file ssna303_3d-force-10steps.ref
+                     --execution mixed --linear-solver-device cpu)
+    set_tests_properties(ssna303_3d_mumps-gpu PROPERTIES
+                         RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
+endif()

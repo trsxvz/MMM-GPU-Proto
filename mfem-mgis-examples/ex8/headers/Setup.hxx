@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -11,11 +12,14 @@
 
 struct TestParameters {
   const char* mesh_file = "assemblage_hexa.msh";  // path to the mesh file
-  const char* libraryALFENI =
-      "src/libALFENI-generic.so";  // MFront ALFENI library
-                                   // (behaviours/models)
-  const char* libraryU3SI2 = "src/libU3SI2-generic.so";  // MFront U3SI2 library
-                                                         // (behaviours/models)
+  // MFront libraries of the ALFENI and U3Si2 materials (behaviours and
+  // models), given by the user, if any
+  const char* libraryALFENI = "";
+  const char* libraryU3SI2 = "";
+  // libraries used: the ones given by the user, or else the ones built with
+  // the example for the processor of the behaviours (option --execution)
+  std::string library_alfeni;
+  std::string library_u3si2;
   const char* solver_thermo =
       "HypreGMRES";  // linear solver used for the thermal problem
   const char* precond_thermo =
@@ -120,28 +124,28 @@ inline SetupPropertiesResult setup_properties(
     heat_transfer.getUnknowns(ts) = p.Ti;
   }
 
-  mechanics.addBehaviourIntegrator(ctx, "Mechanics", 1, p.libraryU3SI2,
+  mechanics.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library_u3si2,
                                    "U3SI2_IrradiationCreep") |
       or_die;
   mechanics.addBehaviourIntegrator(
-      ctx, "Mechanics", 2, p.libraryALFENI,
+      ctx, "Mechanics", 2, p.library_alfeni,
       "ALFENI_IsotropicLinearHardeningPlasticity") |
       or_die;
   mechanics.addBehaviourIntegrator(
-      ctx, "Mechanics", 3, p.libraryALFENI,
+      ctx, "Mechanics", 3, p.library_alfeni,
       "ALFENI_IsotropicLinearHardeningPlasticity") |
       or_die;
 
   heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
-                                       1, p.libraryU3SI2,
+                                       1, p.library_u3si2,
                                        "U3SI2_CoupledHeatTransfer") |
       or_die;
   heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
-                                       2, p.libraryALFENI,
+                                       2, p.library_alfeni,
                                        "ALFENI_CoupledHeatTransfer") |
       or_die;
   heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
-                                       3, p.libraryALFENI,
+                                       3, p.library_alfeni,
                                        "ALFENI_CoupledHeatTransfer") |
       or_die;
 
@@ -189,7 +193,7 @@ inline SetupPropertiesResult setup_properties(
       auto sw_model =
           mfem_mgis::make_shared<mfem_mgis::PointWiseModel>(
               ctx, m_mc.getPartialQuadratureSpacePointer(),
-              mfem_mgis::Parameters{{"Library", p.libraryU3SI2},
+              mfem_mgis::Parameters{{"Library", p.library_u3si2},
                                     {"Model", "U3SI2_SolidSwelling"},
                                     {"Hypothesis", "Tridimensional"}}) |
           or_die;

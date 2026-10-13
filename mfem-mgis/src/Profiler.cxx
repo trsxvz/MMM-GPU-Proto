@@ -20,6 +20,7 @@
 #include <mfem.hpp>
 #include "MGIS/Context.hxx"
 #include "MGIS/Profiling.hxx"
+#include "MFEMMGIS/MaterialArrays.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 
 namespace mfem_mgis {
@@ -255,6 +256,39 @@ namespace mfem_mgis {
         }
       }
 
+      /*!
+       * \brief prints the copies of the arrays of the materials between
+       * the host and the device (see `getMaterialArraysTransfers`), if any:
+       * numbers of copies and of bytes summed over the processes, largest
+       * time of a process
+       * \note must be called by all processes
+       */
+      static void printMaterialArraysTransfers() {
+        const auto t = getMaterialArraysTransfers();
+        const auto h2d_copies =
+            Utils::sum(static_cast<int64_t>(t.host_to_device_copies));
+        const auto h2d_bytes =
+            Utils::sum(static_cast<int64_t>(t.host_to_device_bytes));
+        const auto h2d_time = Utils::reduce_max(t.host_to_device_time);
+        const auto d2h_copies =
+            Utils::sum(static_cast<int64_t>(t.device_to_host_copies));
+        const auto d2h_bytes =
+            Utils::sum(static_cast<int64_t>(t.device_to_host_bytes));
+        const auto d2h_time = Utils::reduce_max(t.device_to_host_time);
+        if ((!Utils::is_master()) || (h2d_copies + d2h_copies == 0)) {
+          return;
+        }
+        const auto print = [](const char* const what, const int64_t copies,
+                              const int64_t bytes, const double time) {
+          mfem::out << " " << what << ": " << copies << " copies, "
+                    << static_cast<double>(bytes) / 1e6 << " MB, " << time
+                    << " s\n";
+        };
+        mfem::out << " copies of the arrays of the materials\n";
+        print("host to device", h2d_copies, h2d_bytes, h2d_time);
+        print("device to host", d2h_copies, d2h_bytes, d2h_time);
+      }  // end of printMaterialArraysTransfers
+
       void printTimeTable(const mgis::Context& ctx) {
         if (!ctx.isProfilingEnabled()) return;
 
@@ -283,6 +317,7 @@ namespace mfem_mgis {
           printReplicate(end_name.size(), end, "-");
           mfem::out << "|\n";
         }
+        printMaterialArraysTransfers();
       }
 
       static void writeNode(const mgis::ProfilingData& node,

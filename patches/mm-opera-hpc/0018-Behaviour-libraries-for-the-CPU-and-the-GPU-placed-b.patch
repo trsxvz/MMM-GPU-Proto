@@ -1,0 +1,402 @@
+From 7416eb8c0ffe4faf5e9fd2a953f6769941d442fa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 14:14:59 +0200
+Subject: [PATCH] Behaviour libraries for the CPU and the GPU, placed by
+ --execution
+
+The bubble, the cermet and the polycrystal build their behaviour
+libraries with the CMake function mfem_mgis_add_behaviours_library of
+mfem-mgis: for the CPU (generic interface) and, if MFEM uses a GPU, for the
+GPU (generic-parallel interface). Their option -l gives a library; by
+default, the library placed by the option --execution of mfem-mgis is used
+(mfem_mgis::getBehavioursLibrary).
+
+Tests on a GPU (option MM_OPERA_HPC_GPU_TESTS, for MFEM compiled with CUDA
+or HIP): --execution gpu for the three cases, and the polycrystal with its
+behaviours on the CPU (4 tests). Tests: 6/6 on the CPU, 4/4 on the GPU.
+---
+ CMakeLists.txt                      | 18 ++++++++++++++++++
+ bubble/CMakeLists.txt               | 20 +++++++++++---------
+ bubble/src/Bubble.cxx               | 24 +++++++++++++++++++++---
+ cermet/CMakeLists.txt               | 29 ++++++++++++++---------------
+ cermet/cermet.cxx                   | 27 ++++++++++++++++++++++-----
+ polycrystal/CMakeLists.txt          | 28 ++++++++++++++--------------
+ polycrystal/UniaxialPolycrystal.cxx | 22 +++++++++++++++++++---
+ 7 files changed, 119 insertions(+), 49 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d86d7e6..9bd1308 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -38,6 +38,24 @@ else(CMAKE_CONFIGURATION_TYPES)
+    endif(NOT TARGET check)
+ endif(CMAKE_CONFIGURATION_TYPES)
+ 
++# Tests on a GPU, selected by the MM_OPERA_HPC_GPU_TESTS option (off by
++# default, a GPU being required when the tests are run): the cases are also
++# tested with the option --execution gpu, if MFEM is compiled with CUDA or
++# HIP (as described by mfem-mgis). The MM_OPERA_HPC_RUN_GPU_TESTS variable is
++# then true.
++option(MM_OPERA_HPC_GPU_TESTS "Test the cases on a GPU too" OFF)
++set(MM_OPERA_HPC_RUN_GPU_TESTS OFF)
++if(MM_OPERA_HPC_GPU_TESTS)
++  get_property(_mm_opera_hpc_mfem_use_cuda GLOBAL
++               PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
++  get_property(_mm_opera_hpc_mfem_use_hip GLOBAL
++               PROPERTY MFEM_MGIS_MFEM_USE_HIP)
++  if((_mm_opera_hpc_mfem_use_cuda STREQUAL "YES") OR
++     (_mm_opera_hpc_mfem_use_hip STREQUAL "YES"))
++    set(MM_OPERA_HPC_RUN_GPU_TESTS ON)
++  endif()
++endif()
++
+ add_subdirectory(src)
+ add_subdirectory(polycrystal)
+ add_subdirectory(bubble)
+diff --git a/bubble/CMakeLists.txt b/bubble/CMakeLists.txt
+index 2930be2..fef47ff 100644
+--- a/bubble/CMakeLists.txt
++++ b/bubble/CMakeLists.txt
+@@ -4,14 +4,10 @@ project(OperaHPCBubble)
+ file(COPY verification/mmm_vs_analytical.py DESTINATION ${PROJECT_BINARY_DIR})
+ 
+ 
+-add_custom_command(
+-  OUTPUT "src/libBehaviour.so"
+-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/Elasticity.mfront
+-  DEPENDS ${PROJECT_BINARY_DIR}/Elasticity.mfront
+-  COMMENT "Performing mfront code generation")
+-
+-add_custom_target(lib-elasticity ALL
+-  DEPENDS "src/libBehaviour.so")
++# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
++# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
++mfem_mgis_add_behaviours_library(BehavioursBubble
++  SOURCES ${PROJECT_SOURCE_DIR}/Elasticity.mfront)
+ 
+ # build executable
+ 
+@@ -21,7 +17,9 @@ add_executable(test-bubble
+   ${SRCS}
+ )
+ 
+-add_dependencies(test-bubble lib-elasticity)
++add_dependencies(test-bubble BehavioursBubble)
++target_compile_definitions(test-bubble PRIVATE
++  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursBubble_BEHAVIOURS_DIRECTORY}")
+ 
+ target_link_libraries(test-bubble
+  PRIVATE tfel::TFELMath tfel::TFELException
+@@ -35,6 +33,10 @@ target_include_directories(test-bubble
+ file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
+ 
+ add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
++if(MM_OPERA_HPC_RUN_GPU_TESTS)
++  add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
++  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
++endif()
+ 
+ 
+ install(TARGETS test-bubble DESTINATION bin)
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 203c9ae..2b00cfe 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -8,12 +8,14 @@
+  * on the principal stress field around them.
+  */
+ 
++#include <string>
+ #include <cstdlib>
+ #include <fstream>
+ #include <string_view>
+ 
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ 
++#include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+@@ -167,7 +169,13 @@ struct PhysicalParameters {
+ struct TestParameters : PhysicalParameters {
+   const char* mesh_file = "mesh/single_sphere.msh";  ///< Path to mesh file
+   const char* behaviour = "Elasticity";              ///< Material behavior law
+-  const char* library = "src/libBehaviour.so";       ///< Material library path
++  const char* library = "";  ///< Material library path, given by the user
++  /*!
++   * behaviour library used: the one given by the user (option --library),
++   * or else the one built with the case for the processor of the behaviours
++   * (option --execution)
++   */
++  std::string behaviour_library;
+   const char* bubble_file =
+       "mesh/single_bubble.txt";                  ///< Bubble definitions file
+   const char* testcase_name = "TestCaseBubble";  ///< Name for output files
+@@ -194,7 +202,10 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
+   args.AddOption(&p.parallel_mesh, "-pm", "--parallel-mesh",
+                  "Parallel mesh format or not");
+-  args.AddOption(&p.library, "-l", "--library", "Material library.");
++  args.AddOption(&p.library, "-l", "--library",
++                 "Material library. By default, the library built with the "
++                 "case for the CPU or for the GPU, as the option --execution "
++                 "places the behaviours.");
+   args.AddOption(&p.bubble_file, "-f", "--bubble-file",
+                  "File containing the bubbles.");
+   args.AddOption(&p.order, "-o", "--order",
+@@ -236,6 +247,12 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
++  // behaviour library: given by --library, or else the library built with
++  // the case for the processor of the behaviours (option --execution)
++  p.behaviour_library = std::string_view{p.library}.empty()
++                            ? mfem_mgis::getBehavioursLibrary(
++                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
++                            : std::string{p.library};
+ }
+ 
+ /**
+@@ -430,7 +447,8 @@ int main(int argc, char** argv) {
+                                     {"MaximumNumberOfIterations", 1}}) |
+       or_die;
+   // Add elastic material behavior
+-  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library, p.behaviour) |
++  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
++                                 p.behaviour) |
+       or_die;
+   auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+ 
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index 31a07a0..895cfc0 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -4,30 +4,29 @@ project(OperaHPCCermetExample)
+ file(COPY law mesh results DESTINATION ${PROJECT_BINARY_DIR})
+ file(COPY mesh/vectors_5grains.txt check_cermet_restults.py plot_cermet_results.py DESTINATION ${PROJECT_BINARY_DIR})
+ 
+-# behavior law
+-add_custom_command(
+-  OUTPUT "src/libBehaviour.so"
+-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/law/NortonCr.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco3.mfront
+-  DEPENDS ${PROJECT_BINARY_DIR}/law/NortonCr.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco3.mfront
+-  COMMENT "Performing mfront code generation")
+-
+-add_custom_target(generate-lib-cermet ALL
+-  DEPENDS "src/libBehaviour.so")
++# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
++# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
++mfem_mgis_add_behaviours_library(BehavioursCermet
++  SOURCES ${PROJECT_SOURCE_DIR}/law/NortonCr.mfront
++          ${PROJECT_SOURCE_DIR}/law/Mono_UO2_CosH_Jaco.mfront
++          ${PROJECT_SOURCE_DIR}/law/Mono_UO2_CosH_Jaco3.mfront)
+ 
+ ## Build executable
+ add_executable(cermet cermet.cxx)
+ target_link_libraries(cermet
+  PUBLIC MMOPERAHPC)
+-add_dependencies(cermet generate-lib-cermet)
++add_dependencies(cermet BehavioursCermet)
++target_compile_definitions(cermet PRIVATE
++  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursCermet_BEHAVIOURS_DIRECTORY}")
+ 
+ ## Test
+-add_dependencies(check cermet generate-lib-cermet)
++add_dependencies(check cermet BehavioursCermet)
+ add_test(NAME CermetNullStrainXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
+ add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
++if(MM_OPERA_HPC_RUN_GPU_TESTS)
++  add_test(NAME CermetNullStrainXXYY-gpu COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0 --execution gpu)
++  set_tests_properties(CermetNullStrainXXYY-gpu PROPERTIES RESOURCE_LOCK gpu)
++endif()
+ 
+ ## Install
+ install(TARGETS cermet DESTINATION bin)
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index 3d3541a..20518b2 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -1,8 +1,11 @@
++#include <string_view>
++#include <string>
+ #include <fstream>
+ #include <cstdlib>
+ #include <optional>
+ #include <functional>
+ 
++#include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx"
+ #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
+@@ -50,7 +53,13 @@ struct TestParameters {
+   const char *behaviourGrain = "Mono_UO2_Cosh_Jaco3";
+   const char *behaviourMetal = "NortonCr";
+   //! \brief library of the behaviours of the grains and of the interface
+-  const char* library = "src/libBehaviour.so";
++  const char* library = "";
++  /*!
++   * behaviour library used: the one given by the user (option --library),
++   * or else the one built with the case for the processor of the behaviours
++   * (option --execution)
++   */
++  std::string behaviour_library;
+   const char *vector_file = "vectors_5grains.txt";
+   int order = 1;
+   int refinement = 0;
+@@ -71,7 +80,9 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
+   args.AddOption(&p.library, "-l", "--library",
+                  "Material library containing the behaviours of the grains "
+-                 "and of the metallic interface.");
++                 "and of the metallic interface. By default, the library "
++                 "built with the case for the CPU or for the GPU, as the "
++                 "option --execution places the behaviours.");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -99,6 +110,12 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
++  // behaviour library: given by --library, or else the library built with
++  // the case for the processor of the behaviours (option --execution)
++  p.behaviour_library = std::string_view{p.library}.empty()
++                            ? mfem_mgis::getBehavioursLibrary(
++                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
++                            : std::string{p.library};
+ }
+ 
+ static void setup_material_properties(
+@@ -166,7 +183,7 @@ static void setup_material_properties(
+ 
+   // TEST metal
+   {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library,
++    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
+                                    p.behaviourMetal) |
+         or_die;
+     auto &metal = problem.getMaterial(ctx, 1, 0) | or_die;
+@@ -174,8 +191,8 @@ static void setup_material_properties(
+   }
+ 
+   for (int grainID = 2; grainID <= nMat; grainID++) {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID, p.library,
+-                                   p.behaviourGrain) |
++    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID,
++                                   p.behaviour_library, p.behaviourGrain) |
+         or_die;
+     auto &grain = problem.getMaterial(ctx, grainID, 0) | or_die;
+     set_properties_mono(grain, young1, young2, young3, poisson12, poisson23,
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index f42d1c5..19babc0 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -7,26 +7,26 @@ file(COPY
+   DESTINATION ${PROJECT_BINARY_DIR})
+ 
+ file(COPY law mesh results plot_polycrystal_results.py check_polycrystal_restults.py DESTINATION ${PROJECT_BINARY_DIR})
+-  
+-  # Use mfront to generate libBehaviour.so
+-add_custom_command(
+-  OUTPUT "src/libBehaviour.so"
+-  COMMAND mfront --obuild --interface=generic
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco3.mfront
+-  DEPENDS ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco.mfront
+-          ${PROJECT_BINARY_DIR}/law/Mono_UO2_CosH_Jaco3.mfront
+-  COMMENT "Performing mfront code generation")
+-  
+-add_custom_target(generate-libBehaviour-polycrystal ALL
+-  DEPENDS "src/libBehaviour.so")
++
++# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
++# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
++mfem_mgis_add_behaviours_library(BehavioursPolycrystal
++  SOURCES ${PROJECT_SOURCE_DIR}/law/Mono_UO2_CosH_Jaco.mfront
++          ${PROJECT_SOURCE_DIR}/law/Mono_UO2_CosH_Jaco3.mfront)
+ 
+ add_executable(uniaxial-polycrystal UniaxialPolycrystal.cxx)
+ target_link_libraries(uniaxial-polycrystal MMOPERAHPC)
+ target_include_directories(uniaxial-polycrystal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
++target_compile_definitions(uniaxial-polycrystal PRIVATE
++  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursPolycrystal_BEHAVIOURS_DIRECTORY}")
+     
+ # testing
+-add_dependencies(check uniaxial-polycrystal generate-libBehaviour-polycrystal)
++add_dependencies(check uniaxial-polycrystal BehavioursPolycrystal)
+ add_test(NAME UniaxialPolycrystalTest COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
++if(MM_OPERA_HPC_RUN_GPU_TESTS)
++  add_test(NAME UniaxialPolycrystalTest-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution gpu)
++  add_test(NAME UniaxialPolycrystalTest-mixed-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution mixed --behaviours cpu)
++  set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
++endif()
+ add_test(NAME UniaxialPolycrystalTestPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
+ add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index a8fd270..dcb8fec 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -18,6 +18,7 @@
+ #include <string_view>
+ 
+ #include "mfem/fem/datacollection.hpp"
++#include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/ImposedDirichletBoundaryConditionAtClosestNode.hxx"
+@@ -110,7 +111,13 @@ struct ElasticMaterialPropertiesParameters {
+ 
+ struct MaterialParameters : ElasticMaterialPropertiesParameters {
+   //! \brief default material library
+-  const char *library = "src/libBehaviour.so";
++  const char* library = "";
++  /*!
++   * behaviour library used: the one given by the user (option --library),
++   * or else the one built with the case for the processor of the behaviours
++   * (option --execution)
++   */
++  std::string behaviour_library;
+   //! \brief default mechanical behaviour
+   const char *behaviour = "Mono_UO2_Cosh_Jaco3";
+   //! \brief default file name describing orientation vectors
+@@ -367,7 +374,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.mesh_mode, "-mm", "--mesh_mode",
+                  "Read Mesh Mode (FromScratch or Restart = splited file).");
+   args.AddOption(&p.vect_file, "-f", "--vect", "Vector file to use.");
+-  args.AddOption(&p.library, "-l", "--library", "Material library.");
++  args.AddOption(&p.library, "-l", "--library",
++                 "Material library. By default, the library built with the "
++                 "case for the CPU or for the GPU, as the option --execution "
++                 "places the behaviours.");
+   args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
+   args.AddOption(&p.linear_solver, "", "--linear-solver",
+                  "linear solver of the Newton method: a Krylov solver of "
+@@ -444,6 +454,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
++  // behaviour library: given by --library, or else the library built with
++  // the case for the processor of the behaviours (option --execution)
++  p.behaviour_library = std::string_view{p.library}.empty()
++                            ? mfem_mgis::getBehavioursLibrary(
++                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
++                            : std::string{p.library};
+ }
+ 
+ static void setupMaterials(
+@@ -465,7 +481,7 @@ static void setupMaterials(
+   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
+ 
+   for (int i = 0; i < nMat; i++) {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.library,
++    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.behaviour_library,
+                                    p.behaviour) |
+         or_die;
+   }
+-- 
+2.43.0
+

@@ -212,12 +212,17 @@ namespace mfem_mgis {
    * prevails) or else by the environment variable `MFEM_MGIS_HYPRE_ON_HOST`,
    * or, in the `gpu` and `mixed` execution modes, by the location of the
    * linear solvers (see `ExecutionSettings`), which those options can't
-   * contradict
+   * contradict (the environment variable is then ignored)
    * \param[in] argc: number of arguments
    * \param[in] argv: arguments
    */
   static HypreOnHostRequest getHypreOnHostRequest(
       const int argc, const MainFunctionArguments argv) {
+    // computed once, the request being read twice by `initialize`
+    static auto request = std::optional<HypreOnHostRequest>{};
+    if (request.has_value()) {
+      return *request;
+    }
     auto r = std::optional<bool>{};
     for (auto a = argv; a != argv + argc; ++a) {
       if ((std::strcmp(*a, Finalizer::hypre_on_host_option) == 0) ||
@@ -232,29 +237,30 @@ namespace mfem_mgis {
     const auto& s = getExecutionSettings();
     if ((s.mode == ExecutionMode::GPU) || (s.mode == ExecutionMode::MIXED)) {
       const auto on_host = s.linear_solver == ExecutionLocation::CPU;
-      if (!r.has_value()) {
-        const auto* const e = std::getenv("MFEM_MGIS_HYPRE_ON_HOST");
-        if ((e != nullptr) && (*e != '\0')) {
-          r = std::string_view{e} != "0";
-        }
-      }
+      // the environment variable is ignored (with a warning)
+      static_cast<void>(internals::getPlacementEnvironmentVariable(
+          "MFEM_MGIS_HYPRE_ON_HOST"));
       if ((r.has_value()) && (*r != on_host)) {
         mgis::raise(
-            "initialize: the computations of hypre on the " +
-            std::string{*r ? "host" : "GPU"} +
-            " (option '--hypre-on-host' or variable MFEM_MGIS_HYPRE_ON_HOST) "
-            "contradict the location of the linear solvers given by the "
+            "initialize: the option '" +
+            std::string{*r ? Finalizer::hypre_on_host_option
+                           : Finalizer::no_hypre_on_host_option} +
+            "' contradicts the location of the linear solvers given by the "
             "execution settings");
       }
-      return {.requested = on_host, .from_environment = false};
+      request =
+          HypreOnHostRequest{.requested = on_host, .from_environment = false};
+    } else if (r.has_value()) {
+      request = HypreOnHostRequest{.requested = *r, .from_environment = false};
+    } else {
+      const auto* const e =
+          internals::getPlacementEnvironmentVariable("MFEM_MGIS_HYPRE_ON_HOST");
+      const auto requested =
+          (e != nullptr) && (*e != '\0') && (std::string_view{e} != "0");
+      request = HypreOnHostRequest{.requested = requested,
+                                   .from_environment = requested};
     }
-    if (r.has_value()) {
-      return {.requested = *r, .from_environment = false};
-    }
-    const auto* const e = std::getenv("MFEM_MGIS_HYPRE_ON_HOST");
-    const auto requested =
-        (e != nullptr) && (*e != '\0') && (std::string_view{e} != "0");
-    return {.requested = requested, .from_environment = requested};
+    return *request;
   }  // end of getHypreOnHostRequest
 
   /*!
@@ -488,7 +494,8 @@ namespace mfem_mgis {
     // without the option, the configuration of the device may be given by
     // the environment, for instance to run a whole test suite on a GPU
     if (device_configuration == nullptr) {
-      const auto* const e = std::getenv("MFEM_MGIS_DEVICE");
+      const auto* const e =
+          internals::getPlacementEnvironmentVariable("MFEM_MGIS_DEVICE");
       if ((e != nullptr) && (*e != '\0') && (!mfem::Device::IsConfigured())) {
         device_configuration = e;
       }
@@ -496,6 +503,23 @@ namespace mfem_mgis {
     // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
     // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
     const auto& execution = getExecutionSettings();
+    if ((execution.mode == ExecutionMode::CPU) &&
+        (hypre_device_pool_size != nullptr) &&
+        (!hypre_device_pool_size_from_environment)) {
+      mgis::raise(
+          "initialize: the size of the pool of memory of hypre on the GPU "
+          "can't be given with '--execution cpu'");
+    }
+#ifdef MFEM_USE_PETSC
+    // PETSc solves the non linear problems on the host
+    if ((this->use_petsc) && (execution.mode != ExecutionMode::UNSPECIFIED) &&
+        (execution.linear_solver == ExecutionLocation::GPU)) {
+      mgis::raise(
+          "initialize: PETSc computes on the CPU, while the execution "
+          "settings place the linear solvers on the GPU (use '--execution "
+          "cpu' or '--execution mixed --linear-solver-device cpu')");
+    }
+#endif /* MFEM_USE_PETSC */
     if (execution.mode == ExecutionMode::CPU) {
       if ((device_configuration != nullptr) &&
           (usesGPU(device_configuration))) {
@@ -507,8 +531,9 @@ namespace mfem_mgis {
           (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
                                 mfem::Backend::HIP_MASK))) {
         mgis::raise(
-            "initialize: the device of MFEM, configured by the program, uses "
-            "a GPU, which contradicts '--execution cpu'");
+            "initialize: the device of MFEM, configured before the "
+            "initialization (by the program or by the variable MFEM_DEVICE), "
+            "uses a GPU, which contradicts '--execution cpu'");
       }
     } else if (execution.mode != ExecutionMode::UNSPECIFIED) {
       if ((device_configuration == nullptr) &&
@@ -525,8 +550,9 @@ namespace mfem_mgis {
           (!mfem::Device::Allows(mfem::Backend::CUDA_MASK |
                                  mfem::Backend::HIP_MASK))) {
         mgis::raise(
-            "initialize: the device of MFEM, configured by the program, does "
-            "not use a GPU, which the execution mode requires");
+            "initialize: the device of MFEM, configured before the "
+            "initialization (by the program or by the variable MFEM_DEVICE), "
+            "does not use a GPU, which the execution mode requires");
       }
     }
     // the device is configured after the initialization of hypre and
@@ -675,15 +701,23 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
-      MPI_Init(&argc, &argv);
-      // the location of the linear solvers decides the memory of hypre,
-      // before its initialization
+      // the execution settings are read before the initialization of MPI,
+      // which an invalid option leaves untouched
       internals::readExecutionSettings(argc, argv);
+      MPI_Init(&argc, &argv);
       // with hypre on the host, neither the initialization of hypre nor the
       // configuration of the device of MFEM make hypre use the GPU (nor
       // initialize its libraries on the GPU), even if the device is
-      // configured before (by the program or by the variable MFEM_DEVICE)
-      if (getHypreOnHostRequest(argc, argv).requested) {
+      // configured before (by the program or by the variable MFEM_DEVICE).
+      // The location of the linear solvers decides the memory of hypre.
+      auto hypre_on_host = false;
+      try {
+        hypre_on_host = getHypreOnHostRequest(argc, argv).requested;
+      } catch (...) {
+        MPI_Finalize();
+        throw;
+      }
+      if (hypre_on_host) {
         mfem::Hypre::configure_runtime_policy_from_mfem = false;
       }
       mfem::Hypre::Init();
@@ -783,7 +817,7 @@ namespace mfem_mgis {
                      "Configuration of the MFEM device (for instance cpu, "
                      "cuda, hip, omp or debug), created by "
                      "mfem_mgis::initialize. No device is created by "
-                     "default.");
+                     "default, unless --execution selects a GPU.");
     // read by `initialize`: only declared here, as a string, so that the
     // parser accepts it
     static const char* hypre_device_pool_size = "";

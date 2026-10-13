@@ -1,0 +1,254 @@
+From 49667a88fd47be2183c5cb4a47e7a6b6f966c4a5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 14:02:27 +0200
+Subject: [PATCH] ex1 and ex3: options of mfem-mgis and behaviour libraries
+ placed by --execution
+
+UniaxialTensileTest and TwoLayerCube, installed as the examples ex1 and
+ex3, declare the options of mfem-mgis (`--execution` among them). Their
+behaviour library is the one given by `--library`, or else the library
+built with the example by `mfem_mgis_add_behaviours_library` for the
+processor of the behaviours (`getBehavioursLibrary`), or else
+`src/libBehaviour.so`. The CMake files of the installed examples build the
+libraries with this function. Tests: UniaxialTensileTest and TwoLayerCube
+56/56.
+---
+ tests/TwoLayerCube.cxx        | 38 +++++++++++++++++++++++++++++++----
+ tests/UniaxialTensileTest.cxx | 36 ++++++++++++++++++++++++++++++---
+ tests/ex1CMakeLists.txt       | 20 +++++++++---------
+ tests/ex3CMakeLists.txt       | 18 ++++++++---------
+ 4 files changed, 84 insertions(+), 28 deletions(-)
+
+diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
+index eaf6627b19..ac6c9a7b16 100644
+--- a/tests/TwoLayerCube.cxx
++++ b/tests/TwoLayerCube.cxx
+@@ -37,6 +37,7 @@
+ #include "mfem/linalg/solvers.hpp"
+ #include "mfem/fem/datacollection.hpp"
+ #include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+@@ -179,9 +180,29 @@ std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
+   return true;
+ }
+ 
++/*!
++ * \return the default behaviour library: the library built with the example
++ * by `mfem_mgis_add_behaviours_library` for the processor of the behaviours
++ * (option --execution), or else `src/libBehaviour.so`
++ */
++static std::string getDefaultBehaviourLibrary() {
++#ifdef MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY
++  return mfem_mgis::getBehavioursLibrary(
++      MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY);
++#else  /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
++  return "src/libBehaviour.so";
++#endif /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
++}  // end of getDefaultBehaviourLibrary
++
+ struct TestParameters {
+   const char* mesh_file = "cube_2mat_per.mesh";
+-  const char* library = "src/libBehaviour.so";
++  // behaviour library given by the user, if any
++  const char* library = "";
++  /*!
++   * behaviour library used: the one given by the user, or else the default
++   * one (see `getDefaultBehaviourLibrary`)
++   */
++  std::string behaviour_library;
+   int order = 1;
+   int refinement = 0;
+   int tcase = 1;
+@@ -199,7 +220,10 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
+   // options treatment
+   mfem::OptionsParser args(argc, argv);
+   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
+-  args.AddOption(&p.library, "-l", "--library", "Material library.");
++  args.AddOption(&p.library, "-l", "--library",
++                 "Material library. By default, the library built with the "
++                 "example for the CPU or for the GPU, as the option "
++                 "--execution places the behaviours.");
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+@@ -226,6 +250,9 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
+   args.AddOption(&p.check, "-c", "--check", "-no-c", "--no-check",
+                  "Compare the solution to the analytical solution of the "
+                  "two-layer cube, only valid for the provided meshes.");
++  // options of mfem-mgis, such as --execution, handled by
++  // mfem_mgis::initialize
++  mfem_mgis::declareDefaultOptions(args);
+   args.Parse();
+   if (args.Help()) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+@@ -237,6 +264,9 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  p.behaviour_library = std::string_view{p.library}.empty()
++                            ? getDefaultBehaviourLibrary()
++                            : std::string{p.library};
+   if ((p.tcase < 0) || (p.tcase > 5)) {
+     mfem_mgis::getErrorStream() << "Invalid test case\n";
+     mfem_mgis::abort(EXIT_FAILURE);
+@@ -266,10 +296,10 @@ int executeMFEMMGISTest(mfem_mgis::Context& ctx, const TestParameters& p) {
+       mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
+           ctx, fed, corner1, corner2) |
+       or_die;
+-  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library,
++  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
+                                  "IsotropicLinearElasticity") |
+       or_die;
+-  problem.addBehaviourIntegrator(ctx, "Mechanics", 2, p.library,
++  problem.addBehaviourIntegrator(ctx, "Mechanics", 2, p.behaviour_library,
+                                  "IsotropicLinearElasticity") |
+       or_die;
+   // materials
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index e585604e3b..c5d606c56b 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -26,13 +26,34 @@
+ #include <string_view>
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ 
++/*!
++ * \return the default behaviour library: the library built with the example
++ * by `mfem_mgis_add_behaviours_library` for the processor of the behaviours
++ * (option --execution), or else `src/libBehaviour.so`
++ */
++static std::string getDefaultBehaviourLibrary() {
++#ifdef MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY
++  return mfem_mgis::getBehavioursLibrary(
++      MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY);
++#else  /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
++  return "src/libBehaviour.so";
++#endif /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
++}  // end of getDefaultBehaviourLibrary
++
+ struct TestParameters {
+   const char* mesh_file = "cube.mesh";
+-  const char* library = "src/libBehaviour.so";
++  // behaviour library given by the user, if any
++  const char* library = "";
++  /*!
++   * behaviour library used: the one given by the user, or else the default
++   * one (see `getDefaultBehaviourLibrary`)
++   */
++  std::string behaviour_library;
+   const char* behaviour = "IsotropicLinearHardeningPlasticity";
+   // not null, since mfem::OptionsParser::PrintUsage stops at the first null
+   // string
+@@ -66,7 +87,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+   auto p = TestParameters{};
+   mfem::OptionsParser args(argc, argv);
+   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
+-  args.AddOption(&p.library, "-l", "--library", "Material library.");
++  args.AddOption(&p.library, "-l", "--library",
++                 "Material library. By default, the library built with the "
++                 "example for the CPU or for the GPU, as the option "
++                 "--execution places the behaviours.");
+   args.AddOption(&p.behaviour, "-b", "--behaviour", "Name of the behaviour.");
+   args.AddOption(&p.isv_name, "-isv", "--internal-state-variable",
+                  "Internal state variable saved and compared to the "
+@@ -90,6 +114,9 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
+                  "--no-post-processing",
+                  "Export or not the results to Paraview.");
++  // options of mfem-mgis, such as --execution, handled by
++  // mfem_mgis::initialize
++  mfem_mgis::declareDefaultOptions(args);
+   args.Parse();
+   if (args.Help()) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+@@ -101,6 +128,9 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  p.behaviour_library = std::string_view{p.library}.empty()
++                            ? getDefaultBehaviourLibrary()
++                            : std::string{p.library};
+   if (p.nbsteps <= 0) {
+     mfem_mgis::getErrorStream() << "Invalid number of time steps\n";
+     mfem_mgis::abort(EXIT_FAILURE);
+@@ -333,7 +363,7 @@ int main(int argc, char** argv) {
+               {"Parallel", p.parallel}}) |
+       or_die;
+   // material
+-  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.library,
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.behaviour_library,
+                                  p.behaviour) |
+       or_die;
+   auto& m1 = problem.getMaterial(ctx, "Cube", 0) | or_die;
+diff --git a/tests/ex1CMakeLists.txt b/tests/ex1CMakeLists.txt
+index c79a18e3b0..a8746b6419 100644
+--- a/tests/ex1CMakeLists.txt
++++ b/tests/ex1CMakeLists.txt
+@@ -41,17 +41,15 @@ foreach(input IsotropicLinearHardeningPlasticity.mfront cube.mesh
+                  COPYONLY)
+ endforeach()
+ 
+-# Use mfront to generate libBehaviour.so
+-add_custom_command(
+-  OUTPUT "src/libBehaviour.so"
+-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
+-  DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
+-  COMMENT "Performing mfront code generation")
+-
+-add_custom_target(generate-libBehaviour-ex1 ALL
+-  DEPENDS "src/libBehaviour.so")
+-
+-add_dependencies(check UniaxialTensileTest generate-libBehaviour-ex1)
++# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
++# chosen at run time by mfem_mgis::getBehavioursLibrary from the
++# option --execution
++mfem_mgis_add_behaviours_library(BehavioursEx1
++  SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront)
++target_compile_definitions(UniaxialTensileTest PRIVATE
++  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx1_BEHAVIOURS_DIRECTORY}")
++
++add_dependencies(check UniaxialTensileTest BehavioursEx1)
+ 
+ # Define the test that will be called during the "make check", which compares
+ # the results to the reference values
+diff --git a/tests/ex3CMakeLists.txt b/tests/ex3CMakeLists.txt
+index 02aeedfa44..847507b792 100644
+--- a/tests/ex3CMakeLists.txt
++++ b/tests/ex3CMakeLists.txt
+@@ -40,17 +40,15 @@ foreach(input IsotropicLinearElasticity.mfront cube_2mat_per.mesh Box.med Box.pe
+                  COPYONLY)
+ endforeach()
+ 
+-# Use mfront to generate libBehaviour.so
+-add_custom_command(
+-  OUTPUT "src/libBehaviour.so"
+-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
+-  DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
+-  COMMENT "Performing mfront code generation")
++# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
++# chosen at run time by mfem_mgis::getBehavioursLibrary from the
++# option --execution
++mfem_mgis_add_behaviours_library(BehavioursEx3
++  SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront)
++target_compile_definitions(TwoLayerCube PRIVATE
++  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx3_BEHAVIOURS_DIRECTORY}")
+ 
+-add_custom_target(generate-libBehaviour-ex3 ALL
+-  DEPENDS "src/libBehaviour.so")
+-
+-add_dependencies(check TwoLayerCube generate-libBehaviour-ex3)
++add_dependencies(check TwoLayerCube BehavioursEx3)
+ 
+ # Define the tests that will be called during the "make check", one per
+ # loading case and linear solver, each one being compared to its analytical
+-- 
+2.43.0
+

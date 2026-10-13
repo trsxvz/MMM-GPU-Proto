@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <exception>
 #include <iostream>
 #include <string>
@@ -152,8 +153,36 @@ static void computeUniaxialTension(const char* const mesh,
                                     {"AbsoluteTolerance", 0.},
                                     {"MaximumNumberOfIterations", 10}}) |
       or_die;
+  const auto t0 = getMaterialArraysTransfers();
   const auto o = problem.solve(ctx, 0, 1);
   check(o.status, "resolution failed (" + ctx.getErrorMessage() + ")");
+  // copies of the arrays of the material during the resolution: none if
+  // the finite elements and the behaviours are computed on the host, in
+  // both directions if they are computed on different processors
+  const auto t1 = getMaterialArraysTransfers();
+  const auto h2d = t1.host_to_device_copies - t0.host_to_device_copies;
+  const auto d2h = t1.device_to_host_copies - t0.device_to_host_copies;
+  std::cout << "copies of the arrays of the material: " << h2d
+            << " from the host to the device, " << d2h
+            << " from the device to the host\n";
+  // without execution mode, the computations may be placed by the
+  // environment (test suites): their locations are not checked
+  const auto specified = s.mode != ExecutionMode::UNSPECIFIED;
+  const auto fe_on_gpu =
+      specified && (s.finite_elements == ExecutionLocation::GPU);
+  const auto bh_on_gpu = specified && (s.behaviours == ExecutionLocation::GPU);
+  // the debug device of MFEM, accepted with --execution cpu, copies the
+  // arrays to its own memory
+  if ((specified) && (!fe_on_gpu) && (!bh_on_gpu) &&
+      (!mfem::Device::Allows(mfem::Backend::DEBUG_DEVICE))) {
+    check((h2d == 0) && (d2h == 0),
+          "copies of the arrays with the computations on the host");
+  }
+  if ((specified) && (fe_on_gpu != bh_on_gpu)) {
+    check((h2d != 0) && (d2h != 0),
+          "no copies of the arrays between the finite elements and the "
+          "behaviours computed on different processors");
+  }
   // uniaxial stress state: sxx = E e, the other components are null
   m.synchronizeOnHostForReading();
   const auto& sig = m.s1.thermodynamic_forces;
@@ -170,16 +199,18 @@ static void computeUniaxialTension(const char* const mesh,
   const auto& implementation = problem.getImplementation<true>();
   const auto fe_kernels =
       implementation.getNumberOfTangentOperatorAssembliesByKernels() != 0;
-  const auto fe_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
-                      (s.finite_elements == ExecutionLocation::GPU);
-  check(fe_kernels == fe_gpu,
-        std::string{"finite elements computed "} +
-            (fe_kernels ? "by kernels" : "element by element"));
-  // location of the integration of the behaviours
-  const auto bh_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
-                      (s.behaviours == ExecutionLocation::GPU);
-  check(isIntegratedByBatchesOnDevice(m.b) == bh_gpu,
-        "behaviour integrated on the wrong processor");
+  if (specified) {
+    check(fe_kernels == fe_on_gpu,
+          std::string{"finite elements computed "} +
+              (fe_kernels ? "by kernels" : "element by element"));
+  }
+  // location of the integration of the behaviours (on a GPU)
+  const auto bh_gpu =
+      isIntegratedByBatchesOnDevice(m.b) &&
+      mfem::Device::Allows(mfem::Backend::CUDA_MASK | mfem::Backend::HIP_MASK);
+  if (specified) {
+    check(bh_gpu == bh_on_gpu, "behaviour integrated on the wrong processor");
+  }
   // location of the post-processings: the measure of the material
   const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
   auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
@@ -188,11 +219,12 @@ static void computeUniaxialTension(const char* const mesh,
         "measure of the cube: " + std::to_string(measure));
   const auto pp_kernels =
       getNumberOfPostProcessingsComputationsByKernels() != n0;
-  const auto pp_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
-                      (s.post_processings == ExecutionLocation::GPU);
-  check(pp_kernels == pp_gpu,
-        std::string{"post-processings computed "} +
-            (pp_kernels ? "by kernels" : "element by element"));
+  if (specified) {
+    const auto pp_gpu = s.post_processings == ExecutionLocation::GPU;
+    check(pp_kernels == pp_gpu,
+          std::string{"post-processings computed "} +
+              (pp_kernels ? "by kernels" : "element by element"));
+  }
 }  // end of computeUniaxialTension
 
 /*!
@@ -221,14 +253,21 @@ static void checkBehaviourLibraryRefusal(const char* const mesh,
  * \param[in] mesh: mesh of the unit cube
  * \param[in] solver: name of the linear solver
  * \param[in] refused: expected result
+ * \param[in] preconditioner: name of the preconditioner, if any
  */
 static void checkLinearSolver(const char* const mesh,
                               const char* const solver,
-                              const bool refused) {
+                              const bool refused,
+                              const char* const preconditioner = nullptr) {
   using namespace mfem_mgis;
   auto ctx = Context{};
   auto problem = makeProblem(ctx, mesh);
-  const auto r = problem.setLinearSolver(ctx, solver, {});
+  auto parameters = Parameters{};
+  if (preconditioner != nullptr) {
+    parameters.insert(
+        may_throw, {{"Preconditioner", Parameters{{"Name", preconditioner}}}});
+  }
+  const auto r = problem.setLinearSolver(ctx, solver, parameters);
   const auto msg = std::string{ctx.getErrorMessage()};
   if (refused) {
     check((!r) && (msg.find("while the execution settings place the linear "
@@ -238,6 +277,11 @@ static void checkLinearSolver(const char* const mesh,
   } else {
     check(r,
           "linear solver '" + std::string{solver} + "' refused (" + msg + ")");
+  }
+  if (preconditioner != nullptr) {
+    std::cout << "linear solver '" << solver << "' with preconditioner '"
+              << preconditioner << "': " << (r ? "accepted" : "refused")
+              << '\n';
   }
 }  // end of checkLinearSolver
 
@@ -253,8 +297,8 @@ int main(int argc, char** argv) {
   }
   const char* expected = "none";
   const char* mesh = "cube.mesh";
-  const char* library = "src/libBehaviourTest.so";
-  const char* gpu_library = "";
+  const char* behaviours = "ExecutionSettingsBehaviours";
+  const char* host_library = "";
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&expected, "-e", "--expected-settings",
@@ -263,11 +307,14 @@ int main(int argc, char** argv) {
                  "the linear solvers and of the post-processings, separated "
                  "by commas (for instance mixed,cpu,gpu,gpu,cpu)");
   args.AddOption(&mesh, "-m", "--mesh", "mesh of the unit cube (hexahedra)");
-  args.AddOption(&library, "-l", "--library",
-                 "behaviour library computing on the host");
-  args.AddOption(&gpu_library, "-lg", "--gpu-library",
-                 "behaviour library generated by the generic-parallel "
-                 "interface for the GPU (not tested if empty)");
+  args.AddOption(&behaviours, "-bd", "--behaviours-directory",
+                 "directory of the behaviour libraries built by "
+                 "mfem_mgis_add_behaviours_library (the library for the GPU "
+                 "is not tested if it is not built)");
+  args.AddOption(&host_library, "-lh", "--host-library",
+                 "library generated by the generic-parallel interface for "
+                 "the host, used too if the behaviours are on the CPU (not "
+                 "used if empty)");
   args.Parse();
   if (!args.Good()) {
     args.PrintUsage(std::cerr);
@@ -288,20 +335,42 @@ int main(int argc, char** argv) {
           "hypre does not compute where the linear solvers are placed");
 #endif /* defined(MFEM_USE_MPI) && defined(HYPRE_USING_GPU) */
   }
-  const auto has_gpu_library = std::strlen(gpu_library) != 0;
+  // library placed where the settings place the behaviours, and the
+  // library of the other processor
   const auto bh_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
                       (s.behaviours == ExecutionLocation::GPU);
+  const auto library = getBehavioursLibrary(behaviours);
+  const auto expected_library = std::string{behaviours} +
+                                (bh_gpu ? "/gpu/" : "/cpu/") +
+                                "libBehaviour.so";
+  check(library == expected_library,
+        "library '" + library + "' instead of '" + expected_library + "'");
+  const auto cpu_library = std::string{behaviours} + "/cpu/libBehaviour.so";
+  const auto gpu_library = std::string{behaviours} + "/gpu/libBehaviour.so";
+  const auto has_gpu_library = std::filesystem::exists(gpu_library);
   if ((!bh_gpu) || (has_gpu_library)) {
-    computeUniaxialTension(mesh, bh_gpu ? gpu_library : library);
+    computeUniaxialTension(mesh, library.c_str());
   } else {
-    std::cout << "no library for the GPU, computation not tested\n";
+    check(false, "no library for the GPU");
+  }
+  // the libraries generated by the generic-parallel interface for the host,
+  // integrated by batches on the CPU (the default with an execution mode)
+  if ((s.mode != ExecutionMode::UNSPECIFIED) && (!bh_gpu) &&
+      (std::strlen(host_library) != 0)) {
+    computeUniaxialTension(mesh, host_library);
+  }
+  // no preconditioner, for the solvers of hypre and of MFEM
+  checkLinearSolver(mesh, "HyprePCG", false, "None");
+  if ((s.mode != ExecutionMode::MIXED) ||
+      (s.linear_solver == ExecutionLocation::GPU)) {
+    checkLinearSolver(mesh, "CGSolver", false, "None");
   }
   // libraries and linear solvers computing elsewhere are refused
   if (s.mode != ExecutionMode::UNSPECIFIED) {
     if (bh_gpu) {
-      checkBehaviourLibraryRefusal(mesh, library);
+      checkBehaviourLibraryRefusal(mesh, cpu_library.c_str());
     } else if (has_gpu_library) {
-      checkBehaviourLibraryRefusal(mesh, gpu_library);
+      checkBehaviourLibraryRefusal(mesh, gpu_library.c_str());
     }
 #ifdef MFEM_USE_MUMPS
     checkLinearSolver(mesh, "MUMPSSolver",
@@ -311,6 +380,9 @@ int main(int argc, char** argv) {
     checkLinearSolver(mesh, "CGSolver",
                       (s.mode == ExecutionMode::MIXED) &&
                           (s.linear_solver == ExecutionLocation::CPU));
+    // the preconditioner of hypre Euclid only computes on the host
+    checkLinearSolver(mesh, "HyprePCG",
+                      s.linear_solver == ExecutionLocation::GPU, "HypreEuclid");
   }
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

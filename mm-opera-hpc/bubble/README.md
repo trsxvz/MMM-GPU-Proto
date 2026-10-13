@@ -46,7 +46,7 @@ Usage: ./test-bubble [options] ...
 | `-h, --help`                              | —      | —                        | Print the help message and exit.            |
 | `-m <string>, --mesh <string>`            | string | `mesh/single_sphere.msh` | Mesh file to use.                           |
 | `-pm <int>, --parallel-mesh <int>`        | int    | `0`                      | Read a parallel mesh or not.                |
-| `-l <string>, --library <string>`         | string | `src/libBehaviour.so`    | Material behaviour library.                 |
+| `-l <string>, --library <string>`         | string | built with the case | Material behaviour library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                 |
 | `-f <string>, --bubble-file <string>`     | string | `mesh/single_bubble.txt` | File containing the bubble definitions.     |
 | `-o <int>, --order <int>`                 | int    | `2`                      | Finite element order (polynomial degree).   |
 | `-r <int>, --refinement <int>`            | int    | `0`                      | Refinement level of the mesh.               |
@@ -58,8 +58,9 @@ Usage: ./test-bubble [options] ...
 | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
 | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
 
-The options of `mfem-mgis` are also accepted, for instance `--device cuda`
-to compute on a GPU.
+The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+to compute on a GPU, the behaviours built by the case for the GPU being then
+used (or `--execution mixed` to place each phase on the CPU or on the GPU).
 
 The command to execute the test-case is
 

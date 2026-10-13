@@ -35,27 +35,35 @@ foreach(input SaintVenantKirchhoffElasticity.mfront cube_2mat_per.mesh
                  COPYONLY)
 endforeach()
 
-# Use mfront to generate libBehaviour.so
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/SaintVenantKirchhoffElasticity.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/SaintVenantKirchhoffElasticity.mfront
-  COMMENT "Performing mfront code generation")
-
-add_custom_target(generate-libBehaviour-ex6 ALL
-  DEPENDS "src/libBehaviour.so")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
+# chosen at run time by mfem_mgis::getBehavioursLibrary from the
+# option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx6
+  SOURCES ${PROJECT_BINARY_DIR}/SaintVenantKirchhoffElasticity.mfront)
 
 add_executable(rve RveNonLinearElastic.cxx)
+target_compile_definitions(rve PRIVATE
+  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx6_BEHAVIOURS_DIRECTORY}")
 target_link_libraries(rve mfem-mgis::MFEMMGIS)
 target_include_directories(rve
   SYSTEM
   PUBLIC "$<BUILD_INTERFACE:${MFEM_INCLUDE_DIRS}>"
   PUBLIC "$<INSTALL_INTERFACE:${MFEM_INCLUDE_DIRS}>")
 
-add_dependencies(check rve generate-libBehaviour-ex6)
+add_dependencies(check rve BehavioursEx6)
 
 # The test is the same in the full and restricted test modes, since it is a
 # single computation on the two-layer cube, compared to its analytical
 # solution.
 set(test "rve")
 add_test(NAME ${test} COMMAND rve --no-post-processing)
+# the same computation on a GPU, and with the behaviours integrated on the
+# CPU (see ../config/TestMode.cmake)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  add_test(NAME ${test}-gpu
+           COMMAND rve --no-post-processing --execution gpu)
+  add_test(NAME ${test}-mixed-gpu
+           COMMAND rve --no-post-processing --execution mixed --behaviours cpu)
+  set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
+                       RESOURCE_LOCK gpu)
+endif()

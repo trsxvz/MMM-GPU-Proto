@@ -1,0 +1,90 @@
+From bc0ff58047b9654b40881280a36fa45dda9ebb00 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 14:15:24 +0200
+Subject: [PATCH] READMEs: option --execution of mfem-mgis and default
+ behaviour libraries
+
+The cases are run on a GPU with --execution gpu (or mixed), with the behaviour libraries built for the GPU, instead of --device cuda.
+---
+ bubble/README.md      | 7 ++++---
+ cermet/README.md      | 7 ++++---
+ polycrystal/README.md | 6 +++++-
+ 3 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/bubble/README.md b/bubble/README.md
+index 231591a..4eb16fd 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -46,7 +46,7 @@ Usage: ./test-bubble [options] ...
+ | `-h, --help`                              | —      | —                        | Print the help message and exit.            |
+ | `-m <string>, --mesh <string>`            | string | `mesh/single_sphere.msh` | Mesh file to use.                           |
+ | `-pm <int>, --parallel-mesh <int>`        | int    | `0`                      | Read a parallel mesh or not.                |
+-| `-l <string>, --library <string>`         | string | `src/libBehaviour.so`    | Material behaviour library.                 |
++| `-l <string>, --library <string>`         | string | built with the case | Material behaviour library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                 |
+ | `-f <string>, --bubble-file <string>`     | string | `mesh/single_bubble.txt` | File containing the bubble definitions.     |
+ | `-o <int>, --order <int>`                 | int    | `2`                      | Finite element order (polynomial degree).   |
+ | `-r <int>, --refinement <int>`            | int    | `0`                      | Refinement level of the mesh.               |
+@@ -58,8 +58,9 @@ Usage: ./test-bubble [options] ...
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
+ | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
+ 
+-The options of `mfem-mgis` are also accepted, for instance `--device cuda`
+-to compute on a GPU.
++The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
++to compute on a GPU, the behaviours built by the case for the GPU being then
++used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
+ The command to execute the test-case is
+ 
+diff --git a/cermet/README.md b/cermet/README.md
+index e3ddb64..65e447a 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -106,7 +106,7 @@ Usage: ./cermet [options] ...
+ | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+ | `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
+-| `-l <string>, --library <string>`           | string | `src/libBehaviour.so` | Material library containing the behaviours of the grains and of the metallic interface.                                                                          |
++| `-l <string>, --library <string>`           | string | built with the case | Material library containing the behaviours of the grains and of the metallic interface (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                          |
+ | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
+ | `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh (default = 1).                                                                                                                       |
+ | `-p <int>, --post-processing <int>`         | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
+@@ -116,8 +116,9 @@ Usage: ./cermet [options] ...
+ | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
+ | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+ 
+-The options of `mfem-mgis` are also accepted, for instance `--device cuda`
+-to compute on a GPU.
++The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
++to compute on a GPU, the behaviours built by the case for the GPU being then
++used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
+ 
+ ### Run it
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index c2a4a84..b38432e 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -75,7 +75,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `-h, --help`                                | —      | —                            | Print the help message and exit.                                                                                                              |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5crystals.msh`         | Mesh file to use.                                                                                                                             |
+ | `-f <string>, --vect <string>`              | string | `mesh/vectors_5crystals.txt` | Vector file to use.                                                                                                                           |
+-| `-l <string>, --library <string>`           | string | `src/libBehaviour.so`        | Material library.                                                                                                                             |
++| `-l <string>, --library <string>`           | string | built with the case | Material library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                                                                             |
+ | `-b <string>, --behaviour <string>`         | string | `Mono_UO2_Cosh_Jaco3`        | Mechanical behaviour.                                                                                                                         |
+ | `-o <int>, --order <int>`                   | int    | `1`                          | Finite element order (polynomial degree).                                                                                                     |
+ | `-r <int>, --refinement <int>`              | int    | `0`                          | Refinement level of the mesh (default = 0).                                                                                                   |
+@@ -99,6 +99,10 @@ Usage: ./uniaxial-polycrystal --help
+ | `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first eigen stress.                                                                                                                |
+ | `--disable-export-first_eigen_stress`       | bool   | —                            | Do not export the first eigen stress (default).                                                                                               |
+ 
++The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
++to compute on a GPU, the behaviours built by the case for the GPU being then
++used (or `--execution mixed` to place each phase on the CPU or on the GPU).
++
+ Note: To generate the grain orientation vectors, use the randomVectorGeneration tool provided in the distribution. This ensures a consistent and physically realistic initialization of crystallographic orientations.
+ 
+ ![RVE of Polycrystal of UO2 with 5 crystals](doc/5crystals.png)
+-- 
+2.43.0
+

@@ -5,6 +5,7 @@
  * \date   14/12/2020
  */
 
+#include <string>
 #include <memory>
 #include <string_view>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include "mfem/fem/datacollection.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
@@ -38,7 +40,7 @@ int main(int argc, char** argv) {
   constexpr const auto dim = mfem_mgis::size_type{3};
   const char* mesh_file = "ssna303_3d.msh";
   const char* behaviour = "IsotropicLinearHardeningPlasticity";
-  const char* library = "src/libBehaviour.so";
+  const char* library = "";
   bool use_fbar = false;
   // not null, since mfem::OptionsParser::PrintUsage stops at the first null
   // string
@@ -81,6 +83,10 @@ int main(int argc, char** argv) {
                  "boundary computed without FBar, compared with a larger "
                  "tolerance, no comparison if empty.");
 #endif /* MGIS_HAVE_TFEL */
+  args.AddOption(&library, "-l", "--library",
+                 "Behaviour library. By default, the library built with the "
+                 "example for the CPU or for the GPU, as the option "
+                 "--execution places the behaviours.");
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -92,6 +98,13 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  // behaviour library: given by --library, or else the library built with
+  // the example for the processor of the behaviours (option --execution)
+  const auto behaviour_library =
+      std::string_view{library}.empty()
+          ? mfem_mgis::getBehavioursLibrary(
+                MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+          : std::string{library};
   ctx.enableProfiling(profiling);
   const auto* const output_file = use_fbar ? "force-fbar.txt" : "force.txt";
   // the non linear problem
@@ -115,18 +128,18 @@ int main(int argc, char** argv) {
 #ifdef MGIS_HAVE_TFEL
   if (use_fbar) {
     problem.addBehaviourIntegrator(
-        ctx, "Mechanics", "NotchedBeam", library, behaviour,
+        ctx, "Mechanics", "NotchedBeam", behaviour_library, behaviour,
         {{"Regularization",
           mfem_mgis::Parameters{{"FBar", mfem_mgis::Parameters{}}}}}) |
         or_die;
   } else {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam", library,
-                                   behaviour) |
+    problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam",
+                                   behaviour_library, behaviour) |
         or_die;
   }
 #else  /* MGIS_HAVE_TFEL */
-  problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam", library,
-                                 behaviour) |
+  problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam",
+                                 behaviour_library, behaviour) |
       or_die;
 #endif /* MGIS_HAVE_TFEL */
   // materials

@@ -26,7 +26,7 @@ namespace mfem_mgis::internals {
 
   bool usePostProcessingsKernels(attributes::MayThrow) {
     const auto* const v = "MFEM_MGIS_POST_PROCESSINGS_COMPUTATION";
-    const auto* const e = std::getenv(v);
+    const auto* const e = internals::getPlacementEnvironmentVariable(v);
     // default value given by the execution settings
     const auto value = e != nullptr
                            ? std::string_view{e}

@@ -46,17 +46,15 @@ foreach(input IsotropicLinearHardeningPlasticity.mfront ssna303.msh ssna303-forc
                  COPYONLY)
 endforeach()
 
-# Use mfront to generate libBehaviour.so
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  COMMENT "Performing mfront code generation")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
+# chosen at run time by mfem_mgis::getBehavioursLibrary from the
+# option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx2
+  SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront)
+target_compile_definitions(ssna303 PRIVATE
+  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx2_BEHAVIOURS_DIRECTORY}")
 
-add_custom_target(generate-libBehaviour-ex2 ALL
-  DEPENDS "src/libBehaviour.so")
-
-add_dependencies(check ssna303 generate-libBehaviour-ex2)
+add_dependencies(check ssna303 BehavioursEx2)
 
 # Define the tests that will be called during the "make check". The full test
 # mode computes the complete loading. The restricted test mode only computes
@@ -80,6 +78,25 @@ function(add_ssna303_test_ex)
                                      --standard-reference-file ssna303-force.ref)
     set_tests_properties(${test}-fbar PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
   endif(MGIS_HAVE_TFEL)
+  # the same computations on a GPU, UMFPack computing on the CPU (see
+  # ../config/TestMode.cmake)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+    add_test(NAME ${test}-gpu
+             COMMAND ssna303 ${ssna303_loading}
+                     --reference-file ssna303-force.ref
+                     --execution mixed --linear-solver-device cpu)
+    set_tests_properties(${test}-gpu PROPERTIES
+                         RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+    if(MGIS_HAVE_TFEL)
+      add_test(NAME ${test}-fbar-gpu
+               COMMAND ssna303 --use-fbar ${ssna303_loading}
+                       --reference-file ssna303-force-fbar.ref
+                       --standard-reference-file ssna303-force.ref
+                       --execution mixed --linear-solver-device cpu)
+      set_tests_properties(${test}-fbar-gpu PROPERTIES
+                           RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+    endif(MGIS_HAVE_TFEL)
+  endif()
 endfunction(add_ssna303_test_ex)
 
 add_ssna303_test_ex()

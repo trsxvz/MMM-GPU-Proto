@@ -85,7 +85,8 @@ namespace mfem_mgis {
     // default value given by the environment, for instance to run a whole
     // test suite or an application with the integration by batches, or
     // else by the execution settings
-    const auto* const e = std::getenv("MFEM_MGIS_BEHAVIOUR_INTEGRATION");
+    const auto* const e = internals::getPlacementEnvironmentVariable(
+        "MFEM_MGIS_BEHAVIOUR_INTEGRATION");
     const auto d =
         e != nullptr ? std::string{e}
                      : std::string{internals::getDefaultBehaviourIntegration()};
@@ -119,7 +120,7 @@ namespace mfem_mgis {
                                        const char* const v) {
     // default value given by the environment, or else by the execution
     // settings
-    const auto* const e = std::getenv(v);
+    const auto* const e = internals::getPlacementEnvironmentVariable(v);
     const auto d =
         e != nullptr
             ? std::string{e}
@@ -155,7 +156,7 @@ namespace mfem_mgis {
     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
     // default value given by the environment, or else by the execution
     // settings
-    const auto* const e = std::getenv(v);
+    const auto* const e = internals::getPlacementEnvironmentVariable(v);
     const auto d =
         e != nullptr
             ? std::string{e}

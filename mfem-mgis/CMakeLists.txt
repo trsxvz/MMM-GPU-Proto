@@ -209,5 +209,6 @@ install(FILES
    ${PROJECT_SOURCE_DIR}/cmake/modules/FindMFEM.cmake
    ${PROJECT_SOURCE_DIR}/cmake/modules/FindAMGX.cmake
    ${PROJECT_SOURCE_DIR}/cmake/modules/MFEMMGISDeviceCode.cmake
+   ${PROJECT_SOURCE_DIR}/cmake/modules/MFEMMGISBehaviours.cmake
    ${PROJECT_SOURCE_DIR}/cmake/modules/ParELAGCMakeUtilities.cmake
    DESTINATION share/mfem-mgis/cmake)

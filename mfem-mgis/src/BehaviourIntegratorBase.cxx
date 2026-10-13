@@ -1062,8 +1062,8 @@ namespace mfem_mgis {
             std::pair{&(st->dissipated_energies),
                       StateArrayKind::DISSIPATED_ENERGIES}}) {
         const auto& array = arrays.getArray(a, stage);
-        auto* const p =
-            output ? arrays.write(a, stage) : const_cast<real*>(array.Read());
+        auto* const p = output ? arrays.write(a, stage)
+                               : const_cast<real*>(arrays.read(a, stage));
         *view = relocate(*view, p, array.Size());
       }
       std::fill(st->material_properties.begin(), st->material_properties.end(),
@@ -1165,7 +1165,8 @@ namespace mfem_mgis {
   BehaviourIntegratorBase::readTangentOperatorBlocks(const bool d) const {
     const auto& v = this->getArrays().getTangentOperatorBlocks();
     const auto s =
-        std::span<const real>(v.Read(d), static_cast<std::size_t>(v.Size()));
+        std::span<const real>(this->getArrays().readTangentOperatorBlocks(d),
+                              static_cast<std::size_t>(v.Size()));
     return mgis::makeFieldView(s, this->getArrays().array_layout,
                                static_cast<size_type>(this->n), this->K_stride);
   }  // end of readTangentOperatorBlocks
@@ -1198,10 +1199,12 @@ namespace mfem_mgis {
             mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
             data.kind);
       }
-      const auto& v = this->getArrays().getArray(
-          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets);
-      const auto s = std::span<const real>(v.Read(use_device),
-                                           static_cast<std::size_t>(v.Size()));
+      const auto a =
+          mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES;
+      const auto& v = this->getArrays().getArray(a, ets);
+      const auto s =
+          std::span<const real>(this->getArrays().read(a, ets, use_device),
+                                static_cast<std::size_t>(v.Size()));
       return batch::addInnerForces(
           ctx, f, *(this->quadrature_space),
           mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),

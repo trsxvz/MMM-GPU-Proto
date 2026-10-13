@@ -37,6 +37,7 @@
 #include "mfem/linalg/solvers.hpp"
 #include "mfem/fem/datacollection.hpp"
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
@@ -179,9 +180,29 @@ std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
   return true;
 }
 
+/*!
+ * \return the default behaviour library: the library built with the example
+ * by `mfem_mgis_add_behaviours_library` for the processor of the behaviours
+ * (option --execution), or else `src/libBehaviour.so`
+ */
+static std::string getDefaultBehaviourLibrary() {
+#ifdef MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY
+  return mfem_mgis::getBehavioursLibrary(
+      MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY);
+#else  /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
+  return "src/libBehaviour.so";
+#endif /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
+}  // end of getDefaultBehaviourLibrary
+
 struct TestParameters {
   const char* mesh_file = "cube_2mat_per.mesh";
-  const char* library = "src/libBehaviour.so";
+  // behaviour library given by the user, if any
+  const char* library = "";
+  /*!
+   * behaviour library used: the one given by the user, or else the default
+   * one (see `getDefaultBehaviourLibrary`)
+   */
+  std::string behaviour_library;
   int order = 1;
   int refinement = 0;
   int tcase = 1;
@@ -199,7 +220,10 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
   // options treatment
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
-  args.AddOption(&p.library, "-l", "--library", "Material library.");
+  args.AddOption(&p.library, "-l", "--library",
+                 "Material library. By default, the library built with the "
+                 "example for the CPU or for the GPU, as the option "
+                 "--execution places the behaviours.");
   args.AddOption(&p.order, "-o", "--order",
                  "Finite element order (polynomial degree).");
   args.AddOption(&p.refinement, "-r", "--refinement",
@@ -226,6 +250,9 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
   args.AddOption(&p.check, "-c", "--check", "-no-c", "--no-check",
                  "Compare the solution to the analytical solution of the "
                  "two-layer cube, only valid for the provided meshes.");
+  // options of mfem-mgis, such as --execution, handled by
+  // mfem_mgis::initialize
+  mfem_mgis::declareDefaultOptions(args);
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -237,6 +264,9 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  p.behaviour_library = std::string_view{p.library}.empty()
+                            ? getDefaultBehaviourLibrary()
+                            : std::string{p.library};
   if ((p.tcase < 0) || (p.tcase > 5)) {
     mfem_mgis::getErrorStream() << "Invalid test case\n";
     mfem_mgis::abort(EXIT_FAILURE);
@@ -266,10 +296,10 @@ int executeMFEMMGISTest(mfem_mgis::Context& ctx, const TestParameters& p) {
       mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
           ctx, fed, corner1, corner2) |
       or_die;
-  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.library,
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
                                  "IsotropicLinearElasticity") |
       or_die;
-  problem.addBehaviourIntegrator(ctx, "Mechanics", 2, p.library,
+  problem.addBehaviourIntegrator(ctx, "Mechanics", 2, p.behaviour_library,
                                  "IsotropicLinearElasticity") |
       or_die;
   // materials

@@ -4,8 +4,8 @@ echo "Generating jobs for the study of mechanics solver/preconditioner..."
 
 BASE_DIR="/ccc/scratch/cont002/den/rigaljul/Projet/ThermoMécanique/SwellingAdded"
 EXEC="$BASE_DIR/build/ThermoMecaFancy"
-LIB_U="$BASE_DIR/build/src/libU3SI2-generic.so"
-LIB_A="$BASE_DIR/build/src/libALFENI-generic.so"
+LIB_U="$BASE_DIR/build/BehavioursEx8/cpu/libU3SI2.so"
+LIB_A="$BASE_DIR/build/BehavioursEx8/cpu/libALFENI.so"
 
 LOG_DIR="logs_SvPc_mech"
 JOB_DIR="jobs_scripts"

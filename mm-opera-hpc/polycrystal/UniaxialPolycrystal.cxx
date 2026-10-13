@@ -18,6 +18,7 @@
 #include <string_view>
 
 #include "mfem/fem/datacollection.hpp"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/ImposedDirichletBoundaryConditionAtClosestNode.hxx"
@@ -110,7 +111,13 @@ struct ElasticMaterialPropertiesParameters {
 
 struct MaterialParameters : ElasticMaterialPropertiesParameters {
   //! \brief default material library
-  const char *library = "src/libBehaviour.so";
+  const char* library = "";
+  /*!
+   * behaviour library used: the one given by the user (option --library),
+   * or else the one built with the case for the processor of the behaviours
+   * (option --execution)
+   */
+  std::string behaviour_library;
   //! \brief default mechanical behaviour
   const char *behaviour = "Mono_UO2_Cosh_Jaco3";
   //! \brief default file name describing orientation vectors
@@ -367,7 +374,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.mesh_mode, "-mm", "--mesh_mode",
                  "Read Mesh Mode (FromScratch or Restart = splited file).");
   args.AddOption(&p.vect_file, "-f", "--vect", "Vector file to use.");
-  args.AddOption(&p.library, "-l", "--library", "Material library.");
+  args.AddOption(&p.library, "-l", "--library",
+                 "Material library. By default, the library built with the "
+                 "case for the CPU or for the GPU, as the option --execution "
+                 "places the behaviours.");
   args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
   args.AddOption(&p.linear_solver, "", "--linear-solver",
                  "linear solver of the Newton method: a Krylov solver of "
@@ -444,6 +454,12 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+  // behaviour library: given by --library, or else the library built with
+  // the case for the processor of the behaviours (option --execution)
+  p.behaviour_library = std::string_view{p.library}.empty()
+                            ? mfem_mgis::getBehavioursLibrary(
+                                  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+                            : std::string{p.library};
 }
 
 static void setupMaterials(
@@ -465,7 +481,7 @@ static void setupMaterials(
   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
 
   for (int i = 0; i < nMat; i++) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.library,
+    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.behaviour_library,
                                    p.behaviour) |
         or_die;
   }

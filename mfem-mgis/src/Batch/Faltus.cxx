@@ -270,10 +270,9 @@ namespace mfem_mgis::batch {
             "addFaltusInnerForces: unexpected number of components of the "
             "gradients or size of the values element by element");
       }
-      const auto& gradients =
-          m.getArrays().getArray(MaterialArrays::StateArray::GRADIENTS, ets);
       a.offsets = qs.getElementOffsets().Read(use_device);
-      a.gradients = gradients.Read(use_device);
+      a.gradients = m.getArrays().read(MaterialArrays::StateArray::GRADIENTS,
+                                       ets, use_device);
       a.point_by_point =
           m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
       a.number_of_points = qs.getNumberOfIntegrationPoints();

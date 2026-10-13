@@ -44,17 +44,15 @@ if(MFEM_USE_MPI)
                    COPYONLY)
   endforeach()
 
-  # Use mfront to generate libBehaviour.so
-  add_custom_command(
-    OUTPUT "src/libBehaviour.so"
-    COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
-    DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
-    COMMENT "Performing mfront code generation")
+  # Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
+  # chosen at run time by mfem_mgis::getBehavioursLibrary from the
+  # option --execution
+  mfem_mgis_add_behaviours_library(BehavioursEx3
+    SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront)
+  target_compile_definitions(two_layer_cube PRIVATE
+    MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx3_BEHAVIOURS_DIRECTORY}")
 
-  add_custom_target(generate-libBehaviour-ex3 ALL
-    DEPENDS "src/libBehaviour.so")
-
-  add_dependencies(check two_layer_cube generate-libBehaviour-ex3)
+  add_dependencies(check two_layer_cube BehavioursEx3)
 
   # Define the tests that will be called during the "make check", one per
   # loading case, each one being compared to its analytical solution. They are
@@ -68,5 +66,12 @@ if(MFEM_USE_MPI)
   foreach(tcase RANGE 0 5)
     add_two_layer_cube_ex(${tcase})
   endforeach()
+
+  # the first case on a GPU (see ../config/TestMode.cmake)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+    add_test(NAME two_layer_cube-0-gpu
+             COMMAND two_layer_cube --test-case 0 --execution gpu)
+    set_tests_properties(two_layer_cube-0-gpu PROPERTIES RESOURCE_LOCK gpu)
+  endif()
 
 endif()

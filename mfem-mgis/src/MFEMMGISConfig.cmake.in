@@ -71,6 +71,8 @@ set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
 # before mfem-mgis, the description of MFEM is the one used to build
 # mfem-mgis
 include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISDeviceCode.cmake")
+# Behaviour libraries for the CPU and the GPU (mfem_mgis_add_behaviours_library)
+include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISBehaviours.cmake")
 get_property(_mfem_mgis_mfem_described GLOBAL
              PROPERTY MFEM_MGIS_MFEM_USE_CUDA SET)
 if(NOT _mfem_mgis_mfem_described)

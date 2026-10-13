@@ -44,17 +44,15 @@ foreach(input IsotropicLinearHardeningPlasticity.mfront cube.mesh
                  COPYONLY)
 endforeach()
 
-# Use mfront to generate libBehaviour.so
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront
-  COMMENT "Performing mfront code generation")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
+# chosen at run time by mfem_mgis::getBehavioursLibrary from the
+# option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx1
+  SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront)
+target_compile_definitions(uniaxial_tensile_test PRIVATE
+  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx1_BEHAVIOURS_DIRECTORY}")
 
-add_custom_target(generate-libBehaviour-ex1 ALL
-  DEPENDS "src/libBehaviour.so")
-
-add_dependencies(check uniaxial_tensile_test generate-libBehaviour-ex1)
+add_dependencies(check uniaxial_tensile_test BehavioursEx1)
 
 # Define the test that will be called during the "make check", which compares
 # the results to the reference values. It is the same in the full and
@@ -62,3 +60,12 @@ add_dependencies(check uniaxial_tensile_test generate-libBehaviour-ex1)
 add_test(NAME uniaxial_tensile_test
          COMMAND uniaxial_tensile_test
                  --reference-file IsotropicLinearHardeningPlasticity.ref)
+# the same computation on a GPU (see ../config/TestMode.cmake)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  add_test(NAME uniaxial_tensile_test-gpu
+           COMMAND uniaxial_tensile_test
+                   --reference-file IsotropicLinearHardeningPlasticity.ref
+                   --execution gpu)
+  set_tests_properties(uniaxial_tensile_test-gpu PROPERTIES
+                       RESOURCE_LOCK gpu)
+endif()

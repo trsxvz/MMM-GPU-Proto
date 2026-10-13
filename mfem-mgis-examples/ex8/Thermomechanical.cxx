@@ -9,6 +9,7 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/NonLinearModel.hxx"
@@ -27,9 +28,14 @@
 void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
   args.AddOption(&p.libraryU3SI2, "-lU", "--libraryU3SI2",
-                 "Material library of the U3Si2 fuel.");
+                 "Material library of the U3Si2 fuel. By default, the "
+                 "library built with the example for the CPU or for the "
+                 "GPU, as the option --execution places the behaviours.");
   args.AddOption(&p.libraryALFENI, "-lA", "--libraryALFENI",
-                 "Material library of the ALFENI cladding and stiffeners.");
+                 "Material library of the ALFENI cladding and stiffeners. "
+                 "By default, the library built with the example for the "
+                 "CPU or for the GPU, as the option --execution places the "
+                 "behaviours.");
   args.AddOption(&p.solver_thermo, "-lsTh", "--linearsolver-thermal",
                  "Linear solver of the heat transfer problem.");
   args.AddOption(&p.precond_thermo, "-pcTh", "--preconditioner-thermal",
@@ -104,6 +110,14 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  const auto library = [](const char* const l, const char* const name) {
+    return std::string_view{l}.empty()
+               ? mfem_mgis::getBehavioursLibrary(
+                     MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY, name)
+               : std::string{l};
+  };
+  p.library_u3si2 = library(p.libraryU3SI2, "U3SI2");
+  p.library_alfeni = library(p.libraryALFENI, "ALFENI");
 }
 
 int main(int argc, char* argv[]) {

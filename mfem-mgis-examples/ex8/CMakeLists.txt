@@ -32,19 +32,14 @@ file(GLOB MFRONT_LOIS CONFIGURE_DEPENDS "${MFRONT_INCLUDE_DIR}/*.mfront")
 # headers included by the MFront files
 file(GLOB MFRONT_HEADERS CONFIGURE_DEPENDS "${MFRONT_INCLUDE_DIR}/*.hxx")
 
-set(MFRONT_OUTPUTS
-    "${CMAKE_CURRENT_BINARY_DIR}/src/libU3SI2-generic.so"
-    "${CMAKE_CURRENT_BINARY_DIR}/src/libALFENI-generic.so"
-)
-
-# Compiling MFront laws
-add_custom_command(
-    OUTPUT ${MFRONT_OUTPUTS}
-    COMMAND mfront --obuild --interface=generic --include=${MFRONT_INCLUDE_DIR} ${MFRONT_LOIS}
-    DEPENDS ${MFRONT_LOIS} ${MFRONT_HEADERS}
-    COMMENT "Generating laws for thermomechanical simulation."
-    VERBATIM
-)
+# Libraries of the U3Si2 and ALFENI materials for the CPU and, if MFEM uses
+# a GPU, for the GPU, chosen at run time by mfem_mgis::getBehavioursLibrary
+# from the option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx8
+    SOURCES ${MFRONT_LOIS}
+    LIBRARIES U3SI2 ALFENI
+    INCLUDE_DIRECTORY ${MFRONT_INCLUDE_DIR}
+    DEPENDS ${MFRONT_HEADERS})
 
 add_executable(rjh_plate
     Thermomechanical.cxx
@@ -63,18 +58,15 @@ foreach(input mesh/assemblage_hexa.msh mesh/assemblage_hexa_coarse.msh
 endforeach()
 
 target_include_directories(rjh_plate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/headers")
-
-add_custom_target(
-    generate-libBehaviour ALL
-    DEPENDS ${MFRONT_OUTPUTS}
-)
+target_compile_definitions(rjh_plate PRIVATE
+    MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx8_BEHAVIOURS_DIRECTORY}")
 
 target_link_libraries(rjh_plate PRIVATE
     MPI::MPI_CXX
     mfem-mgis::MFEMMGIS
 )
 
-add_dependencies(check rjh_plate generate-libBehaviour)
+add_dependencies(check rjh_plate BehavioursEx8)
 
 # The full test mode runs the simulation with the default mesh. The restricted
 # test mode uses the coarser mesh. The statistics of the temperature and of the
@@ -139,25 +131,31 @@ add_test(NAME rjh_plate-newton-k0
 set_tests_properties(rjh_plate-newton-k0 PROPERTIES
     PROCESSORS 2
     ENVIRONMENT "${rjh_plate_kernels_environment}")
-# the same computations on a GPU (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_CUDA_TESTS)
-  foreach(_variant "" "-kernels")
-    add_test(NAME rjh_plate${_variant}-cuda
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-            $<TARGET_FILE:rjh_plate>
-            -m ${rjh_plate_mesh}.msh
-            -lsMc MUMPSSolver
-            -rf ${rjh_plate_mesh}-statistics.ref
-            --device cuda
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    set_tests_properties(rjh_plate${_variant}-cuda PROPERTIES
-        PROCESSORS 2
-        RESOURCE_LOCK gpu)
-  endforeach()
-  set_tests_properties(rjh_plate-cuda PROPERTIES
+# the same computation on a GPU, the direct solver MUMPS computing on the
+# CPU (option --execution mixed --linear-solver-device cpu), and with the
+# finite elements computed on the CPU too (see ../config/TestMode.cmake)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  add_test(NAME rjh_plate-gpu
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc MUMPSSolver
+          -rf ${rjh_plate_mesh}-statistics.ref
+          --execution mixed --linear-solver-device cpu
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  add_test(NAME rjh_plate-mixed-gpu
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc MUMPSSolver
+          -rf ${rjh_plate_mesh}-statistics.ref
+          --execution mixed --linear-solver-device cpu
+          --finite-elements cpu
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(rjh_plate-gpu rjh_plate-mixed-gpu PROPERTIES
+      PROCESSORS 2
+      RESOURCE_LOCK gpu
       ENVIRONMENT OMP_NUM_THREADS=1)
-  set_tests_properties(rjh_plate-kernels-cuda PROPERTIES
-      ENVIRONMENT "${rjh_plate_kernels_environment}")
 endif()
 
 # comparison of the swelling model to its exact value

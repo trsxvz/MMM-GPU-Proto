@@ -12,13 +12,16 @@
 #include <span>
 #include <vector>
 #include <memory>
+#include <string>
 #include <cstdlib>
+#include <string_view>
 
 #include "mfem/general/optparser.hpp"
 #include "mfem/mesh/mesh.hpp"
 #include "mfem/mesh/pmesh.hpp"
 
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
@@ -45,9 +48,17 @@ int main(int argc, char** argv) {
   // options
   int nx = 10;
   int order = 2;
+  const char* library = "";
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&nx, "-nx", "--nx", "Number of elements along the bar.");
   args.AddOption(&order, "-o", "--order", "Finite element order.");
+  args.AddOption(&library, "-l", "--library",
+                 "Behaviour library. By default, the library built with the "
+                 "test for the CPU or for the GPU, as the option --execution "
+                 "places the behaviours.");
+  // options of mfem-mgis, such as --execution, handled by
+  // mfem_mgis::initialize
+  mfem_mgis::declareDefaultOptions(args);
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -58,6 +69,11 @@ int main(int argc, char** argv) {
     args.PrintUsage(mfem_mgis::getOutputStream());
     mfem_mgis::abort(EXIT_FAILURE);
   }
+  const auto behaviour_library =
+      std::string_view{library}.empty()
+          ? mfem_mgis::getBehavioursLibrary(
+                MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+          : std::string{library};
   // mesh of the bar
   auto mesh = mfem::Mesh::MakeCartesian3D(nx, 2, 2, mfem::Element::HEXAHEDRON,
                                           L, 1.0, 1.0);
@@ -84,7 +100,7 @@ int main(int argc, char** argv) {
   problem.getUnknowns(mfem_mgis::ets) = T0;
   // material
   problem.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer", 1,
-                                 "src/libBehaviour.so",
+                                 behaviour_library,
                                  "StationaryLinearHeatTransfer") |
       or_die;
   auto& m = problem.getMaterial(ctx, 1, 0) | or_die;

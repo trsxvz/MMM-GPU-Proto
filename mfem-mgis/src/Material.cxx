@@ -341,7 +341,7 @@ namespace mfem_mgis {
     const auto &array = this->getArray(a, s);
     const auto source = host ? mgis::FieldView<const real>(hsource)
                              : relocate(mgis::FieldView<const real>(hsource),
-                                        array.Read(), array.Size());
+                                        this->read(a, s), array.Size());
     const auto matrices =
         host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
     auto *const values = host ? v.HostWrite() : v.Write();
@@ -414,8 +414,8 @@ namespace mfem_mgis {
         [&arrays](mgis::FieldView<real>& view, const StateArray a,
                   const TimeStepStage s, const bool output) {
           const auto& array = arrays.getArray(a, s);
-          auto* const p =
-              output ? arrays.readWrite(a, s) : const_cast<real*>(array.Read());
+          auto* const p = output ? arrays.readWrite(a, s)
+                                 : const_cast<real*>(arrays.read(a, s));
           view = relocate(view, p, array.Size());
         };
     for (const auto& [view, a] :

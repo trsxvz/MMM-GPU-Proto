@@ -5,6 +5,7 @@
  */
 
 #include <limits>
+#include <chrono>
 #include <cstddef>
 #include <algorithm>
 #include "mfem/general/device.hpp"
@@ -15,6 +16,55 @@
 #include "MFEMMGIS/MaterialArrays.hxx"
 
 namespace mfem_mgis {
+
+  //! \return the counters of the copies of the arrays of the materials
+  static MaterialArraysTransfers& getMutableMaterialArraysTransfers() noexcept {
+    static MaterialArraysTransfers t;
+    return t;
+  }  // end of getMutableMaterialArraysTransfers
+
+  MaterialArraysTransfers getMaterialArraysTransfers() noexcept {
+    return getMutableMaterialArraysTransfers();
+  }  // end of getMaterialArraysTransfers
+
+  /*!
+   * \return the result of an access to an array, counting the copy made by
+   * this access if the accessed copy was not valid (the copies of MFEM
+   * between the host and the device are synchronous)
+   * \param[in] v: array
+   * \param[in] d: if true, the array is accessed on the device
+   * \param[in] access: access
+   */
+  template <typename Access>
+  static auto countTransfer(const mfem::Vector& v,
+                            const bool d,
+                            Access&& access) {
+    const auto on_device =
+        d && mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
+    const auto& m = v.GetMemory();
+    if ((v.Size() == 0) ||
+        (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) ||
+        (on_device ? m.DeviceIsValid() : m.HostIsValid())) {
+      return access();
+    }
+    const auto start = std::chrono::steady_clock::now();
+    auto r = access();
+    const auto time =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+            .count();
+    const auto bytes = static_cast<std::size_t>(v.Size()) * sizeof(real);
+    auto& t = getMutableMaterialArraysTransfers();
+    if (on_device) {
+      ++(t.host_to_device_copies);
+      t.host_to_device_bytes += bytes;
+      t.host_to_device_time += time;
+    } else {
+      ++(t.device_to_host_copies);
+      t.device_to_host_bytes += bytes;
+      t.device_to_host_time += time;
+    }
+    return r;
+  }  // end of countTransfer
 
   /*!
    * \brief allocates an array in the memory of MFEM, set to zero on the host
@@ -41,7 +91,8 @@ namespace mfem_mgis {
     if (v.Size() == 0) {
       return {};
     }
-    return {v.HostReadWrite(), static_cast<std::size_t>(v.Size())};
+    auto* const p = countTransfer(v, false, [&v] { return v.HostReadWrite(); });
+    return {p, static_cast<std::size_t>(v.Size())};
   }  // end of getHostView
 
   //! \return the index of a state
@@ -146,7 +197,8 @@ namespace mfem_mgis {
   void MaterialArrays::synchronizeOnHostForReading() const {
     auto read = [](const mfem::Vector& v) {
       if (v.Size() != 0) {
-        static_cast<void>(v.HostRead());
+        static_cast<void>(
+            countTransfer(v, false, [&v] { return v.HostRead(); }));
       }
     };
     for (const auto& arrays : this->state_arrays) {
@@ -166,14 +218,15 @@ namespace mfem_mgis {
       const StateArray a, const TimeStepStage s) const {
     const auto& v = this->getArray(a, s);
     if (v.Size() != 0) {
-      static_cast<void>(v.HostRead());
+      static_cast<void>(countTransfer(v, false, [&v] { return v.HostRead(); }));
     }
   }  // end of synchronizeOnHostForReading
 
   void MaterialArrays::synchronizeTangentOperatorBlocksOnHostForReading()
       const {
-    if (this->tangent_operator_blocks.Size() != 0) {
-      static_cast<void>(this->tangent_operator_blocks.HostRead());
+    const auto& K = this->tangent_operator_blocks;
+    if (K.Size() != 0) {
+      static_cast<void>(countTransfer(K, false, [&K] { return K.HostRead(); }));
     }
   }  // end of synchronizeTangentOperatorBlocksOnHostForReading
 
@@ -191,10 +244,23 @@ namespace mfem_mgis {
     return this->tangent_operator_blocks;
   }  // end of getTangentOperatorBlocks
 
+  const real* MaterialArrays::read(const StateArray a,
+                                   const TimeStepStage s,
+                                   const bool d) const {
+    const auto& v = this->getArray(a, s);
+    return countTransfer(v, d, [&v, d] { return v.Read(d); });
+  }  // end of read
+
+  const real* MaterialArrays::readTangentOperatorBlocks(const bool d) const {
+    const auto& K = this->tangent_operator_blocks;
+    return countTransfer(K, d, [&K, d] { return K.Read(d); });
+  }  // end of readTangentOperatorBlocks
+
   real* MaterialArrays::readWrite(const StateArray a,
                                   const TimeStepStage s,
                                   const bool d) {
-    return this->getMutableArray(a, s).ReadWrite(d);
+    auto& v = this->getMutableArray(a, s);
+    return countTransfer(v, d, [&v, d] { return v.ReadWrite(d); });
   }  // end of readWrite
 
   real* MaterialArrays::write(const StateArray a,
@@ -204,7 +270,8 @@ namespace mfem_mgis {
   }  // end of write
 
   real* MaterialArrays::readWriteTangentOperatorBlocks(const bool d) {
-    return this->tangent_operator_blocks.ReadWrite(d);
+    auto& K = this->tangent_operator_blocks;
+    return countTransfer(K, d, [&K, d] { return K.ReadWrite(d); });
   }  // end of readWriteTangentOperatorBlocks
 
   real* MaterialArrays::writeTangentOperatorBlocks(const bool d) {

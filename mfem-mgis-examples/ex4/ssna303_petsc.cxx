@@ -5,6 +5,7 @@
  * \date   14/12/2020
  */
 
+#include <string>
 #include <memory>
 #include <string_view>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include "mfem/fem/datacollection.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Material.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
@@ -38,7 +40,7 @@ int main(int argc, char** argv) {
   constexpr const auto dim = mfem_mgis::size_type{3};
   const char* mesh_file = "ssna303_3d.msh";
   const char* behaviour = "IsotropicLinearHardeningPlasticity";
-  const char* library = "src/libBehaviour.so";
+  const char* library = "";
   // not null, since mfem::OptionsParser::PrintUsage stops at the first null
   // string
   const char* reference_file = "";
@@ -73,6 +75,10 @@ int main(int argc, char** argv) {
   args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
                  "--no-profiling",
                  "Print the time spent in each phase of the computation.");
+  args.AddOption(&library, "-l", "--library",
+                 "Behaviour library. By default, the library built with the "
+                 "example for the CPU or for the GPU, as the option "
+                 "--execution places the behaviours.");
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -84,6 +90,13 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  // behaviour library: given by --library, or else the library built with
+  // the example for the processor of the behaviours (option --execution)
+  const auto behaviour_library =
+      std::string_view{library}.empty()
+          ? mfem_mgis::getBehavioursLibrary(
+                MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+          : std::string{library};
   ctx.enableProfiling(profiling);
 
   {
@@ -105,7 +118,8 @@ int main(int argc, char** argv) {
                    or_die;
 
     // 2 1 "Volume"
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, behaviour_library,
+                                   behaviour) |
         or_die;
     // materials
     auto& m1 = problem.getMaterial(ctx, 1, 0) | or_die;

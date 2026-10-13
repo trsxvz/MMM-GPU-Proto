@@ -26,13 +26,34 @@
 #include <string_view>
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 
+/*!
+ * \return the default behaviour library: the library built with the example
+ * by `mfem_mgis_add_behaviours_library` for the processor of the behaviours
+ * (option --execution), or else `src/libBehaviour.so`
+ */
+static std::string getDefaultBehaviourLibrary() {
+#ifdef MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY
+  return mfem_mgis::getBehavioursLibrary(
+      MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY);
+#else  /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
+  return "src/libBehaviour.so";
+#endif /* MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY */
+}  // end of getDefaultBehaviourLibrary
+
 struct TestParameters {
   const char* mesh_file = "cube.mesh";
-  const char* library = "src/libBehaviour.so";
+  // behaviour library given by the user, if any
+  const char* library = "";
+  /*!
+   * behaviour library used: the one given by the user, or else the default
+   * one (see `getDefaultBehaviourLibrary`)
+   */
+  std::string behaviour_library;
   const char* behaviour = "IsotropicLinearHardeningPlasticity";
   // not null, since mfem::OptionsParser::PrintUsage stops at the first null
   // string
@@ -66,7 +87,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
   auto p = TestParameters{};
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&p.mesh_file, "-m", "--mesh", "Mesh file to use.");
-  args.AddOption(&p.library, "-l", "--library", "Material library.");
+  args.AddOption(&p.library, "-l", "--library",
+                 "Material library. By default, the library built with the "
+                 "example for the CPU or for the GPU, as the option "
+                 "--execution places the behaviours.");
   args.AddOption(&p.behaviour, "-b", "--behaviour", "Name of the behaviour.");
   args.AddOption(&p.isv_name, "-isv", "--internal-state-variable",
                  "Internal state variable saved and compared to the "
@@ -90,6 +114,9 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
                  "--no-post-processing",
                  "Export or not the results to Paraview.");
+  // options of mfem-mgis, such as --execution, handled by
+  // mfem_mgis::initialize
+  mfem_mgis::declareDefaultOptions(args);
   args.Parse();
   if (args.Help()) {
     args.PrintUsage(mfem_mgis::getOutputStream());
@@ -101,6 +128,9 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  p.behaviour_library = std::string_view{p.library}.empty()
+                            ? getDefaultBehaviourLibrary()
+                            : std::string{p.library};
   if (p.nbsteps <= 0) {
     mfem_mgis::getErrorStream() << "Invalid number of time steps\n";
     mfem_mgis::abort(EXIT_FAILURE);
@@ -333,7 +363,7 @@ int main(int argc, char** argv) {
               {"Parallel", p.parallel}}) |
       or_die;
   // material
-  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.library,
+  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.behaviour_library,
                                  p.behaviour) |
       or_die;
   auto& m1 = problem.getMaterial(ctx, "Cube", 0) | or_die;

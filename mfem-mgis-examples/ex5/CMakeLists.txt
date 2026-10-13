@@ -35,30 +35,35 @@ if(MFEM_USE_SUITESPARSE)
                    COPYONLY)
   endforeach()
 
-  # Use mfront to generate libBehaviour.so
-  add_custom_command(
-    OUTPUT "src/libBehaviour.so"
-    COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearThermoElasticity.mfront
-    DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearThermoElasticity.mfront
-    COMMENT "Performing mfront code generation")
-
-  add_custom_target(generate-libBehaviour-ex5 ALL
-    DEPENDS "src/libBehaviour.so")
+  # Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU,
+  # chosen at run time by mfem_mgis::getBehavioursLibrary from the
+  # option --execution
+  mfem_mgis_add_behaviours_library(BehavioursEx5
+    SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearThermoElasticity.mfront)
 
   add_executable(satoh SatohTest.cxx)
+  target_compile_definitions(satoh PRIVATE
+    MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx5_BEHAVIOURS_DIRECTORY}")
   target_link_libraries(satoh mfem-mgis::MFEMMGIS)
   target_include_directories(satoh
     SYSTEM
     PUBLIC "$<BUILD_INTERFACE:${MFEM_INCLUDE_DIRS}>"
     PUBLIC "$<INSTALL_INTERFACE:${MFEM_INCLUDE_DIRS}>")
 
-  add_dependencies(check satoh generate-libBehaviour-ex5)
+  add_dependencies(check satoh BehavioursEx5)
 
   # The test is the same in the full and restricted test modes, since it is a
   # single computation on a coarse mesh, whose reference reaction depends on
   # the mesh.
   set(test "satoh")
   add_test(NAME ${test} COMMAND ${test})
+  # the same computation on a GPU, UMFPack computing on the CPU (see
+  # ../config/TestMode.cmake)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+    add_test(NAME ${test}-gpu
+             COMMAND ${test} --execution mixed --linear-solver-device cpu)
+    set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
+  endif()
 else()
   message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support to enable it")
 endif()

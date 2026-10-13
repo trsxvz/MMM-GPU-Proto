@@ -4,14 +4,10 @@ project(OperaHPCBubble)
 file(COPY verification/mmm_vs_analytical.py DESTINATION ${PROJECT_BINARY_DIR})
 
 
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/Elasticity.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/Elasticity.mfront
-  COMMENT "Performing mfront code generation")
-
-add_custom_target(lib-elasticity ALL
-  DEPENDS "src/libBehaviour.so")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
+# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
+mfem_mgis_add_behaviours_library(BehavioursBubble
+  SOURCES ${PROJECT_SOURCE_DIR}/Elasticity.mfront)
 
 # build executable
 
@@ -21,7 +17,9 @@ add_executable(test-bubble
   ${SRCS}
 )
 
-add_dependencies(test-bubble lib-elasticity)
+add_dependencies(test-bubble BehavioursBubble)
+target_compile_definitions(test-bubble PRIVATE
+  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursBubble_BEHAVIOURS_DIRECTORY}")
 
 target_link_libraries(test-bubble
  PRIVATE tfel::TFELMath tfel::TFELException
@@ -35,6 +33,10 @@ target_include_directories(test-bubble
 file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
 
 add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
+if(MM_OPERA_HPC_RUN_GPU_TESTS)
+  add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
+  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
+endif()
 
 
 install(TARGETS test-bubble DESTINATION bin)

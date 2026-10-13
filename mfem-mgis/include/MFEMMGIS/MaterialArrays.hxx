@@ -141,6 +141,25 @@ namespace mfem_mgis {
     const mfem::Vector& getTangentOperatorBlocks() const;
     /*!
      * \return a pointer to the values of an array of a state, for reading
+     * them on the device (or on the host): see `mfem::Vector::Read`. The
+     * copy made, if any, is counted (see `getMaterialArraysTransfers`).
+     * \param[in] a: array
+     * \param[in] s: state
+     * \param[in] d: if true, the values are accessed on the device (if a
+     * device is enabled)
+     */
+    const real* read(const StateArray,
+                     const TimeStepStage,
+                     const bool = true) const;
+    /*!
+     * \return a pointer to the blocks of the tangent operator, for reading
+     * them on the device (or on the host), the copy made being counted
+     * \param[in] d: if true, the values are accessed on the device (if a
+     * device is enabled)
+     */
+    const real* readTangentOperatorBlocks(const bool = true) const;
+    /*!
+     * \return a pointer to the values of an array of a state, for reading
      * and writing them on the device (or on the host): see
      * `mfem::Vector::ReadWrite`
      * \param[in] a: array
@@ -193,6 +212,38 @@ namespace mfem_mgis {
     //! \brief move assignment (disabled)
     MaterialArrays& operator=(MaterialArrays&&) = delete;
   };  // end of struct MaterialArrays
+
+  /*!
+   * \brief copies of the arrays of the materials between the host and the
+   * device, made by the accesses of `MaterialArrays` (reads, reads and
+   * writes, synchronizations on the host) when the accessed copy was not
+   * valid. The copies made by the reads through `getArray` or
+   * `getTangentOperatorBlocks` are not counted.
+   */
+  struct MaterialArraysTransfers {
+    //! \brief number of copies from the host to the device
+    size_type host_to_device_copies = 0;
+    //! \brief number of bytes copied from the host to the device
+    std::size_t host_to_device_bytes = 0;
+    //! \brief time spent in the copies from the host to the device, in s
+    double host_to_device_time = 0;
+    //! \brief number of copies from the device to the host
+    size_type device_to_host_copies = 0;
+    //! \brief number of bytes copied from the device to the host
+    std::size_t device_to_host_bytes = 0;
+    //! \brief time spent in the copies from the device to the host, in s
+    double device_to_host_time = 0;
+  };
+
+  /*!
+   * \return the copies of the arrays of the materials between the host and
+   * the device made by the current process since the start of the program.
+   * They measure the transfers of the placements of the computations on
+   * both processors (see `ExecutionSettings`), for instance the finite
+   * elements on the GPU and the behaviours on the CPU.
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] MaterialArraysTransfers
+  getMaterialArraysTransfers() noexcept;
 
   /*!
    * \return the location, for MGIS, of the copies of the arrays on the device

@@ -47,24 +47,21 @@ foreach(input NortonViscoplasticityWithThreshold.mfront petscrc
                  COPYONLY)
 endforeach()
 
-# Use mfront to generate libBehaviour.so
-add_custom_command(
-  OUTPUT "src/libBehaviour.so"
-  COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/NortonViscoplasticityWithThreshold.mfront
-  DEPENDS ${PROJECT_BINARY_DIR}/NortonViscoplasticityWithThreshold.mfront
-  COMMENT "Performing mfront code generation")
-
-add_custom_target(generate-libBehaviour-ex7 ALL
-  DEPENDS "src/libBehaviour.so")
+# Behaviour library for the CPU and, if MFEM uses a GPU, for the GPU, chosen
+# at run time by mfem_mgis::getBehavioursLibrary from the option --execution
+mfem_mgis_add_behaviours_library(BehavioursEx7
+  SOURCES ${PROJECT_BINARY_DIR}/NortonViscoplasticityWithThreshold.mfront)
 
 add_executable(mox2 MixedOxideFuels.cxx)
+target_compile_definitions(mox2 PRIVATE
+  MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx7_BEHAVIOURS_DIRECTORY}")
 target_link_libraries(mox2 mfem-mgis::MFEMMGIS)
 target_include_directories(mox2
   SYSTEM
   PUBLIC "$<BUILD_INTERFACE:${MFEM_INCLUDE_DIRS}>"
   PUBLIC "$<INSTALL_INTERFACE:${MFEM_INCLUDE_DIRS}>")
 
-add_dependencies(check mox2 generate-libBehaviour-ex7)
+add_dependencies(check mox2 BehavioursEx7)
 
 # The full test mode computes the complete loading in 40 time steps. The
 # restricted test mode computes it in 5 time steps only. The mean stresses are
@@ -100,4 +97,16 @@ if(MFEM_USE_PETSC)
                    --use-petsc --petsc-configuration-file petscrc)
   # both tests write the mean stresses in the same file
   set_tests_properties(${test} ${test}-petsc PROPERTIES RESOURCE_LOCK avgStress)
+endif()
+
+# the same computation on a GPU, and with the behaviours integrated on the
+# CPU (see ../config/TestMode.cmake)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  add_test(NAME ${test}-gpu
+           COMMAND mox2 ${mox2_test_options} --execution gpu)
+  add_test(NAME ${test}-mixed-gpu
+           COMMAND mox2 ${mox2_test_options} --execution mixed
+                   --behaviours cpu)
+  set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
+                       RESOURCE_LOCK "avgStress;gpu")
 endif()

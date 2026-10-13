@@ -9,6 +9,7 @@
 #ifndef LIB_MFEM_MGIS_EXECUTIONSETTINGS_HXX
 #define LIB_MFEM_MGIS_EXECUTIONSETTINGS_HXX
 
+#include <string>
 #include <string_view>
 #include "MFEMMGIS/Config.hxx"
 
@@ -86,6 +87,19 @@ namespace mfem_mgis {
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::string_view getExecutionLocationName(
       const ExecutionLocation) noexcept;
+  /*!
+   * \return the path of a behaviour library built by the CMake function
+   * `mfem_mgis_add_behaviours_library` (module `MFEMMGISBehaviours.cmake`,
+   * installed with mfem-mgis): `<d>/gpu/lib<n>.so` if the execution
+   * settings place the behaviours on the GPU, `<d>/cpu/lib<n>.so` otherwise
+   * (in particular if the execution mode is not given). The suffix is the
+   * one of the shared libraries of the system.
+   * \param[in] d: directory of the libraries (`<target>_BEHAVIOURS_DIRECTORY`
+   * in CMake)
+   * \param[in] n: name of the library
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] std::string getBehavioursLibrary(
+      std::string_view, std::string_view = "Behaviour");
 
 }  // end of namespace mfem_mgis
 

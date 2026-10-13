@@ -38,6 +38,24 @@ else(CMAKE_CONFIGURATION_TYPES)
    endif(NOT TARGET check)
 endif(CMAKE_CONFIGURATION_TYPES)
 
+# Tests on a GPU, selected by the MM_OPERA_HPC_GPU_TESTS option (off by
+# default, a GPU being required when the tests are run): the cases are also
+# tested with the option --execution gpu, if MFEM is compiled with CUDA or
+# HIP (as described by mfem-mgis). The MM_OPERA_HPC_RUN_GPU_TESTS variable is
+# then true.
+option(MM_OPERA_HPC_GPU_TESTS "Test the cases on a GPU too" OFF)
+set(MM_OPERA_HPC_RUN_GPU_TESTS OFF)
+if(MM_OPERA_HPC_GPU_TESTS)
+  get_property(_mm_opera_hpc_mfem_use_cuda GLOBAL
+               PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
+  get_property(_mm_opera_hpc_mfem_use_hip GLOBAL
+               PROPERTY MFEM_MGIS_MFEM_USE_HIP)
+  if((_mm_opera_hpc_mfem_use_cuda STREQUAL "YES") OR
+     (_mm_opera_hpc_mfem_use_hip STREQUAL "YES"))
+    set(MM_OPERA_HPC_RUN_GPU_TESTS ON)
+  endif()
+endif()
+
 add_subdirectory(src)
 add_subdirectory(polycrystal)
 add_subdirectory(bubble)

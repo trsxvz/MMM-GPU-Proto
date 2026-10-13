@@ -650,6 +650,53 @@ namespace mfem_mgis {
 
   }  // end of namespace
 
+  /*!
+   * \return true if the parameters of a preconditioner select no
+   * preconditioner (name `None`, without options), false otherwise, or an
+   * empty value on error. `getLinearSolverPreconditioner` returns a null
+   * preconditioner both in this case and on error: its callers must test
+   * this case before.
+   * \param[in, out] ctx: execution context
+   * \param[in] p: parameters of the preconditioner
+   */
+  [[nodiscard]] static std::optional<bool> isNoPreconditioner(
+      Context& ctx, const Parameters& p) {
+    const auto oname = get<std::string>(ctx, p, "Name");
+    if (isInvalid(oname)) {
+      return {};
+    }
+    if (*oname != "None") {
+      return false;
+    }
+    if (contains(p, "Options")) {
+      return ctx.registerErrorMessage(
+          "setLinearSolverPreconditioner: no options expected for "
+          "preconditioner 'None'");
+    }
+    return true;
+  }  // end of isNoPreconditioner
+
+  /*!
+   * \return true if a preconditioner is computed by a solver whose location
+   * is checked against the execution settings: the preconditioners of
+   * hypre, of AmgX (if available) and the smoothers of MFEM. The other
+   * names are not preconditioners (reported by
+   * `getLinearSolverPreconditioner`) or wrap another preconditioner
+   * (`AssembledOperator`, whose preconditioner is checked)
+   * \param[in] n: name of the preconditioner
+   */
+  [[nodiscard]] static bool isLocatedPreconditioner(const std::string& n) {
+#ifdef MFEM_MGIS_HAVE_AMGX
+    if (n == "AmgX") {
+      return true;
+    }
+#endif /* MFEM_MGIS_HAVE_AMGX */
+    return (n == "OperatorJacobiSmoother") ||
+           (n == "OperatorChebyshevSmoother") || (n == "HypreBoomerAMG") ||
+           (n == "HypreEuclid") || (n == "HypreILU") ||
+           (n == "HypreParaSails") || (n == "HypreDiagScale");
+  }  // end of isLocatedPreconditioner
+
   template <bool parallel>
   std::unique_ptr<LinearSolverPreconditioner> getLinearSolverPreconditioner(
       Context& ctx,
@@ -663,7 +710,7 @@ namespace mfem_mgis {
     if (isInvalid(oname)) {
       return {};
     }
-    if ((*oname != "None") &&
+    if ((isLocatedPreconditioner(*oname)) &&
         (!internals::checkLinearSolverExecutionLocation(ctx, *oname))) {
       return {};
     }
@@ -899,6 +946,13 @@ namespace mfem_mgis {
       if (isInvalid(opr)) {
         return {};
       }
+      const auto onone = isNoPreconditioner(ctx, *opr);
+      if (isInvalid(onone)) {
+        return {};
+      }
+      if (*onone) {
+        return std::unique_ptr<LinearSolverPreconditioner>{};
+      }
       auto prec = getLinearSolverPreconditioner<parallel>(ctx, fespace, *opr);
       if (isInvalid(prec)) {
         return {};
@@ -982,6 +1036,13 @@ namespace mfem_mgis {
         const auto oparams = get<Parameters>(ctx, params, Preconditioner);
         if (isInvalid(oparams)) {
           return {};
+        }
+        const auto onone = isNoPreconditioner(ctx, *oparams);
+        if (isInvalid(onone)) {
+          return {};
+        }
+        if (*onone) {
+          return LinearSolverHandler{std::move(s), std::move(prec)};
         }
         prec = getLinearSolverPreconditioner<true>(ctx, fespace, *oparams);
         if (isInvalid(prec)) {
@@ -1067,6 +1128,13 @@ namespace mfem_mgis {
         if (isInvalid(opr)) {
           return {};
         }
+        const auto onone = isNoPreconditioner(ctx, *opr);
+        if (isInvalid(onone)) {
+          return {};
+        }
+        if (*onone) {
+          return LinearSolverHandler{std::move(s), std::move(prec)};
+        }
         prec = getLinearSolverPreconditioner<true>(ctx, fespace, *opr);
         if (isInvalid(prec)) {
           return {};
@@ -1147,6 +1215,13 @@ namespace mfem_mgis {
         const auto opr = get<Parameters>(ctx, params, Preconditioner);
         if (isInvalid(opr)) {
           return {};
+        }
+        const auto onone = isNoPreconditioner(ctx, *opr);
+        if (isInvalid(onone)) {
+          return {};
+        }
+        if (*onone) {
+          return LinearSolverHandler{std::move(s), std::move(prec)};
         }
         prec = getLinearSolverPreconditioner<true>(ctx, fespace, *opr);
         if (isInvalid(prec)) {
