@@ -1,4 +1,4 @@
-From f3ebcd4aaa27106a26197a41cffb15c5b7ea6489 Mon Sep 17 00:00:00 2001
+From 72a164a1b9fb13615ed2f55e1fe60953a4f4f3b1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:09:49 +0200
 Subject: [PATCH] generic-parallel material properties: statistics and output

@@ -1,4 +1,4 @@
-From 4180d14b2e9c6bb7595b3845edf18fd72ce38454 Mon Sep 17 00:00:00 2001
+From 13f471f8ac8e9cc71356b6da46f3e1f0f7325c52 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:34:20 +0200
 Subject: [PATCH] MFront DDIF2 brick: non constant fracture stresses and

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Checks that a series of patches of `patches/<directory>/` applies on its
 # base commit and gives exactly the tree of the branch of the prototype:
-# the patches are applied with `git am` in a temporary worktree of the local
-# repository, then the trees are compared.
+# the patches are applied with `git am --keep-cr` (some files of TFEL have
+# CRLF line endings) in a temporary worktree of the local repository, then
+# the trees are compared.
 #
 # usage: scripts/verify-patches.sh repository patches-directory base branch
 # example: scripts/verify-patches.sh mgis mgis e8ef4b4 gpu-proto
@@ -17,7 +18,7 @@ worktree=$PROTO/scratch/verify-patches-$patches
 git -C "$repository" worktree add -q --detach "$worktree" "$base" || exit 1
 status=0
 if ! (cd "$worktree" &&
-  git -c user.name=verify -c user.email=verify@localhost am -q \
+  git -c user.name=verify -c user.email=verify@localhost am -q --keep-cr \
     "$PROTO"/patches/"$patches"/*.patch); then
   echo "patches/$patches: the patches do not apply on $base" >&2
   status=1

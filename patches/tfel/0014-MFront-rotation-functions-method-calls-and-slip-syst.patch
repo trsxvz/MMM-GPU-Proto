@@ -1,4 +1,4 @@
-From 79eacfee1f990645529acdf240c874e946227fb0 Mon Sep 17 00:00:00 2001
+From c35db8b7ee452db0d2c21d6c9518947b5b39ed9f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:34 +0200
 Subject: [PATCH] MFront: rotation functions, method calls and slip systems

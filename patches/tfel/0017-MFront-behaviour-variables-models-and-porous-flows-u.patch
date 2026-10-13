@@ -1,4 +1,4 @@
-From 4aa867593214a882d545b7432f36891932d05eae Mon Sep 17 00:00:00 2001
+From b5c4c607dafef22688419c6231620ed85507098c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] MFront: behaviour variables, models and porous flows usable

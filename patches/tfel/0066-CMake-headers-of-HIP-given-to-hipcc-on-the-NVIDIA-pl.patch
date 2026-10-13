@@ -1,4 +1,4 @@
-From ded7fca3e041928c05a1bb1009a67e7cd946486d Mon Sep 17 00:00:00 2001
+From ffbb779cd52c78a7f3bd6b9ffaecc37ec1470b48 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 13:22:32 +0200
 Subject: [PATCH] CMake: headers of HIP given to hipcc on the NVIDIA platform

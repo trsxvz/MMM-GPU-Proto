@@ -1,4 +1,4 @@
-From 004764a531f1b6113d6b1d33cd46d7e95e46a85d Mon Sep 17 00:00:00 2001
+From ce2388536efcfac1ca78f11711682073aa29b29c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 16:04:36 +0200
 Subject: [PATCH] Documentation of the generic-parallel interfaces updated
@@ -1225,7 +1225,7 @@ index 2831712c1..934fae122 100644
  Because post-processings are called independently of the behaviour
  integration step, special care to the meaning of the variables must be
 diff --git a/docs/web/release-notes-5.2.md b/docs/web/release-notes-5.2.md
-index 01982762d..9a6a6bfb4 100644
+index c31c7ddc7..c22956efd 100644
 --- a/docs/web/release-notes-5.2.md
 +++ b/docs/web/release-notes-5.2.md
 @@ -45,6 +45,16 @@ designed for maximum GPU performance:
@@ -1426,7 +1426,7 @@ index 01982762d..9a6a6bfb4 100644
  ## Homogenization
  
  The following methods of the ParticulateMicrostructure objects are able
-@@ -463,6 +570,7 @@ the following sections:
+@@ -473,6 +580,7 @@ the following sections:
  - `model_dsl_options`
  - `interfaces_options`
  - `compilation_options`
@@ -1434,7 +1434,7 @@ index 01982762d..9a6a6bfb4 100644
  
  None of those sections is required. All those sections must introduce a
  dictionary.
-@@ -482,32 +590,52 @@ dictionary.
+@@ -492,32 +600,52 @@ dictionary.
  ~~~~{.json}
  interfaces_options: {
    generic-parallel: {
@@ -1489,7 +1489,7 @@ index 01982762d..9a6a6bfb4 100644
  ## Passing options to interfaces on the command line
  
  ### First syntax
-@@ -536,6 +664,28 @@ details](generic-parallel-material-property-interface.html).
+@@ -546,6 +674,28 @@ details](generic-parallel-material-property-interface.html).
  - `kokkos`;
  - `openmp`: threads of the host or offloading to a device.
  
@@ -1518,7 +1518,7 @@ index 01982762d..9a6a6bfb4 100644
  ## The `generic-parallel` interface for behaviours
  
  The `generic-parallel` interface integrates a behaviour, or executes a
-@@ -543,17 +693,54 @@ standalone model, over a batch of integration points, on GPUs or on CPUs,
+@@ -553,17 +703,54 @@ standalone model, over a batch of integration points, on GPUs or on CPUs,
  with the backends of the interface for material properties. See [this page
  for details](generic-parallel-behaviour-interface.html).
  
@@ -1575,7 +1575,7 @@ index 01982762d..9a6a6bfb4 100644
  
  ## Improvements to the `Cast3M` interface
  
-@@ -673,3 +860,55 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
+@@ -683,3 +870,55 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
  ## Issue 853: [tfel-fcheck] Have the possibility to launch multiple call to `tfel-check` simultaenously in a CI context
  
  For more details, see <https://github.com/thelfer/tfel/issues/853>

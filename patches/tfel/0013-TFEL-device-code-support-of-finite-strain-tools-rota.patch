@@ -1,4 +1,4 @@
-From 329a740e979b505bfb1f6a9509113edceb004026 Mon Sep 17 00:00:00 2001
+From ff40b198591d5b5268651b20b8559d5c2fd28b3f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:28 +0200
 Subject: [PATCH] TFEL: device code support of finite strain tools, rotations

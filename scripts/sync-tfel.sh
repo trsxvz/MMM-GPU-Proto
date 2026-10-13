@@ -10,7 +10,7 @@
 # usage: scripts/sync-tfel.sh
 set -eu
 PROTO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-BASE=fec0ade99
+BASE=ff0959ece
 cd "$PROTO"
 if [ -n "$(git -C tfel status --porcelain --untracked-files=no)" ]; then
   echo "tfel/ has uncommitted changes" >&2

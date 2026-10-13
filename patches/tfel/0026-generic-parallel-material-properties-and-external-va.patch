@@ -1,4 +1,4 @@
-From f7319c616123aefc797e0b02e9b8b4c19812c52f Mon Sep 17 00:00:00 2001
+From 94895556d875c52f155af1678772ce5ece332a2a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 02:21:02 +0200
 Subject: [PATCH] generic-parallel: material properties and external variables

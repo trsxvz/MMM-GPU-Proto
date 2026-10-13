@@ -1,4 +1,4 @@
-From 6c1fe894d29274d92af13dd313255b7ea5eccf65 Mon Sep 17 00:00:00 2001
+From 1af10a82ee5535def105c519be3abcf09805ae33 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 04:10:09 +0200
 Subject: [PATCH] generic-parallel material properties: CUDA test with device

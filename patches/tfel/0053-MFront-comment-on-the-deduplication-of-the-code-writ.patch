@@ -1,4 +1,4 @@
-From 93c623231556d2a8bbfa14cdae2111801aaccf4f Mon Sep 17 00:00:00 2001
+From e4f24142b93532932ca7009dcde6525f1c851c18 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:11:27 +0200
 Subject: [PATCH] MFront: comment on the deduplication of the code written by

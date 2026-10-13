@@ -1,4 +1,4 @@
-From 54e51929a4f98832b02084b126199335c148c576 Mon Sep 17 00:00:00 2001
+From ea78e965f52554e99aaae4e26e1c4002f666411b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:26:02 +0200
 Subject: [PATCH] MFront: type of the tangent operator checked before its

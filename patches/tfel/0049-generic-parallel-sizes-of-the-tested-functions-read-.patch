@@ -1,4 +1,4 @@
-From 134e5beaffabc246c06f89d70f5469856eb107bf Mon Sep 17 00:00:00 2001
+From 5428565aa9f2f9ae6026b02e2e5e895de9e56b38 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:09:43 +0200
 Subject: [PATCH] generic-parallel: sizes of the tested functions read in the

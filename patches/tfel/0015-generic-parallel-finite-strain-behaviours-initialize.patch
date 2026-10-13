@@ -1,4 +1,4 @@
-From b50aec15921d2c104c1eecdd60744476a8cbfd94 Mon Sep 17 00:00:00 2001
+From 03f9fd9fab301e2471f431c5cfb5590b6111a6df Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:34 +0200
 Subject: [PATCH] generic-parallel: finite strain behaviours, initialize

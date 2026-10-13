@@ -1,4 +1,4 @@
-From 58e70393e8233112108888216ea115b729b826db Mon Sep 17 00:00:00 2001
+From c4314f30905cded70a7d9572ab8792f5435008b2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 21:00:25 +0200
 Subject: [PATCH] MFront: data shared by all the integration points
@@ -152,10 +152,10 @@ index 5242ba1b4..5128af347 100644
    (`@CompareToNumericalJacobian`) prints its results on the standard
    output: it is only performed on the host.
 diff --git a/docs/web/release-notes-5.2.md b/docs/web/release-notes-5.2.md
-index 04553c99e..01982762d 100644
+index a427b6c2f..c31c7ddc7 100644
 --- a/docs/web/release-notes-5.2.md
 +++ b/docs/web/release-notes-5.2.md
-@@ -529,9 +529,31 @@ details](generic-parallel-material-property-interface.html).
+@@ -539,9 +539,31 @@ details](generic-parallel-material-property-interface.html).
  
  ### Available backends
  

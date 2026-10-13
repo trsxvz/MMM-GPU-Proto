@@ -1,13 +1,16 @@
 # Patches
 
-Series of patches giving this tree from TFEL master, commit `fec0ade99`
-(merge of pull request #1040, 01/10/2026):
+Series of patches giving this tree from TFEL master, commit `ff0959ece`
+(12/10/2026):
 
 ```bash
 git clone <official TFEL repository> tfel && cd tfel
-git checkout fec0ade99
-git am /path/to/patches/*.patch
+git checkout ff0959ece
+git am --keep-cr /path/to/patches/*.patch
 ```
+
+`--keep-cr` keeps the CRLF line endings of some files of TFEL (test
+behaviours), without which some patches do not apply.
 
 Patches:
 

@@ -1,4 +1,4 @@
-From 0f58645c7f61634eb210337e05947f3432a1bd24 Mon Sep 17 00:00:00 2001
+From 99b61c228f7cf5b45308d9a9a872e8a110e42f91 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:30:48 +0200
 Subject: [PATCH] generic-parallel tests: static variable of a quantity used in

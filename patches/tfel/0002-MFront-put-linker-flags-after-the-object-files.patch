@@ -1,4 +1,4 @@
-From a1299e3312f0866abbdeb30bf33ffd56e9e9ff5c Mon Sep 17 00:00:00 2001
+From 87370d74aec19b4a4b1f3ac10806d2171de61b96 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:18 +0200
 Subject: [PATCH] MFront: put linker flags after the object files

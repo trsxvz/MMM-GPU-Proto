@@ -1,4 +1,4 @@
-From c9dc1051003d4e356ca5dc69c5775fb45f30cd05 Mon Sep 17 00:00:00 2001
+From a03a9b5db4f9ead47e011ac87a1224a358acd49d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:34:20 +0200
 Subject: [PATCH] MFront: Poisson ratio of the stress update algorithm of the

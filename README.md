@@ -37,7 +37,7 @@ GPU.
 
 | Bibliothèque | Base officielle | Ce qui change | Détails |
 |---|---|---|---|
-| TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
+| TFEL/MFront | master `ff0959ece` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
 | MGIS | master `e8ef4b4` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
 | mfem-mgis | master `a011d97d6f` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, réutilisation de l'analyse de MUMPS, solveur direct cuDSS sur le GPU, assemblage ordonné de la tangente (mêmes résultats à chaque passage sur le GPU), corrections ; 128 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
 | mfem-mgis-examples | master `8397eec` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs ; 23 patchs | `patches/mfem-mgis-examples/` |
@@ -75,7 +75,7 @@ chaque bibliothèque : `tfel/docs/web/generic-parallel-*.md` pour TFEL,
 | `docs/` | documentation du prototype ; `docs/historique/` garde les documents de travail dépassés (relecture du 06/10, conception initiale de MGIS) |
 | `JOURNAL.md` | journal daté du travail |
 | `tfel/` | sources complètes de TFEL modifié, prêtes à compiler (copie du dernier commit, sans l'historique de TFEL) |
-| `patches/tfel/` | les mêmes changements en série de patchs depuis le master de TFEL (`git am`) |
+| `patches/tfel/` | les mêmes changements en série de patchs depuis le master de TFEL (`git am --keep-cr`) |
 | `patches/mgis/` | changements de MGIS en série de patchs depuis son master |
 | `mfem-mgis/`, `mfem-mgis-examples/`, `mm-opera-hpc/` | sources de ces dépôts (copie du dernier commit, sans leur historique) |
 | `patches/mfem-mgis/`, `patches/mfem-mgis-examples/`, `patches/mm-opera-hpc/` | leurs changements en séries de patchs depuis leur base |
@@ -109,8 +109,8 @@ TFEL, depuis le dépôt officiel :
 
 ```bash
 git clone <dépôt officiel de TFEL> tfel && cd tfel
-git checkout -b generic-parallel fec0ade99
-git am ../patches/tfel/*.patch
+git checkout -b generic-parallel ff0959ece
+git am --keep-cr ../patches/tfel/*.patch   # certains fichiers de TFEL sont en CRLF
 ```
 
 MGIS, depuis le dépôt officiel, contre ce TFEL :

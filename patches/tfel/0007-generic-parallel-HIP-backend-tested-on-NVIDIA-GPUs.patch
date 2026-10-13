@@ -1,4 +1,4 @@
-From 23d385719a611d56d12abfebcd478e490ef40f20 Mon Sep 17 00:00:00 2001
+From d198342b45d7123caa496f800bcc79eb2a40850a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:50:55 +0200
 Subject: [PATCH] generic-parallel: HIP backend tested on NVIDIA GPUs

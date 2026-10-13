@@ -1,4 +1,4 @@
-From f1ff182590c0cfab36ae1a67cd805e8268ff7d9b Mon Sep 17 00:00:00 2001
+From 0d0fa56247562367bb93b98cb697ea583fec4cbc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:42:08 +0200
 Subject: [PATCH] MFront: static variables of the code blocks unchanged in host

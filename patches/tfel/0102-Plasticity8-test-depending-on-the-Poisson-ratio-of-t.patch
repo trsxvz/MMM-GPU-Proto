@@ -1,4 +1,4 @@
-From 58890e6f520b5a34870ca468b6b4e3765a32aba6 Mon Sep 17 00:00:00 2001
+From 0b70ea2f4dff7535ffd3a54268d5482881ecf207 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:48:00 +0200
 Subject: [PATCH] Plasticity8: test depending on the Poisson ratio of the

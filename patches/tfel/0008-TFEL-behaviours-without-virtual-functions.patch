@@ -1,4 +1,4 @@
-From 1b621828da6d87783abb6c9a1460535056040f32 Mon Sep 17 00:00:00 2001
+From 480d44abbc5008f1a34a6b608d5d445ccebec65d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:52 +0200
 Subject: [PATCH] TFEL: behaviours without virtual functions

@@ -1,4 +1,4 @@
-From 631019468aa66164bafad84d321c13a50e6d8352 Mon Sep 17 00:00:00 2001
+From 96e751cfc92ee16bb4f1b9e7ede46ee2687705cd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 19:40:16 +0200
 Subject: [PATCH] generic-parallel interface: local variable of the

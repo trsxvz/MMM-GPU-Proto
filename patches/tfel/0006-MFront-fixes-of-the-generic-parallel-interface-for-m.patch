@@ -1,4 +1,4 @@
-From ce90192998c3b637907099eaa2636ec2ea45edbb Mon Sep 17 00:00:00 2001
+From 7e9d1694a00d2bcc759c431c54b61a281cf3f9dc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:35:40 +0200
 Subject: [PATCH] MFront: fixes of the generic-parallel interface for material

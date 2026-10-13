@@ -1,4 +1,4 @@
-From 9cd913eb21712a54d337640d0ebeac92f2725f56 Mon Sep 17 00:00:00 2001
+From 1c34c4fbe615580e2121382bc77d8fc52a285b1f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] TFEL: no recursion in the computation of the eigenvectors of

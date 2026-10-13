@@ -1,4 +1,4 @@
-From 81d4f51987cf44d8d69d180144189963731d24c2 Mon Sep 17 00:00:00 2001
+From 30e8027e2e0a3cd8632b0d2aedd374c40851ee39 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:01:09 +0200
 Subject: [PATCH] generic-parallel: options shared by the backends of both

@@ -1,4 +1,4 @@
-From 7af603d3141d6ddd97c90f53b554530b0f0225c0 Mon Sep 17 00:00:00 2001
+From d7ef84d3dc448f7ade9d6246941bec159c2cf333 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 05:44:57 +0200
 Subject: [PATCH] generic-parallel material properties: status of the warning

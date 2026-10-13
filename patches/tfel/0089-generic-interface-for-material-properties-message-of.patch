@@ -1,4 +1,4 @@
-From 4575da1fd945d609a8f4a904f37ab05f18bb069f Mon Sep 17 00:00:00 2001
+From b8da2c0697bb63be0c707cece88253f7f91aed1e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:15:20 +0200
 Subject: [PATCH] generic interface for material properties: message of the

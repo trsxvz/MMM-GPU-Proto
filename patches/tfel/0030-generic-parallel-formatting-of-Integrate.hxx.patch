@@ -1,4 +1,4 @@
-From c64629f1c705f634b6674cf3c29a42d4a5f86358 Mon Sep 17 00:00:00 2001
+From ffde3c0b7a73333375516dc1716b9e484ceef8cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:21:52 +0200
 Subject: [PATCH] generic-parallel: formatting of Integrate.hxx

@@ -1,4 +1,4 @@
-From 42d6521a47dcfb952e7fe4da1353f750570157ab Mon Sep 17 00:00:00 2001
+From 18521b1773920f761623c9878cbabe90317f6e47 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:18 +0200
 Subject: [PATCH] TFEL: device code support in mathematical and material

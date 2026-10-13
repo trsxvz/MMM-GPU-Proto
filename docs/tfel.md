@@ -5,9 +5,9 @@ pourquoi. Il s'adresse à qui veut comprendre ou relire ces changements.
 L'utilisation des interfaces, avec leurs exemples complets, est documentée
 dans l'arbre de TFEL (voir [la dernière section](#documentation-dans-larbre-de-tfel)).
 
-- Base : TFEL master `fec0ade99` (01/10/2026).
+- Base : TFEL master `ff0959ece` (12/10/2026).
 - Sources modifiées : `tfel/` (copie du dernier commit, sans l'historique de
-  TFEL). Série de patchs : `patches/tfel/` (82 patchs, `git am`).
+  TFEL). Série de patchs : `patches/tfel/` (`git am --keep-cr`).
 - Découpage prévu en contributions amont : [integration-amont.md](integration-amont.md).
 
 ## Sommaire

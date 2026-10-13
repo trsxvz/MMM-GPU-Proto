@@ -1,4 +1,4 @@
-From 9acaac8020e6a6636a4a5079b75e4a9e7efd3ca4 Mon Sep 17 00:00:00 2001
+From c089fd074da8a60cac7806edee46c0496e5051d9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 16:33:15 +0200
 Subject: [PATCH] CMake: argument of the endif of the hip-clang configuration

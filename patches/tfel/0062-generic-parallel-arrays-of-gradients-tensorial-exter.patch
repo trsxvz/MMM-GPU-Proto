@@ -1,4 +1,4 @@
-From ac3db18828a73e0e6570bbac83f1f9a6136fc771 Mon Sep 17 00:00:00 2001
+From 294cbce217af6b2e6e5daf3618b5c58318571134 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:26:10 +0200
 Subject: [PATCH] generic-parallel: arrays of gradients, tensorial external
