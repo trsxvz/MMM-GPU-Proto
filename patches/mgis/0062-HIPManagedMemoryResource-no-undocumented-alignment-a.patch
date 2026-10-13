@@ -1,0 +1,76 @@
+From 8e859b6a816f0131798a41e42b8a550ec6b7fdaa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:28:57 +0200
+Subject: [PATCH] HIPManagedMemoryResource: no undocumented alignment assumed
+
+The resource assumed that hipMallocManaged returns addresses aligned on
+256 bytes, which the documentation of HIP does not state (the alignment
+on 256 bytes is a guarantee of CUDA). Only the alignment of the
+fundamental types is now assumed, as for KokkosSharedSpaceMemoryResource:
+a stricter alignment is obtained by over-allocation.
+---
+ .../HIPManagedMemoryResource.hxx              | 29 +++++++++++--------
+ 1 file changed, 17 insertions(+), 12 deletions(-)
+
+diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+index 58746b3..2dd6f9c 100644
+--- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+@@ -17,6 +17,7 @@
+ 
+ #include <new>
+ #include <cstddef>
++#include <cstddef>
+ #include <memory_resource>
+ #include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ #include <hip/hip_runtime_api.h>
+@@ -26,9 +27,11 @@ namespace mgis::memory_resources {
+   /*!
+    * \brief memory resource allocating managed memory with the runtime of
+    * HIP, accessible by the host and by the devices (shared location of
+-   * the arrays of a material data manager). The managed memory is aligned
+-   * on 256 bytes: a stricter alignment, requested for instance by the pools
+-   * of the standard library, is obtained by over-allocation (see
++   * the arrays of a material data manager). The documentation of HIP gives
++   * no alignment for the managed memory (page-aligned in practice): only
++   * the alignment of the fundamental types is assumed, a stricter
++   * alignment, requested for instance by the pools of the standard
++   * library, being obtained by over-allocation (see
+    * `internals::allocateOverAligned`).
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+@@ -37,20 +40,22 @@ namespace mgis::memory_resources {
+   struct HIPManagedMemoryResource final : std::pmr::memory_resource {
+    private:
+     void* do_allocate(const std::size_t s, const std::size_t a) override {
+-      // the managed memory is aligned on 256 bytes at least
+-      return internals::allocateOverAligned(s, a, 256, [](const std::size_t n) {
+-        void* p = nullptr;
+-        if (hipMallocManaged(&p, n) != hipSuccess) {
+-          throw std::bad_alloc();
+-        }
+-        return p;
+-      });
++      // the managed memory is aligned for the fundamental types
++      return internals::allocateOverAligned(
++          s, a, alignof(std::max_align_t), [](const std::size_t n) {
++            void* p = nullptr;
++            if (hipMallocManaged(&p, n) != hipSuccess) {
++              throw std::bad_alloc();
++            }
++            return p;
++          });
+     }
+     void do_deallocate(void* const p,
+                        const std::size_t,
+                        const std::size_t a) override {
+       internals::deallocateOverAligned(
+-          p, a, 256, [](void* const b) { static_cast<void>(hipFree(b)); });
++          p, a, alignof(std::max_align_t),
++          [](void* const b) { static_cast<void>(hipFree(b)); });
+     }
+     bool do_is_equal(
+         const std::pmr::memory_resource& r) const noexcept override {
+-- 
+2.43.0
+
