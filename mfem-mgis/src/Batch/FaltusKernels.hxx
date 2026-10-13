@@ -116,73 +116,73 @@ namespace mfem_mgis::batch::internals {
    * center of the elements of a material: one thread per element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusCentersKernel(const GradientsKind,
-                                 const FaltusCentersKernelArguments&,
-                                 const bool);
+  void launchFaltusCentersKernel(const GradientsKind k,
+                                 const FaltusCentersKernelArguments& a,
+                                 const bool use_device);
   /*!
-   * \brief launches the kernel adding `Σ_q w_q Dᵀ α (F_q - F0)` to the inner
-   * forces of the elements of a material: one thread per element
+   * \brief launches the kernel adding `Σ_q w_q det J_q Dᵀ α (F_q - F0)` to the
+   * inner forces of the elements of a material: one thread per element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusInnerForcesKernel(const GradientsKind,
-                                     const FaltusInnerForcesKernelArguments&,
-                                     const bool);
+  void launchFaltusInnerForcesKernel(const GradientsKind k,
+                                     const FaltusInnerForcesKernelArguments& a,
+                                     const bool use_device);
   /*!
-   * \brief launches the kernel adding `α Σ_q w_q Dᵀ D` to the stiffness
-   * matrices of the elements of a material, stored element by element
-   * (`i + n * (j + n * e)` for the row `i` and the column `j` of the
-   * element `e` of the mesh): one thread per pair of nodes of an element
+   * \brief launches the kernel adding `α Σ_q w_q det J_q Dᵀ D` to the
+   * stiffness matrices of the elements of a material, stored element by
+   * element (`i + n * (j + n * e)` for the row `i` and the column `j` of
+   * the element `e` of the mesh): one thread per pair of nodes of an element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
    * \param[in, out] m: matrices element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusMatricesKernel(const GradientsKind,
-                                  const FaltusGeometryKernelArguments&,
-                                  real* const,
-                                  const bool);
+  void launchFaltusMatricesKernel(const GradientsKind k,
+                                  const FaltusGeometryKernelArguments& a,
+                                  real* const m,
+                                  const bool use_device);
   /*!
-   * \brief launches the kernel adding `α Σ_q w_q Dᵀ D` to an assembled
+   * \brief launches the kernel adding `α Σ_q w_q det J_q Dᵀ D` to an assembled
    * sparse matrix: one thread per node of an element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
    * \param[in] o: assembled matrix
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusMatricesKernel(const GradientsKind,
-                                  const FaltusGeometryKernelArguments&,
-                                  const SparseMatrixOutput&,
-                                  const bool);
+  void launchFaltusMatricesKernel(const GradientsKind k,
+                                  const FaltusGeometryKernelArguments& a,
+                                  const SparseMatrixOutput& o,
+                                  const bool use_device);
   /*!
-   * \brief launches the kernel adding the diagonals of `α Σ_q w_q Dᵀ D` to
-   * values element by element: one thread per node of an element
+   * \brief launches the kernel adding the diagonals of `α Σ_q w_q det J_q Dᵀ D`
+   * to values element by element: one thread per node of an element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in, out] v: values element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in, out] d: values element by element
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusDiagonalsKernel(const GradientsKind,
-                                   const FaltusGeometryKernelArguments&,
-                                   real* const,
-                                   const bool);
+  void launchFaltusDiagonalsKernel(const GradientsKind k,
+                                   const FaltusGeometryKernelArguments& a,
+                                   real* const d,
+                                   const bool use_device);
   /*!
-   * \brief launches the kernel adding the action of `α Σ_q w_q Dᵀ D` on
+   * \brief launches the kernel adding the action of `α Σ_q w_q det J_q Dᵀ D` on
    * values given element by element: one thread per element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
    * \param[in] x: values element by element
    * \param[in, out] y: action, element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFaltusActionKernel(const GradientsKind,
-                                const FaltusGeometryKernelArguments&,
-                                const real* const,
-                                real* const,
-                                const bool);
+  void launchFaltusActionKernel(const GradientsKind k,
+                                const FaltusGeometryKernelArguments& a,
+                                const real* const x,
+                                real* const y,
+                                const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

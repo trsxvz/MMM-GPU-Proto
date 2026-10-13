@@ -180,7 +180,8 @@ namespace mfem_mgis {
         auto iteration = Parameters{};
         add_to_iterations_information(iteration,
                                       false);  // Reaching this line means the
-                                               // linear solver didn't converge
+                                               // computation of the
+                                               // correction failed
         break;
       }
       //

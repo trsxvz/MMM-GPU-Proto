@@ -28,8 +28,9 @@ Problem solved
                 [   0  ,   0  ,  a ]
         with a = 0.012 s^-1
 
-        Solver : HypreGMRES
-        Preconditioner : HypreBoomerAMG
+        Solver : HypreGMRES (default, option -ls), or a direct solver
+                 (MUMPSSolver, or CuDSSSolver on a CUDA GPU)
+        Preconditioner : HypreBoomerAMG (HypreGMRES)
 
         Moduli and Norton behavior law parameters :
         [ parameters       , matrix   , inclusions ]
@@ -93,6 +94,12 @@ Available options
 +======================================+===================================+====================+
 | ``--mesh`` or ``-m``                 | Mesh file                         | mesh/OneSphere.msh |
 +--------------------------------------+-----------------------------------+--------------------+
+| ``--library`` or ``-l``              | Behaviour library. By default,    | built with the     |
+|                                      | the library built with the        | example            |
+|                                      | example, for the CPU or the GPU,  |                    |
+|                                      | as ``--execution`` places the     |                    |
+|                                      | behaviours                        |                    |
++--------------------------------------+-----------------------------------+--------------------+
 | ``--refinement`` or ``-r``           | Number of uniform refinements of  | 0                  |
 |                                      | the mesh                          |                    |
 +--------------------------------------+-----------------------------------+--------------------+
@@ -111,10 +118,36 @@ Available options
 | ``--reference-file`` or ``-rf``      | Reference values of the mean      | no comparison      |
 |                                      | stresses in each material         |                    |
 +--------------------------------------+-----------------------------------+--------------------+
+| ``--linear-solver`` or ``-ls``       | Linear solver: ``HypreGMRES``,    | HypreGMRES         |
+|                                      | preconditioned by                 |                    |
+|                                      | ``HypreBoomerAMG``, or a direct   |                    |
+|                                      | solver, ``MUMPSSolver`` or        |                    |
+|                                      | ``CuDSSSolver`` (on a CUDA GPU,   |                    |
+|                                      | MFEM being built with cuDSS)      |                    |
++--------------------------------------+-----------------------------------+--------------------+
+| ``--matrix-symmetry`` or ``-ms``     | Symmetry of the matrices given    | Unsymmetric        |
+|                                      | to the direct solver:             |                    |
+|                                      | ``Unsymmetric``,                  |                    |
+|                                      | ``SymmetricIndefinite`` or        |                    |
+|                                      | ``SymmetricPositiveDefinite``.    |                    |
+|                                      | The symmetric modes do not check  |                    |
+|                                      | the symmetry of the matrices.     |                    |
++--------------------------------------+-----------------------------------+--------------------+
+| ``--reuse-analysis`` or ``-mra``,    | Reuse or not the analysis of the  | no reuse           |
+| ``--no-reuse-analysis`` or           | direct solver (parameter          |                    |
+| ``-no-mra``                          | ``ReuseAnalysis``) for the        |                    |
+|                                      | matrices of the same pattern      |                    |
++--------------------------------------+-----------------------------------+--------------------+
 | ``--use-petsc`` and                  | Use PETSc with the given          | no PETSc           |
 | ``--petsc-configuration-file``       | configuration file. It requires   |                    |
 |                                      | MFEM built with PETSc.            |                    |
 +--------------------------------------+-----------------------------------+--------------------+
+
+The options ``-ms`` and ``-mra`` are ignored, with a warning, without a direct
+solver. With ``--use-petsc``, the options ``-ls``, ``-ms`` and ``-mra`` are
+ignored, with a warning. The example also accepts the other options of
+mfem-mgis, in particular ``--execution`` (see
+:ref:`mfem_mgis_batch_computations_execution`).
 
 Examples with other options:
 
@@ -153,8 +186,16 @@ time steps:
   mode. The average stress SZZ then differs by less than 9 % from the one
   computed with 40 time steps.
 
+The test ``mox2-mumps`` does the same on 2 processes with MUMPS and symmetric
+positive definite matrices (``-ls MUMPSSolver -ms SymmetricPositiveDefinite``).
+It requires MFEM built with MUMPS.
+
 The test ``mox2-petsc`` does the same with PETSc. It requires MFEM built with
 PETSc.
+
+With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` (see :doc:`index`), the tests
+``mox2-gpu`` and ``mox2-mixed-gpu`` do the same with ``--execution gpu`` and
+with ``--execution mixed --behaviours cpu``.
 
 Post-processing of simulation data
 ----------------------------------

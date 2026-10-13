@@ -135,13 +135,14 @@ namespace mfem_mgis {
   /*!
    * \return the integral of a scalar function, or the measure if no function
    * is given, over the elements of the quadrature space of a behaviour
-   * integrator owned by this process, computed by kernels, or an empty value
-   * if the post-processings are not computed by kernels (see
-   * `internals::usePostProcessingsKernels`) or if the behaviour integrator
-   * does not support kernels: the weight of an integration point is then
-   * `w det J`, as for all the behaviour integrators of mfem-mgis, or if the
-   * geometric data of the elements can't be computed by kernels (elements of
-   * different geometries)
+   * integrator owned by this process, computed by kernels with the weight
+   * `w det J` of the behaviour integrators of mfem-mgis (zero if this
+   * process owns no element of the space), or an empty value if the
+   * post-processings are not computed by kernels (see
+   * `internals::usePostProcessingsKernels`), if the behaviour integrator
+   * does not support kernels, or if the geometric data of the elements
+   * can't be computed by kernels (elements of different geometries). Throws
+   * if the values of the function can't be gathered or integrated.
    * \param[in] bi: behaviour integrator
    * \param[in] f: function, or null
    */

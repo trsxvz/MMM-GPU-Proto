@@ -53,16 +53,19 @@ namespace mfem_mgis::batch {
    * (derivative of `J0` with respect to the unknowns of the element). The
    * functions computing the stiffness matrices must be given the tangent
    * operator blocks from which `v` and `c` are computed (checked by
-   * `tangent_operator_blocks`). In plane strain, the third
-   * component of `F` and of the derivatives of the determinants are
-   * ignored, as by the FBar behaviour integrators (`F̄33 = 1`).
+   * `tangent_operator_blocks`). In plane strain, the third component of `F`
+   * and of the derivatives of the determinants are ignored in `v` and `c`,
+   * as by the FBar behaviour integrators (`F̄33 = 1`); `J` and `J0` are
+   * computed with the macroscopic `F33`, one by default.
    *
    * The data are computed with the gradients by kernels (`applyFBar`): the
    * tangent operator computed by kernels is the one of the unknowns of the
    * last computation of the gradients (or of the beginning of the time step
    * after a revert, see `revertFBarData`), whatever the unknowns given to
    * the assembly of the jacobian, and it can't be computed if the gradients
-   * have been computed element by element (see `valid`).
+   * have been computed element by element (see `valid`, set by the
+   * behaviour integrator; `computeFBarTangentOperator` does not check it,
+   * the caller must).
    */
   struct MFEM_MGIS_EXPORT FBarData {
     /*!
@@ -106,7 +109,8 @@ namespace mfem_mgis::batch {
      * \brief false if the gradients have been computed element by element
      * since the last computation of the data by kernels: the data do not
      * match the current unknowns, and the tangent operator can't be computed
-     * by kernels
+     * by kernels. It is set by the behaviour integrator:
+     * `computeFBarTangentOperator` does not check it, the caller must.
      */
     bool valid = true;
     //! \brief copies of the data at the beginning of the time step
@@ -133,14 +137,14 @@ namespace mfem_mgis::batch {
    * \param[in] qs: quadrature space of the material
    */
   MFEM_MGIS_EXPORT [[nodiscard]] const mfem::IntegrationRule*
-  getElementsCenterIntegrationRule(const PartialQuadratureSpace&);
+  getElementsCenterIntegrationRule(const PartialQuadratureSpace& qs);
   /*!
    * \return true if the FBar formulation is supported by the kernels for
    * the given kind of gradients (deformation gradient in 3D or in 2D)
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool isFBarSupportedByKernels(
-      const GradientsKind) noexcept;
+      const GradientsKind k) noexcept;
   /*!
    * \brief computes the data of the FBar formulation at the center of the
    * elements of a material and at its integration points, and replaces its
@@ -148,19 +152,19 @@ namespace mfem_mgis::batch {
    * by the gradients `F̄` of the FBar formulation
    * \return true on success
    * \param[in, out] ctx: execution context
-   * \param[out] data: data of the FBar formulation
+   * \param[in, out] data: data of the FBar formulation
    * \param[in, out] m: material
    * \param[in] d0: derivatives of the unknowns at the center of the
    * elements
    * \param[in] g0: geometric data of the center of the elements
    * \param[in] k: kind of the gradients
    */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool applyFBar(Context&,
-                                                FBarData&,
-                                                Material&,
-                                                const UnknownsDerivatives&,
-                                                const ElementsGeometry&,
-                                                const GradientsKind) noexcept;
+  MFEM_MGIS_EXPORT [[nodiscard]] bool applyFBar(Context& ctx,
+                                                FBarData& data,
+                                                Material& m,
+                                                const UnknownsDerivatives& d0,
+                                                const ElementsGeometry& g0,
+                                                const GradientsKind k) noexcept;
   /*!
    * \brief initializes the data of the FBar formulation of a material for
    * null unknowns (deformation gradients equal to the macroscopic
@@ -168,33 +172,35 @@ namespace mfem_mgis::batch {
    * (prediction of the first time step)
    * \return true on success
    * \param[in, out] ctx: execution context
-   * \param[out] data: data of the FBar formulation
+   * \param[in, out] data: data of the FBar formulation
    * \param[in] m: material
    * \param[in] g0: geometric data of the center of the elements
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool initializeFBar(
-      Context&,
-      FBarData&,
-      const Material&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      FBarData& data,
+      const Material& m,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief keeps the data of the FBar formulation, computed for the
    * converged unknowns of the time step, as the data at the beginning of the
-   * next time step (see `revertFBarData`)
+   * next time step (see `revertFBarData`). The tangent operator `K'` must
+   * then be computed again (`has_tangent_operator` is reset).
    * \param[in, out] data: data of the FBar formulation
    */
-  MFEM_MGIS_EXPORT void updateFBarData(FBarData&);
+  MFEM_MGIS_EXPORT void updateFBarData(FBarData& data);
   /*!
    * \brief restores the data of the FBar formulation at the beginning of the
    * time step, kept by `updateFBarData`, or, before the first update, removes
    * the data (the data at the beginning of the first time step are computed
    * for null unknowns, see `initializeFBar`, which supposes that the initial
-   * unknowns are null)
+   * unknowns are null). The tangent operator `K'` must then be computed
+   * again (`has_tangent_operator` is reset).
    * \param[in, out] data: data of the FBar formulation
    */
-  MFEM_MGIS_EXPORT void revertFBarData(FBarData&);
+  MFEM_MGIS_EXPORT void revertFBarData(FBarData& data);
   /*!
    * \brief computes the vectors `v` and `c` of the tangent operator `K'` at
    * the integration points of a material and the vectors `a` of its
@@ -209,12 +215,12 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeFBarTangentOperator(
-      Context&,
-      FBarData&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the stiffness matrices of the elements of a material in the
    * FBar formulation to matrices stored element by element (see
@@ -231,13 +237,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatrices(
-      Context&,
-      mfem::Vector&,
-      const FBarData&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& m,
+      const FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the stiffness matrices of the elements of a material in the
    * FBar formulation to an assembled sparse matrix (see
@@ -253,13 +259,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatrices(
-      Context&,
-      const AssembledStiffnessMatrix&,
-      const FBarData&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      const AssembledStiffnessMatrix& m,
+      const FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the diagonals of the stiffness matrices of the elements of
    * a material in the FBar formulation (see `addStiffnessMatricesDiagonals`)
@@ -274,13 +280,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatricesDiagonals(
-      Context&,
-      mfem::Vector&,
-      const FBarData&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& d,
+      const FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the action of the stiffness matrices of the elements of a
    * material in the FBar formulation, without assembling them (see
@@ -297,14 +303,14 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarTangentOperatorAction(
-      Context&,
-      mfem::Vector&,
-      const FBarData&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const mfem::Vector&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& y,
+      const FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const mfem::Vector& x,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

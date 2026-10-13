@@ -138,7 +138,17 @@ namespace mfem_mgis {
                                  mfem::ElementTransformation&,
                                  const mfem::Vector&,
                                  const IntegrationType) override;
+    /*!
+     * \brief revert the state of the material and the deformation gradients
+     * at the center of the elements computed by kernels to the beginning of
+     * the time step (see `batch::revertFaltusData`)
+     */
     void revert() override;
+    /*!
+     * \brief update the state of the material and the deformation gradients
+     * at the center of the elements computed by kernels at the end of the
+     * time step (see `batch::updateFaltusData`)
+     */
     void update() override;
     /*!
      * \return true in 3D and in plane strain (deformation gradient of the
@@ -150,27 +160,56 @@ namespace mfem_mgis {
     //! \return the integration rule of the center of the elements
     [[nodiscard]] std::vector<const mfem::IntegrationRule*>
     getAdditionalIntegrationRulesForKernels() const override;
+    /*!
+     * \brief compute the deformation gradients at all the integration points
+     * and at the center of the elements by kernels (see
+     * `batch::computeFaltusCenters`)
+     */
     [[nodiscard]] bool computeGradientsByKernels(
         Context&,
         const batch::UnknownsDerivativesSet&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the inner forces of all the elements, computed by kernels,
+     * including the regularization term (see `batch::addFaltusInnerForces`)
+     */
     [[nodiscard]] bool addInnerForcesByKernels(
         Context&,
         mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels, including the regularization term, to matrices stored element
+     * by element (see `batch::addFaltusStiffnessMatrices`)
+     */
     [[nodiscard]] bool addStiffnessMatricesByKernels(
         Context&,
         mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels, including the regularization term, to an assembled sparse
+     * matrix (see `batch::addFaltusStiffnessMatrices`)
+     */
     [[nodiscard]] bool addStiffnessMatricesByKernels(
         Context&,
         const batch::AssembledStiffnessMatrix&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the action of the stiffness matrices of all the elements,
+     * computed by kernels without assembling them, including the
+     * regularization term (see `batch::addFaltusTangentOperatorAction`)
+     */
     [[nodiscard]] bool addTangentOperatorActionByKernels(
         Context&,
         mfem::Vector&,
         const mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the diagonals of the stiffness matrices of all the
+     * elements, computed by kernels, including the regularization term (see
+     * `batch::addFaltusStiffnessMatricesDiagonals`)
+     */
     [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
         Context&,
         mfem::Vector&,

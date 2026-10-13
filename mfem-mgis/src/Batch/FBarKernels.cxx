@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/FBarKernels.cxx
- * \brief  This file implements the kernels of the FBar formulation. It
- * contains kernels of MFEM: it is compiled as CUDA code when MFEM is
- * compiled with CUDA.
+ * \brief  This file implements the kernels of the FBar formulation. It contains
+ * kernels of MFEM: it is compiled as CUDA or HIP code when MFEM is compiled
+ * with CUDA or HIP.
  * \date   11/10/2026
  */
 
@@ -75,6 +75,9 @@ namespace mfem_mgis::batch::internals {
   /*!
    * \return `(J0 / J)^(1/ie)`
    * \tparam K: kind of the gradients
+   * \param[in] J0: determinant of the deformation gradient at the center of
+   * the element
+   * \param[in] J: determinant of the deformation gradient at the point
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE inline real computeFBarCoefficient(const real J0,

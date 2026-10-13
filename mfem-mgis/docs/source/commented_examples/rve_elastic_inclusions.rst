@@ -55,7 +55,11 @@ Available options
 +==================================+==================================+======================+
 | ``--mesh`` or ``-m``             | Mesh file                        | cube_2mat_per.mesh   |
 +----------------------------------+----------------------------------+----------------------+
-| ``--library`` or ``-l``          | Material library                 | src/libBehaviour.so  |
+| ``--library`` or ``-l``          | Material library. By default,    | built with the       |
+|                                  | the library built with the       | example              |
+|                                  | example, for the CPU or the GPU, |                      |
+|                                  | as ``--execution`` places the    |                      |
+|                                  | behaviours                       |                      |
 +----------------------------------+----------------------------------+----------------------+
 | ``--order`` or ``-o``            | Finite element order             | 1                    |
 +----------------------------------+----------------------------------+----------------------+
@@ -72,3 +76,11 @@ Available options
 +----------------------------------+----------------------------------+----------------------+
 | ``--verbosity-level`` or ``-v``  | Verbosity level of the solvers   | 1                    |
 +----------------------------------+----------------------------------+----------------------+
+
+The example also accepts the options of mfem-mgis, such as ``--execution``
+(see :ref:`mfem_mgis_batch_computations_execution`).
+
+Its test ``rve`` runs the default case without post-processing. With the
+option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the tests ``rve-gpu``
+and ``rve-mixed-gpu`` do the same with ``--execution gpu`` and with
+``--execution mixed --behaviours cpu``.

@@ -67,14 +67,14 @@ namespace mfem_mgis::internals {
      * \param[in] c: communicator
      * \param[in] b: local condition
      */
-    [[nodiscard]] bool isSameOnAllProcesses(const mfem::HypreParMatrix&,
-                                            MPI_Comm,
-                                            const bool = true) const;
+    [[nodiscard]] bool isSameOnAllProcesses(const mfem::HypreParMatrix& A,
+                                            MPI_Comm c,
+                                            const bool b = true) const;
     /*!
      * \brief record the pattern of the local part of a matrix
      * \param[in] A: matrix
      */
-    void record(const mfem::HypreParMatrix&);
+    void record(const mfem::HypreParMatrix& A);
 
    private:
     //! \return true if the local part of a matrix has the recorded pattern
@@ -94,7 +94,7 @@ namespace mfem_mgis::internals {
    * \param[in] b: local condition
    * \param[in] c: communicator
    */
-  [[nodiscard]] bool isTrueOnAllProcesses(const bool, MPI_Comm);
+  [[nodiscard]] bool isTrueOnAllProcesses(const bool b, MPI_Comm c);
 
 }  // end of namespace mfem_mgis::internals
 

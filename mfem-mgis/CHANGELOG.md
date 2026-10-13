@@ -22,26 +22,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   mesh discretization, and the same functions for the default communicator
 - `synchronize` gathers the error messages of a context on all the
   processes of a communicator or of a mesh discretization
-- `IntegrationRuleOrder` parameter, to choose the order of the integration
-  rules of the behaviour integrators (8 points instead of 27 on the
-  hexahedra of order 1 with the order 3).
+- `IntegrationRuleOrder` parameter of the finite element discretization, to
+  choose the order of the integration rules of the behaviour integrators (8
+  points instead of 27 on the hexahedra of order 1 with the order 3).
 - execution settings: option `--execution cpu|gpu|mixed` and, in the mixed
   mode, `--finite-elements`, `--behaviours`, `--linear-solver-device` and
   `--post-processings` placing each phase on the CPU or on the GPU
   (`getExecutionSettings`); behaviour libraries and linear solvers checked
   against them; parameter `BehaviourExecutionLocation` of
-  `addBehaviourIntegrator` placing the behaviour of a material.
+  `addBehaviourIntegrator` giving the location expected for the behaviour
+  of a material.
 - CMake function `mfem_mgis_add_behaviours_library` (module
   `MFEMMGISBehaviours.cmake`): behaviour libraries for the CPU (generic
   interface) and for the GPU of MFEM (generic-parallel interface), chosen at
   run time by `getBehavioursLibrary` from the execution settings
 - `getMaterialArraysTransfers`: copies of the arrays of the materials
   between the host and the device, printed after the profiling table;
-  `MaterialArrays::read` and `readTangentOperatorBlocks`.
+  `MaterialArrays::read` and `MaterialArrays::readTangentOperatorBlocks`
+  (also available in `BehaviourIntegratorBase`).
+- integration of the behaviours by batches and computations by kernels of
+  the gradients, of the inner forces and of the tangent operator, on the
+  host or on a GPU: parameters `BehaviourIntegration`,
+  `GradientsComputation`, `InnerForcesComputation`,
+  `TangentOperatorComputation` and `TangentOperatorAssembly` (`Atomic` or
+  `Ordered`) of the non linear evolution problems, and environment
+  variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`
+  and `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`; FBar and Faltus
+  regularizations computed by kernels
+- tangent operator applied without assembly (`TangentOperatorComputation`
+  set to `MatrixFree`) and preconditioner `AssembledOperator`
+- post-processings computed by kernels (environment variable
+  `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`)
+- `FixedPoint` non linear solver (methods `ElasticOperator`,
+  `ModifiedNewton` and `NewtonK0`) and its acceleration algorithms
+  (`Anderson`, `UAnderson`, `FAnderson`, secant methods, `IronsTuck`,
+  `Steffensen`, `Cast3M`...)
+- `AdaptiveLinearSolverTolerance` option (Eisenstat-Walker) of the Newton
+  solver and of the `NewtonK0` method
+- solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
+  cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
+  `AbsoluteTolerance` of the Krylov solvers of hypre; options of
+  `HypreBoomerAMG` (`StrengthThreshold`, `CoarseningType`,
+  `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`...);
+  preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother`
+- options `--device`, `--hypre-device-pool-size`, `--hypre-on-host` and
+  `--kokkos` read by `mfem_mgis::initialize` (environment variables
+  `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
+  CMake options `enable-gpu-tests` and `enable-kokkos`
+- CMake module `MFEMMGISDeviceCode.cmake`, compiling the sources containing
+  kernels of MFEM as CUDA or HIP code; MFEM compiled with HIP is supported
+  (compiled and linked, not run on an AMD GPU yet)
 
 ### Changed
 
 - use std::span instead of mgis::span
+- the arrays of the materials are stored in the memory of MFEM: after a
+  computation on a GPU, a direct access to `s0`, `s1` or `K` on the host
+  requires `synchronizeOnHost`; `Material` privately inherits from
+  `MaterialArrays` and its constructor takes a layout (`mgis::FieldLayout`)
 - partial quadrature spaces are associated with a location (material or
   boundary). Partial quadrature spaces defined on a boundary using a finite
   element discretization are built on the boundary elements of the mesh

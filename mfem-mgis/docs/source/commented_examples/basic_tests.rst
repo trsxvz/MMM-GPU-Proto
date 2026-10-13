@@ -10,14 +10,19 @@ website : https://github.com/latug0/mfem-mgis-examples/tree/master/ex1
 
 The sources of this example live in mfem-mgis, in
 ``tests/UniaxialTensileTest.cxx``. They are installed in
-``share/mfem-mgis/examples/ex1``.
+``share/mfem-mgis/examples/ex1``. The executable is called
+``uniaxial_tensile_test`` in mfem-mgis-examples and ``UniaxialTensileTest``
+in the copy installed by mfem-mgis. The behaviour library is built with the
+example for the CPU and, if MFEM uses a GPU, for the GPU.
 
 Description:
 
 This example is a cyclic tension-compression test on a unit cube. The
 imposed axial strain goes up to 0.9 %, down to -2.1 % and back up to
 1.9 %, in 100 time steps. Its test compares the results to the reference
-file ``IsotropicLinearHardeningPlasticity.ref``.
+file ``IsotropicLinearHardeningPlasticity.ref``. With the option
+``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the test
+``uniaxial_tensile_test-gpu`` does the same with ``--execution gpu``.
 
 .. figure:: img/ex1Start.png
     :alt: Illustration of the start of the TensileTest simulation.
@@ -68,7 +73,10 @@ Available options
 +========================================+====================================+======================================+
 | ``--mesh`` or ``-m``                   | Mesh file                          | cube.mesh                            |
 +----------------------------------------+------------------------------------+--------------------------------------+
-| ``--library`` or ``-l``                | Material library                   | src/libBehaviour.so                  |
+| ``--library`` or ``-l``                | Material library                   | the library built with the example,  |
+|                                        |                                    | for the CPU or the GPU, as           |
+|                                        |                                    | ``--execution`` places the           |
+|                                        |                                    | behaviours                           |
 +----------------------------------------+------------------------------------+--------------------------------------+
 | ``--behaviour`` or ``-b``              | Name of the behaviour              | IsotropicLinearHardeningPlasticity   |
 +----------------------------------------+------------------------------------+--------------------------------------+
@@ -106,18 +114,29 @@ Available options
 | ``--no-post-processing`` or ``-no-pp`` | Paraview                           |                                      |
 +----------------------------------------+------------------------------------+--------------------------------------+
 
+The example also accepts the options of mfem-mgis, declared by
+``mfem_mgis::declareDefaultOptions``, in particular ``--execution`` (``cpu``,
+``gpu`` or ``mixed``), which places the computations on the CPU or on the GPU
+(see :ref:`mfem_mgis_batch_computations_execution`).
+
 TwoLayerCube
 ------------
 
 website: https://github.com/latug0/mfem-mgis-examples/tree/master/ex3
 
 The sources of this example live in mfem-mgis, in ``tests/TwoLayerCube.cxx``.
-They are installed in ``share/mfem-mgis/examples/ex3``.
+They are installed in ``share/mfem-mgis/examples/ex3``. The executable is
+called ``two_layer_cube`` in mfem-mgis-examples and ``TwoLayerCube`` in the
+copy installed by mfem-mgis. The behaviour library is built with the example
+for the CPU and, if MFEM uses a GPU, for the GPU.
 
 Description:
 
 Periodic unit cube made of two elastic layers. A macroscopic strain is
-imposed. The solution is compared to the analytical one.
+imposed. The solution is compared to the analytical one. The tests
+``two_layer_cube-0`` to ``two_layer_cube-5`` run the six loading cases. With
+the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the test
+``two_layer_cube-0-gpu`` runs the first case with ``--execution gpu``.
 
 Problem solved
 ~~~~~~~~~~~~~~
@@ -170,7 +189,11 @@ Available options
 +==================================+==================================+======================+
 | ``--mesh`` or ``-m``             | Mesh file                        | cube_2mat_per.mesh   |
 +----------------------------------+----------------------------------+----------------------+
-| ``--library`` or ``-l``          | Material library                 | src/libBehaviour.so  |
+| ``--library`` or ``-l``          | Material library. By default,    | built with the       |
+|                                  | the library built with the       | example              |
+|                                  | example, for the CPU or the GPU, |                      |
+|                                  | as ``--execution`` places the    |                      |
+|                                  | behaviours                       |                      |
 +----------------------------------+----------------------------------+----------------------+
 | ``--order`` or ``-o``            | Finite element order             | 1                    |
 +----------------------------------+----------------------------------+----------------------+
@@ -203,6 +226,9 @@ Available options
 | ``--no-check`` or ``-no-c``      | the analytical one. It is only   |                      |
 |                                  | valid for the provided meshes.   |                      |
 +----------------------------------+----------------------------------+----------------------+
+
+The example also accepts the options of mfem-mgis, such as ``--execution``
+(see :ref:`mfem_mgis_batch_computations_execution`).
 
 Satoh
 -----
@@ -249,7 +275,11 @@ Problem solved
 Run the simulation
 ~~~~~~~~~~~~~~~~~~
 
-Parameters are hardcoded in this example.
+The parameters of the problem are hardcoded in this example. Its only option
+is ``--library`` (``-l``), the behaviour library: by default, the library
+built with the example, for the CPU or the GPU, as ``--execution`` places the
+behaviours. It also accepts the options of mfem-mgis, such as ``--execution``
+(see :ref:`mfem_mgis_batch_computations_execution`).
 
 .. code-block:: bash
 
@@ -259,6 +289,11 @@ Parameters are hardcoded in this example.
 
    The example runs sequentially. A parallel run needs ``parallel`` set to
    ``true`` in the source code and a parallel linear solver.
+
+Its test ``satoh`` checks the imposed temperature and the reactions of the
+left and right boundaries. With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of
+the examples, the test ``satoh-gpu`` does the same with ``--execution mixed
+--linear-solver-device cpu`` (UMFPack computes on the CPU).
 
 Ssna303 Example (2D and 3D)
 ---------------------------
@@ -314,7 +349,7 @@ Three executables solve this problem with different linear solvers:
 - ``ssna303_3d_mumps`` uses MUMPS in parallel and UMFPack sequentially. It
   requires MFEM built with MUMPS. It also offers the FBar formulation.
 - ``ssna303_3d_hypre`` uses the FGMRES solver of hypre with the BoomerAMG
-  preconditioner.
+  preconditioner. It also offers the FBar formulation.
 - ``ssna303_3d_petsc`` uses PETSc with the configuration file ``rc_ex10p``.
   It requires MFEM built with PETSc.
 
@@ -332,6 +367,10 @@ Available options
 +======================================+===================================+========================+
 | ``--order`` or ``-o``                | Finite element order              | 1                      |
 +--------------------------------------+-----------------------------------+------------------------+
+| ``--integration-rule-order`` or      | Order of the integration rules    | -1, the default rule   |
+| ``-iro``                             | (for instance 3 for 8 points by   | of mfem-mgis           |
+|                                      | element instead of 27).           |                        |
++--------------------------------------+-----------------------------------+------------------------+
 | ``--nbsteps`` or ``-ns``             | Number of time steps              | 50                     |
 +--------------------------------------+-----------------------------------+------------------------+
 | ``--end-time`` or ``-et``            | End time. The displacement of the | 1                      |
@@ -342,7 +381,7 @@ Available options
 +--------------------------------------+-----------------------------------+------------------------+
 | ``--use-fbar`` or ``-fb``,           | Use or not the FBar formulation.  | no FBar                |
 | ``--no-use-fbar`` or ``-no-fb``      | It requires MGIS built with TFEL. |                        |
-|                                      | Only for ``ssna303_3d_mumps``.    |                        |
+|                                      | Not for ``ssna303_3d_petsc``.     |                        |
 +--------------------------------------+-----------------------------------+------------------------+
 | ``--standard-reference-file`` or     | Reference values computed without | no comparison          |
 | ``-srf``                             | FBar, compared with a larger      |                        |
@@ -367,11 +406,24 @@ Available options
 | ``--profiling`` or ``-prof``,        | Print the time spent in each      | no profiling           |
 | ``--no-profiling`` or ``-no-prof``   | phase of the computation.         |                        |
 +--------------------------------------+-----------------------------------+------------------------+
+| ``--library`` or ``-l``              | Behaviour library                 | the library built with |
+|                                      |                                   | the example, for the   |
+|                                      |                                   | CPU or the GPU, as     |
+|                                      |                                   | ``--execution`` places |
+|                                      |                                   | the behaviours         |
++--------------------------------------+-----------------------------------+------------------------+
+| ``--paraview`` or ``-pv``,           | Export or not the displacements   | export                 |
+| ``--no-paraview`` or ``-no-pv``      | for ParaView at each step. Only   |                        |
+|                                      | for ``ssna303_3d_hypre``.         |                        |
++--------------------------------------+-----------------------------------+------------------------+
 | ``--use-petsc`` and                  | Use PETSc with the given          | ``rc_ex10p`` for       |
 | ``--petsc-configuration-file``       | configuration file. It requires   | ``ssna303_3d_petsc``,  |
 |                                      | MFEM built with PETSc. Not for    | no PETSc otherwise     |
 |                                      | ``ssna303_3d_hypre``.             |                        |
 +--------------------------------------+-----------------------------------+------------------------+
+
+The three executables also accept the options of mfem-mgis, such as
+``--execution`` (see :ref:`mfem_mgis_batch_computations_execution`).
 
 Tests
 ~~~~~
@@ -387,3 +439,9 @@ values without FBar with a larger tolerance.
 
 The test ``ssna303_3d_petsc`` always computes one time step up to 0.02. It
 compares the resultant force to ``ssna303_3d-force-1step.ref``.
+
+With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the test
+``ssna303_3d_hypre-gpu`` runs the test of ``ssna303_3d_hypre`` with
+``--execution gpu``, and, if MFEM is built with MUMPS, the test
+``ssna303_3d_mumps-gpu`` runs the test of ``ssna303_3d_mumps`` with
+``--execution mixed --linear-solver-device cpu`` (MUMPS computes on the CPU).

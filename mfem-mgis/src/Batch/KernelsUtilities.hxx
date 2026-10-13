@@ -21,7 +21,10 @@ namespace mfem_mgis::batch::internals {
     return real{0.70710678118654752440};
   }  // end of getInverseOfSquareRootOfTwo
 
-  //! \return true for the gradients of the heat transfer behaviours
+  /*!
+   * \return true for the gradients of the stationary heat transfer
+   * behaviours (temperature gradient)
+   */
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr bool isTemperatureGradient() {
     return (K == GradientsKind::TEMPERATURE_GRADIENT_3D) ||
@@ -69,7 +72,7 @@ namespace mfem_mgis::batch::internals {
   /*!
    * \return the number of components of the unknowns for the given kind of
    * gradients: the dimension of the space (displacement) or one
-   * (temperature)
+   * (temperature, micromorphic damage)
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE constexpr int getUnknownsSize() {
@@ -149,10 +152,9 @@ namespace mfem_mgis::batch::internals {
    * \brief computes the inverse of a jacobian
    * \tparam N: dimension
    * \param[out] iJ: inverse, `iJ[i + N * j]` being the component `(i, j)`
-   * \param[in] J: jacobian at the point of the element (`nq` points per
-   * element, layout of `mfem::GeometricFactors`): `J[nq * (i + N * j)]` is
-   * the component `(i, j)`
-   * \param[in] nq: number of points per element
+   * \param[in] J: jacobian, `J[nq * (i + N * j)]` being the component
+   * `(i, j)`
+   * \param[in] nq: stride between two components (1 for a local array)
    * \param[in] detJ: determinant of the jacobian
    */
   template <int N>
@@ -211,7 +213,7 @@ namespace mfem_mgis::batch::internals {
    * \param[in] q: integration point
    * \param[in] nq: number of integration points
    * \param[in] node: node
-   * \param[in] iJ: inverse of the jacobian (see `invertJacobian`)
+   * \param[in] iJ: inverse of the jacobian (see `loadInverseJacobian`)
    */
   template <int N>
   MFEM_HOST_DEVICE inline void computePhysicalDerivatives(
@@ -456,7 +458,7 @@ namespace mfem_mgis::batch::internals {
    * coordinates at the center of the element (`dr[i + V * r]`, see
    * `UnknownsDerivatives`), null for null unknowns
    * \param[in] iJ: inverse of the jacobian at the center (see
-   * `invertJacobian`)
+   * `loadInverseJacobian`)
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE inline void computeDeformationGradientAtCenter(

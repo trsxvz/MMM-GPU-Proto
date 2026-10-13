@@ -69,7 +69,11 @@ namespace mfem_mgis {
         const mfem::Vector& r,
         const mfem::Vector& u,
         AdaptiveLinearSolverToleranceUpdater* const t) const noexcept;
-    //! \brief relative tolerance of the linear solver
+    /*!
+     * \brief settings of the relative tolerance of the linear solver adapted
+     * to the decrease of the residual (option
+     * `AdaptiveLinearSolverTolerance`), disabled by default
+     */
     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
   };  // end of struct NewtonSolver
 

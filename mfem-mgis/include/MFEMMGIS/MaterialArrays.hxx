@@ -66,9 +66,10 @@ namespace mfem_mgis {
    *   made valid on the host for reading after its integration on the
    *   device.
    *
-   * Without device (`cpu`, `omp`), both steps do nothing. With the `debug`
-   * device of MFEM, the copies are made between the memory of the host and
-   * a separate memory, which detects the violations of these rules.
+   * Without device (`cpu`, `omp`), the synchronizations do nothing, the
+   * copy on the host being the only one. With the `debug` device of MFEM,
+   * the copies are made between the memory of the host and a separate
+   * memory, which detects the violations of these rules.
    */
   struct MFEM_MGIS_EXPORT MaterialArrays {
     //! \brief arrays of a state of the material
@@ -85,9 +86,10 @@ namespace mfem_mgis {
      * \param[in] n: number of integration points
      * \param[in] l: layout of the arrays
      */
-    MaterialArrays(const Behaviour&,
-                   const size_type,
-                   const mgis::FieldLayout = mgis::FieldLayout::POINT_BY_POINT);
+    MaterialArrays(
+        const Behaviour& b,
+        const size_type n,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \return the initializer of the material data manager of MGIS using
      * these arrays
@@ -113,7 +115,7 @@ namespace mfem_mgis {
      * \param[in] a: array
      * \param[in] s: state
      */
-    void synchronizeOnHost(const StateArray, const TimeStepStage);
+    void synchronizeOnHost(const StateArray a, const TimeStepStage s);
     /*!
      * \brief makes the copy of one array of a state on the host valid,
      * keeping its copy on the device valid (see
@@ -121,8 +123,8 @@ namespace mfem_mgis {
      * \param[in] a: array
      * \param[in] s: state
      */
-    void synchronizeOnHostForReading(const StateArray,
-                                     const TimeStepStage) const;
+    void synchronizeOnHostForReading(const StateArray a,
+                                     const TimeStepStage s) const;
     /*!
      * \brief makes the copy of the blocks of the tangent operator on the
      * host valid, keeping their copy on the device valid
@@ -136,7 +138,8 @@ namespace mfem_mgis {
      * \param[in] a: array
      * \param[in] s: state
      */
-    const mfem::Vector& getArray(const StateArray, const TimeStepStage) const;
+    const mfem::Vector& getArray(const StateArray a,
+                                 const TimeStepStage s) const;
     //! \return the blocks of the tangent operator, for read-only accesses
     const mfem::Vector& getTangentOperatorBlocks() const;
     /*!
@@ -148,16 +151,16 @@ namespace mfem_mgis {
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    const real* read(const StateArray,
-                     const TimeStepStage,
-                     const bool = true) const;
+    const real* read(const StateArray a,
+                     const TimeStepStage s,
+                     const bool d = true) const;
     /*!
      * \return a pointer to the blocks of the tangent operator, for reading
      * them on the device (or on the host), the copy made being counted
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    const real* readTangentOperatorBlocks(const bool = true) const;
+    const real* readTangentOperatorBlocks(const bool d = true) const;
     /*!
      * \return a pointer to the values of an array of a state, for reading
      * and writing them on the device (or on the host): see
@@ -167,7 +170,9 @@ namespace mfem_mgis {
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* readWrite(const StateArray, const TimeStepStage, const bool = true);
+    real* readWrite(const StateArray a,
+                    const TimeStepStage s,
+                    const bool d = true);
     /*!
      * \return a pointer to the values of an array of a state, for writing
      * them on the device (or on the host): see `mfem::Vector::Write`
@@ -176,21 +181,21 @@ namespace mfem_mgis {
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* write(const StateArray, const TimeStepStage, const bool = true);
+    real* write(const StateArray a, const TimeStepStage s, const bool d = true);
     /*!
      * \return a pointer to the blocks of the tangent operator, for reading
      * and writing them on the device (or on the host)
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* readWriteTangentOperatorBlocks(const bool = true);
+    real* readWriteTangentOperatorBlocks(const bool d = true);
     /*!
      * \return a pointer to the blocks of the tangent operator, for writing
      * them on the device (or on the host)
      * \param[in] d: if true, the values are accessed on the device (if a
      * device is enabled)
      */
-    real* writeTangentOperatorBlocks(const bool = true);
+    real* writeTangentOperatorBlocks(const bool d = true);
     //! \brief destructor
     ~MaterialArrays();
     //! \brief layout of the arrays
@@ -218,7 +223,10 @@ namespace mfem_mgis {
    * device, made by the accesses of `MaterialArrays` (reads, reads and
    * writes, synchronizations on the host) when the accessed copy was not
    * valid. The copies made by the reads through `getArray` or
-   * `getTangentOperatorBlocks` are not counted.
+   * `getTangentOperatorBlocks` are not counted, nor the copies to the device
+   * of the material properties, of the external state variables and of the
+   * mass density made at each integration on the device (see
+   * `Material::makeDeviceView`), nor the ones of the rotation matrices.
    */
   struct MaterialArraysTransfers {
     //! \brief number of copies from the host to the device
@@ -250,6 +258,7 @@ namespace mfem_mgis {
    * enabled in MFEM (`Read`, `Write`, `ReadWrite`): the memory of the host
    * for the `debug` device of MFEM, whose copies on the device are in the
    * memory of the host, the memory of the device otherwise
+   * \pre a device is enabled in MFEM (`DEVICE` is also returned otherwise)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] mgis::MemoryLocation
   getDeviceMemoryLocation() noexcept;

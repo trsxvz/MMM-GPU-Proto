@@ -21,7 +21,8 @@ namespace mfem_mgis::internals {
    * \param[in] opts: options
    */
   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
-  makeAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  makeAndersonAccelerationAlgorithm(Context& ctx,
+                                    const Parameters& opts) noexcept;
   /*!
    * \return Anderson's method on the fixed point residuals, accelerating
    * every two iterations by default, as `UAnderson` in MTest
@@ -29,7 +30,8 @@ namespace mfem_mgis::internals {
    * \param[in] opts: options
    */
   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
-  makeUAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  makeUAndersonAccelerationAlgorithm(Context& ctx,
+                                     const Parameters& opts) noexcept;
   /*!
    * \return Anderson's method on the residuals of the problem, accelerating
    * every two iterations by default, as `FAnderson` in MTest
@@ -37,21 +39,23 @@ namespace mfem_mgis::internals {
    * \param[in] opts: options
    */
   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
-  makeFAndersonAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  makeFAndersonAccelerationAlgorithm(Context& ctx,
+                                     const Parameters& opts) noexcept;
   /*!
    * \brief declares the algorithms based on secant and delta squared methods
    * (`Secant`, `CrossedSecant`, ...)
    * \param[in, out] f: factory
    */
   void declareSecantAccelerationAlgorithms(
-      AccelerationAlgorithmFactory&) noexcept;
+      AccelerationAlgorithmFactory& f) noexcept;
   /*!
    * \return the acceleration of Cast3M (see `AccelerationAlgorithmFactory`)
    * \param[in, out] ctx: execution context
    * \param[in] opts: options
    */
   [[nodiscard]] std::unique_ptr<AccelerationAlgorithm>
-  makeCast3MAccelerationAlgorithm(Context&, const Parameters&) noexcept;
+  makeCast3MAccelerationAlgorithm(Context& ctx,
+                                  const Parameters& opts) noexcept;
 
 }  // end of namespace mfem_mgis::internals
 

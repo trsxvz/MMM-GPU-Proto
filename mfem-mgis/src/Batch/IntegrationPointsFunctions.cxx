@@ -115,7 +115,11 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of makeKernelArguments
 
-  //! \return an error message reporting an exception
+  /*!
+   * \return an error message reporting the exception being handled (to be
+   * called in a `catch` block only)
+   * \param[in] name: name of the calling function
+   */
   static std::string getExceptionMessage(const char* const name) {
     try {
       throw;

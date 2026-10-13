@@ -2,6 +2,7 @@
  * \file include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
  * \brief  This file declares the
  * `BidimensionalMicromorphicDamageBehaviourIntegrator` class
+ * \author Thomas Helfer
  * \date   07/12/2021
  */
 
@@ -46,12 +47,12 @@ namespace mfem_mgis {
 
   /*!
    * \brief behaviour integrator dedicated to micromorphic damage in two
-   dimensions (the modelling hypothesis has no effect on this specific
-   behaviour as out of plane damage gradients are assumed to be zero). The
-   gradients are the micromorphic damage and its gradient, the thermodynamic
-   forces their dual forces, and the tangent operator blocks the derivative
-   of the first dual force with respect to the micromorphic damage and the
-   derivative of the second dual force with respect to the gradient.
+   * dimensions (the modelling hypothesis has no effect on this specific
+   * behaviour as out of plane damage gradients are assumed to be zero). The
+   * gradients are the micromorphic damage and its gradient, the thermodynamic
+   * forces their dual forces, and the tangent operator blocks the derivative of
+   * the first dual force with respect to the micromorphic damage and the
+   * derivative of the second dual force with respect to the gradient.
    */
   struct MFEM_MGIS_EXPORT
       BidimensionalMicromorphicDamageBehaviourIntegrator final

@@ -31,10 +31,11 @@ namespace mfem_mgis {
    * The algorithms follow the ones of MTest (TFEL): they are given, at each
    * iteration, the new estimate `x_{i+1}`, the correction `x_{i+1} - x_i`
    * and the residual `r(x_i)`, and may replace the new estimate by an
-   * accelerated one. They only use linear combinations and scalar products
-   * of vectors (`mfem::Vector`, on the device if the vectors are), the
-   * scalar products being reduced over all the processes by the function
-   * given to `initialize`.
+   * accelerated one. Except `Steffensen`, which combines the components of
+   * the vectors on the host, they only use linear combinations and scalar
+   * products of vectors (`mfem::Vector`, on the device if the vectors are),
+   * the scalar products being reduced over all the processes by the
+   * function given to `initialize`.
    */
   struct MFEM_MGIS_EXPORT AccelerationAlgorithm {
     //! \brief scalar product reduced over all the processes
@@ -46,7 +47,7 @@ namespace mfem_mgis {
      * \param[in] n: number of unknowns of the current process
      * \param[in] dot: scalar product
      */
-    virtual void initialize(const size_type, ScalarProduct) = 0;
+    virtual void initialize(const size_type n, ScalarProduct dot) = 0;
     /*!
      * \brief accelerates the fixed point iterations
      * \param[in, out] x: new estimate `x_{i+1}`, replaced by the accelerated
@@ -55,19 +56,22 @@ namespace mfem_mgis {
      * correction `du` given to the algorithms of MTest)
      * \param[in] r: residual at the previous estimate `x_i`
      * \param[in] r_eps: scale of the residual (the convergence criterion on
-     * the residual), below which differences of residuals are considered
-     * null
+     * the residual), from which the algorithms deduce the threshold below
+     * which differences of residuals are considered null (100 times this
+     * scale times the machine epsilon, as in MTest)
      * \param[in] u_eps: scale of the unknowns (an estimate of the variation
      * of the unknowns when the residual reaches its convergence criterion),
-     * below which differences of unknowns are considered null
+     * from which the algorithms deduce the threshold below which
+     * differences of unknowns are considered null (100 times this scale
+     * times the machine epsilon, as in MTest)
      * \param[in] i: iteration number, starting at 1
      */
-    virtual void execute(mfem::Vector&,
-                         const mfem::Vector&,
-                         const mfem::Vector&,
-                         const real,
-                         const real,
-                         const size_type) = 0;
+    virtual void execute(mfem::Vector& x,
+                         const mfem::Vector& dx,
+                         const mfem::Vector& r,
+                         const real r_eps,
+                         const real u_eps,
+                         const size_type i) = 0;
     //! \brief destructor
     virtual ~AccelerationAlgorithm();
   };  // end of struct AccelerationAlgorithm
@@ -109,7 +113,9 @@ namespace mfem_mgis {
      * \param[in] n: name of the algorithm
      * \param[in] g: generator
      */
-    [[nodiscard]] bool add(Context&, std::string_view, Generator) noexcept;
+    [[nodiscard]] bool add(Context& ctx,
+                           std::string_view n,
+                           Generator g) noexcept;
     /*!
      * \return the acceleration algorithm of the given name, set by the given
      * options, or a null pointer on error
@@ -118,7 +124,9 @@ namespace mfem_mgis {
      * \param[in] opts: options
      */
     [[nodiscard]] std::unique_ptr<AccelerationAlgorithm> generate(
-        Context&, std::string_view, const Parameters&) const noexcept;
+        Context& ctx,
+        std::string_view n,
+        const Parameters& opts) const noexcept;
 
    private:
     //! \brief default constructor, declaring the default algorithms

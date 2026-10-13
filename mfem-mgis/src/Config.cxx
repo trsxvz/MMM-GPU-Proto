@@ -111,9 +111,11 @@ namespace mfem_mgis {
     //! \brief boolean stating if PETSc shall be used
     bool use_petsc = false;
     /*!
-     * \brief MFEM device, created if the `--device` option is given. It is
-     * kept until the end of the program, since MFEM objects using it may
-     * be destroyed after `finalize`.
+     * \brief MFEM device, created by `initialize` (option `--device`,
+     * environment variable `MFEM_MGIS_DEVICE`, or device `gpu` by default in
+     * the `gpu` and `mixed` execution modes). It is kept until the end of
+     * the program, since MFEM objects using it may be destroyed after
+     * `finalize`.
      */
     std::unique_ptr<mfem::Device> device;
     //! \brief boolean stating if Kokkos has been initialized by mfem-mgis

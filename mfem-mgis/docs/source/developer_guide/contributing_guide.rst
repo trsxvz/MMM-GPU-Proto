@@ -12,7 +12,7 @@ Using the issue tracker
 
 The issue tracker is the preferred channel for bug reports, feature requests and submitting pull requests, but please respect the following restrictions:
 
-    Please do not use the issue tracker for personal support requests (contact the authors directly at ``tfel-contact@cea.fr``).
+Please do not use the issue tracker for personal support requests (contact the authors directly at ``tfel-contact@cea.fr``).
 
 Bug reports
 -----------
@@ -25,7 +25,7 @@ Guidelines for bug reports:
 
   * Check if the issue has been fixed: try to reproduce it using the latest master or development branch in the repository.
 
-  * Isolate the problem: ideally create a [reduced test case].
+  * Isolate the problem: ideally create a reduced test case.
 
 A good bug report shouldn't leave others needing to chase you up for more information. Please try to be as detailed as possible in your report. What is your environment? What steps will reproduce the issue? On what compiler(s) and OS does the problem occur? What would you expect to be the outcome? All these details will help people to fix any potential bugs.
 
@@ -50,7 +50,9 @@ Feature requests
 
 
 Feature requests are welcome. But take a moment to find out whether your idea fits with the scope and aims of the project. It's up to you to make a strong case to convince the project's developers of the merits of this feature. Please provide as much detail and context as possible.
+
 Pull requests
+-------------
 
 Good pull requests - patches, improvements, new features - are a fantastic help. They should remain focused in scope and avoid containing unrelated commits.
 
@@ -68,7 +70,7 @@ Please, before any merge request of a new feature, make sure that non-regression
 
 .. note::
 
-   New features must be accompanied by one or more ``non-regression tests`` in tests repository and a ``documentation`` in the /docs/source/developer_guide repository in sphinx format. 
+   New features must be accompanied by one or more ``non-regression tests`` in the ``tests`` directory and a ``documentation`` in the ``docs/source`` directory in sphinx format (user guide for the features, developer guide for the internals).
 
 Every pull request is built and tested by the continuous integration. Its workflows and caches are described in :ref:`mfem_mgis_developer_guide_continuous_integration`.
 

@@ -126,8 +126,9 @@ namespace mfem_mgis {
     }
 #endif /* MFEM_MGIS_HAVE_AMGX */
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
-    // the failures of the factorization of cuDSS give solutions which are
-    // not finite
+    // cuDSS does not report the failures of the factorization: the
+    // solutions are checked by their relative residuals (see
+    // `CuDSSDirectSolver::hasSucceeded`)
     if (const auto* const cptr =
             dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
         cptr != nullptr) {

@@ -2,7 +2,8 @@
  * \file   src/Batch/ElementsGeometryKernels.cxx
  * \brief  This file implements the kernel computing the determinants and the
  * inverses of the jacobians of the element transformations. It contains kernels
- * of MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+ * of MFEM: it is compiled as CUDA or HIP code when MFEM is compiled with CUDA
+ * or HIP.
  * \date   10/10/2026
  */
 

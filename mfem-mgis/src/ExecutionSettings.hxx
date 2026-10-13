@@ -46,9 +46,11 @@ namespace mfem_mgis::internals {
    * `getExecutionSettings`
    * \param[in] argc: number of arguments
    * \param[in] argv: arguments
-   * \throws std::runtime_error on an invalid or contradictory option
+   * \throws std::runtime_error on an invalid or contradictory option, or if
+   * the `gpu` and `mixed` modes are requested while MFEM is built without
+   * CUDA nor HIP
    */
-  void readExecutionSettings(const int, const MainFunctionArguments);
+  void readExecutionSettings(const int argc, const MainFunctionArguments argv);
   /*!
    * \return the value of an environment variable placing the computations
    * (`MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST`,
@@ -59,7 +61,7 @@ namespace mfem_mgis::internals {
    * \param[in] n: name of the variable
    */
   [[nodiscard]] const char* getPlacementEnvironmentVariable(
-      const char* const) noexcept;
+      const char* const n) noexcept;
   /*!
    * \return the default value of the `BehaviourIntegration` parameter of
    * the non linear evolution problems: `Batch` if the execution mode is
@@ -81,9 +83,9 @@ namespace mfem_mgis::internals {
   /*!
    * \return true if the computations of the finite elements by kernels
    * given by default by the execution settings are optional: with
-   * `--execution cpu`, the kernels compute on the host, faster than the
-   * computations element by element, which replace them if the behaviour
-   * integrators do not support them
+   * `--execution cpu`, unless PETSc is used, the kernels compute on the
+   * host, faster than the computations element by element, which replace
+   * them if the behaviour integrators do not support them
    */
   [[nodiscard]] bool areFiniteElementsKernelsOptional() noexcept;
   //! \return true if the execution mode is given (option `--execution`)
@@ -108,9 +110,9 @@ namespace mfem_mgis::internals {
    * execution settings
    */
   [[nodiscard]] bool checkBehaviourExecutionLocation(
-      Context&,
-      const Behaviour&,
-      const std::optional<ExecutionLocation> = {}) noexcept;
+      Context& ctx,
+      const Behaviour& b,
+      const std::optional<ExecutionLocation> l = {}) noexcept;
   //! \brief name of the parameter placing the behaviour of a material
   inline constexpr const char* behaviour_execution_location_parameter =
       "BehaviourExecutionLocation";
@@ -124,7 +126,7 @@ namespace mfem_mgis::internals {
    */
   [[nodiscard]] std::optional<
       std::pair<std::optional<ExecutionLocation>, Parameters>>
-  extractBehaviourExecutionLocation(Context&, const Parameters&) noexcept;
+  extractBehaviourExecutionLocation(Context& ctx, const Parameters& p) noexcept;
   /*!
    * \brief checks that a linear solver or a preconditioner computes where
    * the execution settings place the linear solvers
@@ -133,7 +135,7 @@ namespace mfem_mgis::internals {
    * \param[in] n: name of the linear solver or of the preconditioner
    */
   [[nodiscard]] bool checkLinearSolverExecutionLocation(
-      Context&, std::string_view) noexcept;
+      Context& ctx, std::string_view n) noexcept;
 
 }  // end of namespace mfem_mgis::internals
 

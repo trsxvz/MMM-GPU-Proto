@@ -310,7 +310,9 @@ namespace mfem_mgis {
    * \return the name and the options of an object built by a factory, given
    * by a parameter: a name, a dictionary with a unique entry associating
    * the name with the options (see `extractFactoryArgument`), or a
-   * dictionary with the entries `Name` and `Options` (optional)
+   * dictionary with the entries `Name` and `Options` (optional), or an empty
+   * value on error (missing parameter or invalid value, the error being
+   * reported in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] parameters: parameters
    * \param[in] n: name of the parameter

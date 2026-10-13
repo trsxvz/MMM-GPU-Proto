@@ -3,6 +3,7 @@
  * include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
  * \brief  This file declares the
  * `TridimensionalMicromorphicDamageBehaviourIntegrator` class
+ * \author Thomas Helfer
  * \date   31/03/2023
  */
 
@@ -47,11 +48,11 @@ namespace mfem_mgis {
 
   /*!
    * \brief behaviour integrator dedicated to micromorphic damage under the
-   tridimensional hypothesis. The gradients are the micromorphic damage and
-   its gradient, the thermodynamic forces their dual forces, and the tangent
-   operator blocks the derivative of the first dual force with respect to
-   the micromorphic damage and the derivative of the second dual force with
-   respect to the gradient.
+   * tridimensional hypothesis. The gradients are the micromorphic damage and
+   * its gradient, the thermodynamic forces their dual forces, and the tangent
+   * operator blocks the derivative of the first dual force with respect to the
+   * micromorphic damage and the derivative of the second dual force with
+   * respect to the gradient.
    */
   struct MFEM_MGIS_EXPORT
       TridimensionalMicromorphicDamageBehaviourIntegrator final

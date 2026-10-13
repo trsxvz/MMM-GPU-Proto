@@ -143,75 +143,75 @@ namespace mfem_mgis::batch::internals {
    * at the center of the elements of a material: one thread per element
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarCentersKernel(const GradientsKind,
-                               const FBarCentersKernelArguments&,
-                               const bool);
+  void launchFBarCentersKernel(const GradientsKind k,
+                               const FBarCentersKernelArguments& a,
+                               const bool use_device);
   /*!
    * \brief launches the kernel computing the coefficients `α` and the
    * gradients `F̄`: one thread per integration point
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarGradientsKernel(const GradientsKind,
-                                 const FBarGradientsKernelArguments&,
-                                 const bool);
+  void launchFBarGradientsKernel(const GradientsKind k,
+                                 const FBarGradientsKernelArguments& a,
+                                 const bool use_device);
   /*!
    * \brief launches the kernel computing the vectors `v` and `c` of the
    * tangent operator `K'` and the pseudo-stresses: one thread per
    * integration point
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
   void launchFBarTangentOperatorKernel(
-      const GradientsKind,
-      const FBarTangentOperatorKernelArguments&,
-      const bool);
+      const GradientsKind k,
+      const FBarTangentOperatorKernelArguments& a,
+      const bool use_device);
   /*!
    * \brief adds the matrices `a ⊗ b` to matrices stored element by element,
    * column by column (see `addStiffnessMatrices`): one thread per entry
    * \param[in] a: arguments
    * \param[in, out] m: matrices of all the elements of the mesh
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments&,
-                                       real* const,
-                                       const bool);
+  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments& a,
+                                       real* const m,
+                                       const bool use_device);
   /*!
    * \brief adds the matrices `a ⊗ b` to an assembled sparse matrix: one
    * thread per row of an element
    * \param[in] a: arguments
    * \param[in] o: assembled matrix
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments&,
-                                       const SparseMatrixOutput&,
-                                       const bool);
+  void launchFBarRankOneMatricesKernel(const FBarRankOneKernelArguments& a,
+                                       const SparseMatrixOutput& o,
+                                       const bool use_device);
   /*!
    * \brief adds the diagonals of the matrices `a ⊗ b`: one thread per
    * degree of freedom of an element
    * \param[in] a: arguments
-   * \param[in, out] diagonals: values element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in, out] d: values element by element
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments&,
-                                        real* const,
-                                        const bool);
+  void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments& a,
+                                        real* const d,
+                                        const bool use_device);
   /*!
    * \brief adds the action of the matrices `a ⊗ b`, `a (b · x)`: one thread
    * per element
    * \param[in] a: arguments
    * \param[in] x: values element by element
    * \param[in, out] y: action element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments&,
-                                     const real* const,
-                                     real* const,
-                                     const bool);
+  void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments& a,
+                                     const real* const x,
+                                     real* const y,
+                                     const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

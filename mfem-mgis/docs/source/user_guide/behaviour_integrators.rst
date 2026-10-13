@@ -32,6 +32,21 @@ material. Behaviour integrators are associated with:
    declared by the nonlinear evolution problem and the material
    symmetry declared by the behaviour.
 
+   An optional last argument gives parameters to the behaviour
+   integrator:
+
+   - :code:`Regularization`: regularization of the :code:`Mechanics`
+     behaviour integrators (:code:`FBar` or :code:`Faltus2026`, see
+     below);
+   - :code:`BehaviourExecutionLocation` (:code:`cpu` or :code:`gpu`): the
+     location where the behaviour of this material is expected to be
+     integrated, checked against its library (see
+     :ref:`mfem_mgis_batch_computations_execution`).
+
+   All the behaviour integrators described below support the integration
+   by batches and the computations by kernels, on the GPU if a GPU is used
+   (see :ref:`mfem_mgis_batch_computations`).
+
 Behaviour integrators based on :code:`MFront` behaviours
 ========================================================
 
@@ -102,9 +117,12 @@ This formulation is enabled by passing an additional parameter to the
 .. code:: c++
 
   const auto fbar_parameters = mfem_mgis::dict{
-      {"Regularization", mfem_mgis::dict{{"FBar", mfem_mgis::list{}}}}};
-  mechanics.addBehaviourIntegrator(ctx, "Mechanics", library,
+      {"Regularization", mfem_mgis::dict{{"FBar", mfem_mgis::dict{}}}}};
+  mechanics.addBehaviourIntegrator(ctx, "Mechanics", "beam", library,
                                    behaviour, fbar_parameters) | or_die;
+
+The FBar formulation is available in 3D and in plane strain (it is refused
+in plane stress), for :code:`MGIS` built with :code:`TFEL`.
 
 Faltus 2026 regularization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -137,7 +155,7 @@ This regularization is enabled by passing an additional parameter to the
       {"Regularization",
        mfem_mgis::Parameters{
            {"Faltus2026",
-            mfem_mgis::Parameters{{{"PenalizationCoefficient", 1e11}}}}}};
+            mfem_mgis::Parameters{{"PenalizationCoefficient", 1e11}}}}}};
   mechanics.addBehaviourIntegrator(ctx, "Mechanics", "ThirdMedium", library,
                                    behaviour2, faltus_parameters) | or_die;
 
@@ -157,14 +175,39 @@ where:
 - :math:`\Omega_r` is the domain occupied by the material of interest in the
   reference configuration,
 - :math:`\vec{j}` is the heat flux,
-- :math:`\vec{\nabla} T^{\star}` is the virtual temperature.
+- :math:`T^{\star}` is the virtual temperature.
 
-The heat transfer behaviour integrators available in :code:`MFEM/MGIS`
-support:
+These behaviour integrators are declared with the category
+:code:`StationaryNonLinearHeatTransfer`. They require behaviours of the
+general type (:code:`Behaviour::GENERALBEHAVIOUR`), and support:
 
-- small and finite strain behaviours,
 - isotropic and orthotropic behaviours,
 - plane strain, plane stress and tridimensional modeling hypotheses.
+
+Transient heat transfer behaviour integrator
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The behaviour integrator declared with the category
+:code:`TransientHeatTransfer` computes the transient term of the heat
+equation:
+
+.. math::
+
+   \int_{\Omega_r} \frac{\partial h}{\partial T}\,\dot{T}\,T^{\star}\,\mathrm{d}\,V
+
+where :math:`h` is the enthalpy per unit of volume. It is declared as a
+second behaviour integrator of a material, in addition to the stationary
+one. Its inner forces
+being the integral of :math:`N\,s`, :math:`s` being the thermodynamic force
+of the behaviour, the behaviour must return the opposite of the rate of the
+enthalpy, :math:`s=-\frac{\partial h}{\partial T}\,\dot{T}`, and its
+tangent operator the opposite of
+:math:`\frac{1}{\Delta\,t}\frac{\partial h}{\partial T}`. The gradient
+of the behaviour is the temperature at the integration point: its value at
+the beginning of the first time step must be initialised with the initial
+temperature. This behaviour integrator is available for all modelling
+hypotheses, requires a behaviour of the general type and accepts no
+parameter.
 
 Micromorphic damage behaviour integrators
 -----------------------------------------

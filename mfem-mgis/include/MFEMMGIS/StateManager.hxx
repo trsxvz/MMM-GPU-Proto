@@ -29,8 +29,12 @@ namespace mfem_mgis {
    *
    * \note the views on the arrays of the materials registered in a state
    * manager are synchronized on the host when they are taken (see
-   * `Material::synchronizeOnHostForReading`). After a computation on the
-   * device, they must be taken again.
+   * `Material::synchronizeOnHostForReading`). They point to the copies of
+   * these arrays on the host, which are never reallocated (see
+   * `MaterialArrays`). After a computation on the device, these copies must
+   * be made valid on the host before reading the views (see
+   * `Material::synchronizeOnHostForReading`; the non linear evolution
+   * problems do it before their post-processings).
    */
   struct MFEM_MGIS_EXPORT StateManager
       : PartialQuadratureSpaceIdentifiersManager {

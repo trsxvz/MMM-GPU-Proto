@@ -65,7 +65,8 @@ namespace mfem_mgis::internals {
    * \return the values of an integration point
    * \tparam N: number of components, or `dynamic_extent`
    * \param[in] values: values of all the integration points, stored point by
-   * point, valid on the host
+   * point, read on the host through `HostRead` (copied from the device if
+   * needed)
    * \param[in] i: offset of the integration point
    * \param[in] nc: number of components
    */

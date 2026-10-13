@@ -98,7 +98,7 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT
   [[nodiscard]] int getMPIRank(const MPI_Comm& c) noexcept;
   /*!
-   * \return the MPI rank for the given communicator
+   * \return the number of MPI processes of the given communicator
    * \param[in] c: communicator
    */
   MFEM_MGIS_EXPORT [[nodiscard]] int getMPISize(const MPI_Comm& c) noexcept;
@@ -122,7 +122,8 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT [[nodiscard]] bool isMPIMainProcess(
       const MeshDiscretization& m) noexcept;
   /*!
-   * \return the MPI rank for the given communicator
+   * \return the MPI rank of the current process for the communicator of
+   * the mesh discretization
    * \param[in] m: mesh discretization
    *
    * \note in sequential, this function always returns 0
@@ -130,7 +131,8 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT
   [[nodiscard]] int getMPIRank(const MeshDiscretization& m) noexcept;
   /*!
-   * \return the MPI rank for the given communicator
+   * \return the number of MPI processes of the communicator of the mesh
+   * discretization (one in sequential)
    * \param[in] m: mesh discretization
    */
   MFEM_MGIS_EXPORT [[nodiscard]] int getMPISize(
@@ -174,7 +176,8 @@ namespace mfem_mgis {
    * \brief throws a `CollectiveFailure` exception on all the processes if a
    * computation failed on one of them, before the collective operations
    * following it. The message of the exception gives the error messages of
-   * all the processes which failed (see `synchronize`).
+   * all the processes which failed (they are removed from `ctx`, see
+   * `synchronize`).
    *
    * \param[in] m: mesh discretization
    * \param[in, out] ctx: execution context of the computation
@@ -183,10 +186,10 @@ namespace mfem_mgis {
    *
    * \note if the computations are sequential, no MPI call is made
    */
-  MFEM_MGIS_EXPORT void raiseOnFailureOnAnyProcess(const MeshDiscretization&,
-                                                   Context&,
-                                                   const bool,
-                                                   std::string_view);
+  MFEM_MGIS_EXPORT void raiseOnFailureOnAnyProcess(const MeshDiscretization& m,
+                                                   Context& ctx,
+                                                   const bool success,
+                                                   std::string_view what);
 
 }  // end of namespace mfem_mgis
 

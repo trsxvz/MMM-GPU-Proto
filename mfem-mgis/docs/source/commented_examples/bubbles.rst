@@ -44,7 +44,7 @@ The simulation considers an empty (i.e., not meshed) cavity, on whose surface we
 arbitrary uniform pressure (unitary by default). The medium is described by a purely
 elastic constitutive relationship, characterized by two elastic constants:
 
-- :math:`E = 150\ \mathrm{N}\ \mu\mathrm{m}^{-3}`
+- :math:`E = 150 \times 10^{-3}\ \mathrm{N}\ \mu\mathrm{m}^{-2}` (150 GPa)
 - :math:`\nu = 0.3`
 
 The elastic modulus is rescaled to coherently describe the geometry in micrometers, rather
@@ -79,17 +79,23 @@ Command-line Usage:
       - Default
       - Description
     * - ``-h, --help``
-      - —
-      - —
+      - flag
+      - off
       - Print the help message and exit.
     * - ``-m <string>, --mesh <string>``
       - string
       - ``mesh/single_sphere.msh``
       - Mesh file to use.
+    * - ``-pm <int>, --parallel-mesh <int>``
+      - int
+      - ``0``
+      - Read a mesh already split in parts, one per process, or not.
     * - ``-l <string>, --library <string>``
       - string
-      - ``src/libBehaviour.so``
-      - Material behaviour library.
+      - built with the case
+      - Material behaviour library. By default, the library built with the
+        case, for the CPU or the GPU, as ``--execution`` places the
+        behaviours.
     * - ``-f <string>, --bubble-file <string>``
       - string
       - ``mesh/single_bubble.txt``
@@ -110,6 +116,31 @@ Command-line Usage:
       - int
       - ``0``
       - Verbosity level of the output.
+    * - ``-sf <double>, --scale-factor-vp <double>``
+      - double
+      - ``0.9``
+      - Scaling factor for the principal stress.
+    * - ``-n <string>, --name-case <string>``
+      - string
+      - ``TestCaseBubble``
+      - Name of the test case, used for the output files.
+    * - ``-dm <double>, --dmin <double>``
+      - double
+      - ``0.950``
+      - Distance to evaluate the bubble rupture, in µm.
+    * - ``-pr <double>, --pref <double>``
+      - double
+      - ``1``
+      - Internal pressure of the bubbles.
+    * - ``--linear-solver-preconditioner <string>``
+      - string
+      - ``HypreBoomerAMG``
+      - Preconditioner of the conjugate gradient solver ``HyprePCG``
+        (``HypreDiagScale``..., ``none`` for no preconditioner).
+
+The options of mfem-mgis are also accepted, for instance ``--execution gpu``
+to compute on a GPU, the behaviours built by the case for the GPU being then
+used (see :ref:`mfem_mgis_batch_computations_execution`).
 
 The command to execute the test-case is:
 
@@ -137,8 +168,9 @@ from the sphere center:
 where :math:`p_{in}` is the internal pressure, :math:`R_b` the bubble radius, and the
 expression holds for :math:`r > R_b`.
 
-The script available in ``verification/bubble`` can be used to compare the analytical
-solution to the MMM one:
+The script ``bubble/verification/mmm_vs_analytical.py``, copied in the build
+directory of the case, can be used to compare the analytical solution to the
+MMM one:
 
 .. code-block:: bash
 
@@ -148,3 +180,13 @@ The comparison between the computational results and the analytical solution is 
 
 .. image:: img/comparison_analytical_mmm.png
     :align: center
+
+Tests
+-----
+
+``ctest`` runs ``BubbleTest``, the case on the coarse mesh
+``mesh/mesh_sphere.msh`` with the bubble file ``mesh/single_bubble_ci.txt``.
+With the CMake option ``MM_OPERA_HPC_GPU_TESTS`` of mm-opera-hpc, and if MFEM
+is compiled with CUDA or HIP and the behaviour library of the case is built
+for the GPU, ``BubbleTest-gpu`` does the same with ``--execution gpu``. A GPU
+is then required to run it.

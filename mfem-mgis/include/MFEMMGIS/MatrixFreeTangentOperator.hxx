@@ -48,10 +48,20 @@ namespace mfem_mgis {
      * \param[in] fed: finite element discretization
      * \param[in] mi: multi-material integrator
      */
-    MatrixFreeTangentOperator(const FiniteElementDiscretization&,
-                              MultiMaterialNonLinearIntegrator&);
-    void Mult(const mfem::Vector&, mfem::Vector&) const override;
-    void AssembleDiagonal(mfem::Vector&) const override;
+    MatrixFreeTangentOperator(const FiniteElementDiscretization& fed,
+                              MultiMaterialNonLinearIntegrator& mi);
+    /*!
+     * \brief apply the tangent operator
+     * \param[in] x: true degrees of freedom
+     * \param[out] y: action of the tangent operator on `x`
+     */
+    void Mult(const mfem::Vector& x, mfem::Vector& y) const override;
+    /*!
+     * \brief compute the diagonal of the tangent operator (see the
+     * description of the class for a non-conforming mesh)
+     * \param[out] d: diagonal, on the true degrees of freedom
+     */
+    void AssembleDiagonal(mfem::Vector& d) const override;
     //! \brief destructor
     ~MatrixFreeTangentOperator() override;
 
@@ -96,25 +106,30 @@ namespace mfem_mgis {
 
   /*!
    * \brief tangent operator applied without assembly whose essential degrees
-   * of freedom are constrained (see `mfem::ConstrainedOperator`), which can
-   * give its assembled version
+   * of freedom are constrained (see `mfem::ConstrainedOperator`, diagonal
+   * policy `DIAG_ONE`: the rows and columns of the essential degrees of
+   * freedom are the ones of the identity), which can give its assembled
+   * version
    */
   struct MFEM_MGIS_EXPORT ConstrainedMatrixFreeTangentOperator final
       : mfem::ConstrainedOperator,
         AssembledOperatorProvider {
     /*!
      * \brief constructor
-     * \param[in] op: tangent operator applied without assembly
-     * \param[in] essential_dofs: essential true degrees of freedom
+     * \param[in] op: tangent operator applied without assembly, referenced:
+     * it must outlive this operator
+     * \param[in] essential_dofs: essential true degrees of freedom,
+     * referenced (not copied) by `mfem::ConstrainedOperator`: the array must
+     * outlive this operator and must not be modified
      * \param[in] f: function assembling the tangent operator, the essential
      * degrees of freedom being eliminated
      * \param[in] r: number of assemblies of the assembled tangent operator
      * (see `getAssembledOperatorRevision`), incremented by `f`
      */
-    ConstrainedMatrixFreeTangentOperator(MatrixFreeTangentOperator&,
-                                         const mfem::Array<int>&,
-                                         std::function<mfem::Operator&()>,
-                                         std::shared_ptr<const size_type>);
+    ConstrainedMatrixFreeTangentOperator(MatrixFreeTangentOperator& op,
+                                         const mfem::Array<int>& essential_dofs,
+                                         std::function<mfem::Operator&()> f,
+                                         std::shared_ptr<const size_type> r);
     [[nodiscard]] mfem::Operator& getAssembledOperator() const override;
     [[nodiscard]] std::shared_ptr<const size_type>
     getAssembledOperatorRevision() const override;

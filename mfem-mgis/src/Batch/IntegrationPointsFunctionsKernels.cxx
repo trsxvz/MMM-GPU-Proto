@@ -1,9 +1,10 @@
 /*!
  * \file   src/Batch/IntegrationPointsFunctionsKernels.cxx
  * \brief  This file implements the kernels computing integrals, right-hand
- * sides of L2 projections and local projections of functions defined at
- * the integration points of a material. It contains kernels of MFEM: it is
- * compiled as CUDA code when MFEM is compiled with CUDA.
+ * sides of L2 projections and local projections of functions defined at the
+ * integration points of a material, and mass matrices of the elements. It
+ * contains kernels of MFEM: it is compiled as CUDA or HIP code when MFEM is
+ * compiled with CUDA or HIP.
  * \date   11/10/2026
  */
 

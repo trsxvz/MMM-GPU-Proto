@@ -17,8 +17,9 @@ type-safe and structured way to handle configuration parameters in ``mfem-mgis``
   structured manner, ensuring type safety and consistency.
 
 The use of ``ParametersValidator`` is the **recommended** way to validate parameters,
-though its adoption is still limited in the codebase. The older ``checkParameters`` 
-functions are deprecated in favor of ``ParametersValidator``.
+though its adoption is still limited in the codebase. The older ``checkParameters``
+functions are discouraged in favor of ``ParametersValidator`` (they are not marked as
+deprecated).
 
 Basic Usage
 -----------
@@ -53,8 +54,9 @@ Accessing Parameters
 Use the ``get`` functions to access parameter values. Two modes are available:
 
 - **Non-throwing mode**: Uses a ``Context`` to report errors.
-- **Throwing mode**: Uses the ``throwing`` attribute for constructors or functions 
-  where no context is available.
+- **Throwing mode**: Uses the ``may_throw`` attribute (the older ``throwing``
+  attribute is deprecated) for constructors or functions where no context is
+  available.
 
 .. code-block:: c++
 
@@ -67,7 +69,7 @@ Use the ``get`` functions to access parameter values. Two modes are available:
    }
 
    // Throwing mode (for constructors or functions with attributes::Throwing)
-   const auto value = get<int>(throwing, params, "MaxIterations");
+   const auto value = get<int>(may_throw, params, "MaxIterations");
 
 The ``contains`` function checks if a parameter exists:
 
@@ -123,7 +125,7 @@ Custom validators can be added using the ``add`` method with a validator functio
            if (!is<int>(p)) {
                return ctx.registerErrorMessage("parameter must be an integer");
            }
-           const auto value = get<int>(throwing, p);
+           const auto value = get<int>(may_throw, p);
            if (value < 0 || value > 100) {
                return ctx.registerErrorMessage("parameter must be between 0 and 100");
            }
@@ -153,7 +155,7 @@ Error Handling Rules
 Best Practices
 --------------
 
-1. **Use ``ParametersValidator``**: Prefer ``ParametersValidator`` over the deprecated 
+1. **Use ``ParametersValidator``**: Prefer ``ParametersValidator`` over the discouraged
    ``checkParameters`` functions for new code.
 
 2. **Validate early**: Validate parameters as early as possible, ideally at the beginning 
@@ -205,13 +207,14 @@ Using custom validators:
 .. code-block:: c++
 
    auto validator = ParametersValidator{}
-       .add("CustomValue", [](Context& ctx, const Parameter& p) noexcept -> bool {
+       .add("CustomValue", "A custom value between 0 and 1",
+            [](Context& ctx, const Parameter& p) noexcept -> bool {
            if (!is<real>(p)) {
                return ParametersValidator::reportUnmatchedTypeError(ctx, "CustomValue");
            }
-           const auto value = get<real>(throwing, p);
+           const auto value = get<real>(may_throw, p);
            if (value <= 0 || value > 1) {
                return ctx.registerErrorMessage("CustomValue must be in (0, 1]");
            }
            return true;
-       }, "A custom value between 0 and 1");
+       });

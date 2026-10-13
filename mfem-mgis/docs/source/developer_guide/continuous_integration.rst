@@ -74,6 +74,15 @@ Python. The ``Debug`` job also uses a debug build of MFEM.
 The ``Coverage`` job uploads its report as the ``code-coverage-report``
 artifact.
 
+.. note::
+
+   The workflows build ``MGIS`` from its ``master`` branch, and the
+   examples from the default branch of their repository. The ``gpu-proto``
+   branch requires the prototype branches of ``MGIS`` (field operations,
+   see :ref:`mfem_mgis_installation_prototype`) and of the examples, and
+   no workflow runs on a GPU: the tests on a GPU are not run by the
+   continuous integration.
+
 ``spack.yml``
 -------------
 

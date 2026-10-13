@@ -70,7 +70,8 @@ namespace mfem_mgis {
       const RotationMatrixQPEvaluator& e) noexcept;
 
   /*!
-   * \brief an evaluator returning the rotated thermodynamic forces
+   * \brief an evaluator returning the thermodynamic forces rotated in the
+   * global frame
    */
   template <size_type ThermodynamicForcesSize = dynamic_extent>
   struct RotatedThermodynamicForcesMatrixQPEvaluator {
@@ -87,10 +88,9 @@ namespace mfem_mgis {
         const;
     /*!
      * \brief perform consistency checks (orthotropic behaviour), and compute
-     * the rotated values at all the integration points (see
-     * `Material::computeThermodynamicForcesInGlobalFrame` and
-     * `Material::computeGradientsInGlobalFrame`), kept by the evaluator and
-     * read by the evaluations which follow
+     * the thermodynamic forces in the global frame at all the integration
+     * points (see `Material::computeThermodynamicForcesInGlobalFrame`), kept
+     * by the evaluator and read by the evaluations which follow
      * \param[in, out] ctx: error handler
      * \return true on success
      */
@@ -101,6 +101,9 @@ namespace mfem_mgis {
      * \brief access operator
      * \param[in] i: integration point index
      * \return the rotated thermodynamic forces at the integration point
+     * \pre `check` was called successfully: the values are the ones computed
+     * by `check` (they are not updated if the state of the material changes
+     * afterwards)
      */
     auto operator()(const size_type i) const;
 
@@ -158,8 +161,7 @@ namespace mfem_mgis {
         const Material::StateSelection s = Material::END_OF_TIME_STEP);
     /*!
      * \brief perform consistency checks (orthotropic behaviour), and compute
-     * the rotated values at all the integration points (see
-     * `Material::computeThermodynamicForcesInGlobalFrame` and
+     * the gradients in the global frame at all the integration points (see
      * `Material::computeGradientsInGlobalFrame`), kept by the evaluator and
      * read by the evaluations which follow
      * \param[in, out] ctx: error handler
@@ -175,6 +177,9 @@ namespace mfem_mgis {
      * \brief access operator
      * \param[in] i: integration point index
      * \return the rotated gradients at the integration point
+     * \pre `check` was called successfully: the values are the ones computed
+     * by `check` (they are not updated if the state of the material changes
+     * afterwards)
      */
     auto operator()(const size_type i) const;
 

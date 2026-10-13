@@ -88,7 +88,8 @@ namespace mfem_mgis {
     /*!
      * \return true if all the behaviour integrators support the integration
      * of the behaviours by batches; otherwise, an error message naming the
-     * first behaviour integrator which does not is registered
+     * material of the first behaviour integrator which does not is
+     * registered
      * \param[in, out] ctx: execution context
      */
     [[nodiscard]] bool checkBatchIntegrationSupport(Context& ctx) const
@@ -132,14 +133,17 @@ namespace mfem_mgis {
      * device (see `AbstractBehaviourIntegrator::integratesBatchesOnDevice`):
      * the arrays of the materials do not need to be synchronized on the host
      * before `integrateBatch`, if the gradients are computed by kernels
+     * (false if there is no behaviour integrator)
      */
     [[nodiscard]] bool integratesBatchesOnDevice() const noexcept;
     /*!
-     * \return true if the gradients of all the behaviour integrators can be
-     * computed by kernels (see
-     * `AbstractBehaviourIntegrator::supportsKernels`); otherwise,
-     * an error message naming the first behaviour integrator which does not
-     * support them is registered
+     * \return true if the gradients, the inner forces and the stiffness
+     * matrices of all the behaviour integrators can be computed by kernels
+     * (see `AbstractBehaviourIntegrator::supportsKernels`), the mesh having
+     * only one geometry, a space dimension equal to its dimension and no
+     * NURBS extension, the finite element space being of uniform order with
+     * shape functions mapped by value, and each attribute of the mesh having
+     * a behaviour integrator; otherwise, an error message is registered
      * \param[in, out] ctx: execution context
      */
     [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
@@ -151,8 +155,8 @@ namespace mfem_mgis {
      * see
      * `AbstractBehaviourIntegrator::requiresCurrentSolutionForJacobianAssembly`)
      * are computed from data computed with the gradients by kernels;
-     * otherwise, an error message naming the first behaviour integrator
-     * concerned is registered
+     * otherwise, an error message naming the material of the first behaviour
+     * integrator concerned is registered
      * \param[in, out] ctx: execution context
      * \param[in] gradients_kernels: if true, the gradients are computed by
      * kernels
@@ -166,8 +170,8 @@ namespace mfem_mgis {
      * estimate of the solution (regularization of Faltus et al., see
      * `AbstractBehaviourIntegrator::requiresCurrentSolutionForResidualAssembly`)
      * are computed from data computed with the gradients by kernels;
-     * otherwise, an error message naming the first behaviour integrator
-     * concerned is registered
+     * otherwise, an error message naming the material of the first behaviour
+     * integrator concerned is registered
      * \param[in, out] ctx: execution context
      * \param[in] gradients_kernels: if true, the gradients are computed by
      * kernels
@@ -210,7 +214,7 @@ namespace mfem_mgis {
      * (see `addInnerForcesByKernels`)
      * \param[in] b: boolean
      */
-    void setInnerForcesComputedByKernels(const bool) noexcept;
+    void setInnerForcesComputedByKernels(const bool b) noexcept;
     /*!
      * \brief compute the stiffness matrices of all the elements by kernels,
      * from the tangent operator blocks (see
@@ -228,12 +232,13 @@ namespace mfem_mgis {
      * computed by `computeStiffnessMatricesByKernels`
      * \param[in] b: boolean
      */
-    void setStiffnessMatricesComputedByKernels(const bool) noexcept;
+    void setStiffnessMatricesComputedByKernels(const bool b) noexcept;
     /*!
      * \brief if true, `assembleStiffnessMatrixByKernels` adds the stiffness
      * matrices of the elements in a fixed order, so that the values of the
-     * matrix are the same at each assembly. With a device, the stiffness
-     * matrices of all the elements are stored (see
+     * matrix are the same at each assembly. With a device or with OpenMP
+     * (any backend of MFEM other than `cpu`, see `mfem::Device::IsEnabled`),
+     * the stiffness matrices of all the elements are stored (see
      * `computeStiffnessMatricesByKernels`), then added by one thread per
      * value of the matrix (see `batch::addStiffnessMatricesByEntries`), the
      * contributions of the stiffness matrices to each value being computed
@@ -243,15 +248,15 @@ namespace mfem_mgis {
      * computes them at each assembly. This costs the storage of the
      * stiffness matrices (`n * n * ne` values, which must fit in an `int`)
      * and of their contributions (`n * n * ne` integers per layout, plus one
-     * per value of the matrix, on the host and on the device). Without
-     * device, the stiffness matrices are added one element after the other
-     * on the host, which is already a fixed order.
+     * per value of the matrix, on the host and on the device). Otherwise
+     * (`cpu` backend), the stiffness matrices are added one element after
+     * the other on the host, which is already a fixed order.
      * Otherwise (default), they are added without being stored, by atomic
      * additions whose order depends on the scheduling of the threads on a
      * device.
      * \param[in] b: boolean
      */
-    void setOrderedStiffnessMatricesAssembly(const bool) noexcept;
+    void setOrderedStiffnessMatricesAssembly(const bool b) noexcept;
     /*!
      * \return the number of assemblies made by
      * `assembleStiffnessMatrixByKernels` in a fixed order (see
@@ -268,7 +273,7 @@ namespace mfem_mgis {
      * otherwise for the others
      */
     [[nodiscard]] int getNumberOfEntriesContributionsComputations(
-        const bool) const noexcept;
+        const bool sorted) const noexcept;
     /*!
      * \brief add the action of the tangent operator, assembled from the
      * stiffness matrices of the elements computed by kernels from the
@@ -283,10 +288,10 @@ namespace mfem_mgis {
      * \param[in, out] y: action (local vector of the finite element space)
      */
     [[nodiscard]] bool addTangentOperatorActionByKernels(
-        Context&,
-        const mfem::FiniteElementSpace&,
-        const mfem::Vector&,
-        mfem::Vector&) noexcept;
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        const mfem::Vector& x,
+        mfem::Vector& y) noexcept;
     /*!
      * \brief add the diagonal of the tangent operator assembled from the
      * stiffness matrices of the elements computed by kernels (see
@@ -298,7 +303,9 @@ namespace mfem_mgis {
      * space)
      */
     [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
-        Context&, const mfem::FiniteElementSpace&, mfem::Vector&) noexcept;
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        mfem::Vector& d) noexcept;
     /*!
      * \brief create the sparse matrix in which
      * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
@@ -308,17 +315,17 @@ namespace mfem_mgis {
      * \param[in] fes: finite element space
      */
     [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
-    makeAssembledStiffnessMatrix(Context&,
-                                 const mfem::FiniteElementSpace&) noexcept;
+    makeAssembledStiffnessMatrix(Context& ctx,
+                                 const mfem::FiniteElementSpace& fes) noexcept;
     /*!
      * \brief assemble the stiffness matrices of all the elements, computed
      * by kernels, in a sparse matrix on the local vector of the finite
      * element space, without storing them (see
      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
-     * the ordered assembly is selected with a device (see
-     * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
-     * set to zero first. Unless a GPU or the debug
-     * device of MFEM is used, the positions of the entries in the rows of
+     * the ordered assembly is selected with a backend of MFEM other than
+     * `cpu` (see `setOrderedStiffnessMatricesAssembly`). The values of the
+     * matrix are set to zero first. Unless a GPU or the debug device of MFEM
+     * is used, the positions of the entries in the rows of
      * the matrix are computed at the first call and reused (see
      * `batch::computeStiffnessMatricesPositions`), separately for the
      * matrices whose columns are sorted (for example by a direct solver) and
@@ -351,14 +358,15 @@ namespace mfem_mgis {
      * otherwise for the others
      */
     [[nodiscard]] int getNumberOfStiffnessMatricesPositionsComputations(
-        const bool) const noexcept;
+        const bool sorted) const noexcept;
     /*!
      * \return true if positions of the entries of the stiffness matrices
      * are kept (see `assembleStiffnessMatrixByKernels`)
      * \param[in] sorted: if true, for the matrices whose columns are sorted,
      * otherwise for the others
      */
-    [[nodiscard]] bool hasStiffnessMatricesPositions(const bool) const noexcept;
+    [[nodiscard]] bool hasStiffnessMatricesPositions(
+        const bool sorted) const noexcept;
     //! \return the current time increment
     [[nodiscard]] real getTimeIncrement() const noexcept;
     /*!
@@ -386,7 +394,14 @@ namespace mfem_mgis {
      * \param[in] m: material id
      * \param[in] l: library name
      * \param[in] b: behaviour name
-     * \param[in] params: additional parameters
+     * \param[in] params: additional parameters. The parameter
+     * `BehaviourExecutionLocation` (`cpu` or `gpu`), if given, replaces,
+     * for this material, the location of the behaviours given by the
+     * execution settings (see `ExecutionSettings`): the behaviour must be
+     * integrated at this location (a library computing on the host for
+     * `cpu`, a library generated by the `generic-parallel` interface for a
+     * GPU for `gpu`), an error being reported otherwise. This parameter is
+     * removed before the others are given to the behaviour integrator.
      */
     [[nodiscard]] std::optional<size_type> addBehaviourIntegrator(
         Context& ctx,
@@ -446,19 +461,25 @@ namespace mfem_mgis {
                            const size_type m,
                            const size_type b) noexcept;
     /*!
-     * \brief revert the internal state variables.
-     *
-     * The values of the internal state variables at the beginning of the time
-     * step are copied on the values of the internal state variables at
-     * end of the time step.
+     * \brief revert the states of the materials: the state at the beginning
+     * of the time step (gradients, thermodynamic forces, internal state
+     * variables, energies, material properties and external state
+     * variables) is copied on the state at the end of the time step, and the
+     * tangent operator blocks are set to zero (see
+     * `BehaviourIntegratorBase::revert`). A behaviour integrated on the
+     * device is reverted on the device. In both cases, the copies of the
+     * arrays on the host are valid afterwards.
      */
     void revert();
     /*!
-     * \brief update the internal state variables.
-     *
-     * The values of the internal state variables at the end of the time step
-     * are copied on the values of the internal state variables at beginning of
-     * the time step.
+     * \brief update the states of the materials: the state at the end of
+     * the time step (gradients, thermodynamic forces, internal state
+     * variables, energies, material properties and external state
+     * variables) is copied on the state at the beginning of the time step,
+     * and the tangent operator blocks are set to zero (see
+     * `BehaviourIntegratorBase::update`). A behaviour integrated on the
+     * device is updated on the device. In both cases, the copies of the
+     * arrays on the host are valid afterwards.
      */
     void update();
     /*!
@@ -489,7 +510,9 @@ namespace mfem_mgis {
      * \note those linearized operators use the consistent tangent operators
      * and thermodynamic forces computed by the integration. The user is
      * responsible for calling the behaviour integration before using those
-     * operators
+     * operators. The operators read the arrays of the materials on the
+     * host: after an integration on the device, `synchronizeOnHostForReading`
+     * must be called before using them.
      */
     [[nodiscard]] LinearizedOperators getLinearizedOperators(
         const mfem::Vector& u);
@@ -590,7 +613,7 @@ namespace mfem_mgis {
      * \param[in] fes: finite element space
      */
     [[nodiscard]] bool computeElementsDegreesOfFreedom(
-        Context&, const mfem::FiniteElementSpace&) noexcept;
+        Context& ctx, const mfem::FiniteElementSpace& fes) noexcept;
     /*!
      * \brief computes the geometric data of the integration rules of the
      * behaviour integrators which are not computed yet (see
@@ -600,7 +623,7 @@ namespace mfem_mgis {
      * \param[in] fes: finite element space
      */
     [[nodiscard]] bool computeElementsGeometry(
-        Context&, const mfem::FiniteElementSpace&) noexcept;
+        Context& ctx, const mfem::FiniteElementSpace& fes) noexcept;
   };  // end of MultiMaterialNonLinearIntegrator
 
 }  // end of namespace mfem_mgis

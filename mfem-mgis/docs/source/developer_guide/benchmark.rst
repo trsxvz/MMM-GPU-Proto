@@ -8,23 +8,24 @@ Benchmarks
 Profiling tools
 ^^^^^^^^^^^^^^^
 
-``MFEM-MGIS`` provides a simple tool for profiling your application, consisting mainly in generating a time table of timed sections respecting the call stack (tree). The master or root timer of the call stack is initialized during the general initialization of mfem-mgis: 
+``MFEM-MGIS`` provides a simple tool for profiling your application, consisting mainly in generating a time table of timed sections respecting the call stack (tree). The timers are carried by the execution context (``mgis::Context``), whose profiling is disabled by default:
 
 .. code-block:: c++
 
   mfem_mgis::initialize(argc, argv);
+  auto ctx = mfem_mgis::Context{};
+  ctx.enableProfiling(true);
 
-Displaying the time table in your terminal is done by adding the following function call: 
+The sections are timed only for the functions to which this context is given. Displaying the time table in your terminal is done by adding the following function call, which must be made by all the processes:
 
 .. code-block:: c++
 
-  mfem_mgis::Profiler::timers::print_timers();
+  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
 
-This is an example of an output:
+This is an example of an output on several processes, the table being preceded by a glossary of the abbreviations of the names of the sections (in sequential computations, the columns are the number of calls, the time and the ratio to the total time):
 
 .. code-block:: text
 
-  MPI feature activated, rank 0:
   |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
   |    name                                                                  |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
   |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -45,14 +46,17 @@ This is an example of an output:
   | |--> PeriodicNonLinEvPB::constructor_with_bct                            |                  1 |           0.000045 |           0.000047 |           0.000050 |          0.081340% |          0.053553% |
   |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 
-Writing the time table to a file is done by adding the following function call:
+When the arrays of the materials are copied between the host and a GPU,
+the numbers of copies, of bytes and the time of these copies are printed
+after the table (see :ref:`mfem_mgis_batch_computations_execution`).
+
+Writing the time table to a file is done by adding the following function call, made by all the processes:
 
 .. code-block:: c++
 
-  mfem_mgis::Profiler::timers::write_timers();
+  mfem_mgis::Profiler::OutputManager::writeFile(ctx);
 
-
-Each line is composed of the section name, number of calls, time in seconds, and ratio to total time. This is an example of an output:
+The default name of the file is ``mfem-mgis.N.perf``, where ``N`` is the number of MPI processes (or of OpenMP threads in sequential runs). Each line is composed of the section name, number of calls, time in seconds, and ratio to total time. This is an example of an output:
 
 .. code-block:: text
 
@@ -75,25 +79,17 @@ Each line is composed of the section name, number of calls, time in seconds, and
 
 .. note::
 
-  You can specify the name of your output file by using ``mfem_mgis::Profiler::OutputManager::writeFile("OutputTimerFile.perf")``.
-
-.. note::
-
-  Both functions can be called directly using ``print_and_write_timers()``.
+  You can specify the name of your output file by using ``mfem_mgis::Profiler::OutputManager::writeFile(ctx, "OutputTimerFile.perf")``.
 
 You can instrument each of your functions using section timers. It's important to remember that adding timers can add extra cost, negligible for "big" functions but very costly for functions called in each element.
 
-- To time a function, place this instruction at the start of your function; the timer will stop at the end of the scope (the second time point is hidden in the timer destructor).
+- To time a function, place this instruction at the start of your function; the timer will stop at the end of the scope (the second time point is hidden in the timer destructor). Several sections may be declared in the same scope.
 
 .. code-block:: c++
 
-  CatchTimeSection("NameOfYourFunction");
+  CatchTimeSection(ctx, "NameOfYourFunction");
 
-- To add a second timer to the same scope, you can use:
-
-.. code-block:: c++
-
-  CatchNestedTimeSection("NameOfYourNestedSection");
+The macro ``CatchTimeSection`` is provided by ``MGIS`` (header ``MGIS/Profiling.hxx``). When a GPU is used, each section waits for the end of the kernels launched on the GPU before it is closed, so that their duration is counted in the section which launched them.
 
 Benchmarks RVE MOX
 ^^^^^^^^^^^^^^^^^^

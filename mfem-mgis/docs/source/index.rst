@@ -38,6 +38,16 @@ particular the support of complex constitutive laws and the management
 of advanced boundary conditions. It provides a high level of abstraction
 focused on the physics to be treated.
 
+.. note::
+
+   This documentation describes the ``gpu-proto`` branch, a prototype of
+   the integration of the behaviours by batches, of the finite element
+   computations by kernels and of the computations on GPUs (``CUDA``,
+   ``HIP``), placed by the option ``--execution`` (see
+   :ref:`mfem_mgis_batch_computations`). These features are not
+   available in the ``master`` branch nor in the releases (see
+   :ref:`mfem_mgis_installation_prototype` to build the prototype).
+
 .. figure:: img/mfem-mgis-illustration.png
 
 Statement of need
@@ -71,8 +81,8 @@ mechanical behaviours. ``code_aster``, ``MoFEM``, ``CalculiX`` are examples
 of state of the art solvers which have an interface with ``MFront``.
 
 However, those solvers lack many features provided by ``MFEM`` that the
-authors found interesting to explore in the field of solid mechanics
-(see the above section for a detailed list). The authors also found it
+authors found interesting to explore in the field of solid mechanics.
+The authors also found it
 interesting to take a platform designed from the start for high
 performance computing, adapt it to engineering needs, and evaluate
 the resulting performance.

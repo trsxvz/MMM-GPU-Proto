@@ -15,8 +15,16 @@ MFEM-MGIS.
 
   This section is under construction
 
-The :code:`ParaviewExport` post-processing
-==========================================
+The post-processings computing values at the nodes and L2 projections may
+be computed by kernels, on the GPU if a GPU is used (see
+:ref:`mfem_mgis_batch_computations_post_processings`). The post-processings
+along curves or at sets of points are described in
+:doc:`../mesh/curves`, and the functions :code:`computeL2Projection`,
+:code:`computeMeasure` and :code:`computeIntegral` in
+:doc:`../partial_quadrature_functions/partial_quadrature_functions`.
+
+The :code:`ParaviewExportResults` post-processing
+=================================================
 
 This post-processing allows exporting the unknowns of a nonlinear
 evolution problem for visualization in :code:`paraview`:
@@ -124,6 +132,12 @@ The optional ``ExecuteInitialPostProcessing`` boolean parameter (``true`` by
 default) states if the results are exported at the initial time of the
 simulation.
 
+The values at the nodes are computed by kernels, on the GPU if a GPU is
+used, when the post-processings are computed by kernels (environment
+variable ``MFEM_MGIS_POST_PROCESSINGS_COMPUTATION``, or option
+``--execution``, see
+:ref:`mfem_mgis_batch_computations_post_processings`).
+
 **Results**
 
 .. figure:: img/SatohTestStress.png
@@ -189,6 +203,39 @@ Compute dissipated Energy
   problem.addPostProcessing(ctx, "DissipatedEnergy",
                             {{"OutputFileName", "dissipated_energy.txt"}}) |
       or_die;
+
+The ``StoredEnergy`` and ``DissipatedEnergy`` post-processings accept the
+following parameters:
+
+- ``OutputFileName``: name of the output file;
+- ``Material`` or ``Materials``: the materials considered (all the
+  materials by default);
+- ``BehaviourIntegrator``: see below.
+
+Compute the resultant force on a boundary
+=========================================
+
+This post-processing computes the resultant of the inner forces on a
+boundary, written by the main process, one line per time step: the time,
+then the components of the resultant.
+
+- Key: ``ComputeResultantForceOnBoundary``
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.addPostProcessing(ctx, "ComputeResultantForceOnBoundary",
+                            {{"Boundary", "Xmax"},
+                             {"OutputFileName", "force.txt"}}) |
+      or_die;
+
+The parameters are:
+
+- ``Boundary`` (required): the boundary, given by its name or its
+  identifier;
+- ``OutputFileName``: name of the output file;
+- ``BehaviourIntegrator``: see below.
 
 
 Materials with several behaviour integrators

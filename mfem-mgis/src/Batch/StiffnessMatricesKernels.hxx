@@ -47,9 +47,10 @@ namespace mfem_mgis::batch::internals {
     /*!
      * \brief values of the shape functions on the reference element
      * (`nq x nd`), used by the derivatives of the thermodynamic forces with
-     * respect to the unknowns (stationary heat transfer behaviours) and by
-     * the gradients which are the values of the unknowns (transient term of
-     * the heat equation)
+     * respect to the unknowns (stationary heat transfer behaviours), by the
+     * gradients which are the values of the unknowns (transient term of the
+     * heat equation) and by the micromorphic damage behaviours (first
+     * component of the gradients)
      */
     const real* shape_functions = nullptr;
     /*!
@@ -126,7 +127,8 @@ namespace mfem_mgis::batch::internals {
      * in the values of the matrix, or `end` if the entry is not in the
      * matrix: the position read in `positions` if it designates the column
      * of the entry, the position searched in the row otherwise (see
-     * `findColumn`, the entry being then counted in `searched`)
+     * `findColumn`; the entry is counted in `searched` if its position was
+     * known)
      * \param[in] e: element (in the mesh)
      * \param[in] n: number of degrees of freedom of an element
      * \param[in] i: row of the entry in the stiffness matrix of the element
@@ -168,11 +170,11 @@ namespace mfem_mgis::batch::internals {
    * \param[in] f: calling function (error messages)
    */
   [[nodiscard]] bool checkAssembledStiffnessMatrix(
-      Context&,
-      const AssembledStiffnessMatrix&,
-      const std::int64_t,
-      const std::int64_t,
-      const char* const);
+      Context& ctx,
+      const AssembledStiffnessMatrix& m,
+      const std::int64_t ne,
+      const std::int64_t n,
+      const char* const f);
   /*!
    * \brief fills the destination of the kernels adding the stiffness
    * matrices of the elements to an assembled matrix, checked by
@@ -184,10 +186,10 @@ namespace mfem_mgis::batch::internals {
    * \param[in] m: assembled matrix
    * \param[in] use_device: if true, the destination is read on the device
    */
-  void getSparseMatrixOutput(SparseMatrixOutput&,
-                             mfem::Array<int>&,
-                             const AssembledStiffnessMatrix&,
-                             const bool);
+  void getSparseMatrixOutput(SparseMatrixOutput& o,
+                             mfem::Array<int>& counters,
+                             const AssembledStiffnessMatrix& m,
+                             const bool use_device);
   /*!
    * \brief reads the counters filled by a kernel adding the stiffness
    * matrices of the elements to an assembled matrix: the number of entries
@@ -201,10 +203,10 @@ namespace mfem_mgis::batch::internals {
    * \param[in] f: calling function (error message)
    */
   [[nodiscard]] bool checkSparseMatrixOutputCounters(
-      Context&,
-      const mfem::Array<int>&,
-      const AssembledStiffnessMatrix&,
-      const char* const);
+      Context& ctx,
+      const mfem::Array<int>& counters,
+      const AssembledStiffnessMatrix& m,
+      const char* const f);
   /*!
    * \brief launches the kernel computing the positions of the entries of the
    * stiffness matrices of all the elements in the rows of an assembled
@@ -217,11 +219,11 @@ namespace mfem_mgis::batch::internals {
    * \param[out] positions: positions (`ne * n * n` values)
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchStiffnessMatricesPositionsKernel(const SparseMatrixOutput&,
-                                              const int,
-                                              const int,
-                                              std::uint16_t* const,
-                                              const bool);
+  void launchStiffnessMatricesPositionsKernel(const SparseMatrixOutput& o,
+                                              const int ne,
+                                              const int n,
+                                              std::uint16_t* const positions,
+                                              const bool use_device);
 
   /*!
    * \brief launches the kernel adding stiffness matrices stored element by
@@ -242,13 +244,13 @@ namespace mfem_mgis::batch::internals {
    * \param[in] n: number of degrees of freedom of an element
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchStiffnessMatricesByEntriesKernel(const SparseMatrixOutput&,
-                                              const int,
-                                              const int* const,
-                                              const int* const,
-                                              const real* const,
-                                              const int,
-                                              const bool);
+  void launchStiffnessMatricesByEntriesKernel(const SparseMatrixOutput& o,
+                                              const int nnz,
+                                              const int* const offsets,
+                                              const int* const contributions,
+                                              const real* const k,
+                                              const int n,
+                                              const bool use_device);
 
   /*!
    * \brief launches the kernel adding the stiffness matrices of the
@@ -256,12 +258,12 @@ namespace mfem_mgis::batch::internals {
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments (`matrices` is not used)
    * \param[in] o: assembled matrix
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchStiffnessMatricesKernel(const GradientsKind,
-                                     const StiffnessMatricesKernelArguments&,
-                                     const SparseMatrixOutput&,
-                                     const bool);
+  void launchStiffnessMatricesKernel(const GradientsKind k,
+                                     const StiffnessMatricesKernelArguments& a,
+                                     const SparseMatrixOutput& o,
+                                     const bool use_device);
   /*!
    * \brief launches the kernel adding the diagonals of the stiffness
    * matrices of the elements of a material to values stored element by
@@ -274,13 +276,14 @@ namespace mfem_mgis::batch::internals {
    * \param[in] use_device: if true, the kernel runs on the device
    */
   void launchStiffnessMatricesDiagonalsKernel(
-      const GradientsKind,
-      const StiffnessMatricesKernelArguments&,
-      real* const,
-      const bool);
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      real* const d,
+      const bool use_device);
   /*!
    * \brief launches the kernel adding the action of the stiffness matrices of
-   * the elements of a material, `Σ Bᵀ K B x w det J`, on values given
+   * the elements of a material, `Σ Bᵀ K B x w det J` (plus `Σ Bᵀ (dq/dT) N x
+   * w det J` for the stationary heat transfer behaviours), on values given
    * element by element, in the layout of the element restriction of MFEM
    * (`node + nd * (component + vdim * element)`, `vdim` being the number
    * of components of the unknowns)
@@ -291,30 +294,30 @@ namespace mfem_mgis::batch::internals {
    * \param[in] use_device: if true, the kernel runs on the device
    */
   void launchTangentOperatorActionKernel(
-      const GradientsKind,
-      const StiffnessMatricesKernelArguments&,
-      const real* const,
-      real* const,
-      const bool);
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      const real* const x,
+      real* const y,
+      const bool use_device);
   /*!
    * \brief sets values to zero
    * \param[out] v: values
    * \param[in] n: number of values
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device
    */
-  void zeroValues(real* const, const int, const bool);
+  void zeroValues(real* const v, const int n, const bool use_device);
 
   /*!
    * \brief launches the kernel adding the stiffness matrices of the
    * elements of a material
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchStiffnessMatricesKernel(const GradientsKind,
-                                     const StiffnessMatricesKernelArguments&,
-                                     const bool);
+  void launchStiffnessMatricesKernel(const GradientsKind k,
+                                     const StiffnessMatricesKernelArguments& a,
+                                     const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

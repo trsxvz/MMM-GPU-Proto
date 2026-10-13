@@ -9,7 +9,7 @@ functions:
   equivalent stress. For finite strain behaviours, the von Mises
   equivalent stress of the Cauchy stress is returned.
 - :cxx:`computeEigenStresses` computes the eigen values of the stress.
-  For finite strain behaviours, the eigen values of the Cauchy stress is
+  For finite strain behaviours, the eigen values of the Cauchy stress are
   returned.
 - :cxx:`computeFirstEigenStress` computes the first (maximum) eigen
   value of the stress. For finite strain behaviours, the first eigen
@@ -19,4 +19,10 @@ functions:
   strain behaviours, the first Piola-Kirchhoff stress is returned.
 - :cxx:`computeCauchyStressInGlobalFrame`: compute the Cauchy stress in
   the global frame. This function is only valid for orthotropic finite
-  strain behaviours.
+  strain behaviours, and does not work in plane stress yet.
+- :cxx:`computeCauchyStress`: compute the Cauchy stress. This function is
+  only valid for finite strain behaviours, and does not work in plane
+  stress yet.
+
+These functions are only available if :code:`MGIS` is built with the
+support of functions (macro :code:`MGIS_FUNCTION_SUPPORT`).

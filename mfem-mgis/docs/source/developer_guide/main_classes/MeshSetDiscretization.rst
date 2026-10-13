@@ -1,8 +1,8 @@
 .. _mfem_mgis_MeshSetDiscretization:
 
-=======================
-MeshSetDiscretization
-=======================
+==================
+MeshDiscretization
+==================
 
 The ``MeshDiscretization`` class is a fundamental component of ``MFEM-MGIS`` that handles the lifetime of meshes and provides utilities for managing mesh-related operations. It serves as the base class for more specialized discretization classes.
 
@@ -35,7 +35,7 @@ The following example demonstrates basic usage of ``MeshDiscretization``:
   auto ctx = mgis::Context{};
   auto omesh = construct<MeshDiscretization>(
       ctx,
-      Parameters{{{"MeshFileName", "mesh.mesh"}},
+      Parameters{{"MeshFileName", "mesh.mesh"},
                  {"NumberOfUniformRefinements", 0},
                  {"Materials", dict{{"Attr1", 1}, {"Attr2", 2}}},
                  {"Boundaries", dict{{"left", 1}, {"right", 2}}},
@@ -52,11 +52,15 @@ Parameters
 ----------
 
 - ``MeshFileName`` (string): Path to the mesh file.
+- ``MeshReadMode`` (string): ``FromScratch`` (default) or ``Restart`` (see
+  :doc:`../../user_guide/mesh/mesh-reader`).
 - ``NumberOfUniformRefinements`` (int): Number of uniform refinements to apply to the mesh.
 - ``Materials`` (dictionary): Mapping between material names and their identifiers.
 - ``Boundaries`` (dictionary): Mapping between boundary names and their identifiers.
 - ``Parallel`` (boolean): Whether to use parallel (MPI-based) computation.
 - ``GeneralVerbosityLevel`` (int): Verbosity level for debugging output.
+- ``Points`` and ``PointsSets`` (dictionaries): named points and sets of
+  points (see :doc:`../../user_guide/mesh/curves`).
 
 .. note::
 

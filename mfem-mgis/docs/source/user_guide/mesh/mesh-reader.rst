@@ -12,18 +12,41 @@ msh22`` option.
 Keywords
 ^^^^^^^^
 
-+------------------+-------------------------------------------------------------------+
-| Key              | Description                                                       |
-+==================+===================================================================+
-| ``MeshFileName`` | Define the mesh file name.                                        |
-+------------------+-------------------------------------------------------------------+
-| ``MeshReadMode`` | Read Splitted Mesh, FromScratch = sequential, Restart = parallel  |
-+------------------+-------------------------------------------------------------------+
++--------------------------------+-------------------------------------------------------------------+
+| Key                            | Description                                                       |
++================================+===================================================================+
+| ``MeshFileName``               | Define the mesh file name.                                        |
++--------------------------------+-------------------------------------------------------------------+
+| ``MeshReadMode``               | ``FromScratch`` (default): the whole mesh is read, then           |
+|                                | partitioned; ``Restart``: each process reads its part of a mesh   |
+|                                | split beforehand (``<MeshFileName><rank on 6 digits>``).          |
+|                                | ``Restart`` is refused in a sequential computation and with a     |
+|                                | ``.med`` file.                                                    |
++--------------------------------+-------------------------------------------------------------------+
+| ``NumberOfUniformRefinements`` | Number of uniform refinements of the mesh (0 by default).         |
++--------------------------------+-------------------------------------------------------------------+
+| ``Materials``                  | Names associated with the material identifiers.                   |
++--------------------------------+-------------------------------------------------------------------+
+| ``Boundaries``                 | Names associated with the boundary identifiers.                   |
++--------------------------------+-------------------------------------------------------------------+
+| ``Points``, ``PointsSets``     | Points and sets of points declared by the user (see               |
+|                                | :doc:`curves`).                                                   |
++--------------------------------+-------------------------------------------------------------------+
+| ``GeneralVerbosityLevel``      | Verbosity level.                                                  |
++--------------------------------+-------------------------------------------------------------------+
  
 .. code-block::
 
    mfem_mgis::Parameters{{"MeshFileName", "mesh-explorer.mesh."},
                          {"MeshReadMode", "Restart"}, ... }
+
+MED files
+^^^^^^^^^
+
+When ``MFEM`` is built with the support of the ``MED`` format
+(``MFEM_USE_MED``), the meshes in ``.med`` files are read directly. If a
+file with the same name and the extension ``.per`` exists, it describes
+the periodicity of the mesh.
 
 Split Mesh
 ^^^^^^^^^^

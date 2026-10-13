@@ -38,7 +38,7 @@ namespace mfem_mgis::internals {
      * \brief constructor
      * \param[in] c: communicator
      */
-    explicit MUMPSSolverReusingAnalysis(MPI_Comm);
+    explicit MUMPSSolverReusingAnalysis(MPI_Comm c);
     //! \brief set the operator
     void SetOperator(const mfem::Operator&) override;
     //! \return the number of analyses made

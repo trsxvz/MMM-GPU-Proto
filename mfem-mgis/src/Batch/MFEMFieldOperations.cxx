@@ -2,7 +2,8 @@
  * \file   src/Batch/MFEMFieldOperations.cxx
  * \brief  This file implements the `MFEMFieldOperations` class
  * \date   09/10/2026
- * \note   compiled as CUDA code when MFEM is compiled with CUDA
+ * \note   compiled as CUDA or HIP code when MFEM is compiled with CUDA or
+ *         HIP
  */
 
 #include <limits>
@@ -16,6 +17,8 @@ namespace mfem_mgis::batch {
   /*!
    * \return the number of values of a view, checked against the range of
    * the indices of the kernels of MFEM
+   * \throws std::runtime_error if the number of values exceeds the largest
+   * `int`
    * \param[in] n: number of points
    * \param[in] nc: number of components
    */
@@ -30,7 +33,7 @@ namespace mfem_mgis::batch {
   /*!
    * \brief copy the values of a view in another one with a kernel of MFEM
    * \param[in] use_device: if true, the kernel runs on the device
-   * \param[in] d: destination
+   * \param[in] d: view on the destination, whose values are written
    * \param[in] s: source
    * \note nvcc does not allow the extended lambdas of the kernels in the
    * private member functions of `MFEMFieldOperations`
@@ -66,7 +69,7 @@ namespace mfem_mgis::batch {
   /*!
    * \brief fill a view with a kernel of MFEM (see `copyFieldView`)
    * \param[in] use_device: if true, the kernel runs on the device
-   * \param[in] d: view
+   * \param[in] d: view whose values are written
    * \param[in] v: value
    */
   static void fillFieldView(const bool use_device,

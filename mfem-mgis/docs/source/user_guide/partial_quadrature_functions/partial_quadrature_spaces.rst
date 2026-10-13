@@ -23,6 +23,14 @@ Another constructor takes a finite element space as second argument, for
 instance a finite element space defined on a submesh. This finite
 element space must be managed by the finite element discretization.
 
+.. note::
+
+   The computations by kernels (see :ref:`mfem_mgis_batch_computations`)
+   only apply to the spaces defined on materials whose elements use the
+   same integration rule, returned by :cxx:`getUniformIntegrationRule` (a
+   null pointer otherwise). The other spaces, in particular the ones
+   defined on boundaries, are treated element by element.
+
 Retrieving information on a partial quadrature space
 ====================================================
 

@@ -64,8 +64,8 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_MPI
     /*!
      * \brief constructor
-     * \param[in] u: unknown
      * \param[in] fes: finite element space
+     * \param[in] u: unknown
      * \param[in] bis: behaviour integrators
      */
     InternalForcesIntegrator(
@@ -77,8 +77,8 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
     /*!
      * \brief constructor
-     * \param[in] u: unknown
      * \param[in] fes: finite element space
+     * \param[in] u: unknown
      * \param[in] bis: behaviour integrators
      */
     InternalForcesIntegrator(
@@ -157,8 +157,8 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_MPI
     /*!
      * \brief constructor
-     * \param[in] u: unknown
      * \param[in] fes: finite element space
+     * \param[in] u: unknown
      * \param[in] bis: behaviour integrators
      */
     StiffnessMatrixIntegrator(
@@ -170,8 +170,8 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
     /*!
      * \brief constructor
-     * \param[in] u: unknown
      * \param[in] fes: finite element space
+     * \param[in] u: unknown
      * \param[in] bis: behaviour integrators
      */
     StiffnessMatrixIntegrator(

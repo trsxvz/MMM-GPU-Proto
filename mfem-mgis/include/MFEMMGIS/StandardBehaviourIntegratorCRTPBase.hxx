@@ -32,6 +32,8 @@ namespace mfem_mgis {
    * - a method called `rotateTangentOperatorBlocks`
    * - if the external state variables are updated from the values of the
    *   unknowns (see `BehaviourIntegratorTraits`), a method called
+   *   `updateExternalStateVariablesFromUnknownsValues`, which sets them at
+   *   one integration point, and a method called
    *   `setExternalStateVariablesFromUnknownsValues`, which sets them at all
    *   the integration points (computations by kernels)
    *
@@ -42,39 +44,95 @@ namespace mfem_mgis {
    */
   template <typename Child>
   struct StandardBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
+    /*!
+     * \return true: the behaviour can be integrated by batches (see
+     * `AbstractBehaviourIntegrator::supportsBatchIntegration`)
+     */
     [[nodiscard]] bool supportsBatchIntegration() const noexcept override;
+    /*!
+     * \brief compute the gradients at the integration points of an element
+     * (see `AbstractBehaviourIntegrator::computeGradients` and
+     * `implementComputeGradients`)
+     */
     [[nodiscard]] bool computeGradients(const mfem::FiniteElement&,
                                         mfem::ElementTransformation&,
                                         const mfem::Vector&) override;
+    /*!
+     * \return true if the kind of the gradients of the behaviour matches the
+     * computations of the behaviour integrator (see
+     * `BehaviourIntegratorTraits`), if neither the residual nor the jacobian
+     * depend on the current solution, and if the quadrature space is
+     * supported by the kernels (see `isQuadratureSpaceSupportedByKernels`)
+     */
     [[nodiscard]] bool supportsKernels() const noexcept override;
+    /*!
+     * \return true if the external state variables are updated from the
+     * values of the unknowns or if the gradients are computed from the
+     * values of the shape functions (see `BehaviourIntegratorTraits`)
+     */
     [[nodiscard]] bool requiresUnknownsValuesForKernels()
         const noexcept override;
+    /*!
+     * \brief compute the gradients at all the integration points by kernels
+     * (see `batch::computeGradients`) and, if the external state variables
+     * are updated from the values of the unknowns, set them (see
+     * `AbstractBehaviourIntegrator::computeGradientsByKernels`)
+     */
     [[nodiscard]] bool computeGradientsByKernels(
-        Context&,
-        const batch::UnknownsDerivativesSet&,
-        const batch::ElementsGeometrySet&) noexcept override;
+        Context& ctx,
+        const batch::UnknownsDerivativesSet& d,
+        const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the inner forces of all the elements, computed by kernels
+     * from the thermodynamic forces (see
+     * `AbstractBehaviourIntegrator::addInnerForcesByKernels` and
+     * `addInnerForcesFromThermodynamicForcesByKernels`)
+     */
     [[nodiscard]] bool addInnerForcesByKernels(
-        Context&,
-        mfem::Vector&,
-        const batch::ElementsGeometrySet&) noexcept override;
+        Context& ctx,
+        mfem::Vector& f,
+        const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels, to matrices stored element by element (see
+     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels` and
+     * `batch::addStiffnessMatrices`)
+     */
     [[nodiscard]] bool addStiffnessMatricesByKernels(
-        Context&,
-        mfem::Vector&,
-        const batch::ElementsGeometrySet&) noexcept override;
+        Context& ctx,
+        mfem::Vector& m,
+        const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the stiffness matrices of all the elements, computed by
+     * kernels, to an assembled sparse matrix (see
+     * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels` and
+     * `batch::addStiffnessMatrices`)
+     */
     [[nodiscard]] bool addStiffnessMatricesByKernels(
-        Context&,
-        const batch::AssembledStiffnessMatrix&,
-        const batch::ElementsGeometrySet&) noexcept override;
-
+        Context& ctx,
+        const batch::AssembledStiffnessMatrix& m,
+        const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the action of the stiffness matrices of all the elements,
+     * computed by kernels without assembling them (see
+     * `AbstractBehaviourIntegrator::addTangentOperatorActionByKernels` and
+     * `batch::addTangentOperatorAction`)
+     */
     [[nodiscard]] bool addTangentOperatorActionByKernels(
-        Context&,
-        mfem::Vector&,
-        const mfem::Vector&,
-        const batch::ElementsGeometrySet&) noexcept override;
+        Context& ctx,
+        mfem::Vector& y,
+        const mfem::Vector& x,
+        const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the diagonals of the stiffness matrices of all the
+     * elements, computed by kernels (see
+     * `AbstractBehaviourIntegrator::addTangentOperatorDiagonalByKernels` and
+     * `batch::addStiffnessMatricesDiagonals`)
+     */
     [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
-        Context&,
-        mfem::Vector&,
-        const batch::ElementsGeometrySet&) noexcept override;
+        Context& ctx,
+        mfem::Vector& d,
+        const batch::ElementsGeometrySet& g) noexcept override;
 
    protected:
     /*!

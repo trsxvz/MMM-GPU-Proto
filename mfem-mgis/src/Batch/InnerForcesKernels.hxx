@@ -27,7 +27,8 @@ namespace mfem_mgis::batch::internals {
     const real* shape_functions_gradients = nullptr;
     /*!
      * \brief values of the shape functions on the reference element (`nq x
-     * nd`), used if the gradients are the values of the unknowns
+     * nd`), used if the operator `B` depends on the values of the shape
+     * functions (see `usesShapeFunctionsValues`)
      */
     const real* shape_functions = nullptr;
     /*!
@@ -70,12 +71,12 @@ namespace mfem_mgis::batch::internals {
    * a material
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchInnerForcesKernel(const GradientsKind,
-                               const InnerForcesKernelArguments&,
-                               const bool);
+  void launchInnerForcesKernel(const GradientsKind k,
+                               const InnerForcesKernelArguments& a,
+                               const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

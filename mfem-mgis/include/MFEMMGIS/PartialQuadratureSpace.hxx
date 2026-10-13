@@ -216,8 +216,9 @@ namespace mfem_mgis {
     [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
     /*!
      * \return the integration rule used by all the elements of the space, or
-     * a null pointer if the elements use different integration rules or if
-     * the space has no element
+     * a null pointer if the elements do not use the same integration rule
+     * (rules compared by address, as the rules returned by `mfem::IntRules`)
+     * or if the space has no element
      */
     [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
         const noexcept;

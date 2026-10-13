@@ -35,7 +35,7 @@ namespace mfem_mgis::batch {
      * device. Otherwise, the views are located in the memory of the host,
      * and the operations run on the host, as `mgis::HostFieldOperations`.
      */
-    explicit MFEMFieldOperations(const bool) noexcept;
+    explicit MFEMFieldOperations(const bool d) noexcept;
     //! \brief destructor
     ~MFEMFieldOperations() override;
 

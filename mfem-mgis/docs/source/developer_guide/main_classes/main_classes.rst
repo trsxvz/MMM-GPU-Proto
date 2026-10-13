@@ -8,7 +8,7 @@ The `doxygen` documentation is available on `this page <https://thelfer.github.i
     
 .. toctree::
    :maxdepth: 1
-   :caption: Management of mesh, sub-mehes and finite element spaces
+   :caption: Management of mesh, submeshes and finite element spaces
 
    MeshSetDiscretization.rst
    FiniteElementDiscretization.rst

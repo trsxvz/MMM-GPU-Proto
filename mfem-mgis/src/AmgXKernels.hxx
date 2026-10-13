@@ -20,7 +20,7 @@ namespace mfem_mgis::internals {
    * \param[in] v: vector
    * \param[in, out] w: workspace of the reduction
    */
-  double getMaximumAbsoluteValue(const mfem::Vector&, mfem::Array<double>&);
+  double getMaximumAbsoluteValue(const mfem::Vector& v, mfem::Array<double>& w);
   /*!
    * \brief multiplies a vector by a factor, on the device if the vector
    * uses it
@@ -28,7 +28,7 @@ namespace mfem_mgis::internals {
    * \param[in] s: vector
    * \param[in] f: factor
    */
-  void scale(mfem::Vector&, const mfem::Vector&, const double);
+  void scale(mfem::Vector& d, const mfem::Vector& s, const double f);
   /*!
    * \brief converts a vector in double precision, multiplied by a factor,
    * to single precision, on the device if the vector uses it
@@ -36,9 +36,9 @@ namespace mfem_mgis::internals {
    * \param[in] s: vector
    * \param[in] f: factor
    */
-  void convertToSinglePrecision(mfem::Array<float>&,
-                                const mfem::Vector&,
-                                const double = 1);
+  void convertToSinglePrecision(mfem::Array<float>& d,
+                                const mfem::Vector& s,
+                                const double f = 1);
   /*!
    * \brief converts values in single precision, multiplied by a factor, to
    * a vector in double precision, on the device if the vector uses it
@@ -46,9 +46,9 @@ namespace mfem_mgis::internals {
    * \param[in] s: values in single precision
    * \param[in] f: factor
    */
-  void convertToDoublePrecision(mfem::Vector&,
-                                const mfem::Array<float>&,
-                                const double = 1);
+  void convertToDoublePrecision(mfem::Vector& d,
+                                const mfem::Array<float>& s,
+                                const double f = 1);
 
 }  // end of namespace mfem_mgis::internals
 

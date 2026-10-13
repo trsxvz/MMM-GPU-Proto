@@ -141,7 +141,8 @@ namespace mfem_mgis {
    * attributes)
    * \param[in] n: number of attributes
    * \param[in] excluded: integrator not evaluated
-   * \throw if a marker has less values than the number of attributes
+   * \throws std::runtime_error if a marker has less values than the number
+   * of attributes
    */
   static mfem::Array<int> getEvaluatedAttributes(
       const mfem::Array<mfem::NonlinearFormIntegrator*>& integrators,
@@ -494,8 +495,8 @@ namespace mfem_mgis {
 
   /*!
    * \brief integrate the behaviours by batches: gradients computed element
-   * by element, or by kernels (not for a prediction), then one call per
-   * behaviour integrator
+   * by element or by kernels (no computation of the gradients for a
+   * prediction), then one call per behaviour integrator
    * \return true on success
    * \param[in] mi: multi-material integrator
    * \param[in] fespace: finite element space
@@ -1472,9 +1473,8 @@ namespace mfem_mgis {
     auto addOtherContributions = std::function<void(mfem::Vector&)>{};
     if (others) {
       ++(this->other_integrators_residual_evaluations);
-      // the unknowns are prolongated on all the processes (exchanges
-      // between processes) before the computations of the residual, which
-      // may fail on one process only
+      // the unknowns are prolongated (non conforming meshes) before the
+      // computations of the residual
       const auto& pu = this->Prolongate(u);
       addOtherContributions = [this, &pu](mfem::Vector& f) {
         addOtherIntegratorsContributions<true>(

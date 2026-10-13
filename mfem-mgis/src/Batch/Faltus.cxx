@@ -57,9 +57,10 @@ namespace mfem_mgis::batch {
   }  // end of isFaltusSupportedByKernels
 
   /*!
-   * \brief checks the geometric data of the integration points and of the
-   * center of the elements of a material, and returns the arguments of the
-   * kernels
+   * \brief checks the kind of the gradients and the geometric data of the
+   * integration points and of the center of the elements of a material,
+   * and fills the arguments of the kernels (left unchanged if the material
+   * has no element)
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[out] a: arguments of the kernels
@@ -129,7 +130,11 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of getFaltusGeometryKernelArguments
 
-  //! \return the number of degrees of freedom of an element
+  /*!
+   * \return the number of degrees of freedom of an element
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   */
   static std::int64_t getNumberOfElementDegreesOfFreedom(
       const ElementsGeometry& g, const GradientsKind k) {
     return std::int64_t{g.nd} * getUnknownsSize(k);

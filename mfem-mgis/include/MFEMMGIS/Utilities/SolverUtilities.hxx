@@ -98,18 +98,23 @@ namespace mfem_mgis {
   /*!
    * \brief check if the linear solver has converged
    * \param[in] ls: linear solver
-   * \return if the linear solver has converged
+   * \return if the linear solver has converged: convergence reported by the
+   * iterative solvers of MFEM, the Krylov solvers of hypre (number of
+   * iterations below the maximum) and the solvers of AmgX; for cuDSS,
+   * relative residuals of the last solutions below 1e-3
+   * (`CuDSSDirectSolver::hasSucceeded`); true for the other solvers
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool hasConverged(
       const LinearSolver& ls) noexcept;  // end of hasConverged
   /*!
    * \brief get the number of iterations of an iterative linear solver
    *
-   * Unified for both LinearSolver and Hypre solvers.
-   * Optional return type in case the LinearSolver is not iterative.
+   * Supported solvers: iterative solvers of MFEM, Krylov solvers of hypre
+   * (`HyprePCG`, `HypreGMRES`, `HypreFGMRES`) and iterative solvers of AmgX
+   * (`AmgXPCG`).
    *
    * \param[in] ls: linear solver
-   * \return the number of iterations, empty if the solver is not iterative
+   * \return the number of iterations, empty for the other solvers
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<int>
   getNumberOfIterationsAtConvergence(const LinearSolver& ls) noexcept;
@@ -124,9 +129,9 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<size_type> getNumberOfAnalyses(
       const LinearSolver& ls) noexcept;
   /*!
-   * \return the relative tolerance of an iterative linear solver (iterative
-   * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not
-   * iterative
+   * \return the relative tolerance of the iterative solvers of MFEM and of
+   * the Krylov solvers of hypre (`HyprePCG`, `HypreGMRES`, `HypreFGMRES`),
+   * empty for the other solvers (including the solvers of AmgX)
    * \param[in] ls: linear solver
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> getRelativeTolerance(
@@ -134,7 +139,8 @@ namespace mfem_mgis {
   /*!
    * \brief sets the relative tolerance of an iterative linear solver
    * (iterative solvers of MFEM, Krylov solvers of hypre)
-   * \return false if the solver is not iterative
+   * \return false if the solver is not an iterative solver of MFEM or a
+   * Krylov solver of hypre (for instance a solver of AmgX)
    * \param[in, out] ls: linear solver
    * \param[in] tol: relative tolerance
    */

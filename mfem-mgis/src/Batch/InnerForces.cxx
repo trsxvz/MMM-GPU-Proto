@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/InnerForces.cxx
  * \brief  This file implements the computation of the inner forces of the
- * standard mechanical behaviour integrators by kernels (host part: checks
- * and arguments of the kernels)
+ * standard behaviour integrators (mechanics, heat transfer, micromorphic
+ * damage) by kernels (host part: checks and arguments of the kernels)
  * \date   09/10/2026
  */
 
@@ -23,6 +23,14 @@ namespace mfem_mgis::batch {
   /*!
    * \brief implementation of `addInnerForces` and of
    * `addMaterialInnerForces`
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] f: values element by element, or by element of the
+   * material
+   * \param[in] qs: quadrature space of the material
+   * \param[in] s: thermodynamic forces in the global frame
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
    * \param[in] by_material_element: if true, the values are stored by
    * element of the material
    * \param[in] name: name of the calling function, for the messages

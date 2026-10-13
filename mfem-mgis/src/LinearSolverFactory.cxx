@@ -112,10 +112,9 @@ namespace mfem_mgis::internals {
    * operator after the destruction of the previous one, as the non linear
    * solvers do: `mfem::HypreParaSails::SetOperator` (MFEM 4.10) creates the
    * new preconditioner of hypre with the communicator of the previous
-   * operator, whose memory may then be freed (invalid communicator, see
-   * reproducers/hypre-parasails-operator in the prototype). The operator is
-   * replaced by the new one before calling this method, which reports an
-   * operator which is not a matrix of hypre as before.
+   * operator, whose memory may then be freed (invalid communicator). The
+   * operator is replaced by the new one before calling this method, which
+   * reports an operator which is not a matrix of hypre as before.
    */
   struct ReusableHypreParaSails final : public mfem::HypreParaSails {
     using mfem::HypreParaSails::HypreParaSails;
@@ -144,7 +143,8 @@ namespace mfem_mgis {
    * \param[in] opts: options:
    * - `Strategy`: `System` (systems options, by default for vector unknowns),
    *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
-   *   dimension, `System` being used otherwise) or `None`;
+   *   dimension and hypre computing on the host, `System` being used
+   *   otherwise) or `None` (by default for scalar unknowns);
    * - `VerbosityLevel`: print level of hypre;
    * - options of hypre, whose values are the ones of hypre (see its
    *   documentation): `StrengthThreshold`, `CoarseningType`,
@@ -329,9 +329,8 @@ namespace mfem_mgis {
     // the ILU(k) factorisations with a level of fill greater than zero make
     // the triangular solves of hypre fail when hypre computes on a GPU
     // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
-    // 3.2.0 and CUDA 13, see reproducers/hypre-ilu-gpu in the prototype),
-    // the ILUT factorisations do not: the level of fill is then zero by
-    // default, one being the default of MFEM
+    // 3.2.0 and CUDA 13), the ILUT factorisations do not: the level of fill
+    // is then zero by default, one being the default of MFEM
     auto level_of_fill = std::optional<int>{};
     if (contains(opts, "HypreILULevelOfFill")) {
       const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
@@ -969,10 +968,11 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_MPI
 
   /*!
-   * \return a generator of a linear solver applying one cycle of BoomerAMG,
-   * an approximate solver used for instance by the fixed point iterations on
-   * the elastic operator (see `FixedPointSolver`). The options are the ones
-   * of the `HypreBoomerAMG` preconditioner.
+   * \return a generator of a linear solver applying cycles of BoomerAMG
+   * (one by default, see the option `NumberOfCycles`), an approximate
+   * solver used for instance by the fixed point iterations on the elastic
+   * operator (see `FixedPointSolver`). The options are the ones of the
+   * `HypreBoomerAMG` preconditioner.
    */
   [[nodiscard]] static LinearSolverFactory<true>::Generator
   buildHypreBoomerAMGSolverGenerator() {

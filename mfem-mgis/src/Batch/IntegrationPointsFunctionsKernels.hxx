@@ -2,7 +2,8 @@
  * \file   src/Batch/IntegrationPointsFunctionsKernels.hxx
  * \brief  This file declares the kernels computing integrals, right-hand
  * sides of L2 projections and local projections of functions defined at
- * the integration points of a material (internal header)
+ * the integration points of a material, and mass matrices of the elements
+ * (internal header)
  * \date   11/10/2026
  */
 
@@ -58,14 +59,14 @@ namespace mfem_mgis::batch::internals {
    * \return the integral of a scalar function over the elements of a
    * material, or their measure if no values are given
    * \param[in] a: arguments
-   * \param[in] w: workspace of the reduction
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in, out] w: workspace of the reduction
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
   [[nodiscard]] real launchIntegralKernel(
-      const IntegrationPointsFunctionsKernelArguments&,
-      mfem::Array<real>&,
-      const bool);
+      const IntegrationPointsFunctionsKernelArguments& a,
+      mfem::Array<real>& w,
+      const bool use_device);
 
   /*!
    * \brief launches the kernel adding the right-hand side of the L2
@@ -74,13 +75,14 @@ namespace mfem_mgis::batch::internals {
    * \param[in] a: arguments
    * \param[in] c: component
    * \param[in, out] r: values element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
   void launchL2ProjectionRightHandSideKernel(
-      const IntegrationPointsFunctionsKernelArguments&,
-      const int,
-      real* const,
-      const bool);
+      const IntegrationPointsFunctionsKernelArguments& a,
+      const int c,
+      real* const r,
+      const bool use_device);
 
   /*!
    * \brief launches the kernel computing the values at the nodes of the
@@ -91,13 +93,14 @@ namespace mfem_mgis::batch::internals {
    * \param[in] m: geometric data of the integration rule of the mass
    * matrices
    * \param[in, out] r: values element by element
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
   void launchLocalProjectionsKernel(
-      const IntegrationPointsFunctionsKernelArguments&,
-      const IntegrationRuleKernelArguments&,
-      real* const,
-      const bool);
+      const IntegrationPointsFunctionsKernelArguments& a,
+      const IntegrationRuleKernelArguments& m,
+      real* const r,
+      const bool use_device);
 
   /*!
    * \brief launches the kernel computing, or adding, the mass matrices of
@@ -109,15 +112,16 @@ namespace mfem_mgis::batch::internals {
    * \param[in] ne: number of elements
    * \param[in, out] r: mass matrices
    * \param[in] add: if true, the mass matrices are added to `r`
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchMassMatricesKernel(const IntegrationRuleKernelArguments&,
-                                const int* const,
-                                const int,
-                                const int,
-                                real* const,
-                                const bool,
-                                const bool);
+  void launchMassMatricesKernel(const IntegrationRuleKernelArguments& m,
+                                const int* const p,
+                                const int nd,
+                                const int ne,
+                                real* const r,
+                                const bool add,
+                                const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

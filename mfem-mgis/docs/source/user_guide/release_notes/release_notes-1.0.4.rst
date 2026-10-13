@@ -50,7 +50,7 @@ quadrature functions on nodes by minimizing the :math:`L_{2}` norm of
 the difference of the projection and the values of the quadrature
 functions.
 
-The :cxx:`computeL2Projection` internally function calls successively
+The :cxx:`computeL2Projection` function internally calls successively
 the functions :cxx:`createL2ProjectionResult` and
 :cxx:`updateL2Projection`. Those functions can be used directly if the
 projection has to be performed several times.
@@ -77,7 +77,7 @@ projecting a set of quadrature functions on nodes by solving the
 previous equation.
 
 The :cxx:`computeImplicitGradientRegularization` function internally
-calls successively the functions :cxx:`createL2Projection` and
+calls successively the functions :cxx:`createL2ProjectionResult` and
 :cxx:`updateImplicitGradientRegularization`. Those functions can be used
 directly if the projection has to be performed several times.
 
@@ -123,7 +123,7 @@ Issues fixed
   implicit gradient regularization of quadrature functions
 - Issue 162: Change the API of :cxx:`LinearSolverFactory`
 - Issue 159: [fix] :cxx:`upgradeGridFunction` seems wrong for grid
-  functions defined on a :cxx:`SubMesh` ￼ Status: Closed (completed).
+  functions defined on a :cxx:`SubMesh`.
 - Issue 158: [mechanics] Add standard post-processings
 - Issue 152: [post-processing] Add support for projecting ip fields at
   nodes using L2 projection

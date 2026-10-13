@@ -142,8 +142,10 @@ namespace mfem_mgis {
   /*!
    * \return the computation of the tangent operator given by the
    * `TangentOperatorComputation` parameter, or by the
-   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable:
-   * `ElementByElement`, `Kernels` or `MatrixFree`
+   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable (ignored
+   * with `--execution`), or else by the execution settings (see
+   * `getDefaultFiniteElementsComputation`): `ElementByElement`, `Kernels`
+   * or `MatrixFree`
    * \param[in] p: parameters
    */
   [[nodiscard]] static NonLinearEvolutionProblemImplementationBase::

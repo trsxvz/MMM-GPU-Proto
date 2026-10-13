@@ -1,9 +1,9 @@
 /*!
  * \file   src/Batch/StiffnessMatricesKernels.cxx
- * \brief  This file implements the kernels computing the stiffness matrices
- * of the elements of the standard behaviour integrators (mechanics, heat
- * transfer, micromorphic damage). It contains kernels of MFEM: it is
- * compiled as CUDA code when MFEM is compiled with CUDA.
+ * \brief  This file implements the kernels computing the stiffness matrices of
+ * the elements of the standard behaviour integrators (mechanics, heat transfer,
+ * micromorphic damage). It contains kernels of MFEM: it is compiled as CUDA or
+ * HIP code when MFEM is compiled with CUDA or HIP.
  * \date   09/10/2026
  */
 
@@ -279,6 +279,8 @@ namespace mfem_mgis::batch::internals {
    * \tparam Output: destination of the blocks
    * \tparam diagonal: if true, only the pairs of a node with itself are
    * computed
+   * \param[in] a: arguments of the kernels
+   * \param[in] o: destination of the blocks
    */
   template <GradientsKind K, typename Output, bool diagonal>
   static void computeStiffnessMatricesOnHost(
@@ -365,6 +367,9 @@ namespace mfem_mgis::batch::internals {
    * \tparam Output: destination of the blocks
    * \tparam diagonal: if true, only the pairs of a node with itself are
    * computed
+   * \param[in] a: arguments of the kernels
+   * \param[in] o: destination of the blocks
+   * \param[in] use_device: if true, the kernel runs on the device
    */
   template <GradientsKind K, typename Output, bool diagonal = false>
   static void launchStiffnessMatricesKernel(
@@ -438,6 +443,10 @@ namespace mfem_mgis::batch::internals {
    * \tparam Output: destination of the blocks
    * \tparam diagonal: if true, only the pairs of a node with itself are
    * computed
+   * \param[in] k: kind of the gradients
+   * \param[in] a: arguments of the kernels
+   * \param[in] o: destination of the blocks
+   * \param[in] use_device: if true, the kernel runs on the device
    */
   template <typename Output, bool diagonal = false>
   static void dispatch(const GradientsKind k,
@@ -585,6 +594,10 @@ namespace mfem_mgis::batch::internals {
    * the increment of the unknowns `N x` for the heat transfer behaviours)
    * and adds `Bᵀ K B x w det J` to the values of the element
    * \tparam K: kind of the gradients
+   * \param[in] a: arguments of the kernels
+   * \param[in] x: values element by element
+   * \param[in, out] y: action element by element
+   * \param[in] use_device: if true, the kernel runs on the device
    */
   template <GradientsKind K>
   static void launchTangentOperatorActionKernel(

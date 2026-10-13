@@ -49,6 +49,9 @@ functions must be defined on all the materials (or all the boundaries) of
 this mesh, and on those only. Functions defined on materials and on
 boundaries can not be mixed.
 
+The values at the nodes may be computed by kernels, on the GPU if a GPU
+is used (see :ref:`mfem_mgis_batch_computations_post_processings`).
+
 A :cxx:`GridFunction` being an :cxx:`MFEM` object, the reader may refer
 to the :cxx:`MFEM` documentation for further details. In particular, a
 :cxx:`GridFunction` can easily be exported to `Paraview` using
@@ -85,16 +88,32 @@ functions :cxx:`createL2ProjectionResult` and :cxx:`updateL2Projection`.
 Those functions can be used directly if the projection has to be
 performed several times.
 
+The right-hand sides of the projection and of the implicit gradient
+regularization described below, and the mass matrices of the projection,
+may be computed by kernels, on the GPU if a GPU is used (see
+:ref:`mfem_mgis_batch_computations_post_processings`; the function
+:cxx:`getNumberOfPostProcessingsComputationsByKernels` counts the
+computations made by kernels).
+
 Example of usage
 ----------------
 
 .. code-block:: c++
 
-   auto f = LinearFactor<parallel>::getFactory();
+   // partial quadrature space on the material 5
+   auto qspace = std::make_shared<PartialQuadratureSpace>(
+       fed, MaterialIdentifier{.id = 5},
+       [](const mfem::FiniteElement& e,
+          const mfem::ElementTransformation& tr) noexcept
+       -> const mfem::IntegrationRule& {
+         return mfem::IntRules.Get(e.GetGeomType(), 2 * tr.OrderGrad(&e));
+       });
    auto fct = PartialQuadratureFunction::evaluate(
-       fespace, [](const real x, const real y) noexcept { return cos(x) * y; });
-   auto os = f.generate(ctx, "MUMPSSolver", fespace, {});
-   const auto oresult = computeL2Projection<parallel>(ctx, *os, {*fct});
+       qspace, [](const real x, const real y) noexcept { return cos(x) * y; });
+   auto& f = LinearSolverFactory<parallel>::getFactory();
+   auto s = f.generate(ctx, "MUMPSSolver",
+                       fed.getFiniteElementSpace<parallel>(), {});
+   const auto oresult = computeL2Projection<parallel>(ctx, s, {*fct});
 
 Implicit gradient regularization
 ================================
@@ -120,7 +139,7 @@ The :cxx:`computeImplicitGradientRegularization` function solves
 the previous equation to determine :math:`\bar{f}`.
 
 The :cxx:`computeImplicitGradientRegularization` function internally calls
-successively the functions :cxx:`createL2Projection` and
+successively the functions :cxx:`createL2ProjectionResult` and
 :cxx:`updateImplicitGradientRegularization`. Those functions can be used
 directly if the projection has to be performed several times.
 
@@ -130,18 +149,19 @@ Example of usage
 .. code-block:: c++
 
    auto fct = PartialQuadratureFunction::evaluate(
-       space, [](const real x, const real) noexcept {
+       qspace, [](const real x, const real) noexcept {
          const auto c = std::cos(4 * pi * x);
          return (1 + l0 * l0 * 16 * pi * pi) * c;
        });
-   auto os = f.generate(ctx, "MUMPSSolver", fespace, {});
+   auto s = f.generate(ctx, "MUMPSSolver",
+                       fed.getFiniteElementSpace<parallel>(), {});
    const auto oresult =
-       computeImplicitGradientRegularization<parallel>(ctx, *os, {*fct}, l0);
-
+       computeImplicitGradientRegularization<parallel>(ctx, s, {*fct}, l0);
 
 Miscellaneous functions
 =======================
 
-:cxx:`rotateThermodynamicForcesToGlobalFrame`
----------------------------------------------
-
+The stresses of orthotropic behaviours can be rotated to the global frame
+by the functions :cxx:`computeStressInGlobalFrame` and
+:cxx:`computeCauchyStressInGlobalFrame` (see
+:doc:`../post_processings/mechanical_postprocessings`).

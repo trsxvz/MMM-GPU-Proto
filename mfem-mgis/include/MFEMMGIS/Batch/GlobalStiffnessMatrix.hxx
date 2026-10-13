@@ -42,11 +42,12 @@ namespace mfem_mgis::batch {
    * part of the global matrix owned by the process, or its place in the
    * message sent to the process owning its row, and the positions of the
    * received entries. The following assemblies only copy, exchange and add
-   * the values, as long as the local matrices have the same arrays of
-   * pattern (rows and columns) and the finite element space is not updated
-   * on all the processes: otherwise, the setup is made again by all the
-   * processes. The contents of the arrays of the pattern are not compared:
-   * they must not be modified between two assemblies.
+   * the values, as long as, on every process, the local matrix has the same
+   * number of rows, the same number of entries and the same arrays of the
+   * pattern (rows and columns), and the finite element space is not
+   * updated: otherwise, the setup is made again by all the processes. The
+   * contents of the arrays of the pattern are not compared: they must not be
+   * modified between two assemblies.
    *
    * The values of the global matrix are written on the host: hypre must not
    * use the GPU (see `isSupported`).
@@ -60,13 +61,13 @@ namespace mfem_mgis::batch {
      * \param[in] fes: finite element space
      */
     [[nodiscard]] static bool isSupported(
-        const mfem::ParFiniteElementSpace&) noexcept;
+        const mfem::ParFiniteElementSpace& fes) noexcept;
     /*!
      * \brief constructor
-     * \param[in] fes: finite element space (see `isSupported`), which must
+     * \param[in] f: finite element space (see `isSupported`), which must
      * outlive this object
      */
-    explicit GlobalStiffnessMatrix(const mfem::ParFiniteElementSpace&);
+    explicit GlobalStiffnessMatrix(const mfem::ParFiniteElementSpace& f);
     //! \brief move constructor
     GlobalStiffnessMatrix(GlobalStiffnessMatrix&&) noexcept;
     //! \brief move assignment
@@ -79,7 +80,8 @@ namespace mfem_mgis::batch {
      * \return the global matrix, owned by this object, whose address does
      * not change while the setup is not made again, or a null pointer on
      * error (on all the processes, the error message being registered on
-     * the processes where it occurred). An exception thrown between two
+     * the processes where it occurred, and the message `failure on another
+     * process` on the other ones). An exception thrown between two
      * collective calls of the setup (for example a failed allocation) is not
      * shared with the other processes.
      * \param[in, out] ctx: execution context
@@ -87,7 +89,7 @@ namespace mfem_mgis::batch {
      * finite element space
      */
     [[nodiscard]] mfem::HypreParMatrix* assemble(
-        Context&, const mfem::SparseMatrix&) noexcept;
+        Context& ctx, const mfem::SparseMatrix& A) noexcept;
 
    private:
     /*!

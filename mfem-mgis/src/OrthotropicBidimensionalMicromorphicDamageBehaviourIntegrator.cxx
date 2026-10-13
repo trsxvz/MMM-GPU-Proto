@@ -2,6 +2,7 @@
  * \file   src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
  * \brief  This file implements the
  * `OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator` class
+ * \author Thomas Helfer
  * \date   07/12/2021
  */
 

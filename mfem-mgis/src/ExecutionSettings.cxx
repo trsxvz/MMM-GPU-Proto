@@ -82,7 +82,10 @@ namespace mfem_mgis::internals {
                      &ExecutionSettings::post_processings}};
 
   /*!
-   * \return the value of an option, if the current argument is this option
+   * \return the value of an option if the current argument is this option,
+   * `previous` otherwise
+   * \throws std::runtime_error if the option is given twice or without
+   * value
    * \param[in, out] a: current argument, moved to the value of the option
    * \param[in] e: end of the arguments
    * \param[in] name: long name of the option
@@ -335,7 +338,10 @@ namespace mfem_mgis::internals {
    * \brief where a linear solver or a preconditioner computes
    */
   enum struct LinearSolverPlacement {
-    //! \brief on the host only (direct solvers of the CPU)
+    /*!
+     * \brief on the host only (direct solvers of the CPU, and the
+     * preconditioners of hypre which only compute on the host)
+     */
     HOST,
     //! \brief on the GPU only (AmgX, cuDSS)
     DEVICE,

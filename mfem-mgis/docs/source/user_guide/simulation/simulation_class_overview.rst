@@ -11,11 +11,12 @@ Overview of the simulation :code:`class`
 A simulation tries to compute the evolution of a physical system over
 several temporal sequences. Temporal sequences are defined by the user.
 
-An example of definition of temporal sequences would typically be:
+Temporal sequences are given by the :param:`Times` parameter of the
+simulation, for instance:
 
-.. code:: python
+.. code:: c++
 
-   temporal_sequences = [0, 2.5, 4]
+   {"Times", std::vector<mfem_mgis::Parameter>{0., 2.5, 4.}}
 
 which defines a first temporal sequence ``[0, 2.5]`` and a second one
 ``[2.5, 4]``. By defining such sequences, the user impose to |MFEM/MGIS| a
@@ -71,29 +72,37 @@ Main parameters
   computation leads to a greater value.
 - :param:`MaximumNumberOfFailuresPerTemporalSequence`: maximum number of
   failures or time step rejections allowed within each temporal sequence.
-- :param:`TimeIncrementComputer`: strategy used to validate the time step.
-- :param:`TimeStepValidator`:  strategy used to determine the next time step.
+  The default value of this parameter is `10`.
+- :param:`TimeIncrementComputer`: strategy used to determine the next time
+  step.
+- :param:`TimeStepValidator`: strategy used to validate the time step.
 - :param:`ConvergenceFailureHandler`: strategy used to determine how a
   divergence of the resolution shall be handled.
 - :param:`LimitTimeIncrementIncrease`: boolean stating if the current
   estimate of the next time step can be greater than the previous time
   increment multiplied by the
-  :param:`MaximalTimeIncrementRelativeIncrease` parameter.
+  :param:`MaximalTimeIncrementRelativeIncrease` parameter. The default
+  value of this parameter is `true`.
 - :param:`MaximalTimeIncrementRelativeIncrease`: coefficient used to
   determined the maximum ratio between the next time step and the
   previous one. The default value of this parameter is `1.1`, allowing a
   :math:`10\%` increase of the time step compared to the previous one.
+  Giving this parameter while :param:`LimitTimeIncrementIncrease` is
+  `false` is an error.
 - :param:`LimitTimeIncrementDecrease`: boolean stating if the current
   estimate of the next time step can be lower than the previous time
   increment multiplied by the
-  :param:`MaximalTimeIncrementRelativeDecrease` parameter.
+  :param:`MaximalTimeIncrementRelativeDecrease` parameter. The default
+  value of this parameter is `true`.
 - :param:`MaximalTimeIncrementRelativeDecrease`: coefficient used to
   determined the minimum ratio between the next time step and the
   previous one. The default value of this parameter is `0.2`, allowing
   the next time step to be 5 times smaller than the previous one.
+  Giving this parameter while :param:`LimitTimeIncrementDecrease` is
+  `false` is an error.
 - :param:`BalanceTimeIncrement`: boolean stating if time increments
   shall be balanced to avoid small time increments at the end of the
-  temporal sequence.
+  temporal sequence. The default value of this parameter is `true`.
 - :param:`TimeIncrementBalancer`: strategy used to balance the time
   increments to avoid small time increments at the end of the temporal
   sequence.
@@ -120,6 +129,8 @@ Main parameters
   of this parameter is `false`.
 
 - :param:`Monitors`: list of simulation monitors.
+- :param:`KeepOutputs`: boolean stating if the simulation outputs are kept
+  for all time steps. The default value of this parameter is `false`.
 
 Time steps management
 =====================
@@ -154,7 +165,7 @@ The next time increment is defined as follows:
   :param:`LimitTimeIncrementDecrease` parameter is `true`,
   :math:`\Delta\, t_{3}` is limited by
   :math:`\alpha_{\textrm{d}}\,\Delta\,t_{(p)}` where
-  :math:`\alpha_{\textrm{i}}` is the value of the
+  :math:`\alpha_{\textrm{d}}` is the value of the
   :param:`MaximalTimeIncrementRelativeDecrease` parameter.
 - if :math:`\Delta\, t_{3}` is lower than :math:`\Delta\,
   t_{\textrm{min}}`, the simulation is stopped.
@@ -175,15 +186,15 @@ The next time increment is computed as follows:
 
 .. math::
 
-   \Delta\,t  = \max(\Delta\,t_{e}, \alpha_{\textrm{i}}\, \Delta\,t_{c});
+   \Delta\,t  = \max(\Delta\,t_{e}, \alpha_{\textrm{d}}\, \Delta\,t_{c});
 
-where :math:`\alpha_{\textrm{i}}` is the value of the
-:param:`MaximalTimeIncrementRelativeIncrease` parameter and
+where :math:`\alpha_{\textrm{d}}` is the value of the
+:param:`MaximalTimeIncrementRelativeDecrease` parameter and
 :math:`\Delta\,t_{c}` the current time increment (corresponding to the
 time step which lead to a failure).
 
 The default convergence failure handler divides the current time step by
-\(2\).
+2.
 
 Determining the next time increment in case of invalidation of the time step
 ----------------------------------------------------------------------------
@@ -195,10 +206,10 @@ The next time increment is computed as follows:
 
 .. math::
 
-   \Delta\,t  = \max(\Delta\,t_{e}, \alpha_{\textrm{i}}\, \Delta\,t_{c});
+   \Delta\,t  = \max(\Delta\,t_{e}, \alpha_{\textrm{d}}\, \Delta\,t_{c});
 
-where :math:`\alpha_{\textrm{i}}` is the value of the
-:param:`MaximalTimeIncrementRelativeIncrease` parameter and
+where :math:`\alpha_{\textrm{d}}` is the value of the
+:param:`MaximalTimeIncrementRelativeDecrease` parameter and
 :math:`\Delta\,t_{c}` the current time increment (corresponding to the
 rejected time step).
 
@@ -242,13 +253,17 @@ Lightweight post-processings (:cxx:`Curves` for instance) may ignore
 this boolean by default.
 
 This boolean is mostly important for heavy post-processings in terms of
-memory, disk usage or computations, such as the :cxx:`VTKExport`
-post-processing.
+memory, disk usage or computations, such as an export of the fields for
+ParaView.
 
-By convention, every post-processing shall expose a parameter named
-boolean :param:`AllTimeSteps` which allows selecting if the
-post-processing must be executed at the end of each time step or only at
-times *explicitly requested by the user*.
+By convention, every post-processing of the physical system shall expose
+a boolean parameter named :param:`AllTimeSteps` which allows selecting if
+the post-processing must be executed at the end of each time step or only
+at times *explicitly requested by the user*. The post-processings derived
+from the :cxx:`PostProcessingBase` class (:cxx:`Curves` and
+:cxx:`PointsSetCurves`, both lightweight) accept it. The post-processings
+of the non linear evolution problems (:cxx:`ParaviewExportResults`, for
+instance) do not.
 
 The difference between lightweight and heavy post-processings is only
 the default value of this parameter (:cxx:`true` for lightweight

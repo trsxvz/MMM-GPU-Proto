@@ -21,7 +21,7 @@ Short description
 - Post-processing features for nonlinear mechanics:
 
   - ``ComputeResultantForceOnBoundary``: Compute the resultant of the inner forces on a boundary
-  - ``ComputeMeanThermodynamicForcesValues``: Compute macroscopic stress and strain for each material
+  - ``MeanThermodynamicForces``: Compute the mean thermodynamic forces (stresses) in each material
   - ``ParaviewExportIntegrationPointResultsAtNodes``: Generate Paraview post-processing files with internal state variables using MGIS
 - Flexible C++ API for defining ``MFEM`` simulation features
 - CI workflow with examples in `test` and 58% coverage
@@ -29,7 +29,7 @@ Short description
 - Support for ``MFEM`` solvers
 
 
-Solver Availables
+Available solvers
 =================
 
 - Direct solvers:

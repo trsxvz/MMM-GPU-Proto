@@ -87,31 +87,44 @@ namespace mfem_mgis::internals {
    * The solvers must be destroyed before `MPI_Finalize` (AmgX frees its
    * communicators). With a MFEM compiled with AmgX, which contains its own
    * copy of AmgX, the library of AmgX given to mfem-mgis must precede MFEM
-   * in the link line (as `MFEMMGISConfig.cmake` does), and a program exiting
-   * with a solver alive may abort or hang (static objects of the two
-   * copies).
+   * in the link line (as the target exported by mfem-mgis does, see
+   * `src/CMakeLists.txt`), and a program exiting with a solver alive may
+   * abort or hang (static objects of the two copies).
    */
   struct AmgXSolver final : public mfem::Solver {
 #ifdef MFEM_USE_MPI
     /*!
      * \brief constructor
-     * \param[in] comm: communicator (`MPI_COMM_SELF` for a sequential
+     * \param[in] c: communicator (`MPI_COMM_SELF` for a sequential
      * resolution)
-     * \param[in] c: configuration of AmgX
+     * \param[in] config: configuration of AmgX
      * \param[in] o: options
      */
-    AmgXSolver(MPI_Comm, const std::string&, const AmgXSolverOptions&);
+    AmgXSolver(MPI_Comm c,
+               const std::string& config,
+               const AmgXSolverOptions& o);
 #else  /* MFEM_USE_MPI */
     /*!
      * \brief constructor
-     * \param[in] c: configuration of AmgX
+     * \param[in] config: configuration of AmgX
      * \param[in] o: options
      */
-    AmgXSolver(const std::string&, const AmgXSolverOptions&);
+    AmgXSolver(const std::string& config, const AmgXSolverOptions& o);
 #endif /* MFEM_USE_MPI */
-    //
-    void SetOperator(const mfem::Operator&) override;
-    void Mult(const mfem::Vector&, mfem::Vector&) const override;
+    /*!
+     * \brief uploads the local rows of the matrix from the host and sets up
+     * the solver
+     * \param[in] op: matrix (`mfem::SparseMatrix` or
+     * `mfem::HypreParMatrix`), an exception being thrown for the other
+     * operators
+     */
+    void SetOperator(const mfem::Operator& op) override;
+    /*!
+     * \brief solves the linear system, from a zero initial guess
+     * \param[in] b: right hand side
+     * \param[out] x: solution
+     */
+    void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
     /*!
      * \return the number of iterations of the last resolution of an
      * iterative solver, if a resolution was made
@@ -198,6 +211,9 @@ namespace mfem_mgis::internals {
    *   (the smoother has the scope `smoother`);
    * - `Precision`: `Double` (default) or `Single` (computations of AmgX in
    *   single precision).
+   * `Configuration` and `ConfigurationFile` are exclusive; `VerbosityLevel`
+   * and `AmgXParameters` only apply to the default configuration and are
+   * refused with a configuration given.
    * The default configuration is the one of MFEM: one V-cycle of the
    * classical algebraic multigrid with a L1-Jacobi smoother (one sweep
    * before and one after the coarse correction), the D2 interpolation and
@@ -215,7 +231,9 @@ namespace mfem_mgis::internals {
    */
   template <bool parallel>
   [[nodiscard]] std::unique_ptr<AmgXSolver> makeAmgXPreconditioner(
-      Context&, FiniteElementSpace<parallel>&, const Parameters&) noexcept;
+      Context& ctx,
+      FiniteElementSpace<parallel>& fespace,
+      const Parameters& params) noexcept;
   /*!
    * \return the conjugate gradient of AmgX preconditioned by one V-cycle of
    * its algebraic multigrid in the default configuration of MFEM
@@ -235,13 +253,14 @@ namespace mfem_mgis::internals {
    * AmgX also reports a convergence when the norm of the residual is lower
    * than the maximum of `e` times the norm of the initial residual and of
    * 1e-20, `e` being 1e-12 in double precision and 1e-6 in single
-   * precision. Without absolute tolerance, the right hand side is scaled by
-   * a power of two (see `AmgXSolverOptions`): only the floor `e` times the
-   * norm of the initial residual remains, and the relative tolerance must
-   * be at least `e`. With an absolute tolerance, the right hand side is not
-   * scaled: the absolute tolerance must be at least 1e-20, and an absolute
-   * tolerance alone (relative tolerance of 0) is reached or the norm of
-   * the residual is lower than `e` times the norm of the initial residual.
+   * precision. A strictly positive relative tolerance must be at least `e`.
+   * Without absolute tolerance, the right hand side is scaled by a power of
+   * two (see `AmgXSolverOptions`): only the floor `e` times the norm of the
+   * initial residual remains. With an absolute tolerance, the right hand
+   * side is not scaled: the absolute tolerance must be at least 1e-20, and
+   * an absolute tolerance alone (relative tolerance of 0) is reached or the
+   * norm of the residual is lower than `e` times the norm of the initial
+   * residual.
    * In single precision, the right hand side is always scaled: a relative
    * tolerance is required, and an absolute tolerance is refused.
    *
@@ -251,7 +270,9 @@ namespace mfem_mgis::internals {
    */
   template <bool parallel>
   [[nodiscard]] std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver(
-      Context&, FiniteElementSpace<parallel>&, const Parameters&) noexcept;
+      Context& ctx,
+      FiniteElementSpace<parallel>& fespace,
+      const Parameters& params) noexcept;
 
 }  // end of namespace mfem_mgis::internals
 

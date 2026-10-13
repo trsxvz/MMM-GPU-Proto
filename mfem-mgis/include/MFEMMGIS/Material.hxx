@@ -38,11 +38,15 @@ namespace mfem_mgis {
   /*!
    * \brief a simple structure describing a material and the associated data.
    *
-   * The arrays of the data at the integration points are in the memory of
-   * MFEM (see `MaterialArrays`, and its rules of validity of the copies on
-   * the host and on the device). They are held by a base class declared
-   * before the material data manager of MGIS, so that they are created
-   * before it.
+   * The arrays of the gradients, of the thermodynamic forces, of the
+   * internal state variables, of the energies and of the tangent operator
+   * blocks are in the memory of MFEM (see `MaterialArrays`, and its rules of
+   * validity of the copies on the host and on the device). They are held by
+   * a base class declared before the material data manager of MGIS, so that
+   * they are created before it. The material properties, the external state
+   * variables and the mass density stay on the host, in the memory of MGIS,
+   * and are copied to the device at each integration on the device (see
+   * `makeDeviceView`).
    */
   struct MFEM_MGIS_EXPORT Material
       : private MaterialArrays,
@@ -105,10 +109,14 @@ namespace mfem_mgis {
      * `BehaviourIntegratorBase::integratesBatchesOnDevice`) is integrated
      * without synchronization on the host: between the first integration of
      * a time step and the end of the resolution, the copies on the host of
-     * its arrays are outdated, and a direct access to its states must be
-     * preceded by a synchronization. Its update and its revert are made on
-     * the device and end with a synchronization on the host, as for a
-     * behaviour integrated on the host.
+     * its arrays may be outdated (they are only made valid for reading after
+     * each integration if the inner forces or the stiffness matrices are
+     * computed element by element, see
+     * `MultiMaterialNonLinearIntegrator::integrateBatch`), and a direct
+     * access to its states must be preceded by a synchronization. Its
+     * update and its revert are made on the device and end with a
+     * synchronization on the host, as for a behaviour integrated on the
+     * host.
      *
      * \note the arrays of a material used by another one as external
      * storage (material properties or external state variables given with
@@ -161,11 +169,11 @@ namespace mfem_mgis {
      * \brief computes the rotation matrices from the global frame to the
      * material frame at the integration points (orthotropic behaviours), in
      * the form expected by the rotation functions of MGIS taking views (see
-     * `mgis::behaviour::rotateGradients`): one matrix for an uniform
+     * `mgis::behaviour::rotateGradients`): one matrix for a uniform
      * rotation, one matrix per integration point otherwise, 9 values per
      * matrix.
      * \return a view of the rotation matrices of all the integration points
-     * (with a null stride between points for an uniform rotation), on the
+     * (with a null stride between points for a uniform rotation), on the
      * copy on the host of the given array
      * \param[out] r: array of the rotation matrices, resized
      * \param[in] t: if true, the transposed matrices are computed, i.e. the
@@ -174,7 +182,7 @@ namespace mfem_mgis {
      * at each call
      */
     [[nodiscard]] mgis::FieldView<const real> computeRotationMatrices(
-        mfem::Vector &, const bool = false) const;
+        mfem::Vector& r, const bool t = false) const;
     /*!
      * \brief computes the gradients of a state in the global frame at all
      * the integration points (orthotropic behaviours), by one rotation of
@@ -190,7 +198,7 @@ namespace mfem_mgis {
      * \param[in] s: state
      */
     void computeGradientsInGlobalFrame(
-        mfem::Vector &, const StateSelection = END_OF_TIME_STEP) const;
+        mfem::Vector& v, const StateSelection s = END_OF_TIME_STEP) const;
     /*!
      * \brief computes the thermodynamic forces of a state in the global
      * frame at all the integration points (orthotropic behaviours), by one
@@ -199,7 +207,7 @@ namespace mfem_mgis {
      * \param[in] s: state
      */
     void computeThermodynamicForcesInGlobalFrame(
-        mfem::Vector &, const StateSelection = END_OF_TIME_STEP) const;
+        mfem::Vector& v, const StateSelection s = END_OF_TIME_STEP) const;
     /*!
      * \return a view of MGIS on the copies of the arrays of the material on
      * the device, for an integration of its behaviour on the device by
@@ -209,7 +217,8 @@ namespace mfem_mgis {
      * end of the time step are read and written, except its gradients,
      * which are only read unless the third argument is true. The material
      * properties, the external state variables and the mass density, given
-     * on the host, are copied to the device.
+     * on the host, are copied to the device. The view has no speed of
+     * sound.
      * \param[in, out] inputs: copies on the device of the material properties,
      * of the external state variables and of the mass density, used by the
      * view
@@ -219,7 +228,9 @@ namespace mfem_mgis {
      * step are read and written (for instance rotated in place)
      */
     [[nodiscard]] mgis::behaviour::MaterialDataView makeDeviceView(
-        std::vector<mfem::Vector>&, const bool, const bool);
+        std::vector<mfem::Vector>& inputs,
+        const bool tangent,
+        const bool gradients);
     //! \brief destructor
     ~Material();
 
@@ -281,7 +292,7 @@ namespace mfem_mgis {
    * \param[in] b: behaviour
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool isIntegratedByBatchesOnDevice(
-      const Behaviour&) noexcept;
+      const Behaviour& b) noexcept;
 
   /*!
    * \return true if the arrays of the material are in the point by point
@@ -291,16 +302,22 @@ namespace mfem_mgis {
    * \param[in] m: material
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool checkPointByPointLayout(
-      AbstractErrorHandler &, const Material &) noexcept;
+      AbstractErrorHandler& eh, const Material& m) noexcept;
 
   /*!
    * \brief get a gradient of the material
-   * \return a partial quadrature function for the given gradient
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    *
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the gradient
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device being invalidated (see
+   * `Material::synchronizeOnHost`): the view is only valid until the next
+   * access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<PartialQuadratureFunction>
   getGradient(
@@ -310,12 +327,18 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get a gradient of the material
-   * \return a partial quadrature function for the given gradient
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    *
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the gradient
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device staying valid (see
+   * `Material::synchronizeOnHostForReading`): the view is only valid until
+   * the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]]  //
   std::optional<ImmutablePartialQuadratureFunctionView>
@@ -326,12 +349,18 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get a thermodynamic force of the material
-   * \return a partial quadrature function for the given thermodynamic force
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    *
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the thermodynamic force
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device being invalidated (see
+   * `Material::synchronizeOnHost`): the view is only valid until the next
+   * access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<PartialQuadratureFunction>
   getThermodynamicForce(
@@ -341,12 +370,18 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get a thermodynamic force of the material
-   * \return a partial quadrature function for the given thermodynamic force
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    *
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the thermodynamic force
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device staying valid (see
+   * `Material::synchronizeOnHostForReading`): the view is only valid until
+   * the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]]  //
   std::optional<ImmutablePartialQuadratureFunctionView>
@@ -357,12 +392,18 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get an internal state variable of the material
-   * \return a partial quadrature function for the given state variable
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    *
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the state variable
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device being invalidated (see
+   * `Material::synchronizeOnHost`): the view is only valid until the next
+   * access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<PartialQuadratureFunction>
   getInternalStateVariable(
@@ -372,11 +413,17 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get an internal state variable of the material
-   * \return a partial quadrature function for the given state variable
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] n: name of the state variable
    * \param[in] s: state considered
+   * \note the arrays must be stored point by point (see
+   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * its copy on the device staying valid (see
+   * `Material::synchronizeOnHostForReading`): the view is only valid until
+   * the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]]  //
   std::optional<ImmutablePartialQuadratureFunctionView>
@@ -387,10 +434,14 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get the stored energy of the material
-   * \return a partial quadrature function holding the stored energy
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] s: state considered
+   * \note the array is first made valid on the host, its copy on the
+   * device being invalidated (see `Material::synchronizeOnHost`): the view
+   * is only valid until the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<PartialQuadratureFunction>
   getStoredEnergy(
@@ -399,10 +450,14 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get the stored energy of the material
-   * \return a partial quadrature function holding the stored energy
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] s: state considered
+   * \note the array is first made valid on the host, its copy on the
+   * device staying valid (see `Material::synchronizeOnHostForReading`): the
+   * view is only valid until the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]]  //
   std::optional<ImmutablePartialQuadratureFunctionView>
@@ -412,10 +467,14 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get the dissipated energy of the material
-   * \return a partial quadrature function holding the dissipated energy
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] s: state considered
+   * \note the array is first made valid on the host, its copy on the
+   * device being invalidated (see `Material::synchronizeOnHost`): the view
+   * is only valid until the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<PartialQuadratureFunction>
   getDissipatedEnergy(
@@ -424,10 +483,14 @@ namespace mfem_mgis {
       const Material::StateSelection s = Material::END_OF_TIME_STEP) noexcept;
   /*!
    * \brief get the dissipated energy of the material
-   * \return a partial quadrature function holding the dissipated energy
+   * \return a view on the copy on the host of the array of the material,
+   * or an empty value on failure (the error being registered in `ctx`)
    * \param[in, out] ctx: execution context
    * \param[in] m: material
    * \param[in] s: state considered
+   * \note the array is first made valid on the host, its copy on the
+   * device staying valid (see `Material::synchronizeOnHostForReading`): the
+   * view is only valid until the next access to the array on the device.
    */
   MFEM_MGIS_EXPORT
   [[nodiscard]] std::optional<ImmutablePartialQuadratureFunctionView>

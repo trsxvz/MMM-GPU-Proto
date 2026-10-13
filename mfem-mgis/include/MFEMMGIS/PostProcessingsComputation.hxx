@@ -17,12 +17,13 @@ namespace mfem_mgis {
    * integration points made by kernels since the start of the program:
    * integrals and measures (`computeIntegral`, `computeMeasure`), L2
    * projections and implicit gradient regularizations, values at the nodes
-   * (`updateGridFunction`). The computations are made by kernels if the
-   * environment variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is
-   * `Kernels`, or, without this variable, if the execution settings place
-   * the post-processings on the GPU (see `ExecutionSettings`), and if the
-   * kernels support them; otherwise, they are made element by element. This
-   * counter makes the choice observable, for the tests.
+   * (`updateGridFunction`). The computations are made by kernels, if the
+   * kernels support them, when the option `--execution` places the
+   * post-processings on the GPU (see `ExecutionSettings`; the environment
+   * variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is then ignored, with
+   * a warning), or, without this option, when this environment variable is
+   * `Kernels`; otherwise, they are made element by element. This counter
+   * makes the choice observable, for the tests.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] size_type
   getNumberOfPostProcessingsComputationsByKernels() noexcept;

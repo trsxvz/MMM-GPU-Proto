@@ -120,7 +120,8 @@ namespace mfem_mgis {
     /*!
      * \brief integrate the behaviour at all the integration points, as a
      * batch, after the computation of the gradients on all the elements
-     * (see `computeGradients`), or without it for a prediction. For an
+     * (see `computeGradients`, or `computeGradientsByKernels` for all the
+     * elements at once), or without it for a prediction. For an
      * orthotropic behaviour, the gradients are rotated in the material frame
      * before the integration, and the tangent operator blocks in the global
      * frame after it, at all the points at once.
@@ -178,20 +179,24 @@ namespace mfem_mgis {
      * integration rule of the elements (see
      * `PartialQuadratureSpace::getUniformIntegrationRule`): first step of
      * the integration by batches, replacing the calls to `computeGradients`
-     * element by element. As with `computeGradients`, the gradients are left
-     * in the global frame.
+     * element by element. As with `computeGradients`, the external state
+     * variables computed from the unknowns are updated (see
+     * `requiresUnknownsValuesForKernels`) and the gradients are left in the
+     * global frame.
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in] d: derivatives of the unknowns, which must contain the ones
-     * of the integration rule of the elements
+     * of the integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \param[in] g: geometric data, which must contain the ones of the
-     * integration rule of the elements
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool computeGradientsByKernels(
-        Context&,
-        const batch::UnknownsDerivativesSet&,
-        const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        const batch::UnknownsDerivativesSet& d,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief add the inner forces of all the elements, computed by kernels
      * from the thermodynamic forces at the end of the time step, to values
@@ -201,11 +206,14 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in, out] f: values element by element
      * \param[in] g: geometric data, which must contain the ones of the
-     * integration rule of the elements
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addInnerForcesByKernels(
-        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        mfem::Vector& f,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief add the stiffness matrices of all the elements, computed by
      * kernels from the tangent operator blocks, to matrices stored element by
@@ -214,11 +222,14 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in, out] m: matrices element by element
      * \param[in] g: geometric data, which must contain the ones of the
-     * integration rule of the elements
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
-        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        mfem::Vector& m,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief add the stiffness matrices of all the elements, computed by
      * kernels from the tangent operator blocks, to an assembled sparse
@@ -226,13 +237,15 @@ namespace mfem_mgis {
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in, out] m: assembled matrix
-     * \param[in] g: geometric data
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
-        Context&,
-        const batch::AssembledStiffnessMatrix&,
-        const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        const batch::AssembledStiffnessMatrix& m,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief add the action of the stiffness matrices of all the elements,
      * computed by kernels from the tangent operator blocks without
@@ -244,14 +257,16 @@ namespace mfem_mgis {
      * \param[in, out] y: values element by element
      * \param[in] x: increments of the unknowns element by element (layout
      * of the element restriction of MFEM)
-     * \param[in] g: geometric data
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addTangentOperatorActionByKernels(
-        Context&,
-        mfem::Vector&,
-        const mfem::Vector&,
-        const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        mfem::Vector& y,
+        const mfem::Vector& x,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief add the diagonals of the stiffness matrices of all the elements,
      * computed by kernels, in the layout of the element restriction of MFEM
@@ -259,11 +274,15 @@ namespace mfem_mgis {
      * \return true on success
      * \param[in, out] ctx: execution context
      * \param[in, out] d: values element by element
-     * \param[in] g: geometric data
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
      * \note the default implementation reports an error
      */
     [[nodiscard]] virtual bool addTangentOperatorDiagonalByKernels(
-        Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
+        Context& ctx,
+        mfem::Vector& d,
+        const batch::ElementsGeometrySet& g) noexcept;
     /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces
@@ -394,11 +413,12 @@ namespace mfem_mgis {
   };  // end of struct AbstractBehaviourIntegrator
 
   /*!
-   * \brief return the measure of the mesh on which the behaviour integrator is
-   * built: volume in 3D and axisymmetrical hypotheses, surface in other
-   * bidimensional hypotheses.
+   * \brief return the measure of the elements of the partial quadrature
+   * space of the behaviour integrator (sum over all the processes): volume
+   * in 3D and axisymmetrical hypotheses, surface in other bidimensional
+   * hypotheses.
    * \param[in] bi: behaviour integrator
-   * \return the measure of the mesh
+   * \return the measure of the elements
    */
   MFEM_MGIS_EXPORT real computeMeasure(const AbstractBehaviourIntegrator &bi);
 

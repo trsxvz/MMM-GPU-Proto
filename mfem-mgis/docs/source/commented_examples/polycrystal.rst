@@ -18,15 +18,15 @@ This test case illustrates the simulation of a **Representative Volume Element (
 
 * Periodic boundary conditions are applied on the RVE faces.
 * The loading is imposed in one direction (axial component :math:`F_{zz}` of the macroscopic deformation gradient). The off-diagonal components of the macroscopic deformation gradient are set to zero.
-* The macroscopic unknowns :math:`F_{xx}` and :math:`F_{zz}` are determined via a fixed-point algorithm imposing :math:`S_{xx}=S_{yy}=0` (macroscopic components of the Cauchy stress tensor).
-* The main verification result is the stress-strain curve: :math:`S_{zz}` (Cauchy) versus :math:`F_{xx}`.
+* The macroscopic unknowns :math:`F_{xx}` and :math:`F_{yy}` are determined via a fixed-point algorithm imposing :math:`S_{xx}=S_{yy}=0` (macroscopic components of the Cauchy stress tensor).
+* The main verification result is the evolution of :math:`S_{zz}` (Cauchy) as a function of time.
 
 Numerical and physical parameters
 
 * **Finite element order:** 1 (linear interpolation)
 * **Finite element space:** :math:`H^1`
 * **Simulation duration:** 200 s
-* **Number of time steps:** 600
+* **Number of time steps:** 200 by default (option ``--nstep``)
 
 **Constitutive law (crystal)**
 
@@ -101,21 +101,27 @@ Main options
       - Default
       - Description
     * - ``-h, --help``
-      - —
-      - —
+      - flag
+      - off
       - Print the help message and exit.
     * - ``-m <string>, --mesh <string>``
       - string
       - ``mesh/5crystals.msh``
       - Mesh file to use.
+    * - ``-mm <string>, --mesh_mode <string>``
+      - string
+      - ``FromScratch``
+      - Mesh read mode: ``FromScratch``, or ``Restart`` for a mesh already
+        split in parts, one per process.
     * - ``-f <string>, --vect <string>``
       - string
       - ``mesh/vectors_5crystals.txt``
       - Vector file to use.
     * - ``-l <string>, --library <string>``
       - string
-      - ``src/libBehaviour.so``
-      - Material library.
+      - built with the case
+      - Material library. By default, the library built with the case, for
+        the CPU or the GPU, as ``--execution`` places the behaviours.
     * - ``-b <string>, --behaviour <string>``
       - string
       - ``Mono_UO2_Cosh_Jaco3``
@@ -138,32 +144,78 @@ Main options
       - Simulation duration.
     * - ``-n <int>, --nstep <int>``
       - int
-      - ``600``
+      - ``200``
       - Number of time steps.
     * - ``--linear-solver <string>``
       - string
       - ``HyprePCG``
-      - Linear solver to use.
+      - Linear solver of the Newton method: a Krylov solver of hypre
+        (``HyprePCG``, ``HypreGMRES`` or ``HypreFGMRES``, preconditioned by
+        ``--linear-solver-preconditioner``), or a direct solver of mfem-mgis,
+        ``MUMPSSolver`` or ``CuDSSSolver`` (on a CUDA GPU only). Ignored by
+        ``NewtonK0``.
     * - ``--linear-solver-preconditioner <string>``
       - string
       - ``HypreBoomerAMG``
       - Preconditioner for the linear solver. Use ``none`` to disable.
+    * - ``--reuse-analysis``, ``--no-reuse-analysis``
+      - bool
+      - ``false``
+      - Reuse the analysis of the direct solver for the matrices of the same
+        pattern (parameter ``ReuseAnalysis`` of mfem-mgis). Ignored, with a
+        warning, without a direct solver, with ``NewtonK0`` or with PETSc.
+    * - ``--non-linear-solver <string>``
+      - string
+      - ``Newton``
+      - Non linear solver: ``Newton`` or ``NewtonK0`` (tangent systems solved
+        by a conjugate gradient preconditioned by the elastic operator).
+    * - ``--adaptive-linear-solver-tolerance <string>``
+      - string
+      - ``None``
+      - Relative tolerance of the linear solver adapted to the decrease of
+        the residual: ``None``, ``EisenstatWalker1`` or ``EisenstatWalker2``.
+        It requires an iterative linear solver.
+    * - ``--adaptive-linear-solver-initial-tolerance <double>``
+      - double
+      - ``-1``
+      - Initial adaptive tolerance, the default one if ``-1``. Giving it
+        without ``--adaptive-linear-solver-tolerance`` is an error.
+    * - ``--elastic-operator-linear-solver <string>``
+      - string
+      - ``HypreBoomerAMG``
+      - Linear solver of the elastic operator of ``NewtonK0``:
+        ``HypreBoomerAMG`` or ``AmgX`` (one cycle of the multigrid of AmgX,
+        which requires mfem-mgis built with ``-Denable-amgx=ON``).
+    * - ``--amgx-parameters <string>``
+      - string
+      - empty
+      - Parameters of AmgX, as ``name=value`` separated by commas.
+    * - ``--amgx-single-precision``, ``--no-amgx-single-precision``
+      - bool
+      - ``false``
+      - Computations of AmgX in single precision.
     * - ``--macroscopic-stress-output-file <string>``
       - string
       - ``uniaxial-polycrystal.res``
       - Output file containing the evolution of the deformation gradient and the Cauchy stress.
-    * - ``--enable-post-processings``
+    * - ``--enable-post-processing``, ``--disable-post-processing``
+      - bool
+      - ``true``
+      - Execute or not the post-processing steps.
+    * - ``--enable-export-von-Mises-stress``,
+        ``--disable-export-von-Mises-stress``
       - bool
       - ``false``
-      - Execute post-processing steps.
-    * - ``--enable-export-von-Mises-stress``
+      - Export or not the von Mises stress.
+    * - ``--enable-export-first_eigen_stress``,
+        ``--disable-export-first_eigen_stress``
       - bool
       - ``false``
-      - Export von Mises stress.
-    * - ``--enable-export-first_eigen_stress``
-      - bool
-      - ``false``
-      - Export the first eigen stress.
+      - Export or not the first eigen stress.
+
+The options of mfem-mgis are also accepted, for instance ``--execution gpu``
+to compute on a GPU, the behaviours built by the case for the GPU being then
+used (see :ref:`mfem_mgis_batch_computations_execution`).
 
 .. note::
 
@@ -195,7 +247,7 @@ To visualize and compare the results:
 
    python3 plot_polycrystal_results.py
 
-This script generates the figure `plot_polycrystal.png` (Figure 6), showing a comparison between Cast3M and MFEM-MGIS results. The Cast3M curve shows minor oscillations due to time-step discretization. The MFEM-MGIS implicit formulation (full Newton algorithm using tangent stiffness) exhibits robust quadratic convergence and excellent parallel performance.
+This script generates the figure `plot_polycrystal.png`, showing a comparison between Cast3M and MFEM-MGIS results. The Cast3M curve shows minor oscillations due to time-step discretization. The MFEM-MGIS implicit formulation (full Newton algorithm using tangent stiffness) exhibits robust quadratic convergence and excellent parallel performance.
 
 .. image:: img/plot_polycrystal.png
 
@@ -228,6 +280,19 @@ Example detailed output:
    599  200.0  1.062661e+08  106000000.0  -0.250424     OK
 
 This table shows the comparison between simulated Cauchy stress values and the reference Cast3M results, with relative differences and status indicators.
+
+Tests
+-----
+
+``ctest`` runs ``UniaxialPolycrystalTest`` (one time step of 0.1 s without
+post-processing), ``UniaxialPolycrystalTestPar`` (the same on 2 processes)
+and ``PolycrystalTestWithPostProPar`` (one time step of 0.01 s on 2 processes,
+exporting the von Mises stress and the first eigen stress). With the CMake
+option ``MM_OPERA_HPC_GPU_TESTS`` of mm-opera-hpc, and if MFEM is compiled with
+CUDA or HIP and the behaviour library of the case is built for the GPU,
+``UniaxialPolycrystalTest-gpu`` and ``UniaxialPolycrystalTest-mixed-gpu`` run
+the first test with ``--execution gpu`` and with ``--execution mixed
+--behaviours cpu``. A GPU is then required to run them.
 
 References
 ----------

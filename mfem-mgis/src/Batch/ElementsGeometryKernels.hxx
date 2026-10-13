@@ -64,10 +64,11 @@ namespace mfem_mgis::batch::internals {
    * `invertJacobian`, the jacobians themselves are not stored): one thread
    * per point of an element
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchJacobiansKernel(const JacobiansKernelArguments&, const bool);
+  void launchJacobiansKernel(const JacobiansKernelArguments& a,
+                             const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

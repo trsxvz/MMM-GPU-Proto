@@ -122,10 +122,11 @@ namespace mfem_mgis::batch::internals {
    * \brief launches the kernel gathering the values of the unknowns at the
    * integration points of a material: one thread per point
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchUnknownsValuesKernel(const UnknownsValuesKernelArguments&,
-                                  const bool);
+  void launchUnknownsValuesKernel(const UnknownsValuesKernelArguments& a,
+                                  const bool use_device);
 
   /*!
    * \brief launches the kernel computing the derivatives of the unknowns
@@ -133,23 +134,23 @@ namespace mfem_mgis::batch::internals {
    * elements, and their values if required: one thread per point of an
    * element
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
   void launchUnknownsDerivativesKernel(
-      const UnknownsDerivativesKernelArguments&, const bool);
+      const UnknownsDerivativesKernelArguments& a, const bool use_device);
 
   /*!
    * \brief launches the kernel computing the gradients of all the points of
    * a material
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments
-   * \param[in] d: if true, the kernel runs on the device (if a device is
-   * enabled), and the pointers of the arguments are located on the device
+   * \param[in] use_device: if true, the kernel runs on the device (if a device
+   * is enabled), and the pointers of the arguments are located on the device
    */
-  void launchGradientsKernel(const GradientsKind,
-                             const GradientsKernelArguments&,
-                             const bool);
+  void launchGradientsKernel(const GradientsKind k,
+                             const GradientsKernelArguments& a,
+                             const bool use_device);
 
 }  // end of namespace mfem_mgis::batch::internals
 

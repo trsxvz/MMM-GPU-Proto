@@ -644,6 +644,12 @@ namespace mfem_mgis {
    * \param[out] f: grid function
    * \param[in] fcts: functions
    * \note the grid function must have been created by `makeGridFunction`
+   * \note if the functions are defined on the mesh of the grid function,
+   * the values at the nodes are computed by kernels when the
+   * post-processings are computed by kernels and the kernels support the
+   * space and the functions (see
+   * `getNumberOfPostProcessingsComputationsByKernels`); otherwise, as by
+   * `mfem::GridFunction::ProjectDiscCoefficient` with the arithmetic mean
    */
   template <bool parallel>
   [[nodiscard]] bool updateGridFunction(

@@ -55,11 +55,13 @@ namespace mfem_mgis {
    *   linear solver is made at each resolution, with `Once` at the first
    *   one only. The iterative solver is given by the option
    *   `TangentLinearSolver` (see below). The tangent operator may be applied
-   *   without assembly (`TangentOperatorComputation` set to `MatrixFree`).
+   *   without assembly (parameter `TangentOperatorComputation` of the
+   *   problem set to `MatrixFree`).
    *
    * Linear solver of `K0` (option `ElasticOperatorLinearSolver`, a linear
-   * solver of the factory of the problems, for instance `HypreBoomerAMG`
-   * for one cycle of BoomerAMG per iteration in a parallel computation):
+   * solver of the factory of the linear solvers, `LinearSolverFactory`, for
+   * instance `HypreBoomerAMG` for one cycle of BoomerAMG per iteration in a
+   * parallel computation):
    * owned by the solver, so that its setup is kept between resolutions with
    * `ElasticOperatorUpdate` set to `Once`. The value `None` removes it. If
    * not given, the linear solver of the problem is used, and set up with
@@ -70,7 +72,9 @@ namespace mfem_mgis {
    * none by default. The value `None` removes it. The linear solver of the
    * elastic operator and the acceleration are given by a name, by a
    * dictionary associating a name with its options, or by a dictionary with
-   * the entries `Name` and `Options`.
+   * the entries `Name` and `Options`. The linear solver of the elastic
+   * operator is refused with the `ModifiedNewton` method, and the
+   * acceleration with the `NewtonK0` method.
    *
    * Iterative solver of the tangent operator of the `NewtonK0` method
    * (option `TangentLinearSolver`, ignored by the other methods): an
@@ -78,8 +82,8 @@ namespace mfem_mgis {
    * (`CGSolver`, by default, `GMRESSolver`, `FGMRESSolver`,
    * `BiCGSTABSolver`, `MINRESSolver` or `SLISolver`), given as the linear
    * solver of the elastic operator, with its options except
-   * `Preconditioner`. The `RelativeTolerance` and the
-   * `MaximumNumberOfIterations` are 1e-4 and 1000 if not given. The
+   * `Preconditioner`. The `RelativeTolerance`, the `AbsoluteTolerance` and
+   * the `MaximumNumberOfIterations` are 1e-4, 0 and 1000 if not given. The
    * conjugate gradient requires a symmetric positive definite tangent
    * operator: `GMRESSolver` or `BiCGSTABSolver` are suited to the other
    * ones (for instance non associated behaviours). The warnings of the
@@ -99,8 +103,8 @@ namespace mfem_mgis {
    * the problem, or an iterative solver of MFEM preconditioned by the
    * linear solver of the elastic operator, given as for
    * `TangentLinearSolver` (`ElasticOperator` being a synonym of
-   * `CGSolver`), with a `RelativeTolerance` and a
-   * `MaximumNumberOfIterations` of 1e-8 and 1000 if not given. The latter
+   * `CGSolver`), with a `RelativeTolerance`, an `AbsoluteTolerance` and a
+   * `MaximumNumberOfIterations` of 1e-8, 0 and 1000 if not given. The latter
    * is used by the elastic predictions made at the beginning of the time
    * steps which follow the first resolution, with the `ElasticOperator`
    * and `NewtonK0` methods and a linear solver of the elastic operator;
@@ -126,16 +130,21 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] p: non linear evolution problem
      */
-    FixedPointSolver(NonLinearEvolutionProblemImplementation<true>&);
+    FixedPointSolver(NonLinearEvolutionProblemImplementation<true>& p);
 #endif /* MFEM_USE_MPI */
     /*!
      * \brief constructor
      * \param[in] p: non linear evolution problem
      */
-    FixedPointSolver(NonLinearEvolutionProblemImplementation<false>&);
+    FixedPointSolver(NonLinearEvolutionProblemImplementation<false>& p);
     [[nodiscard]] bool setSolverParameters(Context&,
                                            const Parameters&) noexcept override;
-    void Mult(const mfem::Vector&, mfem::Vector&) const override;
+    /*!
+     * \brief solve the non linear problem
+     * \param[in] b: right hand side, unused
+     * \param[in, out] x: initial guess, then solution
+     */
+    void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
     [[nodiscard]] LinearSolver* getElasticPredictionLinearSolver() noexcept
         override;
     //! \brief destructor
@@ -194,7 +203,11 @@ namespace mfem_mgis {
         generate_linear_solver;
     //! \brief method
     Method method = Method::ELASTIC_OPERATOR;
-    //! \brief relative tolerance of the solver of the tangent operator
+    /*!
+     * \brief settings of the relative tolerance of the solver of the
+     * tangent operator adapted to the decrease of the residual (option
+     * `AdaptiveLinearSolverTolerance`), disabled by default
+     */
     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
     //! \brief if true, the elastic operator is assembled once
     bool elastic_operator_assembled_once = false;

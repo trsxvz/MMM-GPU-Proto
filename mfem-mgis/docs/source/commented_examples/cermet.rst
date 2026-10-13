@@ -29,8 +29,8 @@ compression/tensile test with periodic boundary conditions.
   The components :math:`F_{xx}` and :math:`F_{yy}` are the unknowns, determined via the
   fixed-point algorithm imposing null values for the components :math:`S_{xx}` and
   :math:`S_{yy}` of the macroscopic Cauchy stress tensor.  
-  The main result used for verification is a stress-strain curve with the evolution of the
-  axial component :math:`S_{zz}` of the Cauchy stress as a function of :math:`F_{xx}`.
+  The main result used for verification is the evolution of the axial component
+  :math:`S_{zz}` of the Cauchy stress as a function of time.
 
 - **[Crystal] Constitutive law:**  
   The UO₂ crystal plasticity law used in the example is detailed in the reference [#portelette2018]_.  
@@ -71,7 +71,7 @@ compression/tensile test with periodic boundary conditions.
 - **Finite element space:** H1
 - **Simulation duration:** 200 s
 - **Number of time steps:** 500
-- **Linear solver:** HyprePCG (solver / preconditioner)
+- **Linear solver:** HyprePCG preconditioned by HypreBoomerAMG
 
 Mesh generation
 ---------------
@@ -112,8 +112,8 @@ This setup generates a small polycrystalline mesh (Gmsh version ``11.1``):
 .. code-block:: python
 
     L = [1, 1, 1]
-    nbSpheres = 20 
-    distMin = 0.3
+    nbSpheres = 5
+    distMin = 0.4
     randomSeed = 0
     layer = 0.02
     MeshOrder = 1
@@ -165,13 +165,19 @@ Command-line Usage
       - Default
       - Description
     * - ``-h, --help``
-      - —
-      - —
+      - flag
+      - off
       - Print the help message and exit.
     * - ``-m <string>, --mesh <string>``
       - string
       - ``mesh/5grains.msh``
       - Mesh file to use.
+    * - ``-l <string>, --library <string>``
+      - string
+      - built with the case
+      - Material library containing the behaviours of the grains and of the
+        metallic interface. By default, the library built with the case, for
+        the CPU or the GPU, as ``--execution`` places the behaviours.
     * - ``-o <int>, --order <int>``
       - int
       - ``1``
@@ -179,8 +185,8 @@ Command-line Usage
     * - ``-r <int>, --refinement <int>``
       - int
       - ``0``
-      - Refinement level of the mesh (default = 1).
-    * - ``-p <int>, --post-processing <int>``
+      - Refinement level of the mesh.
+    * - ``-p <int>, --postprocessing <int>``
       - int
       - ``1``
       - Run the post-processing step.
@@ -191,11 +197,11 @@ Command-line Usage
     * - ``-d <double>, --duration <double>``
       - double
       - ``200``
-      - Duration of the simulation (default = 5).
+      - Duration of the simulation.
     * - ``-n <int>, --nstep <int>``
       - int
-      - ``400``
-      - Number of simulation steps (default = 40).
+      - ``500``
+      - Number of simulation steps.
     * - ``-f <string>, --file <string>``
       - string
       - ``vectors_5grains.txt``
@@ -206,6 +212,10 @@ Command-line Usage
       - Main output file containing:
         - Evolution of the diagonal components of the deformation gradient.
         - Evolution of the diagonal components of the Cauchy stress.
+
+The options of mfem-mgis are also accepted, for instance ``--execution gpu``
+to compute on a GPU, the behaviours built by the case for the GPU being then
+used (see :ref:`mfem_mgis_batch_computations_execution`).
 
 How to Run it
 ~~~~~~~~~~~~~
@@ -266,8 +276,8 @@ In this figure, we observe good agreement between Cast3M and MFEM-MGIS results.
 As observed for the polycrystal test case, there are some oscillations in the Cast3M
 solution, which is of poorer quality compared to the MFEM-MGIS results.  
 The main conclusion is that the implicit formulation of MFEM-MGIS (full Newton algorithm
-using the tangent stiffness) is highly performant—thanks to quadratic convergence and
-parallelization—and provides a high-quality solution.  
+using the tangent stiffness) is highly performant, thanks to quadratic convergence and
+parallelization, and provides a high-quality solution.  
 For verification, the number of time steps has been significantly increased to minimize
 the oscillations observed in Cast3M.
 
@@ -306,6 +316,16 @@ Example of the detailed output:
 
 This table shows the comparison between the simulated Cauchy stress values and the
 reference Cast3M results, along with the relative difference and a status check.
+
+Tests
+-----
+
+``ctest`` runs ``CermetNullStrainXXYY`` and ``CermetImposeGradXXYY``, one time
+step of 0.4 s without post-processing (both run the same command). With the
+CMake option ``MM_OPERA_HPC_GPU_TESTS`` of mm-opera-hpc, and if MFEM is
+compiled with CUDA or HIP and the behaviour library of the case is built for
+the GPU, ``CermetNullStrainXXYY-gpu`` runs the first test with ``--execution
+gpu``. A GPU is then required to run it.
 
 References
 ----------

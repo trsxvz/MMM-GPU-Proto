@@ -1,8 +1,9 @@
 /*!
  * \file   include/MFEMMGIS/Batch/StiffnessMatrices.hxx
  * \brief  This file declares the computation of the stiffness matrices of
- * the elements of the standard mechanical behaviour integrators by kernels
- * of MFEM, for all the elements of a material at once
+ * the elements of the standard behaviour integrators (mechanics, heat
+ * transfer, micromorphic damage) by kernels of MFEM, for all the elements
+ * of a material at once
  * \date   09/10/2026
  */
 
@@ -55,39 +56,46 @@ namespace mfem_mgis::batch {
 
   /*!
    * \brief adds the stiffness matrices of the elements of a material, `Σ Bᵀ
-   * K B w det J` summed over the integration points, to matrices stored
-   * element by element, on the device if a device is enabled. The matrix of
+   * K B w det J` summed over the integration points, plus, for the
+   * stationary heat transfer behaviours, `Σ Bᵀ (dq/dT) N w det J` (the
+   * tangent operator blocks then end with the derivatives of the heat flux
+   * with respect to the temperature), to matrices stored element by
+   * element, on the device if a device is enabled. The matrix of
    * an element has `n = nd * vdim` rows and columns, the degrees of freedom
    * being ordered as in the element restriction of MFEM (native ordering of
    * the nodes, `node + nd * component`). It is stored column by column, as
    * a `mfem::DenseMatrix`, at the offset `n * n * e` for the element `e` of
    * the mesh.
    * \return true on success
+   * \param[in, out] ctx: execution context
    * \param[in, out] m: matrices element by element
    * \param[in] qs: quadrature space of the material. All its elements must
    * use the integration rule of the geometric data.
    * \param[in] K: tangent operator blocks in the global frame at all the
-   * points of the material, row by row, located on the device if a device
-   * is enabled
+   * points of the material, row by row (two diagonal blocks for the
+   * micromorphic damage behaviours, see `getTangentOperatorComponent`),
+   * located on the device if a device is enabled
    * \param[in] g: geometric data
    * \param[in] k: kind of the gradients, which defines the operator `B`
    * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind,
-      const TangentOperatorModification& = {}) noexcept;
+      Context& ctx,
+      mfem::Vector& m,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod = {}) noexcept;
 
   /*!
    * \brief adds the diagonals of the stiffness matrices of the elements of a
    * material to values stored element by element, in the layout of the
-   * element restriction of MFEM (`node + nd * (component + dim * element)`,
-   * as `addInnerForces`), on the device if a device is enabled
+   * element restriction of MFEM (`node + nd * (component + vdim *
+   * element)`, `vdim` being the number of components of the unknowns, as
+   * `addInnerForces`), on the device if a device is enabled
    * \return true on success
+   * \param[in, out] ctx: execution context
    * \param[in, out] d: values element by element
    * \param[in] qs: quadrature space of the material
    * \param[in] K: tangent operator blocks in the global frame
@@ -96,23 +104,26 @@ namespace mfem_mgis::batch {
    * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesDiagonals(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind,
-      const TangentOperatorModification& = {}) noexcept;
+      Context& ctx,
+      mfem::Vector& d,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod = {}) noexcept;
   /*!
    * \brief adds the action of the stiffness matrices of the elements of a
    * material, computed from the tangent operator blocks without assembling
-   * them, `Σ Bᵀ K B x w det J`, on values given element by element, by a
-   * kernel which computes the increments of the gradients and of the
-   * thermodynamic forces at the points of each element without storing
-   * them, on the device if a device is enabled. The values are given in the
-   * layout of the element restriction of MFEM (`node + nd * (component +
-   * dim * element)`, as `addInnerForces`), for all the elements of the mesh.
+   * them, `Σ Bᵀ K B x w det J`, plus, for the stationary heat transfer
+   * behaviours, `Σ Bᵀ (dq/dT) N x w det J`, on values given element by
+   * element, by a kernel which computes the increments of the gradients and
+   * of the thermodynamic forces at the points of each element without
+   * storing them, on the device if a device is enabled. The values are
+   * given in the layout of the element restriction of MFEM (`node + nd *
+   * (component + vdim * element)`, `vdim` being the number of components of
+   * the unknowns, as `addInnerForces`), for all the elements of the mesh.
    * \return true on success
+   * \param[in, out] ctx: execution context
    * \param[in, out] y: action, element by element
    * \param[in] qs: quadrature space of the material
    * \param[in] K: tangent operator blocks in the global frame
@@ -122,14 +133,14 @@ namespace mfem_mgis::batch {
    * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addTangentOperatorAction(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const mfem::Vector&,
-      const ElementsGeometry&,
-      const GradientsKind,
-      const TangentOperatorModification& = {}) noexcept;
+      Context& ctx,
+      mfem::Vector& y,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const mfem::Vector& x,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod = {}) noexcept;
 
   /*!
    * \brief sparse matrix in which the stiffness matrices of the elements are
@@ -156,14 +167,17 @@ namespace mfem_mgis::batch {
      * number of degrees of freedom of an element. The position of an entry
      * is read first, and used only if it designates the column of the entry
      * in its row, the entry being searched otherwise (and counted in
-     * `searched_entries`): positions computed for another matrix, with the
-     * same number of values, give the same results, more slowly.
+     * `searched_entries` if its position was known): positions computed for
+     * another matrix, with the same number of values, give the same
+     * results, more slowly.
      */
     const mfem::Array<std::uint16_t>* positions = nullptr;
     /*!
      * \brief if not null, the number of entries whose position, read in
      * `positions`, does not designate their column, and which are searched
-     * in their rows, is added to this counter
+     * in their rows, is added to this counter (the entries whose position is
+     * unknown, `std::numeric_limits<std::uint16_t>::max()`, are searched but
+     * not counted)
      */
     std::size_t* searched_entries = nullptr;
   };
@@ -180,7 +194,9 @@ namespace mfem_mgis::batch {
    * \param[in] fes: finite element space
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsDegreesOfFreedom(
-      Context&, mfem::Array<int>&, const mfem::FiniteElementSpace&) noexcept;
+      Context& ctx,
+      mfem::Array<int>& dofs,
+      const mfem::FiniteElementSpace& fes) noexcept;
   /*!
    * \brief creates the sparse matrix in which the stiffness matrices of all
    * the elements are assembled (see `AssembledStiffnessMatrix`), on the
@@ -197,9 +213,9 @@ namespace mfem_mgis::batch {
    * `computeElementsDegreesOfFreedom`)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<mfem::SparseMatrix>
-  makeAssembledStiffnessMatrix(Context&,
-                               const mfem::FiniteElementSpace&,
-                               const mfem::Array<int>&) noexcept;
+  makeAssembledStiffnessMatrix(Context& ctx,
+                               const mfem::FiniteElementSpace& fes,
+                               const mfem::Array<int>& dofs) noexcept;
   /*!
    * \brief computes, on the device if a device is enabled, the positions of
    * the entries of the stiffness matrices of all the elements in the rows of
@@ -209,10 +225,10 @@ namespace mfem_mgis::batch {
    * `(n * e + i) * n + j`. The assembly of the stiffness matrices then reads
    * the position of each entry instead of searching it in its row (see
    * `AssembledStiffnessMatrix::positions`). An entry which is not in the
-   * matrix, or whose relative position does not fit in 16 bits, is given
-   * the largest value of `std::uint16_t` (it is then searched). The
-   * positions take `2 n²` bytes per element, of the order of the size of
-   * the matrix for linear elements. If the mesh has no element, or if the
+   * matrix, or whose relative position is not lower than the largest value
+   * of `std::uint16_t`, is given this largest value (it is then searched).
+   * The positions take `2 n²` bytes per element, of the order of the size
+   * of the matrix for linear elements. If the mesh has no element, or if the
    * number of positions does not fit in an `int`, the positions are not
    * computed and `positions` is left empty.
    * \return true on success
@@ -224,11 +240,11 @@ namespace mfem_mgis::batch {
    * \param[in] m: assembled matrix, finalized
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeStiffnessMatricesPositions(
-      Context&,
-      mfem::Array<std::uint16_t>&,
-      const mfem::FiniteElementSpace&,
-      const mfem::Array<int>&,
-      const mfem::SparseMatrix&) noexcept;
+      Context& ctx,
+      mfem::Array<std::uint16_t>& positions,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::Array<int>& dofs,
+      const mfem::SparseMatrix& m) noexcept;
   /*!
    * \brief sets the values of a sparse matrix to zero, on the device if a
    * device is enabled
@@ -237,7 +253,7 @@ namespace mfem_mgis::batch {
    * \param[in, out] m: matrix (finalized)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool zeroSparseMatrixValues(
-      Context&, mfem::SparseMatrix&) noexcept;
+      Context& ctx, mfem::SparseMatrix& m) noexcept;
   /*!
    * \brief contributions of the stiffness matrices of the elements to each
    * entry of an assembled matrix (see `computeEntriesContributions`), stored
@@ -267,8 +283,8 @@ namespace mfem_mgis::batch {
    * the elements, plus one per value of the matrix, on the host and, once
    * used, on the device.
    * \return true on success, false if an entry of the stiffness matrices of
-   * the elements is not in the pattern of the matrix, or if there are too
-   * many entries
+   * the elements is not in the pattern of the matrix, if there are too many
+   * entries, or on error (invalid arguments)
    * \param[in, out] ctx: execution context
    * \param[out] c: contributions, left unchanged on failure
    * \param[in] m: assembled matrix, finalized
@@ -277,11 +293,11 @@ namespace mfem_mgis::batch {
    * \param[in] n: number of degrees of freedom of an element
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeEntriesContributions(
-      Context&,
-      EntriesContributions&,
-      const mfem::SparseMatrix&,
-      const mfem::Array<int>&,
-      const int) noexcept;
+      Context& ctx,
+      EntriesContributions& c,
+      const mfem::SparseMatrix& m,
+      const mfem::Array<int>& dofs,
+      const int n) noexcept;
   /*!
    * \brief adds stiffness matrices stored element by element (see
    * `addStiffnessMatrices`) to an assembled sparse matrix, on the device if
@@ -295,7 +311,7 @@ namespace mfem_mgis::batch {
    * not at the same positions (the values of the matrix are then partially
    * updated).
    * \return true on success, false if the contributions do not match the
-   * matrix
+   * matrix, or on error (invalid arguments)
    * \param[in, out] ctx: execution context
    * \param[in, out] m: assembled matrix (`positions` is not used)
    * \param[in] c: contributions of the stiffness matrices of the elements to
@@ -304,20 +320,23 @@ namespace mfem_mgis::batch {
    * element by element (`n * n` values per element)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesByEntries(
-      Context&,
-      const AssembledStiffnessMatrix&,
-      const EntriesContributions&,
-      const mfem::Vector&) noexcept;
+      Context& ctx,
+      const AssembledStiffnessMatrix& m,
+      const EntriesContributions& c,
+      const mfem::Vector& k) noexcept;
   /*!
    * \brief adds the stiffness matrices of the elements of a material to an
    * assembled sparse matrix, on the device if a device is enabled, without
    * storing them: the position of each entry is read in
    * `AssembledStiffnessMatrix::positions`, or searched in its row (by
    * bisection for the ordering of `makeAssembledStiffnessMatrix` or sorted
-   * rows, linearly otherwise), and the additions are atomic (several
-   * materials may share degrees of freedom)
+   * rows, linearly otherwise), and, on a device, the additions are atomic
+   * (the elements which share a degree of freedom are processed by
+   * concurrent threads; without device, the blocks are added by a single
+   * thread on the host)
    * \return true on success, false if an entry is not in the pattern of the
-   * matrix
+   * matrix, or on error (invalid arguments)
+   * \param[in, out] ctx: execution context
    * \param[in, out] m: assembled matrix
    * \param[in] qs: quadrature space of the material
    * \param[in] K: tangent operator blocks in the global frame
@@ -326,13 +345,13 @@ namespace mfem_mgis::batch {
    * \param[in] mod: modification of the tangent operator blocks, if any
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatrices(
-      Context&,
-      const AssembledStiffnessMatrix&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind,
-      const TangentOperatorModification& = {}) noexcept;
+      Context& ctx,
+      const AssembledStiffnessMatrix& m,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod = {}) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

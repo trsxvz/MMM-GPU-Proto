@@ -1,8 +1,10 @@
 /*!
  * \file   src/Batch/StiffnessMatrices.cxx
  * \brief  This file implements the computation of the stiffness matrices of
- * the elements of the standard mechanical behaviour integrators by kernels
- * (host part: checks and arguments of the kernels)
+ * the elements of the standard behaviour integrators (mechanics, heat
+ * transfer, micromorphic damage) by kernels (host part: checks, arguments
+ * of the kernels, pattern of the assembled matrix and contributions to its
+ * entries)
  * \date   09/10/2026
  */
 
@@ -29,8 +31,10 @@
 namespace mfem_mgis::batch {
 
   /*!
-   * \brief checks the arguments of `addStiffnessMatrices` and fills the
-   * arguments of the kernels which do not depend on the destination
+   * \brief checks the arguments of `addStiffnessMatrices`,
+   * `addStiffnessMatricesDiagonals` and `addTangentOperatorAction` and
+   * fills the arguments of the kernels which do not depend on the
+   * destination
    * \return true on success, false if there is nothing to do or on error
    * (see `error`)
    * \param[in, out] ctx: execution context
@@ -43,9 +47,9 @@ namespace mfem_mgis::batch {
    * \param[in] mod: modification of the tangent operator blocks
    * \param[in] use_device: if true, the pointers are located on the device
    * \param[in] name: name of the calling function, for the error messages
-   * \param[in] diagonals: if true, the kernels compute the diagonals of the
-   * stiffness matrices (one thread per node of an element), otherwise the
-   * stiffness matrices (one thread per pair of nodes)
+   * \param[in] diagonals: if true, the number of threads is checked for one
+   * thread per node of an element (diagonals; the action uses fewer
+   * threads), otherwise for one thread per pair of nodes
    */
   static bool getStiffnessMatricesKernelArguments(
       Context& ctx,

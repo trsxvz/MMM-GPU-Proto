@@ -65,8 +65,10 @@ namespace mfem_mgis::batch {
     /*!
      * \brief false if the gradients have been computed element by element
      * since the last computation of `F0` by kernels, or if this computation
-     * failed: `F0` does not match the gradients, and the inner forces can't
-     * be computed by kernels
+     * failed after the checks of the kind of the gradients and of the size
+     * of `centers` (`valid` is left unchanged by these two failures): `F0`
+     * does not match the gradients, and the inner forces can't be computed
+     * by kernels
      */
     bool valid = true;
     //! \brief copies of the data at the beginning of the time step
@@ -87,13 +89,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool isFaltusSupportedByKernels(
-      const GradientsKind) noexcept;
+      const GradientsKind k) noexcept;
   /*!
    * \brief computes the deformation gradients `F0` at the center of the
    * elements of a material
    * \return true on success
    * \param[in, out] ctx: execution context
-   * \param[out] data: data of the regularization
+   * \param[in, out] data: data of the regularization
    * \param[in] m: material (macroscopic gradients)
    * \param[in] d0: derivatives of the unknowns at the center of the
    * elements, null for null unknowns (before the first computation of the
@@ -103,26 +105,26 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeFaltusCenters(
-      Context&,
-      FaltusData&,
-      const Material&,
-      const UnknownsDerivatives* const,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      FaltusData& data,
+      const Material& m,
+      const UnknownsDerivatives* const d0,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief keeps the data of the regularization, computed for the converged
    * unknowns of the time step, as the data at the beginning of the next time
    * step (see `revertFaltusData`)
    * \param[in, out] data: data of the regularization
    */
-  MFEM_MGIS_EXPORT void updateFaltusData(FaltusData&);
+  MFEM_MGIS_EXPORT void updateFaltusData(FaltusData& data);
   /*!
    * \brief restores the data of the regularization at the beginning of the
    * time step, kept by `updateFaltusData`, or, before the first update,
    * removes the data (computed again for null unknowns)
    * \param[in, out] data: data of the regularization
    */
-  MFEM_MGIS_EXPORT void revertFaltusData(FaltusData&);
+  MFEM_MGIS_EXPORT void revertFaltusData(FaltusData& data);
   /*!
    * \brief adds the contribution of the regularization to the inner forces
    * of the elements of a material, in the layout of the element restriction
@@ -138,14 +140,14 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusInnerForces(
-      Context&,
-      mfem::Vector&,
-      const FaltusData&,
-      const Material&,
-      const real,
-      const ElementsGeometry&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& f,
+      const FaltusData& data,
+      const Material& m,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the contribution of the regularization to the stiffness
    * matrices of the elements of a material, stored element by element (see
@@ -160,13 +162,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatrices(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const real,
-      const ElementsGeometry&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& m,
+      const PartialQuadratureSpace& qs,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the contribution of the regularization to an assembled
    * sparse matrix (see `addStiffnessMatrices`)
@@ -180,13 +182,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatrices(
-      Context&,
-      const AssembledStiffnessMatrix&,
-      const PartialQuadratureSpace&,
-      const real,
-      const ElementsGeometry&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      const AssembledStiffnessMatrix& m,
+      const PartialQuadratureSpace& qs,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the diagonals of the contribution of the regularization to
    * the stiffness matrices of the elements of a material (see
@@ -201,13 +203,13 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatricesDiagonals(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const real,
-      const ElementsGeometry&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& d,
+      const PartialQuadratureSpace& qs,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the action of the contribution of the regularization to the
    * stiffness matrices of the elements of a material, without assembling
@@ -223,14 +225,14 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusTangentOperatorAction(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mfem::Vector&,
-      const real,
-      const ElementsGeometry&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& y,
+      const PartialQuadratureSpace& qs,
+      const mfem::Vector& x,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

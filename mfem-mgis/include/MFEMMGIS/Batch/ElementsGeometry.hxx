@@ -41,9 +41,10 @@ namespace mfem_mgis::batch {
   };
 
   /*!
-   * \brief geometric data of all the elements of the mesh for one
-   * integration rule: gradients of the shape functions on the reference
-   * element (`mfem::DofToQuad`, owned by the finite element), inverses and
+   * \brief geometric data of the elements of the mesh (all of them or a
+   * list of them, see `computeElementsGeometry`) for one integration rule:
+   * gradients of the shape functions on the reference element
+   * (`mfem::DofToQuad`, owned by the finite element), inverses and
    * determinants of the jacobians of the element transformations
    *
    * The data are computed once: they are not updated if the mesh is
@@ -75,7 +76,10 @@ namespace mfem_mgis::batch {
     int ne = 0;
   };
 
-  //! \brief geometric data for the integration rules of several materials
+  /*!
+   * \brief geometric data indexed by integration rule (rules of the
+   * materials, of the mass matrices, ...)
+   */
   using ElementsGeometrySet =
       std::map<const mfem::IntegrationRule*, ElementsGeometry>;
 
@@ -112,19 +116,24 @@ namespace mfem_mgis::batch {
    * integration rule must not be destroyed while the finite element space
    * exists (a rule replaced by another one with a different number of
    * points at the same address is detected). NURBS meshes are refused.
+   * If there is no element, only `rule`, `dim`, `nq` and `ne` are set
+   * (`jacobians` is null).
    *
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[out] g: geometric data
    * \param[in] fes: finite element space. Its elements must have the same
-   * geometry.
+   * geometry. The mesh must not be embedded in a space of higher dimension
+   * (`SpaceDimension() == Dimension()`). The nodes of the mesh, if any,
+   * must have `dim` components, without dof transformations nor changes of
+   * orientation.
    * \param[in] ir: integration rule
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsGeometry(
-      Context&,
-      ElementsGeometry&,
-      const mfem::FiniteElementSpace&,
-      const mfem::IntegrationRule&) noexcept;
+      Context& ctx,
+      ElementsGeometry& g,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::IntegrationRule& ir) noexcept;
   /*!
    * \brief computes the geometric data of a list of elements of the mesh
    * for an integration rule, as `computeElementsGeometry`, the data of the
@@ -139,11 +148,11 @@ namespace mfem_mgis::batch {
    * space)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeElementsGeometry(
-      Context&,
-      ElementsGeometry&,
-      const mfem::FiniteElementSpace&,
-      const mfem::IntegrationRule&,
-      const mfem::Array<int>&) noexcept;
+      Context& ctx,
+      ElementsGeometry& g,
+      const mfem::FiniteElementSpace& fes,
+      const mfem::IntegrationRule& ir,
+      const mfem::Array<int>& elements) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

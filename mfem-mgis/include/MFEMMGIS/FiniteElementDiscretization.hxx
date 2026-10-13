@@ -34,7 +34,8 @@ namespace mfem_mgis {
     static const char* const UnknownsSize;
     /*!
      * \brief string associated to the `IntegrationRuleOrder` parameter:
-     * order of the integration rules of the behaviour integrators, the
+     * order of the integration rules of the behaviour integrators (non
+     * negative, a negative order being refused by an exception), the
      * default rule of each behaviour integrator being used if this
      * parameter is not given (see `applyIntegrationRuleOrder`). The
      * constructors given a finite element collection and a number of
@@ -97,8 +98,9 @@ namespace mfem_mgis {
      * - `FiniteElementSpaceOrdering` (string): ordering of the degrees of
      * freedom, `byNODES` (default) or `byVDIM`.
      * - `UnknownsSize` (int): number of components of the unknowns
-     * - `IntegrationRuleOrder` (int, optional): order of the integration
-     * rules of the behaviour integrators (see `applyIntegrationRuleOrder`)
+     * - `IntegrationRuleOrder` (int, optional, non negative): order of the
+     * integration rules of the behaviour integrators (see
+     * `applyIntegrationRuleOrder`)
      */
     FiniteElementDiscretization(Context& ctx,
                                 std::shared_ptr<Mesh<false>> m,
@@ -218,10 +220,11 @@ namespace mfem_mgis {
    * elements: the order 3 gives 8 points on the hexahedra, which integrate
    * exactly the elastic stiffness of affine hexahedra of order 1, but
    * under-integrate the hexahedra of order 2; the orders 0 and 1 give one
-   * point (hourglass modes, the FBar formulation then being the standard
-   * one and the regularization of Faltus et al. being null). A rule having
-   * a weight which is not positive (rules of MFEM for some simplices) is
-   * refused.
+   * point (hourglass modes on the quadrangles and the hexahedra, the FBar
+   * formulation then being the standard one and the regularization of
+   * Faltus et al. being null). A rule having a weight which is not positive
+   * (rules of MFEM for some simplices) is refused.
+   * \throws std::runtime_error if a weight of the rule is not positive
    * \param[in] fed: finite element discretization
    * \param[in] e: finite element
    * \param[in] r: default rule of the behaviour integrator

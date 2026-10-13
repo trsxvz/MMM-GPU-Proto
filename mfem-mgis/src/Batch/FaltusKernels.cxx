@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/FaltusKernels.cxx
- * \brief  This file implements the kernels of the regularization of Faltus
- * et al. It contains kernels of MFEM: it is compiled as CUDA code when MFEM
- * is compiled with CUDA.
+ * \brief  This file implements the kernels of the regularization of Faltus et
+ * al. It contains kernels of MFEM: it is compiled as CUDA or HIP code when MFEM
+ * is compiled with CUDA or HIP.
  * \date   11/10/2026
  */
 
@@ -124,8 +124,8 @@ namespace mfem_mgis::batch::internals {
   }  // end of computeFaltusDerivativesDifference
 
   /*!
-   * \return the coefficient `α Σ_q w_q d_a · d_b` of the block of the nodes
-   * `a` and `b` of the matrix `α Σ_q w_q Dᵀ D` of an element (see
+   * \return the coefficient `α Σ_q w_q det J_q d_a · d_b` of the block of the
+   * nodes `a` and `b` of the matrix `α Σ_q w_q det J_q Dᵀ D` of an element (see
    * `computeFaltusDerivativesDifference`)
    * \tparam K: kind of the gradients (deformation gradient)
    * \param[in] a: geometric data
@@ -319,8 +319,8 @@ namespace mfem_mgis::batch::internals {
                                        const real* const x,
                                        real* const y,
                                        const bool use_device) {
-    // one thread per element: `y_a = α Σ_q w_q d_a (Σ_b d_b · x_b)` for each
-    // component of the unknowns
+    // one thread per element: `y_a = α Σ_q w_q det J_q d_a (Σ_b d_b · x_b)`
+    // for each component of the unknowns
     mfem::forall_switch(
         use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
           constexpr auto N = getDimension<K>();

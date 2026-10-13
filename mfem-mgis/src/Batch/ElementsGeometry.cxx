@@ -200,6 +200,11 @@ namespace mfem_mgis::batch {
 
   /*!
    * \brief implementation of the two `computeElementsGeometry` functions
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[out] g: geometric data
+   * \param[in] fes: finite element space
+   * \param[in] ir: integration rule
    * \param[in] elements: elements, all the elements of the mesh if null
    */
   static bool computeElementsGeometryImplementation(

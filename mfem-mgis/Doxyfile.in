@@ -1935,7 +1935,9 @@ PREDEFINED             = MFEM_USE_MPI \
                          MFEM_USE_MUMPS \
                          MFEM_USE_SUITESPARSE \
                          MFEM_USE_GSLIB \
+                         MFEM_USE_CUDSS \
                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
+                         MFEM_MGIS_HAVE_AMGX \
                          MGIS_FUNCTION_SUPPORT \
                          MGIS_HAVE_TFEL
 

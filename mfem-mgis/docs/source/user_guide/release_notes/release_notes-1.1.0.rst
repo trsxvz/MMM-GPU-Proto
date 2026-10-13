@@ -26,7 +26,7 @@ Highlights
   for finite strain behaviours to handle nearly incompressible materials.
 - The regularization proposed by Faltus et al. in the context of the
   third medium contact has been implemented for plane strain, plane
-  stress and tridmensional hypotheses.
+  stress and tridimensional hypotheses.
 - `MGIS`'s contexts now handle gathering computation time information to
   create the performance table instead of the previously used
   `CatchTimeSection`.
@@ -38,8 +38,8 @@ Highlights
 - The name of the materials and boundaries are automatically retrieved
   from |MFEM|'s mesh.
 
-Known incompatibilites
-======================
+Known incompatibilities
+=======================
 
 - In previous versions, the failure of Hypre's linear iterative solvers
   were discarded by `MFEM/MGIS`'s Newton solver due to the lack of
@@ -159,9 +159,9 @@ by solving the following linear system:
 
 where:
 
-- :math:`\mathbb{K}_{e}` denotes one of the prediction operator (see below).
-- :math:`\bts{\mathbb{F}_{e}}` denotes the external forces at the beginning
-  of the time step.
+- :math:`\mathbb{K}` denotes the prediction operator (see below).
+- :math:`\ets{\mathbb{F}_{e}}` denotes the external forces at the end of
+  the time step.
 - :math:`\bts{\mathbb{F}_{i}}` denotes the inner forces at the beginning
   of the time step.
 - :math:`\Delta\,\mathbb{u}` is submitted to the increment of the
@@ -177,12 +177,12 @@ The following prediction operators can be chosen:
 - :cxx:`PredictionOperator::ELASTIC`: the elastic operator
 - :cxx:`PredictionOperator::SECANT`: the secant operator is typically
   defined by the elastic operator
-- :cxx:`PredictionOperator::TANGENT_PREDICTION`: the tangent operator,
+- :cxx:`PredictionOperator::TANGENT`: the tangent operator,
   defined by the time-continuous derivative of the thermodynamic force
   with respect to the gradients.
-- :cxx:`PredictionOperator::LAST_ITERATE_OPERATOR`: this operator reuses
-  the one computed at the last iteration of the previous time step. At
-  the first time step, the elastic operator is used.
+- :cxx:`PredictionOperator::LAST_ITERATE_OPERATOR`: this operator shall
+  reuse the one computed at the last iteration of the previous time step.
+  It is not implemented yet: the elastic operator is always used.
 
 Prediction based on a behaviour integration with constant gradients (:cxx:`PredictionStrategy::CONSTANT_GRADIENTS_INTEGRATION_PREDICTION`)
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -200,8 +200,8 @@ where:
      
 - :math:`\tilde{\mathbb{K}}` denotes the operator computed at the end of
   the behaviour integration.
-- :math:`\bts{\mathbb{F}_{e}}` denotes the external forces at the
-  beginning of the time step.
+- :math:`\ets{\mathbb{F}_{e}}` denotes the external forces at the end of
+  the time step.
 - :math:`\ets{\tilde{\mathbb{F}}_{i}}` denotes an approximation inner
   forces at the end of the time step computed by assuming that the
   gradients are constant over the time (and thus equal to their values at
@@ -232,73 +232,73 @@ The following operators are available:
 FBar formulation
 ----------------
 
- The :math:`\bar{F}` method, or FBar formulation, is implemented following
- :cite:`de_souza_neto_design_1996`. This formulation is designed to handle
- nearly incompressible materials in large strain analysis by using a modified
- deformation gradient :math:`\bar{\underline{F}}` that separates volumetric and
- deviatoric responses.
+The :math:`\bar{F}` method, or FBar formulation, is implemented following
+:cite:`de_souza_neto_design_1996`. This formulation is designed to handle
+nearly incompressible materials in large strain analysis by using a modified
+deformation gradient :math:`\bar{\underline{F}}` that separates volumetric and
+deviatoric responses.
 
- The method replaces the standard deformation gradient :math:`\underline{F}`
- with an assumed modified counterpart :math:`\bar{\underline{F}}` in the
- computation of stresses. This modification is based on a multiplicative split
- into volumetric and deviatoric parts:
+The method replaces the standard deformation gradient :math:`\underline{F}`
+with an assumed modified counterpart :math:`\bar{\underline{F}}` in the
+computation of stresses. This modification is based on a multiplicative split
+into volumetric and deviatoric parts:
 
- .. math::
+.. math::
 
-    \underline{F} = J^{1/3}\, \bar{\underline{F}}
+   \underline{F} = J^{1/3}\, \bar{\underline{F}}
 
- where :math:`J = \det{\underline{F}}` is the Jacobian of the deformation
- gradient. This formulation effectively avoids locking issues in nearly
- incompressible materials while maintaining accuracy.
+where :math:`J = \det{\underline{F}}` is the Jacobian of the deformation
+gradient. This formulation effectively avoids locking issues in nearly
+incompressible materials while maintaining accuracy.
 
- The :math:`\bar{F}` formulation is particularly suited for low-order finite
- elements and is applicable to arbitrary material models. It ensures quadratic
- rates of convergence in Newton-Raphson schemes.
+The :math:`\bar{F}` formulation is particularly suited for low-order finite
+elements and is applicable to arbitrary material models. It ensures quadratic
+rates of convergence in Newton-Raphson schemes.
 
- This formulation is enabled by passing an additional parameter to the
- :cxx:`Mechanics` behaviour integrator, as follows:
+This formulation is enabled by passing an additional parameter to the
+:cxx:`Mechanics` behaviour integrator, as follows:
 
- .. code:: c++
+.. code:: c++
 
-   const auto fbar_parameters = mfem_mgis::dict{
-       {"Regularization", mfem_mgis::dict{{{"FBar", mfem_mgis::list{}}}}};
-   mechanics.addBehaviourIntegrator(ctx, "Mechanics", library,
-                                    behaviour, fbar_parameters) | or_die;
+  const auto fbar_parameters = mfem_mgis::dict{
+      {"Regularization", mfem_mgis::dict{{"FBar", mfem_mgis::dict{}}}}};
+  mechanics.addBehaviourIntegrator(ctx, "Mechanics", "beam", library,
+                                   behaviour, fbar_parameters) | or_die;
 
 Faltus 2026 regularization
 ---------------------------
 
- The regularization proposed by Faltus et al. in the context of contact
- mechanics using a third medium is implemented here :cite:`faltus_deformation_2026`. This
- regularization only applies to finite strain behaviours. Currently, this
- regularization is only available for isotropic behaviours.
+The regularization proposed by Faltus et al. in the context of contact
+mechanics using a third medium is implemented here :cite:`faltus_deformation_2026`. This
+regularization only applies to finite strain behaviours. Currently, this
+regularization is only available for isotropic behaviours.
 
- This regularization adds a contribution to the standard variational
- operator in finite strain and can be derived from an energy :math:`W`
- which penalizes the difference between the deformation gradient
- :math:`\underline{F}` at a given quadrature point and its value
- :math:`\bar{\underline{F}}` at the centroid of the element:
+This regularization adds a contribution to the standard variational
+operator in finite strain and can be derived from an energy :math:`W`
+which penalizes the difference between the deformation gradient
+:math:`\underline{F}` at a given quadrature point and its value
+:math:`\bar{\underline{F}}` at the centroid of the element:
 
- .. math::
+.. math::
 
-     W\left(\underline{F}, \bar{\underline{F}}\right) =
-     \alpha\,\left(\underline{F}-\bar{\underline{F}}\right)\,\colon\,
-     \left(\underline{F}-\bar{\underline{F}}\right)
+    W\left(\underline{F}, \bar{\underline{F}}\right) =
+    \alpha\,\left(\underline{F}-\bar{\underline{F}}\right)\,\colon\,
+    \left(\underline{F}-\bar{\underline{F}}\right)
 
- where :math:`\alpha` is a penalization coefficient.
+where :math:`\alpha` is a penalization coefficient.
 
- This regularization is enabled by passing an additional parameter to the
- :cxx:`Mechanics` behaviour integrator, as follows:
+This regularization is enabled by passing an additional parameter to the
+:cxx:`Mechanics` behaviour integrator, as follows:
 
- .. code:: c++
+.. code:: c++
 
-   const auto faltus_parameters = mfem_mgis::Parameters{
-       {"Regularization",
-        mfem_mgis::Parameters{
-            {"Faltus2026",
-             mfem_mgis::Parameters{{{"PenalizationCoefficient", 1e11}}}}}};
-   mechanics.addBehaviourIntegrator(ctx, "Mechanics", "ThirdMedium", library,
-                                    behaviour2, faltus_parameters) | or_die;
+  const auto faltus_parameters = mfem_mgis::Parameters{
+      {"Regularization",
+       mfem_mgis::Parameters{
+           {"Faltus2026",
+            mfem_mgis::Parameters{{"PenalizationCoefficient", 1e11}}}}}};
+  mechanics.addBehaviourIntegrator(ctx, "Mechanics", "ThirdMedium", library,
+                                   behaviour2, faltus_parameters) | or_die;
 
 The :cxx:`info` function
 ------------------------
@@ -328,7 +328,6 @@ relevant information about a partial quadrature space:
   boundary, including its name, if defined,
 - the total number of elements,
 - the total number of integration points,
-- the number of elements points per geometric type.
 - the number of quadrature points per geometric type.
 
 This structure is created by:
@@ -346,19 +345,9 @@ Example of usage
 
 .. code:: c++
 
-   const auto& qspace =
-      problem.getBehaviourIntegrator(1).getPartialQuadratureSpace();
+   auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
+   const auto& qspace = bi.getPartialQuadratureSpace();
    const auto success = mfem_mgis::info(ctx, std::cout, qspace);
-
-Evaluators of quantities at integration points
-----------------------------------------------
-
-Overview
-^^^^^^^^
-
-The :cxx:`setMaterialProperty` and :cxx:`setExternalStateVariable` methods of behaviour integrators
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 
 Resolution of dependencies of a nonlinear evolution problem using another
 -------------------------------------------------------------------------
@@ -377,11 +366,15 @@ finite element spaces manager of the other.
 The :cxx:`Simulation` class
 ---------------------------
 
-Physical system, coupling schemes and models
---------------------------------------------
+The :cxx:`Simulation` class manages the time steps of a simulation over
+several temporal sequences (see :ref:`simulation_class_overview`).
 
 Line-search-like handling of behaviour integration failures
 -----------------------------------------------------------
+
+When a new estimate of the Newton solver leads to an integration failure,
+the amplitude of the correction is divided by two (see
+:ref:`mfem_mgis_nonlinear_algorithms`).
 
 Profiling Toolkit
 -----------------
@@ -484,26 +477,26 @@ Issues fixed
   `ParaviewExportIntegrationPointResultsAtNodesBase::getPartialQuadratureFunctionViews`
   and `ParaviewExportIntegrationPointResultsAtNodesBase::getResultDescription`
 - Issue 290: Add support for partial quadratures spaces on boundaries
-- Issue 288: ￼master doesnt build without MPI
+- Issue 288: master doesnt build without MPI
 - Issue 286: updateGridFunction dilutes interface values when the
   functions do not cover all the materials of the mesh
 - Issue 284: NonLinearModel does not export the initial state
-- Issue 281:￼ Nodal export of integration point results uses the node
+- Issue 281: Nodal export of integration point results uses the node
   index as an integration point index
 - Issue 279: ParaviewExportResults silently ignores unknown parameters
 - Issue 277: NonLinearModel calls the deprecated solve and loses the
   caller's context
 - Issue 275: UniformHeatSourceBoundaryCondition: only the last
-  integration point contributes to the residual ￼
+  integration point contributes to the residual
 - Issue 273: Fix forgotten change while parallel execution bug in
-  behaviour integration ￼
+  behaviour integration
 - Issue 270: FirstIterationConvergenceCriterion never triggers coupling
   iterations + wrong post-processing time
 - Issue 268: Parallel execution bug in behaviour integration
 - Issue 264: Installation from the doc fails on a fresh setup
 - Issue 262: Refactor creation of submeshes and associated finite
   element spaces to handle it through MeshDiscretization and
-  FiniteElementSpacesManager enhancement ￼
+  FiniteElementSpacesManager enhancement
 - Issue 260: Refactor commented examples documentation
 - Issue 257: Allow NewtonSolver to discard linear solver failures
 - Issue 254: Missing parameter option for GMRESSolver
@@ -515,15 +508,15 @@ Issues fixed
 - Issue 237: [cmake] Add a build-tests target
 - Issue 218: [performance] synchronize success of the setup methods at a
   higher level to minimize collective communications enhancement
-- Issue 213: ￼ Add a simple way to resolve dependencies (material
+- Issue 213: Add a simple way to resolve dependencies (material
   properties, external state variables) of a :cxx:`NonLinearEvolutionProblem`
   using the gradients, thermodynamic forces and internal state variables
   of another one.
 - Issue 211: Add coupling schemes and models
-- Issue 209: Introduce the :cxx:`Simulation` class￼
+- Issue 209: Introduce the :cxx:`Simulation` class
 - Issue 206: Line-search-like handling of behaviour integration failures
 - Issue 200: automatically assign materials and boundaries's names from
-  |mfem|'s attributes ￼
+  |mfem|'s attributes
 - Issue 198: Add the ability to define multiple behaviour integrators on
   the same material
 - Issue 193: Add support for other types of search operators for

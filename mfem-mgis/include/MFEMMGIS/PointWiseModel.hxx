@@ -26,6 +26,9 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] qspace: partial quadrature space
      * \param[in] parameters: parameters
+     * \note the model must be integrated where the execution settings place
+     * the behaviours (see `ExecutionSettings`): an exception is thrown
+     * otherwise
      */
     PointWiseModel(Context &ctx,
                    std::shared_ptr<const PartialQuadratureSpace> qspace,

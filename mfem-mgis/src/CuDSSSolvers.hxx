@@ -50,12 +50,12 @@ namespace mfem_mgis::internals {
    * factorization) is chosen before its first matrix, after which only the
    * number of coefficients of the next matrices is checked (MFEM stops the
    * program if it changes). A new `mfem::CuDSSSolver` is thus created on
-   * all processes when the layout of the matrix (local and global numbers
-   * of rows, first row) changed on one process and, if the analysis is
-   * reused, when its pattern changed on one process. With the reuse, the
-   * analysis of the previous matrix is reused when the new one has the same
-   * pattern on all processes, as the matrices of the successive iterations
-   * of the non linear solvers.
+   * all processes when the layout of the matrix (local numbers of rows and
+   * columns, global number of rows, first row) changed on one process and,
+   * if the analysis is reused, when its pattern changed on one process.
+   * With the reuse, the analysis of the previous matrix is reused when the
+   * new one has the same pattern on all processes, as the matrices of the
+   * successive iterations of the non linear solvers.
    *
    * cuDSS does not report the failures of the factorization (null pivots,
    * matrix declared positive definite which is not), which give wrong
@@ -74,7 +74,7 @@ namespace mfem_mgis::internals {
      * \param[in] s: settings
      * \param[in] r: reuse the analysis for the matrices of the same pattern
      */
-    CuDSSDirectSolver(MPI_Comm, const CuDSSSolverSettings&, const bool);
+    CuDSSDirectSolver(MPI_Comm c, const CuDSSSolverSettings& s, const bool r);
     //! \brief set the operator, a parallel matrix of hypre
     void SetOperator(const mfem::Operator&) override;
     //! \brief solve

@@ -27,6 +27,50 @@ on the boundary labeled :code:`5`:
                 problem.getFiniteElementDiscretizationPointer(), 5, 0)) |
        or_die;
 
+The boundary may also be given by a name (a regular expression selecting
+the boundaries by name), and a last argument may give the imposed value
+as a function of time.
+
+The :code:`addUniformDirichletBoundaryCondition` method of the
+:code:`NonLinearEvolutionProblem` class builds this boundary condition
+from parameters:
+
+- :code:`Boundary` or :code:`Boundaries`: the boundaries, given by their
+  identifiers or by their names;
+- :code:`Component`: the component of the unknowns;
+- :code:`LoadingEvolution` (optional): the imposed value as a function of
+  time (zero by default).
+
+.. code:: c++
+
+   problem.addUniformDirichletBoundaryCondition(
+       ctx, {{"Boundary", "UpperBoundary"},
+             {"Component", 1},
+             {"LoadingEvolution", [](const auto t) { return 6e-3 * t; }}}) |
+       or_die;
+
+The same parameters can be given to the constructor
+:code:`UniformDirichletBoundaryCondition(problem, parameters)`.
+
+The :code:`ImposedDirichletBoundaryConditionAtClosestNode` boundary condition
+-----------------------------------------------------------------------------
+
+The :code:`ImposedDirichletBoundaryConditionAtClosestNode` boundary
+condition imposes the value of a component of the unknowns at the node
+closest to a given point (given by its 2 or 3 coordinates), for instance
+to block the rigid body motions:
+
+.. code:: c++
+
+   problem.addBoundaryCondition(
+       ctx,
+       std::make_unique<mfem_mgis::ImposedDirichletBoundaryConditionAtClosestNode>(
+           problem.getFiniteElementDiscretizationPointer(),
+           std::array<mfem_mgis::real, 3u>{0, 0, 0}, 0)) |
+       or_die;
+
+A last argument may give the imposed value as a function of time.
+
 Mechanical boundary conditions
 ==============================
 
@@ -60,10 +104,19 @@ with time, on the boundary labeled :code:`3`:
            [](const mfem_mgis::real t) noexcept { return 150e6 * t; })) |
        or_die;
 
+The boundary may also be given by its name. The constructor
+:code:`UniformImposedPressureBoundaryCondition(problem, parameters)` takes
+the parameters :code:`Boundary` or :code:`Boundaries`, and
+:code:`LoadingEvolution` (required), the pressure as a function of time.
+
 Heat transfer boundary conditions
 =================================
 
-The :code:`UniformHeatSource` boundary condition computes the
+The :code:`UniformHeatSource` boundary condition
+------------------------------------------------
+
+The :code:`UniformHeatSource` boundary condition is applied on materials,
+not on boundaries. It computes the
 residual associated with the following variational operator:
 
 .. math::
@@ -87,6 +140,12 @@ linearly with time, on the material named :code:`fuel`:
                 problem.getFiniteElementDiscretizationPointer(), "fuel",
                 [&q](const auto t) { return q * t; })) |
        or_die;
+
+The material may also be given by its identifier. The constructor
+:code:`UniformHeatSourceBoundaryCondition(problem, parameters)` takes the
+parameters :code:`Material` or :code:`Materials`, and
+:code:`LoadingEvolution` (required), the heat source as a function of
+time.
 
 Boundary conditions independent of the unknowns
 ===============================================

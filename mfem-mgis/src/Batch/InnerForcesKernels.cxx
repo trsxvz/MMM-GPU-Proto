@@ -1,9 +1,9 @@
 /*!
  * \file   src/Batch/InnerForcesKernels.cxx
- * \brief  This file implements the kernels computing the inner forces of
- * the standard behaviour integrators (mechanics, heat transfer, micromorphic
- * damage). It contains kernels of MFEM: it is compiled as CUDA code when
- * MFEM is compiled with CUDA.
+ * \brief  This file implements the kernels computing the inner forces of the
+ * standard behaviour integrators (mechanics, heat transfer, micromorphic
+ * damage). It contains kernels of MFEM: it is compiled as CUDA or HIP code when
+ * MFEM is compiled with CUDA or HIP.
  * \date   09/10/2026
  */
 
@@ -19,12 +19,15 @@ namespace mfem_mgis::batch::internals {
    * `w Bᵀ σ`, `B` being the operator of the gradients (see
    * `computeGradientsAtPoint` in `GradientsKernels.cxx`)
    * \tparam K: kind of the gradients
+   * \tparam Accessor: type of the accessor to the components of the
+   * thermodynamic forces
    * \param[in, out] f: inner forces of the node
    * \param[in] dN: derivatives of the shape function of the node
    * \param[in] Nv: value of the shape function of the node (transient term
    * of the heat equation, micromorphic damage)
    * \param[in] s: thermodynamic force (accessor)
-   * \param[in] w: weight of the point
+   * \param[in] w: weight of the point multiplied by the determinant of the
+   * jacobian
    */
   template <GradientsKind K, typename Accessor>
   MFEM_HOST_DEVICE inline void addInnerForces(real* const f,
@@ -60,7 +63,7 @@ namespace mfem_mgis::batch::internals {
       }
       f[0] += w * v;
     } else {
-      // rate of the enthalpy
+      // opposite of the rate of the enthalpy
       static_assert(isTemperature<K>());
       f[0] += w * Nv * s(0);
     }
@@ -68,8 +71,8 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel adding the inner forces of the elements of a
-   * material: one thread per element, which inverts the jacobian once per
-   * point (a thread per node of an element inverted it for each node)
+   * material: one thread per element, which loads the inverse of the
+   * jacobian once per point (see `ElementsJacobians`)
    * \tparam K: kind of the gradients
    */
   template <GradientsKind K>

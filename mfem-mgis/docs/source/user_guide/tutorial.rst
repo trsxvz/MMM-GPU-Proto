@@ -92,7 +92,7 @@ Description
 
 The material of the notched beam is described by a simple isotropic
 elasto-plastic behaviour with isotropic hardening in the logarithmic
-space :cite:`miehe_anisotropic_2002` and is implemented using the `MFront <http://tfel.sourceforge.net>`_
+space :cite:`miehe_anisotropic_2002` and is implemented using the `MFront <https://thelfer.github.io/tfel/web/index.html>`_
 code generator.
 
 This behaviour is characterized by four parameters:
@@ -129,8 +129,23 @@ The previous values are hard-coded in the ``MFront`` file. The
 ``MFront`` implementation is stored in a source file called
 ``IsotropicLinearHardeningPlasticity.mfront``. This file must be compiled
 before the execution of our ``MFEM/MGIS`` ``C++`` example which will be
-detailed in depth in Section :ref:`sec:mfem_mgis:ssna303`. Compilation is
-performed as follows:
+detailed in depth in Section :ref:`sec:mfem_mgis:ssna303`. The
+``CMakeLists.txt`` of the example compiles it with the ``CMake`` function
+``mfem_mgis_add_behaviours_library`` (see
+:ref:`mfem_mgis_batch_computations_execution`), which builds the library
+``cpu/libBehaviour.so`` (``generic`` interface) and, if ``MFEM`` uses a
+GPU, the library ``gpu/libBehaviour.so`` (``generic-parallel`` interface)
+in the directory ``BehavioursEx2`` of the build directory:
+
+.. code:: cmake
+
+   mfem_mgis_add_behaviours_library(BehavioursEx2
+     SOURCES ${PROJECT_BINARY_DIR}/IsotropicLinearHardeningPlasticity.mfront)
+   target_compile_definitions(ssna303 PRIVATE
+     MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY="${BehavioursEx2_BEHAVIOURS_DIRECTORY}")
+
+The library for the CPU is equivalent to the one compiled manually as
+follows:
 
 .. code:: sh
 
@@ -160,7 +175,7 @@ The ``initialize`` function must be called at the very beginning of the
 
 ..
 
-   **The ``mfem_mgis`` namespace**
+   **The mfem_mgis namespace**
 
    All the classes and functions of the ``MFEM/MGIS`` project are placed
    in the ``mfem_mgis`` namespace.
@@ -172,6 +187,16 @@ This call is mostly useful in parallel and handles:
 -  The initialization of the `PETSc <https://www.mcs.anl.gov/petsc/>`_ scientific
    toolkit, if supported and
    requested.
+-  The execution settings given by the option ``--execution`` (and the
+   options ``--finite-elements``, ``--behaviours``,
+   ``--linear-solver-device`` and ``--post-processings``), which place the
+   computations on the CPU or on the GPU.
+-  The creation of the ``MFEM`` device (option ``--device``), the location
+   of the memory of ``hypre`` (options ``--hypre-on-host`` and
+   ``--hypre-device-pool-size``) and the initialization of ``Kokkos``
+   (option ``--kokkos``).
+
+These options are described in :ref:`mfem_mgis_batch_computations_execution`.
 
 Execution context
 ~~~~~~~~~~~~~~~~~
@@ -195,14 +220,14 @@ Constant variables
 ~~~~~~~~~~~~~~~~~~
 
 The code then defines some constant variables defining the path to the
-mesh file, the path to the ``MFront`` shared library, and the name of
-the behaviour:
+mesh file, the name of the behaviour and the path to the ``MFront``
+shared library given by the user, if any:
 
 .. code:: cpp
 
      const char* mesh_file = "ssna303.msh";
-     const char* library = "src/libBehaviour.so";
      const char* behaviour = "IsotropicLinearHardeningPlasticity";
+     const char* library = "";
 
 Command line options
 ~~~~~~~~~~~~~~~~~~~~
@@ -221,6 +246,9 @@ The proposed implementation allows the following options:
    the resultant force. No comparison is made if it is empty.
 -  ``--parallel`` and ``--no-parallel`` which specify if the simulation
    must be run in parallel.
+-  ``--library`` which specifies the behaviour library. By default, the
+   library built with the example for the CPU or for the GPU is used, as
+   the option ``--execution`` places the behaviours.
 -  ``--use-fbar`` which selects the FBar formulation.
 -  ``--standard-reference-file`` which specifies a file of reference values
    computed without FBar. They are compared with a larger tolerance.
@@ -253,14 +281,26 @@ If left unchanged, those default values select:
 -  the standard formulation, without FBar.
 -  no comparison to reference values.
 
-The ``mfem_mgis::declareDefaultOptions`` function adds the option
-``--device`` (or ``-dev``), which selects the configuration of the
-``MFEM`` device (for instance ``cuda``). The device is created by
-``mfem_mgis::initialize``; no device is created if the option is not
-given. An application using this option must not create its own
-``mfem::Device`` nor declare its own ``--device`` option. The memory of
-the host is then the standard one (see the guide of the computations by
-batches).
+The ``mfem_mgis::declareDefaultOptions`` function adds the options read
+by ``mfem_mgis::initialize``:
+
+-  ``--execution`` (or ``-x``), which places all the computations:
+   ``cpu``, ``gpu`` or ``mixed``;
+-  with ``--execution mixed``, ``--finite-elements`` (``-fe``),
+   ``--behaviours`` (``-bh``), ``--linear-solver-device`` (``-lsd``) and
+   ``--post-processings`` (``-ppd``), which place each phase on the CPU
+   or on the GPU;
+-  ``--device`` (or ``-dev``), which selects the configuration of the
+   ``MFEM`` device (for instance ``cuda``). No device is created if the
+   option is not given, unless ``--execution`` selects a GPU. An
+   application using this option must not create its own
+   ``mfem::Device`` nor declare its own ``--device`` option. The memory of
+   the host is then the standard one;
+-  ``--hypre-device-pool-size`` (``-hdps``), ``--hypre-on-host``
+   (``-hoh``, cancelled by ``--no-hypre-on-host``), and ``--kokkos``
+   (``-kk``, cancelled by ``--no-kokkos``).
+
+These options are described in :ref:`mfem_mgis_batch_computations_execution`.
 
 If ``MFEM`` was built with support of ``PETSc`` library, the following
 options are also added by the ``mfem_mgis::declareDefaultOptions``
@@ -289,6 +329,10 @@ The expected options are declared and the ``Parse`` method is called:
                     "boundary, no comparison if empty.");
      args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                     "Perform parallel computations.");
+     args.AddOption(&library, "-l", "--library",
+                    "Behaviour library. By default, the library built with the "
+                    "example for the CPU or for the GPU, as the option "
+                    "--execution places the behaviours.");
    #ifdef MGIS_HAVE_TFEL
      args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
                     "Use the FBar formulation.");
@@ -307,6 +351,18 @@ The expected options are declared and the ``Parse`` method is called:
        args.PrintUsage(mfem_mgis::getOutputStream());
        mfem_mgis::abort(EXIT_FAILURE);
      }
+
+The behaviour library is the one given by ``--library``, or else the one
+built with the example for the processor where ``--execution`` places the
+behaviours:
+
+.. code:: cpp
+
+     const auto behaviour_library =
+         std::string_view{library}.empty()
+             ? mfem_mgis::getBehavioursLibrary(
+                   MFEM_MGIS_EXAMPLE_BEHAVIOURS_DIRECTORY)
+             : std::string{library};
 
 Declaring the non linear problem
 --------------------------------
@@ -350,7 +406,7 @@ parallelization and memory management. For example, the parameter
 ``Parallel`` allows switching from a sequential computation to a parallel
 one at runtime.
 
-   **Input files and ``python`` wrappers**
+   **Input files and python wrappers**
 
    This high level API can be used to configure a resolution from an
    input file or to wrap the library in ``python``. Those features are
@@ -382,17 +438,18 @@ material:
 
 .. code:: cpp
 
-     problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam", library,
-                                    behaviour) |
+     problem.addBehaviourIntegrator(ctx, "Mechanics", "NotchedBeam",
+                                    behaviour_library, behaviour) |
          or_die;
 
 The four arguments of the ``addBehaviourIntegrator`` method following the
 execution context are:
 
--  The type of physical problem described. Currently two types of
-   physical problems are supported out of the box by the library:
-   ``Mechanics`` and ``HeatTransfer``. Support for other physical
-   problems can be plugged in at runtime if needed.
+-  The type of physical problem described. The following types are
+   supported out of the box by the library: ``Mechanics``,
+   ``StationaryNonLinearHeatTransfer``, ``TransientHeatTransfer`` and
+   ``MicromorphicDamage`` (see :doc:`behaviour_integrators`). Support for
+   other physical problems can be plugged in at runtime if needed.
 -  The material identifier, as defined in the mesh file. This identifier
    may be either an integer or a string. In the latter case, the string
    is interpreted as a regular expression, a feature introduced by the
@@ -407,7 +464,7 @@ FBar formulation:
 .. code:: cpp
 
      problem.addBehaviourIntegrator(
-         ctx, "Mechanics", "NotchedBeam", library, behaviour,
+         ctx, "Mechanics", "NotchedBeam", behaviour_library, behaviour,
          {{"Regularization",
            mfem_mgis::Parameters{{"FBar", mfem_mgis::Parameters{}}}}}) |
          or_die;
@@ -452,7 +509,7 @@ Defining the temperature is required by all ``MFront`` behaviours.
 The last argument of the ``getMaterial`` method is the identifier of the
 behaviour integrator of the material. The object returned by this method is a
 thin
-wrapper around the ``MaterialDataManager`` provided by the `MGIS <https://thelfer.github.io/mfem-mgis/index.html>`_ project
+wrapper around the ``MaterialDataManager`` provided by the `MGIS <https://thelfer.github.io/mgis/web/index.html>`_ project
 :cite:`helfer_mfrontgenericinterfacesupport_2020`.
 
 In the previous lines, ``m1.s0`` and ``m1.s1`` denote respectively the
@@ -704,3 +761,12 @@ In the full test mode, they compute the whole loading in 40 time steps:
 
 In the restricted test mode, they only compute the first two time steps, up
 to 0.05, during which the plastic flow starts.
+
+On a GPU, the tests ``ssna303-gpu`` and ``ssna303-fbar-gpu`` (option
+``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples) run the same commands
+with the finite elements and the behaviours on the GPU, the linear solver
+(``UMFPack`` or ``MUMPS``) computing on the CPU:
+
+.. code:: sh
+
+   ./ssna303 --execution mixed --linear-solver-device cpu

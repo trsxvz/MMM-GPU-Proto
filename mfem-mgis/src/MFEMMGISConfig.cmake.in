@@ -91,8 +91,9 @@ endif()
 set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
 
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
-# before mfem-mgis, the description of MFEM is the one used to build
-# mfem-mgis
+# before mfem-mgis without the module FindMFEM.cmake of mfem-mgis (target
+# MFEM::mfem defined by the project), the description of MFEM is the one
+# used to build mfem-mgis; otherwise, it is given by FindMFEM.cmake
 include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISDeviceCode.cmake")
 # Behaviour libraries for the CPU and the GPU (mfem_mgis_add_behaviours_library)
 include("${CMAKE_CURRENT_LIST_DIR}/MFEMMGISBehaviours.cmake")

@@ -141,13 +141,22 @@ namespace mfem_mgis::internals {
     const bool forces;
     //! \brief relative regularization of the normal equations
     const real regularization;
-    //! \brief scalar products of the differences of the fixed point residuals
+    /*!
+     * \brief scalar products of the differences of the residuals (fixed
+     * point residuals or residuals of the problem, see `forces`)
+     */
     mfem::DenseMatrix gram;
-    //! \brief differences of the fixed point residuals
+    /*!
+     * \brief differences of the residuals (fixed point residuals or
+     * residuals of the problem, see `forces`)
+     */
     std::vector<mfem::Vector> df;
     //! \brief differences of the images of the iterates
     std::vector<mfem::Vector> dg;
-    //! \brief previous fixed point residual
+    /*!
+     * \brief previous residual (fixed point residual or residual of the
+     * problem, see `forces`)
+     */
     mfem::Vector f_previous;
     //! \brief previous image
     mfem::Vector g_previous;

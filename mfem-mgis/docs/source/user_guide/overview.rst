@@ -20,13 +20,14 @@ The following snippet declares a new nonlinear evolution problem:
 
 .. code:: c++
 
+   auto ctx = mfem_mgis::Context{};
    mfem_mgis::NonLinearEvolutionProblem problem(
-       {{"MeshFileName", "fuel.msh"},
-        {"FiniteElementFamily", "H1"},
-        {"FiniteElementOrder", 6},
-        {"UnknownsSize", 1},
-        {"Hypothesis", "Tridimensional"},
-        {"Parallel", true}});
+       ctx, {{"MeshFileName", "fuel.msh"},
+             {"FiniteElementFamily", "H1"},
+             {"FiniteElementOrder", 6},
+             {"UnknownsSize", 1},
+             {"Hypothesis", "Tridimensional"},
+             {"Parallel", true}});
 
 As the unknown is scalar (according to the ``UnknownsSize`` parameter),
 this problem can be used to describe heat transfer or micromorphic
@@ -38,6 +39,10 @@ arbitrary orders.
 
 A staggered approach for multiphysics simulations can be set up by using
 several instances of ``NonLinearEvolutionProblem``.
+
+The behaviours can be integrated by batches and the finite element
+computations made by kernels, on the CPU or on a GPU, as selected by the
+option ``--execution`` (see :ref:`mfem_mgis_batch_computations`).
 
 The ``PeriodicNonLinearEvolutionProblem`` class
 -----------------------------------------------
@@ -78,7 +83,7 @@ modelling hypothesis (plane strain, plane stress).
 
 The following snippet assigns the behaviour integrator named
 ``Mechanics`` to the material named ``beam`` to the mechanical non
-linear evolution problem named ``Mechanics``:
+linear evolution problem ``mechanics``:
 
 .. code:: c++
 
@@ -127,8 +132,8 @@ boundary conditions.
 
 .. note:: 
 
-   This data structure can be read from a `JSON`-file allowing to create
-   domain-specific applications.
+   This data structure could be read from a `JSON`-file allowing to create
+   domain-specific applications (not implemented yet).
 
 Post-processings
 ================
@@ -138,8 +143,8 @@ post-processings that were added to :code:`MFEM/MGIS`:
 
 -  ``ComputeResultantForceOnBoundary``: Compute the resultant of the
    inner forces on a boundary.
--  ``ComputeMeanThermodynamicForcesValues``: Compute the macroscopic
-   stress and strain for each material.
+-  ``MeanThermodynamicForces``: mean value of each component of the
+   thermodynamic forces (stresses in mechanics) in each material.
 -  ``ParaviewExportIntegrationPointResultsAtNodes``: Paraview post
    processing files of partial quadrature functions, like the ones
    associated with the internal state variables.

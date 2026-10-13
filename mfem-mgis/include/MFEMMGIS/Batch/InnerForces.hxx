@@ -1,8 +1,8 @@
 /*!
  * \file   include/MFEMMGIS/Batch/InnerForces.hxx
  * \brief  This file declares the computation of the inner forces of the
- * standard mechanical behaviour integrators by kernels of MFEM, for all the
- * elements of a material at once
+ * standard behaviour integrators (mechanics, heat transfer, micromorphic
+ * damage) by kernels of MFEM, for all the elements of a material at once
  * \date   09/10/2026
  */
 
@@ -39,12 +39,12 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients, which defines the operator `B`
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addInnerForces(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& f,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& s,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
   /*!
    * \brief adds the inner forces of the elements of a material, as
    * `addInnerForces`, to values stored by element of the material
@@ -59,12 +59,12 @@ namespace mfem_mgis::batch {
    * \param[in] k: kind of the gradients
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addMaterialInnerForces(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mgis::FieldView<const real>&,
-      const ElementsGeometry&,
-      const GradientsKind) noexcept;
+      Context& ctx,
+      mfem::Vector& f,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& s,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 

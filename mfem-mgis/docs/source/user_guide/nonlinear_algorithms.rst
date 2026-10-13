@@ -26,6 +26,21 @@ method, as follows:
    mechanics.setPredictionPolicy(
       {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
 
+The members of the :cxx:`PredictionPolicy` structure are:
+
+- :cxx:`strategy`: the prediction strategy
+  (:cxx:`PredictionStrategy::DEFAULT_PREDICTION` by default);
+- :cxx:`prediction_operator`: the operator used by the
+  :cxx:`BEGINNING_OF_TIME_STEP_PREDICTION` strategy
+  (:cxx:`PredictionOperator::ELASTIC` by default);
+- :cxx:`integration_operator`: the operator used by the
+  :cxx:`CONSTANT_GRADIENTS_INTEGRATION_PREDICTION` strategy
+  (:cxx:`IntegrationOperator::CONSISTENT_TANGENT` by default);
+- :cxx:`null_time_increment`: if true, the behaviours are integrated with a
+  null time increment by the :cxx:`CONSTANT_GRADIENTS_INTEGRATION_PREDICTION`
+  strategy, which neglects the viscoplastic relaxation (:cxx:`false` by
+  default).
+
 Available strategies
 --------------------
 
@@ -56,9 +71,9 @@ by solving the following linear system:
 
 where:
 
-- :math:`\mathbb{K}_{e}` denotes one of the prediction operator (see below).
-- :math:`\bts{\mathbb{F}_{e}}` denotes the external forces at the beginning
-  of the time step.
+- :math:`\mathbb{K}` denotes the prediction operator (see below).
+- :math:`\ets{\mathbb{F}_{e}}` denotes the external forces at the end of
+  the time step.
 - :math:`\bts{\mathbb{F}_{i}}` denotes the inner forces at the beginning
   of the time step.
 - :math:`\Delta\,\mathbb{u}` is submitted to the increment of the
@@ -74,18 +89,12 @@ The following prediction operators can be chosen:
 - :cxx:`PredictionOperator::ELASTIC`: the elastic operator
 - :cxx:`PredictionOperator::SECANT`: the secant operator is typically
   defined by the elastic operator
-- :cxx:`PredictionOperator::TANGENT_PREDICTION`: the tangent operator,
+- :cxx:`PredictionOperator::TANGENT`: the tangent operator,
   defined by the time-continuous derivative of the thermodynamic force
   with respect to the gradients.
-- :cxx:`PredictionOperator::LAST_ITERATE_OPERATOR`: this operator reuses
-  the one computed at the last iteration of the previous time step. At
-  the first time step, the elastic operator is used.
-
-.. note::
-
-   Internally, the :cxx:`computePrediction` methods of the
-   `NonLinearResolutionImplementation` classes computes the opposite of the 
-   prediction.
+- :cxx:`PredictionOperator::LAST_ITERATE_OPERATOR`: this operator shall
+  reuse the one computed at the last iteration of the previous time step.
+  It is not implemented yet: the elastic operator is always used.
 
 Prediction based on a behaviour integration with constant gradients (:cxx:`PredictionStrategy::CONSTANT_GRADIENTS_INTEGRATION_PREDICTION`)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -102,9 +111,10 @@ linear system:
 where:
      
 - :math:`\tilde{\mathbb{K}}` denotes the operator computed at the end of
-  the behaviour integration.
-- :math:`\bts{\mathbb{F}_{e}}` denotes the external forces at the
-  beginning of the time step.
+  the behaviour integration, selected by the :cxx:`integration_operator`
+  member of the prediction policy (see below).
+- :math:`\ets{\mathbb{F}_{e}}` denotes the external forces at the end of
+  the time step.
 - :math:`\ets{\tilde{\mathbb{F}}_{i}}` denotes an approximation inner
   forces at the end of the time step computed by assuming that the
   gradients are constant over the time (and thus equal to their values at
@@ -117,7 +127,9 @@ The behaviour integration allows taking into account:
 - the evolution of stress-free strain over the time step (thermal
   expansion, swelling, etc..),
 - the viscoplastic relaxation of the stress. This relaxation can be
-  discarded by integrating the behaviour with a null time step.
+  discarded by integrating the behaviour with a null time step
+  (:cxx:`null_time_increment` member of the prediction policy set to
+  :cxx:`true`).
 
 The following operators are available:
 
@@ -135,8 +147,8 @@ The following operators are available:
 .. note::
 
    Internally, the :cxx:`computePrediction` methods of the
-   `NonLinearResolutionImplementation` classes computes the opposite of the 
-   prediction.
+   :cxx:`NonLinearEvolutionProblemImplementation` classes compute the
+   opposite of the prediction.
 
 Newton algorithm
 ================
@@ -181,7 +193,9 @@ follows:
    \mathbb{u}^{(n+1)} = \mathbb{u}^{(n)}+\frac{1}{2}\,\delta\,\mathbb{u}^{(n)}
 
 This reduction of the amplitude is repeated until an estimation of the
-solution that does not lead to an integration failure is found.
+solution that does not lead to an integration failure is found, or until
+the maximum number of iterations is reached (each reduction counts as an
+iteration).
 
 .. _mfem_mgis_fixed_point_algorithm:
 
@@ -216,7 +230,10 @@ The option :cxx:`Method` selects :math:`\mathbb{S}`:
 - :cxx:`ElasticOperator` (default): an exact or approximate inverse of the
   elastic operator :math:`\mathbb{K}_{0}`, assembled from the elastic
   operators of the behaviours (option :cxx:`ElasticOperatorComputation`:
-  :cxx:`Prediction`, by default, or :cxx:`Integration`) at each resolution
+  :cxx:`Prediction`, by default, uses the prediction operator of the
+  behaviours; :cxx:`Integration` integrates the behaviours and uses their
+  elastic operator, for the behaviours which do not provide the prediction
+  operator) at each resolution
   or once (option :cxx:`ElasticOperatorUpdate`: :cxx:`EachResolution`, by
   default, or :cxx:`Once`). The behaviours are integrated without tangent
   operator at each iteration.
@@ -225,8 +242,11 @@ The option :cxx:`Method` selects :math:`\mathbb{S}`:
   problem.
 - :cxx:`NewtonK0`: Newton's method, the consistent tangent operator being
   inverted by an iterative solver of :code:`MFEM` (option
-  :cxx:`TangentLinearSolver`, :cxx:`CGSolver` by default, with a relative
-  tolerance of :math:`10^{-4}` and at most 1000 iterations if not given),
+  :cxx:`TangentLinearSolver`: :cxx:`CGSolver`, by default,
+  :cxx:`GMRESSolver`, :cxx:`FGMRESSolver`, :cxx:`BiCGSTABSolver`,
+  :cxx:`MINRESSolver` or :cxx:`SLISolver`, given with its options except
+  :cxx:`Preconditioner`, with a relative tolerance of :math:`10^{-4}` and
+  at most 1000 iterations if not given),
   preconditioned by the linear solver of the elastic operator (option
   :cxx:`ElasticOperatorLinearSolver`, required), whose setup is kept: for
   instance :cxx:`HypreBoomerAMG` set up on :math:`\mathbb{K}_{0}` instead
@@ -239,12 +259,33 @@ problems (see :doc:`glossary`), for instance :cxx:`HypreBoomerAMG` for one
 cycle of BoomerAMG per iteration in a parallel computation. With the
 :cxx:`ElasticOperator` method, if it is not given, the linear solver of the
 problem is used, and set up with :math:`\mathbb{K}_{0}` at each
-resolution.
+resolution. The value :cxx:`None` removes the linear solver of the elastic
+operator (option :cxx:`ElasticOperatorLinearSolver`) or the acceleration
+(option :cxx:`Acceleration`). The :cxx:`NewtonK0` method can't be
+accelerated, and the :cxx:`ModifiedNewton` method refuses the option
+:cxx:`ElasticOperatorLinearSolver`.
+
+The option :cxx:`PredictionLinearSolver` gives the linear solver of the
+elastic prediction of the problem: :cxx:`Problem` (default), the linear
+solver of the problem, or an iterative solver of :code:`MFEM`
+preconditioned by the linear solver of the elastic operator, given as for
+:cxx:`TangentLinearSolver` (:cxx:`ElasticOperator` being a synonym of
+:cxx:`CGSolver`), with a relative tolerance of :math:`10^{-8}` and at most
+1000 iterations if not given. The latter is used by the elastic
+predictions made at the beginning of the time steps which follow the first
+resolution, with the :cxx:`ElasticOperator` and :cxx:`NewtonK0` methods and
+a linear solver of the elastic operator.
+
+The other options are the ones of the iterative solvers
+(:cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
+:cxx:`MaximumNumberOfIterations`, :cxx:`VerbosityLevel`) and
+:cxx:`DiscardLinearSolverFailure`.
 
 The relative tolerance of the iterative linear solver of the Newton solver
 and of the :cxx:`NewtonK0` method can be adapted to the decrease of the
 residual (option :cxx:`AdaptiveLinearSolverTolerance`, see
-:doc:`glossary`).
+:doc:`glossary`). This option is refused by the other methods of the
+:cxx:`FixedPoint` solver.
 
 When the integration of the behaviours fails at a new estimate, this
 estimate is replaced by the middle of this estimate and of the previous

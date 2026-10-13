@@ -56,9 +56,12 @@ namespace mfem_mgis {
    * `Options`. Options: `InitialTolerance` (0.5 by default, or the maximum
    * tolerance if lower), `MaximumTolerance` (0.9), `Gamma` (1, choice 2),
    * `Alpha` (the golden ratio, choice 2) and `Threshold` (0.1), as in MFEM.
-   * The linear solver shall be an iterative
-   * solver of MFEM or a Krylov solver of hypre; its relative tolerance is
-   * restored at the end of each resolution.
+   * The values shall satisfy, as given by Eisenstat and Walker: 0 <
+   * `MaximumTolerance` < 1, 0 < `InitialTolerance` <= `MaximumTolerance`,
+   * 0 < `Gamma` <= 1, 1 < `Alpha` <= 2 and 0 <= `Threshold` < 1. The linear
+   * solver shall be an iterative solver of MFEM or a Krylov solver of
+   * hypre; its relative tolerance is restored at the end of each
+   * resolution.
    */
   struct MFEM_MGIS_EXPORT AdaptiveLinearSolverTolerance {
     //! \brief methods
@@ -70,7 +73,7 @@ namespace mfem_mgis {
      * \param[in] params: parameters, which shall contain the option
      */
     [[nodiscard]] static std::optional<AdaptiveLinearSolverTolerance> read(
-        Context&, const Parameters&) noexcept;
+        Context& ctx, const Parameters& params) noexcept;
     //! \return if the tolerance is adapted
     [[nodiscard]] bool isEnabled() const noexcept {
       return this->method != Method::NONE;
@@ -101,8 +104,8 @@ namespace mfem_mgis {
      * solver of MFEM or a Krylov solver of hypre (the type of the linear
      * solver being the same on all the processes)
      */
-    AdaptiveLinearSolverToleranceUpdater(const AdaptiveLinearSolverTolerance&,
-                                         LinearSolver&);
+    AdaptiveLinearSolverToleranceUpdater(const AdaptiveLinearSolverTolerance& t,
+                                         LinearSolver& s);
     AdaptiveLinearSolverToleranceUpdater(
         const AdaptiveLinearSolverToleranceUpdater&) = delete;
     AdaptiveLinearSolverToleranceUpdater& operator=(
@@ -114,7 +117,7 @@ namespace mfem_mgis {
      * \param[in] norm: norm of the residual `||F_i||`
      * \param[in] goal: convergence criterion on the norm of the residual
      */
-    real update(const size_type, const real, const real) noexcept;
+    real update(const size_type i, const real norm, const real goal) noexcept;
     /*!
      * \return if the norm of the residual of the linear solve,
      * `||F_i + J_i s_i||`, is required (choice 1)
@@ -124,7 +127,7 @@ namespace mfem_mgis {
      * \brief sets the norm of the residual of the last linear solve
      * \param[in] n: norm
      */
-    void setLinearResidualNorm(const real) noexcept;
+    void setLinearResidualNorm(const real n) noexcept;
     /*!
      * \return the norm of the residual of the last linear solve, if set
      * since the last update of the tolerance

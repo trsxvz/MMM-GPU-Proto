@@ -1,8 +1,8 @@
 /*!
  * \file   src/Batch/GradientsKernels.cxx
  * \brief  This file implements the kernels computing the derivatives of the
- * unknowns and the gradients of the behaviours. It contains kernels of
- * MFEM: it is compiled as CUDA code when MFEM is compiled with CUDA.
+ * unknowns and the gradients of the behaviours. It contains kernels of MFEM: it
+ * is compiled as CUDA or HIP code when MFEM is compiled with CUDA or HIP.
  * \date   09/10/2026
  */
 
@@ -24,7 +24,7 @@ namespace mfem_mgis::batch::internals {
    * the `j`-th coordinate, `V` being the number of components of the
    * unknowns
    * \param[in] u: values of the unknowns at the point (only used if the
-   * gradients are these values)
+   * gradients depend on these values, see `gradientsRequireUnknownsValues`)
    */
   template <GradientsKind K>
   MFEM_HOST_DEVICE inline void computeGradientsAtPoint(real* const g,

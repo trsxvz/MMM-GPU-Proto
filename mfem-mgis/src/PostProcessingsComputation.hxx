@@ -15,11 +15,13 @@ namespace mfem_mgis::internals {
   /*!
    * \return true if the computations on functions defined at the integration
    * points used by the post-processings (integrals, L2 projections, values
-   * at the nodes) are made by kernels, as given by the environment variable
-   * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`: `ElementByElement` or
-   * `Kernels`, or, without this variable, by the execution settings
-   * (`ElementByElement` if they are not given). An invalid value is an
-   * error.
+   * at the nodes) are made by kernels, as given by the execution settings if
+   * the option `--execution` is given (`Kernels` if they place the
+   * post-processings on the GPU; the environment variable
+   * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is then ignored, with a
+   * warning), by this environment variable otherwise (`ElementByElement` or
+   * `Kernels`, `ElementByElement` if it is not defined). An invalid value of
+   * the variable is an error (exception).
    */
   [[nodiscard]] bool usePostProcessingsKernels(attributes::MayThrow);
   /*!

@@ -13,18 +13,25 @@ General Rules
 1. **C++ Standard**: The project uses **C++20**. All code must conform to this standard.
 
 2. **Code Style**: Follow the project's ``clang-format`` configuration (see ``.clang-format``).
-   Run ``clang-format -i $(find . -name "*xx")`` to format your code.
+   Run ``clang-format -i`` on the files you modified only (for instance
+   ``git diff --name-only | grep 'xx$' | xargs clang-format -i``): the
+   repository is not entirely formatted, and formatting all the files
+   would modify many files unrelated to your changes.
 
-3. **Header Guards**: All header files must use the standard header guard pattern:
+3. **Header Guards**: All header files must use the standard header guard pattern,
+   used by most headers (some older headers use ``LIB_MFEMMGIS_``):
 
    .. code-block:: c++
 
-      #ifndef LIB_MFEMMGIS_<PATH>_HXX
-      #define LIB_MFEMMGIS_<PATH>_HXX
+      #ifndef LIB_MFEM_MGIS_<PATH>_HXX
+      #define LIB_MFEM_MGIS_<PATH>_HXX
       
       // code
       
-      #endif /* LIB_MFEMMGIS_<PATH>_HXX */
+      #endif /* LIB_MFEM_MGIS_<PATH>_HXX */
+
+   where ``<PATH>`` is the path of the header relative to ``include/MFEMMGIS``,
+   for instance ``LIB_MFEM_MGIS_BATCH_FBAR_HXX`` for ``MFEMMGIS/Batch/FBar.hxx``.
 
 4. **Includes**: Use forward declarations where possible to reduce compile-time dependencies.
    Include headers in the following order:
@@ -103,17 +110,18 @@ Throwing Mode
 
   .. code-block:: c++
 
-     MyClass::MyClass(...) : member(throwing, ...) {
+     MyClass::MyClass(...) : member(may_throw, ...) {
          if (error_condition) {
              raise("descriptive error message");
          }
      }
 
-- Use the ``throwing`` attribute to call functions that may throw:
+- Use the ``may_throw`` attribute to call functions that may throw (the
+  older ``throwing`` attribute is deprecated):
 
   .. code-block:: c++
 
-     const auto value = get<int>(throwing, params, "ParameterName");
+     const auto value = get<int>(may_throw, params, "ParameterName");
 
 Error Propagation
 ~~~~~~~~~~~~~~~~~
@@ -132,8 +140,8 @@ Parameter Handling
 For a detailed guide on using ``Parameter``, ``Parameters``, and ``ParametersValidator``,
 see the :ref:`parameter handling page <mfem_mgis_developer_guide_parameter>`.
 
-1. **Use ``ParametersValidator``**: Prefer ``ParametersValidator`` over the deprecated
-   ``checkParameters`` functions for new code.
+1. **Use ``ParametersValidator``**: Prefer ``ParametersValidator`` over the
+   ``checkParameters`` functions, which are discouraged (but not deprecated), for new code.
 
 2. **Validate Early**: Validate parameters at the beginning of functions or constructors.
 
@@ -160,7 +168,7 @@ see the :ref:`parameter handling page <mfem_mgis_developer_guide_parameter>`.
 
      .. code-block:: c++
 
-        const auto value = get<int>(throwing, params, "ParameterName");
+        const auto value = get<int>(may_throw, params, "ParameterName");
 
 7. **Checking Parameter Existence**: Use the ``contains`` function:
 
@@ -199,19 +207,19 @@ Class Design
 
       virtual ~MyBaseClass() noexcept = default;
 
-2. **Override Specifier**: Always use the ``override`` specifier for virtual functions
+3. **Override Specifier**: Always use the ``override`` specifier for virtual functions
    that override a base class method.
 
-3. **Final Specifier**: Use the ``final`` specifier for classes or methods that should not
+4. **Final Specifier**: Use the ``final`` specifier for classes or methods that should not
    be further derived or overridden.
 
-4. **Default Member Functions**: Use ``= default`` for default constructors, destructors,
+5. **Default Member Functions**: Use ``= default`` for default constructors, destructors,
    copy constructors, and assignment operators when appropriate.
 
-5. **Deleted Member Functions**: Use ``= delete`` to explicitly delete member functions
+6. **Deleted Member Functions**: Use ``= delete`` to explicitly delete member functions
    that should not be used.
 
-6. **Rule of Five**: If you define any of the copy constructor, copy assignment operator,
+7. **Rule of Five**: If you define any of the copy constructor, copy assignment operator,
    move constructor, move assignment operator, or destructor, you should define all of them.
 
 Testing
@@ -228,6 +236,33 @@ Testing
 
 5. **Error Handling in Tests**: Tests should verify both success and failure cases,
    including error messages.
+
+Kernels and GPU
+---------------
+
+1. **Sources containing kernels**: The sources containing kernels of
+   ``MFEM`` (``mfem::forall``) must be compiled as ``CUDA`` or ``HIP`` code
+   when ``MFEM`` is compiled with ``CUDA`` or ``HIP``. Each such source of
+   the library must be added to the list ``MFEMMGIS_DEVICE_SOURCES`` of
+   ``src/CMakeLists.txt`` (sources of ``src/Batch`` whose name ends with
+   ``Kernels.cxx``, for instance), compiled by
+   ``mfem_mgis_compile_as_device_code``. The other sources of
+   ``src/Batch`` are the host part of the computations by kernels. A test
+   source containing kernels is compiled by
+   ``mfem_mgis_compile_as_device_code`` too.
+
+2. **Checking the memory accesses without a GPU**: The ``debug`` device of
+   ``MFEM`` (option ``--device debug``) keeps the copies of the arrays "on
+   the device" in a separate memory of the host and detects the accesses to
+   invalid copies (see :ref:`mfem_mgis_batch_computations`).
+
+3. **Tests on a GPU**: The tests which require a GPU are only registered
+   when the option ``enable-gpu-tests`` is ``ON`` (default) and ``MFEM`` is
+   compiled with ``CUDA`` (with ``HIP``, only the tests of the execution
+   settings), or ``mfem-mgis`` is built with ``AmgX`` or with a ``Kokkos``
+   built for a GPU. A test using the GPU is given the ``RESOURCE_LOCK gpu``
+   property of ``CTest``, so that it does not run at the same time as the
+   other tests on the GPU.
 
 Documentation
 -------------

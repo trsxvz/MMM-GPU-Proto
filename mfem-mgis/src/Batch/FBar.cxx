@@ -104,9 +104,19 @@ namespace mfem_mgis::batch {
   /*!
    * \brief computes the data at the center of the elements and at the
    * integration points (see `applyFBar` and `initializeFBar`)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] data: data of the FBar formulation
+   * \param[in] m: material
+   * \param[in, out] gradients: gradients of the material at the end of the
+   * time step (deformation gradients, replaced by `F̄`), or a null pointer
+   * for null unknowns (`F` is then given by the macroscopic gradients)
+   * \param[in] point_by_point: layout of `gradients` (true if stored point
+   * by point)
    * \param[in] d0: derivatives at the center, null for null unknowns
-   * \param[in] gradients: if true, the gradients of the material are
-   * replaced by `F̄`
+   * \param[in] g0: geometric data of the center of the elements
+   * \param[in] k: kind of the gradients
+   * \param[in] name: name of the calling function, for the error messages
    */
   static bool computeFBarData(Context& ctx,
                               FBarData& data,
@@ -203,9 +213,22 @@ namespace mfem_mgis::batch {
   }  // end of computeFBarData
 
   /*!
-   * \return the arguments of the kernels adding the matrices of rank one,
-   * or an error if the tangent operator of the FBar formulation is not
-   * computed or was computed from other tangent operator blocks than `K`
+   * \brief fills the arguments of the kernels adding the matrices of rank
+   * one
+   * \return true on success, false if the tangent operator of the FBar
+   * formulation is not computed, was computed from other tangent operator
+   * blocks than `K`, or if there are too many elements for the kernels
+   * \param[in, out] ctx: execution context
+   * \param[out] a: arguments of the kernels
+   * \param[in] data: data of the FBar formulation
+   * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks in the global frame
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   * \param[in] use_device: if true, the pointers are located on the device
+   * \param[in] name: name of the calling function, for the error messages
+   * \param[in] threads_per_element: number of threads per element of the
+   * kernel
    */
   static bool getFBarRankOneKernelArguments(
       Context& ctx,

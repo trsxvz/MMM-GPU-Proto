@@ -33,6 +33,14 @@ parallel versions (except for ``hypre`` solvers).
 To choose your solver, pass a Parameters object to the `setLinearSolver`
 function.
 
+.. note::
+
+  With the option ``--execution``, the linear solvers and the
+  preconditioners are checked against the execution settings: a solver
+  computing elsewhere than the settings place the linear solvers is
+  refused, with a message giving the options which would accept it (see
+  :ref:`mfem_mgis_batch_computations_execution`).
+
 Direct Solver
 -------------
 
@@ -87,8 +95,10 @@ MFEM.
 
   - ``MFEM_USE_CUDSS``
   - parallel
-  - a device on a CUDA GPU (option ``--device cuda`` of
-    ``mfem_mgis::initialize``): the solver is refused otherwise
+  - a device on a CUDA GPU (option ``--execution gpu``, or
+    ``--device cuda``, of ``mfem_mgis::initialize``): the solver is refused
+    otherwise; with ``--execution mixed``, the linear solvers must be
+    placed on the GPU
   - when hypre computes on the host (option ``--hypre-on-host``), a GPU
     reading the pageable memory of the host (heterogeneous memory
     management): the solver is refused otherwise
@@ -501,17 +511,42 @@ the assembled version of an operator applied without assembly, and
 Algebraic MultiGrid (AMG) 
 -------------------------
 
-- Preconditioner name: ``HypreBoomerAMG``
+- Preconditioner name: ``HypreBoomerAMG``, also available as a linear
+  solver under the same name (cycles of BoomerAMG, the options being then
+  given directly to the solver).
 - Options:
 
-+--------------------+---------------------------------------------------------------------------------------------------------------+
-| Key                | Description                                                                                                   |
-+====================+===============================================================================================================+
-| ``Strategy``       | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
-|                    | ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM``.                       |
-+--------------------+---------------------------------------------------------------------------------------------------------------+
-| ``VerbosityLevel`` | Define the verbosity of the solver. [int: 0,1]                                                                |
-+--------------------+---------------------------------------------------------------------------------------------------------------+
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| Key                            | Description                                                                                                   |
++================================+===============================================================================================================+
+| ``Strategy``                   | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
+|                                | ``System`` by default for vector unknowns, ``None`` otherwise.                                                |
+|                                | ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM`` and is replaced by     |
+|                                | ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.                                    |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``StrengthThreshold``          | Strength threshold of ``hypre``. [double]                                                                     |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``CoarseningType``             | Coarsening type of ``hypre``. [int]                                                                           |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``AggressiveCoarseningLevels`` | Number of levels of aggressive coarsening of ``hypre``. [int]                                                 |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``InterpolationType``          | Interpolation type of ``hypre``. [int]                                                                        |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``RelaxationType``             | Relaxation type of ``hypre``. [int]                                                                           |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``RelaxationSweeps``           | Number of sweeps before and after the coarse levels. [int, strictly positive]                                 |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``CycleType``                  | Type of cycle (1: V-cycle, 2: W-cycle). [int, strictly positive]                                              |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``NumberOfCycles``             | Number of cycles per application (1 by default). [int, strictly positive]                                     |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+| ``MaximumNumberOfLevels``      | Maximum number of levels. [int, strictly positive]                                                            |
++--------------------------------+---------------------------------------------------------------------------------------------------------------+
+
+The values of the options of ``hypre`` are the ones of ``hypre`` (see its
+documentation).
 
 - website: https://hypre.readthedocs.io/en/latest/solvers-boomeramg.html
 
@@ -519,7 +554,7 @@ Algebraic MultiGrid (AMG)
 
 .. code-block:: cpp
 
-    auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}, {"Strategy", System}};
+    auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}, {"Strategy", "System"}};
     auto amg = mfem_mgis::Parameters{{"Name","HypreBoomerAMG"}, {"Options",options}};
 
 **Reference:**
@@ -559,7 +594,9 @@ Incomplete LU factorization (HypreILU)
 
 - Preconditioner name: ``HypreILU``
 - Dependencies:
+
   - ``MFEM_HYPRE_VERSION`` >= 21900
+
 - Options:
 
 +-------------------------+------------------------------------------------+
@@ -795,8 +832,12 @@ Setup Your NonLinearProblem
 
   This section is under construction.
 
-PeriodicNonLinearEvolutionProblem
----------------------------------
+FiniteElementDiscretization
+---------------------------
+
+These parameters define the mesh and the finite element space. They are
+given to the constructor of the ``FiniteElementDiscretization`` class, and
+to the ones of the non linear evolution problems.
 
 +----------------------------+----------------------------------------------------------+
 | Key                        | Description                                              |
@@ -804,6 +845,9 @@ PeriodicNonLinearEvolutionProblem
 | FiniteElementFamily        | Finite Element Family, ex: H1 [string]                   |
 +----------------------------+----------------------------------------------------------+
 | MeshFileName               | Path to the mesh file [string]                           |
++----------------------------+----------------------------------------------------------+
+| MeshReadMode               | FromScratch (default) or Restart (each process reads its |
+|                            | part of a mesh split beforehand) [string]                |
 +----------------------------+----------------------------------------------------------+
 | FiniteElementOrder         | Finite Element Order, >= 1 [int]                         |
 +----------------------------+----------------------------------------------------------+
@@ -818,10 +862,65 @@ PeriodicNonLinearEvolutionProblem
 +----------------------------+----------------------------------------------------------+
 | Parallel                   | Run parallel execution [bool]                            |
 +----------------------------+----------------------------------------------------------+
+| Materials                  | Names associated with the material identifiers           |
+|                            | [Parameters]                                             |
++----------------------------+----------------------------------------------------------+
+| Boundaries                 | Names associated with the boundary identifiers           |
+|                            | [Parameters]                                             |
++----------------------------+----------------------------------------------------------+
+| Points                     | Points declared by the user, see :doc:`mesh/curves`      |
++----------------------------+----------------------------------------------------------+
+| PointsSets                 | Sets of points declared by the user, see                 |
+|                            | :doc:`mesh/curves`                                       |
++----------------------------+----------------------------------------------------------+
+| GeneralVerbosityLevel      | Verbosity level [int]                                    |
++----------------------------+----------------------------------------------------------+
 
 .. note::
 
-  The uniform refinement process is done after splitting the mesh across the mpi processes.
+  In parallel, the uniform refinements are made after splitting the mesh across the MPI
+  processes, except the first ones if the mesh has less than 8 elements per process.
+
+NonLinearEvolutionProblem
+-------------------------
+
+The constructor of the ``NonLinearEvolutionProblem`` class takes the
+parameters of the ``FiniteElementDiscretization`` class and the following
+ones:
+
++-------------------------------------+-------------------------------------------------------------+
+| Key                                 | Description                                                 |
++=====================================+=============================================================+
+| Hypothesis                          | Modelling hypothesis, ex: Tridimensional, required [string] |
++-------------------------------------+-------------------------------------------------------------+
+| UseMultiMaterialNonLinearIntegrator | Use the multi-material non linear integrator [bool]         |
++-------------------------------------+-------------------------------------------------------------+
+| NonLinearSolver                     | Non linear solver, Newton (default) or FixedPoint, see      |
+|                                     | :doc:`nonlinear_algorithms`                                 |
++-------------------------------------+-------------------------------------------------------------+
+| BehaviourIntegration                | PointByPoint or Batch [string]                              |
++-------------------------------------+-------------------------------------------------------------+
+| GradientsComputation                | ElementByElement or Kernels [string]                        |
++-------------------------------------+-------------------------------------------------------------+
+| InnerForcesComputation              | ElementByElement or Kernels [string]                        |
++-------------------------------------+-------------------------------------------------------------+
+| TangentOperatorComputation          | ElementByElement, Kernels or MatrixFree [string]            |
++-------------------------------------+-------------------------------------------------------------+
+| TangentOperatorAssembly             | Atomic (default) or Ordered [string]                        |
++-------------------------------------+-------------------------------------------------------------+
+
+The last five parameters and their default values are described in
+:ref:`mfem_mgis_batch_computations`.
+
+PeriodicNonLinearEvolutionProblem
+---------------------------------
+
+The ``PeriodicNonLinearEvolutionProblem`` class is built from a finite
+element discretization, either two corners of the computation domain or
+the type of the condition fixing the rigid body motions
+(``mfem_mgis::FIX_XMIN`` by default), and optional parameters of the non
+linear evolution problem other than the ones of the finite element
+discretization (for instance ``NonLinearSolver``).
 
 CPP example:
 
@@ -844,25 +943,39 @@ Material parameters
 Material Identifier
 ^^^^^^^^^^^^^^^^^^^
 
-Functions: getMaterialIdentifier or 
-
-- Key: ``Material`` or ``Materials``
-- 
+- Functions: ``getMaterialsIdentifiers``
+- Key: ``Material`` (one material) or ``Materials`` (a list of
+  materials), which can't be given together. A material is given by its
+  identifier (an integer) or by a name, interpreted as a regular
+  expression.
 
 **Example:**
+
+.. code-block:: cpp
+
+  problem.addPostProcessing(
+      ctx, "StoredEnergy",
+      {{"OutputFileName", "energy.txt"},
+       {"Materials", std::vector<mfem_mgis::Parameter>{"Attr1", "Attr2"}}}) |
+      or_die;
 
 Boundary Condition parameters
 -----------------------------
 
+Boundary Identifier
+^^^^^^^^^^^^^^^^^^^
 
-
-Boundary Mutators:
-^^^^^^^^^^^^^^^^^^
-
-- Functions: `getBoundariesIdentifiers`
-- Key: ``Boundary`` or ``Boundaries``
+- Functions: ``getBoundariesIdentifiers``
+- Key: ``Boundary`` (one boundary) or ``Boundaries`` (a list of
+  boundaries), which can't be given together, given as the materials.
 
 **Example:**
+
+.. code-block:: cpp
+
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "LowerBoundary"}, {"Component", 1}}) |
+      or_die;
 
 Dirichlet Condition
 -------------------

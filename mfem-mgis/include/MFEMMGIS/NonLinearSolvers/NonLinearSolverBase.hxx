@@ -85,9 +85,10 @@ namespace mfem_mgis {
      */
     virtual bool processNewUnknownsEstimate(const mfem::Vector& u) const;
     /*!
-     * \return if messages shall be displayed: on the first process, if the
-     * print level is positive or if the verbosity level of the execution
-     * context is high enough (`verboseLevel3`)
+     * \return if messages shall be displayed: if the print level is
+     * non-negative, on the first process only (on all processes in a
+     * sequential computation); otherwise, if the verbosity level of the
+     * execution context is at least `verboseLevel3`
      */
     [[nodiscard]] bool shallPrint() const noexcept;
     /*!
@@ -103,8 +104,11 @@ namespace mfem_mgis {
      * \param[in] f: computation
      */
     [[nodiscard]] bool callAndHandleFailures(
-        const std::function<bool()> &) const noexcept;
-    //! \return the log stream of the execution context, if any
+        const std::function<bool()>& f) const noexcept;
+    /*!
+     * \return the log stream of the execution context, if set, or the
+     * default log stream otherwise
+     */
     [[nodiscard]] std::ostream &getLogStream() const noexcept;
     /*!
      * \brief actions performed when a new estimate of the unknowns is

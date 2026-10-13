@@ -13,13 +13,13 @@ patches and features.
 ## Using the issue tracker
 
 The [issue tracker](https://github.com/thelfer/mfem-mgis/issues) is the
-preferred channel for [bug reports](#bugs), [features
-requests](#features) and [submitting pull requests](#pull-requests), but
+preferred channel for [bug reports](#bug-reports), [features
+requests](#feature-requests) and [submitting pull requests](#pull-requests), but
 please respect the following restrictions:
 
 * Please **do not** use the issue tracker for personal support requests
   (contact directly the authors
-  [tfel-contact@cea.fr](mailto:tfel-contact@cea.fr)
+  [tfel-contact@cea.fr](mailto:tfel-contact@cea.fr)).
 
 ## Bug reports
 
@@ -34,8 +34,8 @@ Guidelines for bug reports:
 2. **Check if the issue has been fixed**: try to reproduce it using the
    latest `master` or development branch in the repository.
 
-3. **Isolate the problem**: ideally create a [reduced test
-   case].
+3. **Isolate the problem**: ideally create a reduced test
+   case.
 
 A good bug report shouldn't leave others needing to chase you up for more
 information. Please try to be as detailed as possible in your report. What is
@@ -82,14 +82,17 @@ project's developers might not want to merge into the project.
 Please adhere to the coding conventions used throughout a project (indentation,
 accurate comments, etc.) and any other requirements (such as test coverage).
 
-Adhering to the following this process is the best way to get your work
+Adhering to the following process is the best way to get your work
 included in the project.
 
 For new features:
 
  - Make sure that non-regression tests are performed with the command ``make check`` in your build repository.
+   On a machine with a GPU, configure with a MFEM compiled with CUDA (or HIP,
+   which only registers some of them) so that the tests on the GPU are
+   registered (option `enable-gpu-tests`, `ON` by default).
  - New features must be accompanied by one or more non-regression ``tests`` in the tests repository.
- - New features must be accompanied by a ``documentation`` in the /docs/source/developer_guide repository in sphinx format.
+ - New features must be accompanied by a ``documentation`` in the docs/source directory in sphinx format (user guide for the features, developer guide for the internals).
 
 Every pull request is built and tested by the continuous integration. Its workflows and caches are described in the [developer guide](https://thelfer.github.io/mfem-mgis/developer_guide/continuous_integration.html).
 
@@ -143,7 +146,7 @@ Before creating a pull request, please follow these steps to ensure that your de
     with a clear title and description.
    
 **IMPORTANT**: By submitting a patch, you agree to allow the project owners to
-license your work under the the terms of the *LGPL License*.
+license your work under the terms of the *LGPL License*.
 
 <!--
 This file is merely a copy of the `CONTRIBUTING.md` file of the

@@ -168,12 +168,15 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/FBarKernels.cxx
   Batch/FaltusKernels.cxx
   Batch/ElementsGeometryKernels.cxx)
-# conversions of the vectors exchanged with AmgX in single precision
+# scaling and conversions of the vectors exchanged with AmgX (single
+# precision)
 if(MFEM_MGIS_HAVE_AMGX)
   list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
 endif()
 list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
-# host part of the computations by kernels (gradients, inner forces)
+# host part of the computations by kernels (geometry of the elements,
+# gradients, inner forces, values at the integration points, stiffness
+# matrices, FBar, Faltus et al., global stiffness matrix)
 list(APPEND MFEMMGIS_SOURCES
   Batch/ElementsGeometry.cxx
   Batch/Gradients.cxx

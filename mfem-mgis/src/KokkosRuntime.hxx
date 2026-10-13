@@ -22,7 +22,7 @@ namespace mfem_mgis::internals {
    * \throw std::runtime_error if Kokkos is finalized, as it can't be
    * initialized again
    */
-  [[nodiscard]] bool initializeKokkos(const int);
+  [[nodiscard]] bool initializeKokkos(const int gpu);
   //! \brief finalizes Kokkos if it is initialized and not finalized
   void finalizeKokkos();
   //! \return true if Kokkos is initialized and not finalized

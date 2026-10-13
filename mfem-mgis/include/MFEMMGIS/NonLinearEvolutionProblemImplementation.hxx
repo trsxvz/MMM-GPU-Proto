@@ -65,11 +65,17 @@ namespace mfem_mgis {
      * \brief compute the residual
      * \param[in] u: current estimate of the unknowns
      * \param[out] r: residual
+     * \throws CollectiveFailure on all the processes if the computations by
+     * kernels fail on one of them
      */
     void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
     /*!
      * \brief compute the tangent operator
+     * \return the tangent operator (assembled, or applied without assembly,
+     * see `TangentOperatorComputation`)
      * \param[in] u: current estimate of the unknowns
+     * \throws CollectiveFailure on all the processes if the computations by
+     * kernels fail on one of them
      */
     mfem::Operator& GetGradient(const mfem::Vector& u) const override;
     //
@@ -126,7 +132,7 @@ namespace mfem_mgis {
      * boundary face integrators, without interior face integrators)
      */
     mfem::Operator& assembleTangentOperatorByKernels(
-        const mfem::Vector* const = nullptr) const;
+        const mfem::Vector* const u = nullptr) const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;
@@ -183,11 +189,17 @@ namespace mfem_mgis {
      * \brief compute the residual
      * \param[in] u: current estimate of the unknowns
      * \param[out] r: residual
+     * \throws CollectiveFailure on all the processes if the computations by
+     * kernels fail on one of them
      */
     void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
     /*!
      * \brief compute the tangent operator
+     * \return the tangent operator (assembled, or applied without assembly,
+     * see `TangentOperatorComputation`)
      * \param[in] u: current estimate of the unknowns
+     * \throws CollectiveFailure on all the processes if the computations by
+     * kernels fail on one of them
      */
     mfem::Operator& GetGradient(const mfem::Vector& u) const override;
     //
@@ -244,7 +256,7 @@ namespace mfem_mgis {
      * boundary face integrators, without interior face integrators)
      */
     mfem::Operator& assembleTangentOperatorByKernels(
-        const mfem::Vector* const = nullptr) const;
+        const mfem::Vector* const u = nullptr) const;
     //
     [[nodiscard]] std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept override;

@@ -3,7 +3,7 @@
  * \brief  This file declares the computations by kernels on functions
  * defined at the integration points of a material, used by the
  * post-processings: integral, right-hand side of the L2 projection, local
- * projections at the nodes of the elements
+ * projections at the nodes of the elements, mass matrices of the elements
  * \date   11/10/2026
  */
 
@@ -38,9 +38,9 @@ namespace mfem_mgis::batch {
    * integration rule.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool gatherValues(
-      Context&,
-      mfem::Vector&,
-      const ImmutablePartialQuadratureFunctionView&) noexcept;
+      Context& ctx,
+      mfem::Vector& v,
+      const ImmutablePartialQuadratureFunctionView& f) noexcept;
 
   /*!
    * \return the integral, over the elements of a partial quadrature space
@@ -57,10 +57,10 @@ namespace mfem_mgis::batch {
    * the elements of the space), recognized by their number of elements
    */
   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> computeIntegral(
-      Context&,
-      const PartialQuadratureSpace&,
-      const mfem::Vector*,
-      const ElementsGeometry&) noexcept;
+      Context& ctx,
+      const PartialQuadratureSpace& qs,
+      const mfem::Vector* v,
+      const ElementsGeometry& g) noexcept;
 
   /*!
    * \brief adds the right-hand side of the L2 projection of a component of a
@@ -82,13 +82,13 @@ namespace mfem_mgis::batch {
    * integration rule of the space
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool addL2ProjectionRightHandSide(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mfem::Vector&,
-      const size_type,
-      const size_type,
-      const ElementsGeometry&) noexcept;
+      Context& ctx,
+      mfem::Vector& r,
+      const PartialQuadratureSpace& qs,
+      const mfem::Vector& v,
+      const size_type nc,
+      const size_type c,
+      const ElementsGeometry& g) noexcept;
 
   /*!
    * \brief maximal number of degrees of freedom per element and per
@@ -105,8 +105,10 @@ namespace mfem_mgis::batch {
    * freedom), on the device if a device is enabled. The mass matrix of each
    * element is integrated by the integration rule of `m`, the right-hand
    * side by the one of the quadrature space (`g`), and the local system is
-   * solved by a Cholesky factorization. The values of the other elements
-   * are not modified.
+   * solved by a Cholesky factorization. The absolute values of the
+   * determinants of the jacobians are used, so that the local mass matrices
+   * are positive definite for elements of negative orientation. The values
+   * of the other elements are not modified.
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in, out] r: values element by element
@@ -120,13 +122,13 @@ namespace mfem_mgis::batch {
    * integration rule of the mass matrices
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeLocalProjections(
-      Context&,
-      mfem::Vector&,
-      const PartialQuadratureSpace&,
-      const mfem::Vector&,
-      const size_type,
-      const ElementsGeometry&,
-      const ElementsGeometry&) noexcept;
+      Context& ctx,
+      mfem::Vector& r,
+      const PartialQuadratureSpace& qs,
+      const mfem::Vector& v,
+      const size_type nc,
+      const ElementsGeometry& g,
+      const ElementsGeometry& m) noexcept;
 
   /*!
    * \brief computes, or adds, the mass matrices of all the elements of a
@@ -143,11 +145,11 @@ namespace mfem_mgis::batch {
    * \param[in] add: if true, the mass matrices are added to `m`
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeMassMatrices(
-      Context&,
-      mfem::Vector&,
-      const ElementsGeometry&,
-      const mfem::ElementDofOrdering,
-      const bool) noexcept;
+      Context& ctx,
+      mfem::Vector& m,
+      const ElementsGeometry& g,
+      const mfem::ElementDofOrdering o,
+      const bool add) noexcept;
 
 }  // end of namespace mfem_mgis::batch
 
