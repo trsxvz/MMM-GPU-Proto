@@ -157,18 +157,20 @@ Les bibliothèques de lots des tests sont construites par les fonctions de
 mfem-mgis est construit dans `build/mfem-mgis` (ou dans une construction
 séparée par lot, `build/mfem-mgis-<lot>`, avec les cibles `BehaviourTest` et
 `GenericParallelBehaviour-*`, hors de `all` et de `build-tests`). Sa suite
-(292 tests au 13/10/2026 sur `gpu-proto` b5e7d12fc4, dont 77 dont le nom
+(293 tests au 13/10/2026 sur `gpu-proto` 898f63edf9, dont 77 dont le nom
 correspond au motif `cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos` ; 244 et
 58 le 12/10) se lance de trois façons, qui doivent toutes passer (les
 chiffres datés ci-dessous sont ceux des passages notés au journal) :
 
 - telle quelle : `ctest -j 3 -E
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (186 tests, 186/186 le
-  12/10 sur `gpu-proto` 45afaa0653, 182/182 sur 3ad387b002), puis les
-  variantes qui utilisent le GPU, `ctest -j 2 -R
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (58 tests ; les 6
-  variantes GPU de `DirectSolverReuseAnalysisTest`, MUMPS et cuDSS,
-  passent) ;
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (216 tests, 216/216 le
+  13/10 sur `gpu-proto` 6b9ebf5bcc en 432 s ; 186/186 le 12/10 sur
+  45afaa0653), puis les variantes qui utilisent le GPU, `ctest -j 2 -R
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (77 tests, 77/77 le 13/10
+  en 226 s). Les variantes qui calculent sur le GPU partagent le verrou
+  `RESOURCE_LOCK gpu` : sans lui, hypre réserve un pool sur le GPU pour
+  chaque processus de deux tests simultanés et l'allocation échoue (vu le
+  13/10 avec `ExecutionSettingsTest`, corrigé par 898f63edf9) ;
 - avec tous les calculs forcés aux noyaux du chemin par lots, par les
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,

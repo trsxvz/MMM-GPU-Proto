@@ -1,0 +1,52 @@
+From 898f63edf921f4cd71fecbf82626909bd09da4e0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:47:59 +0200
+Subject: [PATCH] Tests: GPU variants of ExecutionSettingsTest share the GPU
+ lock
+
+The variants of ExecutionSettingsTest computing on the GPU had no
+RESOURCE_LOCK, unlike the other tests on the GPU: with `ctest -j 2`, one of
+them could run beside DirectSolverReuseAnalysisTestP3-cudss-cuda, whose
+three processes reserve a pool of memory of hypre on the GPU each, and the
+allocation failed (out of memory).
+---
+ tests/CMakeLists.txt | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index bc041fc9d3..0d7d0ee074 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1330,8 +1330,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+       # the variants placing the behaviours on the GPU require their
+       # library for the GPU
+       set(_bh_locations cpu)
++      set(_execution_settings_gpu_tests)
+       if(ExecutionSettingsBehaviours_HAVE_GPU_BEHAVIOURS)
+         list(APPEND _bh_locations gpu)
++        list(APPEND _execution_settings_gpu_tests ExecutionSettingsTest-gpu
++             ExecutionSettingsTest-mixed-gpu
++             ExecutionSettingsTest-mixed-environment-gpu)
+         add_test(NAME ExecutionSettingsTest-gpu
+                  COMMAND ExecutionSettingsTest --execution gpu
+                          --expected-settings gpu,gpu,gpu,gpu,gpu
+@@ -1363,10 +1367,16 @@ if(MFEM_MGIS_HAVE_TFEL)
+                                --expected-settings
+                                mixed,${_fe},${_bh},${_lsd},${_ppd}
+                                ${execution_settings_test_gpu_arguments})
++              list(APPEND _execution_settings_gpu_tests
++                   ExecutionSettingsTest-mixed-${_name}-gpu)
+             endforeach()
+           endforeach()
+         endforeach()
+       endforeach()
++      # the GPU is shared with the other tests on the GPU: hypre reserves a
++      # pool of memory on the GPU for each process
++      set_tests_properties(${_execution_settings_gpu_tests}
++                           PROPERTIES RESOURCE_LOCK gpu)
+     endif()
+   endif()
+ 
+-- 
+2.43.0
+
