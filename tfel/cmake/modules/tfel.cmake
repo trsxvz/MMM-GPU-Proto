@@ -528,7 +528,8 @@ function(define_tfel_cxx_compiler compiler)
    message(STATUS "TFEL_NVHPC_COMPILER: ${TFEL_NVHPC_COMPILER}")
  else()
    message(FATAL_ERROR "unsupported C++ compiler '${compiler}'. "
-           "Supported compilers are 'g++', 'clang++', 'icpx', 'nvhpc'")
+           "Supported compilers are 'g++', 'clang++', 'icpx', 'acpp', "
+           "'nvhpc'")
  endif()
 endfunction(define_tfel_cxx_compiler)
 

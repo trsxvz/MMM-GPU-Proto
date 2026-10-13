@@ -79,7 +79,7 @@ namespace mfront::gb::logarithmic_strain {
               std::exp(isvs[Traits::axial_strain_offset]));
         } else {
           reportError(d,
-                      "The behaviour does not declare the axial strain"
+                      "The behaviour does not declare the axial strain "
                       "as an internal state variable");
           return false;
         }
