@@ -52,8 +52,9 @@ namespace mfem_mgis {
       return {};
     }
     // the default initial tolerance is bounded by the maximum one
-    const auto o0 = get_if<double>(ctx, opts, "InitialTolerance",
-                                   std::min(t.initial_tolerance, *omax));
+    const auto o0 = get_if<double>(
+        ctx, opts, "InitialTolerance",
+        std::min(static_cast<double>(t.initial_tolerance), *omax));
     const auto ogamma = get_if<double>(ctx, opts, "Gamma", t.gamma);
     const auto oalpha = get_if<double>(ctx, opts, "Alpha", t.alpha);
     const auto othreshold = get_if<double>(ctx, opts, "Threshold", t.threshold);

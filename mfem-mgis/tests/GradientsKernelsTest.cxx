@@ -48,9 +48,19 @@
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
+
+/*!
+ * \brief relative tolerance of the comparisons of the kernels to the element
+ * by element computations: in float, the differences measured reach 1.2e-5
+ * of the largest value (elements of order 2, sums of many terms in other
+ * orders)
+ */
+static constexpr auto kernels_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-13, 1e-4);
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -311,8 +321,9 @@ static void testCase(mfem_mgis::Context& ctx,
     std::cout << name << ": " << reference.size()
               << " values, maximum difference " << d << " (maximum value "
               << vmax << ")\n";
-    check((!reference.empty()) && (vmax != 0) && (d <= 1e-13 * vmax),
-          name + ": gradients");
+    check(
+        (!reference.empty()) && (vmax != 0) && (d <= kernels_tolerance * vmax),
+        name + ": gradients");
     // inner forces computed from arbitrary thermodynamic forces
     mat.synchronizeOnHost();
     for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
@@ -352,7 +363,8 @@ static void testCase(mfem_mgis::Context& ctx,
     }
     std::cout << name << ": inner forces, maximum difference " << df
               << " (maximum value " << fmax << ")\n";
-    check((fmax != 0) && (df <= 1e-13 * fmax), name + ": inner forces");
+    check((fmax != 0) && (df <= kernels_tolerance * fmax),
+          name + ": inner forces");
     // stiffness matrices computed from arbitrary tangent operator blocks
     mat.synchronizeOnHost();
     for (std::size_t i = 0; i != mat.K.size(); ++i) {
@@ -390,7 +402,8 @@ static void testCase(mfem_mgis::Context& ctx,
     }
     std::cout << name << ": stiffness matrices, maximum difference " << dk
               << " (maximum value " << kmax << ")\n";
-    check((kmax != 0) && (dk <= 1e-13 * kmax), name + ": stiffness matrices");
+    check((kmax != 0) && (dk <= kernels_tolerance * kmax),
+          name + ": stiffness matrices");
     // stiffness matrices assembled by kernels in a sparse matrix, compared to
     // the assembly by MFEM of the matrices computed element by element (the
     // pattern of the matrix being the one built by MFEM)
@@ -439,7 +452,8 @@ static void testCase(mfem_mgis::Context& ctx,
               << reference_matrix.NumNonZeroElems()
               << " values, maximum difference " << da << " (maximum value "
               << amax << ")\n";
-    check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
+    check((amax != 0) && (da <= kernels_tolerance * amax),
+          name + ": assembled matrix");
     // stiffness matrices stored element by element, added value by value in
     // a fixed order (`batch::addStiffnessMatricesByEntries`), in the pattern
     // of all the elements: same values as the atomic additions, and the same
@@ -511,7 +525,8 @@ static void testCase(mfem_mgis::Context& ctx,
                   << "each assembly: " << (same_entries ? "yes" : "no")
                   << " (atomic additions: " << (same_atomic ? "yes" : "no")
                   << ")\n";
-        check(dr <= 1e-13 * amax, name + ": assembly value by value");
+        check(dr <= kernels_tolerance * amax,
+              name + ": assembly value by value");
         check(same_entries,
               name +
                   ": assembly value by value, same values at each "
@@ -615,7 +630,8 @@ static void testCase(mfem_mgis::Context& ctx,
       std::cout << name << ": assembled matrix, " << what
                 << ", maximum difference " << dp << ", " << searched
                 << " entries searched\n";
-      check(dp <= 1e-13 * amax, name + ": assembled matrix, " + what);
+      check(dp <= kernels_tolerance * amax,
+            name + ": assembled matrix, " + what);
       return searched;
     };
     auto positions = mfem::Array<std::uint16_t>{};
@@ -726,9 +742,9 @@ static void testCase(mfem_mgis::Context& ctx,
                 << "difference " << dy << " (maximum value " << ymax
                 << "), diagonal, maximum difference " << dd
                 << " (maximum value " << dmax << ")\n";
-      check((ymax != 0) && (dy <= 1e-13 * ymax),
+      check((ymax != 0) && (dy <= kernels_tolerance * ymax),
             name + ": action of the tangent operator");
-      check((dmax != 0) && (dd <= 1e-13 * dmax),
+      check((dmax != 0) && (dd <= kernels_tolerance * dmax),
             name + ": diagonal of the tangent operator");
     }
     // entries outside of the pattern of the matrix are detected

@@ -1,0 +1,45 @@
+From cd1d5a140191432993714b3a2866659c15838277 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:41:10 +0200
+Subject: [PATCH] boundRelativeTolerance keeps a null tolerance
+
+A null relative tolerance, which fixes the number of iterations of a
+solver, became 1.2e-5 with float: it is kept, as with double.
+---
+ include/MFEMMGIS/Utilities/SolverUtilities.hxx | 3 ++-
+ src/SolverUtilities.cxx                        | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/include/MFEMMGIS/Utilities/SolverUtilities.hxx b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+index c3523b312a..5e2ca99946 100644
+--- a/include/MFEMMGIS/Utilities/SolverUtilities.hxx
++++ b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+@@ -154,7 +154,8 @@ namespace mfem_mgis {
+    * (1.2e-6 for the tests of mfem-mgis).
+    * The relative tolerances given to the solvers (`RelativeTolerance` and
+    * `Tolerance` parameters, `setRelativeTolerance`) are bounded this way;
+-   * the absolute tolerances, which have a unit, are not changed.
++   * a null tolerance, which fixes the number of iterations, and the
++   * absolute tolerances, which have a unit, are not changed.
+    * \param[in] tol: relative tolerance
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] real boundRelativeTolerance(
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 82c7b0d137..65afdc22cd 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -265,9 +265,10 @@ namespace mfem_mgis {
+     if constexpr (std::is_same_v<real, double>) {
+       return tol;
+     } else {
++      // a null tolerance (a fixed number of iterations) is kept
+       constexpr auto tmin =
+           100 * static_cast<double>(std::numeric_limits<real>::epsilon());
+-      return static_cast<real>(tol < tmin ? tmin : tol);
++      return static_cast<real>(((tol == 0) || (tol >= tmin)) ? tol : tmin);
+     }
+   }  // end of boundRelativeTolerance
+ 
+-- 
+2.43.0
+

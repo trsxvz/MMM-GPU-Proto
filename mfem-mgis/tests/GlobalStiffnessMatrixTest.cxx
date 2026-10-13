@@ -25,6 +25,7 @@
 #include "mfem/linalg/hypre.hpp"
 #include "mfem/mesh/pmesh.hpp"
 #include "mfem/fem/pfespace.hpp"
+#include "Tolerance.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
 #include "MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx"
@@ -157,7 +158,10 @@ static void testCase(mfem::ParMesh& mesh,
       std::cout << name << ", " << what << ": maximum relative difference " << d
                 << '\n';
     }
-    check(d < 1e-14, name + ", " + what + ": global matrix");
+    // in float, the relative difference reaches 1e-7 (sums in another
+    // order)
+    check(d < mfem_mgis::unit_tests::tolerance(1e-14, 1e-6),
+          name + ", " + what + ": global matrix");
     K->EliminateBC(essential_dofs, mfem::Operator::DIAG_ONE);
     return K;
   };

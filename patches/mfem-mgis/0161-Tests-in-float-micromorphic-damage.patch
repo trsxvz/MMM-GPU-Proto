@@ -1,0 +1,152 @@
+From 28ebb38652878fc71c75b767299b1607fa663725 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:20:55 +0200
+Subject: [PATCH] Tests in float: micromorphic damage
+
+- MicromorphicDamage2DTest: absolute tolerance of Newton of 1e-4 in float,
+  the residual stagnating at 7.6e-6.
+- MicromorphicDamage2DTest2, MicromorphicDamage3DTest: tolerances of the
+  alternate minimisation of 1e-6 (2D) or 2e-8 (3D) at the first iteration
+  and of 1e-2 of the initial residuals then, in float: the residual of the
+  micromorphic problem stagnates between 1.7e-9 and 2.6e-8 (2D), and at
+  1.5e-11 for a solve close to convergence (3D); the mechanical one at 5e-8
+  for an initial residual of 6e-7. Double unchanged.
+---
+ tests/MicromorphicDamage2DTest.cxx  | 11 +++++++----
+ tests/MicromorphicDamage2DTest2.cxx | 19 ++++++++++++++-----
+ tests/MicromorphicDamage3DTest.cxx  | 20 +++++++++++++++-----
+ 3 files changed, 36 insertions(+), 14 deletions(-)
+
+diff --git a/tests/MicromorphicDamage2DTest.cxx b/tests/MicromorphicDamage2DTest.cxx
+index 462c101c16..911fda9282 100644
+--- a/tests/MicromorphicDamage2DTest.cxx
++++ b/tests/MicromorphicDamage2DTest.cxx
+@@ -24,6 +24,7 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(int argc, char** argv) {
+   auto ctx = mfem_mgis::Context{};
+@@ -99,10 +100,12 @@ int main(int argc, char** argv) {
+   // set the solver parameters
+   mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
+                                          parameters);
+-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                    {"RelativeTolerance", 1e-10},
+-                                    {"AbsoluteTolerance", 0.},
+-                                    {"MaximumNumberOfIterations", 10}}) |
++  // in float, the residual stagnates at about 7.6e-6
++  problem.setSolverParameters(
++      ctx, {{"VerbosityLevel", 0},
++            {"RelativeTolerance", 1e-10},
++            {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(0., 1e-4)},
++            {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+   // vtk export
+   problem.addPostProcessing(
+diff --git a/tests/MicromorphicDamage2DTest2.cxx b/tests/MicromorphicDamage2DTest2.cxx
+index 6015f666ff..d5a7ad6f1f 100644
+--- a/tests/MicromorphicDamage2DTest2.cxx
++++ b/tests/MicromorphicDamage2DTest2.cxx
+@@ -18,6 +18,7 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ static std::shared_ptr<mfem_mgis::NonLinearEvolutionProblem>
+ buildMechanicalProblem(
+@@ -246,24 +247,32 @@ int main(int argc, char** argv) {
+     std::cout << "\ntime step " << i  //
+               << " from " << t << " to " << t + dt << "\n";
+     // alternate miminisation algorithm
++    // tolerances of the alternate minimisation: absolute at the first
++    // iteration, relative to the initial residuals then. In float, the
++    // residual of the micromorphic problem stagnates between 1.7e-9 and
++    // 2.6e-8 (absolute), increasing with the damage
++    constexpr auto first_iteration_tolerance =
++        mfem_mgis::unit_tests::tolerance(1e-10, 1e-6);
++    constexpr auto relative_tolerance =
++        mfem_mgis::unit_tests::tolerance(1e-6, 1e-2);
+     while (!converged) {
+       std::cout << "time step " << i  //
+                 << ", alternate minimisation iteration, " << iter << '\n';
+       if (iter == 0) {
+         mechanical_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
++            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
+             or_die;
+         micromorphic_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
++            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
+             or_die;
+       } else {
+         mechanical_problem->setSolverParameters(
+             ctx, {{"AbsoluteTolerance",
+-                   mechanical_problem_initial_residual * 1e-6}}) |
++                   mechanical_problem_initial_residual * relative_tolerance}}) |
+             or_die;
+         micromorphic_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance",
+-                   micromorphic_problem_initial_residual * 1e-6}}) |
++            ctx, {{"AbsoluteTolerance", micromorphic_problem_initial_residual *
++                                            relative_tolerance}}) |
+             or_die;
+       }
+       // solving the mechanical problem
+diff --git a/tests/MicromorphicDamage3DTest.cxx b/tests/MicromorphicDamage3DTest.cxx
+index 98755dd3da..036e685e58 100644
+--- a/tests/MicromorphicDamage3DTest.cxx
++++ b/tests/MicromorphicDamage3DTest.cxx
+@@ -18,6 +18,7 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ [[nodiscard]] static bool setLinearSolverMicromorphicDamage3D(
+     mfem_mgis::Context& ctx,
+@@ -291,24 +292,33 @@ int main(int argc, char** argv) {
+     std::cout << "\ntime step " << i  //
+               << " from " << t << " to " << t + dt << "\n";
+     // alternate miminisation algorithm
++    // tolerances of the alternate minimisation: absolute at the first
++    // iteration, relative to the initial residuals then. In float, the
++    // residual of the micromorphic problem stagnates at 1.7e-9 (absolute),
++    // and at 1.5e-11 for a solve close to convergence whose initial residual
++    // of the first iteration is 2e-8
++    constexpr auto first_iteration_tolerance =
++        mfem_mgis::unit_tests::tolerance(1e-10, 2e-8);
++    constexpr auto relative_tolerance =
++        mfem_mgis::unit_tests::tolerance(1e-6, 1e-2);
+     while (!converged) {
+       std::cout << "time step " << i  //
+                 << ", alternate minimisation iteration, " << iter << '\n';
+       if (iter == 0) {
+         mechanical_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
++            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
+             or_die;
+         micromorphic_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
++            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
+             or_die;
+       } else {
+         mechanical_problem->setSolverParameters(
+             ctx, {{"AbsoluteTolerance",
+-                   mechanical_problem_initial_residual * 1e-6}}) |
++                   mechanical_problem_initial_residual * relative_tolerance}}) |
+             or_die;
+         micromorphic_problem->setSolverParameters(
+-            ctx, {{"AbsoluteTolerance",
+-                   micromorphic_problem_initial_residual * 1e-6}}) |
++            ctx, {{"AbsoluteTolerance", micromorphic_problem_initial_residual *
++                                            relative_tolerance}}) |
+             or_die;
+       }
+       // solving the mechanical problem
+-- 
+2.43.0
+

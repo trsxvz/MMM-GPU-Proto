@@ -86,6 +86,11 @@ if(MFEMMGIS_HAVE_AMGX AND (NOT TARGET AMGX::amgxsh))
   endif()
 endif()
 
+# numerical type of mfem-mgis (double or float), the one of MFEM, of MGIS
+# and of the behaviours (given to mfront by mfem_mgis_add_behaviours_library)
+set(MFEMMGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)
+set_property(GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)
+
 # true if mfem-mgis initializes Kokkos on demand (option enable-kokkos):
 # Kokkos is used through the shared library MFEMMGISKokkos, which finds it
 set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)

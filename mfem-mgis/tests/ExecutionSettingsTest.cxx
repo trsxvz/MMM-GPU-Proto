@@ -27,6 +27,7 @@
 #include "mfem/linalg/hypre.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MGIS/Behaviour/Behaviour.hxx"
+#include "Tolerance.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
 #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
@@ -210,9 +211,12 @@ static void computeUniaxialTension(const char* const mesh,
     const auto expected = (i % 6 == 0) ? sxx : real{0};
     dmax = std::max(dmax, std::abs(sig[i] - expected));
   }
-  check(dmax < 1e-8 * sxx, "stress: largest difference " +
-                               std::to_string(dmax / sxx) +
-                               " (relative to the axial stress)");
+  // in float, the largest difference reaches 1.8e-5 times the axial stress
+  // (small strain of 1e-5, linear solvers stopping at a relative residual
+  // of 1.2e-5)
+  check(dmax < mfem_mgis::unit_tests::tolerance(1e-8, 2e-4) * sxx,
+        "stress: largest difference " + std::to_string(dmax / sxx) +
+            " (relative to the axial stress)");
   // location of the computations of the finite elements
   const auto& implementation = problem.getImplementation<true>();
   const auto fe_kernels =
@@ -234,7 +238,8 @@ static void computeUniaxialTension(const char* const mesh,
   const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
   auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
   const auto measure = computeMeasure(bi);
-  check(std::abs(measure - 1) < 1e-12,
+  // in float, the difference reaches 2.4e-7
+  check(std::abs(measure - 1) < mfem_mgis::unit_tests::tolerance(1e-12, 3e-6),
         "measure of the cube: " + std::to_string(measure));
   const auto pp_kernels =
       getNumberOfPostProcessingsComputationsByKernels() != n0;
@@ -431,7 +436,8 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,
   for (std::size_t i = 0; i < sig.size(); i += 4) {
     dmax = std::max(dmax, std::abs(sig[i] - sxx));
   }
-  check(dmax < 1e-8 * sxx,
+  // in float, the largest difference reaches 7.9e-8 times the stress
+  check(dmax < mfem_mgis::unit_tests::tolerance(1e-8) * sxx,
         "elements of different geometries: stress, "
         "largest difference " +
             std::to_string(dmax / sxx));

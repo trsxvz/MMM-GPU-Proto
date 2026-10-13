@@ -8,6 +8,7 @@
 #include <utility>
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/BoundaryUtilities.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/ComputeResultantForceOnBoundary.hxx"
@@ -94,7 +95,7 @@ namespace mfem_mgis {
     MPI_Comm_rank(getMPICommunicator(p), &rank);
     mfem::Vector gF;
     gF.SetSize(F.Size());
-    MPI_Reduce(F.GetData(), gF.GetData(), F.Size(), MPI_DOUBLE, MPI_SUM, 0,
+    MPI_Reduce(F.GetData(), gF.GetData(), F.Size(), mpi_type<real>, MPI_SUM, 0,
                getMPICommunicator(p));
     if (rank == 0) {
       writeResultantForce(this->out, gF, t + dt);

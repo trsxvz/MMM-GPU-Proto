@@ -92,7 +92,7 @@ d.setGlossaryName("Damage");
         COEF = gam * gam * COEF / Y;
       }
       for (unsigned short i = 0; i != e.size(); ++i) {
-        eplus[i] = max(0., e[i]);
+        eplus[i] = max(real(0), e[i]);
       }
       Dt = (1. - d) * Hooke - COEF * (s0 ^ eplus);
     }

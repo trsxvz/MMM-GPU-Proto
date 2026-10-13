@@ -1024,7 +1024,7 @@ namespace mfem_mgis {
         if (isInvalid(otol)) {
           return {};
         }
-        s->SetTol(*otol);
+        s->SetTol(boundRelativeTolerance(*otol));
       }
       if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
         const auto oiterMax =
@@ -1104,7 +1104,7 @@ namespace mfem_mgis {
         if (isInvalid(otol)) {
           return {};
         }
-        s->SetTol(*otol);
+        s->SetTol(boundRelativeTolerance(*otol));
       }
       if (contains(params, Krylov_Dimension)) {
         const auto odim = get<int>(ctx, params, Krylov_Dimension);
@@ -1196,7 +1196,7 @@ namespace mfem_mgis {
         if (isInvalid(otol)) {
           return {};
         }
-        s->SetTol(*otol);
+        s->SetTol(boundRelativeTolerance(*otol));
       }
       if (contains(params, Krylov_Dimension)) {
         const auto odim = get<int>(ctx, params, Krylov_Dimension);

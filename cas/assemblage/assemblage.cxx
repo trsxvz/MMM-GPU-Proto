@@ -341,8 +341,8 @@ int main(int argc, char** argv) {
       auto yr = mfem::Vector(pfes.GetTrueVSize());
       K->Mult(x, y);
       R.As<mfem::HypreParMatrix>()->Mult(x, yr);
-      auto d = 0.;
-      auto m = 0.;
+      auto d = mfem_mgis::real{};
+      auto m = mfem_mgis::real{};
       for (int i = 0; i != y.Size(); ++i) {
         d = std::max(d, std::abs(y(i) - yr(i)));
         m = std::max(m, std::abs(yr(i)));

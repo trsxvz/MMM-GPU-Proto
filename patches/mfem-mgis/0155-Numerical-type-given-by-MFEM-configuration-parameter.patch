@@ -1,0 +1,456 @@
+From 80625f859daa8cd39220ca9f66a3d4ce2ef39638 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 20:54:09 +0200
+Subject: [PATCH] Numerical type given by MFEM: configuration, parameters, MPI
+ types
+
+- the numerical type of mfem-mgis is the one of MFEM (MFEM_USE_SINGLE of its
+  configuration): the configuration refuses a MGIS of another type
+  (MGIS_REAL_TYPE, double for a MGIS without this variable) and AmgX with
+  float, and exports MFEMMGIS_REAL_TYPE. SuiteSparse is optional (MFEM
+  refuses it in single precision; the solvers using it are already
+  conditional). A static assertion checks that MFEM and MGIS share the type.
+- mfem_mgis_add_behaviours_library generates the behaviours with this type
+  (real_type option of mfront, global property MFEM_MGIS_REAL_TYPE) and
+  sets <target>_REAL_TYPE.
+- ParameterVariant stores the floating-point values as double, so that
+  {"Tolerance", 1e-10} is valid with float; is<float> and get<float> read
+  them converted, so that get<real> works with both types.
+- MPI: the reductions of MeanThermodynamicForces and
+  ComputeResultantForceOnBoundary use the MPI type of real instead of
+  MPI_DOUBLE; Eval of the coefficients returns mfem::real_t; the reference
+  coordinates of PeriodicNonLinearEvolutionProblem are initialized with the
+  maximum of real.
+Double unchanged: 216/216 tests on the CPU.
+---
+ CMakeLists.txt                               | 34 ++++++++++++++++
+ cmake/modules/FindMFEM.cmake                 |  6 +--
+ cmake/modules/MFEMMGISBehaviours.cmake       | 25 ++++++++++--
+ include/MFEMMGIS/MeanThermodynamicForces.ixx |  7 ++--
+ include/MFEMMGIS/Parameter.hxx               | 43 +++++++++++++++++---
+ include/MFEMMGIS/Parameter.ixx               | 21 ++++++++++
+ src/AdaptiveLinearSolverTolerance.cxx        |  5 ++-
+ src/ComputeResultantForceOnBoundary.cxx      |  3 +-
+ src/MFEMMGISConfig.cmake.in                  |  5 +++
+ src/MaterialArrays.cxx                       |  6 +++
+ src/PartialQuadratureFunction.cxx            |  8 ++--
+ src/PeriodicNonLinearEvolutionProblem.cxx    |  4 +-
+ 12 files changed, 143 insertions(+), 24 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b831b149ac..61d9b6242a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -131,6 +131,40 @@ if(NOT MFEM_MGIS_MGIS_HAS_FIELD_OPERATIONS)
+           "field operations (MGIS/FieldOperations.hxx), the location and "
+           "the layout of the arrays of the material data managers")
+ endif()
++
++# numerical type: the one of MFEM (MFEM_USE_SINGLE of its configuration),
++# which MGIS and the behaviours must use too. A MGIS without the
++# MGIS_REAL_TYPE variable uses double.
++if(MFEM_USE_SINGLE STREQUAL "YES")
++  set(MFEM_MGIS_REAL_TYPE float)
++else()
++  set(MFEM_MGIS_REAL_TYPE double)
++endif()
++if(DEFINED MGIS_REAL_TYPE)
++  set(_mgis_real_type ${MGIS_REAL_TYPE})
++else()
++  set(_mgis_real_type double)
++endif()
++if(NOT _mgis_real_type STREQUAL MFEM_MGIS_REAL_TYPE)
++  message(FATAL_ERROR "mfem-mgis: MFEM uses the numerical type "
++          "'${MFEM_MGIS_REAL_TYPE}', MGIS uses '${_mgis_real_type}': MGIS "
++          "must be configured with -DMGIS_REAL_TYPE=${MFEM_MGIS_REAL_TYPE}")
++endif()
++if((NOT MFEM_MGIS_REAL_TYPE STREQUAL "double") AND enable-amgx)
++  message(FATAL_ERROR "mfem-mgis: the solvers of AmgX require double "
++          "(option enable-amgx)")
++endif()
++message(STATUS "mfem-mgis numerical type: ${MFEM_MGIS_REAL_TYPE}")
++# numerical type given to mfront by mfem_mgis_add_behaviours_library, and
++# by the libraries of the tests
++set_property(GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE ${MFEM_MGIS_REAL_TYPE})
++if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
++  set(MFEM_MGIS_MFRONT_REAL_TYPE_OPTION)
++else()
++  set(MFEM_MGIS_MFRONT_REAL_TYPE_OPTION
++      "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
++endif()
++
+ set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
+ if(MGIS_HAVE_TFEL)
+   if(TARGET tfel::TFELTests)
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index 9dbd7cab1c..61d364d768 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -232,9 +232,9 @@ if(MFEM_USE_MUMPS)
+   set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+ endif(MFEM_USE_MUMPS)
+ 
+-if (NOT MFEM_USE_SUITESPARSE)
+-  message(FATAL_ERROR "You shall have SUITESPARSE support activated in MFEM.CMake will exit.\n" )
+-endif()
++# SuiteSparse is optional: the solvers using it (UMFPackSolver) are only
++# registered if MFEM provides them, and MFEM refuses SuiteSparse with the
++# float numerical type (MFEM_USE_SINGLE)
+ 
+ # Set the include directories
+ set(MFEM_INCLUDE_DIRS ${MFEM_INCLUDE_DIRS}
+diff --git a/cmake/modules/MFEMMGISBehaviours.cmake b/cmake/modules/MFEMMGISBehaviours.cmake
+index c74ead7333..ae346b37b4 100644
+--- a/cmake/modules/MFEMMGISBehaviours.cmake
++++ b/cmake/modules/MFEMMGISBehaviours.cmake
+@@ -37,8 +37,14 @@
+ # included files) are dependencies of the libraries. The custom target
+ # <target> builds the libraries (built by default, unless EXCLUDE_FROM_ALL
+ # is given). The variable <target>_BEHAVIOURS_DIRECTORY is set to <dir> in
+-# the scope of the caller, and <target>_HAVE_GPU_BEHAVIOURS to true if the
+-# libraries for the GPU are built.
++# the scope of the caller, <target>_HAVE_GPU_BEHAVIOURS to true if the
++# libraries for the GPU are built, and <target>_REAL_TYPE to the numerical
++# type of the behaviours (double or float).
++#
++# The behaviours are generated with the numerical type of mfem-mgis, the one
++# of MFEM (global property MFEM_MGIS_REAL_TYPE, double if it is not set),
++# given to mfront by its option real_type (generic and generic-parallel
++# interfaces): MGIS refuses a behaviour of another type at loading.
+ #
+ # At run time, mfem_mgis::getBehavioursLibrary(<dir>, <name>) returns the
+ # library computing where the execution settings place the behaviours (see
+@@ -72,6 +78,16 @@ function(mfem_mgis_add_behaviours_library target)
+   endforeach()
+   set(_directory "${CMAKE_CURRENT_BINARY_DIR}/${target}")
+   set(_suffix "${CMAKE_SHARED_LIBRARY_SUFFIX}")
++  # numerical type of the behaviours, the one of mfem-mgis
++  get_property(_real_type GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE)
++  if(NOT _real_type)
++    set(_real_type double)
++  endif()
++  set(_real_type_option)
++  if(NOT _real_type STREQUAL "double")
++    set(_real_type_option "--dsl-option=real_type:${_real_type}")
++  endif()
++  set(${target}_REAL_TYPE ${_real_type} PARENT_SCOPE)
+   # backend of the generic-parallel interface for the GPU of MFEM
+   get_property(_cuda GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
+   get_property(_hip GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP)
+@@ -141,7 +157,8 @@ function(mfem_mgis_add_behaviours_library target)
+   file(MAKE_DIRECTORY "${_directory}/cpu-build" "${_directory}/cpu")
+   add_custom_command(
+     OUTPUT ${_outputs}
+-    COMMAND "${MFRONT}" --obuild --interface=generic ${_include} ${_sources}
++    COMMAND "${MFRONT}" --obuild --interface=generic ${_real_type_option}
++            ${_include} ${_sources}
+     ${_links}
+     WORKING_DIRECTORY "${_directory}/cpu-build"
+     DEPENDS ${_sources} ${_b_DEPENDS}
+@@ -163,7 +180,7 @@ function(mfem_mgis_add_behaviours_library target)
+     add_custom_command(
+       OUTPUT ${_outputs}
+       COMMAND ${_gpu_environment} "${MFRONT}" --obuild
+-              --interface=generic-parallel
++              --interface=generic-parallel ${_real_type_option}
+               "--configuration-file=${_gpu_configuration}" ${_include}
+               ${_sources}
+       ${_links}
+diff --git a/include/MFEMMGIS/MeanThermodynamicForces.ixx b/include/MFEMMGIS/MeanThermodynamicForces.ixx
+index 543e359efc..a0d5c6596e 100644
+--- a/include/MFEMMGIS/MeanThermodynamicForces.ixx
++++ b/include/MFEMMGIS/MeanThermodynamicForces.ixx
+@@ -11,6 +11,7 @@
+ 
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ 
+ namespace mfem_mgis {
+@@ -66,11 +67,11 @@ namespace mfem_mgis {
+       }
+       for (const auto &mi : p.getAssignedMaterialsIdentifiers()) {
+         real v = 0;
+-        std::vector<double> tf_integral(tf_integrals[mi].size(), 0);
++        std::vector<real> tf_integral(tf_integrals[mi].size(), 0);
+         MPI_Reduce(tf_integrals[mi].data(), tf_integral.data(),
+-                   tf_integrals[mi].size(), MPI_DOUBLE, MPI_SUM, 0,
++                   tf_integrals[mi].size(), mpi_type<real>, MPI_SUM, 0,
+                    getMPICommunicator(p));
+-        MPI_Reduce(&volumes[mi], &v, 1, MPI_DOUBLE, MPI_SUM, 0,
++        MPI_Reduce(&volumes[mi], &v, 1, mpi_type<real>, MPI_SUM, 0,
+                    getMPICommunicator(p));
+         if (rank == 0) {
+           this->writeResults(tf_integral, v);
+diff --git a/include/MFEMMGIS/Parameter.hxx b/include/MFEMMGIS/Parameter.hxx
+index 4c152cd94b..bfc30d8056 100644
+--- a/include/MFEMMGIS/Parameter.hxx
++++ b/include/MFEMMGIS/Parameter.hxx
+@@ -23,11 +23,16 @@ namespace mfem_mgis {
+   // forward declaration
+   struct Parameter;
+ 
+-  //! \brief variant type for parameter values
++  /*!
++   * \brief variant type for parameter values. The floating-point values are
++   * stored as `double`, whatever the numerical type of mfem-mgis (`real`):
++   * `{"Tolerance", 1e-10}` is valid with float too, and the values are
++   * converted when they are read as `real` (see `get<float>`).
++   */
+   using ParameterVariant = std::variant<std::monostate,
+                                         bool,
+                                         size_type,
+-                                        real,
++                                        double,
+                                         std::string,
+                                         std::vector<Parameter>,
+                                         Parameters,
+@@ -37,7 +42,8 @@ namespace mfem_mgis {
+   template <typename T>
+   concept ParameterValueConcept =
+       ((std::same_as<T, bool>) || (std::same_as<T, size_type>) ||
+-       (std::same_as<T, real>) || (std::same_as<T, std::string>) ||
++       (std::same_as<T, double>) || (std::same_as<T, real>) ||
++       (std::same_as<T, std::string>) ||
+        (std::same_as<T, std::vector<Parameter>>) ||
+        (std::same_as<T, Parameters>) ||
+        (std::same_as<T, std::function<real(const real)>>));
+@@ -133,13 +139,13 @@ namespace mfem_mgis {
+ 
+   //! \brief Type alias for result type
+   template <typename ResultType>
+-  using GetResultType = std::conditional_t<std::is_same_v<ResultType, double>,
++  using GetResultType = std::conditional_t<std::is_floating_point_v<ResultType>,
+                                            ResultType,
+                                            const ResultType&>;
+   //! \brief Type alias for optional result type
+   template <typename ResultType>
+   using OptionalGetResultType =
+-      std::conditional_t<std::is_same_v<ResultType, double>,
++      std::conditional_t<std::is_floating_point_v<ResultType>,
+                          std::optional<ResultType>,
+                          OptionalReference<const ResultType>>;
+ 
+@@ -158,6 +164,14 @@ namespace mfem_mgis {
+    */
+   template <>
+   [[nodiscard]] bool is<double>(const Parameter&) noexcept;
++  /*!
++   * \brief specialisation of the `is` function for float: the floating-point
++   * values are stored as double (see `ParameterVariant`)
++   * \param[in] p: parameter
++   * \return true if the given parameter is a double or an integer
++   */
++  template <>
++  [[nodiscard]] bool is<float>(const Parameter&) noexcept;
+   /*!
+    * \brief get the value of the parameter if it has the expected type
+    * \tparam ResultType: expected type of the parameter
+@@ -178,6 +192,15 @@ namespace mfem_mgis {
+   template <>
+   [[nodiscard]] OptionalGetResultType<double> get<double>(
+       Context&, const Parameter&) noexcept;
++  /*!
++   * \brief specialisation of the `get` function for float: the value, stored
++   * as double, is converted
++   * \param[in, out] ctx: execution context
++   * \param[in] p: parameter
++   */
++  template <>
++  [[nodiscard]] OptionalGetResultType<float> get<float>(
++      Context&, const Parameter&) noexcept;
+   /*!
+    * \brief get the value of the parameter
+    * \tparam ResultType: expected type of the parameter
+@@ -208,6 +231,16 @@ namespace mfem_mgis {
+   template <>
+   [[nodiscard]] GetResultType<double> get<double>(attributes::Throwing throwing,
+                                                   const Parameter&);
++  /*!
++   * \brief specialisation of the `get` function for float: the value, stored
++   * as double, is converted
++   * \param[in] throwing: dummy attribute to indicate that this function may
++   * throw an exception
++   * \param[in] p: parameter
++   */
++  template <>
++  [[nodiscard]] GetResultType<float> get<float>(attributes::Throwing throwing,
++                                                const Parameter&);
+ 
+   /*!
+    * \brief check if the given parameter exists
+diff --git a/include/MFEMMGIS/Parameter.ixx b/include/MFEMMGIS/Parameter.ixx
+index fbbc5a2602..d032ae99f0 100644
+--- a/include/MFEMMGIS/Parameter.ixx
++++ b/include/MFEMMGIS/Parameter.ixx
+@@ -50,6 +50,11 @@ namespace mfem_mgis {
+            std::holds_alternative<int>(p.as_std_variant());
+   }
+ 
++  template <>
++  inline bool is<float>(const Parameter& p) noexcept {
++    return is<double>(p);
++  }
++
+   template <typename ResultType>
+   OptionalGetResultType<ResultType> get(Context& ctx,
+                                         const Parameter& p) noexcept {
+@@ -72,6 +77,16 @@ namespace mfem_mgis {
+     return std::get<double>(p.as_std_variant());
+   }  // end of get
+ 
++  template <>
++  inline OptionalGetResultType<float> get<float>(Context& ctx,
++                                                 const Parameter& p) noexcept {
++    const auto v = get<double>(ctx, p);
++    if (!v.has_value()) {
++      return {};
++    }
++    return static_cast<float>(*v);
++  }  // end of get
++
+   template <typename ResultType>
+   GetResultType<ResultType> get(attributes::Throwing, const Parameter& p) {
+     if (!is<ResultType>(p)) {
+@@ -92,6 +107,12 @@ namespace mfem_mgis {
+     return std::get<double>(p.as_std_variant());
+   }  // end of get
+ 
++  template <>
++  inline GetResultType<float> get<float>(attributes::Throwing,
++                                         const Parameter& p) {
++    return static_cast<float>(get<double>(throwing, p));
++  }  // end of get
++
+   template <typename ResultType>
+   bool is(attributes::Throwing, const Parameters& p, std::string_view n) {
+     const auto& v = p.get(throwing, n);
+diff --git a/src/AdaptiveLinearSolverTolerance.cxx b/src/AdaptiveLinearSolverTolerance.cxx
+index 64c2ff4fe3..8a6d09662b 100644
+--- a/src/AdaptiveLinearSolverTolerance.cxx
++++ b/src/AdaptiveLinearSolverTolerance.cxx
+@@ -52,8 +52,9 @@ namespace mfem_mgis {
+       return {};
+     }
+     // the default initial tolerance is bounded by the maximum one
+-    const auto o0 = get_if<double>(ctx, opts, "InitialTolerance",
+-                                   std::min(t.initial_tolerance, *omax));
++    const auto o0 = get_if<double>(
++        ctx, opts, "InitialTolerance",
++        std::min(static_cast<double>(t.initial_tolerance), *omax));
+     const auto ogamma = get_if<double>(ctx, opts, "Gamma", t.gamma);
+     const auto oalpha = get_if<double>(ctx, opts, "Alpha", t.alpha);
+     const auto othreshold = get_if<double>(ctx, opts, "Threshold", t.threshold);
+diff --git a/src/ComputeResultantForceOnBoundary.cxx b/src/ComputeResultantForceOnBoundary.cxx
+index bfe9d39d06..ba41b1601e 100644
+--- a/src/ComputeResultantForceOnBoundary.cxx
++++ b/src/ComputeResultantForceOnBoundary.cxx
+@@ -8,6 +8,7 @@
+ #include <utility>
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/BoundaryUtilities.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/ComputeResultantForceOnBoundary.hxx"
+@@ -94,7 +95,7 @@ namespace mfem_mgis {
+     MPI_Comm_rank(getMPICommunicator(p), &rank);
+     mfem::Vector gF;
+     gF.SetSize(F.Size());
+-    MPI_Reduce(F.GetData(), gF.GetData(), F.Size(), MPI_DOUBLE, MPI_SUM, 0,
++    MPI_Reduce(F.GetData(), gF.GetData(), F.Size(), mpi_type<real>, MPI_SUM, 0,
+                getMPICommunicator(p));
+     if (rank == 0) {
+       writeResultantForce(this->out, gF, t + dt);
+diff --git a/src/MFEMMGISConfig.cmake.in b/src/MFEMMGISConfig.cmake.in
+index 046d7efd82..6b5334588b 100644
+--- a/src/MFEMMGISConfig.cmake.in
++++ b/src/MFEMMGISConfig.cmake.in
+@@ -86,6 +86,11 @@ if(MFEMMGIS_HAVE_AMGX AND (NOT TARGET AMGX::amgxsh))
+   endif()
+ endif()
+ 
++# numerical type of mfem-mgis (double or float), the one of MFEM, of MGIS
++# and of the behaviours (given to mfront by mfem_mgis_add_behaviours_library)
++set(MFEMMGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)
++set_property(GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)
++
+ # true if mfem-mgis initializes Kokkos on demand (option enable-kokkos):
+ # Kokkos is used through the shared library MFEMMGISKokkos, which finds it
+ set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
+diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
+index 35b3cbca10..cf0a849aeb 100644
+--- a/src/MaterialArrays.cxx
++++ b/src/MaterialArrays.cxx
+@@ -8,6 +8,7 @@
+ #include <chrono>
+ #include <cstddef>
+ #include <algorithm>
++#include <type_traits>
+ #include "mfem/general/device.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MGIS/MemoryLocation.hxx"
+@@ -15,6 +16,11 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MFEMMGIS/MaterialArrays.hxx"
+ 
++// the arrays of MFEM are given to MGIS without conversion: both libraries
++// use the same numerical type (checked at the configuration of mfem-mgis)
++static_assert(std::is_same_v<mfem::real_t, mfem_mgis::real>,
++              "the numerical types of MFEM and of MGIS differ");
++
+ namespace mfem_mgis {
+ 
+   //! \return the counters of the copies of the arrays of the materials
+diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
+index 541f5201c5..5552925967 100644
+--- a/src/PartialQuadratureFunction.cxx
++++ b/src/PartialQuadratureFunction.cxx
+@@ -771,8 +771,8 @@ namespace mfem_mgis {
+     PartialQuadratureFunctionsScalarCoefficient& operator=(
+         const PartialQuadratureFunctionsScalarCoefficient&) = default;
+     //
+-    double Eval(mfem::ElementTransformation& tr,
+-                const mfem::IntegrationPoint& i) override {
++    mfem::real_t Eval(mfem::ElementTransformation& tr,
++                      const mfem::IntegrationPoint& i) override {
+       const auto mid = tr.Attribute;
+       const auto p = this->functions.find(mid);
+       if (p == this->functions.end()) {
+@@ -811,8 +811,8 @@ namespace mfem_mgis {
+     PartialQuadratureFunctionsScalarCoefficientII& operator=(
+         const PartialQuadratureFunctionsScalarCoefficientII&) = delete;
+     //
+-    double Eval(mfem::ElementTransformation& tr,
+-                const mfem::IntegrationPoint& i) override {
++    mfem::real_t Eval(mfem::ElementTransformation& tr,
++                      const mfem::IntegrationPoint& i) override {
+       const auto mid = tr.Attribute;
+       const auto p = this->functions.find(mid);
+       if (p == this->functions.end()) {
+diff --git a/src/PeriodicNonLinearEvolutionProblem.cxx b/src/PeriodicNonLinearEvolutionProblem.cxx
+index 88c6563989..6a920b1598 100644
+--- a/src/PeriodicNonLinearEvolutionProblem.cxx
++++ b/src/PeriodicNonLinearEvolutionProblem.cxx
+@@ -120,7 +120,7 @@ namespace mfem_mgis {
+     auto refcoord = std::array<real, 3>{};
+     auto id_unk = std::array<int, 3>{};
+     for (int j = 0; j < dim; ++j) {
+-      refcoord[j] = std::numeric_limits<double>::max();
++      refcoord[j] = std::numeric_limits<real>::max();
+       id_unk[j] = -1;
+     }
+     // Traversal of all dofs to detect which one is minimal in X, Y or Z
+@@ -255,7 +255,7 @@ namespace mfem_mgis {
+     auto refcoord = std::array<real, 3>{};
+     auto id_unk = std::array<int, 3>{};
+     for (int j = 0; j < dim; ++j) {
+-      refcoord[j] = std::numeric_limits<double>::max();
++      refcoord[j] = std::numeric_limits<real>::max();
+       id_unk[j] = -1;
+     }
+ 
+-- 
+2.43.0
+

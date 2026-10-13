@@ -12,6 +12,13 @@ endif()
 
 find_package(MFEMMGIS REQUIRED)
 find_program(MFRONT mfront REQUIRED)
+# the behaviours use the numerical type of mfem-mgis, given by MFEM (global
+# property MFEM_MGIS_REAL_TYPE, double if it is not set)
+get_property(MFEM_MGIS_REAL_TYPE GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE)
+set(MFRONT_DSL_OPTIONS)
+if(MFEM_MGIS_REAL_TYPE AND (NOT MFEM_MGIS_REAL_TYPE STREQUAL "double"))
+  set(MFRONT_DSL_OPTIONS "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
+endif()
 # the behaviours are generated again when MFront changes: its executable
 # and its library, which holds the code generators
 get_filename_component(_mfront_prefix "${MFRONT}" DIRECTORY)
@@ -46,7 +53,8 @@ function(add_mfront_library target)
   set(wd "${CMAKE_CURRENT_BINARY_DIR}")
   add_custom_command(
     OUTPUT "${wd}/src/libBehaviour.so"
-    COMMAND ${MFRONT} --obuild --interface=generic ${ARGN}
+    COMMAND ${MFRONT} --obuild --interface=generic ${MFRONT_DSL_OPTIONS}
+            ${ARGN}
     WORKING_DIRECTORY "${wd}"
     DEPENDS ${ARGN} ${MFRONT_DEPENDENCIES}
     COMMENT "MFront: behaviours of ${target}")
@@ -92,7 +100,8 @@ function(add_generic_parallel_mfront_library target name configuration suffix)
   add_custom_command(
     OUTPUT ${_libraries}
     COMMAND ${MFRONT} --obuild --interface=generic-parallel
-            "--configuration-file=${configuration}" ${_include}
+            "--configuration-file=${configuration}" ${MFRONT_DSL_OPTIONS}
+            ${_include}
             ${_gp_UNPARSED_ARGUMENTS}
     WORKING_DIRECTORY "${_directory}"
     DEPENDS ${_gp_UNPARSED_ARGUMENTS} ${MFRONT_DEPENDENCIES}

@@ -1,0 +1,88 @@
+From d0570f5c5e62c4b083dc2afa3ed80e01c474d746 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:53:26 +0200
+Subject: [PATCH] MFront sources regenerated when mfront changes
+
+The custom commands calling mfront depend on the mfront executable, as in
+MGIS: the behaviours are generated again by a new version of mfront (for
+instance, the bounds of the convergence criteria for float are now set by
+MFront at the generation).
+---
+ cmake/modules/MFEMMGISBehaviours.cmake | 4 ++--
+ cmake/modules/mfront-behaviours.cmake  | 2 +-
+ cmake/modules/tfel.cmake               | 2 +-
+ tests/CMakeLists.txt                   | 3 ++-
+ 4 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/cmake/modules/MFEMMGISBehaviours.cmake b/cmake/modules/MFEMMGISBehaviours.cmake
+index ae346b37b4..17bba2460b 100644
+--- a/cmake/modules/MFEMMGISBehaviours.cmake
++++ b/cmake/modules/MFEMMGISBehaviours.cmake
+@@ -161,7 +161,7 @@ function(mfem_mgis_add_behaviours_library target)
+             ${_include} ${_sources}
+     ${_links}
+     WORKING_DIRECTORY "${_directory}/cpu-build"
+-    DEPENDS ${_sources} ${_b_DEPENDS}
++    DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
+     COMMENT "MFront: behaviours of ${target} (CPU)")
+   set(_all ${_outputs})
+   # libraries for the GPU: generic-parallel interface
+@@ -185,7 +185,7 @@ function(mfem_mgis_add_behaviours_library target)
+               ${_sources}
+       ${_links}
+       WORKING_DIRECTORY "${_directory}/gpu-build"
+-      DEPENDS ${_sources} ${_b_DEPENDS}
++      DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
+       COMMENT "MFront: behaviours of ${target} (GPU, ${_gpu_backend})")
+     list(APPEND _all ${_outputs})
+     set(${target}_HAVE_GPU_BEHAVIOURS TRUE PARENT_SCOPE)
+diff --git a/cmake/modules/mfront-behaviours.cmake b/cmake/modules/mfront-behaviours.cmake
+index 10ce4b5e03..74098b0ba3 100644
+--- a/cmake/modules/mfront-behaviours.cmake
++++ b/cmake/modules/mfront-behaviours.cmake
+@@ -8,7 +8,7 @@ function(add_mfront_behaviour_sources lib  file)
+     COMMAND "${MFRONT}"
+     ARGS    "--interface=generic" ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+     ARGS     "${mfront_file}"
+-    DEPENDS "${mfront_file}"
++    DEPENDS "${mfront_file}" "${MFRONT}"
+     COMMENT "mfront source ${mfront_file}")
+   set(${lib}_SOURCES ${mfront_output1} ${mfront_output2}
+     ${${lib}_SOURCES} PARENT_SCOPE)
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 453baada62..c0a171fecc 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -114,7 +114,7 @@ IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
+       COMMAND "${MFRONT}"
+       ARGS    "--search-path=${CMAKE_CURRENT_SOURCE_DIR}"
+       ARGS    "--interface=mfront" "${mfront_file}"
+-      DEPENDS "${mfront_file}"
++      DEPENDS "${mfront_file}" "${MFRONT}"
+       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+       COMMENT "mfront source ${mfront_file}")
+     set(${name}_dependencies_SOURCES
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 00049af92b..4d7083dc02 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -904,7 +904,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+                 "--configuration-file=${_configuration}"
+                 ${batch_integration_test_behaviours}
+         WORKING_DIRECTORY "${_directory}"
+-        DEPENDS ${batch_integration_test_behaviours}
++        DEPENDS ${batch_integration_test_behaviours} "${MFRONT}"
+         COMMENT "MFront: generic-parallel behaviour (${_backend})")
+       add_custom_target(GenericParallelBehaviour-${_backend}
+                         DEPENDS "${_library}" "${_uo2_library}")
+@@ -1171,6 +1171,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+                 "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
+         WORKING_DIRECTORY "${_directory}"
+         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
++                "${MFRONT}"
+         COMMENT "MFront: generic-parallel model (kokkos)")
+       add_custom_target(GenericParallelBehaviour-kokkos DEPENDS "${_library}")
+       add_dependencies(build-tests GenericParallelBehaviour-kokkos)
+-- 
+2.43.0
+

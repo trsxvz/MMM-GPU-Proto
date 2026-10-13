@@ -37,8 +37,14 @@
 # included files) are dependencies of the libraries. The custom target
 # <target> builds the libraries (built by default, unless EXCLUDE_FROM_ALL
 # is given). The variable <target>_BEHAVIOURS_DIRECTORY is set to <dir> in
-# the scope of the caller, and <target>_HAVE_GPU_BEHAVIOURS to true if the
-# libraries for the GPU are built.
+# the scope of the caller, <target>_HAVE_GPU_BEHAVIOURS to true if the
+# libraries for the GPU are built, and <target>_REAL_TYPE to the numerical
+# type of the behaviours (double or float).
+#
+# The behaviours are generated with the numerical type of mfem-mgis, the one
+# of MFEM (global property MFEM_MGIS_REAL_TYPE, double if it is not set),
+# given to mfront by its option real_type (generic and generic-parallel
+# interfaces): MGIS refuses a behaviour of another type at loading.
 #
 # At run time, mfem_mgis::getBehavioursLibrary(<dir>, <name>) returns the
 # library computing where the execution settings place the behaviours (see
@@ -72,6 +78,16 @@ function(mfem_mgis_add_behaviours_library target)
   endforeach()
   set(_directory "${CMAKE_CURRENT_BINARY_DIR}/${target}")
   set(_suffix "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  # numerical type of the behaviours, the one of mfem-mgis
+  get_property(_real_type GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE)
+  if(NOT _real_type)
+    set(_real_type double)
+  endif()
+  set(_real_type_option)
+  if(NOT _real_type STREQUAL "double")
+    set(_real_type_option "--dsl-option=real_type:${_real_type}")
+  endif()
+  set(${target}_REAL_TYPE ${_real_type} PARENT_SCOPE)
   # backend of the generic-parallel interface for the GPU of MFEM
   get_property(_cuda GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
   get_property(_hip GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_HIP)
@@ -141,10 +157,11 @@ function(mfem_mgis_add_behaviours_library target)
   file(MAKE_DIRECTORY "${_directory}/cpu-build" "${_directory}/cpu")
   add_custom_command(
     OUTPUT ${_outputs}
-    COMMAND "${MFRONT}" --obuild --interface=generic ${_include} ${_sources}
+    COMMAND "${MFRONT}" --obuild --interface=generic ${_real_type_option}
+            ${_include} ${_sources}
     ${_links}
     WORKING_DIRECTORY "${_directory}/cpu-build"
-    DEPENDS ${_sources} ${_b_DEPENDS}
+    DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
     COMMENT "MFront: behaviours of ${target} (CPU)")
   set(_all ${_outputs})
   # libraries for the GPU: generic-parallel interface
@@ -163,12 +180,12 @@ function(mfem_mgis_add_behaviours_library target)
     add_custom_command(
       OUTPUT ${_outputs}
       COMMAND ${_gpu_environment} "${MFRONT}" --obuild
-              --interface=generic-parallel
+              --interface=generic-parallel ${_real_type_option}
               "--configuration-file=${_gpu_configuration}" ${_include}
               ${_sources}
       ${_links}
       WORKING_DIRECTORY "${_directory}/gpu-build"
-      DEPENDS ${_sources} ${_b_DEPENDS}
+      DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
       COMMENT "MFront: behaviours of ${target} (GPU, ${_gpu_backend})")
     list(APPEND _all ${_outputs})
     set(${target}_HAVE_GPU_BEHAVIOURS TRUE PARENT_SCOPE)

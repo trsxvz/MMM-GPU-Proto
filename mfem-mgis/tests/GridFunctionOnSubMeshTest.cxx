@@ -27,6 +27,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+#include "Tolerance.hxx"
 
 struct {
   const char* mesh_file = nullptr;
@@ -123,7 +124,9 @@ struct GridFunctionOnSubMeshTest final : public tfel::tests::TestCase {
     // no function given
     TFEL_TESTS_CHECK(!updateGridFunction<parallel>(ctx2, *og, {}));
     *og -= 1;
-    TFEL_TESTS_CHECK(og->Normlinf() < 1e-10);
+    // in float, the largest norm measured is 3.6e-7
+    TFEL_TESTS_CHECK(og->Normlinf() <
+                     mfem_mgis::unit_tests::tolerance(1e-10, 5e-6));
   }  // end of test1
   //! \brief function defined on a boundary
   template <bool parallel>
@@ -186,13 +189,16 @@ struct GridFunctionOnSubMeshTest final : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(isValid(og));
     TFEL_TESTS_ASSERT(updateGridFunction<parallel>(ctx, *og, {qf}));
     *og -= 1;
-    TFEL_TESTS_CHECK(og->Normlinf() < 1e-10);
+    // in float, the largest norm measured is 3.6e-7
+    TFEL_TESTS_CHECK(og->Normlinf() <
+                     mfem_mgis::unit_tests::tolerance(1e-10, 5e-6));
   }  // end of test2
   //! \brief update of functions from a linear field defined on another mesh
   template <bool parallel>
   void test3() {
     using namespace mfem_mgis;
-    constexpr auto eps = real{1e-12};
+    // in float, the largest errors measured are 1.9e-6
+    constexpr auto eps = mfem_mgis::unit_tests::tolerance(1e-12, 2e-5);
     auto ctx = Context{};
     auto fed = makeFiniteElementDiscretization(ctx);
     auto& fespace = fed.getFiniteElementSpace<parallel>();

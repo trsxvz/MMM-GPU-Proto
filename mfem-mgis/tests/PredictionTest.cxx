@@ -125,7 +125,17 @@ template <bool parallel>
                          {"RelativeTolerance", 1e-12},
                          {"MaximumNumberOfIterations", 5000}});
     } else {
+#ifdef MFEM_USE_SUITESPARSE
       return f.generate(ctx, "UMFPackSolver", fespace, {});
+#else  /* MFEM_USE_SUITESPARSE */
+      // UMFPACK is not available (for instance with MFEM in single
+      // precision)
+      return f.generate(ctx, "CGSolver", fespace,
+                        {{"VerbosityLevel", 1},
+                         {"AbsoluteTolerance", 1e-12},
+                         {"RelativeTolerance", 1e-12},
+                         {"MaximumNumberOfIterations", 5000}});
+#endif /* MFEM_USE_SUITESPARSE */
     }
   }();
   if (isInvalid(ls)) {

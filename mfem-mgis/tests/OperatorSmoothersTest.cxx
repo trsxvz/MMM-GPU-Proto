@@ -20,12 +20,22 @@
 #include <iostream>
 #include "mfem.hpp"
 #include "MFEMMGIS/Config.hxx"
+#include "Tolerance.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
+
+/*!
+ * \brief tolerance on the relative residual of the resolutions. In float,
+ * the conjugate gradient stops at a relative residual of 1.2e-5 (see
+ * `mfem_mgis::boundRelativeTolerance`), the residual computed afterwards
+ * reaching 2.1e-5
+ */
+static constexpr auto smoothers_residual_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-9, 2e-4);
 //! \brief if true, the computations are parallel
 static bool parallel = false;
 
@@ -231,7 +241,7 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
          {std::pair{ra, "assembled operator"},
           std::pair{rw, "operator applied without assembly"},
           std::pair{rs, "scaled operator"}}) {
-      check(r.converged && (r.residual < 1e-9),
+      check(r.converged && (r.residual < smoothers_residual_tolerance),
             name + ", " + kind + ": resolution");
     }
     check(std::abs(ra.iterations - rw.iterations) <= 1,

@@ -1,0 +1,38 @@
+From 7fd0f68596dff6d3a15698d21c45eb17d69e9745 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 22:31:22 +0200
+Subject: [PATCH] Tolerance.hxx installed with the examples 1 and 3
+
+The sources of UniaxialTensileTest and TwoLayerCube, installed as the
+examples 1 and 3, include Tolerance.hxx since they run with float: the
+examples built from the installation did not compile.
+---
+ tests/CMakeLists.txt | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 4e5ca66387..162de02776 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1738,7 +1738,8 @@ endif()
+ # Install the example 1, based on UniaxialTensileTest
+ 
+ set(EX1_DIR "share/mfem-mgis/examples/ex1")
+-install(FILES UniaxialTensileTest.cxx IsotropicLinearHardeningPlasticity.mfront
++install(FILES UniaxialTensileTest.cxx Tolerance.hxx
++              IsotropicLinearHardeningPlasticity.mfront
+               cube.mesh references/IsotropicLinearHardeningPlasticity.ref
+         DESTINATION ${EX1_DIR})
+ 
+@@ -1748,7 +1749,7 @@ install(
+   RENAME CMakeLists.txt)
+ 
+ set(EX3_DIR "share/mfem-mgis/examples/ex3")
+-install(FILES TwoLayerCube.cxx IsotropicLinearElasticity.mfront
++install(FILES TwoLayerCube.cxx Tolerance.hxx IsotropicLinearElasticity.mfront
+               cube_2mat_per.mesh Box.med Box.per
+         DESTINATION ${EX3_DIR})
+ 
+-- 
+2.43.0
+

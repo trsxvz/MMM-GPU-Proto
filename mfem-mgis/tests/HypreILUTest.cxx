@@ -125,9 +125,14 @@ int main(int argc, char** argv) {
     check(nd == n0, "the default level of fill is not zero on a GPU");
     check(n2.empty(), "a level of fill of 2 is not refused on a GPU");
   } else {
-    // ILU(1) by default
-    check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
-          "the default level of fill is not the one of MFEM");
+    // ILU(1) by default. In float, the iterations stop at a relative
+    // residual of 1.2e-5 (see `mfem_mgis::boundRelativeTolerance`), where
+    // ILU(0) and ILU(1) need the same number of iterations (9): the default
+    // level of fill can not be distinguished from zero
+    if constexpr (sizeof(real) == sizeof(double)) {
+      check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
+            "the default level of fill is not the one of MFEM");
+    }
     check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
           "level of fill 2: numbers of iterations");
     check((n2.size() == 2) && (n2[0] < n0[0]),

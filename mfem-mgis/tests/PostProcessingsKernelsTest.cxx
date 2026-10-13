@@ -31,6 +31,8 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/PostProcessingsComputation.hxx"
 #include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+#include "MFEMMGIS/MPI.hxx"
+#include "Tolerance.hxx"
 
 struct TestParameters {
   //! \brief mesh
@@ -91,7 +93,8 @@ static mfem_mgis::real getMaximumAbsoluteValue(const mfem::Vector& v) {
   }
 #ifdef MFEM_USE_MPI
   if constexpr (parallel) {
-    MPI_Allreduce(MPI_IN_PLACE, &r, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &r, 1, mfem_mgis::mpi_type<mfem_mgis::real>,
+                  MPI_MAX, MPI_COMM_WORLD);
   }
 #endif /* MFEM_USE_MPI */
   return r;
@@ -336,28 +339,36 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
         "unexpected number of computations by kernels (" + std::to_string(nk) +
         " instead of " + std::to_string(expected) + ")");
   }
+  // relative tolerances. In float, the largest differences measured,
+  // relative to the largest values, are 1e-6 for the values at the nodes and
+  // 4.4e-5 for the L2 projections (tetrahedra, two processes: conjugate
+  // gradient with a relative tolerance bounded to 1.2e-5)
+  using mfem_mgis::unit_tests::tolerance;
   auto success = true;
   for (size_type i = 0; i != materials.size(); ++i) {
     const auto m = std::to_string(materials[i]);
     success = check(ctx, "measure of material " + m, r1->measures[i],
-                    r2->measures[i], 1e-12) &&
+                    r2->measures[i], tolerance(1e-12, 1e-5)) &&
               success;
     success = check(ctx, "integral on material " + m, r1->integrals[i],
-                    r2->integrals[i], 1e-12) &&
+                    r2->integrals[i], tolerance(1e-12, 1e-5)) &&
               success;
   }
   for (size_type i = 0; i != 2; ++i) {
     const auto f = std::string{i == 0 ? "scalar" : "vector"} + " function";
-    success = check<parallel>(ctx, "values at the nodes of the " + f,
-                              r1->nodes[i], r2->nodes[i], 1e-12) &&
-              success;
-    success = check<parallel>(ctx, "L2 projection of the " + f,
-                              r1->projections[i], r2->projections[i], 1e-10) &&
-              success;
-    success = check<parallel>(
-                  ctx, "implicit gradient regularization of the " + f,
-                  r1->regularizations[i], r2->regularizations[i], 1e-10) &&
-              success;
+    success =
+        check<parallel>(ctx, "values at the nodes of the " + f, r1->nodes[i],
+                        r2->nodes[i], tolerance(1e-12, 1e-5)) &&
+        success;
+    success =
+        check<parallel>(ctx, "L2 projection of the " + f, r1->projections[i],
+                        r2->projections[i], tolerance(1e-10, 1e-3)) &&
+        success;
+    success =
+        check<parallel>(ctx, "implicit gradient regularization of the " + f,
+                        r1->regularizations[i], r2->regularizations[i],
+                        tolerance(1e-10, 1e-4)) &&
+        success;
   }
   return success;
 }  // end of test

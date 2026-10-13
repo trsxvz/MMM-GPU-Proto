@@ -1,0 +1,120 @@
+From d60f79ad4886c5ad4f1a1920c150db8b7095bc8d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 20:54:09 +0200
+Subject: [PATCH] Relative tolerances of the solvers bounded for float
+
+boundRelativeTolerance returns the given relative tolerance with double,
+and bounds it below by 100 times the machine epsilon with float (1.2e-5):
+the relative residuals of the nonlinear and linear problems of the tests
+stagnate at about ten epsilons in float (1.2e-6), so that a bound of 10
+epsilons left the Newton solver of some tests above it. The relative
+tolerances given to the iterative solvers of MFEM (RelativeTolerance), to
+the Krylov solvers of hypre (Tolerance) and by setRelativeTolerance are
+bounded; the absolute tolerances, which have a unit, are unchanged.
+---
+ include/MFEMMGIS/Utilities/SolverUtilities.hxx | 13 +++++++++++++
+ src/LinearSolverFactory.cxx                    |  6 +++---
+ src/SolverUtilities.cxx                        | 17 +++++++++++++++--
+ 3 files changed, 31 insertions(+), 5 deletions(-)
+
+diff --git a/include/MFEMMGIS/Utilities/SolverUtilities.hxx b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+index c40166b163..c3523b312a 100644
+--- a/include/MFEMMGIS/Utilities/SolverUtilities.hxx
++++ b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+@@ -146,6 +146,19 @@ namespace mfem_mgis {
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool setRelativeTolerance(
+       LinearSolver& ls, const real tol) noexcept;
++  /*!
++   * \return a relative tolerance reachable with the numerical type of
++   * mfem-mgis: the given tolerance with double, bounded below by 100 times
++   * the machine epsilon with float (1.2e-5): the relative residuals of the
++   * nonlinear and linear problems stagnate at about ten epsilons in float
++   * (1.2e-6 for the tests of mfem-mgis).
++   * The relative tolerances given to the solvers (`RelativeTolerance` and
++   * `Tolerance` parameters, `setRelativeTolerance`) are bounded this way;
++   * the absolute tolerances, which have a unit, are not changed.
++   * \param[in] tol: relative tolerance
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] real boundRelativeTolerance(
++      const double tol) noexcept;
+ 
+ }  // end of namespace mfem_mgis
+ 
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 1b5c8f6d53..6968a1840c 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -1024,7 +1024,7 @@ namespace mfem_mgis {
+         if (isInvalid(otol)) {
+           return {};
+         }
+-        s->SetTol(*otol);
++        s->SetTol(boundRelativeTolerance(*otol));
+       }
+       if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+         const auto oiterMax =
+@@ -1104,7 +1104,7 @@ namespace mfem_mgis {
+         if (isInvalid(otol)) {
+           return {};
+         }
+-        s->SetTol(*otol);
++        s->SetTol(boundRelativeTolerance(*otol));
+       }
+       if (contains(params, Krylov_Dimension)) {
+         const auto odim = get<int>(ctx, params, Krylov_Dimension);
+@@ -1196,7 +1196,7 @@ namespace mfem_mgis {
+         if (isInvalid(otol)) {
+           return {};
+         }
+-        s->SetTol(*otol);
++        s->SetTol(boundRelativeTolerance(*otol));
+       }
+       if (contains(params, Krylov_Dimension)) {
+         const auto odim = get<int>(ctx, params, Krylov_Dimension);
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 11a36d19c2..82c7b0d137 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -6,7 +6,9 @@
+  * \date   30/03/2021
+  */
+ 
++#include <limits>
+ #include <optional>
++#include <type_traits>
+ #include "mfem/linalg/solvers.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/linalg/hypre.hpp"
+@@ -55,7 +57,7 @@ namespace mfem_mgis {
+       s.SetPrintLevel(*verbosity);
+     }
+     if (rtol.has_value()) {
+-      s.SetRelTol(*rtol);
++      s.SetRelTol(boundRelativeTolerance(*rtol));
+     }
+     if (atol.has_value()) {
+       s.SetAbsTol(*atol);
+@@ -259,7 +261,18 @@ namespace mfem_mgis {
+     return {};
+   }  // end of getRelativeTolerance
+ 
+-  bool setRelativeTolerance(LinearSolver& ls, const real tol) noexcept {
++  real boundRelativeTolerance(const double tol) noexcept {
++    if constexpr (std::is_same_v<real, double>) {
++      return tol;
++    } else {
++      constexpr auto tmin =
++          100 * static_cast<double>(std::numeric_limits<real>::epsilon());
++      return static_cast<real>(tol < tmin ? tmin : tol);
++    }
++  }  // end of boundRelativeTolerance
++
++  bool setRelativeTolerance(LinearSolver& ls, const real t) noexcept {
++    const auto tol = boundRelativeTolerance(t);
+     if (auto* isolver = dynamic_cast<IterativeSolver*>(&ls);
+         isolver != nullptr) {
+       isolver->SetRelTol(tol);
+-- 
+2.43.0
+

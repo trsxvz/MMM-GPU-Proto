@@ -232,9 +232,9 @@ if(MFEM_USE_MUMPS)
   set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif(MFEM_USE_MUMPS)
 
-if (NOT MFEM_USE_SUITESPARSE)
-  message(FATAL_ERROR "You shall have SUITESPARSE support activated in MFEM.CMake will exit.\n" )
-endif()
+# SuiteSparse is optional: the solvers using it (UMFPackSolver) are only
+# registered if MFEM provides them, and MFEM refuses SuiteSparse with the
+# float numerical type (MFEM_USE_SINGLE)
 
 # Set the include directories
 set(MFEM_INCLUDE_DIRS ${MFEM_INCLUDE_DIRS}

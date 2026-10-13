@@ -15,6 +15,7 @@
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
@@ -64,10 +65,14 @@ int main(int argc, char** argv) {
           or_die) |
       or_die;
   unit_tests::setLinearSolver(may_abort, ctx, problem, params);
-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                    {"RelativeTolerance", 1e-12},
-                                    {"AbsoluteTolerance", 0.},
-                                    {"MaximumNumberOfIterations", 10}}) |
+  // in float, the residual of this finite strain behaviour stagnates at about
+  // 3e-4 of the initial one: the deformation gradient F = I + H only gives H
+  // with a relative precision of about 1e-4
+  problem.setSolverParameters(
+      ctx, {{"VerbosityLevel", 0},
+            {"RelativeTolerance", unit_tests::tolerance(1e-12, 1e-3)},
+            {"AbsoluteTolerance", 0.},
+            {"MaximumNumberOfIterations", 10}}) |
       or_die;
   // post-processings using all the behaviour integrators
   for (const auto* const n : {"ComputeResultantForceOnBoundary",
@@ -111,7 +116,8 @@ int main(int argc, char** argv) {
   success = !resultant({.index = 2}).has_value() && success;
   success = F0.has_value() && F1.has_value() && Fa.has_value() && success;
   if (success) {
-    const auto eps = 1e-12 * std::abs(*Fa);
+    // the resultant of all the integrators is a sum of the others
+    const auto eps = unit_tests::tolerance(1e-12) * std::abs(*Fa);
     success = (std::abs(*F0 - *F1) <= eps) &&
               (std::abs(*Fa - (*F0 + *F1)) <= eps) && success;
   }

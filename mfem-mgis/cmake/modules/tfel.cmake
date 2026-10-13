@@ -114,7 +114,7 @@ IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
       COMMAND "${MFRONT}"
       ARGS    "--search-path=${CMAKE_CURRENT_SOURCE_DIR}"
       ARGS    "--interface=mfront" "${mfront_file}"
-      DEPENDS "${mfront_file}"
+      DEPENDS "${mfront_file}" "${MFRONT}"
       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
       COMMENT "mfront source ${mfront_file}")
     set(${name}_dependencies_SOURCES

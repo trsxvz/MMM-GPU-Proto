@@ -18,6 +18,7 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 static std::shared_ptr<mfem_mgis::NonLinearEvolutionProblem>
 buildMechanicalProblem(
@@ -246,24 +247,32 @@ int main(int argc, char** argv) {
     std::cout << "\ntime step " << i  //
               << " from " << t << " to " << t + dt << "\n";
     // alternate miminisation algorithm
+    // tolerances of the alternate minimisation: absolute at the first
+    // iteration, relative to the initial residuals then. In float, the
+    // residual of the micromorphic problem stagnates between 1.7e-9 and
+    // 2.6e-8 (absolute), increasing with the damage
+    constexpr auto first_iteration_tolerance =
+        mfem_mgis::unit_tests::tolerance(1e-10, 1e-6);
+    constexpr auto relative_tolerance =
+        mfem_mgis::unit_tests::tolerance(1e-6, 1e-2);
     while (!converged) {
       std::cout << "time step " << i  //
                 << ", alternate minimisation iteration, " << iter << '\n';
       if (iter == 0) {
         mechanical_problem->setSolverParameters(
-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
+            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
             or_die;
         micromorphic_problem->setSolverParameters(
-            ctx, {{"AbsoluteTolerance", 1e-10}}) |
+            ctx, {{"AbsoluteTolerance", first_iteration_tolerance}}) |
             or_die;
       } else {
         mechanical_problem->setSolverParameters(
             ctx, {{"AbsoluteTolerance",
-                   mechanical_problem_initial_residual * 1e-6}}) |
+                   mechanical_problem_initial_residual * relative_tolerance}}) |
             or_die;
         micromorphic_problem->setSolverParameters(
-            ctx, {{"AbsoluteTolerance",
-                   micromorphic_problem_initial_residual * 1e-6}}) |
+            ctx, {{"AbsoluteTolerance", micromorphic_problem_initial_residual *
+                                            relative_tolerance}}) |
             or_die;
       }
       // solving the mechanical problem

@@ -31,6 +31,7 @@
 #include "mfem/mesh/pmesh.hpp"
 #include "mfem/fem/pbilinearform.hpp"
 #include "MFEMMGIS/Config.hxx"
+#include "Tolerance.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -41,6 +42,13 @@
 
 //! \brief number of failed checks
 static int failures = 0;
+
+/*!
+ * \brief tolerance on the relative residual of the resolutions. In float,
+ * it reaches 9.7e-8
+ */
+static constexpr auto direct_solver_residual_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-10, 1e-6);
 
 //! \return true if the cuDSS solver is expected to be refused
 static bool isCuDSSSolverRefused() {
@@ -399,7 +407,7 @@ int main(int argc, char** argv) {
         R -= B;
         const auto r = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, R, R));
         const auto nb = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, B, B));
-        check(r < 1e-10 * nb,
+        check(r < direct_solver_residual_tolerance * nb,
               step + ": relative residual " + std::to_string(r / nb));
         if (verbose) {
           std::cout << step << ": relative residual " << r / nb;

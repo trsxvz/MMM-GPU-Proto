@@ -13,6 +13,7 @@
 #include "TFEL/Tests/TestManager.hxx"
 #include "TFEL/Math/Vector/tvectorIO.hxx"
 #include "MFEMMGIS/Geometry.hxx"
+#include "Tolerance.hxx"
 
 struct {
   const char* mesh_file = nullptr;
@@ -55,7 +56,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
     for (std::size_t i = 0; i != 10; ++i) {
       const auto pa = opts->at(i);
       const auto pb = p0 + i * v;
-      TFEL_TESTS_CHECK(norm(pb - pa) < 1e-14);
+      // coordinates of up to 8: a few roundings of 1e-6 in float
+      TFEL_TESTS_CHECK(norm(pb - pa) <
+                       mfem_mgis::unit_tests::tolerance(1e-14, 1e-5));
     }
   }  // end of test1
   // create a line in 3D
@@ -78,7 +81,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
     for (std::size_t i = 0; i != 10; ++i) {
       const auto pa = opts->at(i);
       const auto pb = p0 + i * v;
-      TFEL_TESTS_CHECK(norm(pb - pa) < 1e-14);
+      // coordinates of up to 8: a few roundings of 1e-6 in float
+      TFEL_TESTS_CHECK(norm(pb - pa) <
+                       mfem_mgis::unit_tests::tolerance(1e-14, 1e-5));
     }
   }  // end of test2
   // check that parsing issues are correctly detected
@@ -201,7 +206,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
   // create a line in 2D using a discretization based on a geometric progression
   void test5() {
     using namespace mfem_mgis;
-    static constexpr auto eps = real{1.e-8};
+    // in float, values of up to 17 computed with the ratio of the geometric
+    // progression, itself computed numerically
+    static constexpr auto eps = mfem_mgis::unit_tests::tolerance(1.e-8, 5.e-5);
     static constexpr auto references = std::array<real, 11>{
         2.,         2.2320018,  2.55317371, 2.99778834, 3.613291, 4.46536267,
         5.64492887, 7.27786241, 9.53841545, 12.6678141, 17};

@@ -27,6 +27,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/MPI.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -98,7 +99,8 @@ static double getRelativeNorm(
     const mfem::Vector& r) {
   auto m = r.Normlinf();
   if constexpr (is_parallel) {
-    MPI_Allreduce(MPI_IN_PLACE, &m, 1, MPI_DOUBLE, MPI_MAX, fespace.GetComm());
+    MPI_Allreduce(MPI_IN_PLACE, &m, 1, mfem_mgis::mpi_type<mfem::real_t>,
+                  MPI_MAX, fespace.GetComm());
   }
   const auto f = (m > 0) ? std::ldexp(1., -std::ilogb(m)) : 1.;
   auto sv = mfem::Vector(v.Size());

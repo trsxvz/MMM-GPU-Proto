@@ -24,6 +24,7 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 int main(int argc, char** argv) {
   auto ctx = mfem_mgis::Context{};
@@ -99,10 +100,12 @@ int main(int argc, char** argv) {
   // set the solver parameters
   mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
                                          parameters);
-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                    {"RelativeTolerance", 1e-10},
-                                    {"AbsoluteTolerance", 0.},
-                                    {"MaximumNumberOfIterations", 10}}) |
+  // in float, the residual stagnates at about 7.6e-6
+  problem.setSolverParameters(
+      ctx, {{"VerbosityLevel", 0},
+            {"RelativeTolerance", 1e-10},
+            {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(0., 1e-4)},
+            {"MaximumNumberOfIterations", 10}}) |
       or_die;
   // vtk export
   problem.addPostProcessing(

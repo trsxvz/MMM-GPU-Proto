@@ -43,6 +43,7 @@
 #include "MFEMMGIS/AnalyticalTests.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
+#include "Tolerance.hxx"
 
 constexpr double xmax = 1.;
 
@@ -158,17 +159,26 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
 static bool setSolverParameters(
     mfem_mgis::Context& ctx,
     mfem_mgis::AbstractNonLinearEvolutionProblem& problem) {
-  return problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                           {"RelativeTolerance", 1e-12},
-                                           {"AbsoluteTolerance", 1e-12},
-                                           {"MaximumNumberOfIterations", 10}});
+  // the absolute tolerance is the criterion of the case 5, whose initial
+  // residual is only made of roundings: in float, they are about 4e-6, the
+  // residuals of the other cases being about 1e2
+  return problem.setSolverParameters(
+      ctx,
+      {{"VerbosityLevel", 0},
+       {"RelativeTolerance", 1e-12},
+       {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(1e-12, 1e-4)},
+       {"MaximumNumberOfIterations", 10}});
 }  // end of setSolverParmeters
 
 std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
                                   mfem_mgis::NonLinearEvolutionProblem& problem,
                                   const std::size_t i) {
   const auto ob = mfem_mgis::compareToAnalyticalSolution(
-      ctx, problem, getSolution(i), {{"CriterionThreshold", 1e-7}});
+      ctx, problem, getSolution(i),
+      // in float, the L2 errors measured go from 2e-7 (conjugate gradient)
+      // to 1.2e-4 (GMRES and FGMRES of hypre, whose relative tolerance is
+      // bounded to 1.2e-5 by mfem-mgis)
+      {{"CriterionThreshold", mfem_mgis::unit_tests::tolerance(1e-7, 1e-3)}});
   if (mfem_mgis::isInvalid(ob)) {
     return {};
   }
@@ -207,9 +217,9 @@ struct TestParameters {
   int refinement = 0;
   int tcase = 1;
   const char* linearsolver = "CGSolver";
-  double xmax = 1.;
-  double ymax = 1.;
-  double zmax = 1.;
+  mfem_mgis::real xmax = 1.;
+  mfem_mgis::real ymax = 1.;
+  mfem_mgis::real zmax = 1.;
   bool parallel = true;
   bool check = true;
 };

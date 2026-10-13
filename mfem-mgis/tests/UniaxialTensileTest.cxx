@@ -30,6 +30,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "Tolerance.hxx"
 
 /*!
  * \return the default behaviour library: the library built with the example
@@ -259,9 +260,12 @@ static bool checkResults(const UniaxialTestResults& r,
                          const mfem_mgis::Material& m,
                          const TestParameters& p) {
   // absolute tolerances on the gradients, the internal state variable and the
-  // thermodynamic forces
-  constexpr auto eeps = mfem_mgis::real(1.e-10);
-  constexpr auto seps = mfem_mgis::real(70.e9) * eeps;
+  // thermodynamic forces. In float, the largest errors measured are 6.7e-8 on
+  // the gradients, 1e-7 on the internal state variables and 4.7e3 on the
+  // thermodynamic forces (2e-5 relative to the stress).
+  constexpr auto eeps = mfem_mgis::unit_tests::tolerance(1.e-10, 1.e-6);
+  constexpr auto seps = mfem_mgis::unit_tests::tolerance(
+      mfem_mgis::real(70.e9) * mfem_mgis::real(1.e-10), 5.e4);
   auto success = true;
   if ((m.n != 0) && (!std::string_view{p.reference_file}.empty())) {
     const auto references = readResults(p.reference_file);
@@ -400,12 +404,20 @@ int main(int argc, char** argv) {
                return -0.021 + 0.1 * (t - 0.6);
              }}}) |
       or_die;
-  // solver parameters
+  // solver parameters. In float, the residual of a finite strain behaviour
+  // stagnates at about 3e-4 of the initial one: its gradient, the deformation
+  // gradient F = I + H with |H| about 1e-2, only gives H with a relative
+  // precision of 1e-5 to 1e-4.
   setLinearSolver(ctx, problem, p.linearsolver) | or_die;
-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                    {"RelativeTolerance", 1e-12},
-                                    {"AbsoluteTolerance", 0.},
-                                    {"MaximumNumberOfIterations", 10}}) |
+  const auto finite_strain =
+      m1.b.btype == mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR;
+  problem.setSolverParameters(
+      ctx, {{"VerbosityLevel", 0},
+            {"RelativeTolerance",
+             finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
+                           : mfem_mgis::real(1e-12)},
+            {"AbsoluteTolerance", 0.},
+            {"MaximumNumberOfIterations", 10}}) |
       or_die;
   // post-processings
   if (p.post_processing) {

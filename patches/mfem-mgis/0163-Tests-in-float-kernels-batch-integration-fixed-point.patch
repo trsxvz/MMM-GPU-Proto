@@ -1,0 +1,860 @@
+From 23ca40cdc4c572232acd0cfffb35cb40936378ae Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:53:01 +0200
+Subject: [PATCH] Tests in float: kernels, batch integration, fixed point,
+ prediction, geometry
+
+Without SuiteSparse (MFEM in float), the sequential tests use GMRES
+preconditioned by the Jacobi smoother in place of UMFPACK
+(tests/SequentialLinearSolver.hxx); the checks requiring a direct solver
+are skipped in this case. The CountingLinearSolver of FixedPointSolverTest
+keeps the preconditioner of the wrapped solver alive.
+
+The tolerances for float are measured (about ten times the observed
+errors) and explained in comments; the tolerances for double are
+unchanged.
+---
+ tests/BatchIntegrationTest.cxx    | 128 ++++++++++++++++++++++--------
+ tests/FixedPointSolverTest.cxx    | 108 ++++++++++++++++++-------
+ tests/GeometryTest.cxx            |  13 ++-
+ tests/GradientsKernelsTest.cxx    |  34 +++++---
+ tests/HeatTransferKernelsTest.cxx |  25 ++++--
+ tests/MicromorphicKernelsTest.cxx |  40 ++++++++--
+ tests/PredictionTest.cxx          |  10 +++
+ tests/SequentialLinearSolver.hxx  |  52 ++++++++++++
+ 8 files changed, 323 insertions(+), 87 deletions(-)
+ create mode 100644 tests/SequentialLinearSolver.hxx
+
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index 6f75a9a3b0..52f7168901 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -63,6 +63,8 @@
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
+ #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -96,6 +98,28 @@ struct Results {
+   std::vector<mfem_mgis::real> predictions;
+ };
+ 
++/*!
++ * \brief default relative tolerance of the Newton algorithm (see
++ * `ComputationOptions::relative_tolerance`). In float, the residual of the
++ * behaviours in finite strain stagnates at up to 4e-5 times its reference
++ * value: the deformation gradient F = I + H only gives the displacement
++ * gradient H to about 1e-5 near.
++ */
++static constexpr auto newton_relative_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-12, 4e-4);
++
++/*!
++ * \brief relative tolerance of the Newton algorithm with an imposed
++ * pressure and the FBar formulation. In double, the residual stagnates at
++ * about 1e-12 times its reference value in parallel. In float, it
++ * stagnates between 6e-5 and 6e-4 times its reference value, the residual
++ * of the prediction being at least 3e-3 times its reference value: the
++ * tolerance lies in between, so that one Newton iteration follows the
++ * prediction with all the variants.
++ */
++static constexpr auto pressure_newton_relative_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-11, 1.5e-3);
++
+ //! \brief options of a computation
+ struct ComputationOptions {
+   //! \brief if true, the FBar formulation is used
+@@ -239,7 +263,7 @@ struct ComputationOptions {
+    */
+   bool distorted_mesh = false;
+   //! \brief relative tolerance of the Newton algorithm
+-  mfem_mgis::real relative_tolerance = 1e-12;
++  mfem_mgis::real relative_tolerance = newton_relative_tolerance;
+ };
+ 
+ /*!
+@@ -703,7 +727,8 @@ static void checkMatrixFreeOperator(
+                                           std::vector<real>(pd, pd + d.Size()));
+   std::cout << name << ": relative difference of the diagonals " << diff
+             << '\n';
+-  check(diff <= 1e-12,
++  // in float, the relative difference of the diagonals reaches 2.1e-7
++  check(diff <= mfem_mgis::unit_tests::tolerance(1e-12, 3e-6),
+         name + ": diagonal of the tangent operator applied without assembly");
+   // action on a vector whose components all differ
+   auto x = mfem::Vector(op.Width());
+@@ -724,7 +749,8 @@ static void checkMatrixFreeOperator(
+                             std::vector<real>(py, py + y.Size()));
+   std::cout << name << ": relative difference of the actions " << diff_action
+             << '\n';
+-  check(diff_action <= 1e-12,
++  // in float, the relative difference of the actions reaches 2.8e-7
++  check(diff_action <= mfem_mgis::unit_tests::tolerance(1e-12, 3e-6),
+         name + ": action of the tangent operator applied without assembly");
+ }  // end of checkMatrixFreeOperator
+ 
+@@ -1049,8 +1075,13 @@ static Results compute(mfem_mgis::Context& ctx,
+               : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+         or_die;
+   } else {
+-    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
+-                            {}) |
++    problem.setLinearSolver(
++        ctx,
++        parallel ? "MUMPSSolver"
++                 : mfem_mgis::unit_tests::sequential_direct_solver,
++        parallel
++            ? mfem_mgis::Parameters{}
++            : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
+         or_die;
+   }
+   const auto setMaximumNumberOfIterations = [&ctx, &problem, &opts,
+@@ -1191,6 +1222,23 @@ static Results compute(mfem_mgis::Context& ctx,
+   return r;
+ }  // end of compute
+ 
++/*!
++ * \return the tolerance of the comparisons of the computations using
++ * kernels or the behaviours generated by the generic-parallel interface to
++ * the reference computations. In float, the relative differences reach
++ * 3.7e-4 (behaviours in finite strain, whose Newton algorithm stops at a
++ * relative residual of 4e-4) and 1.9e-3 with the tangent operator applied
++ * without assembly (conjugate gradient with a Jacobi preconditioner
++ * stopping at a relative residual of 1.2e-5)
++ * \param[in] opts: options of the computation
++ */
++static mfem_mgis::real getComparisonTolerance(const ComputationOptions& opts) {
++  if (opts.matrix_free) {
++    return mfem_mgis::unit_tests::tolerance(1e-10, 2e-2);
++  }
++  return mfem_mgis::unit_tests::tolerance(1e-10, 4e-3);
++}  // end of getComparisonTolerance
++
+ /*!
+  * \brief compare the results of two computations
+  * \param[in] r1: reference results
+@@ -1452,7 +1500,8 @@ static void testFailure(mfem_mgis::Context& ctx,
+     }
+     ++nsuccess;
+     const auto sxx = 1.2e11 * tr + 2 * 8e10 * e[0];
+-    ok = ok && (std::abs(sig[0] - sxx) <= 1e-8 * std::abs(sxx));
++    ok = ok && (std::abs(sig[0] - sxx) <=
++                mfem_mgis::unit_tests::tolerance(1e-8) * std::abs(sxx));
+   }
+   check((nsuccess != 0) && (nfailure != 0),
+         name + ": the integration shall fail at some points only");
+@@ -1642,8 +1691,13 @@ static void testRegularizationRefusal(mfem_mgis::Context& ctx,
+             Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+           or_die;
+     } else {
+-      problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
+-                              {}) |
++      problem.setLinearSolver(
++          ctx,
++          parallel ? "MUMPSSolver"
++                   : mfem_mgis::unit_tests::sequential_direct_solver,
++          parallel
++              ? mfem_mgis::Parameters{}
++              : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
+           or_die;
+     }
+     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+@@ -1802,8 +1856,12 @@ int main(int argc, char** argv) {
+   // tolerance of the comparisons between the integrations point by point
+   // and by batches: same results to the last bit, except in parallel, where
+   // MUMPS (dynamic scheduling between the processes) and the operations of
+-  // hypre on a GPU are not reproducible to the last bit
+-  const auto last_bit = parallel ? 1e-10 : 0.;
++  // hypre on a GPU are not reproducible to the last bit (in float, the
++  // relative differences then reach 2e-4, as the residual of the behaviours
++  // in finite strain stagnates near the tolerance of the Newton algorithm,
++  // see `newton_relative_tolerance`)
++  const auto last_bit =
++      parallel ? double{mfem_mgis::unit_tests::tolerance(1e-10, 4e-3)} : 0.;
+   // integration point by point and by batches of the behaviours generated
+   // by the generic interface
+   for (const auto* const b :
+@@ -2107,26 +2165,28 @@ int main(int argc, char** argv) {
+       // the local matrix assembled by kernels. The residual stagnates
+       // at about 1e-12 times its reference value in parallel, the numbers of
+       // iterations differing by two with a tolerance of 1e-12
+-      cases.push_back({b,
+-                       {.fbar = true,
+-                        .prediction = true,
+-                        .pressure = true,
+-                        .gradients_kernels = true,
+-                        .tangent_operator_kernels = true,
+-                        .relative_tolerance = 1e-11},
+-                       ", FBar, pressure and prediction"});
++      cases.push_back(
++          {b,
++           {.fbar = true,
++            .prediction = true,
++            .pressure = true,
++            .gradients_kernels = true,
++            .tangent_operator_kernels = true,
++            .relative_tolerance = pressure_newton_relative_tolerance},
++           ", FBar, pressure and prediction"});
+       // imposed pressure added to the inner forces computed by kernels, the
+       // tangent operator being assembled by kernels; springs: their
+       // contributions are added to the local matrix assembled by kernels
+-      cases.push_back({b,
+-                       {.fbar = true,
+-                        .prediction = true,
+-                        .pressure = true,
+-                        .gradients_kernels = true,
+-                        .inner_forces_kernels = true,
+-                        .tangent_operator_kernels = true,
+-                        .relative_tolerance = 1e-11},
+-                       ", FBar, pressure and prediction, kernels"});
++      cases.push_back(
++          {b,
++           {.fbar = true,
++            .prediction = true,
++            .pressure = true,
++            .gradients_kernels = true,
++            .inner_forces_kernels = true,
++            .tangent_operator_kernels = true,
++            .relative_tolerance = pressure_newton_relative_tolerance},
++           ", FBar, pressure and prediction, kernels"});
+       cases.push_back({b,
+                        {.fbar = true,
+                         .prediction = true,
+@@ -2134,7 +2194,8 @@ int main(int argc, char** argv) {
+                         .gradients_kernels = true,
+                         .inner_forces_kernels = true,
+                         .tangent_operator_kernels = true,
+-                        .relative_tolerance = 1e-11},
++                        .relative_tolerance =
++                            mfem_mgis::unit_tests::tolerance(1e-11, 4e-4)},
+                        ", FBar, springs and prediction"});
+     }
+     // imposed pressure with the inner forces computed by kernels, the
+@@ -2149,7 +2210,7 @@ int main(int argc, char** argv) {
+                       .gradients_kernels = true,
+                       .inner_forces_kernels = true,
+                       .matrix_free = true,
+-                      .relative_tolerance = 1e-11},
++                      .relative_tolerance = pressure_newton_relative_tolerance},
+                      ", FBar, pressure and prediction, matrix free"});
+     // a material using the FBar formulation and an elastic one, the
+     // tangent operator being assembled by kernels (with the imposed
+@@ -2170,7 +2231,7 @@ int main(int argc, char** argv) {
+                       .gradients_kernels = true,
+                       .tangent_operator_kernels = true,
+                       .second_material_library = library,
+-                      .relative_tolerance = 1e-11},
++                      .relative_tolerance = pressure_newton_relative_tolerance},
+                      ", FBar, two materials and pressure"});
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+@@ -2180,7 +2241,7 @@ int main(int argc, char** argv) {
+                       .inner_forces_kernels = true,
+                       .tangent_operator_kernels = true,
+                       .second_material_library = library,
+-                      .relative_tolerance = 1e-11},
++                      .relative_tolerance = pressure_newton_relative_tolerance},
+                      ", FBar, two materials and pressure, kernels"});
+     cases.push_back({"SaintVenantKirchhoffElasticity",
+                      {.fbar = true,
+@@ -2315,7 +2376,7 @@ int main(int argc, char** argv) {
+       reference.ordered_assembly = false;
+       const auto results = compute(ctx, m, library, b, "Batch", opts);
+       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
+-              b + " (kernels" + name + ")", 1e-10);
++              b + " (kernels" + name + ")", getComparisonTolerance(opts));
+       if ((opts.ordered_assembly) && (!parallel)) {
+         // the same results, bit for bit, at each run, also on a GPU, where
+         // the atomic additions give other roundings at each run. Not checked
+@@ -2454,7 +2515,8 @@ int main(int argc, char** argv) {
+       reference.matrix_free = false;
+       compare(compute(ctx, m, library, b, "PointByPoint", reference),
+               compute(ctx, m, l, b, "Batch", opts),
+-              b + " (generic-parallel, " + backend + name + ")", 1e-10);
++              b + " (generic-parallel, " + backend + name + ")",
++              getComparisonTolerance(opts));
+     }
+     if (!parallel) {
+       testPointByPointRefusal(ctx, mesh, l);
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 77bda9aff6..24101352de 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -45,9 +45,20 @@
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
++
++/*!
++ * \brief tolerance on the relative difference between the solutions of the
++ * methods and the one of the Newton solver. In float, it reaches 2.8e-5,
++ * the non linear solvers stopping at a relative residual of 1.2e-5 (see
++ * `mfem_mgis::boundRelativeTolerance`)
++ */
++static constexpr auto solution_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-8, 3e-4);
+ //! \brief if true, the computations are parallel
+ static bool parallel = false;
+ 
+@@ -117,7 +128,7 @@ struct CountingLinearSolver final : mfem::Solver {
+ 
+ /*!
+  * \brief declares the `CountingLinearSolver`, wrapping MUMPS in parallel
+- * and UMFPack in sequential
++ * and the linear solver of the sequential tests in sequential
+  */
+ static void declareCountingLinearSolver() {
+   using namespace mfem_mgis;
+@@ -131,9 +142,11 @@ static void declareCountingLinearSolver() {
+            const Parameters& opts) -> LinearSolverHandler {
+           auto h = LinearSolverFactory<true>::getFactory().generate(
+               c, "MUMPSSolver", fes, opts);
++          // the preconditioner, if any, is kept alive with the linear
++          // solver which references it
+           return {std::make_unique<CountingLinearSolver>(
+                       std::move(h.linear_solver)),
+-                  {}};
++                  std::move(h.preconditioner)};
+         }) |
+         or_die;
+ #endif /* MFEM_USE_MPI */
+@@ -143,10 +156,15 @@ static void declareCountingLinearSolver() {
+         [](Context& c, FiniteElementSpace<false>& fes,
+            const Parameters& opts) -> LinearSolverHandler {
+           auto h = LinearSolverFactory<false>::getFactory().generate(
+-              c, "UMFPackSolver", fes, opts);
++              c, unit_tests::sequential_direct_solver, fes,
++              opts.begin() == opts.end()
++                  ? unit_tests::getSequentialDirectSolverParameters()
++                  : opts);
++          // the preconditioner, if any, is kept alive with the linear
++          // solver which references it
+           return {std::make_unique<CountingLinearSolver>(
+                       std::move(h.linear_solver)),
+-                  {}};
++                  std::move(h.preconditioner)};
+         }) |
+         or_die;
+   }
+@@ -233,10 +251,15 @@ static Results compute(mfem_mgis::Context& ctx,
+        {"Component", 0},
+        {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
+       or_die;
+-  const auto* const ls = (opts.linear_solver != nullptr)
+-                             ? opts.linear_solver
+-                             : (parallel ? "MUMPSSolver" : "UMFPackSolver");
+-  problem.setLinearSolver(ctx, ls, opts.linear_solver_options) | or_die;
++  const auto* const ls =
++      (opts.linear_solver != nullptr)
++          ? opts.linear_solver
++          : (parallel ? "MUMPSSolver" : unit_tests::sequential_direct_solver);
++  const auto ls_options =
++      ((opts.linear_solver == nullptr) && (!parallel))
++          ? unit_tests::getSequentialDirectSolverParameters()
++          : opts.linear_solver_options;
++  problem.setLinearSolver(ctx, ls, ls_options) | or_die;
+   if (opts.prediction.has_value()) {
+     problem.setPredictionPolicy(
+         {.strategy = *(opts.prediction),
+@@ -402,7 +425,9 @@ static void checkAdaptiveTolerances(
+       eta = std::min(std::max(eta, static_cast<double>(goal / (2 * fk))),
+                      static_cast<double>(t.maximum_tolerance));
+       const auto v = *(step[k].tolerance);
+-      check(std::abs(v - eta) <= 1e-12 * eta,
++      // in float, the tolerances computed by the solver and by the test
++      // differ by roundings (relative difference of 3.7e-9 measured)
++      check(std::abs(v - eta) <= mfem_mgis::unit_tests::tolerance(1e-12) * eta,
+             name + ": relative tolerance of a linear solve (" +
+                 std::to_string(v) + " instead of " + std::to_string(eta) + ")");
+       ++n;
+@@ -489,8 +514,10 @@ int main(int argc, char** argv) {
+   // absolute convergence criterion of the computations with an adaptive
+   // tolerance of the linear solver, about 1e-12 times the initial residual,
+   // so that the tolerances can be computed again (see
+-  // `checkAdaptiveTolerances`)
+-  constexpr auto adaptive_goal = 1e-3;
++  // `checkAdaptiveTolerances`). In float, the residual stagnates at about
++  // 1e-5 times the initial residual (about 4e8): the criterion is then
++  // about 2.5e-5 times the initial residual
++  constexpr auto adaptive_goal = mfem_mgis::unit_tests::tolerance(1e-3, 1e4);
+   const auto adaptive_solver_parameters = Parameters{
+       {"RelativeTolerance", 0.}, {"AbsoluteTolerance", adaptive_goal}};
+   // adaptive tolerance of a method, with its default options
+@@ -505,7 +532,18 @@ int main(int argc, char** argv) {
+     return *ot;
+   };
+   // direct solver, used as linear solver of the elastic operator
+-  const auto* const direct_solver = parallel ? "MUMPSSolver" : "UMFPackSolver";
++  // (the linear solver of the sequential tests without UMFPACK)
++  const auto direct_solver = []() -> Parameter {
++    if (parallel) {
++      return "MUMPSSolver";
++    }
++    if (unit_tests::has_sequential_direct_solver) {
++      return unit_tests::sequential_direct_solver;
++    }
++    return Parameters{
++        {"Name", unit_tests::sequential_direct_solver},
++        {"Options", unit_tests::getSequentialDirectSolverParameters()}};
++  }();
+   // fixed point on the elastic operator, solved by the linear solver of the
+   // problem, without acceleration: rate of convergence
+   const auto none = compute(ctx, mesh, library, makeFixedPointSolver({}));
+@@ -668,7 +706,7 @@ int main(int argc, char** argv) {
+          true,
+          {.prediction = bots,
+           .changes = {{"ElasticOperatorLinearSolver",
+-                       parallel ? "HypreBoomerAMG" : direct_solver}},
++                       parallel ? Parameter{"HypreBoomerAMG"} : direct_solver}},
+           .changes_step = 2,
+           .number_of_steps = 4},
+          0});
+@@ -814,7 +852,7 @@ int main(int argc, char** argv) {
+               << " of the linear solver), relative difference to Newton " << du
+               << '\n';
+     check(r.status, c.name + ": resolution failed");
+-    check(du < 1e-8, c.name + ": solution");
++    check(du < solution_tolerance, c.name + ": solution");
+     if (const auto p = maximum_numbers_of_iterations.find(c.name);
+         p != maximum_numbers_of_iterations.end()) {
+       // on a GPU, the sums computed by atomic operations (assembly of the
+@@ -896,20 +934,24 @@ int main(int argc, char** argv) {
+                    "Newton "
+                 << du << '\n';
+       check(r.status, name + ": resolution failed");
+-      check(du < 1e-8, name + ": solution");
++      check(du < solution_tolerance, name + ": solution");
+       checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
+                                name);
+       checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal, name);
+       check(r.linear_iterations < constant.linear_iterations,
+             name + ": number of iterations of the linear solver");
+     }
+-    // the adaptive tolerance requires an iterative linear solver
+-    const auto direct = compute(
+-        ctx, mesh, library,
+-        Parameters{{"Newton", Parameters{{"AdaptiveLinearSolverTolerance",
+-                                          "EisenstatWalker2"}}}});
+-    check(!direct.status,
+-          "Newton, adaptive tolerance with a direct solver: accepted");
++    // the adaptive tolerance requires an iterative linear solver (the
++    // linear solver of the sequential tests is not a direct solver without
++    // UMFPACK)
++    if (parallel || unit_tests::has_sequential_direct_solver) {
++      const auto direct = compute(
++          ctx, mesh, library,
++          Parameters{{"Newton", Parameters{{"AdaptiveLinearSolverTolerance",
++                                            "EisenstatWalker2"}}}});
++      check(!direct.status,
++            "Newton, adaptive tolerance with a direct solver: accepted");
++    }
+   }
+   // linear solver of the predictions: with the conjugate gradient
+   // preconditioned by the linear solver of the elastic operator, the linear
+@@ -937,7 +979,8 @@ int main(int argc, char** argv) {
+     const auto name = std::string{method} + ", predictions " +
+                       (strategy == cgip ? "at constant gradients " : "") +
+                       "by the linear solver '" + pls + "'";
+-    check(r.status && (getRelativeDifference(reference.u, r.u) < 1e-8),
++    check(r.status &&
++              (getRelativeDifference(reference.u, r.u) < solution_tolerance),
+           name + ": solution");
+     check(CountingLinearSolver::count == expected,
+           name + ": " + std::to_string(CountingLinearSolver::count) +
+@@ -983,8 +1026,13 @@ int main(int argc, char** argv) {
+   }
+   checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
+                "an invalid linear solver of the predictions");
+-  checkRefusal(mesh, {{"PredictionLinearSolver", direct_solver}},
+-               "a direct solver as iterative solver of the predictions");
++  // without UMFPACK, the linear solver of the sequential tests is not a
++  // direct solver
++  const auto direct = parallel || unit_tests::has_sequential_direct_solver;
++  if (direct) {
++    checkRefusal(mesh, {{"PredictionLinearSolver", direct_solver}},
++                 "a direct solver as iterative solver of the predictions");
++  }
+   checkRefusal(
+       mesh,
+       {{"PredictionLinearSolver",
+@@ -992,10 +1040,12 @@ int main(int argc, char** argv) {
+       "options of the linear solver of the problem for the predictions");
+   {
+     auto options = newton_k0("CGSolver");
+-    options.replaceOrInsert("TangentLinearSolver", direct_solver);
+-    checkRefusal(mesh, options,
+-                 "a direct solver as iterative solver of the tangent "
+-                 "operator");
++    if (direct) {
++      options.replaceOrInsert("TangentLinearSolver", direct_solver);
++      checkRefusal(mesh, options,
++                   "a direct solver as iterative solver of the tangent "
++                   "operator");
++    }
+     options.replaceOrInsert(
+         "TangentLinearSolver",
+         Parameters{
+diff --git a/tests/GeometryTest.cxx b/tests/GeometryTest.cxx
+index aac3bc7c44..e97041952e 100644
+--- a/tests/GeometryTest.cxx
++++ b/tests/GeometryTest.cxx
+@@ -13,6 +13,7 @@
+ #include "TFEL/Tests/TestManager.hxx"
+ #include "TFEL/Math/Vector/tvectorIO.hxx"
+ #include "MFEMMGIS/Geometry.hxx"
++#include "Tolerance.hxx"
+ 
+ struct {
+   const char* mesh_file = nullptr;
+@@ -55,7 +56,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
+     for (std::size_t i = 0; i != 10; ++i) {
+       const auto pa = opts->at(i);
+       const auto pb = p0 + i * v;
+-      TFEL_TESTS_CHECK(norm(pb - pa) < 1e-14);
++      // coordinates of up to 8: a few roundings of 1e-6 in float
++      TFEL_TESTS_CHECK(norm(pb - pa) <
++                       mfem_mgis::unit_tests::tolerance(1e-14, 1e-5));
+     }
+   }  // end of test1
+   // create a line in 3D
+@@ -78,7 +81,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
+     for (std::size_t i = 0; i != 10; ++i) {
+       const auto pa = opts->at(i);
+       const auto pb = p0 + i * v;
+-      TFEL_TESTS_CHECK(norm(pb - pa) < 1e-14);
++      // coordinates of up to 8: a few roundings of 1e-6 in float
++      TFEL_TESTS_CHECK(norm(pb - pa) <
++                       mfem_mgis::unit_tests::tolerance(1e-14, 1e-5));
+     }
+   }  // end of test2
+   // check that parsing issues are correctly detected
+@@ -201,7 +206,9 @@ struct GeometryTest final : public tfel::tests::TestCase {
+   // create a line in 2D using a discretization based on a geometric progression
+   void test5() {
+     using namespace mfem_mgis;
+-    static constexpr auto eps = real{1.e-8};
++    // in float, values of up to 17 computed with the ratio of the geometric
++    // progression, itself computed numerically
++    static constexpr auto eps = mfem_mgis::unit_tests::tolerance(1.e-8, 5.e-5);
+     static constexpr auto references = std::array<real, 11>{
+         2.,         2.2320018,  2.55317371, 2.99778834, 3.613291, 4.46536267,
+         5.64492887, 7.27786241, 9.53841545, 12.6678141, 17};
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index afb450a6f2..fc7ebe22bf 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -48,10 +48,20 @@
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "MFEMMGIS/Batch/InnerForces.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+ 
++/*!
++ * \brief relative tolerance of the comparisons of the kernels to the element
++ * by element computations: in float, the differences measured reach 1.2e-5
++ * of the largest value (elements of order 2, sums of many terms in other
++ * orders)
++ */
++static constexpr auto kernels_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-13, 1e-4);
++
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+     std::cerr << "check failed: " << msg << '\n';
+@@ -311,8 +321,9 @@ static void testCase(mfem_mgis::Context& ctx,
+     std::cout << name << ": " << reference.size()
+               << " values, maximum difference " << d << " (maximum value "
+               << vmax << ")\n";
+-    check((!reference.empty()) && (vmax != 0) && (d <= 1e-13 * vmax),
+-          name + ": gradients");
++    check(
++        (!reference.empty()) && (vmax != 0) && (d <= kernels_tolerance * vmax),
++        name + ": gradients");
+     // inner forces computed from arbitrary thermodynamic forces
+     mat.synchronizeOnHost();
+     for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
+@@ -352,7 +363,8 @@ static void testCase(mfem_mgis::Context& ctx,
+     }
+     std::cout << name << ": inner forces, maximum difference " << df
+               << " (maximum value " << fmax << ")\n";
+-    check((fmax != 0) && (df <= 1e-13 * fmax), name + ": inner forces");
++    check((fmax != 0) && (df <= kernels_tolerance * fmax),
++          name + ": inner forces");
+     // stiffness matrices computed from arbitrary tangent operator blocks
+     mat.synchronizeOnHost();
+     for (std::size_t i = 0; i != mat.K.size(); ++i) {
+@@ -390,7 +402,8 @@ static void testCase(mfem_mgis::Context& ctx,
+     }
+     std::cout << name << ": stiffness matrices, maximum difference " << dk
+               << " (maximum value " << kmax << ")\n";
+-    check((kmax != 0) && (dk <= 1e-13 * kmax), name + ": stiffness matrices");
++    check((kmax != 0) && (dk <= kernels_tolerance * kmax),
++          name + ": stiffness matrices");
+     // stiffness matrices assembled by kernels in a sparse matrix, compared to
+     // the assembly by MFEM of the matrices computed element by element (the
+     // pattern of the matrix being the one built by MFEM)
+@@ -439,7 +452,8 @@ static void testCase(mfem_mgis::Context& ctx,
+               << reference_matrix.NumNonZeroElems()
+               << " values, maximum difference " << da << " (maximum value "
+               << amax << ")\n";
+-    check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
++    check((amax != 0) && (da <= kernels_tolerance * amax),
++          name + ": assembled matrix");
+     // stiffness matrices stored element by element, added value by value in
+     // a fixed order (`batch::addStiffnessMatricesByEntries`), in the pattern
+     // of all the elements: same values as the atomic additions, and the same
+@@ -511,7 +525,8 @@ static void testCase(mfem_mgis::Context& ctx,
+                   << "each assembly: " << (same_entries ? "yes" : "no")
+                   << " (atomic additions: " << (same_atomic ? "yes" : "no")
+                   << ")\n";
+-        check(dr <= 1e-13 * amax, name + ": assembly value by value");
++        check(dr <= kernels_tolerance * amax,
++              name + ": assembly value by value");
+         check(same_entries,
+               name +
+                   ": assembly value by value, same values at each "
+@@ -615,7 +630,8 @@ static void testCase(mfem_mgis::Context& ctx,
+       std::cout << name << ": assembled matrix, " << what
+                 << ", maximum difference " << dp << ", " << searched
+                 << " entries searched\n";
+-      check(dp <= 1e-13 * amax, name + ": assembled matrix, " + what);
++      check(dp <= kernels_tolerance * amax,
++            name + ": assembled matrix, " + what);
+       return searched;
+     };
+     auto positions = mfem::Array<std::uint16_t>{};
+@@ -726,9 +742,9 @@ static void testCase(mfem_mgis::Context& ctx,
+                 << "difference " << dy << " (maximum value " << ymax
+                 << "), diagonal, maximum difference " << dd
+                 << " (maximum value " << dmax << ")\n";
+-      check((ymax != 0) && (dy <= 1e-13 * ymax),
++      check((ymax != 0) && (dy <= kernels_tolerance * ymax),
+             name + ": action of the tangent operator");
+-      check((dmax != 0) && (dd <= 1e-13 * dmax),
++      check((dmax != 0) && (dd <= kernels_tolerance * dmax),
+             name + ": diagonal of the tangent operator");
+     }
+     // entries outside of the pattern of the matrix are detected
+diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
+index 1935a868e7..8c6c31c9b2 100644
+--- a/tests/HeatTransferKernelsTest.cxx
++++ b/tests/HeatTransferKernelsTest.cxx
+@@ -39,6 +39,8 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -179,7 +181,8 @@ static void checkMatrixFreeDiagonal(
+     diff = std::max(diff, std::abs(pd[i] - pa[i]));
+     m = std::max(m, std::abs(pa[i]));
+   }
+-  check((d.Size() > 0) && (diff <= 1e-12 * m),
++  check((d.Size() > 0) &&
++            (diff <= mfem_mgis::unit_tests::tolerance(1e-12, 1e-5) * m),
+         name + ": diagonal of the tangent operator applied without assembly");
+ }  // end of checkMatrixFreeDiagonal
+ 
+@@ -315,8 +318,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+          {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+         or_die;
+   } else {
+-    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
+-                            {}) |
++    problem.setLinearSolver(
++        ctx,
++        parallel ? "MUMPSSolver"
++                 : mfem_mgis::unit_tests::sequential_direct_solver,
++        parallel
++            ? mfem_mgis::Parameters{}
++            : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
+         or_die;
+   }
+   if (opts.prediction) {
+@@ -415,9 +423,14 @@ static void compare(const Results& a,
+   std::cout << name << ": relative differences " << du << " (temperature), "
+             << dj << " (heat flux), " << dT
+             << " (temperature at the integration points)\n";
+-  check(du < 1e-10, name + ": temperature");
+-  check(dj < 1e-10, name + ": heat flux");
+-  check(dT < 1e-10, name + ": temperature at the integration points");
++  // relative differences: in float, they reach 2.6e-7 (roundings, and
++  // linear solvers stopping at a relative residual of 1.2e-5)
++  constexpr auto relative_tolerance =
++      mfem_mgis::unit_tests::tolerance(1e-10, 5e-6);
++  check(du < relative_tolerance, name + ": temperature");
++  check(dj < relative_tolerance, name + ": heat flux");
++  check(dT < relative_tolerance,
++        name + ": temperature at the integration points");
+   const auto [Tmin, Tmax] =
+       std::minmax_element(a.temperature.begin(), a.temperature.end());
+   check((Tmin != a.temperature.end()) && (*Tmax - *Tmin > 1),
+diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
+index 61e23c0f52..7c9eff38ab 100644
+--- a/tests/MicromorphicKernelsTest.cxx
++++ b/tests/MicromorphicKernelsTest.cxx
+@@ -36,6 +36,8 @@
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "MFEMMGIS/MPI.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -146,7 +148,8 @@ static void checkMatrixFreeDiagonal(
+     diff = std::max(diff, std::abs(pd[i] - pa[i]));
+     m = std::max(m, std::abs(pa[i]));
+   }
+-  check((d.Size() > 0) && (diff <= 1e-12 * m),
++  check((d.Size() > 0) &&
++            (diff <= mfem_mgis::unit_tests::tolerance(1e-12, 1e-5) * m),
+         name + ": diagonal of the tangent operator applied without assembly");
+ }  // end of checkMatrixFreeDiagonal
+ 
+@@ -249,8 +252,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
+          {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+         or_die;
+   } else {
+-    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
+-                            {}) |
++    problem.setLinearSolver(
++        ctx,
++        parallel ? "MUMPSSolver"
++                 : mfem_mgis::unit_tests::sequential_direct_solver,
++        parallel
++            ? mfem_mgis::Parameters{}
++            : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
+         or_die;
+   }
+   if (opts.prediction) {
+@@ -350,10 +358,28 @@ static void compare(const Results& a,
+   std::cout << name << ": relative differences " << du
+             << " (micromorphic damage), " << df << " (dual forces), " << dd
+             << " (damage)\n";
+-  check(du < 1e-10, name + ": micromorphic damage");
+-  check(df < 1e-10, name + ": dual forces");
+-  check(dd < 1e-10, name + ": damage");
+-  check(a.iterations == b.iterations, name + ": numbers of iterations");
++  // relative differences: in float, they reach 2.9e-5 for the dual forces
++  // with the matrix free operator (roundings, and linear solvers stopping at
++  // a relative residual of 1.2e-5)
++  constexpr auto relative_tolerance =
++      mfem_mgis::unit_tests::tolerance(1e-10, 3e-4);
++  check(du < relative_tolerance, name + ": micromorphic damage");
++  check(df < relative_tolerance, name + ": dual forces");
++  check(dd < relative_tolerance, name + ": damage");
++  // numbers of iterations: in float, the linear solvers stopping at a
++  // relative residual of 1.2e-5, the Newton solver may need one more or one
++  // less iteration with the matrix free operator
++  constexpr auto iterations_tolerance =
++      sizeof(mfem_mgis::real) == sizeof(double) ? 0 : 1;
++  auto same_iterations = a.iterations.size() == b.iterations.size();
++  for (std::size_t i = 0; same_iterations && (i != a.iterations.size()); ++i) {
++    if (std::abs(a.iterations[i] - b.iterations[i]) > iterations_tolerance) {
++      std::cout << name << ": time step " << i << ", " << a.iterations[i]
++                << " iterations against " << b.iterations[i] << '\n';
++      same_iterations = false;
++    }
++  }
++  check(same_iterations, name + ": numbers of iterations");
+ }  // end of compare
+ 
+ /*!
+diff --git a/tests/PredictionTest.cxx b/tests/PredictionTest.cxx
+index d57f873cdd..71333212de 100644
+--- a/tests/PredictionTest.cxx
++++ b/tests/PredictionTest.cxx
+@@ -125,7 +125,17 @@ template <bool parallel>
+                          {"RelativeTolerance", 1e-12},
+                          {"MaximumNumberOfIterations", 5000}});
+     } else {
++#ifdef MFEM_USE_SUITESPARSE
+       return f.generate(ctx, "UMFPackSolver", fespace, {});
++#else  /* MFEM_USE_SUITESPARSE */
++      // UMFPACK is not available (for instance with MFEM in single
++      // precision)
++      return f.generate(ctx, "CGSolver", fespace,
++                        {{"VerbosityLevel", 1},
++                         {"AbsoluteTolerance", 1e-12},
++                         {"RelativeTolerance", 1e-12},
++                         {"MaximumNumberOfIterations", 5000}});
++#endif /* MFEM_USE_SUITESPARSE */
+     }
+   }();
+   if (isInvalid(ls)) {
+diff --git a/tests/SequentialLinearSolver.hxx b/tests/SequentialLinearSolver.hxx
+new file mode 100644
+index 0000000000..7ef4e6a893
+--- /dev/null
++++ b/tests/SequentialLinearSolver.hxx
+@@ -0,0 +1,52 @@
++/*!
++ * \file   SequentialLinearSolver.hxx
++ * \brief  This file declares the linear solver used by the sequential tests
++ * in place of a direct solver
++ * \date   13/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_TESTS_SEQUENTIALLINEARSOLVER_HXX
++#define LIB_MFEM_MGIS_TESTS_SEQUENTIALLINEARSOLVER_HXX
++
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++
++namespace mfem_mgis::unit_tests {
++
++  /*!
++   * \brief linear solver of the sequential tests: UMFPACK if MFEM provides
++   * it, otherwise (MFEM in single precision, which refuses SuiteSparse) the
++   * GMRES solver of MFEM with the tightest relative tolerance, preconditioned
++   * by the Jacobi smoother (without it, GMRES may stagnate in float, the
++   * diagonal terms of the eliminated degrees of freedom, equal to one,
++   * being much smaller than the other ones)
++   */
++#ifdef MFEM_USE_SUITESPARSE
++  inline constexpr const char* sequential_direct_solver = "UMFPackSolver";
++#else  /* MFEM_USE_SUITESPARSE */
++  inline constexpr const char* sequential_direct_solver = "GMRESSolver";
++#endif /* MFEM_USE_SUITESPARSE */
++
++  //! \brief if true, `sequential_direct_solver` is a direct solver
++#ifdef MFEM_USE_SUITESPARSE
++  inline constexpr bool has_sequential_direct_solver = true;
++#else  /* MFEM_USE_SUITESPARSE */
++  inline constexpr bool has_sequential_direct_solver = false;
++#endif /* MFEM_USE_SUITESPARSE */
++
++  //! \return the parameters of the linear solver of the sequential tests
++  [[nodiscard]] inline Parameters getSequentialDirectSolverParameters() {
++#ifdef MFEM_USE_SUITESPARSE
++    return {};
++#else  /* MFEM_USE_SUITESPARSE */
++    return {{"VerbosityLevel", 0},
++            {"RelativeTolerance", 1e-12},
++            {"AbsoluteTolerance", 0.},
++            {"MaximumNumberOfIterations", 10000},
++            {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}};
++#endif /* MFEM_USE_SUITESPARSE */
++  }  // end of getSequentialDirectSolverParameters
++
++}  // end of namespace mfem_mgis::unit_tests
++
++#endif /* LIB_MFEM_MGIS_TESTS_SEQUENTIALLINEARSOLVER_HXX */
+-- 
+2.43.0
+

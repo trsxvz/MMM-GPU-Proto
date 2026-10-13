@@ -131,6 +131,40 @@ if(NOT MFEM_MGIS_MGIS_HAS_FIELD_OPERATIONS)
           "field operations (MGIS/FieldOperations.hxx), the location and "
           "the layout of the arrays of the material data managers")
 endif()
+
+# numerical type: the one of MFEM (MFEM_USE_SINGLE of its configuration),
+# which MGIS and the behaviours must use too. A MGIS without the
+# MGIS_REAL_TYPE variable uses double.
+if(MFEM_USE_SINGLE STREQUAL "YES")
+  set(MFEM_MGIS_REAL_TYPE float)
+else()
+  set(MFEM_MGIS_REAL_TYPE double)
+endif()
+if(DEFINED MGIS_REAL_TYPE)
+  set(_mgis_real_type ${MGIS_REAL_TYPE})
+else()
+  set(_mgis_real_type double)
+endif()
+if(NOT _mgis_real_type STREQUAL MFEM_MGIS_REAL_TYPE)
+  message(FATAL_ERROR "mfem-mgis: MFEM uses the numerical type "
+          "'${MFEM_MGIS_REAL_TYPE}', MGIS uses '${_mgis_real_type}': MGIS "
+          "must be configured with -DMGIS_REAL_TYPE=${MFEM_MGIS_REAL_TYPE}")
+endif()
+if((NOT MFEM_MGIS_REAL_TYPE STREQUAL "double") AND enable-amgx)
+  message(FATAL_ERROR "mfem-mgis: the solvers of AmgX require double "
+          "(option enable-amgx)")
+endif()
+message(STATUS "mfem-mgis numerical type: ${MFEM_MGIS_REAL_TYPE}")
+# numerical type given to mfront by mfem_mgis_add_behaviours_library, and
+# by the libraries of the tests
+set_property(GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE ${MFEM_MGIS_REAL_TYPE})
+if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
+  set(MFEM_MGIS_MFRONT_REAL_TYPE_OPTION)
+else()
+  set(MFEM_MGIS_MFRONT_REAL_TYPE_OPTION
+      "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
+endif()
+
 set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
 if(MGIS_HAVE_TFEL)
   if(TARGET tfel::TFELTests)

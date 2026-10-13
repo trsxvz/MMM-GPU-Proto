@@ -42,6 +42,7 @@
 #include "mfem/mesh/pmesh.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MFEMMGIS/Config.hxx"
+#include "Tolerance.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
 
@@ -210,7 +211,8 @@ static void compare(mfem::Mesh& mesh,
         }
       }
       const auto det = detJ[q + g.nq * e];
-      ddet = std::max(ddet, std::abs(det - Jr.Det()) / std::pow(m, dim));
+      ddet = std::max(
+          ddet, std::abs(det - Jr.Det()) / std::pow(m, static_cast<real>(dim)));
       dw = std::max(dw, std::abs(w[q] - ip.weight));
       signs = signs && (sign * det >= 0);
     }
@@ -221,9 +223,14 @@ static void compare(mfem::Mesh& mesh,
               << " (inverses of the jacobians), " << ddet << " (determinants), "
               << dw << " (weights)\n";
   }
-  check(finite && (diJ < 1e-13), name + ": inverses of the jacobians");
-  check(ddet < 1e-13, name + ": determinants");
-  check(dw < 1e-15, name + ": weights");
+  // in float, the relative differences reach 3.5e-7 (inverses of the
+  // jacobians) and 2e-7 (determinants)
+  constexpr auto geometry_tolerance =
+      mfem_mgis::unit_tests::tolerance(1e-13, 3e-6);
+  check(finite && (diJ < geometry_tolerance),
+        name + ": inverses of the jacobians");
+  check(ddet < geometry_tolerance, name + ": determinants");
+  check(dw < mfem_mgis::unit_tests::tolerance(1e-15, 1e-6), name + ": weights");
   check(signs, name + ": signs of the determinants");
 }  // end of compare
 

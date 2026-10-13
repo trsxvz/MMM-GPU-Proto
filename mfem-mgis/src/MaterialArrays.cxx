@@ -8,12 +8,18 @@
 #include <chrono>
 #include <cstddef>
 #include <algorithm>
+#include <type_traits>
 #include "mfem/general/device.hpp"
 #include "MGIS/Raise.hxx"
 #include "MGIS/MemoryLocation.hxx"
 #include "MGIS/FieldView.hxx"
 #include "MGIS/Behaviour/Behaviour.hxx"
 #include "MFEMMGIS/MaterialArrays.hxx"
+
+// the arrays of MFEM are given to MGIS without conversion: both libraries
+// use the same numerical type (checked at the configuration of mfem-mgis)
+static_assert(std::is_same_v<mfem::real_t, mfem_mgis::real>,
+              "the numerical types of MFEM and of MGIS differ");
 
 namespace mfem_mgis {
 

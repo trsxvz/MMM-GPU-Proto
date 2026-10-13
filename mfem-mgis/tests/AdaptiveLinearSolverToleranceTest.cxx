@@ -26,6 +26,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -39,8 +40,24 @@ static void check(const bool b, const std::string& msg) {
 
 //! \return if two values are equal up to the rounding errors
 static bool areClose(const double a, const double b) {
-  return std::abs(a - b) <= 1e-14 * std::max(std::abs(a), std::abs(b));
+  return std::abs(a - b) <= mfem_mgis::unit_tests::tolerance(1e-14) *
+                                std::max(std::abs(a), std::abs(b));
 }  // end of areClose
+
+/*!
+ * \brief relative tolerance set and read back. In float, the relative
+ * tolerances are bounded below by 100 times the machine epsilon (see
+ * `mfem_mgis::boundRelativeTolerance`)
+ */
+static constexpr auto relative_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-7, 1e-3);
+
+/*!
+ * \brief initial relative tolerance of the linear solvers, restored by the
+ * adaptive tolerance, through the same bound
+ */
+static constexpr auto initial_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-9, 1e-4);
 
 /*!
  * \brief checks the relative tolerance of an iterative solver
@@ -50,9 +67,10 @@ static bool areClose(const double a, const double b) {
 static void checkRelativeTolerance(mfem_mgis::LinearSolver& s,
                                    const std::string& name) {
   using namespace mfem_mgis;
-  check(setRelativeTolerance(s, 1e-7), name + ": tolerance not set");
+  check(setRelativeTolerance(s, relative_tolerance),
+        name + ": tolerance not set");
   const auto otol = getRelativeTolerance(s);
-  check(otol.has_value() && areClose(*otol, 1e-7),
+  check(otol.has_value() && areClose(*otol, relative_tolerance),
         name + ": invalid relative tolerance");
 }  // end of checkRelativeTolerance
 
@@ -75,7 +93,7 @@ static void checkSecondChoice() {
   using namespace mfem_mgis;
   const auto t = makeAdaptiveTolerance("EisenstatWalker2");
   auto s = mfem::CGSolver{};
-  s.SetRelTol(1e-9);
+  s.SetRelTol(initial_tolerance);
   {
     auto u = AdaptiveLinearSolverToleranceUpdater{t, s};
     check(!u.requiresLinearResidualNorm(),
@@ -86,7 +104,7 @@ static void checkSecondChoice() {
     // direct evaluation of the formulas
     auto previous = 0.;
     for (std::size_t i = 0; i != norms.size(); ++i) {
-      auto eta = t.initial_tolerance;
+      auto eta = static_cast<double>(t.initial_tolerance);
       if (i != 0) {
         eta = t.gamma * std::pow(norms[i] / norms[i - 1], t.alpha);
         const auto sg = t.gamma * std::pow(previous, t.alpha);
@@ -94,7 +112,8 @@ static void checkSecondChoice() {
           eta = std::max(eta, sg);
         }
       }
-      eta = std::min(std::max(eta, goal / (2 * norms[i])), t.maximum_tolerance);
+      eta = std::min(std::max(eta, goal / (2 * norms[i])),
+                     static_cast<double>(t.maximum_tolerance));
       const auto v = u.update(i, norms[i], goal);
       check(areClose(v, eta), "second choice: tolerance of iteration " +
                                   std::to_string(i) + " (" + std::to_string(v) +
@@ -114,7 +133,7 @@ static void checkSecondChoice() {
     check(areClose(v, t.maximum_tolerance),
           "second choice: oversolving of the last linear system");
   }
-  check(areClose(*getRelativeTolerance(s), 1e-9),
+  check(areClose(*getRelativeTolerance(s), initial_tolerance),
         "second choice: initial tolerance not restored");
 }  // end of checkSecondChoice
 
@@ -134,7 +153,7 @@ static void checkFirstChoice() {
     return;
   }
   auto s = mfem::GMRESSolver{};
-  s.SetRelTol(1e-9);
+  s.SetRelTol(initial_tolerance);
   {
     auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
     check(u.requiresLinearResidualNorm(),
@@ -152,7 +171,7 @@ static void checkFirstChoice() {
                    ot->gamma * std::pow(0.1, ot->alpha)),
           "first choice: tolerance without the residual of the linear solve");
   }
-  check(areClose(*getRelativeTolerance(s), 1e-9),
+  check(areClose(*getRelativeTolerance(s), initial_tolerance),
         "first choice: initial tolerance not restored");
   // three iterations with the safeguard of the first choice, η^((1+√5)/2)
   // (Eisenstat and Walker), which does not depend on gamma

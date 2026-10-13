@@ -1,0 +1,183 @@
+From c6b38bddfecaba81b89b155a28deb14cb880416d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:06:30 +0200
+Subject: [PATCH] Tests in float: TwoLayerCube and UniaxialTensileTest
+
+Tolerance.hxx adapts the tolerances written for double: tolerance(t) is
+bounded by 10 times the machine epsilon, tolerance(for_double, for_float)
+gives an explicit value for float; both return the double value in double.
+- TwoLayerCube: L2 error threshold of 1e-3 in float (errors measured from
+  2e-7 with CG to 1.2e-4 with the GMRES of hypre, whose relative tolerance
+  is bounded to 1.2e-5); absolute tolerance of Newton of 1e-4 in float, the
+  criterion of the case 5 whose initial residual only holds roundings.
+- UniaxialTensileTest: tolerances on the results of 1e-6 (gradients,
+  internal state variables) and 5e4 (thermodynamic forces) in float, ten
+  times the errors measured; relative tolerance of Newton of 1e-3 for the
+  finite strain behaviours in float, whose residual stagnates at about 3e-4:
+  the deformation gradient F = I + H only gives H with a relative precision
+  of 1e-5 to 1e-4.
+Double unchanged.
+---
+ tests/Tolerance.hxx           | 50 +++++++++++++++++++++++++++++++++++
+ tests/TwoLayerCube.cxx        | 20 ++++++++++----
+ tests/UniaxialTensileTest.cxx | 28 ++++++++++++++------
+ 3 files changed, 85 insertions(+), 13 deletions(-)
+ create mode 100644 tests/Tolerance.hxx
+
+diff --git a/tests/Tolerance.hxx b/tests/Tolerance.hxx
+new file mode 100644
+index 0000000000..2cfed14983
+--- /dev/null
++++ b/tests/Tolerance.hxx
+@@ -0,0 +1,50 @@
++/*!
++ * \file   Tolerance.hxx
++ * \brief  This file declares functions adapting the tolerances of the tests,
++ * written for the double numerical type, to the numerical type of mfem-mgis
++ * \date   13/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_TESTS_TOLERANCE_HXX
++#define LIB_MFEM_MGIS_TESTS_TOLERANCE_HXX
++
++#include <limits>
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::unit_tests {
++
++  /*!
++   * \return a tolerance written for the double numerical type, bounded below
++   * by ten times the machine epsilon of the numerical type of mfem-mgis: it
++   * is unchanged in double (for a tolerance greater than 2.3e-15), and about
++   * 1.2e-6 in float
++   * \param[in] t: tolerance for the double numerical type
++   */
++  constexpr mfem_mgis::real tolerance(const double t) noexcept {
++    constexpr auto e =
++        10 *
++        static_cast<double>(std::numeric_limits<mfem_mgis::real>::epsilon());
++    return static_cast<mfem_mgis::real>(t > e ? t : e);
++  }  // end of tolerance
++
++  /*!
++   * \return the tolerance of a test for the numerical type of mfem-mgis: the
++   * first argument for double, the second one otherwise. The tolerance for
++   * float is given explicitly when the error depends on the computation
++   * (roundings accumulated by the assembly and the solvers, convergence
++   * criteria of the solvers and of the behaviours bounded for this type).
++   * \param[in] for_double: tolerance for the double numerical type
++   * \param[in] for_float: tolerance for the float numerical type
++   */
++  constexpr mfem_mgis::real tolerance(const double for_double,
++                                      const double for_float) noexcept {
++    if constexpr (sizeof(mfem_mgis::real) == sizeof(double)) {
++      return static_cast<mfem_mgis::real>(for_double);
++    } else {
++      return static_cast<mfem_mgis::real>(for_float);
++    }
++  }  // end of tolerance
++
++}  // end of namespace mfem_mgis::unit_tests
++
++#endif /* LIB_MFEM_MGIS_TESTS_TOLERANCE_HXX */
+diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
+index 0f23ab5f20..12f12b48ed 100644
+--- a/tests/TwoLayerCube.cxx
++++ b/tests/TwoLayerCube.cxx
+@@ -43,6 +43,7 @@
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
++#include "Tolerance.hxx"
+ 
+ constexpr double xmax = 1.;
+ 
+@@ -158,17 +159,26 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
+ static bool setSolverParameters(
+     mfem_mgis::Context& ctx,
+     mfem_mgis::AbstractNonLinearEvolutionProblem& problem) {
+-  return problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                           {"RelativeTolerance", 1e-12},
+-                                           {"AbsoluteTolerance", 1e-12},
+-                                           {"MaximumNumberOfIterations", 10}});
++  // the absolute tolerance is the criterion of the case 5, whose initial
++  // residual is only made of roundings: in float, they are about 4e-6, the
++  // residuals of the other cases being about 1e2
++  return problem.setSolverParameters(
++      ctx,
++      {{"VerbosityLevel", 0},
++       {"RelativeTolerance", 1e-12},
++       {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(1e-12, 1e-4)},
++       {"MaximumNumberOfIterations", 10}});
+ }  // end of setSolverParmeters
+ 
+ std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
+                                   mfem_mgis::NonLinearEvolutionProblem& problem,
+                                   const std::size_t i) {
+   const auto ob = mfem_mgis::compareToAnalyticalSolution(
+-      ctx, problem, getSolution(i), {{"CriterionThreshold", 1e-7}});
++      ctx, problem, getSolution(i),
++      // in float, the L2 errors measured go from 2e-7 (conjugate gradient)
++      // to 1.2e-4 (GMRES and FGMRES of hypre, whose relative tolerance is
++      // bounded to 1.2e-5 by mfem-mgis)
++      {{"CriterionThreshold", mfem_mgis::unit_tests::tolerance(1e-7, 1e-3)}});
+   if (mfem_mgis::isInvalid(ob)) {
+     return {};
+   }
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index c5d606c56b..42a8df15dd 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -30,6 +30,7 @@
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "Tolerance.hxx"
+ 
+ /*!
+  * \return the default behaviour library: the library built with the example
+@@ -259,9 +260,12 @@ static bool checkResults(const UniaxialTestResults& r,
+                          const mfem_mgis::Material& m,
+                          const TestParameters& p) {
+   // absolute tolerances on the gradients, the internal state variable and the
+-  // thermodynamic forces
+-  constexpr auto eeps = mfem_mgis::real(1.e-10);
+-  constexpr auto seps = mfem_mgis::real(70.e9) * eeps;
++  // thermodynamic forces. In float, the largest errors measured are 6.7e-8 on
++  // the gradients, 1e-7 on the internal state variables and 4.7e3 on the
++  // thermodynamic forces (2e-5 relative to the stress).
++  constexpr auto eeps = mfem_mgis::unit_tests::tolerance(1.e-10, 1.e-6);
++  constexpr auto seps = mfem_mgis::unit_tests::tolerance(
++      mfem_mgis::real(70.e9) * mfem_mgis::real(1.e-10), 5.e4);
+   auto success = true;
+   if ((m.n != 0) && (!std::string_view{p.reference_file}.empty())) {
+     const auto references = readResults(p.reference_file);
+@@ -400,12 +404,20 @@ int main(int argc, char** argv) {
+                return -0.021 + 0.1 * (t - 0.6);
+              }}}) |
+       or_die;
+-  // solver parameters
++  // solver parameters. In float, the residual of a finite strain behaviour
++  // stagnates at about 3e-4 of the initial one: its gradient, the deformation
++  // gradient F = I + H with |H| about 1e-2, only gives H with a relative
++  // precision of 1e-5 to 1e-4.
+   setLinearSolver(ctx, problem, p.linearsolver) | or_die;
+-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                    {"RelativeTolerance", 1e-12},
+-                                    {"AbsoluteTolerance", 0.},
+-                                    {"MaximumNumberOfIterations", 10}}) |
++  const auto finite_strain =
++      m1.b.btype == mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR;
++  problem.setSolverParameters(
++      ctx, {{"VerbosityLevel", 0},
++            {"RelativeTolerance",
++             finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
++                           : mfem_mgis::real(1e-12)},
++            {"AbsoluteTolerance", 0.},
++            {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+   // post-processings
+   if (p.post_processing) {
+-- 
+2.43.0
+

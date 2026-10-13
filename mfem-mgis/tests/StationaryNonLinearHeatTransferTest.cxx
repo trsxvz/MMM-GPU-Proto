@@ -19,6 +19,7 @@
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 int main(int argc, char** argv) {
   auto ctx = mgis::Context{};
@@ -97,10 +98,13 @@ int main(int argc, char** argv) {
     // set the solver parameters
     mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
                                            parameters);
-    problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-                                      {"RelativeTolerance", 1e-12},
-                                      {"AbsoluteTolerance", 0.},
-                                      {"MaximumNumberOfIterations", 10}}) |
+    // in float, the residual stagnates at about 3e-4 (temperatures up to
+    // 900 K), above the relative tolerance for the last steps
+    problem.setSolverParameters(
+        ctx, {{"VerbosityLevel", 0},
+              {"RelativeTolerance", 1e-12},
+              {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(0., 3e-3)},
+              {"MaximumNumberOfIterations", 10}}) |
         or_die;
     // vtk export
     problem.addPostProcessing(

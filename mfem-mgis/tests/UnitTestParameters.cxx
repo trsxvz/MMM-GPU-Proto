@@ -76,7 +76,9 @@ int main() {
   auto test_get_parameter = get(throwing, params_copy, "real");
   auto test_get_parameters = params_copy.get(throwing,
                                              "real");  // get
-  if (std::get<real>(test_get_parameters.as_std_variant()) != real_value) {
+  // the floating-point values are stored as double
+  if (static_cast<real>(std::get<double>(
+          test_get_parameters.as_std_variant())) != real_value) {
     std::cout << "Error: test_get" << std::endl;
     std::abort();
   }

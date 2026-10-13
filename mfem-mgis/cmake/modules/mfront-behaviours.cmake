@@ -6,9 +6,9 @@ function(add_mfront_behaviour_sources lib  file)
     OUTPUT  "${mfront_output1}"
     OUTPUT  "${mfront_output2}"
     COMMAND "${MFRONT}"
-    ARGS    "--interface=generic"
+    ARGS    "--interface=generic" ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
     ARGS     "${mfront_file}"
-    DEPENDS "${mfront_file}"
+    DEPENDS "${mfront_file}" "${MFRONT}"
     COMMENT "mfront source ${mfront_file}")
   set(${lib}_SOURCES ${mfront_output1} ${mfront_output2}
     ${${lib}_SOURCES} PARENT_SCOPE)

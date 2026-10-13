@@ -39,6 +39,8 @@
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 #include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
+#include "SequentialLinearSolver.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -174,12 +176,13 @@ static void checkMatrixFreeDiagonal(
   const auto* const pd = d.HostRead();
   const auto* const pa = da.HostRead();
   auto diff = real{0};
-  auto m = real{0};
+  auto m = mfem_mgis::real{0};
   for (int i = 0; i != d.Size(); ++i) {
     diff = std::max(diff, std::abs(pd[i] - pa[i]));
     m = std::max(m, std::abs(pa[i]));
   }
-  check((d.Size() > 0) && (diff <= 1e-12 * m),
+  check((d.Size() > 0) &&
+            (diff <= mfem_mgis::unit_tests::tolerance(1e-12, 1e-5) * m),
         name + ": diagonal of the tangent operator applied without assembly");
 }  // end of checkMatrixFreeDiagonal
 
@@ -315,8 +318,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
          {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
         or_die;
   } else {
-    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
-                            {}) |
+    problem.setLinearSolver(
+        ctx,
+        parallel ? "MUMPSSolver"
+                 : mfem_mgis::unit_tests::sequential_direct_solver,
+        parallel
+            ? mfem_mgis::Parameters{}
+            : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
         or_die;
   }
   if (opts.prediction) {
@@ -386,8 +394,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
   if ((a.size() != b.size()) || a.empty()) {
     return 1;
   }
-  auto d = 0.;
-  auto m = 0.;
+  auto d = mfem_mgis::real{0};
+  auto m = mfem_mgis::real{0};
   for (std::size_t i = 0; i != a.size(); ++i) {
     d = std::max(d, std::abs(a[i] - b[i]));
     m = std::max(m, std::abs(a[i]));
@@ -415,9 +423,14 @@ static void compare(const Results& a,
   std::cout << name << ": relative differences " << du << " (temperature), "
             << dj << " (heat flux), " << dT
             << " (temperature at the integration points)\n";
-  check(du < 1e-10, name + ": temperature");
-  check(dj < 1e-10, name + ": heat flux");
-  check(dT < 1e-10, name + ": temperature at the integration points");
+  // relative differences: in float, they reach 2.6e-7 (roundings, and
+  // linear solvers stopping at a relative residual of 1.2e-5)
+  constexpr auto relative_tolerance =
+      mfem_mgis::unit_tests::tolerance(1e-10, 5e-6);
+  check(du < relative_tolerance, name + ": temperature");
+  check(dj < relative_tolerance, name + ": heat flux");
+  check(dT < relative_tolerance,
+        name + ": temperature at the integration points");
   const auto [Tmin, Tmax] =
       std::minmax_element(a.temperature.begin(), a.temperature.end());
   check((Tmin != a.temperature.end()) && (*Tmax - *Tmin > 1),

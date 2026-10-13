@@ -15,6 +15,7 @@
 #include "MFEMMGIS/L2Projection.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 struct TestParameters {
   const char* mesh_file = nullptr;
@@ -87,7 +88,9 @@ bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
         u[0] = std::cos(4 * pi * x[0]);
       }};
   const auto e = r.ComputeL2Error(solution);
-  return e < 4e-6;
+  // errors measured: 3.2e-6 in double, 1.1e-4 in float, where the linear
+  // solver stops at a relative residual of 1.2e-5
+  return e < mfem_mgis::unit_tests::tolerance(4e-6, 1e-3);
 }  // end of test
 
 int main(int argc, char** argv) {

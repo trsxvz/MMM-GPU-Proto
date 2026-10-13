@@ -1,0 +1,402 @@
+From ec71fb0fac9038872b6aca98831aa2adf7f4f9d1 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 22:00:44 +0200
+Subject: [PATCH] Tests in float: linear solvers, geometry, execution settings
+
+Tolerances for float measured (about ten times the observed errors) and
+explained in comments, the tolerances for double being unchanged.
+IntegrationRuleOrderTest runs without SuiteSparse with the linear solver
+of SequentialLinearSolver.hxx. HypreParaSailsTest is not run in float:
+ParaSails gives NaN values from the first iteration with hypre in single
+precision. The default level of fill of HypreILU can not be distinguished
+from zero in float (same number of iterations at a relative residual of
+1.2e-5): this check is made in double only.
+---
+ tests/AdaptiveLinearSolverToleranceTest.cxx | 32 ++++++++++++++----
+ tests/CMakeLists.txt                        | 36 ++++++++++++---------
+ tests/DirectSolverReuseAnalysisTest.cxx     | 10 +++++-
+ tests/ElementsGeometryTest.cxx              | 12 +++++--
+ tests/ExecutionSettingsTest.cxx             | 16 ++++++---
+ tests/GlobalStiffnessMatrixTest.cxx         |  6 +++-
+ tests/HypreILUTest.cxx                      | 11 +++++--
+ tests/IntegrationRuleOrderTest.cxx          | 11 +++++--
+ tests/OperatorSmoothersTest.cxx             | 12 ++++++-
+ 9 files changed, 107 insertions(+), 39 deletions(-)
+
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index 3f2fc630c5..17b53c25c8 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -26,6 +26,7 @@
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -39,9 +40,25 @@ static void check(const bool b, const std::string& msg) {
+ 
+ //! \return if two values are equal up to the rounding errors
+ static bool areClose(const double a, const double b) {
+-  return std::abs(a - b) <= 1e-14 * std::max(std::abs(a), std::abs(b));
++  return std::abs(a - b) <= mfem_mgis::unit_tests::tolerance(1e-14) *
++                                std::max(std::abs(a), std::abs(b));
+ }  // end of areClose
+ 
++/*!
++ * \brief relative tolerance set and read back. In float, the relative
++ * tolerances are bounded below by 100 times the machine epsilon (see
++ * `mfem_mgis::boundRelativeTolerance`)
++ */
++static constexpr auto relative_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-7, 1e-3);
++
++/*!
++ * \brief initial relative tolerance of the linear solvers, restored by the
++ * adaptive tolerance, through the same bound
++ */
++static constexpr auto initial_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-9, 1e-4);
++
+ /*!
+  * \brief checks the relative tolerance of an iterative solver
+  * \param[in] s: linear solver
+@@ -50,9 +67,10 @@ static bool areClose(const double a, const double b) {
+ static void checkRelativeTolerance(mfem_mgis::LinearSolver& s,
+                                    const std::string& name) {
+   using namespace mfem_mgis;
+-  check(setRelativeTolerance(s, 1e-7), name + ": tolerance not set");
++  check(setRelativeTolerance(s, relative_tolerance),
++        name + ": tolerance not set");
+   const auto otol = getRelativeTolerance(s);
+-  check(otol.has_value() && areClose(*otol, 1e-7),
++  check(otol.has_value() && areClose(*otol, relative_tolerance),
+         name + ": invalid relative tolerance");
+ }  // end of checkRelativeTolerance
+ 
+@@ -75,7 +93,7 @@ static void checkSecondChoice() {
+   using namespace mfem_mgis;
+   const auto t = makeAdaptiveTolerance("EisenstatWalker2");
+   auto s = mfem::CGSolver{};
+-  s.SetRelTol(1e-9);
++  s.SetRelTol(initial_tolerance);
+   {
+     auto u = AdaptiveLinearSolverToleranceUpdater{t, s};
+     check(!u.requiresLinearResidualNorm(),
+@@ -115,7 +133,7 @@ static void checkSecondChoice() {
+     check(areClose(v, t.maximum_tolerance),
+           "second choice: oversolving of the last linear system");
+   }
+-  check(areClose(*getRelativeTolerance(s), 1e-9),
++  check(areClose(*getRelativeTolerance(s), initial_tolerance),
+         "second choice: initial tolerance not restored");
+ }  // end of checkSecondChoice
+ 
+@@ -135,7 +153,7 @@ static void checkFirstChoice() {
+     return;
+   }
+   auto s = mfem::GMRESSolver{};
+-  s.SetRelTol(1e-9);
++  s.SetRelTol(initial_tolerance);
+   {
+     auto u = AdaptiveLinearSolverToleranceUpdater{*ot, s};
+     check(u.requiresLinearResidualNorm(),
+@@ -153,7 +171,7 @@ static void checkFirstChoice() {
+                    ot->gamma * std::pow(0.1, ot->alpha)),
+           "first choice: tolerance without the residual of the linear solve");
+   }
+-  check(areClose(*getRelativeTolerance(s), 1e-9),
++  check(areClose(*getRelativeTolerance(s), initial_tolerance),
+         "first choice: initial tolerance not restored");
+   // three iterations with the safeguard of the first choice, η^((1+√5)/2)
+   // (Eisenstat and Walker), which does not depend on gamma
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 4d7083dc02..3517aee030 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1219,19 +1219,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+   endif()
+   # IntegrationRuleOrderTest executable: order of the integration rules
+   # of the behaviour integrators given by the user, point by point and by
+-  # kernels, on the host and on the debug device of MFEM (UMFPack)
+-  if(MFEM_USE_SUITESPARSE)
+-    add_test_executable(IntegrationRuleOrderTest)
+-    set(integration_rule_order_test_arguments
+-        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+-        --library $<TARGET_FILE:BehaviourTest>)
+-    add_test(NAME IntegrationRuleOrderTest
+-             COMMAND IntegrationRuleOrderTest
+-                     ${integration_rule_order_test_arguments})
+-    add_test(NAME IntegrationRuleOrderTest-debug
+-             COMMAND IntegrationRuleOrderTest --device debug
+-                     ${integration_rule_order_test_arguments})
+-  endif()
++  # kernels, on the host and on the debug device of MFEM (UMFPack, or the
++  # linear solver of SequentialLinearSolver.hxx without SuiteSparse)
++  add_test_executable(IntegrationRuleOrderTest)
++  set(integration_rule_order_test_arguments
++      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++      --library $<TARGET_FILE:BehaviourTest>)
++  add_test(NAME IntegrationRuleOrderTest
++           COMMAND IntegrationRuleOrderTest
++                   ${integration_rule_order_test_arguments})
++  add_test(NAME IntegrationRuleOrderTest-debug
++           COMMAND IntegrationRuleOrderTest --device debug
++                   ${integration_rule_order_test_arguments})
+   # ExecutionSettingsTest executable: execution settings (option
+   # --execution and locations of the phases in the mixed mode), uniaxial
+   # tension computed where the settings place each phase, refusal of the
+@@ -1394,10 +1393,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+     # HypreParaSailsTest executable: ParaSails preconditioner given a new
+     # operator after the destruction of the previous one, refused when hypre
+-    # computes on a GPU
++    # computes on a GPU. Not run in float: ParaSails gives NaN values from
++    # the first iteration with hypre in single precision (whose library
++    # imports the LAPACK routines dpotrf and dpotrs of the double type)
+     add_test_executable(HypreParaSailsTest)
+-    add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
+-    add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
++    if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
++      add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
++      add_test(NAME HypreParaSailsTestP
++               COMMAND mpirun -n 2 ./HypreParaSailsTest)
++    endif()
+   endif(MFEM_USE_MPI)
+ 
+ endif(MFEM_MGIS_HAVE_TFEL)
+diff --git a/tests/DirectSolverReuseAnalysisTest.cxx b/tests/DirectSolverReuseAnalysisTest.cxx
+index a275b50d23..5e16eadf89 100644
+--- a/tests/DirectSolverReuseAnalysisTest.cxx
++++ b/tests/DirectSolverReuseAnalysisTest.cxx
+@@ -31,6 +31,7 @@
+ #include "mfem/mesh/pmesh.hpp"
+ #include "mfem/fem/pbilinearform.hpp"
+ #include "MFEMMGIS/Config.hxx"
++#include "Tolerance.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -42,6 +43,13 @@
+ //! \brief number of failed checks
+ static int failures = 0;
+ 
++/*!
++ * \brief tolerance on the relative residual of the resolutions. In float,
++ * it reaches 9.7e-8
++ */
++static constexpr auto direct_solver_residual_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-10, 1e-6);
++
+ //! \return true if the cuDSS solver is expected to be refused
+ static bool isCuDSSSolverRefused() {
+   if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+@@ -399,7 +407,7 @@ int main(int argc, char** argv) {
+         R -= B;
+         const auto r = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, R, R));
+         const auto nb = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, B, B));
+-        check(r < 1e-10 * nb,
++        check(r < direct_solver_residual_tolerance * nb,
+               step + ": relative residual " + std::to_string(r / nb));
+         if (verbose) {
+           std::cout << step << ": relative residual " << r / nb;
+diff --git a/tests/ElementsGeometryTest.cxx b/tests/ElementsGeometryTest.cxx
+index aa51d6a72c..42a079bc53 100644
+--- a/tests/ElementsGeometryTest.cxx
++++ b/tests/ElementsGeometryTest.cxx
+@@ -42,6 +42,7 @@
+ #include "mfem/mesh/pmesh.hpp"
+ #endif /* MFEM_USE_MPI */
+ #include "MFEMMGIS/Config.hxx"
++#include "Tolerance.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+ 
+@@ -222,9 +223,14 @@ static void compare(mfem::Mesh& mesh,
+               << " (inverses of the jacobians), " << ddet << " (determinants), "
+               << dw << " (weights)\n";
+   }
+-  check(finite && (diJ < 1e-13), name + ": inverses of the jacobians");
+-  check(ddet < 1e-13, name + ": determinants");
+-  check(dw < 1e-15, name + ": weights");
++  // in float, the relative differences reach 3.5e-7 (inverses of the
++  // jacobians) and 2e-7 (determinants)
++  constexpr auto geometry_tolerance =
++      mfem_mgis::unit_tests::tolerance(1e-13, 3e-6);
++  check(finite && (diJ < geometry_tolerance),
++        name + ": inverses of the jacobians");
++  check(ddet < geometry_tolerance, name + ": determinants");
++  check(dw < mfem_mgis::unit_tests::tolerance(1e-15, 1e-6), name + ": weights");
+   check(signs, name + ": signs of the determinants");
+ }  // end of compare
+ 
+diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
+index 64b8998297..7154108afa 100644
+--- a/tests/ExecutionSettingsTest.cxx
++++ b/tests/ExecutionSettingsTest.cxx
+@@ -27,6 +27,7 @@
+ #include "mfem/linalg/hypre.hpp"
+ #endif /* MFEM_USE_MPI */
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "Tolerance.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+@@ -210,9 +211,12 @@ static void computeUniaxialTension(const char* const mesh,
+     const auto expected = (i % 6 == 0) ? sxx : real{0};
+     dmax = std::max(dmax, std::abs(sig[i] - expected));
+   }
+-  check(dmax < 1e-8 * sxx, "stress: largest difference " +
+-                               std::to_string(dmax / sxx) +
+-                               " (relative to the axial stress)");
++  // in float, the largest difference reaches 1.8e-5 times the axial stress
++  // (small strain of 1e-5, linear solvers stopping at a relative residual
++  // of 1.2e-5)
++  check(dmax < mfem_mgis::unit_tests::tolerance(1e-8, 2e-4) * sxx,
++        "stress: largest difference " + std::to_string(dmax / sxx) +
++            " (relative to the axial stress)");
+   // location of the computations of the finite elements
+   const auto& implementation = problem.getImplementation<true>();
+   const auto fe_kernels =
+@@ -234,7 +238,8 @@ static void computeUniaxialTension(const char* const mesh,
+   const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
+   auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
+   const auto measure = computeMeasure(bi);
+-  check(std::abs(measure - 1) < 1e-12,
++  // in float, the difference reaches 2.4e-7
++  check(std::abs(measure - 1) < mfem_mgis::unit_tests::tolerance(1e-12, 3e-6),
+         "measure of the cube: " + std::to_string(measure));
+   const auto pp_kernels =
+       getNumberOfPostProcessingsComputationsByKernels() != n0;
+@@ -431,7 +436,8 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,
+   for (std::size_t i = 0; i < sig.size(); i += 4) {
+     dmax = std::max(dmax, std::abs(sig[i] - sxx));
+   }
+-  check(dmax < 1e-8 * sxx,
++  // in float, the largest difference reaches 7.9e-8 times the stress
++  check(dmax < mfem_mgis::unit_tests::tolerance(1e-8) * sxx,
+         "elements of different geometries: stress, "
+         "largest difference " +
+             std::to_string(dmax / sxx));
+diff --git a/tests/GlobalStiffnessMatrixTest.cxx b/tests/GlobalStiffnessMatrixTest.cxx
+index 97d3f26a79..0890071a18 100644
+--- a/tests/GlobalStiffnessMatrixTest.cxx
++++ b/tests/GlobalStiffnessMatrixTest.cxx
+@@ -25,6 +25,7 @@
+ #include "mfem/linalg/hypre.hpp"
+ #include "mfem/mesh/pmesh.hpp"
+ #include "mfem/fem/pfespace.hpp"
++#include "Tolerance.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+ #include "MFEMMGIS/Batch/GlobalStiffnessMatrix.hxx"
+@@ -157,7 +158,10 @@ static void testCase(mfem::ParMesh& mesh,
+       std::cout << name << ", " << what << ": maximum relative difference " << d
+                 << '\n';
+     }
+-    check(d < 1e-14, name + ", " + what + ": global matrix");
++    // in float, the relative difference reaches 1e-7 (sums in another
++    // order)
++    check(d < mfem_mgis::unit_tests::tolerance(1e-14, 1e-6),
++          name + ", " + what + ": global matrix");
+     K->EliminateBC(essential_dofs, mfem::Operator::DIAG_ONE);
+     return K;
+   };
+diff --git a/tests/HypreILUTest.cxx b/tests/HypreILUTest.cxx
+index a1890cdb1c..3f30530af0 100644
+--- a/tests/HypreILUTest.cxx
++++ b/tests/HypreILUTest.cxx
+@@ -125,9 +125,14 @@ int main(int argc, char** argv) {
+     check(nd == n0, "the default level of fill is not zero on a GPU");
+     check(n2.empty(), "a level of fill of 2 is not refused on a GPU");
+   } else {
+-    // ILU(1) by default
+-    check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
+-          "the default level of fill is not the one of MFEM");
++    // ILU(1) by default. In float, the iterations stop at a relative
++    // residual of 1.2e-5 (see `mfem_mgis::boundRelativeTolerance`), where
++    // ILU(0) and ILU(1) need the same number of iterations (9): the default
++    // level of fill can not be distinguished from zero
++    if constexpr (sizeof(real) == sizeof(double)) {
++      check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
++            "the default level of fill is not the one of MFEM");
++    }
+     check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
+           "level of fill 2: numbers of iterations");
+     check((n2.size() == 2) && (n2[0] < n0[0]),
+diff --git a/tests/IntegrationRuleOrderTest.cxx b/tests/IntegrationRuleOrderTest.cxx
+index 3d95356cfc..ae029b362c 100644
+--- a/tests/IntegrationRuleOrderTest.cxx
++++ b/tests/IntegrationRuleOrderTest.cxx
+@@ -27,6 +27,8 @@
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
+@@ -130,7 +132,10 @@ static Results compute(const char* const mesh,
+        {"Component", 1},
+        {"LoadingEvolution", [](const real t) noexcept { return 2e-5 * t; }}}) |
+       or_die;
+-  problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
++  problem.setLinearSolver(
++      ctx, mfem_mgis::unit_tests::sequential_direct_solver,
++      mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
++      or_die;
+   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                     {"RelativeTolerance", 1e-12},
+                                     {"AbsoluteTolerance", 0.},
+@@ -212,7 +217,9 @@ int main(int argc, char** argv) {
+     const auto d = getRelativeDifference(r.u, r3.u);
+     std::cout << "rule of order 3, " << name
+               << ": relative difference of the unknowns " << d << '\n';
+-    check(d < 1e-10, "rule of order 3, " + name + ": different solution");
++    // in float, the relative difference reaches 3.9e-7
++    check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
++          "rule of order 3, " + name + ": different solution");
+   }
+   // a negative order is refused
+   {
+diff --git a/tests/OperatorSmoothersTest.cxx b/tests/OperatorSmoothersTest.cxx
+index 3862c2d0e3..404ae3303a 100644
+--- a/tests/OperatorSmoothersTest.cxx
++++ b/tests/OperatorSmoothersTest.cxx
+@@ -20,12 +20,22 @@
+ #include <iostream>
+ #include "mfem.hpp"
+ #include "MFEMMGIS/Config.hxx"
++#include "Tolerance.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ 
+ //! \brief number of failed checks
+ static int failures = 0;
++
++/*!
++ * \brief tolerance on the relative residual of the resolutions. In float,
++ * the conjugate gradient stops at a relative residual of 1.2e-5 (see
++ * `mfem_mgis::boundRelativeTolerance`), the residual computed afterwards
++ * reaching 2.1e-5
++ */
++static constexpr auto smoothers_residual_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-9, 2e-4);
+ //! \brief if true, the computations are parallel
+ static bool parallel = false;
+ 
+@@ -231,7 +241,7 @@ static void checkSmoothers(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+          {std::pair{ra, "assembled operator"},
+           std::pair{rw, "operator applied without assembly"},
+           std::pair{rs, "scaled operator"}}) {
+-      check(r.converged && (r.residual < 1e-9),
++      check(r.converged && (r.residual < smoothers_residual_tolerance),
+             name + ", " + kind + ": resolution");
+     }
+     check(std::abs(ra.iterations - rw.iterations) <= 1,
+-- 
+2.43.0
+

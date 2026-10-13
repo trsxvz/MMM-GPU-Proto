@@ -771,8 +771,8 @@ namespace mfem_mgis {
     PartialQuadratureFunctionsScalarCoefficient& operator=(
         const PartialQuadratureFunctionsScalarCoefficient&) = default;
     //
-    double Eval(mfem::ElementTransformation& tr,
-                const mfem::IntegrationPoint& i) override {
+    mfem::real_t Eval(mfem::ElementTransformation& tr,
+                      const mfem::IntegrationPoint& i) override {
       const auto mid = tr.Attribute;
       const auto p = this->functions.find(mid);
       if (p == this->functions.end()) {
@@ -811,8 +811,8 @@ namespace mfem_mgis {
     PartialQuadratureFunctionsScalarCoefficientII& operator=(
         const PartialQuadratureFunctionsScalarCoefficientII&) = delete;
     //
-    double Eval(mfem::ElementTransformation& tr,
-                const mfem::IntegrationPoint& i) override {
+    mfem::real_t Eval(mfem::ElementTransformation& tr,
+                      const mfem::IntegrationPoint& i) override {
       const auto mid = tr.Attribute;
       const auto p = this->functions.find(mid);
       if (p == this->functions.end()) {

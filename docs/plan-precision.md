@@ -423,8 +423,18 @@ Suite (13/10/2026, soir) :
   écrits avec un DSL de lois (`RungeKuttaModelDSL`) se génèrent en float.
 - mfem-mgis : configuration (type de MFEM, refus d'un MGIS d'un autre type
   et d'AmgX en float), paramètres stockés en `double`, types MPI, tests
-  compilés en float ; double inchangé (216/216). Adaptation des tests au
-  float en cours.
+  compilés en float ; double inchangé (216/216). Tests adaptés au float
+  (`tests/Tolerance.hxx` : tolérance du double bornée à 10 ε, ou donnée
+  explicitement pour le float, d'après l'erreur mesurée) : 204/204 en
+  float sur le CPU, avec les lois régénérées par le mfront courant. Douze
+  tests restent en double seulement : ParaSails (NaN dès la première
+  itération : hypre en simple appelle `dpotrf_` et `dpotrs_` de LAPACK en
+  double, défaut de hypre), UMFPACK, GSLIB, Umpire, cuDSS et CUDA absents
+  du MFEM en float. Défaut trouvé dans les tests : quatre réductions MPI
+  en `MPI_DOUBLE` sur des `real` (« stack smashing » en parallèle). Les
+  sources de mfront sont régénérées quand mfront change (dépendance des
+  commandes). `Tolerance.hxx` est installé avec ex1 et ex3, dont les
+  sources sont des tests.
 - Plancher du résidu en grandes transformations : le gradient de la
   transformation, proche de l'identité, est arrondi à environ 1e-7 en
   float, donc les contraintes ne sont connues qu'à environ ε E (2e4 Pa
@@ -445,9 +455,12 @@ Suite (13/10/2026, soir) :
   chargement ou d'itérations de couplage, ne peut pas être atteinte : une
   tolérance absolue à environ dix fois ce plancher est nécessaire. ex8
   génère aussi ses lois en double pour MTest (D4, dans son propre
-  `CMakeLists.txt`).
+  `CMakeLists.txt`). Après les tests de mfem-mgis : exemples 21/21 en
+  float (ex1 et ex3 compris ; satoh, qui demande SuiteSparse, et les
+  variantes PETSc ne sont pas déclarées) et 24/24 en double contre les
+  sources actuelles de mfem-mgis.
 - MTest contrôle aussi le type des propriétés matériau et des évolutions
   `generic`.
 
-Restent : fin des tests de mfem-mgis en float, mm-opera-hpc, le GPU en
-float, les mesures et la documentation des bibliothèques.
+Restent : le GPU en float, les mesures et la documentation des
+bibliothèques.

@@ -45,9 +45,20 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AdaptiveLinearSolverTolerance.hxx"
+#include "SequentialLinearSolver.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
+
+/*!
+ * \brief tolerance on the relative difference between the solutions of the
+ * methods and the one of the Newton solver. In float, it reaches 2.8e-5,
+ * the non linear solvers stopping at a relative residual of 1.2e-5 (see
+ * `mfem_mgis::boundRelativeTolerance`)
+ */
+static constexpr auto solution_tolerance =
+    mfem_mgis::unit_tests::tolerance(1e-8, 3e-4);
 //! \brief if true, the computations are parallel
 static bool parallel = false;
 
@@ -117,7 +128,7 @@ struct CountingLinearSolver final : mfem::Solver {
 
 /*!
  * \brief declares the `CountingLinearSolver`, wrapping MUMPS in parallel
- * and UMFPack in sequential
+ * and the linear solver of the sequential tests in sequential
  */
 static void declareCountingLinearSolver() {
   using namespace mfem_mgis;
@@ -131,9 +142,11 @@ static void declareCountingLinearSolver() {
            const Parameters& opts) -> LinearSolverHandler {
           auto h = LinearSolverFactory<true>::getFactory().generate(
               c, "MUMPSSolver", fes, opts);
+          // the preconditioner, if any, is kept alive with the linear
+          // solver which references it
           return {std::make_unique<CountingLinearSolver>(
                       std::move(h.linear_solver)),
-                  {}};
+                  std::move(h.preconditioner)};
         }) |
         or_die;
 #endif /* MFEM_USE_MPI */
@@ -143,10 +156,15 @@ static void declareCountingLinearSolver() {
         [](Context& c, FiniteElementSpace<false>& fes,
            const Parameters& opts) -> LinearSolverHandler {
           auto h = LinearSolverFactory<false>::getFactory().generate(
-              c, "UMFPackSolver", fes, opts);
+              c, unit_tests::sequential_direct_solver, fes,
+              opts.begin() == opts.end()
+                  ? unit_tests::getSequentialDirectSolverParameters()
+                  : opts);
+          // the preconditioner, if any, is kept alive with the linear
+          // solver which references it
           return {std::make_unique<CountingLinearSolver>(
                       std::move(h.linear_solver)),
-                  {}};
+                  std::move(h.preconditioner)};
         }) |
         or_die;
   }
@@ -233,10 +251,15 @@ static Results compute(mfem_mgis::Context& ctx,
        {"Component", 0},
        {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
       or_die;
-  const auto* const ls = (opts.linear_solver != nullptr)
-                             ? opts.linear_solver
-                             : (parallel ? "MUMPSSolver" : "UMFPackSolver");
-  problem.setLinearSolver(ctx, ls, opts.linear_solver_options) | or_die;
+  const auto* const ls =
+      (opts.linear_solver != nullptr)
+          ? opts.linear_solver
+          : (parallel ? "MUMPSSolver" : unit_tests::sequential_direct_solver);
+  const auto ls_options =
+      ((opts.linear_solver == nullptr) && (!parallel))
+          ? unit_tests::getSequentialDirectSolverParameters()
+          : opts.linear_solver_options;
+  problem.setLinearSolver(ctx, ls, ls_options) | or_die;
   if (opts.prediction.has_value()) {
     problem.setPredictionPolicy(
         {.strategy = *(opts.prediction),
@@ -309,8 +332,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
   if ((a.size() != b.size()) || a.empty()) {
     return 1;
   }
-  auto d = 0.;
-  auto m = 0.;
+  auto d = mfem_mgis::real{0};
+  auto m = mfem_mgis::real{0};
   for (std::size_t i = 0; i != a.size(); ++i) {
     d = std::max(d, std::abs(a[i] - b[i]));
     m = std::max(m, std::abs(a[i]));
@@ -399,9 +422,12 @@ static void checkAdaptiveTolerances(
       if (safeguard > t.threshold) {
         eta = std::max(eta, safeguard);
       }
-      eta = std::min(std::max(eta, goal / (2 * fk)), t.maximum_tolerance);
+      eta = std::min(std::max(eta, static_cast<double>(goal / (2 * fk))),
+                     static_cast<double>(t.maximum_tolerance));
       const auto v = *(step[k].tolerance);
-      check(std::abs(v - eta) <= 1e-12 * eta,
+      // in float, the tolerances computed by the solver and by the test
+      // differ by roundings (relative difference of 3.7e-9 measured)
+      check(std::abs(v - eta) <= mfem_mgis::unit_tests::tolerance(1e-12) * eta,
             name + ": relative tolerance of a linear solve (" +
                 std::to_string(v) + " instead of " + std::to_string(eta) + ")");
       ++n;
@@ -488,8 +514,10 @@ int main(int argc, char** argv) {
   // absolute convergence criterion of the computations with an adaptive
   // tolerance of the linear solver, about 1e-12 times the initial residual,
   // so that the tolerances can be computed again (see
-  // `checkAdaptiveTolerances`)
-  constexpr auto adaptive_goal = 1e-3;
+  // `checkAdaptiveTolerances`). In float, the residual stagnates at about
+  // 1e-5 times the initial residual (about 4e8): the criterion is then
+  // about 2.5e-5 times the initial residual
+  constexpr auto adaptive_goal = mfem_mgis::unit_tests::tolerance(1e-3, 1e4);
   const auto adaptive_solver_parameters = Parameters{
       {"RelativeTolerance", 0.}, {"AbsoluteTolerance", adaptive_goal}};
   // adaptive tolerance of a method, with its default options
@@ -504,7 +532,18 @@ int main(int argc, char** argv) {
     return *ot;
   };
   // direct solver, used as linear solver of the elastic operator
-  const auto* const direct_solver = parallel ? "MUMPSSolver" : "UMFPackSolver";
+  // (the linear solver of the sequential tests without UMFPACK)
+  const auto direct_solver = []() -> Parameter {
+    if (parallel) {
+      return "MUMPSSolver";
+    }
+    if (unit_tests::has_sequential_direct_solver) {
+      return unit_tests::sequential_direct_solver;
+    }
+    return Parameters{
+        {"Name", unit_tests::sequential_direct_solver},
+        {"Options", unit_tests::getSequentialDirectSolverParameters()}};
+  }();
   // fixed point on the elastic operator, solved by the linear solver of the
   // problem, without acceleration: rate of convergence
   const auto none = compute(ctx, mesh, library, makeFixedPointSolver({}));
@@ -667,7 +706,7 @@ int main(int argc, char** argv) {
          true,
          {.prediction = bots,
           .changes = {{"ElasticOperatorLinearSolver",
-                       parallel ? "HypreBoomerAMG" : direct_solver}},
+                       parallel ? Parameter{"HypreBoomerAMG"} : direct_solver}},
           .changes_step = 2,
           .number_of_steps = 4},
          0});
@@ -813,7 +852,7 @@ int main(int argc, char** argv) {
               << " of the linear solver), relative difference to Newton " << du
               << '\n';
     check(r.status, c.name + ": resolution failed");
-    check(du < 1e-8, c.name + ": solution");
+    check(du < solution_tolerance, c.name + ": solution");
     if (const auto p = maximum_numbers_of_iterations.find(c.name);
         p != maximum_numbers_of_iterations.end()) {
       // on a GPU, the sums computed by atomic operations (assembly of the
@@ -895,20 +934,24 @@ int main(int argc, char** argv) {
                    "Newton "
                 << du << '\n';
       check(r.status, name + ": resolution failed");
-      check(du < 1e-8, name + ": solution");
+      check(du < solution_tolerance, name + ": solution");
       checkLinearResidualNorms(r, std::string_view{m} == "EisenstatWalker1",
                                name);
       checkAdaptiveTolerances(r, getAdaptiveTolerance(m), adaptive_goal, name);
       check(r.linear_iterations < constant.linear_iterations,
             name + ": number of iterations of the linear solver");
     }
-    // the adaptive tolerance requires an iterative linear solver
-    const auto direct = compute(
-        ctx, mesh, library,
-        Parameters{{"Newton", Parameters{{"AdaptiveLinearSolverTolerance",
-                                          "EisenstatWalker2"}}}});
-    check(!direct.status,
-          "Newton, adaptive tolerance with a direct solver: accepted");
+    // the adaptive tolerance requires an iterative linear solver (the
+    // linear solver of the sequential tests is not a direct solver without
+    // UMFPACK)
+    if (parallel || unit_tests::has_sequential_direct_solver) {
+      const auto direct = compute(
+          ctx, mesh, library,
+          Parameters{{"Newton", Parameters{{"AdaptiveLinearSolverTolerance",
+                                            "EisenstatWalker2"}}}});
+      check(!direct.status,
+            "Newton, adaptive tolerance with a direct solver: accepted");
+    }
   }
   // linear solver of the predictions: with the conjugate gradient
   // preconditioned by the linear solver of the elastic operator, the linear
@@ -936,7 +979,8 @@ int main(int argc, char** argv) {
     const auto name = std::string{method} + ", predictions " +
                       (strategy == cgip ? "at constant gradients " : "") +
                       "by the linear solver '" + pls + "'";
-    check(r.status && (getRelativeDifference(reference.u, r.u) < 1e-8),
+    check(r.status &&
+              (getRelativeDifference(reference.u, r.u) < solution_tolerance),
           name + ": solution");
     check(CountingLinearSolver::count == expected,
           name + ": " + std::to_string(CountingLinearSolver::count) +
@@ -982,8 +1026,13 @@ int main(int argc, char** argv) {
   }
   checkRefusal(mesh, {{"PredictionLinearSolver", "Tangent"}},
                "an invalid linear solver of the predictions");
-  checkRefusal(mesh, {{"PredictionLinearSolver", direct_solver}},
-               "a direct solver as iterative solver of the predictions");
+  // without UMFPACK, the linear solver of the sequential tests is not a
+  // direct solver
+  const auto direct = parallel || unit_tests::has_sequential_direct_solver;
+  if (direct) {
+    checkRefusal(mesh, {{"PredictionLinearSolver", direct_solver}},
+                 "a direct solver as iterative solver of the predictions");
+  }
   checkRefusal(
       mesh,
       {{"PredictionLinearSolver",
@@ -991,10 +1040,12 @@ int main(int argc, char** argv) {
       "options of the linear solver of the problem for the predictions");
   {
     auto options = newton_k0("CGSolver");
-    options.replaceOrInsert("TangentLinearSolver", direct_solver);
-    checkRefusal(mesh, options,
-                 "a direct solver as iterative solver of the tangent "
-                 "operator");
+    if (direct) {
+      options.replaceOrInsert("TangentLinearSolver", direct_solver);
+      checkRefusal(mesh, options,
+                   "a direct solver as iterative solver of the tangent "
+                   "operator");
+    }
     options.replaceOrInsert(
         "TangentLinearSolver",
         Parameters{

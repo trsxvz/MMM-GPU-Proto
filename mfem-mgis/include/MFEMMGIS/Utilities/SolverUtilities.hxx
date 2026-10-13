@@ -146,6 +146,20 @@ namespace mfem_mgis {
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool setRelativeTolerance(
       LinearSolver& ls, const real tol) noexcept;
+  /*!
+   * \return a relative tolerance reachable with the numerical type of
+   * mfem-mgis: the given tolerance with double, bounded below by 100 times
+   * the machine epsilon with float (1.2e-5): the relative residuals of the
+   * nonlinear and linear problems stagnate at about ten epsilons in float
+   * (1.2e-6 for the tests of mfem-mgis).
+   * The relative tolerances given to the solvers (`RelativeTolerance` and
+   * `Tolerance` parameters, `setRelativeTolerance`) are bounded this way;
+   * a null tolerance, which fixes the number of iterations, and the
+   * absolute tolerances, which have a unit, are not changed.
+   * \param[in] tol: relative tolerance
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] real boundRelativeTolerance(
+      const double tol) noexcept;
 
 }  // end of namespace mfem_mgis
 

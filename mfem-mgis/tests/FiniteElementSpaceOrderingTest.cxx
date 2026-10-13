@@ -26,6 +26,7 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "Tolerance.hxx"
 
 struct TestParameters {
   const char* mesh_file = nullptr;
@@ -178,8 +179,10 @@ int main(int argc, char** argv) {
   const auto r1 = solve(ctx, mesh, p, "byNODES");
   const auto r2 = solve(ctx, mesh, p, "byVDIM");
   // absolute tolerance on the stresses and on the resultant force (the area
-  // of the loaded face is 1)
-  constexpr auto eps = 1e-8 * pressure;
+  // of the loaded face is 1). In float, the two solutions, each converged
+  // to the relative tolerances bounded to 1.2e-5, differ by up to 1e3 on
+  // stresses of about 1e8 (6.7e-6 of the pressure)
+  constexpr auto eps = mfem_mgis::unit_tests::tolerance(1e-8, 1e-4) * pressure;
   auto success =
       r1.thermodynamic_forces.size() == r2.thermodynamic_forces.size();
   if (success) {

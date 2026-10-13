@@ -23,11 +23,16 @@ namespace mfem_mgis {
   // forward declaration
   struct Parameter;
 
-  //! \brief variant type for parameter values
+  /*!
+   * \brief variant type for parameter values. The floating-point values are
+   * stored as `double`, whatever the numerical type of mfem-mgis (`real`):
+   * `{"Tolerance", 1e-10}` is valid with float too, and the values are
+   * converted when they are read as `real` (see `get<float>`).
+   */
   using ParameterVariant = std::variant<std::monostate,
                                         bool,
                                         size_type,
-                                        real,
+                                        double,
                                         std::string,
                                         std::vector<Parameter>,
                                         Parameters,
@@ -37,7 +42,8 @@ namespace mfem_mgis {
   template <typename T>
   concept ParameterValueConcept =
       ((std::same_as<T, bool>) || (std::same_as<T, size_type>) ||
-       (std::same_as<T, real>) || (std::same_as<T, std::string>) ||
+       (std::same_as<T, double>) || (std::same_as<T, real>) ||
+       (std::same_as<T, std::string>) ||
        (std::same_as<T, std::vector<Parameter>>) ||
        (std::same_as<T, Parameters>) ||
        (std::same_as<T, std::function<real(const real)>>));
@@ -133,13 +139,13 @@ namespace mfem_mgis {
 
   //! \brief Type alias for result type
   template <typename ResultType>
-  using GetResultType = std::conditional_t<std::is_same_v<ResultType, double>,
+  using GetResultType = std::conditional_t<std::is_floating_point_v<ResultType>,
                                            ResultType,
                                            const ResultType&>;
   //! \brief Type alias for optional result type
   template <typename ResultType>
   using OptionalGetResultType =
-      std::conditional_t<std::is_same_v<ResultType, double>,
+      std::conditional_t<std::is_floating_point_v<ResultType>,
                          std::optional<ResultType>,
                          OptionalReference<const ResultType>>;
 
@@ -159,6 +165,14 @@ namespace mfem_mgis {
   template <>
   [[nodiscard]] bool is<double>(const Parameter&) noexcept;
   /*!
+   * \brief specialisation of the `is` function for float: the floating-point
+   * values are stored as double (see `ParameterVariant`)
+   * \param[in] p: parameter
+   * \return true if the given parameter is a double or an integer
+   */
+  template <>
+  [[nodiscard]] bool is<float>(const Parameter&) noexcept;
+  /*!
    * \brief get the value of the parameter if it has the expected type
    * \tparam ResultType: expected type of the parameter
    * \param[in, out] ctx: execution context
@@ -177,6 +191,15 @@ namespace mfem_mgis {
    */
   template <>
   [[nodiscard]] OptionalGetResultType<double> get<double>(
+      Context&, const Parameter&) noexcept;
+  /*!
+   * \brief specialisation of the `get` function for float: the value, stored
+   * as double, is converted
+   * \param[in, out] ctx: execution context
+   * \param[in] p: parameter
+   */
+  template <>
+  [[nodiscard]] OptionalGetResultType<float> get<float>(
       Context&, const Parameter&) noexcept;
   /*!
    * \brief get the value of the parameter
@@ -208,6 +231,16 @@ namespace mfem_mgis {
   template <>
   [[nodiscard]] GetResultType<double> get<double>(attributes::Throwing throwing,
                                                   const Parameter&);
+  /*!
+   * \brief specialisation of the `get` function for float: the value, stored
+   * as double, is converted
+   * \param[in] throwing: dummy attribute to indicate that this function may
+   * throw an exception
+   * \param[in] p: parameter
+   */
+  template <>
+  [[nodiscard]] GetResultType<float> get<float>(attributes::Throwing throwing,
+                                                const Parameter&);
 
   /*!
    * \brief check if the given parameter exists

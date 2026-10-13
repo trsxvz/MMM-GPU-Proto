@@ -50,6 +50,11 @@ namespace mfem_mgis {
            std::holds_alternative<int>(p.as_std_variant());
   }
 
+  template <>
+  inline bool is<float>(const Parameter& p) noexcept {
+    return is<double>(p);
+  }
+
   template <typename ResultType>
   OptionalGetResultType<ResultType> get(Context& ctx,
                                         const Parameter& p) noexcept {
@@ -72,6 +77,16 @@ namespace mfem_mgis {
     return std::get<double>(p.as_std_variant());
   }  // end of get
 
+  template <>
+  inline OptionalGetResultType<float> get<float>(Context& ctx,
+                                                 const Parameter& p) noexcept {
+    const auto v = get<double>(ctx, p);
+    if (!v.has_value()) {
+      return {};
+    }
+    return static_cast<float>(*v);
+  }  // end of get
+
   template <typename ResultType>
   GetResultType<ResultType> get(attributes::Throwing, const Parameter& p) {
     if (!is<ResultType>(p)) {
@@ -90,6 +105,12 @@ namespace mfem_mgis {
       return std::get<int>(p.as_std_variant());
     }
     return std::get<double>(p.as_std_variant());
+  }  // end of get
+
+  template <>
+  inline GetResultType<float> get<float>(attributes::Throwing,
+                                         const Parameter& p) {
+    return static_cast<float>(get<double>(throwing, p));
   }  // end of get
 
   template <typename ResultType>

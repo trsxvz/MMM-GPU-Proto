@@ -120,7 +120,7 @@ namespace mfem_mgis {
     auto refcoord = std::array<real, 3>{};
     auto id_unk = std::array<int, 3>{};
     for (int j = 0; j < dim; ++j) {
-      refcoord[j] = std::numeric_limits<double>::max();
+      refcoord[j] = std::numeric_limits<real>::max();
       id_unk[j] = -1;
     }
     // Traversal of all dofs to detect which one is minimal in X, Y or Z
@@ -255,7 +255,7 @@ namespace mfem_mgis {
     auto refcoord = std::array<real, 3>{};
     auto id_unk = std::array<int, 3>{};
     for (int j = 0; j < dim; ++j) {
-      refcoord[j] = std::numeric_limits<double>::max();
+      refcoord[j] = std::numeric_limits<real>::max();
       id_unk[j] = -1;
     }
 

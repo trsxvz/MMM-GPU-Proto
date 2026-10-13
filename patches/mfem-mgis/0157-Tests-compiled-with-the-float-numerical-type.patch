@@ -1,0 +1,224 @@
+From 3f43a035433903c9575a2327db85ead58cae2775 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 20:54:09 +0200
+Subject: [PATCH] Tests compiled with the float numerical type
+
+The behaviours of the tests are generated with the numerical type of
+mfem-mgis (MFEM_MGIS_MFRONT_REAL_TYPE_OPTION); typed accumulators and
+explicit conversions where double and real were mixed in std::max and
+std::min; options of TwoLayerCube in real (OptionsParser of a MFEM in
+single precision); typed literal in Mazars.mfront; UnitTestParameters reads
+the floating-point values as double. The tests are not adapted to the
+precision of float yet.
+---
+ cmake/modules/mfront-behaviours.cmake       | 2 +-
+ tests/AdaptiveLinearSolverToleranceTest.cxx | 5 +++--
+ tests/BatchIntegrationTest.cxx              | 4 ++--
+ tests/CMakeLists.txt                        | 1 +
+ tests/ElementsGeometryTest.cxx              | 3 ++-
+ tests/FixedPointSolverTest.cxx              | 7 ++++---
+ tests/HeatTransferKernelsTest.cxx           | 6 +++---
+ tests/Mazars.mfront                         | 2 +-
+ tests/MicromorphicKernelsTest.cxx           | 6 +++---
+ tests/TwoLayerCube.cxx                      | 6 +++---
+ tests/UnitTestParameters.cxx                | 4 +++-
+ 11 files changed, 26 insertions(+), 20 deletions(-)
+
+diff --git a/cmake/modules/mfront-behaviours.cmake b/cmake/modules/mfront-behaviours.cmake
+index 9818685030..10ce4b5e03 100644
+--- a/cmake/modules/mfront-behaviours.cmake
++++ b/cmake/modules/mfront-behaviours.cmake
+@@ -6,7 +6,7 @@ function(add_mfront_behaviour_sources lib  file)
+     OUTPUT  "${mfront_output1}"
+     OUTPUT  "${mfront_output2}"
+     COMMAND "${MFRONT}"
+-    ARGS    "--interface=generic"
++    ARGS    "--interface=generic" ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+     ARGS     "${mfront_file}"
+     DEPENDS "${mfront_file}"
+     COMMENT "mfront source ${mfront_file}")
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index 6cc67ad671..3f2fc630c5 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -86,7 +86,7 @@ static void checkSecondChoice() {
+     // direct evaluation of the formulas
+     auto previous = 0.;
+     for (std::size_t i = 0; i != norms.size(); ++i) {
+-      auto eta = t.initial_tolerance;
++      auto eta = static_cast<double>(t.initial_tolerance);
+       if (i != 0) {
+         eta = t.gamma * std::pow(norms[i] / norms[i - 1], t.alpha);
+         const auto sg = t.gamma * std::pow(previous, t.alpha);
+@@ -94,7 +94,8 @@ static void checkSecondChoice() {
+           eta = std::max(eta, sg);
+         }
+       }
+-      eta = std::min(std::max(eta, goal / (2 * norms[i])), t.maximum_tolerance);
++      eta = std::min(std::max(eta, goal / (2 * norms[i])),
++                     static_cast<double>(t.maximum_tolerance));
+       const auto v = u.update(i, norms[i], goal);
+       check(areClose(v, eta), "second choice: tolerance of iteration " +
+                                   std::to_string(i) + " (" + std::to_string(v) +
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index b66fddf4f1..6f75a9a3b0 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -635,8 +635,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+   if (a.size() != b.size()) {
+     return 1;
+   }
+-  auto d = 0.;
+-  auto m = 0.;
++  auto d = mfem_mgis::real{0};
++  auto m = mfem_mgis::real{0};
+   for (std::size_t i = 0; i != a.size(); ++i) {
+     d = std::max(d, std::abs(a[i] - b[i]));
+     m = std::max(m, std::abs(a[i]));
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 72e5b6b1d0..00049af92b 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -900,6 +900,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+       add_custom_command(
+         OUTPUT "${_library}" "${_uo2_library}"
+         COMMAND "${MFRONT}" --obuild --interface=generic-parallel
++                ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+                 "--configuration-file=${_configuration}"
+                 ${batch_integration_test_behaviours}
+         WORKING_DIRECTORY "${_directory}"
+diff --git a/tests/ElementsGeometryTest.cxx b/tests/ElementsGeometryTest.cxx
+index aa0556cfbc..aa51d6a72c 100644
+--- a/tests/ElementsGeometryTest.cxx
++++ b/tests/ElementsGeometryTest.cxx
+@@ -210,7 +210,8 @@ static void compare(mfem::Mesh& mesh,
+         }
+       }
+       const auto det = detJ[q + g.nq * e];
+-      ddet = std::max(ddet, std::abs(det - Jr.Det()) / std::pow(m, dim));
++      ddet = std::max(
++          ddet, std::abs(det - Jr.Det()) / std::pow(m, static_cast<real>(dim)));
+       dw = std::max(dw, std::abs(w[q] - ip.weight));
+       signs = signs && (sign * det >= 0);
+     }
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index d9aa0a59d1..77bda9aff6 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -309,8 +309,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+   if ((a.size() != b.size()) || a.empty()) {
+     return 1;
+   }
+-  auto d = 0.;
+-  auto m = 0.;
++  auto d = mfem_mgis::real{0};
++  auto m = mfem_mgis::real{0};
+   for (std::size_t i = 0; i != a.size(); ++i) {
+     d = std::max(d, std::abs(a[i] - b[i]));
+     m = std::max(m, std::abs(a[i]));
+@@ -399,7 +399,8 @@ static void checkAdaptiveTolerances(
+       if (safeguard > t.threshold) {
+         eta = std::max(eta, safeguard);
+       }
+-      eta = std::min(std::max(eta, goal / (2 * fk)), t.maximum_tolerance);
++      eta = std::min(std::max(eta, static_cast<double>(goal / (2 * fk))),
++                     static_cast<double>(t.maximum_tolerance));
+       const auto v = *(step[k].tolerance);
+       check(std::abs(v - eta) <= 1e-12 * eta,
+             name + ": relative tolerance of a linear solve (" +
+diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
+index 8744a02b9a..1935a868e7 100644
+--- a/tests/HeatTransferKernelsTest.cxx
++++ b/tests/HeatTransferKernelsTest.cxx
+@@ -174,7 +174,7 @@ static void checkMatrixFreeDiagonal(
+   const auto* const pd = d.HostRead();
+   const auto* const pa = da.HostRead();
+   auto diff = real{0};
+-  auto m = real{0};
++  auto m = mfem_mgis::real{0};
+   for (int i = 0; i != d.Size(); ++i) {
+     diff = std::max(diff, std::abs(pd[i] - pa[i]));
+     m = std::max(m, std::abs(pa[i]));
+@@ -386,8 +386,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+   if ((a.size() != b.size()) || a.empty()) {
+     return 1;
+   }
+-  auto d = 0.;
+-  auto m = 0.;
++  auto d = mfem_mgis::real{0};
++  auto m = mfem_mgis::real{0};
+   for (std::size_t i = 0; i != a.size(); ++i) {
+     d = std::max(d, std::abs(a[i] - b[i]));
+     m = std::max(m, std::abs(a[i]));
+diff --git a/tests/Mazars.mfront b/tests/Mazars.mfront
+index 225d7d9608..13dc1974a3 100755
+--- a/tests/Mazars.mfront
++++ b/tests/Mazars.mfront
+@@ -92,7 +92,7 @@ d.setGlossaryName("Damage");
+         COEF = gam * gam * COEF / Y;
+       }
+       for (unsigned short i = 0; i != e.size(); ++i) {
+-        eplus[i] = max(0., e[i]);
++        eplus[i] = max(real(0), e[i]);
+       }
+       Dt = (1. - d) * Hooke - COEF * (s0 ^ eplus);
+     }
+diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
+index 3fd8c63e00..6018905b45 100644
+--- a/tests/MicromorphicKernelsTest.cxx
++++ b/tests/MicromorphicKernelsTest.cxx
+@@ -140,7 +140,7 @@ static void checkMatrixFreeDiagonal(
+   const auto* const pd = d.HostRead();
+   const auto* const pa = da.HostRead();
+   auto diff = real{0};
+-  auto m = real{0};
++  auto m = mfem_mgis::real{0};
+   for (int i = 0; i != d.Size(); ++i) {
+     diff = std::max(diff, std::abs(pd[i] - pa[i]));
+     m = std::max(m, std::abs(pa[i]));
+@@ -320,8 +320,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
+   if ((a.size() != b.size()) || a.empty()) {
+     return 1;
+   }
+-  auto d = 0.;
+-  auto m = 0.;
++  auto d = mfem_mgis::real{0};
++  auto m = mfem_mgis::real{0};
+   for (std::size_t i = 0; i != a.size(); ++i) {
+     d = std::max(d, std::abs(a[i] - b[i]));
+     m = std::max(m, std::abs(a[i]));
+diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
+index ac6c9a7b16..0f23ab5f20 100644
+--- a/tests/TwoLayerCube.cxx
++++ b/tests/TwoLayerCube.cxx
+@@ -207,9 +207,9 @@ struct TestParameters {
+   int refinement = 0;
+   int tcase = 1;
+   const char* linearsolver = "CGSolver";
+-  double xmax = 1.;
+-  double ymax = 1.;
+-  double zmax = 1.;
++  mfem_mgis::real xmax = 1.;
++  mfem_mgis::real ymax = 1.;
++  mfem_mgis::real zmax = 1.;
+   bool parallel = true;
+   bool check = true;
+ };
+diff --git a/tests/UnitTestParameters.cxx b/tests/UnitTestParameters.cxx
+index 5c4d7001e8..3eb03a445a 100644
+--- a/tests/UnitTestParameters.cxx
++++ b/tests/UnitTestParameters.cxx
+@@ -76,7 +76,9 @@ int main() {
+   auto test_get_parameter = get(throwing, params_copy, "real");
+   auto test_get_parameters = params_copy.get(throwing,
+                                              "real");  // get
+-  if (std::get<real>(test_get_parameters.as_std_variant()) != real_value) {
++  // the floating-point values are stored as double
++  if (static_cast<real>(std::get<double>(
++          test_get_parameters.as_std_variant())) != real_value) {
+     std::cout << "Error: test_get" << std::endl;
+     std::abort();
+   }
+-- 
+2.43.0
+

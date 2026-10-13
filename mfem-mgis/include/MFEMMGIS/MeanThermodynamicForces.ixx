@@ -11,6 +11,7 @@
 
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 
 namespace mfem_mgis {
@@ -66,11 +67,11 @@ namespace mfem_mgis {
       }
       for (const auto &mi : p.getAssignedMaterialsIdentifiers()) {
         real v = 0;
-        std::vector<double> tf_integral(tf_integrals[mi].size(), 0);
+        std::vector<real> tf_integral(tf_integrals[mi].size(), 0);
         MPI_Reduce(tf_integrals[mi].data(), tf_integral.data(),
-                   tf_integrals[mi].size(), MPI_DOUBLE, MPI_SUM, 0,
+                   tf_integrals[mi].size(), mpi_type<real>, MPI_SUM, 0,
                    getMPICommunicator(p));
-        MPI_Reduce(&volumes[mi], &v, 1, MPI_DOUBLE, MPI_SUM, 0,
+        MPI_Reduce(&volumes[mi], &v, 1, mpi_type<real>, MPI_SUM, 0,
                    getMPICommunicator(p));
         if (rank == 0) {
           this->writeResults(tf_integral, v);

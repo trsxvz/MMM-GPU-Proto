@@ -27,6 +27,8 @@
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "SequentialLinearSolver.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -130,7 +132,10 @@ static Results compute(const char* const mesh,
        {"Component", 1},
        {"LoadingEvolution", [](const real t) noexcept { return 2e-5 * t; }}}) |
       or_die;
-  problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+  problem.setLinearSolver(
+      ctx, mfem_mgis::unit_tests::sequential_direct_solver,
+      mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
+      or_die;
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                     {"RelativeTolerance", 1e-12},
                                     {"AbsoluteTolerance", 0.},
@@ -212,7 +217,9 @@ int main(int argc, char** argv) {
     const auto d = getRelativeDifference(r.u, r3.u);
     std::cout << "rule of order 3, " << name
               << ": relative difference of the unknowns " << d << '\n';
-    check(d < 1e-10, "rule of order 3, " + name + ": different solution");
+    // in float, the relative difference reaches 3.9e-7
+    check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
+          "rule of order 3, " + name + ": different solution");
   }
   // a negative order is refused
   {

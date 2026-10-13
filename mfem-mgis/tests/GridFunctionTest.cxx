@@ -16,6 +16,7 @@
 #include "MFEMMGIS/L2Projection.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 struct TestParameters {
   const char* mesh_file = nullptr;
@@ -246,7 +247,8 @@ bool test3(mfem_mgis::Context& ctx,
   }
   *og -= f;
   const auto e = og->Normlinf();
-  if (e > 1e-10) {
+  // in float, the largest error measured is 3e-6
+  if (e > mfem_mgis::unit_tests::tolerance(1e-10, 5e-5)) {
     return ctx.registerErrorMessage("invalid values at nodes (maximum error " +
                                     std::to_string(e) + ")");
   }

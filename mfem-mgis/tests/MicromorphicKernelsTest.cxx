@@ -35,6 +35,9 @@
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+#include "MFEMMGIS/MPI.hxx"
+#include "SequentialLinearSolver.hxx"
+#include "Tolerance.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -140,12 +143,13 @@ static void checkMatrixFreeDiagonal(
   const auto* const pd = d.HostRead();
   const auto* const pa = da.HostRead();
   auto diff = real{0};
-  auto m = real{0};
+  auto m = mfem_mgis::real{0};
   for (int i = 0; i != d.Size(); ++i) {
     diff = std::max(diff, std::abs(pd[i] - pa[i]));
     m = std::max(m, std::abs(pa[i]));
   }
-  check((d.Size() > 0) && (diff <= 1e-12 * m),
+  check((d.Size() > 0) &&
+            (diff <= mfem_mgis::unit_tests::tolerance(1e-12, 1e-5) * m),
         name + ": diagonal of the tangent operator applied without assembly");
 }  // end of checkMatrixFreeDiagonal
 
@@ -248,8 +252,13 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
          {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
         or_die;
   } else {
-    problem.setLinearSolver(ctx, parallel ? "MUMPSSolver" : "UMFPackSolver",
-                            {}) |
+    problem.setLinearSolver(
+        ctx,
+        parallel ? "MUMPSSolver"
+                 : mfem_mgis::unit_tests::sequential_direct_solver,
+        parallel
+            ? mfem_mgis::Parameters{}
+            : mfem_mgis::unit_tests::getSequentialDirectSolverParameters()) |
         or_die;
   }
   if (opts.prediction) {
@@ -320,8 +329,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
   if ((a.size() != b.size()) || a.empty()) {
     return 1;
   }
-  auto d = 0.;
-  auto m = 0.;
+  auto d = mfem_mgis::real{0};
+  auto m = mfem_mgis::real{0};
   for (std::size_t i = 0; i != a.size(); ++i) {
     d = std::max(d, std::abs(a[i] - b[i]));
     m = std::max(m, std::abs(a[i]));
@@ -349,10 +358,28 @@ static void compare(const Results& a,
   std::cout << name << ": relative differences " << du
             << " (micromorphic damage), " << df << " (dual forces), " << dd
             << " (damage)\n";
-  check(du < 1e-10, name + ": micromorphic damage");
-  check(df < 1e-10, name + ": dual forces");
-  check(dd < 1e-10, name + ": damage");
-  check(a.iterations == b.iterations, name + ": numbers of iterations");
+  // relative differences: in float, they reach 2.9e-5 for the dual forces
+  // with the matrix free operator (roundings, and linear solvers stopping at
+  // a relative residual of 1.2e-5)
+  constexpr auto relative_tolerance =
+      mfem_mgis::unit_tests::tolerance(1e-10, 3e-4);
+  check(du < relative_tolerance, name + ": micromorphic damage");
+  check(df < relative_tolerance, name + ": dual forces");
+  check(dd < relative_tolerance, name + ": damage");
+  // numbers of iterations: in float, the linear solvers stopping at a
+  // relative residual of 1.2e-5, the Newton solver may need one more or one
+  // less iteration with the matrix free operator
+  constexpr auto iterations_tolerance =
+      sizeof(mfem_mgis::real) == sizeof(double) ? 0 : 1;
+  auto same_iterations = a.iterations.size() == b.iterations.size();
+  for (std::size_t i = 0; same_iterations && (i != a.iterations.size()); ++i) {
+    if (std::abs(a.iterations[i] - b.iterations[i]) > iterations_tolerance) {
+      std::cout << name << ": time step " << i << ", " << a.iterations[i]
+                << " iterations against " << b.iterations[i] << '\n';
+      same_iterations = false;
+    }
+  }
+  check(same_iterations, name + ": numbers of iterations");
 }  // end of compare
 
 /*!
@@ -462,10 +489,10 @@ int main(int argc, char** argv) {
       }
 #ifdef MFEM_USE_MPI
       if (parallel) {
-        MPI_Allreduce(MPI_IN_PLACE, &dmin, 1, MPI_DOUBLE, MPI_MIN,
-                      MPI_COMM_WORLD);
-        MPI_Allreduce(MPI_IN_PLACE, &dmax, 1, MPI_DOUBLE, MPI_MAX,
-                      MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &dmin, 1, mfem_mgis::mpi_type<real>,
+                      MPI_MIN, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &dmax, 1, mfem_mgis::mpi_type<real>,
+                      MPI_MAX, MPI_COMM_WORLD);
       }
 #endif /* MFEM_USE_MPI */
       check(dmax - dmin > 1e-2, suffix + ": uniform damage");

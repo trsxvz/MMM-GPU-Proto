@@ -19,7 +19,9 @@
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
 #include "MFEMMGIS/L2Projection.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "UnitTestingUtilities.hxx"
+#include "Tolerance.hxx"
 
 struct TestParameters {
   const char* mesh_file = nullptr;
@@ -280,11 +282,14 @@ bool test4(mfem_mgis::Context& ctx, const TestParameters& params) {
     }
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
-      MPI_Allreduce(MPI_IN_PLACE, e.data(), 2, MPI_DOUBLE, MPI_MAX,
-                    MPI_COMM_WORLD);
+      MPI_Allreduce(MPI_IN_PLACE, e.data(), 2, mfem_mgis::mpi_type<real>,
+                    MPI_MAX, MPI_COMM_WORLD);
     }
 #endif /* MFEM_USE_MPI */
-    if (!(e[0] <= 1e-8 * e[1])) {
+    // in float, the largest relative difference measured is 6.2e-4: the
+    // conjugate gradient stops at a relative residual of 1.2e-5 (bound of
+    // mfem-mgis), multiplied by the conditioning of the mass matrix
+    if (!(e[0] <= mfem_mgis::unit_tests::tolerance(1e-8, 5e-3) * e[1])) {
       auto msg = std::ostringstream{};
       msg << "test4: invalid projection of a linear function with " << n
           << " component(s) (largest difference " << e[0] << ", largest value "

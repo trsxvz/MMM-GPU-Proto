@@ -6,7 +6,9 @@
  * \date   30/03/2021
  */
 
+#include <limits>
 #include <optional>
+#include <type_traits>
 #include "mfem/linalg/solvers.hpp"
 #ifdef MFEM_USE_MPI
 #include "mfem/linalg/hypre.hpp"
@@ -55,7 +57,7 @@ namespace mfem_mgis {
       s.SetPrintLevel(*verbosity);
     }
     if (rtol.has_value()) {
-      s.SetRelTol(*rtol);
+      s.SetRelTol(boundRelativeTolerance(*rtol));
     }
     if (atol.has_value()) {
       s.SetAbsTol(*atol);
@@ -259,7 +261,19 @@ namespace mfem_mgis {
     return {};
   }  // end of getRelativeTolerance
 
-  bool setRelativeTolerance(LinearSolver& ls, const real tol) noexcept {
+  real boundRelativeTolerance(const double tol) noexcept {
+    if constexpr (std::is_same_v<real, double>) {
+      return tol;
+    } else {
+      // a null tolerance (a fixed number of iterations) is kept
+      constexpr auto tmin =
+          100 * static_cast<double>(std::numeric_limits<real>::epsilon());
+      return static_cast<real>(((tol == 0) || (tol >= tmin)) ? tol : tmin);
+    }
+  }  // end of boundRelativeTolerance
+
+  bool setRelativeTolerance(LinearSolver& ls, const real t) noexcept {
+    const auto tol = boundRelativeTolerance(t);
     if (auto* isolver = dynamic_cast<IterativeSolver*>(&ls);
         isolver != nullptr) {
       isolver->SetRelTol(tol);

@@ -1,0 +1,176 @@
+From c42fb979ff0d10c35ddf2a6b21a1eec6a8e14120 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:17:45 +0200
+Subject: [PATCH] Tests in float: time steps, selection of integrators,
+ orderings, heat
+
+- MaximumNumberOfTimeStepsTest: times compared with a tolerance bounded to
+  10 epsilons (the times are stored as real).
+- BehaviourIntegratorsSelectionTest: relative tolerance of Newton of 1e-3
+  in float for this finite strain behaviour (residual stagnating at 3e-4),
+  sum of the resultants compared at 10 epsilons.
+- FiniteElementSpaceOrderingTest: tolerance of 1e-4 times the pressure in
+  float, the two solutions differing by up to 6.7e-6 of it.
+- ImplicitGradientRegularizationTest: L2 error threshold of 1e-3 in float
+  (1.1e-4 measured, 3.2e-6 in double).
+- StationaryNonLinearHeatTransferTest: absolute tolerance of Newton of 3e-3
+  in float, the residual stagnating at 3e-4 with temperatures up to 900 K.
+Double unchanged.
+---
+ tests/BehaviourIntegratorsSelectionTest.cxx   | 16 +++++++++++-----
+ tests/FiniteElementSpaceOrderingTest.cxx      |  7 +++++--
+ tests/ImplicitGradientRegularizationTest.cxx  |  5 ++++-
+ tests/MaximumNumberOfTimeStepsTest.cxx        |  7 +++++--
+ tests/StationaryNonLinearHeatTransferTest.cxx | 12 ++++++++----
+ 5 files changed, 33 insertions(+), 14 deletions(-)
+
+diff --git a/tests/BehaviourIntegratorsSelectionTest.cxx b/tests/BehaviourIntegratorsSelectionTest.cxx
+index f6e9cd2539..9c75190412 100644
+--- a/tests/BehaviourIntegratorsSelectionTest.cxx
++++ b/tests/BehaviourIntegratorsSelectionTest.cxx
+@@ -15,6 +15,7 @@
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(int argc, char** argv) {
+   using namespace mfem_mgis;
+@@ -64,10 +65,14 @@ int main(int argc, char** argv) {
+           or_die) |
+       or_die;
+   unit_tests::setLinearSolver(may_abort, ctx, problem, params);
+-  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                    {"RelativeTolerance", 1e-12},
+-                                    {"AbsoluteTolerance", 0.},
+-                                    {"MaximumNumberOfIterations", 10}}) |
++  // in float, the residual of this finite strain behaviour stagnates at about
++  // 3e-4 of the initial one: the deformation gradient F = I + H only gives H
++  // with a relative precision of about 1e-4
++  problem.setSolverParameters(
++      ctx, {{"VerbosityLevel", 0},
++            {"RelativeTolerance", unit_tests::tolerance(1e-12, 1e-3)},
++            {"AbsoluteTolerance", 0.},
++            {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+   // post-processings using all the behaviour integrators
+   for (const auto* const n : {"ComputeResultantForceOnBoundary",
+@@ -111,7 +116,8 @@ int main(int argc, char** argv) {
+   success = !resultant({.index = 2}).has_value() && success;
+   success = F0.has_value() && F1.has_value() && Fa.has_value() && success;
+   if (success) {
+-    const auto eps = 1e-12 * std::abs(*Fa);
++    // the resultant of all the integrators is a sum of the others
++    const auto eps = unit_tests::tolerance(1e-12) * std::abs(*Fa);
+     success = (std::abs(*F0 - *F1) <= eps) &&
+               (std::abs(*Fa - (*F0 + *F1)) <= eps) && success;
+   }
+diff --git a/tests/FiniteElementSpaceOrderingTest.cxx b/tests/FiniteElementSpaceOrderingTest.cxx
+index 53b1def868..a3de8eee9a 100644
+--- a/tests/FiniteElementSpaceOrderingTest.cxx
++++ b/tests/FiniteElementSpaceOrderingTest.cxx
+@@ -26,6 +26,7 @@
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "Tolerance.hxx"
+ 
+ struct TestParameters {
+   const char* mesh_file = nullptr;
+@@ -178,8 +179,10 @@ int main(int argc, char** argv) {
+   const auto r1 = solve(ctx, mesh, p, "byNODES");
+   const auto r2 = solve(ctx, mesh, p, "byVDIM");
+   // absolute tolerance on the stresses and on the resultant force (the area
+-  // of the loaded face is 1)
+-  constexpr auto eps = 1e-8 * pressure;
++  // of the loaded face is 1). In float, the two solutions, each converged
++  // to the relative tolerances bounded to 1.2e-5, differ by up to 1e3 on
++  // stresses of about 1e8 (6.7e-6 of the pressure)
++  constexpr auto eps = mfem_mgis::unit_tests::tolerance(1e-8, 1e-4) * pressure;
+   auto success =
+       r1.thermodynamic_forces.size() == r2.thermodynamic_forces.size();
+   if (success) {
+diff --git a/tests/ImplicitGradientRegularizationTest.cxx b/tests/ImplicitGradientRegularizationTest.cxx
+index 79fb489261..559ea75152 100644
+--- a/tests/ImplicitGradientRegularizationTest.cxx
++++ b/tests/ImplicitGradientRegularizationTest.cxx
+@@ -15,6 +15,7 @@
+ #include "MFEMMGIS/L2Projection.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ struct TestParameters {
+   const char* mesh_file = nullptr;
+@@ -87,7 +88,9 @@ bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+         u[0] = std::cos(4 * pi * x[0]);
+       }};
+   const auto e = r.ComputeL2Error(solution);
+-  return e < 4e-6;
++  // errors measured: 3.2e-6 in double, 1.1e-4 in float, where the linear
++  // solver stops at a relative residual of 1.2e-5
++  return e < mfem_mgis::unit_tests::tolerance(4e-6, 1e-3);
+ }  // end of test
+ 
+ int main(int argc, char** argv) {
+diff --git a/tests/MaximumNumberOfTimeStepsTest.cxx b/tests/MaximumNumberOfTimeStepsTest.cxx
+index b4dad4d95f..2e3801a510 100644
+--- a/tests/MaximumNumberOfTimeStepsTest.cxx
++++ b/tests/MaximumNumberOfTimeStepsTest.cxx
+@@ -19,6 +19,7 @@
+ #include "MFEMMGIS/LoopCouplingScheme.hxx"
+ #include "MFEMMGIS/PhysicalSystem.hxx"
+ #include "MFEMMGIS/Simulation.hxx"
++#include "Tolerance.hxx"
+ 
+ const char* mesh_file = nullptr;
+ 
+@@ -58,11 +59,13 @@ struct MaximumNumberOfTimeStepsTest final : public tfel::tests::TestCase {
+     TFEL_TESTS_CHECK(s->setMaximumNumberOfTimeSteps(ctx, 2));
+     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
+     TFEL_TESTS_ASSERT(s->getTimes().size() == 9);
+-    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.2) < 1e-14);
++    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.2) <
++                     mfem_mgis::unit_tests::tolerance(1e-14));
+     TFEL_TESTS_CHECK(s->setMaximumNumberOfTimeSteps(ctx, 4));
+     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
+     TFEL_TESTS_ASSERT(s->getTimes().size() == 5);
+-    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.6) < 1e-14);
++    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.6) <
++                     mfem_mgis::unit_tests::tolerance(1e-14));
+     s->unsetMaximumNumberOfTimeSteps();
+     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
+     TFEL_TESTS_ASSERT(s->getTimes().size() == 1);
+diff --git a/tests/StationaryNonLinearHeatTransferTest.cxx b/tests/StationaryNonLinearHeatTransferTest.cxx
+index 4b77a57320..dccb233975 100644
+--- a/tests/StationaryNonLinearHeatTransferTest.cxx
++++ b/tests/StationaryNonLinearHeatTransferTest.cxx
+@@ -19,6 +19,7 @@
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "UnitTestingUtilities.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(int argc, char** argv) {
+   auto ctx = mgis::Context{};
+@@ -97,10 +98,13 @@ int main(int argc, char** argv) {
+     // set the solver parameters
+     mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
+                                            parameters);
+-    problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+-                                      {"RelativeTolerance", 1e-12},
+-                                      {"AbsoluteTolerance", 0.},
+-                                      {"MaximumNumberOfIterations", 10}}) |
++    // in float, the residual stagnates at about 3e-4 (temperatures up to
++    // 900 K), above the relative tolerance for the last steps
++    problem.setSolverParameters(
++        ctx, {{"VerbosityLevel", 0},
++              {"RelativeTolerance", 1e-12},
++              {"AbsoluteTolerance", mfem_mgis::unit_tests::tolerance(0., 3e-3)},
++              {"MaximumNumberOfIterations", 10}}) |
+         or_die;
+     // vtk export
+     problem.addPostProcessing(
+-- 
+2.43.0
+

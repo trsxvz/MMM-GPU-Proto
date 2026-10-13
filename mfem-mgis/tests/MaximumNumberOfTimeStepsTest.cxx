@@ -19,6 +19,7 @@
 #include "MFEMMGIS/LoopCouplingScheme.hxx"
 #include "MFEMMGIS/PhysicalSystem.hxx"
 #include "MFEMMGIS/Simulation.hxx"
+#include "Tolerance.hxx"
 
 const char* mesh_file = nullptr;
 
@@ -58,11 +59,13 @@ struct MaximumNumberOfTimeStepsTest final : public tfel::tests::TestCase {
     TFEL_TESTS_CHECK(s->setMaximumNumberOfTimeSteps(ctx, 2));
     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
     TFEL_TESTS_ASSERT(s->getTimes().size() == 9);
-    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.2) < 1e-14);
+    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.2) <
+                     mfem_mgis::unit_tests::tolerance(1e-14));
     TFEL_TESTS_CHECK(s->setMaximumNumberOfTimeSteps(ctx, 4));
     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
     TFEL_TESTS_ASSERT(s->getTimes().size() == 5);
-    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.6) < 1e-14);
+    TFEL_TESTS_CHECK(std::abs(*(s->getTimes().cbegin()) - 0.6) <
+                     mfem_mgis::unit_tests::tolerance(1e-14));
     s->unsetMaximumNumberOfTimeSteps();
     TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
     TFEL_TESTS_ASSERT(s->getTimes().size() == 1);
