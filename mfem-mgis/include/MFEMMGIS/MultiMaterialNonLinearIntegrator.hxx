@@ -237,13 +237,15 @@ namespace mfem_mgis {
      * `computeStiffnessMatricesByKernels`), then added by one thread per
      * value of the matrix (see `batch::addStiffnessMatricesByEntries`), the
      * contributions of the stiffness matrices to each value being computed
-     * at the first assembly of each layout of the rows (see
-     * `batch::computeEntriesContributions`), and again if they do not match
-     * the matrix. This costs the storage of the stiffness matrices
-     * (`n * n * ne` values, which must fit in an `int`) and of their
-     * contributions (`n * n * ne` integers per layout, plus one per value of
-     * the matrix). Without device, the stiffness matrices are added one
-     * element after the other on the host, which is already a fixed order.
+     * at the first assembly of a matrix (see
+     * `batch::computeEntriesContributions`), and kept for one matrix of each
+     * layout of the rows: alternating several matrices of the same layout
+     * computes them at each assembly. This costs the storage of the
+     * stiffness matrices (`n * n * ne` values, which must fit in an `int`)
+     * and of their contributions (`n * n * ne` integers per layout, plus one
+     * per value of the matrix, on the host and on the device). Without
+     * device, the stiffness matrices are added one element after the other
+     * on the host, which is already a fixed order.
      * Otherwise (default), they are added without being stored, by atomic
      * additions whose order depends on the scheduling of the threads on a
      * device.
@@ -313,7 +315,7 @@ namespace mfem_mgis {
      * by kernels, in a sparse matrix on the local vector of the finite
      * element space, without storing them (see
      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
-     * the ordered assembly is selected (see
+     * the ordered assembly is selected with a device (see
      * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
      * set to zero first. Unless a GPU or the debug
      * device of MFEM is used, the positions of the entries in the rows of
@@ -538,6 +540,12 @@ namespace mfem_mgis {
      * columns are not sorted (first array) or sorted (second array)
      */
     std::array<batch::EntriesContributions, 2> stiffness_matrices_contributions;
+    /*!
+     * \brief matrices (their columns) of `stiffness_matrices_contributions`,
+     * null if the contributions were not computed
+     */
+    std::array<const int*, 2> stiffness_matrices_contributions_matrices = {
+        nullptr, nullptr};
     //! \brief numbers of computations of `stiffness_matrices_contributions`
     std::array<int, 2> stiffness_matrices_contributions_computations = {0, 0};
     /*!

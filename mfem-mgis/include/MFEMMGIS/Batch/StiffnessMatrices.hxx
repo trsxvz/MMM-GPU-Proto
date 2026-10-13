@@ -258,11 +258,14 @@ namespace mfem_mgis::batch {
     mfem::Array<int> contributions;
   };
   /*!
-   * \brief computes, on the host, the contributions of the stiffness
-   * matrices of all the elements of the mesh to each entry of an assembled
-   * matrix (see `EntriesContributions`). They take one `int` per entry of
-   * the stiffness matrices of the elements, plus one per value of the
-   * matrix.
+   * \brief computes the contributions of the stiffness matrices of all the
+   * elements of the mesh to each entry of an assembled matrix (see
+   * `EntriesContributions`): the positions of the entries in their rows are
+   * computed by a kernel (on the device if a device is enabled, see
+   * `computeStiffnessMatricesPositions`), then the contributions are sorted
+   * on the host. They take one `int` per entry of the stiffness matrices of
+   * the elements, plus one per value of the matrix, on the host and, once
+   * used, on the device.
    * \return true on success, false if an entry of the stiffness matrices of
    * the elements is not in the pattern of the matrix, or if there are too
    * many entries
@@ -286,10 +289,11 @@ namespace mfem_mgis::batch {
    * the contributions to this value in the order of `EntriesContributions`:
    * unlike the atomic additions of `addStiffnessMatrices`, whose order
    * depends on the scheduling of the threads on a device, the values are the
-   * same at each assembly. The column of each contribution is checked: the
-   * contributions computed for another matrix, or for another ordering of
-   * the columns in the rows, are detected (the values of the matrix are then
-   * partially updated).
+   * same at each assembly. The row and the column of each contribution are
+   * checked: the contributions computed for another matrix, or for another
+   * ordering of the columns in the rows, are detected if their entries are
+   * not at the same positions (the values of the matrix are then partially
+   * updated).
    * \return true on success, false if the contributions do not match the
    * matrix
    * \param[in, out] ctx: execution context

@@ -228,9 +228,9 @@ namespace mfem_mgis::batch::internals {
    * element to an assembled sparse matrix (see
    * `addStiffnessMatricesByEntries`): one thread per value of the matrix,
    * which adds the contributions to this value in a fixed order, without
-   * atomic additions, after checking their columns (the contributions whose
-   * column is not the one of the value are counted in `missing` and not
-   * added)
+   * atomic additions, after checking their rows and columns (the
+   * contributions whose row or column is not the one of the value are
+   * counted in `missing` and not added)
    * \param[in] o: assembled matrix (`positions` and `searched` are not used)
    * \param[in] nnz: number of values of the matrix
    * \param[in] offsets: offsets of the values (see `EntriesContributions`)

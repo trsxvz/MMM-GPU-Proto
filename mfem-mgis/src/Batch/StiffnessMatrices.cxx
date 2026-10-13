@@ -693,7 +693,9 @@ namespace mfem_mgis::batch {
       }
       const auto nnz = m.matrix->NumNonZeroElems();
       if ((c.offsets.Size() != nnz + 1) ||
-          (std::int64_t{c.contributions.Size()} != std::int64_t{k.Size()})) {
+          (std::int64_t{c.contributions.Size()} != std::int64_t{k.Size()}) ||
+          (c.offsets.HostRead()[0] != 0) ||
+          (c.offsets.HostRead()[nnz] != c.contributions.Size())) {
         return ctx.registerErrorMessage(
             "addStiffnessMatricesByEntries: the contributions do not match "
             "the matrix");
@@ -708,7 +710,7 @@ namespace mfem_mgis::batch {
       if (counters.HostRead()[0] != 0) {
         return ctx.registerErrorMessage(
             "addStiffnessMatricesByEntries: the contributions do not match "
-            "the columns of the matrix (" +
+            "the rows or the columns of the matrix (" +
             std::to_string(counters.HostRead()[0]) + " entries)");
       }
     } catch (std::exception& e) {

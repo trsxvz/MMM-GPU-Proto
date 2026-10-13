@@ -530,6 +530,42 @@ static void testCase(mfem_mgis::Context& ctx,
         small = real{0};
         check(!by_entries(r1, small),
               name + ": stiffness matrices of a wrong size not detected");
+        // the same columns in other rows: the last value of a row moved to
+        // the next row
+        {
+          auto shifted = mfem::SparseMatrix(*all);
+          auto* const I = shifted.HostReadWriteI();
+          auto r = 0;
+          while ((r + 1 < shifted.Height()) && (I[r + 1] - I[r] < 2)) {
+            ++r;
+          }
+          if (r + 1 < shifted.Height()) {
+            --I[r + 1];
+            check(!by_entries(shifted, ke),
+                  name + ": contributions of other rows not detected");
+          }
+        }
+        // inconsistent offsets and degrees of freedom outside of the matrix
+        {
+          auto c3 = Context{};
+          auto corrupted = contributions;
+          auto* const co = corrupted.offsets.HostReadWrite();
+          --co[corrupted.offsets.Size() - 1];
+          check(!batch::addStiffnessMatricesByEntries(
+                    c3,
+                    batch::AssembledStiffnessMatrix{
+                        .matrix = &r1, .element_dofs = &element_dofs},
+                    corrupted, ke),
+                name + ": inconsistent offsets not detected");
+          auto wrong_dofs = mfem::Array<int>(element_dofs);
+          wrong_dofs.HostReadWrite()[0] = all->Height();
+          auto other = batch::EntriesContributions{};
+          check(!batch::computeEntriesContributions(c3, other, *all, wrong_dofs,
+                                                    ndofs),
+                name +
+                    ": degree of freedom outside of the matrix not "
+                    "detected");
+        }
         // with other materials, the entries of their elements are not in the
         // pattern of the matrix of the elements of the material
         auto other_materials = false;
@@ -896,8 +932,13 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
   // the ones of the atomic additions
   check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 0,
         "integrator positions: no ordered assembly by default");
-  mi.setOrderedStiffnessMatricesAssembly(true);
+  // in each layout of the rows, the ordered assembly gives the same values
+  // at each assembly, close to the ones of the atomic additions
   for (auto* const m : {m2.get(), &m3, m1.get()}) {
+    assemble(*m);
+    const auto* const ra = m->HostReadData();
+    const auto atomic_values = std::vector<real>(ra, ra + m->NumNonZeroElems());
+    mi.setOrderedStiffnessMatricesAssembly(true);
     assemble(*m);
     const auto* const first = m->HostReadData();
     const auto values = std::vector<real>(first, first + m->NumNonZeroElems());
@@ -905,26 +946,30 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
     check(std::equal(values.begin(), values.end(), m->HostReadData()),
           "integrator positions: ordered assembly, same values at each "
           "assembly");
+    auto close = true;
+    for (std::size_t i = 0; close && (i != values.size()); ++i) {
+      close = std::abs(values[i] - atomic_values[i]) <=
+              1e-14 * std::max(std::abs(atomic_values[i]), real{1});
+    }
+    check(close, "integrator positions: ordered assembly, assembled values");
+    mi.setOrderedStiffnessMatricesAssembly(false);
   }
-  const auto* const ov = m2->HostReadData();
-  auto close = true;
-  for (std::size_t i = 0; close && (i != reference.size()); ++i) {
-    close = std::abs(ov[i] - reference[i]) <=
-            1e-14 * std::max(std::abs(reference[i]), real{1});
-  }
-  check(close, "integrator positions: ordered assembly, assembled values");
   check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 6,
         "integrator positions: number of ordered assemblies");
   // with a device, the contributions are computed once for the matrices
   // created by `makeAssembledStiffnessMatrix`, again for the matrix in the
-  // layout of MFEM, and once for the matrix whose columns are sorted;
+  // layout of MFEM, once for the matrix whose columns are sorted, then at
+  // each assembly when two matrices of the same layout are alternated;
   // without device, the elements are added one after the other
+  mi.setOrderedStiffnessMatricesAssembly(true);
+  assemble(*m2);
+  assemble(m3);
   const auto device = mfem::Device::IsEnabled();
   const auto c1 = mi.getNumberOfEntriesContributionsComputations(false);
   const auto c2 = mi.getNumberOfEntriesContributionsComputations(true);
   std::cout << "integrator positions, ordered assembly: " << c1 << " and " << c2
             << " computations of the contributions\n";
-  check((c1 == (device ? 2 : 0)) && (c2 == (device ? 1 : 0)),
+  check((c1 == (device ? 4 : 0)) && (c2 == (device ? 1 : 0)),
         "integrator positions: computations of the contributions");
   mi.setOrderedStiffnessMatricesAssembly(false);
 }  // end of testIntegratorPositions

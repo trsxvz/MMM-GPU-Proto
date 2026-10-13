@@ -1,0 +1,69 @@
+date : 2026-10-13 09:24:44
+cas : ssna303
+machine : 16 cœurs, 30 Go
+charge : 3.44 3.62 2.40
+mfem-mgis : f57072220f
+== ssna303-r0-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 27945
+time 7.131 s
+== ssna303-r0-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 27945
+time 5.176 s
+== ssna303-r0-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 27945
+time 6.894 s
+== ssna303-r0-fbar-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 27945
+time 7.638 s
+== ssna303-r0-fbar-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 27945
+time 5.856 s
+== ssna303-r0-fbar-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 27945
+time 7.281 s
+== ssna303-r1-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 196047
+time 71.002 s
+== ssna303-r1-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 196047
+time 59.253 s
+== ssna303-r1-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 196047
+time 26.042 s
+== ssna303-r1-fbar-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 196047
+time 90.886 s
+== ssna303-r1-fbar-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 196047
+time 74.000 s
+== ssna303-r1-fbar-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 196047
+time 27.857 s
+== ssna303-r2-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 1461915
+time 692.528 s
+== ssna303-r2-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 1461915
+time 601.259 s
+== ssna303-r2-iro3-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 1461915
+time 810.324 s
+== ssna303-r2-iro3-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 1
+== ssna303-r2-fbar-iro3-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 1

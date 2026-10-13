@@ -513,16 +513,24 @@ namespace mfem_mgis::batch::internals {
     mfem::forall_switch(
         use_device, nnz,
         [o, offsets, contributions, k, n] MFEM_HOST_DEVICE(int p) {
-          const auto sn = static_cast<std::size_t>(n);
+          // the indices of the entries of the stiffness matrices are lower
+          // than 2^31 (see `computeEntriesContributions`)
+          const auto un = static_cast<unsigned int>(n);
           const auto column = o.J[p];
           auto v = o.values[p];
           for (auto t = offsets[p]; t != offsets[p + 1]; ++t) {
             // entry (i, j) of the stiffness matrix of the element e, stored
-            // column by column (see `ElementMatricesStorage`)
-            const auto q = static_cast<std::size_t>(contributions[t]);
-            const auto e = q / (sn * sn);
-            const auto j = (q - e * sn * sn) / sn;
-            if (o.element_dofs[sn * e + j] != column) {
+            // column by column (see `ElementMatricesStorage`), checked to be
+            // in the row and the column of the value
+            const auto q = static_cast<unsigned int>(contributions[t]);
+            const auto e = q / (un * un);
+            const auto r = q - e * un * un;
+            const auto j = r / un;
+            const auto i = r - j * un;
+            const auto row = o.element_dofs[un * e + i];
+            if ((o.element_dofs[un * e + j] != column) || (row < 0) ||
+                (row >= o.number_of_rows) || (p < o.I[row]) ||
+                (p >= o.I[row + 1])) {
               ::AtomicAdd(o.missing[0], 1);
               continue;
             }

@@ -1,0 +1,370 @@
+From 54ff8e6c8ab45ca76a16ce839e7ba8187efeceb8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 10:12:14 +0200
+Subject: [PATCH] Ordered assembly by values: fixes of an independent review
+
+- The kernel checks the row of each contribution as well as its column:
+  contributions computed for a matrix with the same columns at other
+  positions of the rows are detected. 32-bit integer divisions.
+- The offsets of the contributions are checked to be consistent with them.
+- MultiMaterialNonLinearIntegrator: the contributions are kept for one
+  matrix of each layout of the rows and computed again before the assembly
+  of another matrix, instead of after a failed attempt; contributions just
+  computed which do not match the matrix are reported.
+- Documentation: positions computed by a kernel, memory on the host and on
+  the device, matrices alternated.
+- Tests: values of the ordered assembly compared to the atomic additions
+  in the three layouts of the rows, matrices of the same layout
+  alternated, contributions of other rows, inconsistent offsets and
+  degrees of freedom outside of the matrix detected.
+---
+ docs/source/user_guide/batch_computations.rst | 10 +--
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  | 22 ++++---
+ .../MultiMaterialNonLinearIntegrator.hxx      | 24 ++++---
+ src/Batch/StiffnessMatrices.cxx               |  6 +-
+ src/Batch/StiffnessMatricesKernels.cxx        | 20 ++++--
+ src/Batch/StiffnessMatricesKernels.hxx        |  6 +-
+ src/MultiMaterialNonLinearIntegrator.cxx      | 27 ++++++--
+ tests/GradientsKernelsTest.cxx                | 65 ++++++++++++++++---
+ 8 files changed, 131 insertions(+), 49 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 2a4ce91720..a223c0c35d 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -264,10 +264,12 @@ nonlinear form without interior face integrators nor extension of
+   element by element (:math:`n^{2}` values per element, :math:`n` being the
+   number of degrees of freedom of an element), then added to the matrix by
+   one thread per value of the matrix, which adds the contributions to this
+-  value in a fixed order. These contributions are computed on the host at
+-  the first assembly of each layout of the rows (one integer per entry of
+-  the stiffness matrices of the elements, plus one per value of the
+-  matrix), and again if they do not match the matrix. The values of the
++  value in a fixed order. These contributions are computed at the first
++  assembly of a matrix, from the positions of the entries computed by a
++  kernel, and kept for one matrix of each layout of the rows (one integer
++  per entry of the stiffness matrices of the elements, plus one per value
++  of the matrix, on the host and on the device); their rows and columns are
++  checked at each assembly. The values of the
+   matrix are then the same at each assembly, also on a GPU, where the order
+   of the atomic additions changes from one run to the next, and with it the
+   last digits of the results. In the sequential computations of the tests
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index 5294c7ab12..b59ae0f2b8 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -258,11 +258,14 @@ namespace mfem_mgis::batch {
+     mfem::Array<int> contributions;
+   };
+   /*!
+-   * \brief computes, on the host, the contributions of the stiffness
+-   * matrices of all the elements of the mesh to each entry of an assembled
+-   * matrix (see `EntriesContributions`). They take one `int` per entry of
+-   * the stiffness matrices of the elements, plus one per value of the
+-   * matrix.
++   * \brief computes the contributions of the stiffness matrices of all the
++   * elements of the mesh to each entry of an assembled matrix (see
++   * `EntriesContributions`): the positions of the entries in their rows are
++   * computed by a kernel (on the device if a device is enabled, see
++   * `computeStiffnessMatricesPositions`), then the contributions are sorted
++   * on the host. They take one `int` per entry of the stiffness matrices of
++   * the elements, plus one per value of the matrix, on the host and, once
++   * used, on the device.
+    * \return true on success, false if an entry of the stiffness matrices of
+    * the elements is not in the pattern of the matrix, or if there are too
+    * many entries
+@@ -286,10 +289,11 @@ namespace mfem_mgis::batch {
+    * the contributions to this value in the order of `EntriesContributions`:
+    * unlike the atomic additions of `addStiffnessMatrices`, whose order
+    * depends on the scheduling of the threads on a device, the values are the
+-   * same at each assembly. The column of each contribution is checked: the
+-   * contributions computed for another matrix, or for another ordering of
+-   * the columns in the rows, are detected (the values of the matrix are then
+-   * partially updated).
++   * same at each assembly. The row and the column of each contribution are
++   * checked: the contributions computed for another matrix, or for another
++   * ordering of the columns in the rows, are detected if their entries are
++   * not at the same positions (the values of the matrix are then partially
++   * updated).
+    * \return true on success, false if the contributions do not match the
+    * matrix
+    * \param[in, out] ctx: execution context
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 5bf937c09f..cb59bc0548 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -237,13 +237,15 @@ namespace mfem_mgis {
+      * `computeStiffnessMatricesByKernels`), then added by one thread per
+      * value of the matrix (see `batch::addStiffnessMatricesByEntries`), the
+      * contributions of the stiffness matrices to each value being computed
+-     * at the first assembly of each layout of the rows (see
+-     * `batch::computeEntriesContributions`), and again if they do not match
+-     * the matrix. This costs the storage of the stiffness matrices
+-     * (`n * n * ne` values, which must fit in an `int`) and of their
+-     * contributions (`n * n * ne` integers per layout, plus one per value of
+-     * the matrix). Without device, the stiffness matrices are added one
+-     * element after the other on the host, which is already a fixed order.
++     * at the first assembly of a matrix (see
++     * `batch::computeEntriesContributions`), and kept for one matrix of each
++     * layout of the rows: alternating several matrices of the same layout
++     * computes them at each assembly. This costs the storage of the
++     * stiffness matrices (`n * n * ne` values, which must fit in an `int`)
++     * and of their contributions (`n * n * ne` integers per layout, plus one
++     * per value of the matrix, on the host and on the device). Without
++     * device, the stiffness matrices are added one element after the other
++     * on the host, which is already a fixed order.
+      * Otherwise (default), they are added without being stored, by atomic
+      * additions whose order depends on the scheduling of the threads on a
+      * device.
+@@ -313,7 +315,7 @@ namespace mfem_mgis {
+      * by kernels, in a sparse matrix on the local vector of the finite
+      * element space, without storing them (see
+      * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
+-     * the ordered assembly is selected (see
++     * the ordered assembly is selected with a device (see
+      * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
+      * set to zero first. Unless a GPU or the debug
+      * device of MFEM is used, the positions of the entries in the rows of
+@@ -538,6 +540,12 @@ namespace mfem_mgis {
+      * columns are not sorted (first array) or sorted (second array)
+      */
+     std::array<batch::EntriesContributions, 2> stiffness_matrices_contributions;
++    /*!
++     * \brief matrices (their columns) of `stiffness_matrices_contributions`,
++     * null if the contributions were not computed
++     */
++    std::array<const int*, 2> stiffness_matrices_contributions_matrices = {
++        nullptr, nullptr};
+     //! \brief numbers of computations of `stiffness_matrices_contributions`
+     std::array<int, 2> stiffness_matrices_contributions_computations = {0, 0};
+     /*!
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 561f2c3eda..5ab9d8de61 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -693,7 +693,9 @@ namespace mfem_mgis::batch {
+       }
+       const auto nnz = m.matrix->NumNonZeroElems();
+       if ((c.offsets.Size() != nnz + 1) ||
+-          (std::int64_t{c.contributions.Size()} != std::int64_t{k.Size()})) {
++          (std::int64_t{c.contributions.Size()} != std::int64_t{k.Size()}) ||
++          (c.offsets.HostRead()[0] != 0) ||
++          (c.offsets.HostRead()[nnz] != c.contributions.Size())) {
+         return ctx.registerErrorMessage(
+             "addStiffnessMatricesByEntries: the contributions do not match "
+             "the matrix");
+@@ -708,7 +710,7 @@ namespace mfem_mgis::batch {
+       if (counters.HostRead()[0] != 0) {
+         return ctx.registerErrorMessage(
+             "addStiffnessMatricesByEntries: the contributions do not match "
+-            "the columns of the matrix (" +
++            "the rows or the columns of the matrix (" +
+             std::to_string(counters.HostRead()[0]) + " entries)");
+       }
+     } catch (std::exception& e) {
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 900900090f..5fd3e982cf 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -513,16 +513,24 @@ namespace mfem_mgis::batch::internals {
+     mfem::forall_switch(
+         use_device, nnz,
+         [o, offsets, contributions, k, n] MFEM_HOST_DEVICE(int p) {
+-          const auto sn = static_cast<std::size_t>(n);
++          // the indices of the entries of the stiffness matrices are lower
++          // than 2^31 (see `computeEntriesContributions`)
++          const auto un = static_cast<unsigned int>(n);
+           const auto column = o.J[p];
+           auto v = o.values[p];
+           for (auto t = offsets[p]; t != offsets[p + 1]; ++t) {
+             // entry (i, j) of the stiffness matrix of the element e, stored
+-            // column by column (see `ElementMatricesStorage`)
+-            const auto q = static_cast<std::size_t>(contributions[t]);
+-            const auto e = q / (sn * sn);
+-            const auto j = (q - e * sn * sn) / sn;
+-            if (o.element_dofs[sn * e + j] != column) {
++            // column by column (see `ElementMatricesStorage`), checked to be
++            // in the row and the column of the value
++            const auto q = static_cast<unsigned int>(contributions[t]);
++            const auto e = q / (un * un);
++            const auto r = q - e * un * un;
++            const auto j = r / un;
++            const auto i = r - j * un;
++            const auto row = o.element_dofs[un * e + i];
++            if ((o.element_dofs[un * e + j] != column) || (row < 0) ||
++                (row >= o.number_of_rows) || (p < o.I[row]) ||
++                (p >= o.I[row + 1])) {
+               ::AtomicAdd(o.missing[0], 1);
+               continue;
+             }
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index d4560b0cfd..8312071f8e 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -228,9 +228,9 @@ namespace mfem_mgis::batch::internals {
+    * element to an assembled sparse matrix (see
+    * `addStiffnessMatricesByEntries`): one thread per value of the matrix,
+    * which adds the contributions to this value in a fixed order, without
+-   * atomic additions, after checking their columns (the contributions whose
+-   * column is not the one of the value are counted in `missing` and not
+-   * added)
++   * atomic additions, after checking their rows and columns (the
++   * contributions whose row or column is not the one of the value are
++   * counted in `missing` and not added)
+    * \param[in] o: assembled matrix (`positions` and `searched` are not used)
+    * \param[in] nnz: number of values of the matrix
+    * \param[in] offsets: offsets of the values (see `EntriesContributions`)
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index da3b058d0f..7e7a7bbf00 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -785,24 +785,37 @@ namespace mfem_mgis {
+         return false;
+       }
+       // contributions of the stiffness matrices of the elements to the
+-      // values of the matrix, kept for each layout of the rows (as the
+-      // positions below), computed again if they do not match the matrix
+-      // (another layout of the rows)
++      // values of the matrix, kept for one matrix of each layout of the rows
++      // (as the positions below), computed again for another matrix, or if
++      // they do not match the matrix (another matrix at the same address)
+       const auto layout = m.ColumnsAreSorted() ? 1 : 0;
+       auto& contributions = this->stiffness_matrices_contributions[layout];
++      auto& matrix = this->stiffness_matrices_contributions_matrices[layout];
+       const auto compute_contributions = [&]() {
+         ++(this->stiffness_matrices_contributions_computations[layout]);
+-        return batch::computeEntriesContributions(ctx, contributions, m,
+-                                                  this->element_dofs, n);
++        matrix = nullptr;
++        if (!batch::computeEntriesContributions(ctx, contributions, m,
++                                                this->element_dofs, n)) {
++          return false;
++        }
++        matrix = m.GetJ();
++        return true;
+       };
+       const auto a = batch::AssembledStiffnessMatrix{
+           .matrix = &m, .element_dofs = &(this->element_dofs)};
+-      if ((contributions.offsets.Size() == 0) && (!compute_contributions())) {
++      const auto computed =
++          (matrix != m.GetJ()) ||
++          (contributions.offsets.Size() != m.NumNonZeroElems() + 1);
++      if (computed && (!compute_contributions())) {
+         return false;
+       }
+       auto first_attempt = Context{};
+-      if (!batch::addStiffnessMatricesByEntries(first_attempt, a, contributions,
++      if (!batch::addStiffnessMatricesByEntries(computed ? ctx : first_attempt,
++                                                a, contributions,
+                                                 this->stiffness_matrices)) {
++        if (computed) {
++          return false;
++        }
+         // the values were partially updated
+         if ((!batch::zeroSparseMatrixValues(ctx, m)) ||
+             (!compute_contributions()) ||
+diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
+index c6daf3adac..afb450a6f2 100644
+--- a/tests/GradientsKernelsTest.cxx
++++ b/tests/GradientsKernelsTest.cxx
+@@ -530,6 +530,42 @@ static void testCase(mfem_mgis::Context& ctx,
+         small = real{0};
+         check(!by_entries(r1, small),
+               name + ": stiffness matrices of a wrong size not detected");
++        // the same columns in other rows: the last value of a row moved to
++        // the next row
++        {
++          auto shifted = mfem::SparseMatrix(*all);
++          auto* const I = shifted.HostReadWriteI();
++          auto r = 0;
++          while ((r + 1 < shifted.Height()) && (I[r + 1] - I[r] < 2)) {
++            ++r;
++          }
++          if (r + 1 < shifted.Height()) {
++            --I[r + 1];
++            check(!by_entries(shifted, ke),
++                  name + ": contributions of other rows not detected");
++          }
++        }
++        // inconsistent offsets and degrees of freedom outside of the matrix
++        {
++          auto c3 = Context{};
++          auto corrupted = contributions;
++          auto* const co = corrupted.offsets.HostReadWrite();
++          --co[corrupted.offsets.Size() - 1];
++          check(!batch::addStiffnessMatricesByEntries(
++                    c3,
++                    batch::AssembledStiffnessMatrix{
++                        .matrix = &r1, .element_dofs = &element_dofs},
++                    corrupted, ke),
++                name + ": inconsistent offsets not detected");
++          auto wrong_dofs = mfem::Array<int>(element_dofs);
++          wrong_dofs.HostReadWrite()[0] = all->Height();
++          auto other = batch::EntriesContributions{};
++          check(!batch::computeEntriesContributions(c3, other, *all, wrong_dofs,
++                                                    ndofs),
++                name +
++                    ": degree of freedom outside of the matrix not "
++                    "detected");
++        }
+         // with other materials, the entries of their elements are not in the
+         // pattern of the matrix of the elements of the material
+         auto other_materials = false;
+@@ -896,8 +932,13 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
+   // the ones of the atomic additions
+   check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 0,
+         "integrator positions: no ordered assembly by default");
+-  mi.setOrderedStiffnessMatricesAssembly(true);
++  // in each layout of the rows, the ordered assembly gives the same values
++  // at each assembly, close to the ones of the atomic additions
+   for (auto* const m : {m2.get(), &m3, m1.get()}) {
++    assemble(*m);
++    const auto* const ra = m->HostReadData();
++    const auto atomic_values = std::vector<real>(ra, ra + m->NumNonZeroElems());
++    mi.setOrderedStiffnessMatricesAssembly(true);
+     assemble(*m);
+     const auto* const first = m->HostReadData();
+     const auto values = std::vector<real>(first, first + m->NumNonZeroElems());
+@@ -905,26 +946,30 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
+     check(std::equal(values.begin(), values.end(), m->HostReadData()),
+           "integrator positions: ordered assembly, same values at each "
+           "assembly");
++    auto close = true;
++    for (std::size_t i = 0; close && (i != values.size()); ++i) {
++      close = std::abs(values[i] - atomic_values[i]) <=
++              1e-14 * std::max(std::abs(atomic_values[i]), real{1});
++    }
++    check(close, "integrator positions: ordered assembly, assembled values");
++    mi.setOrderedStiffnessMatricesAssembly(false);
+   }
+-  const auto* const ov = m2->HostReadData();
+-  auto close = true;
+-  for (std::size_t i = 0; close && (i != reference.size()); ++i) {
+-    close = std::abs(ov[i] - reference[i]) <=
+-            1e-14 * std::max(std::abs(reference[i]), real{1});
+-  }
+-  check(close, "integrator positions: ordered assembly, assembled values");
+   check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 6,
+         "integrator positions: number of ordered assemblies");
+   // with a device, the contributions are computed once for the matrices
+   // created by `makeAssembledStiffnessMatrix`, again for the matrix in the
+-  // layout of MFEM, and once for the matrix whose columns are sorted;
++  // layout of MFEM, once for the matrix whose columns are sorted, then at
++  // each assembly when two matrices of the same layout are alternated;
+   // without device, the elements are added one after the other
++  mi.setOrderedStiffnessMatricesAssembly(true);
++  assemble(*m2);
++  assemble(m3);
+   const auto device = mfem::Device::IsEnabled();
+   const auto c1 = mi.getNumberOfEntriesContributionsComputations(false);
+   const auto c2 = mi.getNumberOfEntriesContributionsComputations(true);
+   std::cout << "integrator positions, ordered assembly: " << c1 << " and " << c2
+             << " computations of the contributions\n";
+-  check((c1 == (device ? 2 : 0)) && (c2 == (device ? 1 : 0)),
++  check((c1 == (device ? 4 : 0)) && (c2 == (device ? 1 : 0)),
+         "integrator positions: computations of the contributions");
+   mi.setOrderedStiffnessMatricesAssembly(false);
+ }  // end of testIntegratorPositions
+-- 
+2.43.0
+

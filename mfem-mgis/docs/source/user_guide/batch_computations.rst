@@ -264,10 +264,12 @@ nonlinear form without interior face integrators nor extension of
   element by element (:math:`n^{2}` values per element, :math:`n` being the
   number of degrees of freedom of an element), then added to the matrix by
   one thread per value of the matrix, which adds the contributions to this
-  value in a fixed order. These contributions are computed on the host at
-  the first assembly of each layout of the rows (one integer per entry of
-  the stiffness matrices of the elements, plus one per value of the
-  matrix), and again if they do not match the matrix. The values of the
+  value in a fixed order. These contributions are computed at the first
+  assembly of a matrix, from the positions of the entries computed by a
+  kernel, and kept for one matrix of each layout of the rows (one integer
+  per entry of the stiffness matrices of the elements, plus one per value
+  of the matrix, on the host and on the device); their rows and columns are
+  checked at each assembly. The values of the
   matrix are then the same at each assembly, also on a GPU, where the order
   of the atomic additions changes from one run to the next, and with it the
   last digits of the results. In the sequential computations of the tests

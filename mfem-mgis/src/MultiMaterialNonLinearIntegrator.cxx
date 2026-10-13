@@ -785,24 +785,37 @@ namespace mfem_mgis {
         return false;
       }
       // contributions of the stiffness matrices of the elements to the
-      // values of the matrix, kept for each layout of the rows (as the
-      // positions below), computed again if they do not match the matrix
-      // (another layout of the rows)
+      // values of the matrix, kept for one matrix of each layout of the rows
+      // (as the positions below), computed again for another matrix, or if
+      // they do not match the matrix (another matrix at the same address)
       const auto layout = m.ColumnsAreSorted() ? 1 : 0;
       auto& contributions = this->stiffness_matrices_contributions[layout];
+      auto& matrix = this->stiffness_matrices_contributions_matrices[layout];
       const auto compute_contributions = [&]() {
         ++(this->stiffness_matrices_contributions_computations[layout]);
-        return batch::computeEntriesContributions(ctx, contributions, m,
-                                                  this->element_dofs, n);
+        matrix = nullptr;
+        if (!batch::computeEntriesContributions(ctx, contributions, m,
+                                                this->element_dofs, n)) {
+          return false;
+        }
+        matrix = m.GetJ();
+        return true;
       };
       const auto a = batch::AssembledStiffnessMatrix{
           .matrix = &m, .element_dofs = &(this->element_dofs)};
-      if ((contributions.offsets.Size() == 0) && (!compute_contributions())) {
+      const auto computed =
+          (matrix != m.GetJ()) ||
+          (contributions.offsets.Size() != m.NumNonZeroElems() + 1);
+      if (computed && (!compute_contributions())) {
         return false;
       }
       auto first_attempt = Context{};
-      if (!batch::addStiffnessMatricesByEntries(first_attempt, a, contributions,
+      if (!batch::addStiffnessMatricesByEntries(computed ? ctx : first_attempt,
+                                                a, contributions,
                                                 this->stiffness_matrices)) {
+        if (computed) {
+          return false;
+        }
         // the values were partially updated
         if ((!batch::zeroSparseMatrixValues(ctx, m)) ||
             (!compute_contributions()) ||

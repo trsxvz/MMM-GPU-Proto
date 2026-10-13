@@ -15,7 +15,9 @@
 # ssna303 et ex8 par défaut). La variable `mfem_mgis_sources`, lue avant,
 # donne les sources de mfem-mgis dont la version est notée dans resume.txt
 # (par défaut le sous-module mfem-mgis), pour un exécutable construit
-# contre une autre installation.
+# contre une autre installation. La variable `examples_build`, lue avant,
+# donne la construction de mfem-mgis-examples utilisée pour ssna303 et ex8
+# (par défaut build/mfem-mgis-examples).
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -79,12 +81,12 @@ case "$case_name" in
     gp=$B
     ;;
   ssna303)
-    B=$P/build/mfem-mgis-examples/ex4
+    B=${examples_build:-$P/build/mfem-mgis-examples}/ex4
     generic=$B/src/libBehaviour.so
     gp=$P/build/cas/ssna303
     ;;
   ex8)
-    B=$P/build/mfem-mgis-examples/ex8
+    B=${examples_build:-$P/build/mfem-mgis-examples}/ex8
     generic=""
     gp=$B
     ;;

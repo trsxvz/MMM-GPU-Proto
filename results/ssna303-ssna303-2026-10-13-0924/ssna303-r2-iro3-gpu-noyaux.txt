@@ -1,0 +1,332 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --device cuda
+   --hypre-device-pool-size 0.5
+   --no-hypre-on-host
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+   --order 1
+   --integration-rule-order 3
+   --nbsteps 10
+   --end-time 1
+   --reference-file 
+   --linearsolver HypreFGMRES
+   --preconditioner HypreBoomerAMG
+   --refinement 2
+   --profiling
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas/ssna303/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+   --no-paraview
+   --no-use-fbar
+dofs 1461915
+iteration 0 from 0 to 0.1
+Newton iteration  0 : ||r|| = 399.271, ||r||/||r_0|| = 0.00942109
+Newton iteration  1 : ||r|| = 17.7452, ||r||/||r_0|| = 0.000418712
+Newton iteration  2 : ||r|| = 12.5315, ||r||/||r_0|| = 0.00029569
+Newton iteration  3 : ||r|| = 11.9712, ||r||/||r_0|| = 0.000282468
+Newton iteration  4 : ||r|| = 8.77863, ||r||/||r_0|| = 0.000207138
+Newton iteration  5 : ||r|| = 8.16439, ||r||/||r_0|| = 0.000192645
+Newton iteration  6 : ||r|| = 6.63259, ||r||/||r_0|| = 0.000156501
+Newton iteration  7 : ||r|| = 6.52653, ||r||/||r_0|| = 0.000153998
+Newton iteration  8 : ||r|| = 5.58045, ||r||/||r_0|| = 0.000131675
+Newton iteration  9 : ||r|| = 5.71139, ||r||/||r_0|| = 0.000134764
+Newton iteration 10 : ||r|| = 5.16063, ||r||/||r_0|| = 0.000121769
+Newton iteration 11 : ||r|| = 5.03961, ||r||/||r_0|| = 0.000118913
+Newton iteration 12 : ||r|| = 4.88454, ||r||/||r_0|| = 0.000115254
+Newton iteration 13 : ||r|| = 4.83802, ||r||/||r_0|| = 0.000114157
+Newton iteration 14 : ||r|| = 4.78555, ||r||/||r_0|| = 0.000112919
+Newton iteration 15 : ||r|| = 4.7787, ||r||/||r_0|| = 0.000112757
+Newton iteration 16 : ||r|| = 4.7939, ||r||/||r_0|| = 0.000113115
+Newton iteration 17 : ||r|| = 4.78887, ||r||/||r_0|| = 0.000112997
+Newton iteration 18 : ||r|| = 4.79606, ||r||/||r_0|| = 0.000113166
+Newton iteration 19 : ||r|| = 4.793, ||r||/||r_0|| = 0.000113094
+Newton iteration 20 : ||r|| = 4.79679, ||r||/||r_0|| = 0.000113184
+
+substep: 0 (solve: the non linear solver did not converge)
+
+substep: 1 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db2cf5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRTMatMatKTDevice+0x425) [0x7ca4c1db2cf5]
+    15 0x7ca4c1d6c0e5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRTMatMatKT+0x75) [0x7ca4c1d6c0e5]
+    16 0x7ca4c6bb427f No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1ef) [0x7ca4c6bb427f]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 2 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 3 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 4 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 5 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 6 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 7 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 8 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+
+substep: 9 (! Umpire runtime_error [/tmp/t/spack-stage/spack-stage-umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/spack-src/src/umpire/alloc/CudaMallocAllocator.hpp:38]: cudaMalloc( bytes = 451091872 ) failed with error: out of memory
+    Backtrace: 26 frames
+    0 0x7ca4c6a3c11e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(+0x1a3c11e) [0x7ca4c6a3c11e]
+    1 0x7ca4c6a465a9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZNK6umpire13runtime_error7messageB5cxx11Ev+0x59) [0x7ca4c6a465a9]
+    2 0x7ca48ce73d4e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire13runtime_errorC1ERKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEES8_i+0xce) [0x7ca48ce73d4e]
+    3 0x7ca48ceb57b9 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8resource24CudaDeviceMemoryResource8allocateEm+0xd59) [0x7ca48ceb57b9]
+    4 0x7ca48ced4644 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(_ZN6umpire8strategy6mixins17AlignedAllocation16aligned_allocateEm+0x24) [0x7ca48ced4644]
+    5 0x7ca48ce46f83 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/umpire-2026.07.1-ayuulyzlfbk7mylzoyxrfl7c6ls5xqst/lib/libumpire.so(+0x46f83) [0x7ca48ce46f83]
+    6 0x7ca4c6a47522 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN6umpire9Allocator11do_allocateEm+0x432) [0x7ca4c6a47522]
+    7 0x7ca4c1c3bfbe No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_umpire_device_pooled_allocate+0x6e) [0x7ca4c1c3bfbe]
+    8 0x7ca4c1c37d9b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_MAlloc+0xeb) [0x7ca4c1c37d9b]
+    9 0x7ca4c1ccf602 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z16hypre_create_ijaiPiS_S_PS_PPdS_+0xf2) [0x7ca4c1ccf602]
+    10 0x7ca4c1ca0c74 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z51hypre_CSRSpGemmNumerWithRownnzUpperboundNoBinDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xe4) [0x7ca4c1ca0c74]
+    11 0x7ca4c1ca140b No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(_Z46hypre_CSRSpGemmNumerWithRownnzUpperboundDeviceiiiPiS_PdS_S_S0_S_iPS_S1_PS0_S_+0xfb) [0x7ca4c1ca140b]
+    12 0x7ca4c1c9fa8a No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRSpGemmDevice+0x1da) [0x7ca4c1c9fa8a]
+    13 0x7ca4c1c81cf0 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_CSRMatrixMultiplyDevice+0x40) [0x7ca4c1c81cf0]
+    14 0x7ca4c1db3b55 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMatDevice+0x625) [0x7ca4c1db3b55]
+    15 0x7ca4c1d6bab5 No dladdr: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/deps/spack/mmm-gpu/.spack-env/view/lib/libHYPRE.so.302(hypre_ParCSRMatMat+0x65) [0x7ca4c1d6bab5]
+    16 0x7ca4c6bb426e No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem3RAPEPKNS_14HypreParMatrixES2_+0x1de) [0x7ca4c6bb426e]
+    17 0x7ca4c6b9cb95 No dladdr: /home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/mfem-4.10.0-zxpdstvrtrfm3jzpwllxt7nd33y3jtcj/lib/libmfem.so.4.10(_ZN4mfem14OperatorHandle8MakePtAPERS0_S1_+0x255) [0x7ca4c6b9cb95]
+    18 0x5cb038d1750b No dladdr: ./ssna303_3d_hypre(+0xeb50b) [0x5cb038d1750b]
+    19 0x5cb038d0fb21 No dladdr: ./ssna303_3d_hypre(+0xe3b21) [0x5cb038d0fb21]
+    20 0x5cb038d077b9 No dladdr: ./ssna303_3d_hypre(+0xdb7b9) [0x5cb038d077b9]
+    21 0x5cb038cd39a3 No dladdr: ./ssna303_3d_hypre(+0xa79a3) [0x5cb038cd39a3]
+    22 0x5cb038c825c2 No dladdr: ./ssna303_3d_hypre(+0x565c2) [0x5cb038c825c2]
+    23 0x7ca4c002a1ca No dladdr: /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7ca4c002a1ca]
+    24 0x7ca4c002a28b No dladdr: /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7ca4c002a28b]
+    25 0x5cb038c84d05 No dladdr: ./ssna303_3d_hypre(+0x58d05) [0x5cb038c84d05]
+)
+maximum number of substeps
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+  Proc: [[4206,1],0]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+prterun has exited due to process rank 0 with PID 0 on node t-MS-7E47 calling
+"abort". This may have caused other processes in the application to be
+terminated by signals sent by prterun (as reported here).
+--------------------------------------------------------------------------
+ 
