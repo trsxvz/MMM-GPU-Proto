@@ -130,8 +130,9 @@ cmake --build build/mgis --target check -j16   # construit et lance les tests
 Les tests et leur lecture sont décrits dans
 [docs/validation.md](docs/validation.md).
 
-Compilation pour un GPU AMD (la machine de développement n'en a pas :
-compilation et édition de liens seulement) : `scripts/build-hip-amd.sh`
+Compilation pour un GPU AMD (compilation et édition de liens seulement :
+le GPU AMD intégré de la machine de développement n'est accessible
+qu'aux membres du groupe render) : `scripts/build-hip-amd.sh`
 construit hypre, MFEM compilé avec HIP pour gfx90a et mfem-mgis avec ce
 MFEM, à partir de ROCm installé sans droits d'administrateur (paquets
 Python de ROCm, voir l'en-tête du script).

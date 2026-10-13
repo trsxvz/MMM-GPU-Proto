@@ -18,7 +18,9 @@ l'appelant, etc.) : le test doit la détecter.
 
 ## Environnement
 
-- Machine : GPU NVIDIA RTX 5080 (architecture `sm_120`), sans GPU AMD.
+- Machine : GPU NVIDIA RTX 5080 (architecture `sm_120`) ; le GPU AMD
+  intégré au processeur (gfx1036) n'est pas utilisé (accès réservé au
+  groupe render).
 - Environnement spack `mmm-gpu` (`deps/spack/`) : NVIDIA HPC SDK 25.11
   (nvc++ et CUDA 13.0.2), LLVM 20.1.8, AdaptiveCpp 25.10, Kokkos 5.2.2,
   HIP 7.2.3 (plateforme NVIDIA), hypre et Ginkgo. Voir

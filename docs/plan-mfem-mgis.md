@@ -235,7 +235,9 @@ d'utiliser des lois MFront dans libCEED ou Ratel. Gros chantier dans TFEL,
 | CPU (séquentiel, OpenMP) | `openmp`, `stlpar`, ou bibliothèque `generic` |
 
 MFEM n'a pas de backend SYCL : les backends SYCL de TFEL servent d'autres
-codes. HIP se compile ici mais ne s'exécute que sur la plateforme NVIDIA.
+codes. Les lois HIP de TFEL s'exécutent ici sur la plateforme NVIDIA ;
+mfem-mgis avec un MFEM compilé avec HIP pour un GPU AMD se compile et se
+lie (`scripts/build-hip-amd.sh`), sans exécution sur un GPU AMD.
 
 ## Solveurs
 

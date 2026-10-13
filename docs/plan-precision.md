@@ -144,6 +144,31 @@ Essai sans rien modifier : code généré de lois compilé avec
 - nvcc, interface `generic-parallel` : 3 sources sur 4 compilent, la
   quatrième (CoupledHeatTransfer) échoue comme sur le CPU.
 
+Essai élargi (validation, point 2, fait le 13/10/2026) : les 856 fichiers
+MFront de TFEL (tests, suite de tests, galerie), de MGIS, de mfem-mgis,
+des exemples et de mm-opera-hpc, interface `generic`, sur le CPU, avec
+`mfront_gb_real` en float. 99 ne passent pas la génération (DSL ou options
+non prévus par l'essai), 46 ne compilent pas non plus en double (fichiers
+anciens) : restent 711 fichiers, dont 580 compilent en float et 131
+échouent seulement en float (18 %). Causes :
+
+- `std::max` et `std::min` sur un double et un float : 39 (la déduction
+  des paramètres échoue, aucune conversion à l'affectation n'y peut
+  rien) ;
+- construction d'un tenseur à partir d'une expression en double : 29 ;
+- affectation ou conversion d'une expression en double vers un objet en
+  float : une trentaine ;
+- modèles (sorties en `map<double>`) : 9 ;
+- dans les en-têtes de TFEL eux-mêmes : 18 (critères de Cazacu, de
+  Gurson-Tvergaard-Needleman, de Rousselier, de Mohr-Coulomb, tenseur
+  d'élasticité, nucléation, `StensorComputeIsotropicFunctionDerivative`).
+
+Par origine : TFEL 97 échecs sur 641, MGIS 2 sur 28, mfem-mgis 2 sur 17,
+exemples 5 sur 19, mm-opera-hpc 3 sur 6. L'option D3 (a) seule ne
+corrigerait donc qu'une partie des lois (affectations et constructions) :
+les appels mixtes à `std::max` et `std::min` et le code de TFEL demandent
+de toute façon des corrections du code.
+
 ## Proposition
 
 ### Source de vérité
@@ -272,7 +297,9 @@ PETSc et MUMPS.
   `-Wdouble-promotion` et de ptxas pour trouver le reste), et (a) en plus
   pour accepter les lois existantes des utilisateurs. (a) est un
   changement de conception de TFEL, à proposer à ses auteurs avant toute
-  publication.
+  publication. D'après l'essai élargi, (a) ne couvre pas les appels mixtes
+  à `std::max` et `std::min` (39 lois sur 131) : (b) est nécessaire pour
+  une partie des lois de toute façon.
 - D4. MTest en float. La fonction CMake construit aussi une bibliothèque
   en double pour les tests MTest (ex8), et MTest refuse une loi en float.
   Recommandé.
@@ -299,8 +326,9 @@ sont pas touchés.
 
 ## Étapes
 
-1. Essai de compilation élargi (validation, point 2), qui fixe la liste
-   des corrections de TFEL et des lois.
+1. Essai de compilation élargi (validation, point 2) : fait sur le CPU
+   (voir l'état actuel) ; reste nvcc, et la liste précise des corrections
+   de TFEL et des lois.
 2. TFEL : macros, option de `mfront`, symbole de taille, versions d'API,
    clé de `rdt`, code de TFEL pour tout type, D3, MTest ; tests de TFEL
    (une loi de chaque DSL compilée et intégrée en float, l'interface
