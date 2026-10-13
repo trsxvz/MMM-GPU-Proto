@@ -340,13 +340,16 @@ int main(int argc, char *argv[]) {
   const auto Fzz = [&p](const mfem_mgis::real ets) {
     return 1 + p.linear_strain_rate * ets;
   };
-  // main output file
-  std::ofstream out(p.output_file);
-  if (!out) {
-    std::cerr << "can't open output file '" << p.output_file << "'\n";
-    return EXIT_FAILURE;
+  // main output file, written by the main process only
+  std::ofstream out;
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+    out.open(p.output_file);
+    if (!out) {
+      std::cerr << "can't open output file '" << p.output_file << "'\n";
+      mfem_mgis::abort(EXIT_FAILURE);
+    }
+    out.precision(14);
   }
-  out.precision(14);
   // setting the simulation and running it
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
       NumericalParameters{.macroscopic_elastic_material_properties = mp};

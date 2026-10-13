@@ -304,13 +304,16 @@ int main(int argc, char **argv) {
     }
     return times;
   }();
-  //
-  std::ofstream out(p.output_file);
-  if (!out) {
-    std::cerr << "can't open output file '" << p.output_file << "'\n";
-    return EXIT_FAILURE;
+  // main output file, written by the main process only
+  std::ofstream out;
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+    out.open(p.output_file);
+    if (!out) {
+      std::cerr << "can't open output file '" << p.output_file << "'\n";
+      mfem_mgis::abort(EXIT_FAILURE);
+    }
+    out.precision(14);
   }
-  out.precision(14);
   //
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
       NumericalParameters{.macroscopic_elastic_material_properties = mp};

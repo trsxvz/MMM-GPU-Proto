@@ -6,6 +6,7 @@
  */
 
 #include <cmath>
+#include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
@@ -153,10 +154,12 @@ namespace mm_opera_hpc {
       converged = std::abs(r) < tolFP;
       itFP++;
     }
-    //
-    out << ets << " "                                 //
-        << F[0] << " " << F[1] << " " << F[2] << " "  //
-        << S[0] << " " << S[1] << " " << S[2] << std::endl;
+    // the macroscopic values are the same on all the processes
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+      out << ets << " "                                 //
+          << F[0] << " " << F[1] << " " << F[2] << " "  //
+          << S[0] << " " << S[1] << " " << S[2] << std::endl;
+    }
     Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
     //
     if (itFP >= maxitFP) {

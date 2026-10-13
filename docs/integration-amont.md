@@ -267,7 +267,7 @@ final, par morceaux de fichier.
 ## mfem-mgis-examples et mm-opera-hpc
 
 Les changements des exemples (29 patchs depuis `600da70`) et de
-mm-opera-hpc (24 patchs depuis `49147f2`) suivent les contributions de
+mm-opera-hpc (25 patchs depuis `49147f2`) suivent les contributions de
 mfem-mgis dont ils se servent. Ils seront proposés après elles, par
 thème :
 
@@ -281,7 +281,12 @@ thème :
   adaptée (contributions 2 et 9), solveurs directs et réutilisation de
   l'analyse (contributions 2 et 3), AmgX (contribution 12) ;
 - tests sur le GPU, enregistrés seulement quand la loi pour le GPU est
-  construite.
+  construite ;
+- dans mm-opera-hpc, tests comparés aux solutions de référence (Cast3M,
+  solution analytique de la bulle) et corrections relevées par la
+  relecture : aide `-h` sans échec, unité de la pression de la bulle,
+  fichiers de sortie ouverts après les options et écrits par le seul
+  processus principal.
 
 ## Déjà proposé en amont
 
