@@ -1,4 +1,4 @@
-From 005506173c2d0a59bec2d9373a223a242ec67ab4 Mon Sep 17 00:00:00 2001
+From 3cece01186ef47ae2822797427238ea92cd79899 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:06:59 +0200
 Subject: [PATCH] Config: the profiling sections wait for the kernels launched
@@ -15,7 +15,7 @@ in the first later section waiting for them. Tested by DeviceForallTest.
  3 files changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 69714a69d2..73bcd9eb5c 100644
+index 0ec6e25cd0..edd70dffa8 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -131,7 +131,9 @@ namespace mfem_mgis {
@@ -30,10 +30,10 @@ index 69714a69d2..73bcd9eb5c 100644
     * second configuration of the device) nor declare its own `--device`,
     * `-dev` options.
 diff --git a/src/Config.cxx b/src/Config.cxx
-index 34fb6fc976..d7740aa354 100644
+index 6705a413d5..3313df3f86 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -15,12 +15,14 @@
+@@ -21,12 +21,14 @@
  #endif /* MFEM_USE_MPI */
  #include "mfem/general/error.hpp"
  #include "mfem/general/device.hpp"
@@ -48,7 +48,7 @@ index 34fb6fc976..d7740aa354 100644
  #include <MFEMMGIS/Profiler.hxx>
  #include "MFEMMGIS/Config.hxx"
  
-@@ -122,6 +124,20 @@ namespace mfem_mgis {
+@@ -128,6 +130,20 @@ namespace mfem_mgis {
  #endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
    }  // end of getDeviceIdentifier
  
@@ -69,7 +69,7 @@ index 34fb6fc976..d7740aa354 100644
    Finalizer::Finalizer() = default;
  
  #ifdef MFEM_USE_PETSC
-@@ -183,6 +199,12 @@ namespace mfem_mgis {
+@@ -189,6 +205,12 @@ namespace mfem_mgis {
      if (device_configuration != nullptr) {
        this->device = std::make_unique<mfem::Device>(
            device_configuration, getDeviceIdentifier(device_configuration));

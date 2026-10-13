@@ -1,4 +1,4 @@
-From 0744a53d7efc75d43bb8a3da51a272a7e997bef2 Mon Sep 17 00:00:00 2001
+From 666e4579ee70dc523072138271a20779d415159a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:46:50 +0200
 Subject: [PATCH] Bubble: profiling sections of the post-processings
@@ -12,10 +12,10 @@ of the post-processings.
  1 file changed, 17 insertions(+), 8 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index d602df9..e9066fd 100644
+index 53a1993..3a22ba0 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
-@@ -640,14 +640,20 @@ int main(int argc, char** argv) {
+@@ -645,14 +645,20 @@ int main(int argc, char** argv) {
  
      // Compute and export principal stress and hydrostatic stress
      // field
@@ -42,7 +42,7 @@ index d602df9..e9066fd 100644
  
      // L2 projection of the first eigenstress at the nodes
      // for better visualization
-@@ -661,11 +667,14 @@ int main(int argc, char** argv) {
+@@ -666,11 +672,14 @@ int main(int argc, char** argv) {
                            mfem_mgis::Parameters{{"Name", "HypreILU"}}}}) |
          or_die;
  

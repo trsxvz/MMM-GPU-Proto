@@ -1,4 +1,4 @@
-From 8e4a341cfdf51784e0c3dd2419f98fccc6ff03f6 Mon Sep 17 00:00:00 2001
+From ef79e271a4fa31756c08b238a8b09652a3477d71 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:27:07 +0200
 Subject: [PATCH] Tests of the regularization of Faltus et al. by kernels,
@@ -27,7 +27,7 @@ refusal of the regularization of Faltus et al. is removed.
  2 files changed, 342 insertions(+), 88 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index dac25e429e..c96ad27468 100644
+index 21cf370418..09bbf0236b 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -9,15 +9,19 @@
@@ -221,7 +221,7 @@ index dac25e429e..c96ad27468 100644
  #endif /* MFEM_USE_MPI */
      }
      problem.update(ctx) | or_die;
-@@ -1042,19 +1119,40 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -1043,19 +1120,40 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
  }  // end of testElementByElementSequence
  
  /*!
@@ -269,7 +269,7 @@ index dac25e429e..c96ad27468 100644
      auto problem =
          construct<NonLinearEvolutionProblem>(
              ctx, Parameters{{"MeshFileName", mesh},
-@@ -1070,12 +1168,13 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1071,12 +1169,13 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                              {"Hypothesis", "Tridimensional"},
                              {"BehaviourIntegration", "Batch"},
                              {"GradientsComputation", "ElementByElement"},
@@ -287,7 +287,7 @@ index dac25e429e..c96ad27468 100644
          or_die;
      auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
      for (auto* s : {&m.s0, &m.s1}) {
-@@ -1095,7 +1194,7 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1096,7 +1195,7 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                {"LoadingEvolution",
                 [](const real t) noexcept { return 1e-2 * t; }}}) |
          or_die;
@@ -296,7 +296,7 @@ index dac25e429e..c96ad27468 100644
        problem.setLinearSolver(
            ctx, "CGSolver",
            {{"VerbosityLevel", 0},
-@@ -1115,17 +1214,16 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1116,17 +1215,16 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                                        {"AbsoluteTolerance", 0.},
                                        {"MaximumNumberOfIterations", 10}}) |
          or_die;
@@ -320,7 +320,7 @@ index dac25e429e..c96ad27468 100644
  
  /*!
   * \brief a tangent operator applied without assembly is refused when the
-@@ -1596,6 +1694,100 @@ int main(int argc, char** argv) {
+@@ -1597,6 +1695,100 @@ int main(int argc, char** argv) {
                        .tangent_operator_kernels = true,
                        .order = 2},
                       ", FBar, order 2"});
@@ -421,7 +421,7 @@ index dac25e429e..c96ad27468 100644
      for (const auto& [b, opts, name] : cases) {
        const auto* const m = getMesh(opts);
        auto reference = opts;
-@@ -1743,7 +1935,7 @@ int main(int argc, char** argv) {
+@@ -1744,7 +1936,7 @@ int main(int argc, char** argv) {
      }
    }
    testMatrixFreeRefusal(ctx, mesh, library);

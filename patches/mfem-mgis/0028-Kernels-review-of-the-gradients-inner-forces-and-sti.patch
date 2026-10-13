@@ -1,4 +1,4 @@
-From cf7f7646285fe1ce8b68ad877e83033fb2c8748e Mon Sep 17 00:00:00 2001
+From beddc856d03da83b5ecd26b24f0b14807ede6801 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:51:27 +0200
 Subject: [PATCH] Kernels: review of the gradients, inner forces and stiffness
@@ -400,10 +400,10 @@ index 02df7f862e..f2d4146f3d 100644
    }  // end of setImposedValuesIncrements
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 59c0468df9..1f90756926 100644
+index 3b076f24ac..08e7bfdd62 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -794,13 +794,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -812,13 +812,25 @@ if(MFEM_MGIS_HAVE_TFEL)
             "--${_backend}-library" "${_library}")
      endif()
    endforeach()

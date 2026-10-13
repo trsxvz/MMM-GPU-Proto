@@ -1,4 +1,4 @@
-From 155202fdf4bb83beca62e525f1d4c7a2da3184f2 Mon Sep 17 00:00:00 2001
+From caebab6ff3103379fb2a6e5db35bfa42a28d38fc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:54:07 +0200
 Subject: [PATCH] Polycrystal: NewtonK0, iterative solver of the tangent
@@ -11,7 +11,7 @@ names an iterative solver of the factory of the linear solvers (CGSolver).
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 310bc9c..499385e 100644
+index 037c653..7bf5780 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -176,7 +176,7 @@ int main(int argc, char *argv[]) {

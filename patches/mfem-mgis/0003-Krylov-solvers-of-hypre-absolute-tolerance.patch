@@ -1,4 +1,4 @@
-From c0d7da67c664d43b2da12441d1d20f62c0625ea3 Mon Sep 17 00:00:00 2001
+From 7cf971a43a50cf995a614736dff7567f35f9513d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:57 +0200
 Subject: [PATCH] Krylov solvers of hypre: absolute tolerance
@@ -73,10 +73,10 @@ index 833fa3f026..911cb18e85 100644
        if (contains(params, SolverTolerance)) {
          const auto otol = get<double>(ctx, params, SolverTolerance);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 6fc8d96012..10b6c85fff 100644
+index 95ab7395dc..17cb97a48c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -753,6 +753,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -771,6 +771,9 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)

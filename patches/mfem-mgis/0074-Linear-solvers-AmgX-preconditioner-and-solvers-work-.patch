@@ -1,4 +1,4 @@
-From 1c740b96d551859247c8409607a24c062ced7636 Mon Sep 17 00:00:00 2001
+From bc126509f90c577c1ea015a812407edf36008b71 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:56:04 +0200
 Subject: [PATCH] Linear solvers: AmgX preconditioner and solvers (work in
@@ -446,7 +446,7 @@ index 6320fc7b10..9211226fa5 100644
  #ifdef MFEM_USE_MUMPS
        check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index b22f89d0fc..80d82c9840 100644
+index d0cd012ea8..f065a0b64e 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -17,6 +17,7 @@
@@ -887,10 +887,10 @@ index 0000000000..ce1497065b
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 027d885c38..735d94d68b 100644
+index aa7956d5b7..c9e9699b6f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1083,6 +1083,25 @@ if(MFEM_USE_MPI)
+@@ -1101,6 +1101,25 @@ if(MFEM_USE_MPI)
             COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
  endif(MFEM_USE_MPI)
  

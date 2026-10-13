@@ -1,4 +1,4 @@
-From b4127a6c123a1034d3e286f131c610699395d495 Mon Sep 17 00:00:00 2001
+From 6e9f450a0ff034ad270a87c972a32063b75b3245 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:44:36 +0200
 Subject: [PATCH] LinearSolverFactory: Chebyshev smoother of MFEM as
@@ -277,10 +277,10 @@ index b50d57dd25..98a0a13101 100644
                compute(ctx, m, library, b, "Batch", opts),
                b + " (kernels" + name + ")", 1e-10);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e7f46cc05c..6a35dc0998 100644
+index 7a33f4e449..7e7feaadd9 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -850,6 +850,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -868,6 +868,18 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

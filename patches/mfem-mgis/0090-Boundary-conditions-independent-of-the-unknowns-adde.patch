@@ -1,4 +1,4 @@
-From 7e3c66f95341b284f428419956b26d6eef2fe74a Mon Sep 17 00:00:00 2001
+From 9f9cbd29b12a443b5b4f8d14eb095842a8ce7751 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:53:55 +0200
 Subject: [PATCH] Boundary conditions independent of the unknowns added to the
@@ -541,7 +541,7 @@ index 55205803ce..86b8c9718a 100644
        ~UniformImposedPressureBoundaryCondition() {
      if (this->shallFreeIntegrator) {
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 80ecbeca87..dac25e429e 100644
+index 20d54c74e8..21cf370418 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -13,9 +13,11 @@
@@ -677,7 +677,7 @@ index 80ecbeca87..dac25e429e 100644
    if (opts.prediction) {
      problem.setPredictionPolicy(
          {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
-@@ -1037,8 +1129,8 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1038,8 +1130,8 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
  
  /*!
   * \brief a tangent operator applied without assembly is refused when the
@@ -688,7 +688,7 @@ index 80ecbeca87..dac25e429e 100644
   * \param[in, out] ctx: execution context
   * \param[in] mesh: mesh
   * \param[in] library: behaviour library
-@@ -1081,10 +1173,17 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+@@ -1082,10 +1174,17 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
          ctx, {{"Boundary", boundary}, {"Component", component}}) |
          or_die;
    }
@@ -709,7 +709,7 @@ index 80ecbeca87..dac25e429e 100644
        or_die;
    problem.setLinearSolver(
        ctx, "CGSolver",
-@@ -1106,7 +1205,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+@@ -1107,7 +1206,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
              (msg.find("requires that the non linear form only contains the "
                        "integrator of mfem-mgis") != std::string::npos),
          "a tangent operator applied without assembly with a boundary "
@@ -718,7 +718,7 @@ index 80ecbeca87..dac25e429e 100644
              msg + ")");
  }  // end of testMatrixFreeRefusal
  
-@@ -1265,6 +1364,10 @@ int main(int argc, char** argv) {
+@@ -1266,6 +1365,10 @@ int main(int argc, char** argv) {
      }
      for (const auto* const b :
           {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity"}) {
@@ -729,7 +729,7 @@ index 80ecbeca87..dac25e429e 100644
        cases.push_back({b,
                         {.prediction = true,
                          .pressure = true,
-@@ -1272,7 +1375,36 @@ int main(int argc, char** argv) {
+@@ -1273,7 +1376,36 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", pressure and prediction"});
@@ -766,7 +766,7 @@ index 80ecbeca87..dac25e429e 100644
      cases.push_back({"IsotropicLinearHardeningPlasticity",
                       {.prediction = true,
                        .gradients_kernels = true,
-@@ -1365,24 +1497,60 @@ int main(int argc, char** argv) {
+@@ -1366,24 +1498,60 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});
@@ -834,7 +834,7 @@ index 80ecbeca87..dac25e429e 100644
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
                        .prediction = true,
-@@ -1396,11 +1564,20 @@ int main(int argc, char** argv) {
+@@ -1397,11 +1565,20 @@ int main(int argc, char** argv) {
                        .prediction = true,
                        .pressure = true,
                        .gradients_kernels = true,

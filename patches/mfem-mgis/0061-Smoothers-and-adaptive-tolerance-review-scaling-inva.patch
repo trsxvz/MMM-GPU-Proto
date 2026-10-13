@@ -1,4 +1,4 @@
-From 6cae30af99a48bb686126e741640fb2511868af9 Mon Sep 17 00:00:00 2001
+From 63237ba0197e4d62ad03a86f3a62614f47732ece Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:36:45 +0200
 Subject: [PATCH] Smoothers and adaptive tolerance: review (scaling invariance,
@@ -128,10 +128,10 @@ index 19b07fbc61..6cc67ad671 100644
    check(areClose(*getRelativeTolerance(s), 1e-9),
          "first choice: initial tolerance not restored");
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 664093a021..e2170b20d8 100644
+index 8826013fff..5dba929e1e 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -884,30 +884,6 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -902,30 +902,6 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()
  
@@ -162,7 +162,7 @@ index 664093a021..e2170b20d8 100644
    # FixedPointSolverTest executable: fixed point solver (methods,
    # accelerations, linear solvers of the elastic operator) compared to the
    # Newton solver
-@@ -1001,6 +977,31 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1019,6 +995,31 @@ if(MFEM_MGIS_HAVE_TFEL)
  
  endif(MFEM_MGIS_HAVE_TFEL)
  

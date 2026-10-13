@@ -1,4 +1,4 @@
-From b602495b6b385888ba7a2d8aeb3ccabd3920ad79 Mon Sep 17 00:00:00 2001
+From 09e5c7b0e0e770728e5c43a835362498926b55d3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:15:49 +0200
 Subject: [PATCH] ex5: behaviour library and device options
@@ -12,7 +12,7 @@ particular the device (--device).
  1 file changed, 21 insertions(+), 3 deletions(-)
 
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 5b1d97e..cdf5801 100644
+index 24c93e8..3a9e8bc 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -11,6 +11,7 @@
@@ -23,7 +23,7 @@ index 5b1d97e..cdf5801 100644
  #include "mfem/linalg/vector.hpp"
  #include "mfem/fem/fespace.hpp"
  #include "MFEMMGIS/Parameters.hxx"
-@@ -141,8 +142,26 @@ int main(int argc, char** argv) {
+@@ -145,8 +146,26 @@ int main(int argc, char** argv) {
    auto or_die = ctx.getFatalFailureHandler();
    //
    static constexpr const auto parallel = false;
@@ -51,7 +51,7 @@ index 5b1d97e..cdf5801 100644
    // building the non linear problem
    auto problem =
        mfem_mgis::construct<mfem_mgis::NonLinearEvolutionProblem>(
-@@ -158,8 +177,7 @@ int main(int argc, char** argv) {
+@@ -162,8 +181,7 @@ int main(int argc, char** argv) {
                {"Parallel", parallel}}) |
        or_die;
    // materials

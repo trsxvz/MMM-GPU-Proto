@@ -1,4 +1,4 @@
-From 517c0c0b08175b49cc915e28914be23b31c7a141 Mon Sep 17 00:00:00 2001
+From 1614cc94c74727c6768aba696ea8588c81a51aa8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:29:15 +0200
 Subject: [PATCH] FixedPointSolver: adaptive tolerance of the NewtonK0 method

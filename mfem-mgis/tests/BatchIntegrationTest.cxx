@@ -1258,7 +1258,8 @@ struct NoBatchIntegrationBehaviourIntegrator final
       std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
       : mfem_mgis::BehaviourIntegratorBase(
             std::make_shared<mfem_mgis::PartialQuadratureSpace>(
-                fed, m, selectIntegrationRule),
+                fed, mfem_mgis::MaterialIdentifier{.id = m},
+                selectIntegrationRule),
             std::move(behaviour)) {}
   static const mfem::IntegrationRule& selectIntegrationRule(
       const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
@@ -2315,9 +2316,10 @@ int main(int argc, char** argv) {
       const auto results = compute(ctx, m, library, b, "Batch", opts);
       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
               b + " (kernels" + name + ")", 1e-10);
-      if (opts.ordered_assembly) {
+      if ((opts.ordered_assembly) && (!parallel)) {
         // the same results, bit for bit, at each run, also on a GPU, where
-        // the atomic additions give other roundings at each run
+        // the atomic additions give other roundings at each run. Not checked
+        // in parallel, where MUMPS is not reproducible to the last bit
         const auto again = compute(ctx, m, library, b, "Batch", opts);
         check((again.u == results.u) && (again.sig == results.sig) &&
                   (again.iterations == results.iterations) &&

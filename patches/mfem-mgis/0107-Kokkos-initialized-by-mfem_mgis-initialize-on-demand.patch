@@ -1,4 +1,4 @@
-From aed33abb8a1a0450b2b7b53c8c6e9d3388ed214e Mon Sep 17 00:00:00 2001
+From 7ba263d1f419fbd5884bed0b7064b15eed23964c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:16:24 +0200
 Subject: [PATCH] Kokkos initialized by mfem_mgis::initialize on demand
@@ -147,7 +147,7 @@ index 15ffd3e5ea..df9572fdc4 100644
  arrays of the material on the device. The material properties and the
  external state variables are copied to the device at each integration;
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 96dfd409ae..7a2ec9ceb0 100644
+index 15f08a43cb..b45e9c255c 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -154,10 +154,19 @@ namespace mfem_mgis {
@@ -171,7 +171,7 @@ index 96dfd409ae..7a2ec9ceb0 100644
     * This call is optional if the code exits normally.
     */
    MFEM_MGIS_EXPORT void finalize();
-@@ -227,6 +236,7 @@ namespace mfem_mgis {
+@@ -265,6 +274,7 @@ namespace mfem_mgis {
     * \brief declare default options: the configuration of the MFEM device
     * (`--device`, the device being created by `initialize`), the size of the
     * pool of memory of hypre on the GPU (`--hypre-device-pool-size`, set by
@@ -179,7 +179,7 @@ index 96dfd409ae..7a2ec9ceb0 100644
     * `initialize`), and the PETSc options, if PETSc is available.
     * \param[in, out] parser: options parser
     */
-@@ -238,6 +248,13 @@ namespace mfem_mgis {
+@@ -276,6 +286,13 @@ namespace mfem_mgis {
     * when MFEM is compiled with MPI, it can be called without guards.
     */
    MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
@@ -228,18 +228,18 @@ index 0d455f7782..9090069ccf 100644
   target_compile_definitions(MFEMMGIS PUBLIC 
     MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR)
 diff --git a/src/Config.cxx b/src/Config.cxx
-index 3f8bf9a112..4f61bce37e 100644
+index 8b2a43cddb..c73d43068c 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -10,6 +10,7 @@
- #include <cstdlib>
- #include <cstring>
- #include <memory>
+@@ -15,6 +15,7 @@
+ #include <numeric>
+ #include <utility>
+ #include <cmath>
 +#include <optional>
- #include <string>
- #include <string_view>
  #include <iostream>
-@@ -27,6 +28,9 @@
+ #include <algorithm>
+ #include <string_view>
+@@ -32,6 +33,9 @@
  #include "mfem/linalg/petsc.hpp"
  #endif /*MFEM_USE_PETSC */
  #include "MGIS/Raise.hxx"
@@ -249,7 +249,7 @@ index 3f8bf9a112..4f61bce37e 100644
  #include "MGIS/Profiling.hxx"
  #include <MFEMMGIS/Profiler.hxx>
  #include "MFEMMGIS/Config.hxx"
-@@ -50,6 +54,18 @@ namespace mfem_mgis {
+@@ -55,6 +59,18 @@ namespace mfem_mgis {
      static const char* const hypre_device_pool_size_option;
      //! \brief short name of the option `hypre_device_pool_size_option`
      static const char* const hypre_device_pool_size_short_option;
@@ -268,7 +268,7 @@ index 3f8bf9a112..4f61bce37e 100644
      //! \return the unique instance of this class
      static Finalizer& get();
      /*!
-@@ -82,6 +98,8 @@ namespace mfem_mgis {
+@@ -87,6 +103,8 @@ namespace mfem_mgis {
       * be destroyed after `finalize`.
       */
      std::unique_ptr<mfem::Device> device;
@@ -277,7 +277,7 @@ index 3f8bf9a112..4f61bce37e 100644
      //! \brief boolean stating if MPI has been finalized or aborted
      bool pendingExit = false;
      /*!
-@@ -104,6 +122,14 @@ namespace mfem_mgis {
+@@ -109,6 +127,14 @@ namespace mfem_mgis {
  
    const char* const Finalizer::hypre_device_pool_size_short_option = "-hdps";
  
@@ -292,7 +292,7 @@ index 3f8bf9a112..4f61bce37e 100644
    /*!
     * \brief sets the size of the pool of memory allocated at once by hypre
     * on the GPU through Umpire (4 GiB by default in hypre 3.2), before the
-@@ -219,7 +245,20 @@ namespace mfem_mgis {
+@@ -224,7 +250,20 @@ namespace mfem_mgis {
      const char* device_configuration = nullptr;
      const char* hypre_device_pool_size = nullptr;
      auto hypre_device_pool_size_from_environment = false;
@@ -313,7 +313,7 @@ index 3f8bf9a112..4f61bce37e 100644
        if ((std::strcmp(*a, hypre_device_pool_size_option) == 0) ||
            (std::strcmp(*a, hypre_device_pool_size_short_option) == 0)) {
          if (hypre_device_pool_size != nullptr) {
-@@ -295,20 +334,51 @@ namespace mfem_mgis {
+@@ -300,20 +339,51 @@ namespace mfem_mgis {
      // the device is configured after the initialization of hypre and
      // before the one of PETSc, which uses the GPU of the device, as in the
      // parallel examples of MFEM
@@ -367,7 +367,7 @@ index 3f8bf9a112..4f61bce37e 100644
      }
  #ifdef MFEM_USE_PETSC
      if (this->use_petsc) {
-@@ -330,6 +400,13 @@ namespace mfem_mgis {
+@@ -335,6 +405,13 @@ namespace mfem_mgis {
    }  // end of usePETSc
  
    void Finalizer::finalize() {
@@ -381,7 +381,7 @@ index 3f8bf9a112..4f61bce37e 100644
      if (!this->pendingExit) {
  #ifdef MFEM_USE_MPI
  #ifdef MFEM_USE_PETSC
-@@ -424,6 +501,14 @@ namespace mfem_mgis {
+@@ -429,6 +506,14 @@ namespace mfem_mgis {
  #endif /* MFEM_USE_MPI */
    }  // end of isHypreUsingGPU
  
@@ -396,7 +396,7 @@ index 3f8bf9a112..4f61bce37e 100644
    void declareDefaultOptions(mfem::OptionsParser& parser) {
      // the device is created by `initialize`: the option is only declared
      // here, so that the parser accepts it
-@@ -443,6 +528,17 @@ namespace mfem_mgis {
+@@ -448,6 +533,17 @@ namespace mfem_mgis {
                       "Size in GiB of the pool of memory allocated at once by "
                       "hypre on the GPU (Umpire), set by "
                       "mfem_mgis::initialize. Default of hypre if not given.");
@@ -510,10 +510,10 @@ index 4387b4f5cd..5c08151342 100644
  # before mfem-mgis, the description of MFEM is the one used to build
  # mfem-mgis
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 08c085cfcf..6581f088bb 100644
+index 5499dcfebe..f21e2aa401 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1028,6 +1028,30 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1046,6 +1046,30 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND MaterialArraysTest --device cuda
                         ${material_arrays_test_arguments}
                         ${material_arrays_test_cuda_library})
@@ -544,7 +544,7 @@ index 08c085cfcf..6581f088bb 100644
      endif()
    endif()
  
-@@ -1258,6 +1282,54 @@ add_test(NAME DeviceOptionTest-debug
+@@ -1276,6 +1300,54 @@ add_test(NAME DeviceOptionTest-debug
           COMMAND DeviceOptionTest --device debug --expected debug)
  add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)

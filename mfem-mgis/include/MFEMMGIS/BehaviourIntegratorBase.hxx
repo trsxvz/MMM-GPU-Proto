@@ -143,6 +143,13 @@ namespace mfem_mgis {
       const batch::ElementsGeometry* geometry = nullptr;
     };
     /*!
+     * \return if the quadrature space can be processed by kernels: elements
+     * of the mesh (the kernels do not support the boundary elements, see
+     * `PartialQuadratureSpace::shallUseBoundaryElementsAPI`) using the same
+     * integration rule, or no element
+     */
+    [[nodiscard]] bool isQuadratureSpaceSupportedByKernels() const noexcept;
+    /*!
      * \brief checks that the material can be processed by kernels (same
      * integration rule for all its elements, supported behaviour, geometric
      * data of its rule computed) and gets the data of the computations

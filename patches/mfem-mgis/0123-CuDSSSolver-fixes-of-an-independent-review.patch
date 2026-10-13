@@ -1,4 +1,4 @@
-From 45afaa06538c00f422d255ae5f824d0b0bf51d7c Mon Sep 17 00:00:00 2001
+From 5a38bc49644ed99196ea690f5a22d294d9711855 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:55:09 +0200
 Subject: [PATCH] CuDSSSolver: fixes of an independent review
@@ -855,7 +855,7 @@ index 4323bd187f..fd7c4c2703 100644
      size_type number_of_analyses = 0;
    };  // end of struct MUMPSSolverReusingAnalysis
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index fed648eec7..9e259d6e22 100644
+index 205b71b7ec..db539c9a7f 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -125,6 +125,15 @@ namespace mfem_mgis {
@@ -875,10 +875,10 @@ index fed648eec7..9e259d6e22 100644
      auto check_hypre_solver_convergence =
          []<typename SolverType>(const SolverType* ptr) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 3400e39485..acf5bebb0a 100644
+index bdb205fa2f..d55080c378 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1218,8 +1218,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+@@ -1236,8 +1236,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
             COMMAND DirectSolverReuseAnalysisTest)
    add_test(NAME DirectSolverReuseAnalysisTestP
             COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest)
@@ -892,7 +892,7 @@ index 3400e39485..acf5bebb0a 100644
                         PROPERTIES TIMEOUT 120 ENVIRONMENT OMP_NUM_THREADS=1)
    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
      add_test(NAME DirectSolverReuseAnalysisTestP-cuda
-@@ -1231,9 +1236,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+@@ -1249,9 +1254,13 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
    endif()
  endif()
  if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
@@ -907,7 +907,7 @@ index 3400e39485..acf5bebb0a 100644
    if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
      add_test(NAME DirectSolverReuseAnalysisTest-cudss-cuda
               COMMAND DirectSolverReuseAnalysisTest --solver CuDSSSolver
-@@ -1241,8 +1250,22 @@ if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
+@@ -1259,8 +1268,22 @@ if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
      add_test(NAME DirectSolverReuseAnalysisTestP-cudss-cuda
               COMMAND mpirun -n 2 ./DirectSolverReuseAnalysisTest
                       --solver CuDSSSolver --device cuda)

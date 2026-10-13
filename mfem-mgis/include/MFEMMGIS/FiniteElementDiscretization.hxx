@@ -193,6 +193,20 @@ namespace mfem_mgis {
     std::shared_ptr<FiniteElementSpace<false>> sequential_fe_space;
   };  // end of FiniteElementDiscretization
 
+#ifdef MFEM_USE_MPI
+  /*!
+   * \return the underlying mesh
+   * \param[in] s: finite element space
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] const Mesh<true>& getMesh(
+      const FiniteElementSpace<true>& s) noexcept;
+#endif /* MFEM_USE_MPI */
+  /*!
+   * \return the underlying mesh
+   * \param[in] s: finite element space
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] const Mesh<false>& getMesh(
+      const FiniteElementSpace<false>& s) noexcept;
   /*!
    * \return the integration rule of an element of a behaviour integrator:
    * the rule of the order given by the `IntegrationRuleOrder` parameter of
@@ -223,8 +237,8 @@ namespace mfem_mgis {
    * finite element space.
    * \param[in] fed: finite element discretization
    */
-  MFEM_MGIS_EXPORT size_type
-  getNumberOfComponents(const FiniteElementDiscretization& fed) noexcept;
+  MFEM_MGIS_EXPORT [[nodiscard]] size_type getNumberOfComponents(
+      const FiniteElementDiscretization& fed) noexcept;
 
   /*!
    * \brief return the number of unknowns
@@ -233,8 +247,8 @@ namespace mfem_mgis {
    * hanging nodes.
    * \param[in] fed: finite element discretization
    */
-  MFEM_MGIS_EXPORT size_type
-  getVSize(const FiniteElementDiscretization& fed) noexcept;
+  MFEM_MGIS_EXPORT [[nodiscard]] size_type getVSize(
+      const FiniteElementDiscretization& fed) noexcept;
 
   /*!
    * \brief return the number of true unknowns
@@ -242,8 +256,8 @@ namespace mfem_mgis {
    * excluding those required to handle ghost values or hanging nodes.
    * \param[in] fed: finite element discretization
    */
-  MFEM_MGIS_EXPORT size_type
-  getTrueVSize(const FiniteElementDiscretization& fed) noexcept;
+  MFEM_MGIS_EXPORT [[nodiscard]] size_type getTrueVSize(
+      const FiniteElementDiscretization& fed) noexcept;
 
   /*!
    * \return the finite element space, the parallel one for a parallel
@@ -262,7 +276,8 @@ namespace mfem_mgis {
    * \return true on success
    */
   template <>
-  MFEM_MGIS_EXPORT bool getInformation<FiniteElementDiscretization>(
+  MFEM_MGIS_EXPORT [[nodiscard]] bool
+  getInformation<FiniteElementDiscretization>(
       Context& ctx,
       std::ostream& os,
       const FiniteElementDiscretization& fed) noexcept;

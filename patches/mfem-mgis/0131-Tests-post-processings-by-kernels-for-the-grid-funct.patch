@@ -1,0 +1,85 @@
+From c5c13b51697c2efe6225cc0985d465bf666410eb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 11:57:16 +0200
+Subject: [PATCH] Tests: post-processings by kernels for the grid functions and
+ L2 projections
+
+Variants of L2ProjectionTest, GridFunctionTest and GridFunctionOnSubMeshTest
+(sequential and on two processes) with
+MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels: the functions defined on
+the mesh of the result take the kernels (a wrong value at the nodes
+computed by kernels makes GridFunctionTest-kernels fail), the functions
+defined on another mesh (submeshes) fall back to the computations element
+by element.
+---
+ tests/CMakeLists.txt | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 24c679ae70..145ce5e7aa 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -526,6 +526,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   add_point_wise_model_test_2()
+ 
++  # Helper function declaring the variant of a test computing the
++  # post-processings by kernels when possible (the other cases falling back
++  # to the computations element by element)
++  function(add_post_processings_kernels_variant test)
++    add_test(NAME ${test}-kernels COMMAND ${ARGN})
++    set_tests_properties(${test}-kernels PROPERTIES ENVIRONMENT
++                         MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels)
++  endfunction()
++
+   # L2ProjectionTest executable
+   add_test_executable(L2ProjectionTest)
+ 
+@@ -535,9 +544,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh" "--linearsolver"
+                "${nsolver}")
+     add_test(NAME ${test} COMMAND ./L2ProjectionTest ${params} "--parallel" "0")
++    add_post_processings_kernels_variant(${test} ./L2ProjectionTest ${params}
++                                         "--parallel" "0")
+     if(MFEM_USE_MPI)
+       add_test(NAME Parallel${test} COMMAND mpirun -n 2 ./L2ProjectionTest ${params}
+                                      "--parallel" "1")
++      add_post_processings_kernels_variant(Parallel${test} mpirun -n 2
++                                           ./L2ProjectionTest ${params}
++                                           "--parallel" "1")
+     endif(MFEM_USE_MPI)
+   endfunction()
+ 
+@@ -568,9 +582,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set(test "GridFunctionTest")
+     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh")
+     add_test(NAME ${test} COMMAND ./GridFunctionTest ${params} "--parallel" "0")
++    add_post_processings_kernels_variant(${test} ./GridFunctionTest ${params}
++                                         "--parallel" "0")
+     if(MFEM_USE_MPI)
+       add_test(NAME ${test}P COMMAND mpirun -n 2 ./GridFunctionTest ${params}
+                                      "--parallel" "1")
++      add_post_processings_kernels_variant(${test}P mpirun -n 2
++                                           ./GridFunctionTest ${params}
++                                           "--parallel" "1")
+     endif(MFEM_USE_MPI)
+   endfunction()
+ 
+@@ -584,9 +603,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}")
+     add_test(NAME ${test} COMMAND ./GridFunctionOnSubMeshTest ${params}
+                                   "--parallel" "0")
++    add_post_processings_kernels_variant(${test} ./GridFunctionOnSubMeshTest
++                                         ${params} "--parallel" "0")
+     if(MFEM_USE_MPI)
+       add_test(NAME ${test}P COMMAND mpirun -n 2 ./GridFunctionOnSubMeshTest
+                                      ${params} "--parallel" "1")
++      add_post_processings_kernels_variant(${test}P mpirun -n 2
++                                           ./GridFunctionOnSubMeshTest
++                                           ${params} "--parallel" "1")
+     endif(MFEM_USE_MPI)
+   endfunction()
+ 
+-- 
+2.43.0
+

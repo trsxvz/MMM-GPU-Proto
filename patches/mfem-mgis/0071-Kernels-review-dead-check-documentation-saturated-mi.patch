@@ -1,4 +1,4 @@
-From a066c82baa8888422c8b5a24da20adcbda5e0bce Mon Sep 17 00:00:00 2001
+From cfc1cab5d85944b0823bf6f76e024f9aa07ca71d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Kernels: review (dead check, documentation, saturated
@@ -84,10 +84,10 @@ index 0632b347ba..72b000b159 100644
              "computeUnknownsDerivatives: the values of the shape functions "
              "cached by the finite element do not match the integration rule");
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ce5a4dc153..3485120749 100644
+index ffe374c6ff..9aa1f998fb 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -826,9 +826,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -844,9 +844,12 @@ if(MFEM_MGIS_HAVE_TFEL)
             COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
                     ${batch_integration_test_libraries})
    # the variants of the longest tests on the debug device of MFEM, which

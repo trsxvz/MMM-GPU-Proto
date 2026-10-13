@@ -1,4 +1,4 @@
-From 6fdd03c3497eea2bf68812c9278a77d07e0a03d9 Mon Sep 17 00:00:00 2001
+From 40af0307ea8e177b3aea82e0f55e02730091e64c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:37:29 +0200
 Subject: [PATCH] Polycrystal: option --non-linear-solver (Newton or NewtonK0)
@@ -11,7 +11,7 @@ elastic operator, given by an integration of the behaviours.
  1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index a332095..310bc9c 100644
+index dba6dfd..037c653 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -61,6 +61,12 @@ struct NumericalParameters {

@@ -1,4 +1,4 @@
-From 7bc891d5afbd60addcb9df1d82118ec6ebe60800 Mon Sep 17 00:00:00 2001
+From d5b2ccbf1ebb55c8e07173e0871ea6eba630b9e1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:05:42 +0200
 Subject: [PATCH] Polycrystal: adaptive tolerance of the linear solver of the
@@ -15,7 +15,7 @@ deprecated throwing attribute.
  1 file changed, 48 insertions(+), 5 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 499385e..2c23612 100644
+index 7bf5780..97eee07 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -67,6 +67,14 @@ struct NumericalParameters {

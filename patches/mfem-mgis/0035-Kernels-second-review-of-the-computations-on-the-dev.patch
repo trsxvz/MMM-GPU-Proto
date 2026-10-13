@@ -1,4 +1,4 @@
-From decb6fd2c132ff1baae33ceaa0700d7a8aa64f6f Mon Sep 17 00:00:00 2001
+From b5c1e80061ebef4a83820e822d677e0fc036e4e2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:28:12 +0200
 Subject: [PATCH] Kernels: second review of the computations on the device
@@ -93,10 +93,10 @@ index d0b3eaa0cd..e35ccd74e2 100644
          }
          const auto s = std::span<const real>(
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index e46e90d160..770bfb3d07 100644
+index bf344f8414..f0352266c0 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1075,10 +1075,9 @@ namespace mfem_mgis {
+@@ -1073,10 +1073,9 @@ namespace mfem_mgis {
      this->wks.has_rotated_thermodynamic_forces = true;
    }  // end of computeRotatedThermodynamicForces
  
@@ -109,7 +109,7 @@ index e46e90d160..770bfb3d07 100644
      }
      if (!this->wks.has_rotated_thermodynamic_forces) {
        // on the host, or on the device if the computations of the behaviour
-@@ -1087,6 +1086,14 @@ namespace mfem_mgis {
+@@ -1085,6 +1084,14 @@ namespace mfem_mgis {
            this->wks.rotated_thermodynamic_forces);
        this->wks.has_rotated_thermodynamic_forces = true;
      }

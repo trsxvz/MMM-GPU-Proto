@@ -1,4 +1,4 @@
-From 1d5adf1a321c507421c9b2dec4e97d918456d188 Mon Sep 17 00:00:00 2001
+From bc1f7aa5cfd68e9d69c6fb8ff0fe603877d41631 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:08:10 +0200
 Subject: [PATCH] Fix the findings of the review of the kernels and of the
@@ -150,10 +150,10 @@ index b6e1ce0302..be979f8930 100644
      if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
        return ctx.registerErrorMessage(name + ": invalid residuals '" +
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 14d40c6354..3bf79c04da 100644
+index 2a63f96b07..f987bf65e2 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1212,8 +1212,8 @@ namespace mfem_mgis {
+@@ -1210,8 +1210,8 @@ namespace mfem_mgis {
      const auto nK = static_cast<std::size_t>(
          this->getArrays().getTangentOperatorBlocks().Size());
      if (nK != 0) {
@@ -735,10 +735,10 @@ index b50dcd4700..e281682b0a 100644
  
  }  // end of namespace mfem_mgis::internals
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index cbcabff3fb..00b4415e8c 100644
+index e4f387d01f..5ced95ef3b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -866,6 +866,22 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -884,6 +884,22 @@ if(MFEM_MGIS_HAVE_TFEL)
      set_tests_properties(FixedPointSolverTestP
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()

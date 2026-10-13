@@ -1,4 +1,4 @@
-From ef52adb445de1b789b916e5a03308e25022bda0b Mon Sep 17 00:00:00 2001
+From 5e4f4b9bd52624823e5ac793602ba1206269003f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 17:48:54 +0200
 Subject: [PATCH] Integration of the behaviours by batches
@@ -846,10 +846,10 @@ index 64f7729c49..2dc62fa0a9 100644
    static void performLoopOverIntegrationPoints(
        Functor& f, const AbstractBehaviourIntegrator& bi) {
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index afb5321ab7..77525dc8f1 100644
+index 69f5f68971..82d00f2cf4 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -742,6 +742,37 @@ namespace mfem_mgis {
+@@ -740,6 +740,37 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  
@@ -1599,7 +1599,7 @@ index 0000000000..c3c8ffce4f
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index bfc81fbce9..c9767ff18c 100644
+index ee693241c6..74ba33efbe 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -68,7 +68,8 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -1612,7 +1612,7 @@ index bfc81fbce9..c9767ff18c 100644
  
    # TwoLayerCube executable
    add_test_executable(TwoLayerCube)
-@@ -749,6 +750,50 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -767,6 +768,50 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  
@@ -1701,7 +1701,7 @@ index 0000000000..18cb9a92bc
 +  Dt = λ ⋅ (I₂ ⊗ I₂) + 2 ⋅ μ ⋅ I₄;
 +}
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 736fea19c3..093161e6b2 100644
+index ca231c5cc8..db3524e0c0 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -391,6 +391,14 @@ static void testHostAccesses(mfem_mgis::Context& ctx,

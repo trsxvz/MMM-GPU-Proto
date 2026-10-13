@@ -1,4 +1,4 @@
-From 607f895a0dac9d7da6bc4688880702f5ac3e90cc Mon Sep 17 00:00:00 2001
+From 52bfb818b01df8c54dbd116c4c11da0d31c0f871 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 22:07:25 +0200
 Subject: [PATCH] ParaSails preconditioner: new operators after the destruction
@@ -90,10 +90,10 @@ index a45f9d56ab..a028c4665c 100644
  
    [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 2945d04995..447395044e 100644
+index 1657cd0bb1..acdffd71e7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1165,6 +1165,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1183,6 +1183,15 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreILUTest)
      add_test(NAME HypreILUTest COMMAND HypreILUTest)
      add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)

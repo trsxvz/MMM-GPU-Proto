@@ -1,4 +1,4 @@
-From e111df8454af958c138aaffa2f016e89b94471e4 Mon Sep 17 00:00:00 2001
+From c29105a4ce6772fddf5721e24afdb47a15637540 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 11:04:53 +0200
 Subject: [PATCH] Kernels: global tangent operator with the pattern and the
@@ -661,10 +661,10 @@ index 3ff2cf608b..11123de7b5 100644
      mfem::OperatorHandle dA(this->pGrad.Type());
      mfem::OperatorHandle Ph(this->pGrad.Type());
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 421cfa3ffb..57bc4f0d93 100644
+index cf61b2c523..abacf128cc 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1034,6 +1034,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1052,6 +1052,20 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND GradientsKernelsTest --device cuda
                         ${gradients_kernels_test_arguments})
      endif()

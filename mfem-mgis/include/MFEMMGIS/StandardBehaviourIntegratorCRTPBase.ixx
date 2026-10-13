@@ -256,9 +256,7 @@ namespace mfem_mgis {
         (this->requiresCurrentSolutionForJacobianAssembly())) {
       return false;
     }
-    // all the elements must use the same integration rule
-    return (this->quadrature_space->getNumberOfElements() == 0) ||
-           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+    return this->isQuadratureSpaceSupportedByKernels();
   }  // end of supportsKernels
 
   template <typename Child>

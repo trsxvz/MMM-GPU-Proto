@@ -1,4 +1,4 @@
-From 02789ec495492767e5e498978d8db3bf7979206b Mon Sep 17 00:00:00 2001
+From c4798d884fdbc85313bae84dcb62642719c7ec80 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:06:59 +0200
 Subject: [PATCH] Docs: --profiling option of the ssna303 examples in 3D

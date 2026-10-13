@@ -1,4 +1,4 @@
-From 24780b765c6fed160445c06bcc8c39f62ee6e059 Mon Sep 17 00:00:00 2001
+From 9876fefc3ce88d875aaf97571fe2e008c0590d8b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: tangent by kernels without gradients by kernels
@@ -248,7 +248,7 @@ index 7c9a921786..5b2995df92 100644
            return false;
          }
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 7188f4803b..80ecbeca87 100644
+index f2620e3528..20d54c74e8 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -28,6 +28,7 @@
@@ -259,7 +259,7 @@ index 7188f4803b..80ecbeca87 100644
  #include <tuple>
  #include <stdexcept>
  #include <utility>
-@@ -950,7 +951,8 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -951,7 +952,8 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
  
  /*!
   * \brief the tangent operator of the FBar formulation can't be computed by
@@ -269,7 +269,7 @@ index 7188f4803b..80ecbeca87 100644
   * \param[in, out] ctx: execution context
   * \param[in] mesh: mesh
   * \param[in] library: behaviour library
-@@ -960,60 +962,77 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -961,60 +963,77 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                                             const char* const library) {
    using namespace mfem_mgis;
    auto or_die = ctx.getFatalFailureHandler();
@@ -397,7 +397,7 @@ index 7188f4803b..80ecbeca87 100644
  }  // end of testFBarTangentOperatorRefusal
  
  /*!
-@@ -1390,9 +1409,11 @@ int main(int argc, char** argv) {
+@@ -1391,9 +1410,11 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .second_material_library = library},
                       ", FBar, two materials, matrix free"});
@@ -410,7 +410,7 @@ index 7188f4803b..80ecbeca87 100644
                        .gradients_kernels = true,
                        .inner_forces_kernels = true,
                        .tangent_operator_kernels = true,
-@@ -1516,9 +1537,9 @@ int main(int argc, char** argv) {
+@@ -1517,9 +1538,9 @@ int main(int argc, char** argv) {
                          .matrix_free = true},
                         ", matrix free"});
      }

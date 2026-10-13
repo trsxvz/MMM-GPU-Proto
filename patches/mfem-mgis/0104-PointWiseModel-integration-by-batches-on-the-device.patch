@@ -1,4 +1,4 @@
-From 8011fe9eaa43fded3b0439631f1808548ca0dc1e Mon Sep 17 00:00:00 2001
+From be15a5f161ddd8196740317e55b5cb125536fdbd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 15:07:28 +0200
 Subject: [PATCH] PointWiseModel: integration by batches on the device
@@ -186,10 +186,10 @@ index bcf6bc7298..cf92648a4a 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 633197190f..447cf594a0 100644
+index d389838e4c..fad276194c 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -831,49 +831,11 @@ namespace mfem_mgis {
+@@ -829,49 +829,11 @@ namespace mfem_mgis {
    }  // end of namespace
  
    bool BehaviourIntegratorBase::integratesBatchesOnDevice() const noexcept {
@@ -240,7 +240,7 @@ index 633197190f..447cf594a0 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -889,76 +851,15 @@ namespace mfem_mgis {
+@@ -887,76 +849,15 @@ namespace mfem_mgis {
          .compute_speed_of_sound = false};
      auto r = mgis::behaviour::BehaviourIntegrationResult{};
      try {
@@ -500,10 +500,10 @@ index 81aa9f29ad..431aafd78d 100644
          s.update(ExitStatus::unreliableResults);
        } else if (r.exit_status != 1) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9ddb7cb5cc..08c085cfcf 100644
+index e918041e7a..5499dcfebe 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -773,7 +773,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -791,7 +791,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                       OrthotropicStationaryNonLinearHeatTransfer
                       HeatStorage
                       MicromorphicDamageII
@@ -513,7 +513,7 @@ index 9ddb7cb5cc..08c085cfcf 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -795,9 +796,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -813,9 +814,13 @@ if(MFEM_MGIS_HAVE_TFEL)
        set(_directory "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}")
        set(_library
            "${_directory}/src/libGenericParallelBehaviour-${_backend}.so")
@@ -528,7 +528,7 @@ index 9ddb7cb5cc..08c085cfcf 100644
          COMMAND "${MFRONT}" --obuild --interface=generic-parallel
                  "--configuration-file=${_configuration}"
                  ${batch_integration_test_behaviours}
-@@ -805,7 +810,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -823,7 +828,7 @@ if(MFEM_MGIS_HAVE_TFEL)
          DEPENDS ${batch_integration_test_behaviours}
          COMMENT "MFront: generic-parallel behaviour (${_backend})")
        add_custom_target(GenericParallelBehaviour-${_backend}
@@ -537,7 +537,7 @@ index 9ddb7cb5cc..08c085cfcf 100644
        add_dependencies(build-tests GenericParallelBehaviour-${_backend})
        if(_backend STREQUAL "cuda")
          set(batch_integration_test_cuda_library
-@@ -987,32 +992,42 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1005,32 +1010,42 @@ if(MFEM_MGIS_HAVE_TFEL)
    endforeach()
  
    # MaterialArraysTest executable: arrays of the materials in the memory of
@@ -598,7 +598,7 @@ index 9ddb7cb5cc..08c085cfcf 100644
    endif()
  
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 89871c1047..355ab42eb1 100644
+index f572ca37f5..06d6cfd48d 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -5,7 +5,8 @@

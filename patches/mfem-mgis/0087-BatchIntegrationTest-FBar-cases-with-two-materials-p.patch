@@ -1,4 +1,4 @@
-From 557ed565ac321b05367697a53829b78f43110582 Mon Sep 17 00:00:00 2001
+From 2e426e59f367a01f4fc8114f53adbaf0889712d7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] BatchIntegrationTest: FBar cases with two materials
@@ -13,10 +13,10 @@ and in the material differ.
  1 file changed, 22 insertions(+), 1 deletion(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 25ccface49..ec14d77e0e 100644
+index c5e2c0d51a..b804bdbfa2 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -1357,7 +1357,10 @@ int main(int argc, char** argv) {
+@@ -1358,7 +1358,10 @@ int main(int argc, char** argv) {
                          .relative_tolerance = 1e-11},
                         ", FBar, pressure and prediction"});
      }
@@ -28,7 +28,7 @@ index 25ccface49..ec14d77e0e 100644
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
                        .prediction = true,
-@@ -1366,6 +1369,24 @@ int main(int argc, char** argv) {
+@@ -1367,6 +1370,24 @@ int main(int argc, char** argv) {
                        .tangent_operator_kernels = true,
                        .second_material_library = library},
                       ", FBar, two materials"});

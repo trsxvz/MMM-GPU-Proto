@@ -1,4 +1,4 @@
-From ed9156464338828235c86401ceabaf40f017b4be Mon Sep 17 00:00:00 2001
+From db71d31c024f3e5fdfb02ccd0b799ab3c3931dc3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:13:12 +0200
 Subject: [PATCH] Stiffness matrices computed by kernels, geometry without the

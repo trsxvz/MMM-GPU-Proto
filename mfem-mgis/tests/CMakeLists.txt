@@ -526,6 +526,15 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   add_point_wise_model_test_2()
 
+  # Helper function declaring the variant of a test computing the
+  # post-processings by kernels when possible (the other cases falling back
+  # to the computations element by element)
+  function(add_post_processings_kernels_variant test)
+    add_test(NAME ${test}-kernels COMMAND ${ARGN})
+    set_tests_properties(${test}-kernels PROPERTIES ENVIRONMENT
+                         MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels)
+  endfunction()
+
   # L2ProjectionTest executable
   add_test_executable(L2ProjectionTest)
 
@@ -535,9 +544,14 @@ if(MFEM_MGIS_HAVE_TFEL)
     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh" "--linearsolver"
                "${nsolver}")
     add_test(NAME ${test} COMMAND ./L2ProjectionTest ${params} "--parallel" "0")
+    add_post_processings_kernels_variant(${test} ./L2ProjectionTest ${params}
+                                         "--parallel" "0")
     if(MFEM_USE_MPI)
       add_test(NAME Parallel${test} COMMAND mpirun -n 2 ./L2ProjectionTest ${params}
                                      "--parallel" "1")
+      add_post_processings_kernels_variant(Parallel${test} mpirun -n 2
+                                           ./L2ProjectionTest ${params}
+                                           "--parallel" "1")
     endif(MFEM_USE_MPI)
   endfunction()
 
@@ -568,9 +582,14 @@ if(MFEM_MGIS_HAVE_TFEL)
     set(test "GridFunctionTest")
     set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh")
     add_test(NAME ${test} COMMAND ./GridFunctionTest ${params} "--parallel" "0")
+    add_post_processings_kernels_variant(${test} ./GridFunctionTest ${params}
+                                         "--parallel" "0")
     if(MFEM_USE_MPI)
       add_test(NAME ${test}P COMMAND mpirun -n 2 ./GridFunctionTest ${params}
                                      "--parallel" "1")
+      add_post_processings_kernels_variant(${test}P mpirun -n 2
+                                           ./GridFunctionTest ${params}
+                                           "--parallel" "1")
     endif(MFEM_USE_MPI)
   endfunction()
 
@@ -580,18 +599,41 @@ if(MFEM_MGIS_HAVE_TFEL)
   add_tfel_test_executable(GridFunctionOnSubMeshTest)
 
   # Helper function for GridFunctionOnSubMeshTest
-  function(add_grid_function_on_submesh_test)
-    set(test "GridFunctionOnSubMeshTest")
-    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/beam-tet.mesh")
+  function(add_grid_function_on_submesh_test test mesh)
+    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}")
     add_test(NAME ${test} COMMAND ./GridFunctionOnSubMeshTest ${params}
                                   "--parallel" "0")
+    add_post_processings_kernels_variant(${test} ./GridFunctionOnSubMeshTest
+                                         ${params} "--parallel" "0")
     if(MFEM_USE_MPI)
       add_test(NAME ${test}P COMMAND mpirun -n 2 ./GridFunctionOnSubMeshTest
                                      ${params} "--parallel" "1")
+      add_post_processings_kernels_variant(${test}P mpirun -n 2
+                                           ./GridFunctionOnSubMeshTest
+                                           ${params} "--parallel" "1")
     endif(MFEM_USE_MPI)
   endfunction()
 
-  add_grid_function_on_submesh_test()
+  add_grid_function_on_submesh_test(GridFunctionOnSubMeshTest beam-tet.mesh)
+  add_grid_function_on_submesh_test(GridFunctionOnSubMeshTest2D
+                                    quad-2-materials.mesh)
+
+  # AssignValuesTest executable
+  add_tfel_test_executable(AssignValuesTest)
+
+  # Helper function for AssignValuesTest
+  function(add_assign_values_test test mesh)
+    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}")
+    add_test(NAME ${test} COMMAND ./AssignValuesTest ${params} "--parallel"
+                                  "0")
+    if(MFEM_USE_MPI)
+      add_test(NAME ${test}P COMMAND mpirun -n 2 ./AssignValuesTest ${params}
+                                     "--parallel" "1")
+    endif(MFEM_USE_MPI)
+  endfunction()
+
+  add_assign_values_test(AssignValuesTest beam-tet.mesh)
+  add_assign_values_test(AssignValuesTest2D quad-2-materials.mesh)
 
   # PostProcessingsKernelsTest executable: measures, integrals, values at the
   # nodes and L2 projections computed by kernels and element by element, on

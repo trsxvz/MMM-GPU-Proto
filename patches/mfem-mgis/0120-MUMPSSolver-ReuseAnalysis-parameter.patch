@@ -1,4 +1,4 @@
-From c020804d687cb6d0ea450706a4a8602f0a19305c Mon Sep 17 00:00:00 2001
+From f07e8a2b135f59b32492c312ef35f56831dfe8a1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:13:06 +0200
 Subject: [PATCH] MUMPSSolver: ReuseAnalysis parameter
@@ -204,10 +204,10 @@ index cd149b761d..a9ee439f19 100644
        if (isInvalid(osymmetric)) {
          return {};
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d94d0c8528..f42d108f44 100644
+index 94a7ffc977..05d36b5137 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1189,6 +1189,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1207,6 +1207,20 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreParaSailsTest)
      add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
      add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)

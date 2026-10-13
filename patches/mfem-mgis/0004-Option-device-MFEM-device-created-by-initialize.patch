@@ -1,4 +1,4 @@
-From 1d81a35c4db80aacd98933c685bdcf7421c63cb0 Mon Sep 17 00:00:00 2001
+From f0a1d5a1693cf3bb94728798fab60a70707e3306 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:57 +0200
 Subject: [PATCH] Option --device: MFEM device created by initialize
@@ -23,10 +23,10 @@ New test DeviceOptionTest: no device by default, the debug device with
  create mode 100644 tests/DeviceOptionTest.cxx
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 85b42c2997..41fae25035 100644
+index 2216bc5db2..90fbdad6f2 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
-@@ -197,8 +197,9 @@ namespace mfem_mgis {
+@@ -235,8 +235,9 @@ namespace mfem_mgis {
     */
    MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
    /*!
@@ -39,17 +39,18 @@ index 85b42c2997..41fae25035 100644
     */
    MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
 diff --git a/src/Config.cxx b/src/Config.cxx
-index e49a38b75d..5f72a481d6 100644
+index 2b764badc8..9db26a9f41 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -6,12 +6,14 @@
-  */
- 
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include <vector>
  #include <cstring>
 +#include <memory>
+ #include <numeric>
+ #include <utility>
  #include <iostream>
- #ifdef MFEM_USE_MPI
- #include "mpi.h"
+@@ -19,6 +20,7 @@
  #include "mfem/linalg/hypre.hpp"
  #endif /* MFEM_USE_MPI */
  #include "mfem/general/error.hpp"
@@ -57,7 +58,7 @@ index e49a38b75d..5f72a481d6 100644
  #include "mfem/general/optparser.hpp"
  #include "mfem/general/communication.hpp"
  #ifdef MFEM_USE_PETSC
-@@ -29,6 +31,8 @@ namespace mfem_mgis {
+@@ -36,6 +38,8 @@ namespace mfem_mgis {
    struct MGIS_VISIBILITY_LOCAL Finalizer {
      //! \brief option used to select the PETSc configuration file
      static const char* const petsc_configuration_file_option;
@@ -66,7 +67,7 @@ index e49a38b75d..5f72a481d6 100644
      //! \return the unique instance of this class
      static Finalizer& get();
      /*!
-@@ -55,6 +59,12 @@ namespace mfem_mgis {
+@@ -62,6 +66,12 @@ namespace mfem_mgis {
     private:
      //! \brief boolean stating if PETSc shall be used
      bool use_petsc = false;
@@ -79,7 +80,7 @@ index e49a38b75d..5f72a481d6 100644
      //! \brief boolean stating if MPI has been finalized or aborted
      bool pendingExit = false;
      /*!
-@@ -68,6 +78,8 @@ namespace mfem_mgis {
+@@ -75,6 +85,8 @@ namespace mfem_mgis {
    const char* const Finalizer::petsc_configuration_file_option =
        "--petsc-configuration-file";
  
@@ -88,7 +89,7 @@ index e49a38b75d..5f72a481d6 100644
    Finalizer::Finalizer() = default;
  
  #ifdef MFEM_USE_PETSC
-@@ -85,7 +97,19 @@ namespace mfem_mgis {
+@@ -92,7 +104,19 @@ namespace mfem_mgis {
  #ifdef MFEM_USE_PETSC
      const char* petscrc_file = nullptr;
  #endif /* MFEM_USE_PETSC */
@@ -108,7 +109,7 @@ index e49a38b75d..5f72a481d6 100644
  #ifdef MFEM_USE_PETSC
        if (std::strcmp(*a, "--use-petsc") == 0) {
          this->use_petsc = true;
-@@ -111,6 +135,11 @@ namespace mfem_mgis {
+@@ -118,6 +142,11 @@ namespace mfem_mgis {
        mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
      }
  #endif /* MFEM_USE_PETSC */
@@ -120,7 +121,7 @@ index e49a38b75d..5f72a481d6 100644
    }    // end of initialize
  
    Finalizer& Finalizer::get() {
-@@ -188,8 +217,12 @@ namespace mfem_mgis {
+@@ -195,8 +224,12 @@ namespace mfem_mgis {
  
  #else /* MFEM_USE_MPI */
  
@@ -135,7 +136,7 @@ index e49a38b75d..5f72a481d6 100644
    }  // end of initialize
  
  #endif /* MFEM_USE_MPI */
-@@ -206,7 +239,13 @@ namespace mfem_mgis {
+@@ -213,7 +246,13 @@ namespace mfem_mgis {
    }  // end of abort
  
    void declareDefaultOptions(mfem::OptionsParser& parser) {
@@ -151,10 +152,10 @@ index e49a38b75d..5f72a481d6 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 10b6c85fff..95f4398a01 100644
+index 17cb97a48c..ae6d0c8e4e 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -749,6 +749,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -767,6 +767,13 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  

@@ -705,7 +705,7 @@ static void testPointWiseModel(mfem_mgis::Context& ctx,
                                  {"Parallel", false}}) |
              or_die;
   auto qspace = make_shared<const PartialQuadratureSpace>(
-                    ctx, *fed, 5,
+                    ctx, *fed, MaterialIdentifier{.id = 5},
                     [](const mfem::FiniteElement& e,
                        const mfem::ElementTransformation&) noexcept
                         -> const mfem::IntegrationRule& {
@@ -893,7 +893,7 @@ int main(int argc, char** argv) {
                       {"NumberOfUniformRefinements", 2},
                       {"Parallel", false}});
   auto qspace = std::make_shared<const PartialQuadratureSpace>(
-      *fed, 1,
+      *fed, MaterialIdentifier{.id = 1},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
           -> const mfem::IntegrationRule& {
@@ -927,7 +927,7 @@ int main(int argc, char** argv) {
                         {"Parallel", false}});
     for (const size_type m : {1, 2}) {
       const auto s = PartialQuadratureSpace(
-          fed2, m,
+          fed2, MaterialIdentifier{.id = m},
           [](const mfem::FiniteElement& e,
              const mfem::ElementTransformation& tr) noexcept
               -> const mfem::IntegrationRule& {

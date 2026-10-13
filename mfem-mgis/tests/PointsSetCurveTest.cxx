@@ -95,7 +95,7 @@ struct PointsSetCurveTest final : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(isValid(ofed));
     //
     auto ospace = make_shared<PartialQuadratureSpace>(
-        ctx, *ofed, 5,
+        ctx, *ofed, MaterialIdentifier{.id = 5},
         [](const mfem::FiniteElement& e,
            const mfem::ElementTransformation& tr) noexcept
         -> const mfem::IntegrationRule& {
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
   //
   auto& m = tfel::tests::TestManager::getTestManager();
   m.addTestOutput(std::cout);
-  if (::mfem_mgis::getMPIrank() == 0) {
+  if (::mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     m.addXMLTestOutput(parameters.parallel ? "ParallelPointsSetCurveTest.xml"
                                            : "PointsSetCurveTest.xml");
   }

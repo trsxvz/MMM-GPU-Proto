@@ -21,13 +21,16 @@ namespace mfem_mgis {
 
   std::shared_ptr<const PartialQuadratureSpace>
   FBarOrthotropicTridimensionalBehaviourIntegrator::buildQuadratureSpace(
-      const FiniteElementDiscretization &fed, const size_type m) {
+      attributes::Throwing,
+      const FiniteElementDiscretization &fed,
+      const size_type m) {
     auto selector = [&fed](const mfem::FiniteElement &e,
                            const mfem::ElementTransformation &tr)
         -> const mfem::IntegrationRule & {
       return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
     };  // end of selector
-    return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+    return std::make_shared<PartialQuadratureSpace>(
+        fed, LocationIdentifier{MaterialIdentifier{m}}, selector);
   }  // end of buildQuadratureSpace
 
   FBarOrthotropicTridimensionalBehaviourIntegrator::
@@ -37,7 +40,7 @@ namespace mfem_mgis {
           std::unique_ptr<const Behaviour> b_ptr)
       : FBarBehaviourIntegratorCRTPBase<
             FBarOrthotropicTridimensionalBehaviourIntegrator,
-            Hypothesis::TRIDIMENSIONAL>(buildQuadratureSpace(fed, m),
+            Hypothesis::TRIDIMENSIONAL>(buildQuadratureSpace(throwing, fed, m),
                                         std::move(b_ptr)) {
     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);

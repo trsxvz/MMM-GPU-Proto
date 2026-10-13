@@ -1,4 +1,4 @@
-From 5246498277530118713c2ec5775b6a638a8ed8d1 Mon Sep 17 00:00:00 2001
+From ea2edf0164ed16e56f1c22f0258d701552ae43b2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:59:08 +0200
 Subject: [PATCH] L2 projection: copy the components of the solution on the
@@ -20,10 +20,10 @@ compared to their interpolants (it failed on the GPU before this fix).
  2 files changed, 114 insertions(+), 4 deletions(-)
 
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index e3c2bbda4b..eaa87b0bb5 100644
+index bf30a9f0f6..6caaea79df 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
-@@ -590,10 +590,12 @@ namespace mfem_mgis {
+@@ -682,10 +682,12 @@ namespace mfem_mgis {
          }
        }
        a.RecoverFEMSolution(X, b, *x);
@@ -40,7 +40,7 @@ index e3c2bbda4b..eaa87b0bb5 100644
              (rfespace.GetOrdering() == mfem::Ordering::byNODES);
          if (bynodes) {
 diff --git a/tests/L2ProjectionTest.cxx b/tests/L2ProjectionTest.cxx
-index fd1f129148..e7a55d11e8 100644
+index 4399560485..75e32e746a 100644
 --- a/tests/L2ProjectionTest.cxx
 +++ b/tests/L2ProjectionTest.cxx
 @@ -5,9 +5,14 @@
@@ -58,7 +58,7 @@ index fd1f129148..e7a55d11e8 100644
  #include "mfem/general/optparser.hpp"
  #include "mfem/fem/datacollection.hpp"
  #include "MFEMMGIS/PartialQuadratureSpace.hxx"
-@@ -199,6 +204,99 @@ bool test3(mfem_mgis::Context& ctx, const TestParameters& params) {
+@@ -197,6 +202,99 @@ bool test3(mfem_mgis::Context& ctx, const TestParameters& params) {
    return true;
  }  // end of test3
  
@@ -80,7 +80,7 @@ index fd1f129148..e7a55d11e8 100644
 +       {"NumberOfUniformRefinements", parallel ? 1 : 0},
 +       {"Parallel", parallel}}};
 +  auto space = std::make_shared<PartialQuadratureSpace>(
-+      fed, 5,
++      fed, MaterialIdentifier{.id = 5},
 +      [](const mfem::FiniteElement& e,
 +         const mfem::ElementTransformation& tr) noexcept
 +          -> const mfem::IntegrationRule& {
@@ -158,7 +158,7 @@ index fd1f129148..e7a55d11e8 100644
  int main(int argc, char** argv) {
    using namespace mfem_mgis;
    auto ctx = Context{};
-@@ -236,7 +334,17 @@ int main(int argc, char** argv) {
+@@ -234,7 +332,17 @@ int main(int argc, char** argv) {
      }
      return test3<false>(ctx, params);
    }();

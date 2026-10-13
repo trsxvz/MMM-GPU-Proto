@@ -35,7 +35,9 @@ travail en lots, dit quels fichiers changent, ce qui est testé et quand
 un lot est fini.
 
 Base : mfem-mgis master `a011d97d6f` (06/10/2026), dépôt `mfem-mgis/`.
-Les références `fichier:ligne` renvoient à cette base. TFEL et MGIS sont
+Les références `fichier:ligne` renvoient à cette base. Le 13/10/2026, la
+branche du prototype a été rebasée sur master `8fac67336e`, qui contient
+la refonte de `PartialQuadratureSpace` (point 7 ci-dessous). TFEL et MGIS sont
 ceux du prototype (MGIS installé dans `install/mgis` par `build-mgis.sh`),
 MFEM 4.10 avec CUDA (et les backends OpenMP et libCEED) vient de
 l'environnement `mmm-gpu`. Le plan s'applique à mfem-mgis, à
@@ -282,7 +284,8 @@ de bord ou à marqueurs.
   tests existants ne changent pas.
 - **Travail dans `mfem-mgis/`, `mfem-mgis-examples/` et `mm-opera-hpc/`,
   branche `gpu-proto` de chacun** (bases `a011d97d6f`, `8397eec`,
-  `8bd56eb`), copiés dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
+  `8bd56eb`, puis `8fac67336e`, `600da70` et `49147f2` depuis le rebase
+  du 13/10/2026), copiés dans ce dépôt par `scripts/sync-repository.sh`. Messages de commit
   en anglais. Un lot fini est un ensemble de commits relus.
 - **Code nouveau regroupé** : `include/MFEMMGIS/Batch/` et `src/Batch/`
   (nom à discuter). Les classes existantes gagnent des points
@@ -1055,7 +1058,8 @@ Comparaisons :
    mfem-mgis donne des vues sur celles de fin de pas, comme le chemin
    point par point.
 7. **Base de travail** : `a011d97d6f`, ou la refonte de
-   `PartialQuadratureSpace` en cours en amont une fois fusionnée.
+   `PartialQuadratureSpace` en cours en amont une fois fusionnée. Fait le
+   13/10/2026 : branche rebasée sur master `8fac67336e`.
 8. **Propositions amont** : à quel moment et dans quel ordre.
 
 ## Risques

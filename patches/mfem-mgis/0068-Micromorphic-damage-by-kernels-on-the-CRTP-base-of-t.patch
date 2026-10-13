@@ -1,4 +1,4 @@
-From 9b93bc8c3651cd5212f8cdab6528efe8839f8e51 Mon Sep 17 00:00:00 2001
+From 771aa63c3b55cb715f1e26619a985f8010742ac1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 08:35:04 +0200
 Subject: [PATCH] Micromorphic damage by kernels, on the CRTP base of the
@@ -56,12 +56,12 @@ recognition of the behaviours, rotation of the dual forces) are detected.
  src/MultiMaterialNonLinearIntegrator.cxx      |   9 +-
  ...lMicromorphicDamageBehaviourIntegrator.cxx | 279 ++++--------
  ...lMicromorphicDamageBehaviourIntegrator.cxx | 263 ++++-------
- tests/BatchIntegrationTest.cxx                |  71 ++-
+ tests/BatchIntegrationTest.cxx                |  72 ++-
  tests/CMakeLists.txt                          |  41 +-
  tests/MicromorphicDamageII.mfront             |   6 +
  tests/MicromorphicKernelsTest.cxx             | 424 ++++++++++++++++++
  tests/OrthotropicMicromorphicDamage.mfront    |  90 ++++
- 20 files changed, 1494 insertions(+), 651 deletions(-)
+ 20 files changed, 1495 insertions(+), 651 deletions(-)
  create mode 100644 tests/MicromorphicKernelsTest.cxx
  create mode 100644 tests/OrthotropicMicromorphicDamage.mfront
 
@@ -146,7 +146,7 @@ index 79166d9b8b..4efd93e55f 100644
     */
    MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
 diff --git a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index 92f258ac9f..0c3ca48681 100644
+index 591de47147..803771b251 100644
 --- a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,40 +1,100 @@
@@ -291,10 +291,10 @@ index 92f258ac9f..0c3ca48681 100644
      /*!
       * \brief select the integration rule for the given element and element
       * transformation
-@@ -80,13 +140,52 @@ namespace mfem_mgis {
-      */
-     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
-         const FiniteElementDiscretization &fed, const size_type m);
+@@ -83,13 +143,52 @@ namespace mfem_mgis {
+         attributes::Throwing throwing,
+         const FiniteElementDiscretization &fed,
+         const size_type m);
 -
 -#ifndef MFEM_THREAD_SAFE
 -    //! \brief vector used to store the value of the shape functions
@@ -352,7 +352,7 @@ index 92f258ac9f..0c3ca48681 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index e3c6afc2af..99d6203370 100644
+index 871d7a8fd0..a2d4a5a3fe 100644
 --- a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,89 +1,131 @@
@@ -521,10 +521,10 @@ index e3c6afc2af..99d6203370 100644
      /*!
       * \brief select the integration rule for the given element and element
       * transformation
-@@ -101,13 +143,52 @@ namespace mfem_mgis {
-      */
-     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
-         const FiniteElementDiscretization &fed, const size_type m);
+@@ -104,13 +146,52 @@ namespace mfem_mgis {
+         attributes::Throwing throwing,
+         const FiniteElementDiscretization &fed,
+         const size_type m);
 -
 -#ifndef MFEM_THREAD_SAFE
 -    //! \brief vector used to store the value of the shape functions
@@ -625,7 +625,7 @@ index 9e04bfcfc8..5aea8e8f93 100644
            } else {
              child.updateInnerForces(Fe, rs, shape, w, ni);
 diff --git a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index 8f77286055..51bccc873f 100644
+index 6deb2ed08a..5a8955f575 100644
 --- a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,38 +1,100 @@
@@ -769,10 +769,10 @@ index 8f77286055..51bccc873f 100644
      /*!
       * \brief select the integration rule for the given element and element
       * transformation
-@@ -78,13 +140,52 @@ namespace mfem_mgis {
-      */
-     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
-         const FiniteElementDiscretization &fed, const size_type m);
+@@ -81,13 +143,52 @@ namespace mfem_mgis {
+         attributes::Throwing throwing,
+         const FiniteElementDiscretization &fed,
+         const size_type m);
 -
 -#ifndef MFEM_THREAD_SAFE
 -    //! \brief vector used to store the value of the shape functions
@@ -1252,7 +1252,7 @@ index 75d543e425..ff50db163b 100644
    }  // end of launchTangentOperatorActionKernel
  
 diff --git a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 199e906792..fb8682c102 100644
+index 6cb5563df6..c1ba45a393 100644
 --- a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,14 +1,14 @@
@@ -1282,19 +1282,19 @@ index 199e906792..fb8682c102 100644
  
    std::shared_ptr<const PartialQuadratureSpace>
    BidimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
-@@ -37,8 +37,9 @@ namespace mfem_mgis {
+@@ -40,8 +40,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
--      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-      : BehaviourIntegratorBase(buildQuadratureSpace(throwing, fed, m),
 -                                std::move(b_ptr)) {
 +      : StandardBehaviourIntegratorCRTPBase<
 +            BidimensionalMicromorphicDamageBehaviourIntegrator>(
-+            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
      this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
      this->checkBehaviourVariablesSizes(
          throwing, {.gradients_sizes = {1, 2},
-@@ -61,95 +62,92 @@ namespace mfem_mgis {
+@@ -64,95 +65,92 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -1466,7 +1466,7 @@ index 199e906792..fb8682c102 100644
    }  // end of updateResidual
  
    void BidimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
-@@ -157,93 +155,14 @@ namespace mfem_mgis {
+@@ -160,93 +158,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -1583,7 +1583,7 @@ index b7b1d97d52..c0f3a88a0b 100644
        }
      }
 diff --git a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 8865ab9e7e..ded59d6d16 100644
+index 6706096651..1ed08e29c9 100644
 --- a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,16 +1,15 @@
@@ -1615,19 +1615,19 @@ index 8865ab9e7e..ded59d6d16 100644
  
    std::shared_ptr<const PartialQuadratureSpace>
    OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
-@@ -40,8 +39,9 @@ namespace mfem_mgis {
+@@ -42,8 +41,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
--      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-      : BehaviourIntegratorBase(buildQuadratureSpace(throwing, fed, m),
 -                                std::move(b_ptr)) {
 +      : StandardBehaviourIntegratorCRTPBase<
 +            OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
-+            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
      this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
      this->checkBehaviourVariablesSizes(
          throwing, {.gradients_sizes = {1, 2},
-@@ -64,60 +64,92 @@ namespace mfem_mgis {
+@@ -66,60 +66,92 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -1770,7 +1770,7 @@ index 8865ab9e7e..ded59d6d16 100644
    }  // end of integrate
  
    void
-@@ -125,48 +157,8 @@ namespace mfem_mgis {
+@@ -127,48 +159,8 @@ namespace mfem_mgis {
        mfem::Vector &Fe,
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
@@ -1821,7 +1821,7 @@ index 8865ab9e7e..ded59d6d16 100644
    }  // end of updateResidual
  
    void
-@@ -175,99 +167,14 @@ namespace mfem_mgis {
+@@ -177,99 +169,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -1924,7 +1924,7 @@ index 8865ab9e7e..ded59d6d16 100644
  
    OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
 diff --git a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 2dc02f3a7c..1be93ada72 100644
+index 4c58903744..2ad9218bab 100644
 --- a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,14 +1,14 @@
@@ -1954,19 +1954,19 @@ index 2dc02f3a7c..1be93ada72 100644
  
    std::shared_ptr<const PartialQuadratureSpace>
    TridimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
-@@ -37,8 +37,9 @@ namespace mfem_mgis {
+@@ -40,8 +40,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
--      : BehaviourIntegratorBase(buildQuadratureSpace(fed, m),
+-      : BehaviourIntegratorBase(buildQuadratureSpace(throwing, fed, m),
 -                                std::move(b_ptr)) {
 +      : StandardBehaviourIntegratorCRTPBase<
 +            TridimensionalMicromorphicDamageBehaviourIntegrator>(
-+            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
      this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
      this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
      this->checkBehaviourVariablesSizes(
-@@ -62,97 +63,97 @@ namespace mfem_mgis {
+@@ -65,97 +66,97 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -2145,7 +2145,7 @@ index 2dc02f3a7c..1be93ada72 100644
    }  // end of updateResidual
  
    void TridimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
-@@ -160,98 +161,14 @@ namespace mfem_mgis {
+@@ -163,98 +164,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -2247,7 +2247,7 @@ index 2dc02f3a7c..1be93ada72 100644
  
    TridimensionalMicromorphicDamageBehaviourIntegrator::
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 98a0a13101..9229a89c8f 100644
+index 98a0a13101..a658ba77cd 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -26,6 +26,7 @@
@@ -2268,7 +2268,7 @@ index 98a0a13101..9229a89c8f 100644
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
  #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
-@@ -598,6 +602,60 @@ static void compare(const Results& r1,
+@@ -598,6 +602,61 @@ static void compare(const Results& r1,
    }
  }  // end of compare
  
@@ -2285,7 +2285,8 @@ index 98a0a13101..9229a89c8f 100644
 +      std::unique_ptr<const mfem_mgis::Behaviour> b)
 +      : mfem_mgis::BehaviourIntegratorBase(
 +            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
-+                fed, m, selectIntegrationRule),
++                fed, mfem_mgis::MaterialIdentifier{.id = m},
++                selectIntegrationRule),
 +            std::move(b)) {}
 +  static const mfem::IntegrationRule& selectIntegrationRule(
 +      const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
@@ -2329,7 +2330,7 @@ index 98a0a13101..9229a89c8f 100644
  /*!
   * \brief a behaviour integrator which does not support the integration by
   * batches is refused
-@@ -607,6 +665,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
+@@ -607,6 +666,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
                          const char* const library) {
    using namespace mfem_mgis;
    auto or_die = ctx.getFatalFailureHandler();
@@ -2347,7 +2348,7 @@ index 98a0a13101..9229a89c8f 100644
    auto problem = construct<NonLinearEvolutionProblem>(
                       ctx, Parameters{{"MeshFileName", mesh_2d},
                                       {"FiniteElementFamily", "H1"},
-@@ -617,7 +686,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
+@@ -617,7 +687,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
                                       {"BehaviourIntegration", "Batch"},
                                       {"Parallel", false}}) |
                   or_die;
@@ -2357,7 +2358,7 @@ index 98a0a13101..9229a89c8f 100644
        or_die;
    auto c = Context{};
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e020ea778b..c59467fd48 100644
+index 01a8fd072d..fe9ff0428d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -71,6 +71,7 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -2368,7 +2369,7 @@ index e020ea778b..c59467fd48 100644
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
      OrthotropicSaintVenantKirchhoffElasticity)
-@@ -770,7 +771,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -788,7 +789,9 @@ if(MFEM_MGIS_HAVE_TFEL)
                       OrthotropicSaintVenantKirchhoffElasticity
                       StationaryNonLinearHeatTransfer
                       OrthotropicStationaryNonLinearHeatTransfer
@@ -2379,7 +2380,7 @@ index e020ea778b..c59467fd48 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -892,6 +895,42 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -910,6 +913,42 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()
  

@@ -80,6 +80,61 @@ namespace mfem_mgis {
 
 #endif /* MFEM_USE_MPI */
 
+#ifdef MFEM_USE_MPI
+  /*!
+   * \return if the current process is the main MPI process
+   * \param[in] c: communicator
+   *
+   * \note in sequential, this function always returns true
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool isMPIMainProcess(
+      const MPI_Comm& c) noexcept;
+  /*!
+   * \return the MPI rank for the given communicator
+   * \param[in] c: communicator
+   *
+   * \note in sequential, this function always returns 0
+   */
+  MFEM_MGIS_EXPORT
+  [[nodiscard]] int getMPIRank(const MPI_Comm& c) noexcept;
+  /*!
+   * \return the MPI rank for the given communicator
+   * \param[in] c: communicator
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] int getMPISize(const MPI_Comm& c) noexcept;
+  /*!
+   * \brief a simple reduction for boolean values
+   *
+   * \param[in] c: communicator
+   * \param[in] b: boolean value in the current process
+   * \return true if the value is true on all processes
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool isTrueOnAllProcesses(
+      const MPI_Comm& c, const bool b) noexcept;
+#endif /* MFEM_USE_MPI */
+
+  /*!
+   * \return if the current process is the main MPI process
+   * \param[in] m: mesh discretization
+   *
+   * \note in sequential, this function always returns true
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool isMPIMainProcess(
+      const MeshDiscretization& m) noexcept;
+  /*!
+   * \return the MPI rank for the given communicator
+   * \param[in] m: mesh discretization
+   *
+   * \note in sequential, this function always returns 0
+   */
+  MFEM_MGIS_EXPORT
+  [[nodiscard]] int getMPIRank(const MeshDiscretization& m) noexcept;
+  /*!
+   * \return the MPI rank for the given communicator
+   * \param[in] m: mesh discretization
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] int getMPISize(
+      const MeshDiscretization& m) noexcept;
   /*!
    * \brief a simple reduction for boolean values
    *
@@ -118,7 +173,8 @@ namespace mfem_mgis {
   /*!
    * \brief throws a `CollectiveFailure` exception on all the processes if a
    * computation failed on one of them, before the collective operations
-   * following it
+   * following it. The message of the exception gives the error messages of
+   * all the processes which failed (see `synchronize`).
    *
    * \param[in] m: mesh discretization
    * \param[in, out] ctx: execution context of the computation

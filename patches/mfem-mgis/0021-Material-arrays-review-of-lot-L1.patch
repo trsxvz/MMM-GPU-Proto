@@ -1,4 +1,4 @@
-From d2ce6e3831f284e9d4dc8e9d69a265e48223992a Mon Sep 17 00:00:00 2001
+From 02b11d6496ff84d945002a364db10579a5f76521 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 16:33:19 +0200
 Subject: [PATCH] Material arrays: review of lot L1
@@ -54,7 +54,7 @@ test fail (debug device, and cuda device where values are compared).
  include/MFEMMGIS/MaterialArrays.hxx           | 109 ++++--
  .../MultiMaterialNonLinearIntegrator.hxx      |   6 +
  ...onLinearEvolutionProblemImplementation.ixx |  56 ++-
- include/MFEMMGIS/PartialQuadratureSpace.hxx   |  22 +-
+ include/MFEMMGIS/PartialQuadratureSpace.hxx   |  18 +-
  include/MFEMMGIS/QPEvaluator/QPEvaluator.hxx  |  12 +-
  include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx  |  14 +
  include/MFEMMGIS/StateManager.hxx             |   5 +
@@ -66,11 +66,11 @@ test fail (debug device, and cuda device where values are compared).
  src/MultiMaterialNonLinearIntegrator.cxx      |  21 +-
  ...onLinearEvolutionProblemImplementation.cxx |  32 +-
  ...nearEvolutionProblemImplementationBase.cxx |  25 +-
- src/PartialQuadratureSpace.cxx                |  21 +-
+ src/PartialQuadratureSpace.cxx                |  72 ++--
  src/PointWiseModel.cxx                        |  20 +-
  tests/MFEMFieldOperationsTest.cxx             |  54 ++-
  tests/MaterialArraysTest.cxx                  | 355 ++++++++++++++----
- 22 files changed, 871 insertions(+), 242 deletions(-)
+ 22 files changed, 902 insertions(+), 258 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 8297edbfb4..104f2c82f1 100644
@@ -458,47 +458,38 @@ index bea9d830e7..d648858ad8 100644
      std::vector<std::vector<mfem_mgis::real>> stress_integrals(nmax);
      const auto& mis = p.getAssignedMaterialsIdentifiers();
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 2d06ece865..220219b160 100644
+index fb2714f89a..2ae370d0a9 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-@@ -165,14 +165,16 @@ namespace mfem_mgis {
+@@ -183,7 +183,9 @@ namespace mfem_mgis {
      [[nodiscard]] std::optional<size_type> getNumberOfQuadraturePoints(
          Context &ctx, const size_type e) const noexcept;
      /*!
--     * \return the hash table associating global element numbers and
--     * local offsets.
+-     * \return the hash table associating element numbers and local offsets.
 +     * \return the hash table associating the element numbers (local
 +     * numbering of the finite element space) and the offsets of their
 +     * integration points.
-      */
-     [[nodiscard]] const std::unordered_map<size_type, size_type> &getOffsets()
-         const noexcept;
-     /*!
-      * \brief return the offset associated with an element
--     * \param[in] i: element number (global numbering)
-+     * \param[in] i: element number (local numbering of the finite element
-+     * space)
-      * \return the offset
-      */
-     [[nodiscard]] size_type getOffset(const size_type i) const;
-@@ -241,12 +243,18 @@ namespace mfem_mgis {
+      *
+      * \note element numbers refer to the mesh of the partial quadrature space.
+      * They are boundary element numbers if `shallUseBoundaryElementsAPI`
+@@ -264,12 +266,18 @@ namespace mfem_mgis {
      std::function<const mfem::IntegrationRule &(
          const mfem::FiniteElement &, const mfem::ElementTransformation &)>
          integration_rule_selector;
 -    //! \brief offsets associated with elements
--    std::unordered_map<size_type,  // element number (global numbering)
+-    std::unordered_map<size_type,  // element number, see `getOffsets`
 +    /*!
 +     * \brief offsets associated with elements (local numbering of the
-+     * finite element space)
++     * finite element space, see `getOffsets`)
 +     */
 +    std::unordered_map<size_type,  // element number
                         size_type>  // offset
          offsets;
 -    //! \brief number of quadrature points associated with elements
--    std::unordered_map<size_type,  // element number (global numbering)
+-    std::unordered_map<size_type,  // element number, see `getOffsets`
 +    /*!
 +     * \brief number of quadrature points associated with elements (local
-+     * numbering of the finite element space)
++     * numbering of the finite element space, see `getOffsets`)
 +     */
 +    std::unordered_map<size_type,  // element number
                         size_type>  // number of quadrature points
@@ -567,7 +558,7 @@ index 712dd4a3f9..0d14587c57 100644
        const auto& sm = getStateManager(this->material, this->stage);
        const auto gsize = sm.gradients_stride;
 diff --git a/include/MFEMMGIS/StateManager.hxx b/include/MFEMMGIS/StateManager.hxx
-index e78b1baaf5..228fade82d 100644
+index 4afd50ec82..20913f2e39 100644
 --- a/include/MFEMMGIS/StateManager.hxx
 +++ b/include/MFEMMGIS/StateManager.hxx
 @@ -26,6 +26,11 @@ namespace mfem_mgis {
@@ -1279,7 +1270,7 @@ index f337aec71b..993740c46b 100644
          PredictionStrategy::DEFAULT_PREDICTION) {
        const auto onorm = [this, &ctx, t, dt] {
 diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
-index 3f2a94e8b6..c0734fac8d 100644
+index c09361733b..326ee98f86 100644
 --- a/src/PartialQuadratureSpace.cxx
 +++ b/src/PartialQuadratureSpace.cxx
 @@ -7,6 +7,7 @@
@@ -1290,68 +1281,131 @@ index 3f2a94e8b6..c0734fac8d 100644
  #include <vector>
  #include <iterator>
  #include <algorithm>
-@@ -32,7 +33,9 @@ namespace mfem_mgis {
+@@ -21,6 +22,36 @@
+ 
+ namespace mfem_mgis {
+ 
++  /*!
++   * \brief add the integration points of an element to the offsets of a
++   * partial quadrature space
++   * \param[in,out] offsets: offsets
++   * \param[in,out] number_of_quadrature_points: numbers of points
++   * \param[in,out] e: elements, in the order of their points
++   * \param[in,out] o: offsets of the points of the elements
++   * \param[in,out] ng: number of points, counted on 64 bits and checked
++   * against the range of the sizes of MFEM (and of `size_type`)
++   * \param[in] i: element number
++   * \param[in] lng: number of points of the element
++   */
++  static void addElementIntegrationPoints(
++      std::unordered_map<size_type, size_type>& offsets,
++      std::unordered_map<size_type, size_type>& number_of_quadrature_points,
++      std::vector<int>& e,
++      std::vector<int>& o,
++      std::int64_t& ng,
++      const size_type i,
++      const size_type lng) {
++    offsets[i] = static_cast<size_type>(ng);
++    e.push_back(static_cast<int>(i));
++    o.push_back(static_cast<int>(ng));
++    ng += lng;
++    if (ng > std::numeric_limits<int>::max()) {
++      raise("PartialQuadratureSpace: too many integration points for MFEM");
++    }
++    number_of_quadrature_points[i] = lng;
++  }  // end of addElementIntegrationPoints
++
+   /*!
+    * \brief copy the elements of a partial quadrature space and the offsets
+    * of their integration points in arrays in the memory of MFEM
+@@ -29,15 +60,13 @@ namespace mfem_mgis {
+    * \param[in] e: elements
+    * \param[in] o: offsets
+    * \param[in] ng: number of integration points
++   * \return the number of integration points
+    */
+-  static void setElementsAndOffsets(mfem::Array<int>& elements,
+-                                    mfem::Array<int>& element_offsets,
+-                                    const std::vector<int>& e,
+-                                    std::vector<int>& o,
+-                                    const size_type ng) {
+-    if (ng > static_cast<size_type>(std::numeric_limits<int>::max())) {
+-      raise("PartialQuadratureSpace: too many integration points for MFEM");
+-    }
++  static size_type setElementsAndOffsets(mfem::Array<int>& elements,
++                                         mfem::Array<int>& element_offsets,
++                                         const std::vector<int>& e,
++                                         std::vector<int>& o,
++                                         const std::int64_t ng) {
+     o.push_back(static_cast<int>(ng));
+     // arrays in the memory of MFEM, filled on the host
+     auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
+@@ -46,6 +75,7 @@ namespace mfem_mgis {
+     };
+     copy(elements, e);
+     copy(element_offsets, o);
++    return static_cast<size_type>(ng);
+   }  // end of setElementsAndOffsets
+ 
+   template <bool parallel>
+@@ -59,7 +89,7 @@ namespace mfem_mgis {
        const std::function<const mfem::IntegrationRule&(
            const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
            integration_rule_selector) {
 -    auto ng = size_type{};
-+    // number of points counted on 64 bits, and checked against the range of
-+    // the sizes of MFEM (and of `size_type`) after each element
 +    auto ng = std::int64_t{};
      auto e = std::vector<int>{};
      auto o = std::vector<int>{};
      for (size_type i = 0; i != fespace.GetNE(); ++i) {
-@@ -41,17 +44,17 @@ namespace mfem_mgis {
+@@ -68,16 +98,11 @@ namespace mfem_mgis {
        }
        const auto& fe = *(fespace.GetFE(i));
        const auto& tr = *(fespace.GetElementTransformation(i));
 -      offsets[i] = ng;
-+      offsets[i] = static_cast<size_type>(ng);
-       e.push_back(static_cast<int>(i));
-       o.push_back(static_cast<int>(ng));
+-      e.push_back(static_cast<int>(i));
+-      o.push_back(static_cast<int>(ng));
        const auto& ir = integration_rule_selector(fe, tr);
-       const auto lng = ir.GetNPoints();
-       ng += lng;
-+      if (ng > std::numeric_limits<int>::max()) {
-+        raise("PartialQuadratureSpace: too many integration points for MFEM");
-+      }
-       number_of_quadrature_points[i] = lng;
+-      const auto lng = ir.GetNPoints();
+-      ng += lng;
+-      number_of_quadrature_points[i] = lng;
++      addElementIntegrationPoints(offsets, number_of_quadrature_points, e, o,
++                                  ng, i, ir.GetNPoints());
      }
--    if (ng > static_cast<size_type>(std::numeric_limits<int>::max())) {
--      raise("PartialQuadratureSpace: too many integration points for MFEM");
--    }
-     o.push_back(static_cast<int>(ng));
-     // arrays in the memory of MFEM, filled on the host
-     auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
-@@ -60,7 +63,7 @@ namespace mfem_mgis {
-     };
-     copy(elements, e);
-     copy(element_offsets, o);
+-    setElementsAndOffsets(elements, element_offsets, e, o, ng);
 -    return ng;
-+    return static_cast<size_type>(ng);
-   }  // end of buildPartialQuadratureSpaceOffsets
++    return setElementsAndOffsets(elements, element_offsets, e, o, ng);
+   }  // end of buildPartialQuadratureSpaceOffsetsOnElements
  
-   void PartialQuadratureSpace::treatInvalidElementIndex(const size_type id,
-@@ -228,7 +231,8 @@ namespace mfem_mgis {
+   template <bool parallel>
+@@ -91,7 +116,7 @@ namespace mfem_mgis {
+       const std::function<const mfem::IntegrationRule&(
+           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+           integration_rule_selector) {
+-    auto ng = size_type{};
++    auto ng = std::int64_t{};
+     auto e = std::vector<int>{};
+     auto o = std::vector<int>{};
+     for (size_type i = 0; i != fespace.GetNBE(); ++i) {
+@@ -100,16 +125,11 @@ namespace mfem_mgis {
        }
-       this->ng = buildPartialQuadratureSpaceOffsets<true>(
-           this->offsets, this->number_of_quadrature_points, this->elements,
--          this->element_offsets, *(this->parallel_fespace), this->id, this->integration_rule_selector);
-+          this->element_offsets, *(this->parallel_fespace), this->id,
-+          this->integration_rule_selector);
-       return;
+       const auto& fe = *(fespace.GetBE(i));
+       const auto& tr = *(fespace.GetBdrElementTransformation(i));
+-      offsets[i] = ng;
+-      e.push_back(static_cast<int>(i));
+-      o.push_back(static_cast<int>(ng));
+       const auto& ir = integration_rule_selector(fe, tr);
+-      const auto lng = ir.GetNPoints();
+-      ng += lng;
+-      number_of_quadrature_points[i] = lng;
++      addElementIntegrationPoints(offsets, number_of_quadrature_points, e, o,
++                                  ng, i, ir.GetNPoints());
      }
- #endif /* MFEM_USE_MPI */
-@@ -243,7 +247,8 @@ namespace mfem_mgis {
-     }
-     this->ng = buildPartialQuadratureSpaceOffsets<false>(
-         this->offsets, this->number_of_quadrature_points, this->elements,
--        this->element_offsets, *(this->sequential_fespace), this->id, this->integration_rule_selector);
-+        this->element_offsets, *(this->sequential_fespace), this->id,
-+        this->integration_rule_selector);
-   }  // end of initialize
+-    setElementsAndOffsets(elements, element_offsets, e, o, ng);
+-    return ng;
++    return setElementsAndOffsets(elements, element_offsets, e, o, ng);
+   }  // end of buildPartialQuadratureSpaceOffsetsOnBoundaryElements
  
-   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
+   void PartialQuadratureSpace::treatInvalidElementIndex(
 diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
 index 60bc52cdad..101d39f447 100644
 --- a/src/PointWiseModel.cxx
@@ -1470,7 +1524,7 @@ index db1117cf5d..b94ae16340 100644
  
  int main(int argc, char** argv) {
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index a7b77db6a1..8a6c9bd4ae 100644
+index acf5638311..7597616192 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -2,8 +2,15 @@

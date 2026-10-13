@@ -1,4 +1,4 @@
-From 13aa2daaf1624fd8218634daf5d04c18b42fe1c7 Mon Sep 17 00:00:00 2001
+From f5c49adbaf70ea9427bf97f2569092738cf489a3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:41:23 +0200
 Subject: [PATCH] Memory types: documentation, stricter test
@@ -57,7 +57,7 @@ index 40035d2793..fecd71f760 100644
  If ``MFEM`` was built with support of ``PETSc`` library, the following
  options are also added by the ``mfem_mgis::declareDefaultOptions``
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 170321ae30..6c4378f324 100644
+index 7f10338a5e..d9fa4f27d8 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -136,7 +136,9 @@ namespace mfem_mgis {
@@ -72,10 +72,10 @@ index 170321ae30..6c4378f324 100644
     * `mgis::setProfilingSynchronization`). An application which uses
     * this option must neither create its own `mfem::Device` (MFEM refuses a
 diff --git a/src/Config.cxx b/src/Config.cxx
-index b5c828ce45..1769194aeb 100644
+index 9570462b11..f034217a5d 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -187,7 +187,7 @@ namespace mfem_mgis {
+@@ -192,7 +192,7 @@ namespace mfem_mgis {
    /*!
     * \brief sets the memory types of MFEM before the configuration of its
     * device, unless they are given by the environment (variable
@@ -85,10 +85,10 @@ index b5c828ce45..1769194aeb 100644
     * (Umpire if MFEM is compiled with it). MFEM compiled with Umpire
     * otherwise allocates the memory of the host with Umpire too, which
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index dd9678019d..36f6eb59df 100644
+index ffa1406426..e2bc83ec46 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1286,7 +1286,8 @@ add_test(NAME DeviceOptionTest-debug-short
+@@ -1304,7 +1304,8 @@ add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)
  # a device on the host or on a GPU, with the standard memory of the host
  # (MFEM compiled with Umpire allocates it with Umpire by default), unless

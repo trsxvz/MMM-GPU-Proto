@@ -1,4 +1,4 @@
-From 1a3b237adac40751ea364d7803eab9ebdfb6b138 Mon Sep 17 00:00:00 2001
+From 20a5bac7f237ab5126603dc504fc9da935bacf31 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:38:34 +0200
 Subject: [PATCH] Failures of the parsing of the options, preconditioner of the
@@ -37,7 +37,7 @@ index 995fe6f..231591a 100644
  The command to execute the test-case is
  
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 2efc394..d602df9 100644
+index 254223e..53a1993 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -171,7 +171,7 @@ struct TestParameters : PhysicalParameters {
@@ -60,17 +60,17 @@ index 2efc394..d602df9 100644
        &p.d_min, "-dm", "--dmin",
 @@ -225,7 +225,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
    if (!args.Good()) {
-     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
      mfem_mgis::finalize();
 -    exit(0);
 +    // an invalid option is a failure, which a test must see
 +    exit(EXIT_FAILURE);
    }
    if (p.mesh_file == nullptr) {
-     if (mfem_mgis::getMPIrank() == 0)
-@@ -437,7 +438,8 @@ int main(int argc, char** argv) {
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+@@ -442,7 +443,8 @@ int main(int argc, char** argv) {
                            mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
-   solverParameters.insert(mfem_mgis::throwing,
+   solverParameters.insert(mfem_mgis::may_throw,
                            mfem_mgis::Parameters{{"Tolerance", 1e-10}});
 -  // diagonal scaling preconditioner by default
 +  // algebraic multigrid preconditioner by default: with the diagonal
@@ -101,19 +101,19 @@ index 545e38f..e3ddb64 100644
  ### Run it
  
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index c2dcbf5..03edd06 100644
+index 845cbcf..3d3541a 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -89,7 +89,8 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
    if (!args.Good()) {
-     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
      mfem_mgis::finalize();
 -    exit(0);
 +    // an invalid option is a failure, which a test must see
 +    exit(EXIT_FAILURE);
    }
    if (p.mesh_file == nullptr) {
-     if (mfem_mgis::getMPIrank() == 0)
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
 @@ -289,6 +290,7 @@ int main(int argc, char **argv) {
    std::ofstream out(p.output_file);
    if (!out) {
@@ -123,7 +123,7 @@ index c2dcbf5..03edd06 100644
    out.precision(14);
    //
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 91ede63..bef2502 100644
+index 52e8c3b..2ea4a70 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -301,6 +301,7 @@ int main(int argc, char *argv[]) {
@@ -136,14 +136,14 @@ index 91ede63..bef2502 100644
    // setting the simulation and running it
 @@ -385,7 +386,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    if (!args.Good()) {
-     if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
      mfem_mgis::finalize();
 -    exit(0);
 +    // an invalid option is a failure, which a test must see
 +    exit(EXIT_FAILURE);
    }
    if (p.mesh_file == nullptr) {
-     if (mfem_mgis::getMPIrank() == 0)
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
 -- 
 2.43.0
 

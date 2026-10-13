@@ -1,4 +1,4 @@
-From 9593b5d90ae831695d892c79a63023d3c27a8dff Mon Sep 17 00:00:00 2001
+From ac9938dec7e1abe09515bab591b4c680b283f9cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:37:28 +0200
 Subject: [PATCH] Material: component by component layout of the arrays
@@ -266,7 +266,7 @@ index 5ff090bf78..6d7930c190 100644
    }  // end of getInitializer
  
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 4d9b1ed525..a7b77db6a1 100644
+index 651c305264..acf5638311 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -50,7 +50,8 @@ static void testMaterial(

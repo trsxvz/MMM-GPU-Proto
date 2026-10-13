@@ -1,4 +1,4 @@
-From ee1f31fa1c53e708b04f5c6d5955b416629b7524 Mon Sep 17 00:00:00 2001
+From a635188c83abe5835ec54885b89d6f408e6ad185 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 22:16:24 +0200
 Subject: [PATCH] Behaviours integrated on the device
@@ -224,7 +224,7 @@ index 553932d527..0785d48130 100644
      return false;
    }  // end of supportsKernels
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 347c48f226..e46e90d160 100644
+index 5ec1a9007a..bf344f8414 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -5,13 +5,16 @@
@@ -244,7 +244,7 @@ index 347c48f226..e46e90d160 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -822,10 +825,187 @@ namespace mfem_mgis {
+@@ -820,10 +823,187 @@ namespace mfem_mgis {
  
    }  // end of namespace
  
@@ -432,7 +432,7 @@ index 347c48f226..e46e90d160 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -901,10 +1081,11 @@ namespace mfem_mgis {
+@@ -899,10 +1079,11 @@ namespace mfem_mgis {
        return {};
      }
      if (!this->wks.has_rotated_thermodynamic_forces) {
@@ -762,10 +762,10 @@ index 1b74a49f21..a99d744779 100644
        testFailure(ctx, mesh, l, "Batch", true);
      }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 5499065304..645298693f 100644
+index 1502529670..63ec0f1992 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -767,8 +767,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -785,8 +785,14 @@ if(MFEM_MGIS_HAVE_TFEL)
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
    get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
@@ -782,7 +782,7 @@ index 5499065304..645298693f 100644
      string(REPLACE ":" ";" _bc "${backend_configuration}")
      list(GET _bc 0 _backend)
      list(GET _bc 1 _configuration)
-@@ -790,8 +796,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -808,8 +814,13 @@ if(MFEM_MGIS_HAVE_TFEL)
        add_custom_target(GenericParallelBehaviour-${_backend}
                          DEPENDS "${_library}")
        add_dependencies(build-tests GenericParallelBehaviour-${_backend})
@@ -798,7 +798,7 @@ index 5499065304..645298693f 100644
      endif()
    endforeach()
    set(batch_integration_test_arguments
-@@ -802,16 +813,19 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -820,16 +831,19 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_test(NAME BatchIntegrationTest
             COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
                     ${batch_integration_test_libraries})
@@ -823,7 +823,7 @@ index 5499065304..645298693f 100644
    endif()
    # computations on two processes (the comparisons only), with MUMPS, one
    # thread per process
-@@ -825,7 +839,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -843,7 +857,8 @@ if(MFEM_MGIS_HAVE_TFEL)
      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
        add_test(NAME BatchIntegrationTestP-cuda
                 COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel

@@ -1,4 +1,4 @@
-From 7c6094632a7376d49405a779bdf0f9ab5c8824ea Mon Sep 17 00:00:00 2001
+From 74256d3df55d2a0ce64274c2265c5c9b7022facb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] CMake: module for the sources containing kernels of MFEM
@@ -365,10 +365,10 @@ index 7a8a9fa252..9a38c60160 100644
  if (NOT TARGET mgis::MFrontGenericInterface)
    set(_MGIS_MODULE_PATH "@MFrontGenericInterface_DIR@")
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 17dcd3be99..5b1b8b9456 100644
+index e285d578fd..87f493a431 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -749,37 +749,47 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -767,37 +767,47 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  

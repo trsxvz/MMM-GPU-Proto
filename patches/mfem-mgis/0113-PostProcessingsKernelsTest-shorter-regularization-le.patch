@@ -1,4 +1,4 @@
-From 0434dfd1de755fecbda5fceaac3195bfeb116150 Mon Sep 17 00:00:00 2001
+From e190dabb5a21a235ce06786150b707dbeb5a14d4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:29:33 +0200
 Subject: [PATCH] PostProcessingsKernelsTest: shorter regularization length
@@ -12,10 +12,10 @@ term.
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 0dc17a0823..b017232f58 100644
+index 77af6731cb..768d355d23 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
-@@ -195,7 +195,7 @@ static std::optional<Results<parallel>> compute(
+@@ -197,7 +197,7 @@ static std::optional<Results<parallel>> compute(
      }
      r.projections.emplace_back(*(oprojection->result));
      const auto oregularization =

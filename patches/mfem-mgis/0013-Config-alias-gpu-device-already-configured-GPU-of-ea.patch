@@ -1,4 +1,4 @@
-From 5df42daf3fa12b9dff89ea30bda12e7a5022dafe Mon Sep 17 00:00:00 2001
+From 89c4bf6cc6025b644edc1d0b602e7f06bfdebe47 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:19:38 +0200
 Subject: [PATCH] Config: alias gpu, device already configured, GPU of each
@@ -16,10 +16,10 @@ Subject: [PATCH] Config: alias gpu, device already configured, GPU of each
  2 files changed, 30 insertions(+), 2 deletions(-)
 
 diff --git a/src/Config.cxx b/src/Config.cxx
-index d7740aa354..9c7c005017 100644
+index 3313df3f86..82420b2bd6 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -96,10 +96,12 @@ namespace mfem_mgis {
+@@ -102,10 +102,12 @@ namespace mfem_mgis {
    static int getDeviceIdentifier(const char* const configuration) {
  #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
      // MFEM aborts if the number of GPUs is queried on a machine without GPU:
@@ -34,7 +34,7 @@ index d7740aa354..9c7c005017 100644
        return 0;
      }
      const auto n = mfem::Device::GetDeviceCount();
-@@ -197,6 +199,11 @@ namespace mfem_mgis {
+@@ -203,6 +205,11 @@ namespace mfem_mgis {
      // before the one of PETSc, which uses the GPU of the device, as in the
      // parallel examples of MFEM
      if (device_configuration != nullptr) {

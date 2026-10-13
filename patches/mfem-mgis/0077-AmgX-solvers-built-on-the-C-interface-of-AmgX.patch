@@ -1,4 +1,4 @@
-From de2e76a913e1841b1873febdfda49e94b743934d Mon Sep 17 00:00:00 2001
+From 756cea0c17ddd1a1b932684ae6b35bf3f9728bda Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 22:57:20 +0200
 Subject: [PATCH] AmgX: solvers built on the C interface of AmgX
@@ -1311,7 +1311,7 @@ index 87dc83679f..4387b4f5cd 100644
  # before mfem-mgis, the description of MFEM is the one used to build
  # mfem-mgis
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index 80d82c9840..4d9aedf29d 100644
+index f065a0b64e..fb137e4b49 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -117,12 +117,12 @@ namespace mfem_mgis {
@@ -1605,10 +1605,10 @@ index 12925526c4..c9be08b373 100644
    if (rank == 0) {
      std::cout << (failures == 0 ? "success" : "failure") << '\n';
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 735d94d68b..07338e0ce6 100644
+index c9e9699b6f..aaa12285ef 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1085,21 +1085,21 @@ endif(MFEM_USE_MPI)
+@@ -1103,21 +1103,21 @@ endif(MFEM_USE_MPI)
  
  # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
  # solvers. AmgX computes on the GPU whatever the device of MFEM: the tests

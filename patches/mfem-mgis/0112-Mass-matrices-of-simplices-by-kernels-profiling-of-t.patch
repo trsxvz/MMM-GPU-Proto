@@ -1,4 +1,4 @@
-From d93acb00a5159f1e934b1be779312eb70b20b943 Mon Sep 17 00:00:00 2001
+From 700dd6927d0b02da720ca5ff9153ffc6e5a15e85 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:18:35 +0200
 Subject: [PATCH] Mass matrices of simplices by kernels, profiling of the L2
@@ -21,14 +21,14 @@ Subject: [PATCH] Mass matrices of simplices by kernels, profiling of the L2
 - Documentation: post-processings in the guide of the computations by
   batches.
 ---
- docs/source/user_guide/batch_computations.rst | 39 ++++++++
- .../Batch/IntegrationPointsFunctions.hxx      | 15 +++
- src/Batch/IntegrationPointsFunctions.cxx      | 41 ++++++++
- .../IntegrationPointsFunctionsKernels.cxx     | 30 ++++++
- .../IntegrationPointsFunctionsKernels.hxx     | 17 ++++
- src/L2Projection.cxx                          | 95 +++++++++++++++----
- tests/PostProcessingsKernelsTest.cxx          | 23 ++++-
- 7 files changed, 235 insertions(+), 25 deletions(-)
+ docs/source/user_guide/batch_computations.rst |  39 +++++++
+ .../Batch/IntegrationPointsFunctions.hxx      |  15 +++
+ src/Batch/IntegrationPointsFunctions.cxx      |  41 +++++++
+ .../IntegrationPointsFunctionsKernels.cxx     |  30 +++++
+ .../IntegrationPointsFunctionsKernels.hxx     |  17 +++
+ src/L2Projection.cxx                          | 108 ++++++++++++++----
+ tests/PostProcessingsKernelsTest.cxx          |  23 +++-
+ 7 files changed, 244 insertions(+), 29 deletions(-)
 
 diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
 index 239eec8f6a..277b4c9241 100644
@@ -224,18 +224,18 @@ index 36ef12e374..bac23db85f 100644
  
  #endif /* LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX */
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index 5df26a4abd..6a4646318b 100644
+index 5367cee749..8319650fcc 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
-@@ -29,6 +29,7 @@
- #include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+@@ -30,6 +30,7 @@
  #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/GridFunctionUtilities.hxx"
  #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 +#include "MFEMMGIS/Profiler.hxx"
  #include "MFEMMGIS/L2Projection.hxx"
  #include "PostProcessingsComputation.hxx"
  
-@@ -594,14 +595,52 @@ namespace mfem_mgis {
+@@ -670,14 +671,52 @@ namespace mfem_mgis {
      return true;
    }  // end of computeL2ProjectionRightHandSideByKernels
  
@@ -290,17 +290,24 @@ index 5df26a4abd..6a4646318b 100644
      if (!checkUpdateFunctionsArguments(ctx, r, l, fcts)) {
        return false;
      }
-@@ -655,19 +694,36 @@ namespace mfem_mgis {
-     }();
+@@ -734,23 +773,45 @@ namespace mfem_mgis {
      // computation by kernels: right-hand sides by kernels, operator
      // assembled by MFEM, on the device if a device is enabled
--    const auto kernels_data = makeL2ProjectionKernelsData<parallel>(
--        may_throw, *olocal_fespace, fcts, r.submesh != nullptr);
-+    const auto kernels_data = [&] {
+     auto kernels_data = std::optional<L2ProjectionKernelsData>{};
+-    try {
+-      kernels_data = makeL2ProjectionKernelsData<parallel>(
+-          may_throw, *olocal_fespace, fcts, *orequiresMapping);
+-    } catch (...) {
+-      return registerExceptionInErrorBacktrace(ctx);
++    {
 +      CatchTimeSection(ctx, "L2Projection::KernelsData");
-+      return makeL2ProjectionKernelsData<parallel>(may_throw, *olocal_fespace,
-+                                                   fcts, r.submesh != nullptr);
-+    }();
++      try {
++        kernels_data = makeL2ProjectionKernelsData<parallel>(
++            may_throw, *olocal_fespace, fcts, *orequiresMapping);
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+     }
      // Regularization operator
 +    auto operator_section = std::optional<mgis::ProfilingSection>(
 +        std::in_place, ctx, "L2Projection::Operator", ctx.isProfilingEnabled());
@@ -328,14 +335,20 @@ index 5df26a4abd..6a4646318b 100644
 +    }
 +    if (d != 0) {
 +      a.AddDomainIntegrator(new mfem::DiffusionIntegrator(diffusion));
++    }
++    try {
++      // the mass matrices computed by kernels may throw
++      a.Assemble();
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
      }
 -    add_regularization_operator(a);
-     a.Assemble();
+-    a.Assemble();
 +    operator_section.reset();
-     // resolution(s)
-     for (size_type c = 0; c != rfespace.GetVDim(); ++c) {
-       // initialize the solution, if needed
-@@ -675,6 +731,9 @@ namespace mfem_mgis {
+     //
+     auto mappings = std::unordered_map<size_type, ElementsMapping>{};
+     if (*orequiresMapping) {
+@@ -778,6 +839,9 @@ namespace mfem_mgis {
          *x = real{};
        }
        // right-hand side
@@ -345,7 +358,7 @@ index 5df26a4abd..6a4646318b 100644
        LinearForm<parallel> b(&(*olocal_fespace));
        if (kernels_data.has_value()) {
          if (!computeL2ProjectionRightHandSideByKernels<parallel>(
-@@ -701,7 +760,9 @@ namespace mfem_mgis {
+@@ -804,7 +868,9 @@ namespace mfem_mgis {
          }
          b.Assemble();
        }
@@ -355,7 +368,7 @@ index 5df26a4abd..6a4646318b 100644
        mfem::Array<int> boundary_dofs;
        // the operator handle owns the matrix built by the full assembly
        auto A = mfem::OperatorHandle{};
-@@ -752,10 +813,8 @@ namespace mfem_mgis {
+@@ -855,10 +921,8 @@ namespace mfem_mgis {
        L2ProjectionResult<parallel>& r,
        LinearSolverHandler& l,
        const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
@@ -368,7 +381,7 @@ index 5df26a4abd..6a4646318b 100644
    }  // end of updateL2Projection_impl
  
    template <>
-@@ -828,12 +887,8 @@ namespace mfem_mgis {
+@@ -931,12 +995,8 @@ namespace mfem_mgis {
        LinearSolverHandler& l,
        const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
        const real lc) noexcept {
@@ -384,7 +397,7 @@ index 5df26a4abd..6a4646318b 100644
  
    template <>
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 9d5afbe71d..0dc17a0823 100644
+index 2257aceee8..77af6731cb 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -4,8 +4,8 @@
@@ -408,7 +421,7 @@ index 9d5afbe71d..0dc17a0823 100644
  };
  
  /*!
-@@ -191,6 +194,12 @@ static std::optional<Results<parallel>> compute(
+@@ -193,6 +196,12 @@ static std::optional<Results<parallel>> compute(
        return {};
      }
      r.projections.emplace_back(*(oprojection->result));
@@ -421,7 +434,7 @@ index 9d5afbe71d..0dc17a0823 100644
    }
    return r;
  }  // end of compute
-@@ -285,10 +294,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+@@ -287,10 +296,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
    if (!r2.has_value()) {
      return false;
    }
@@ -435,7 +448,7 @@ index 9d5afbe71d..0dc17a0823 100644
    if (nk != expected) {
      return ctx.registerErrorMessage(
          "unexpected number of computations by kernels (" + std::to_string(nk) +
-@@ -312,6 +321,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+@@ -314,6 +323,10 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
      success = check<parallel>(ctx, "L2 projection of the " + f,
                                r1->projections[i], r2->projections[i], 1e-10) &&
                success;

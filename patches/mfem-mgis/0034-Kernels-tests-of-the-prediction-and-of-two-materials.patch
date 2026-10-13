@@ -1,4 +1,4 @@
-From 9398a9e33c3ce9816226f2feef7bc2e942bf406c Mon Sep 17 00:00:00 2001
+From 233d0c3b25e359261af568301ad2dc2647c4c179 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:22:04 +0200
 Subject: [PATCH] Kernels: tests of the prediction and of two materials, review
@@ -402,10 +402,10 @@ index a99d744779..4a4910f7aa 100644
        reference.gradients_kernels = false;
        reference.inner_forces_kernels = false;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 645298693f..8bf8c8a983 100644
+index 63ec0f1992..9458e399ac 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -760,6 +760,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -778,6 +778,7 @@ if(MFEM_MGIS_HAVE_TFEL)
    set(batch_integration_test_libraries)
    set(batch_integration_test_behaviours)
    foreach(_behaviour IsotropicLinearHardeningPlasticity
@@ -413,7 +413,7 @@ index 645298693f..8bf8c8a983 100644
                       FailingIsotropicLinearElasticity
                       OrthotropicElasticity
                       OrthotropicSaintVenantKirchhoffElasticity)
-@@ -809,6 +810,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -827,6 +828,7 @@ if(MFEM_MGIS_HAVE_TFEL)
        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
        --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
@@ -421,7 +421,7 @@ index 645298693f..8bf8c8a983 100644
        --library $<TARGET_FILE:BehaviourTest>)
    add_test(NAME BatchIntegrationTest
             COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
-@@ -978,3 +980,12 @@ install(
+@@ -996,3 +998,12 @@ install(
    FILES ex3CMakeLists.txt
    DESTINATION ${EX3_DIR}
    RENAME CMakeLists.txt)

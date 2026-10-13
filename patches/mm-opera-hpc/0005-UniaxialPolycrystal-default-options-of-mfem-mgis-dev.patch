@@ -1,4 +1,4 @@
-From 4b7246c7e06aa36701fc832593a7f1f89199871f Mon Sep 17 00:00:00 2001
+From 8a02a2658e24d1f5995371a819f02d2073413cd5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 22:43:10 +0200
 Subject: [PATCH] UniaxialPolycrystal: default options of mfem-mgis (device of
@@ -9,7 +9,7 @@ Subject: [PATCH] UniaxialPolycrystal: default options of mfem-mgis (device of
  1 file changed, 2 insertions(+)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 3c50ead..a332095 100644
+index cebfc6a..dba6dfd 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -220,6 +220,8 @@ int main(int argc, char *argv[]) {

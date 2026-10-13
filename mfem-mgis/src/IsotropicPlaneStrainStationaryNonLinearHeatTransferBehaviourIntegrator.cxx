@@ -24,14 +24,16 @@ namespace mfem_mgis {
 
   std::shared_ptr<const PartialQuadratureSpace>
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
-      buildQuadratureSpace(const FiniteElementDiscretization &fed,
+      buildQuadratureSpace(attributes::Throwing,
+                           const FiniteElementDiscretization &fed,
                            const size_type m) {
     auto selector = [&fed](const mfem::FiniteElement &e,
                            const mfem::ElementTransformation &tr)
         -> const mfem::IntegrationRule & {
       return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
     };  // end of selector
-    return std::make_shared<PartialQuadratureSpace>(fed, m, selector);
+    return std::make_shared<PartialQuadratureSpace>(
+        fed, LocationIdentifier{MaterialIdentifier{m}}, selector);
   }  // end of buildQuadratureSpace
 
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
@@ -41,7 +43,7 @@ namespace mfem_mgis {
           std::unique_ptr<const Behaviour> b_ptr)
       : StandardBehaviourIntegratorCRTPBase<
             IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
-            buildQuadratureSpace(fed, m), std::move(b_ptr)) {
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
     this->checkBehaviourVariablesSizes(

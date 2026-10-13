@@ -1,4 +1,4 @@
-From 456c298dd67c909c4b1a1c81a13f5e6deb115cc2 Mon Sep 17 00:00:00 2001
+From e9dad959fb8113253706c5b3296c602563fcdb97 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 11:41:13 +0200
 Subject: [PATCH] Ordered assembly: fixes of an independent review
@@ -335,7 +335,7 @@ index eda18f73a1..63352e1a3d 100644
        getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {
      return this->other_integrators_residual_evaluations;
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 4362557b02..385a04441c 100644
+index 631b565835..b66fddf4f1 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -744,6 +744,23 @@ static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(

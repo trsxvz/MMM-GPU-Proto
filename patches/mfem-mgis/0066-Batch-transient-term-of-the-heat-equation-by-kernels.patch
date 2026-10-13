@@ -1,4 +1,4 @@
-From a394212d9213933457f8456786bd7b91005870e8 Mon Sep 17 00:00:00 2001
+From 2f71bd2189338451f845351895cf7ef072eed043 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 07:36:52 +0200
 Subject: [PATCH] Batch: transient term of the heat equation by kernels
@@ -806,7 +806,7 @@ index 68c0c5dc62..b7b1d97d52 100644
        }
      }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e830cb78eb..e020ea778b 100644
+index b7162253f2..01a8fd072d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -70,6 +70,7 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -817,7 +817,7 @@ index e830cb78eb..e020ea778b 100644
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
      OrthotropicSaintVenantKirchhoffElasticity)
-@@ -768,7 +769,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -786,7 +787,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                       OrthotropicElasticity
                       OrthotropicSaintVenantKirchhoffElasticity
                       StationaryNonLinearHeatTransfer
@@ -827,7 +827,7 @@ index e830cb78eb..e020ea778b 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -868,10 +870,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -886,10 +888,11 @@ if(MFEM_MGIS_HAVE_TFEL)
               COMMAND HeatTransferKernelsTest
                       ${heat_transfer_kernels_test_arguments}
                       ${batch_integration_test_libraries})
@@ -841,7 +841,7 @@ index e830cb78eb..e020ea778b 100644
      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
        add_test(NAME HeatTransferKernelsTest-cuda
                 COMMAND HeatTransferKernelsTest --device cuda
-@@ -884,8 +887,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -902,8 +905,7 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
      add_test(NAME HeatTransferKernelsTestP
               COMMAND mpirun -n 2 ./HeatTransferKernelsTest --parallel

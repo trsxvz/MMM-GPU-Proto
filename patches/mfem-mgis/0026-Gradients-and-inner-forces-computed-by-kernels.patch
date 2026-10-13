@@ -1,4 +1,4 @@
-From 06e1a0e79f5e26ed2b96b7771cfcddebe3c6c1ef Mon Sep 17 00:00:00 2001
+From bde140ba415bd363e6a22aababe5d6a7b4d84aed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:53:07 +0200
 Subject: [PATCH] Gradients and inner forces computed by kernels
@@ -74,11 +74,11 @@ expected refusals fail (heat transfer, micromorphic damage).
  src/MultiMaterialNonLinearIntegrator.cxx      | 113 ++++++
  ...onLinearEvolutionProblemImplementation.cxx |  81 ++++-
  ...nearEvolutionProblemImplementationBase.cxx |  77 +++-
- src/PartialQuadratureSpace.cxx                |  26 +-
+ src/PartialQuadratureSpace.cxx                | 170 +++++----
  tests/BatchIntegrationTest.cxx                |  75 +++-
  tests/CMakeLists.txt                          |  22 ++
  tests/GradientsKernelsTest.cxx                | 329 ++++++++++++++++++
- 27 files changed, 2041 insertions(+), 19 deletions(-)
+ 27 files changed, 2117 insertions(+), 87 deletions(-)
  create mode 100644 include/MFEMMGIS/Batch/Gradients.hxx
  create mode 100644 include/MFEMMGIS/Batch/InnerForces.hxx
  create mode 100644 src/Batch/Gradients.cxx
@@ -608,10 +608,10 @@ index e1377c8490..1a8bd2cf40 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 220219b160..f49062d53f 100644
+index 2ae370d0a9..9ba199b45b 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-@@ -192,6 +192,13 @@ namespace mfem_mgis {
+@@ -214,6 +214,13 @@ namespace mfem_mgis {
       * number of integration points. Readable on the device (`Read`).
       */
      [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
@@ -623,16 +623,16 @@ index 220219b160..f49062d53f 100644
 +    [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
 +        const noexcept;
      //! \return the material or boundary identifier
-     [[nodiscard]] size_type getId() const noexcept;
+     [[nodiscard]] LocationIdentifier getLocation() const noexcept;
      //! \brief destructor
-@@ -261,6 +268,8 @@ namespace mfem_mgis {
+@@ -284,6 +291,8 @@ namespace mfem_mgis {
      mfem::Array<int> elements;
      //! \brief offsets of the points of the elements (size: elements + 1)
      mfem::Array<int> element_offsets;
 +    //! \brief integration rule used by all the elements, if any
 +    const mfem::IntegrationRule* uniform_integration_rule = nullptr;
-     //! \brief material or boundary identifier
-     size_type id;
+     //! \brief location in the main mesh
+     LocationIdentifier location;
      //! \brief number of integration points
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 index e5b82c59b8..6ef4b64fda 100644
@@ -2055,73 +2055,241 @@ index 5c7b3fd7ab..cb628c799f 100644
          std::ignore = ctx.registerErrorMessage(
              "the integration of the behaviours by batches is not supported "
 diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
-index c0734fac8d..23dd354847 100644
+index 326ee98f86..7ca3d62d39 100644
 --- a/src/PartialQuadratureSpace.cxx
 +++ b/src/PartialQuadratureSpace.cxx
-@@ -28,6 +28,7 @@ namespace mfem_mgis {
+@@ -22,61 +22,83 @@
+ 
+ namespace mfem_mgis {
+ 
+-  /*!
+-   * \brief add the integration points of an element to the offsets of a
+-   * partial quadrature space
+-   * \param[in,out] offsets: offsets
+-   * \param[in,out] number_of_quadrature_points: numbers of points
+-   * \param[in,out] e: elements, in the order of their points
+-   * \param[in,out] o: offsets of the points of the elements
+-   * \param[in,out] ng: number of points, counted on 64 bits and checked
+-   * against the range of the sizes of MFEM (and of `size_type`)
+-   * \param[in] i: element number
+-   * \param[in] lng: number of points of the element
+-   */
+-  static void addElementIntegrationPoints(
+-      std::unordered_map<size_type, size_type>& offsets,
+-      std::unordered_map<size_type, size_type>& number_of_quadrature_points,
+-      std::vector<int>& e,
+-      std::vector<int>& o,
+-      std::int64_t& ng,
+-      const size_type i,
+-      const size_type lng) {
+-    offsets[i] = static_cast<size_type>(ng);
+-    e.push_back(static_cast<int>(i));
+-    o.push_back(static_cast<int>(ng));
+-    ng += lng;
+-    if (ng > std::numeric_limits<int>::max()) {
+-      raise("PartialQuadratureSpace: too many integration points for MFEM");
+-    }
+-    number_of_quadrature_points[i] = lng;
+-  }  // end of addElementIntegrationPoints
+-
+-  /*!
+-   * \brief copy the elements of a partial quadrature space and the offsets
+-   * of their integration points in arrays in the memory of MFEM
+-   * \param[out] elements: elements
+-   * \param[out] element_offsets: offsets, followed by the number of points
+-   * \param[in] e: elements
+-   * \param[in] o: offsets
+-   * \param[in] ng: number of integration points
+-   * \return the number of integration points
+-   */
+-  static size_type setElementsAndOffsets(mfem::Array<int>& elements,
+-                                         mfem::Array<int>& element_offsets,
+-                                         const std::vector<int>& e,
+-                                         std::vector<int>& o,
+-                                         const std::int64_t ng) {
+-    o.push_back(static_cast<int>(ng));
+-    // arrays in the memory of MFEM, filled on the host
+-    auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
+-      a.SetSize(static_cast<int>(v.size()));
+-      std::copy(v.begin(), v.end(), a.HostWrite());
+-    };
+-    copy(elements, e);
+-    copy(element_offsets, o);
+-    return static_cast<size_type>(ng);
+-  }  // end of setElementsAndOffsets
++  namespace {
++
++    /*!
++     * \brief elements of a partial quadrature space and offsets of their
++     * integration points, gathered element by element
++     */
++    struct PartialQuadratureSpaceOffsetsBuilder {
++      /*!
++       * \brief add the integration points of an element
++       * \param[in,out] offsets: offsets of the space
++       * \param[in,out] number_of_quadrature_points: numbers of points of the
++       * space
++       * \param[in] i: element number
++       * \param[in] ir: integration rule of the element
++       */
++      void add(
++          std::unordered_map<size_type, size_type>& offsets,
++          std::unordered_map<size_type, size_type>& number_of_quadrature_points,
++          const size_type i,
++          const mfem::IntegrationRule& ir) {
++        // the rules are compared by address: the selectors return the rules
++        // stored by MFEM (`mfem::IntRules`)
++        if (this->e.empty()) {
++          this->uniform_integration_rule = &ir;
++        } else if (this->uniform_integration_rule != &ir) {
++          this->uniform = false;
++        }
++        const auto lng = ir.GetNPoints();
++        offsets[i] = static_cast<size_type>(this->ng);
++        this->e.push_back(static_cast<int>(i));
++        this->o.push_back(static_cast<int>(this->ng));
++        this->ng += lng;
++        if (this->ng > std::numeric_limits<int>::max()) {
++          raise("PartialQuadratureSpace: too many integration points for MFEM");
++        }
++        number_of_quadrature_points[i] = lng;
++      }  // end of add
++      /*!
++       * \brief copy the elements and the offsets in arrays in the memory of
++       * MFEM
++       * \param[out] elements: elements
++       * \param[out] element_offsets: offsets, followed by the number of points
++       * \param[out] r: integration rule used by all the elements, if any
++       * \return the number of integration points
++       */
++      size_type finish(mfem::Array<int>& elements,
++                       mfem::Array<int>& element_offsets,
++                       const mfem::IntegrationRule*& r) {
++        this->o.push_back(static_cast<int>(this->ng));
++        // arrays in the memory of MFEM, filled on the host
++        auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
++          a.SetSize(static_cast<int>(v.size()));
++          std::copy(v.begin(), v.end(), a.HostWrite());
++        };
++        copy(elements, this->e);
++        copy(element_offsets, this->o);
++        r = this->uniform ? this->uniform_integration_rule : nullptr;
++        return static_cast<size_type>(this->ng);
++      }  // end of finish
++
++     private:
++      //! \brief elements, in the order of their points
++      std::vector<int> e;
++      //! \brief offsets of the points of the elements
++      std::vector<int> o;
++      /*!
++       * \brief number of points, counted on 64 bits and checked against the
++       * range of the sizes of MFEM (and of `size_type`) after each element
++       */
++      std::int64_t ng = 0;
++      //! \brief integration rule of the first element
++      const mfem::IntegrationRule* uniform_integration_rule = nullptr;
++      //! \brief if all the elements use the same integration rule
++      bool uniform = true;
++    };  // end of PartialQuadratureSpaceOffsetsBuilder
++
++  }  // end of namespace
+ 
+   template <bool parallel>
+   static size_type buildPartialQuadratureSpaceOffsetsOnElements(
+@@ -84,25 +106,23 @@ namespace mfem_mgis {
        std::unordered_map<size_type, size_type>& number_of_quadrature_points,
        mfem::Array<int>& elements,
        mfem::Array<int>& element_offsets,
 +      const mfem::IntegrationRule*& uniform_integration_rule,
        const FiniteElementSpace<parallel>& fespace,
-       const size_type m,
+       const size_type mid,
        const std::function<const mfem::IntegrationRule&(
-@@ -38,6 +39,10 @@ namespace mfem_mgis {
-     auto ng = std::int64_t{};
-     auto e = std::vector<int>{};
-     auto o = std::vector<int>{};
-+    // the rules are compared by address: the selectors return the rules
-+    // stored by MFEM (`mfem::IntRules`)
-+    auto uniform = true;
-+    uniform_integration_rule = nullptr;
+           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+           integration_rule_selector) {
+-    auto ng = std::int64_t{};
+-    auto e = std::vector<int>{};
+-    auto o = std::vector<int>{};
++    auto builder = PartialQuadratureSpaceOffsetsBuilder{};
      for (size_type i = 0; i != fespace.GetNE(); ++i) {
-       if (fespace.GetAttribute(i) != m) {
+       if (fespace.GetAttribute(i) != mid) {
          continue;
-@@ -48,6 +53,11 @@ namespace mfem_mgis {
-       e.push_back(static_cast<int>(i));
-       o.push_back(static_cast<int>(ng));
-       const auto& ir = integration_rule_selector(fe, tr);
-+      if (e.size() == 1) {
-+        uniform_integration_rule = &ir;
-+      } else if (uniform_integration_rule != &ir) {
-+        uniform = false;
-+      }
-       const auto lng = ir.GetNPoints();
-       ng += lng;
-       if (ng > std::numeric_limits<int>::max()) {
-@@ -56,6 +66,9 @@ namespace mfem_mgis {
-       number_of_quadrature_points[i] = lng;
-     }
-     o.push_back(static_cast<int>(ng));
-+    if (!uniform) {
-+      uniform_integration_rule = nullptr;
-+    }
-     // arrays in the memory of MFEM, filled on the host
-     auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
-       a.SetSize(static_cast<int>(v.size()));
-@@ -231,8 +244,8 @@ namespace mfem_mgis {
        }
-       this->ng = buildPartialQuadratureSpaceOffsets<true>(
+       const auto& fe = *(fespace.GetFE(i));
+       const auto& tr = *(fespace.GetElementTransformation(i));
+-      const auto& ir = integration_rule_selector(fe, tr);
+-      addElementIntegrationPoints(offsets, number_of_quadrature_points, e, o,
+-                                  ng, i, ir.GetNPoints());
++      builder.add(offsets, number_of_quadrature_points, i,
++                  integration_rule_selector(fe, tr));
+     }
+-    return setElementsAndOffsets(elements, element_offsets, e, o, ng);
++    return builder.finish(elements, element_offsets, uniform_integration_rule);
+   }  // end of buildPartialQuadratureSpaceOffsetsOnElements
+ 
+   template <bool parallel>
+@@ -111,25 +131,23 @@ namespace mfem_mgis {
+       std::unordered_map<size_type, size_type>& number_of_quadrature_points,
+       mfem::Array<int>& elements,
+       mfem::Array<int>& element_offsets,
++      const mfem::IntegrationRule*& uniform_integration_rule,
+       const FiniteElementSpace<parallel>& fespace,
+       const size_type bid,
+       const std::function<const mfem::IntegrationRule&(
+           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+           integration_rule_selector) {
+-    auto ng = std::int64_t{};
+-    auto e = std::vector<int>{};
+-    auto o = std::vector<int>{};
++    auto builder = PartialQuadratureSpaceOffsetsBuilder{};
+     for (size_type i = 0; i != fespace.GetNBE(); ++i) {
+       if (fespace.GetBdrAttribute(i) != bid) {
+         continue;
+       }
+       const auto& fe = *(fespace.GetBE(i));
+       const auto& tr = *(fespace.GetBdrElementTransformation(i));
+-      const auto& ir = integration_rule_selector(fe, tr);
+-      addElementIntegrationPoints(offsets, number_of_quadrature_points, e, o,
+-                                  ng, i, ir.GetNPoints());
++      builder.add(offsets, number_of_quadrature_points, i,
++                  integration_rule_selector(fe, tr));
+     }
+-    return setElementsAndOffsets(elements, element_offsets, e, o, ng);
++    return builder.finish(elements, element_offsets, uniform_integration_rule);
+   }  // end of buildPartialQuadratureSpaceOffsetsOnBoundaryElements
+ 
+   void PartialQuadratureSpace::treatInvalidElementIndex(
+@@ -266,7 +284,8 @@ namespace mfem_mgis {
+       }
+       this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
            this->offsets, this->number_of_quadrature_points, this->elements,
--          this->element_offsets, *(this->parallel_fespace), this->id,
--          this->integration_rule_selector);
-+          this->element_offsets, this->uniform_integration_rule,
-+          *(this->parallel_fespace), this->id, this->integration_rule_selector);
+-          this->element_offsets, fespace, mid, this->integration_rule_selector);
++          this->element_offsets, this->uniform_integration_rule, fespace, mid,
++          this->integration_rule_selector);
        return;
      }
- #endif /* MFEM_USE_MPI */
-@@ -247,8 +260,8 @@ namespace mfem_mgis {
+     if (isInvalid(this->location.boundary_identifier)) {
+@@ -280,7 +299,8 @@ namespace mfem_mgis {
+       }
+       this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
+           this->offsets, this->number_of_quadrature_points, this->elements,
+-          this->element_offsets, fespace, bid, this->integration_rule_selector);
++          this->element_offsets, this->uniform_integration_rule, fespace, bid,
++          this->integration_rule_selector);
+     } else {
+       const auto& attributes = mesh.bdr_attributes;
+       if (attributes.Find(bid) == -1) {
+@@ -288,7 +308,8 @@ namespace mfem_mgis {
+       }
+       this->ng = buildPartialQuadratureSpaceOffsetsOnBoundaryElements<parallel>(
+           this->offsets, this->number_of_quadrature_points, this->elements,
+-          this->element_offsets, fespace, bid, this->integration_rule_selector);
++          this->element_offsets, this->uniform_integration_rule, fespace, bid,
++          this->integration_rule_selector);
      }
-     this->ng = buildPartialQuadratureSpaceOffsets<false>(
-         this->offsets, this->number_of_quadrature_points, this->elements,
--        this->element_offsets, *(this->sequential_fespace), this->id,
--        this->integration_rule_selector);
-+        this->element_offsets, this->uniform_integration_rule,
-+        *(this->sequential_fespace), this->id, this->integration_rule_selector);
    }  // end of initialize
  
-   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
-@@ -405,6 +418,11 @@ namespace mfem_mgis {
+@@ -387,6 +408,11 @@ namespace mfem_mgis {
      return this->element_offsets;
    }  // end of getElementOffsets
  
@@ -2132,7 +2300,7 @@ index c0734fac8d..23dd354847 100644
 +
    PartialQuadratureSpace::~PartialQuadratureSpace() = default;
  
-   template <bool parallel>
+   bool PartialQuadratureSpace::shallUseBoundaryElementsAPI() const noexcept {
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
 index f4c8f85315..ca03448c35 100644
 --- a/tests/BatchIntegrationTest.cxx
@@ -2262,10 +2430,10 @@ index f4c8f85315..ca03448c35 100644
    // the integration point by point of the behaviour generated by the generic
    // interface, whose inner forces are computed with the rotations of one
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 437727a40c..59c0468df9 100644
+index 1d3518a442..3b076f24ac 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -832,6 +832,28 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -850,6 +850,28 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

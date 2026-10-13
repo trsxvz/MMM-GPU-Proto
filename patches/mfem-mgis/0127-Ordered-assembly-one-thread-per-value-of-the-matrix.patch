@@ -1,4 +1,4 @@
-From f57072220f98f1794d5e71358211938882ad3ca6 Mon Sep 17 00:00:00 2001
+From ea15fb2673525c6d2fd15ce63823a4706acc4cea Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 09:19:36 +0200
 Subject: [PATCH] Ordered assembly: one thread per value of the matrix

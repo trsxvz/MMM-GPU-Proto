@@ -1,4 +1,4 @@
-From d16be2525a5451ffe61b80ed2b403eb1d33ea96d Mon Sep 17 00:00:00 2001
+From 2943ee8bc4d427d4d3f4911fc9f95e3acaa14284 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 18:28:05 +0200
 Subject: [PATCH] Orthotropic behaviours integrated by batches: rotations of
@@ -1009,7 +1009,7 @@ index 29d08a01d6..0a9bbbbc7c 100644
        }
      }
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 77525dc8f1..09eb959734 100644
+index 82d00f2cf4..1936e43a72 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -7,9 +7,11 @@
@@ -1024,7 +1024,7 @@ index 77525dc8f1..09eb959734 100644
  #include "MFEMMGIS/MeshDiscretization.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
  #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
-@@ -742,8 +744,15 @@ namespace mfem_mgis {
+@@ -740,8 +742,15 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  
@@ -1042,7 +1042,7 @@ index 77525dc8f1..09eb959734 100644
      // the material properties at the beginning of the time step are the
      // ones at the end of the time step, as in
      // `performsLocalBehaviourIntegration`: they are restored after the call
-@@ -757,7 +766,21 @@ namespace mfem_mgis {
+@@ -755,7 +764,21 @@ namespace mfem_mgis {
          .compute_speed_of_sound = false};
      auto r = mgis::behaviour::BehaviourIntegrationResult{};
      try {
@@ -1064,7 +1064,7 @@ index 77525dc8f1..09eb959734 100644
      } catch (std::exception& e) {
        this->s0.material_properties = std::move(mps0);
        std::cerr << "behaviour integration failed: " << e.what() << std::endl;
-@@ -771,7 +794,7 @@ namespace mfem_mgis {
+@@ -769,7 +792,7 @@ namespace mfem_mgis {
        return false;
      }
      return true;
@@ -1509,7 +1509,7 @@ index c3c8ffce4f..de1d94a879 100644
    // invalid value
    {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c9767ff18c..40492280f8 100644
+index 74ba33efbe..7722761128 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -69,7 +69,8 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -1522,7 +1522,7 @@ index c9767ff18c..40492280f8 100644
  
    # TwoLayerCube executable
    add_test_executable(TwoLayerCube)
-@@ -757,6 +758,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -775,6 +776,14 @@ if(MFEM_MGIS_HAVE_TFEL)
    # (backends openmp and stlpar)
    add_test_executable(BatchIntegrationTest)
    set(batch_integration_test_libraries)
@@ -1537,7 +1537,7 @@ index c9767ff18c..40492280f8 100644
    get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
    foreach(backend_configuration openmp:config-openmp-host-gcc.json
                                  stlpar:config-stlpar-parunseq-gcc.json)
-@@ -774,11 +783,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -792,11 +801,9 @@ if(MFEM_MGIS_HAVE_TFEL)
          OUTPUT "${_library}"
          COMMAND "${MFRONT}" --obuild --interface=generic-parallel
                  "--configuration-file=${_configuration}"
@@ -1552,7 +1552,7 @@ index c9767ff18c..40492280f8 100644
        add_custom_target(GenericParallelBehaviour-${_backend}
                          DEPENDS "${_library}")
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 093161e6b2..5ee729bc6d 100644
+index db3524e0c0..4cf510ede6 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -14,6 +14,11 @@

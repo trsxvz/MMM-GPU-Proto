@@ -1,4 +1,4 @@
-From 556b3e59539ab569c1f9a50f169846c1f7df3330 Mon Sep 17 00:00:00 2001
+From 4fcfcb7ec3e2e0cd6d326f7a178c7d5f816b85f8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:39:45 +0200
 Subject: [PATCH] Polycrystal: direct solvers of mfem-mgis and reuse of their
@@ -15,7 +15,7 @@ it); it is ignored, with a warning, by the iterative solvers.
  1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index bef2502..3988980 100644
+index 2ea4a70..8b7bd2d 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -91,6 +91,9 @@ struct NumericalParameters {
@@ -57,7 +57,7 @@ index bef2502..3988980 100644
 +    auto direct_solver_parameters = mfem_mgis::Parameters{};
 +    if (params.reuse_analysis) {
 +      direct_solver_parameters.insert(
-+          mfem_mgis::throwing, mfem_mgis::Parameters{{"ReuseAnalysis", true}});
++          mfem_mgis::may_throw, mfem_mgis::Parameters{{"ReuseAnalysis", true}});
 +    }
 +    p.setLinearSolver(ctx, params.linear_solver, direct_solver_parameters) |
 +        or_die;

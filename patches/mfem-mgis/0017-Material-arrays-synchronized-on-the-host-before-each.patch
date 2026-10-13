@@ -1,4 +1,4 @@
-From 7357311782ac8eb1b76b70b1ca6fbb5f20fd155c Mon Sep 17 00:00:00 2001
+From dfd29174de406fa84626926969b009409fbac4e7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:58:37 +0200
 Subject: [PATCH] Material: arrays synchronized on the host before each access
@@ -325,7 +325,7 @@ index 7c25ed4872..1e0dac7c98 100644
      if (odt.has_value()) {
        this->mgis_integrator->setTimeIncrement(*odt);
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 2f0430112e..a954ee2efc 100644
+index 368282ecbd..f0ae52ace7 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -18,6 +18,7 @@

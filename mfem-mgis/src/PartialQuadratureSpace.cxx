@@ -22,160 +22,161 @@
 
 namespace mfem_mgis {
 
+  namespace {
+
+    /*!
+     * \brief elements of a partial quadrature space and offsets of their
+     * integration points, gathered element by element
+     */
+    struct PartialQuadratureSpaceOffsetsBuilder {
+      /*!
+       * \brief add the integration points of an element
+       * \param[in,out] offsets: offsets of the space
+       * \param[in,out] number_of_quadrature_points: numbers of points of the
+       * space
+       * \param[in] i: element number
+       * \param[in] ir: integration rule of the element
+       */
+      void add(
+          std::unordered_map<size_type, size_type>& offsets,
+          std::unordered_map<size_type, size_type>& number_of_quadrature_points,
+          const size_type i,
+          const mfem::IntegrationRule& ir) {
+        // the rules are compared by address: the selectors return the rules
+        // stored by MFEM (`mfem::IntRules`)
+        if (this->e.empty()) {
+          this->uniform_integration_rule = &ir;
+        } else if (this->uniform_integration_rule != &ir) {
+          this->uniform = false;
+        }
+        const auto lng = ir.GetNPoints();
+        offsets[i] = static_cast<size_type>(this->ng);
+        this->e.push_back(static_cast<int>(i));
+        this->o.push_back(static_cast<int>(this->ng));
+        this->ng += lng;
+        if (this->ng > std::numeric_limits<int>::max()) {
+          raise("PartialQuadratureSpace: too many integration points for MFEM");
+        }
+        number_of_quadrature_points[i] = lng;
+      }  // end of add
+      /*!
+       * \brief copy the elements and the offsets in arrays in the memory of
+       * MFEM
+       * \param[out] elements: elements
+       * \param[out] element_offsets: offsets, followed by the number of points
+       * \param[out] r: integration rule used by all the elements, if any
+       * \return the number of integration points
+       */
+      size_type finish(mfem::Array<int>& elements,
+                       mfem::Array<int>& element_offsets,
+                       const mfem::IntegrationRule*& r) {
+        this->o.push_back(static_cast<int>(this->ng));
+        // arrays in the memory of MFEM, filled on the host
+        auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
+          a.SetSize(static_cast<int>(v.size()));
+          std::copy(v.begin(), v.end(), a.HostWrite());
+        };
+        copy(elements, this->e);
+        copy(element_offsets, this->o);
+        r = this->uniform ? this->uniform_integration_rule : nullptr;
+        return static_cast<size_type>(this->ng);
+      }  // end of finish
+
+     private:
+      //! \brief elements, in the order of their points
+      std::vector<int> e;
+      //! \brief offsets of the points of the elements
+      std::vector<int> o;
+      /*!
+       * \brief number of points, counted on 64 bits and checked against the
+       * range of the sizes of MFEM (and of `size_type`) after each element
+       */
+      std::int64_t ng = 0;
+      //! \brief integration rule of the first element
+      const mfem::IntegrationRule* uniform_integration_rule = nullptr;
+      //! \brief if all the elements use the same integration rule
+      bool uniform = true;
+    };  // end of PartialQuadratureSpaceOffsetsBuilder
+
+  }  // end of namespace
+
   template <bool parallel>
-  static size_type buildPartialQuadratureSpaceOffsets(
+  static size_type buildPartialQuadratureSpaceOffsetsOnElements(
       std::unordered_map<size_type, size_type>& offsets,
       std::unordered_map<size_type, size_type>& number_of_quadrature_points,
       mfem::Array<int>& elements,
       mfem::Array<int>& element_offsets,
       const mfem::IntegrationRule*& uniform_integration_rule,
       const FiniteElementSpace<parallel>& fespace,
-      const size_type m,
+      const size_type mid,
       const std::function<const mfem::IntegrationRule&(
           const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
           integration_rule_selector) {
-    // number of points counted on 64 bits, and checked against the range of
-    // the sizes of MFEM (and of `size_type`) after each element
-    auto ng = std::int64_t{};
-    auto e = std::vector<int>{};
-    auto o = std::vector<int>{};
-    // the rules are compared by address: the selectors return the rules
-    // stored by MFEM (`mfem::IntRules`)
-    auto uniform = true;
-    uniform_integration_rule = nullptr;
+    auto builder = PartialQuadratureSpaceOffsetsBuilder{};
     for (size_type i = 0; i != fespace.GetNE(); ++i) {
-      if (fespace.GetAttribute(i) != m) {
+      if (fespace.GetAttribute(i) != mid) {
         continue;
       }
       const auto& fe = *(fespace.GetFE(i));
       const auto& tr = *(fespace.GetElementTransformation(i));
-      offsets[i] = static_cast<size_type>(ng);
-      e.push_back(static_cast<int>(i));
-      o.push_back(static_cast<int>(ng));
-      const auto& ir = integration_rule_selector(fe, tr);
-      if (e.size() == 1) {
-        uniform_integration_rule = &ir;
-      } else if (uniform_integration_rule != &ir) {
-        uniform = false;
-      }
-      const auto lng = ir.GetNPoints();
-      ng += lng;
-      if (ng > std::numeric_limits<int>::max()) {
-        raise("PartialQuadratureSpace: too many integration points for MFEM");
-      }
-      number_of_quadrature_points[i] = lng;
+      builder.add(offsets, number_of_quadrature_points, i,
+                  integration_rule_selector(fe, tr));
     }
-    o.push_back(static_cast<int>(ng));
-    if (!uniform) {
-      uniform_integration_rule = nullptr;
-    }
-    // arrays in the memory of MFEM, filled on the host
-    auto copy = [](mfem::Array<int>& a, const std::vector<int>& v) {
-      a.SetSize(static_cast<int>(v.size()));
-      std::copy(v.begin(), v.end(), a.HostWrite());
-    };
-    copy(elements, e);
-    copy(element_offsets, o);
-    return static_cast<size_type>(ng);
-  }  // end of buildPartialQuadratureSpaceOffsets
+    return builder.finish(elements, element_offsets, uniform_integration_rule);
+  }  // end of buildPartialQuadratureSpaceOffsetsOnElements
 
-  void PartialQuadratureSpace::treatInvalidElementIndex(const size_type id,
-                                                        const size_type i) {
-    mgis::raise(
+  template <bool parallel>
+  static size_type buildPartialQuadratureSpaceOffsetsOnBoundaryElements(
+      std::unordered_map<size_type, size_type>& offsets,
+      std::unordered_map<size_type, size_type>& number_of_quadrature_points,
+      mfem::Array<int>& elements,
+      mfem::Array<int>& element_offsets,
+      const mfem::IntegrationRule*& uniform_integration_rule,
+      const FiniteElementSpace<parallel>& fespace,
+      const size_type bid,
+      const std::function<const mfem::IntegrationRule&(
+          const mfem::FiniteElement&, const mfem::ElementTransformation&)>&
+          integration_rule_selector) {
+    auto builder = PartialQuadratureSpaceOffsetsBuilder{};
+    for (size_type i = 0; i != fespace.GetNBE(); ++i) {
+      if (fespace.GetBdrAttribute(i) != bid) {
+        continue;
+      }
+      const auto& fe = *(fespace.GetBE(i));
+      const auto& tr = *(fespace.GetBdrElementTransformation(i));
+      builder.add(offsets, number_of_quadrature_points, i,
+                  integration_rule_selector(fe, tr));
+    }
+    return builder.finish(elements, element_offsets, uniform_integration_rule);
+  }  // end of buildPartialQuadratureSpaceOffsetsOnBoundaryElements
+
+  void PartialQuadratureSpace::treatInvalidElementIndex(
+      const LocationIdentifier l, const size_type i) {
+    raise(
         "PartialQuadratureSpace::getOffset: "
         "invalid element index '" +
-        std::to_string(i) + "' for material '" + std::to_string(id) + "'");
+        std::to_string(i) + "' for " + getLocationDescription(l));
   }  // end of treatInvalidElementIndex
-
-  PartialQuadratureSpace::PartialQuadratureSpace(
-      const FiniteElementDiscretization& fed,
-      const size_type m,
-      const std::function<const mfem::IntegrationRule&(
-          const mfem::FiniteElement&, const mfem::ElementTransformation&)>& irs)
-      : fe_discretization(fed),
-#ifdef MFEM_USE_MPI
-        parallel_fespace(fed.describesAParallelComputation()
-                             ? &(fed.getFiniteElementSpace<true>())
-                             : nullptr),
-        sequential_fespace(!fed.describesAParallelComputation()
-                               ? &(fed.getFiniteElementSpace<false>())
-                               : nullptr),
-#else  /* MFEM_USE_MPI */
-        sequential_fespace(&(fed.getFiniteElementSpace<false>())),
-#endif /* MFEM_USE_MPI */
-        integration_rule_selector(irs),
-        id(m) {
-    this->initialize(throwing);
-  }  // end of PartialQuadratureSpace
 
 #ifdef MFEM_USE_MPI
   [[nodiscard]] static const FiniteElementSpace<true>*
-  initializeParallelFiniteElementSpace(attributes::Throwing,
-                                       const FiniteElementDiscretization& fed,
-                                       const LocationIdentifier l) {
-    if (isInvalid(l)) {
-      raise("invalid location identifier");
-    }
+  initializeParallelFiniteElementSpace(
+      const FiniteElementDiscretization& fed) noexcept {
     if (!fed.describesAParallelComputation()) {
       return nullptr;
     }
-    if (isValid(l.material_identifier)) {
-      return &(fed.getFiniteElementSpace<true>());
-    }
-    auto ctx = Context{};
-    auto or_raise = ctx.getThrowingFailureHandler();
-    auto fes_manager = fed.getFiniteElementSpacesManager();
-    auto ofes =
-        fes_manager.getFiniteElementSpace<true>(
-            ctx,
-            FiniteElementSpacesManager::GetFiniteElementSpaceOnSubMeshArguments{
-                .location = MeshDiscretization::Location::ON_BOUNDARIES,
-                .identifiers = Parameter{l.boundary_identifier->id},
-                .number_of_components =
-                    fed.getFiniteElementSpace<true>().GetVDim()}) |
-        or_raise;
-    return ofes.get();
+    return &(fed.getFiniteElementSpace<true>());
   }    // end of initializeParallelFiniteElementSpace
 #endif /* MFEM_USE_MPI */
 
   [[nodiscard]] static const FiniteElementSpace<false>*
-  initializeSequentialFiniteElementSpace(attributes::Throwing,
-                                         const FiniteElementDiscretization& fed,
-                                         const LocationIdentifier l) {
-    if (isInvalid(l)) {
-      raise("invalid location identifier");
-    }
+  initializeSequentialFiniteElementSpace(
+      const FiniteElementDiscretization& fed) noexcept {
     if (fed.describesAParallelComputation()) {
       return nullptr;
     }
-    if (isValid(l.material_identifier)) {
-      return &(fed.getFiniteElementSpace<false>());
-    }
-    auto ctx = Context{};
-    auto or_raise = ctx.getThrowingFailureHandler();
-    auto fes_manager = fed.getFiniteElementSpacesManager();
-    auto ofes =
-        fes_manager.getFiniteElementSpace<false>(
-            ctx,
-            FiniteElementSpacesManager::GetFiniteElementSpaceOnSubMeshArguments{
-                .location = MeshDiscretization::Location::ON_BOUNDARIES,
-                .identifiers = l.boundary_identifier->id,
-                .number_of_components =
-                    fed.getFiniteElementSpace<false>().GetVDim()}) |
-        or_raise;
-    return ofes.get();
+    return &(fed.getFiniteElementSpace<false>());
   }  // end of initializeSequentialFiniteElementSpace
-
-  [[nodiscard]] static size_type getIdentifier(attributes::Throwing,
-                                               const LocationIdentifier& l) {
-    if (isInvalid(l)) {
-      raise("invalid location identifier");
-    }
-    if (isValid(l.material_identifier)) {
-      return l.material_identifier.value().id;
-    }
-    return l.boundary_identifier.value().id;
-  }  // end of getIdentifier
 
   PartialQuadratureSpace::PartialQuadratureSpace(
       const FiniteElementDiscretization& fed,
@@ -184,84 +185,132 @@ namespace mfem_mgis {
           const mfem::FiniteElement&, const mfem::ElementTransformation&)>& irs)
       : fe_discretization(fed),
 #ifdef MFEM_USE_MPI
-        parallel_fespace(
-            initializeParallelFiniteElementSpace(throwing, fed, l)),
-        sequential_fespace(
-            initializeSequentialFiniteElementSpace(throwing, fed, l)),
+        parallel_fespace(initializeParallelFiniteElementSpace(fed)),
+        sequential_fespace(initializeSequentialFiniteElementSpace(fed)),
 #else  /* MFEM_USE_MPI */
-        sequential_fespace(
-            initializeSequentialFiniteElementSpace(throwing, fed, l)),
+        sequential_fespace(initializeSequentialFiniteElementSpace(fed)),
 #endif /* MFEM_USE_MPI */
         integration_rule_selector(irs),
-        id(getIdentifier(throwing, l)) {
-    this->initialize(throwing);
+        location(l) {
+#ifdef MFEM_USE_MPI
+    if (this->parallel_fespace != nullptr) {
+      this->initialize<true>(throwing);
+    } else {
+      this->initialize<false>(throwing);
+    }
+#else
+    this->initialize<false>(throwing);
+#endif
   }  // end of PartialQuadratureSpace
 
 #ifdef MFEM_USE_MPI
   PartialQuadratureSpace::PartialQuadratureSpace(
       const FiniteElementDiscretization& fed,
       const FiniteElementSpace<true>& fespace,
-      const size_type l,
+      const LocationIdentifier l,
       const std::function<const mfem::IntegrationRule&(
           const mfem::FiniteElement&, const mfem::ElementTransformation&)>& irs)
       : fe_discretization(fed),
         parallel_fespace(&fespace),
         integration_rule_selector(irs),
-        id(l) {
-    this->initialize(throwing);
+        location(l) {
+    this->initialize<true>(throwing);
   }    // end of PartialQuadratureSpace
 #endif /* MFEM_USE_MPI */
 
   PartialQuadratureSpace::PartialQuadratureSpace(
       const FiniteElementDiscretization& fed,
       const FiniteElementSpace<false>& fespace,
-      const size_type l,
+      const LocationIdentifier l,
       const std::function<const mfem::IntegrationRule&(
           const mfem::FiniteElement&, const mfem::ElementTransformation&)>& irs)
       : fe_discretization(fed),
         sequential_fespace(&fespace),
         integration_rule_selector(irs),
-        id(l) {
-    this->initialize(throwing);
+        location(l) {
+    this->initialize<false>(throwing);
   }  // end of PartialQuadratureSpace
 
+  template <bool parallel>
   void PartialQuadratureSpace::initialize(attributes::Throwing) {
+    auto ctx = Context{};
+    auto or_raise = ctx.getThrowingFailureHandler();
     if (!(this->integration_rule_selector)) {
       raise("invalid quadrature rule selector");
     }
     auto fespaces_manager =
         this->fe_discretization.getFiniteElementSpacesManager();
+    // mesh
+    const auto& mesh = [this]() -> const Mesh<parallel>& {
 #ifdef MFEM_USE_MPI
-    if (this->parallel_fespace != nullptr) {
-      if (!fespaces_manager.manages(*(this->parallel_fespace))) {
+      if constexpr (parallel) {
+        return *(this->parallel_fespace->GetParMesh());
+      } else {
+        return *(this->sequential_fespace->GetMesh());
+      }
+#else  /* MFEM_USE_MPI */
+      return *(this->sequential_fespace->GetMesh());
+#endif /* MFEM_USE_MPI */
+    }();
+    // finite element space
+    const auto& fespace = [this]() -> const FiniteElementSpace<parallel>& {
+#ifdef MFEM_USE_MPI
+      if constexpr (parallel) {
+        return *(this->parallel_fespace);
+      } else {
+        return *(this->sequential_fespace);
+      }
+#else  /* MFEM_USE_MPI */
+      return *(this->sequential_fespace);
+#endif /* MFEM_USE_MPI */
+    }();
+    if (!fespaces_manager.manages(fespace)) {
+      raise(
+          "the given finite element space is not managed "
+          "by the given finite element discretization");
+    }
+    const auto is_mesh_defined_on_boundary =
+        this->fe_discretization.isDefinedOnBoundaries(ctx, mesh) | or_raise;
+    if (isValid(this->location.material_identifier)) {
+      const auto mid = this->location.material_identifier->id;
+      if (is_mesh_defined_on_boundary) {
         raise(
-            "the given finite element space is not managed "
-            "by the given finite element discretization");
+            "the finite element space is defined on boundaries, but the "
+            "location of the quadrature space refers to a material");
       }
-      const auto& attributes = this->parallel_fespace->GetParMesh()->attributes;
-      if (attributes.Find(this->id) == -1) {
-        raise("invalid location identifier (" + std::to_string(this->id) + ")");
+      const auto& attributes = mesh.attributes;
+      if (attributes.Find(mid) == -1) {
+        raise("invalid material identifier (" + std::to_string(mid) + ")");
       }
-      this->ng = buildPartialQuadratureSpaceOffsets<true>(
+      this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
           this->offsets, this->number_of_quadrature_points, this->elements,
-          this->element_offsets, this->uniform_integration_rule,
-          *(this->parallel_fespace), this->id, this->integration_rule_selector);
+          this->element_offsets, this->uniform_integration_rule, fespace, mid,
+          this->integration_rule_selector);
       return;
     }
-#endif /* MFEM_USE_MPI */
-    if (!fespaces_manager.manages(*(this->sequential_fespace))) {
-      raise(
-          "the given finite element space is not managed by "
-          "the given finite element discretization");
+    if (isInvalid(this->location.boundary_identifier)) {
+      raise("invalid location identifier");
     }
-    const auto& attributes = this->sequential_fespace->GetMesh()->attributes;
-    if (attributes.Find(this->id) == -1) {
-      raise("invalid location identifier (" + std::to_string(this->id) + ")");
+    const auto bid = this->location.boundary_identifier->id;
+    if (is_mesh_defined_on_boundary) {
+      const auto& attributes = mesh.attributes;
+      if (attributes.Find(bid) == -1) {
+        raise("invalid boundary identifier (" + std::to_string(bid) + ")");
+      }
+      this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
+          this->offsets, this->number_of_quadrature_points, this->elements,
+          this->element_offsets, this->uniform_integration_rule, fespace, bid,
+          this->integration_rule_selector);
+    } else {
+      const auto& attributes = mesh.bdr_attributes;
+      if (attributes.Find(bid) == -1) {
+        raise("invalid boundary identifier (" + std::to_string(bid) + ")");
+      }
+      this->ng = buildPartialQuadratureSpaceOffsetsOnBoundaryElements<parallel>(
+          this->offsets, this->number_of_quadrature_points, this->elements,
+          this->element_offsets, this->uniform_integration_rule, fespace, bid,
+          this->integration_rule_selector);
     }
-    this->ng = buildPartialQuadratureSpaceOffsets<false>(
-        this->offsets, this->number_of_quadrature_points, this->elements,
-        this->element_offsets, this->uniform_integration_rule,
-        *(this->sequential_fespace), this->id, this->integration_rule_selector);
   }  // end of initialize
 
   const mfem::IntegrationRule& PartialQuadratureSpace::getIntegrationRule(
@@ -271,39 +320,8 @@ namespace mfem_mgis {
   }
 
   std::string PartialQuadratureSpace::getLocationName() const noexcept {
-    auto ctx = Context{};
-    const auto ol = [&ctx, this] {
-#ifdef MFEM_USE_MPI
-      if (this->parallel_fespace != nullptr) {
-        return this->fe_discretization.getLocationIdentifier(
-            ctx, *(this->parallel_fespace->GetParMesh()), this->getId());
-      }
-#endif /* MFEM_USE_MPI */
-      ctx.assertOrTerminate(this->sequential_fespace != nullptr,
-                            "internal error");
-      return this->fe_discretization.getLocationIdentifier(
-          ctx, *(this->sequential_fespace->GetMesh()), this->getId());
-    }();
-    ctx.assertOrTerminate(isValid(ol), "internal error");
-    if (isValid(ol->material_identifier)) {
-      const auto oname = this->fe_discretization.getMaterialName(
-          ctx, ol->material_identifier->id);
-      if (isValid(oname)) {
-        if (!oname->empty()) {
-          return *oname;
-        }
-      }
-      return "material (" + std::to_string(this->getId()) + ")";
-    }
-    ctx.assertOrTerminate(isValid(ol->boundary_identifier), "internal error");
-    const auto oname = this->fe_discretization.getBoundaryName(
-        ctx, ol->boundary_identifier->id);
-    if (isValid(oname)) {
-      if (!oname->empty()) {
-        return *oname;
-      }
-    }
-    return "boundary (" + std::to_string(this->getId()) + ")";
+    return getLocationDescription(this->getMeshDiscretization(),
+                                  this->location);
   }  // end of getLocationName
 
   const MeshDiscretization& PartialQuadratureSpace::getMeshDiscretization()
@@ -363,39 +381,11 @@ namespace mfem_mgis {
   }  // end of getSequentialFiniteElementSpace
 
   bool PartialQuadratureSpace::isDefinedOnAMaterial() const {
-    auto ctx = Context{};
-#ifdef MFEM_USE_MPI
-    if (this->parallel_fespace != nullptr) {
-      const auto ook = this->fe_discretization.isDefinedOnMaterials(
-          ctx, *(this->parallel_fespace->GetParMesh()));
-      ctx.assertOrTerminate(isValid(ook), "internal error");
-      return *ook;
-    }
-#endif /* MFEM_USE_MPI */
-    ctx.assertOrTerminate(this->sequential_fespace != nullptr,
-                          "internal error");
-    const auto ook = this->fe_discretization.isDefinedOnMaterials(
-        ctx, *(this->sequential_fespace->GetMesh()));
-    ctx.assertOrTerminate(isValid(ook), "internal error");
-    return *ook;
+    return isValid(this->location.material_identifier);
   }  // end of isDefinedOnAMaterial
 
   bool PartialQuadratureSpace::isDefinedOnABoundary() const {
-    auto ctx = Context{};
-#ifdef MFEM_USE_MPI
-    if (this->parallel_fespace != nullptr) {
-      const auto ook = this->fe_discretization.isDefinedOnBoundaries(
-          ctx, *(this->parallel_fespace->GetParMesh()));
-      ctx.assertOrTerminate(isValid(ook), "internal error");
-      return *ook;
-    }
-#endif /* MFEM_USE_MPI */
-    ctx.assertOrTerminate(this->sequential_fespace != nullptr,
-                          "internal error");
-    const auto ook = this->fe_discretization.isDefinedOnBoundaries(
-        ctx, *(this->sequential_fespace->GetMesh()));
-    ctx.assertOrTerminate(isValid(ook), "internal error");
-    return *ook;
+    return isValid(this->location.boundary_identifier);
   }  // end of isDefinedOnABoundary
 
   std::optional<size_type> PartialQuadratureSpace::getNumberOfQuadraturePoints(
@@ -425,6 +415,24 @@ namespace mfem_mgis {
 
   PartialQuadratureSpace::~PartialQuadratureSpace() = default;
 
+  bool PartialQuadratureSpace::shallUseBoundaryElementsAPI() const noexcept {
+    if (isValid(this->location.material_identifier)) {
+      return false;
+    }
+    //
+    auto ctx = Context{};
+    // the method below can't fail, so abort will never be called
+    auto or_abort = ctx.getFatalFailureHandler();
+#ifdef MFEM_USE_MPI
+    if (this->parallel_fespace != nullptr) {
+      const auto& mesh = *(this->parallel_fespace->GetParMesh());
+      return this->fe_discretization.isDefinedOnMaterials(ctx, mesh) | or_abort;
+    }
+#endif /* MFEM_USE_MPI */
+    const auto& mesh = *(this->sequential_fespace->GetMesh());
+    return this->fe_discretization.isDefinedOnMaterials(ctx, mesh) | or_abort;
+  }  // end of shallUseBoundaryElementsAPI
+
   template <bool parallel>
   [[nodiscard]] static std::map<mfem::Geometry::Type, size_type>
   getNumberOfElementsByGeometricElementType(
@@ -433,9 +441,16 @@ namespace mfem_mgis {
     auto or_die = ctx.getFatalFailureHandler();
     const auto& mesh = s.getMesh<parallel>(ctx) | or_die;
     auto emapping = std::map<mfem::Geometry::Type, size_type>{};
-    for (const auto [e, o] : s.getOffsets()) {
-      const auto gtype = mesh.GetElementGeometry(e);
-      ++(emapping[gtype]);
+    if (s.shallUseBoundaryElementsAPI()) {
+      for (const auto [e, o] : s.getOffsets()) {
+        const auto gtype = mesh.GetBdrElementGeometry(e);
+        ++(emapping[gtype]);
+      }
+    } else {
+      for (const auto [e, o] : s.getOffsets()) {
+        const auto gtype = mesh.GetElementGeometry(e);
+        ++(emapping[gtype]);
+      }
     }
     return emapping;
   }  // end of getNumberOfElementsByGeometricElementType
@@ -449,8 +464,14 @@ namespace mfem_mgis {
       return {};
     }
     auto qmapping = std::map<mfem::Geometry::Type, size_type>{};
+    const auto use_boundary_api = s.shallUseBoundaryElementsAPI();
     for (const auto [e, o] : s.getOffsets()) {
-      const auto gtype = omesh->GetElementGeometry(e);
+      const auto gtype = [use_boundary_api, &omesh, &e] {
+        if (use_boundary_api) {
+          return omesh->GetBdrElementGeometry(e);
+        }
+        return omesh->GetElementGeometry(e);
+      }();
       if (qmapping.contains(gtype)) {
         continue;
       }
@@ -467,7 +488,14 @@ namespace mfem_mgis {
       Context& ctx, const PartialQuadratureSpace& s) noexcept {
     const auto& fed = s.getFiniteElementDiscretization();
     auto info = PartialQuadratureSpaceInformation{};
-    info.identifier = s.getId();
+    const auto l = s.getLocation();
+    if (isValid(l)) {
+      info.identifier = isValid(l.material_identifier)
+                            ? l.material_identifier->id
+                            : l.boundary_identifier->id;
+    } else {
+      info.identifier = 0;
+    }
     info.name = s.getLocationName();
     info.number_of_cells = getNumberOfCells(s);
     info.number_of_quadrature_points = getNumberOfElements(s);
@@ -559,11 +587,12 @@ namespace mfem_mgis {
       std::ostream& os,
       const PartialQuadratureSpaceInformation& info) noexcept {
     auto success = true;
-    os << "- material or boundary identifier:";
+    os << "- location: ";
     if (!info.name.empty()) {
-      os << " '" << info.name << "' ";
+      os << info.name << '\n';
+    } else {
+      os << info.identifier << '\n';
     }
-    os << " " << std::to_string(info.identifier) << '\n';
     os << "- number of elements: " << info.number_of_cells << '\n';
     os << "- number of quadrature points: " << info.number_of_quadrature_points
        << '\n';
@@ -676,6 +705,33 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
   }    // end of synchronize
 
+  /*!
+   * \return if two partial quadrature spaces are defined on the same mesh
+   * \param[in] s1: first quadrature space
+   * \param[in] s2: second quadrature space
+   *
+   * \note element indices of partial quadrature spaces defined on distinct
+   * meshes can not be compared, even if those spaces are defined on the same
+   * location, see `MeshDiscretization::getElementsMapping`.
+   */
+  [[nodiscard]] static bool areDefinedOnTheSameMesh(
+      const PartialQuadratureSpace& s1,
+      const PartialQuadratureSpace& s2) noexcept {
+    auto ctx = Context{};
+    if (s1.getFiniteElementDiscretization().describesAParallelComputation()) {
+#ifdef MFEM_USE_MPI
+      const auto om1 = s1.getMesh<true>(ctx);
+      const auto om2 = s2.getMesh<true>(ctx);
+      return isValid(om1) && isValid(om2) && (&(*om1) == &(*om2));
+#else  /* MFEM_USE_MPI */
+      reportUnsupportedParallelComputations();
+#endif /* MFEM_USE_MPI */
+    }
+    const auto om1 = s1.getMesh<false>(ctx);
+    const auto om2 = s2.getMesh<false>(ctx);
+    return isValid(om1) && isValid(om2) && (&(*om1) == &(*om2));
+  }  // end of areDefinedOnTheSameMesh
+
   bool areEquivalent(const PartialQuadratureSpace& s1,
                      const PartialQuadratureSpace& s2) noexcept {
     if (&s1 == &s2) {
@@ -702,7 +758,10 @@ namespace mfem_mgis {
         return false;
       }
     }
-    if (s1.getId() != s2.getId()) {
+    if (s1.getLocation() != s2.getLocation()) {
+      return false;
+    }
+    if (!areDefinedOnTheSameMesh(s1, s2)) {
       return false;
     }
     const auto success = [&s1, &s2] {

@@ -1,4 +1,4 @@
-From f272b9bc5af2ae593ad69b23eb7414d4a586caaf Mon Sep 17 00:00:00 2001
+From 9fa8b183a18a61913d1f89d9676cb9437f34dcdb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:01:23 +0200
 Subject: [PATCH] ex4: FBar formulation option (hypre)

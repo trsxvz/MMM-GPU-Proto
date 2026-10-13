@@ -1,4 +1,4 @@
-From 4b72095ee0fbaede7078a498b6ef0b42baf294b8 Mon Sep 17 00:00:00 2001
+From 3c5946fab5f26e0cb17bd806815d9e3a56217b29 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:55:11 +0200
 Subject: [PATCH] AdaptiveLinearSolverTolerance: review (safeguard of the first

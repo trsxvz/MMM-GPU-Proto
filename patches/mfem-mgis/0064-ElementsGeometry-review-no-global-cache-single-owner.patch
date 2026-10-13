@@ -1,4 +1,4 @@
-From e56f87ddd92dcd395966fc4243c0925c08b506f7 Mon Sep 17 00:00:00 2001
+From e81672fbbdc10b8a78e87b19b65ee29dd394deed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:52:45 +0200
 Subject: [PATCH] ElementsGeometry: review (no global cache, single ownership,
@@ -343,10 +343,10 @@ index 94c5caa41f..c60b0345fb 100644
      error = false;
      return true;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9987314919..e830cb78eb 100644
+index 1ffe1b7375..b7162253f2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1037,13 +1037,19 @@ endif()
+@@ -1055,13 +1055,19 @@ endif()
  
  # ElementsGeometryTest executable: jacobians of the element transformations
  # used by the kernels of the batch path, computed by a kernel for the meshes

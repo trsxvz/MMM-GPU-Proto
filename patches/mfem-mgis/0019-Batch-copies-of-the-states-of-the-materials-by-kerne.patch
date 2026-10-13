@@ -1,4 +1,4 @@
-From d956ce236d413297d932cfa2a6734991109e7de5 Mon Sep 17 00:00:00 2001
+From 92a648e92270187ef5051ee1d1fc128ef13cfe0f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:28:12 +0200
 Subject: [PATCH] Batch: copies of the states of the materials by kernels of
@@ -245,10 +245,10 @@ index 0000000000..1add5a43da
 +
 +}  // end of namespace mfem_mgis::batch
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 73fced02d9..afb5321ab7 100644
+index 81aea0c617..69f5f68971 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -777,11 +777,11 @@ namespace mfem_mgis {
+@@ -775,11 +775,11 @@ namespace mfem_mgis {
    }  // end of cleanup
  
    void BehaviourIntegratorBase::revert() {
@@ -335,10 +335,10 @@ index 736c6de321..60bc52cdad 100644
    }  // end of revert
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index be1e7e8341..3000e86d70 100644
+index 0f82ac8309..1dc4bd05f4 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -811,6 +811,21 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
+@@ -829,6 +829,21 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
    endif()
  endif()
  

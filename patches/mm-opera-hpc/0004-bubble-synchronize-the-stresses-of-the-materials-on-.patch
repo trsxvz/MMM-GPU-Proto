@@ -1,4 +1,4 @@
-From 41f7b6e3d74dcdfebf24004b114f94714fe78eb6 Mon Sep 17 00:00:00 2001
+From d6169f5cf1f5ec64e31869f993ca91fa1b553a98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 16:33:19 +0200
 Subject: [PATCH] bubble: synchronize the stresses of the materials on the host
@@ -9,12 +9,12 @@ Subject: [PATCH] bubble: synchronize the stresses of the materials on the host
  1 file changed, 6 insertions(+), 1 deletion(-)
 
 diff --git a/bubble/src/Utilities.cxx b/bubble/src/Utilities.cxx
-index f57e987..fb00509 100644
+index 9e0d248..bb74249 100644
 --- a/bubble/src/Utilities.cxx
 +++ b/bubble/src/Utilities.cxx
-@@ -55,7 +55,8 @@ namespace opera_hpc {
-     // Material identifier for filtering elements
-     const auto mid = s.getId();
+@@ -59,7 +59,8 @@ namespace opera_hpc {
+     }
+     const auto mid = l.material_identifier->id;
  
 -    // Pointer to stress values at end of time step
 +    // Pointer to stress values at end of time step, read on the host
@@ -22,19 +22,19 @@ index f57e987..fb00509 100644
      const auto *stress_values = m.s1.thermodynamic_forces.data();
  
      // Initialize with very small value to find maximum
-@@ -168,6 +169,8 @@ namespace opera_hpc {
-     const auto &fespace = fed.getFiniteElementSpace<parallel>();
- 
-     const auto mid = s.getId();
+@@ -176,6 +177,8 @@ namespace opera_hpc {
+       mfem_mgis::abort("getPointsAboveStressThresholdImplementation only works on materials");
+     }
+     const auto mid = l.material_identifier->id;
 +    // stress values at the end of the time step, read on the host
 +    m.synchronizeOnHostForReading();
      const auto *stress_values = m.s1.thermodynamic_forces.data();
  
      // Local collection of locations exceeding threshold
-@@ -310,6 +313,8 @@ namespace opera_hpc {
-     const auto &fespace = fed.getFiniteElementSpace<parallel>();
- 
-     const auto mid = s.getId();
+@@ -322,6 +325,8 @@ namespace opera_hpc {
+       mfem_mgis::abort("getPointsandStressAboveStressThresholdImplementation only works on materials");
+     }
+     const auto mid = l.material_identifier->id;
 +    // stress values at the end of the time step, read on the host
 +    m.synchronizeOnHostForReading();
      const auto *stress_values = m.s1.thermodynamic_forces.data();

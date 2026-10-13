@@ -12,14 +12,14 @@
 set -eu
 PROTO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 repository=${1:?usage: scripts/sync-repository.sh repository}
-# base commits: master of mfem-mgis (thelfer/mfem-mgis) and of
+# base commits: master of mfem-mgis (official repository) and of
 # mfem-mgis-examples (latug0/mfem-mgis-examples, the reference repository of
 # the examples, consistent with this commit of mfem-mgis), main of
 # mm-opera-hpc (rprat-pro/mm-opera-hpc, its reference repository)
 case "$repository" in
-  mfem-mgis) BASE=a011d97d6f ;;
-  mfem-mgis-examples) BASE=8397eec ;;
-  mm-opera-hpc) BASE=8bd56eb ;;
+  mfem-mgis) BASE=8fac67336e ;;
+  mfem-mgis-examples) BASE=600da70 ;;
+  mm-opera-hpc) BASE=49147f2 ;;
   *)
     echo "unknown repository '$repository'" >&2
     exit 1

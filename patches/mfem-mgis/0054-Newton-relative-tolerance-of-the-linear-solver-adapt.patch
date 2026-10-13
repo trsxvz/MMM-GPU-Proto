@@ -1,4 +1,4 @@
-From 72f2e6e29bc4ad2425f699cd638968147f63e1a0 Mon Sep 17 00:00:00 2001
+From e771d656bc4639a782520eac5f049e3c192e1a6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:10:47 +0200
 Subject: [PATCH] Newton: relative tolerance of the linear solver adapted to
@@ -753,7 +753,7 @@ index 1ce1ce832f..6e390b1a6a 100644
                      const std::vector<std::string>& names) noexcept {
      auto r = Parameters{};
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index 7fc4164c56..01633a6e78 100644
+index f42dee7196..f6a2151745 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -161,4 +161,69 @@ namespace mfem_mgis {
@@ -1060,10 +1060,10 @@ index 0000000000..1eec8e10dc
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 00b4415e8c..e7f46cc05c 100644
+index 5ced95ef3b..7a33f4e449 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -850,6 +850,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -868,6 +868,18 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

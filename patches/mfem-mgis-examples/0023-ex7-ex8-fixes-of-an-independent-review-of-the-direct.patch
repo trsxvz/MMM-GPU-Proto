@@ -1,4 +1,4 @@
-From 4ed849e326793ec06862c283da63bdcee523e2df Mon Sep 17 00:00:00 2001
+From c082f5ecc1592501b388b85933ca2c71b7eedc1e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:27:41 +0200
 Subject: [PATCH] ex7, ex8: fixes of an independent review of the direct solver

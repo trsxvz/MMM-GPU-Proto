@@ -1,4 +1,4 @@
-From 8492d43d6aa27fc58d31783265aff18e1aeac478 Mon Sep 17 00:00:00 2001
+From abc8c97dab44609e9d4e06aeab50f0099d0fb8b0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:47:05 +0200
 Subject: [PATCH] Material: arrays of the integration points in the memory of
@@ -358,10 +358,10 @@ index 0000000000..63fd02b930
 +
 +}  // end of namespace mfem_mgis
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d732a6f68c..c5a4b7bf4f 100644
+index 82753632fb..e3fee48613 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -749,6 +749,27 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -767,6 +767,27 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  
@@ -391,7 +391,7 @@ index d732a6f68c..c5a4b7bf4f 100644
      add_test_executable(HypreBoomerAMGTest)
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
 new file mode 100644
-index 0000000000..2f0430112e
+index 0000000000..368282ecbd
 --- /dev/null
 +++ b/tests/MaterialArraysTest.cxx
 @@ -0,0 +1,163 @@
@@ -543,7 +543,7 @@ index 0000000000..2f0430112e
 +                      {"NumberOfUniformRefinements", 2},
 +                      {"Parallel", false}});
 +  auto qspace = std::make_shared<const PartialQuadratureSpace>(
-+      *fed, 1,
++      *fed, MaterialIdentifier{.id = 1},
 +      [](const mfem::FiniteElement& e,
 +         const mfem::ElementTransformation& tr) noexcept
 +          -> const mfem::IntegrationRule& {

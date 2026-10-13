@@ -118,7 +118,7 @@ static bool check(mfem_mgis::Context& ctx,
   }
   const auto e = getMaximumAbsoluteValue<parallel>(d);
   const auto s = getMaximumAbsoluteValue<parallel>(a);
-  if (mfem_mgis::getMPIrank() == 0) {
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     std::cout << what << ": largest difference " << e << ", largest value " << s
               << '\n';
   }
@@ -134,7 +134,7 @@ static bool check(mfem_mgis::Context& ctx,
                   const mfem_mgis::real a,
                   const mfem_mgis::real b,
                   const mfem_mgis::real tolerance) {
-  if (mfem_mgis::getMPIrank() == 0) {
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     std::cout << what << ": " << a << " (element by element), " << b
               << " (kernels)\n";
   }
@@ -190,7 +190,9 @@ static std::optional<Results<parallel>> compute(
     if (gf == nullptr) {
       return {};
     }
-    updateGridFunction<parallel>(*gf, fcts);
+    if (!updateGridFunction<parallel>(ctx, *gf, fcts)) {
+      return {};
+    }
     r.nodes.emplace_back(*gf);
     auto& fespace =
         p.getFiniteElementDiscretization().getFiniteElementSpace<parallel>();

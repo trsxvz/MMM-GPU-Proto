@@ -1,4 +1,4 @@
-From a4a157ca604695ba4d9e3669975f288fb0b2effe Mon Sep 17 00:00:00 2001
+From 1b5b0c7dc7c9c3244dcb328e2499139dd93f418e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: data stored by element of the material
@@ -482,7 +482,7 @@ index 50ec0c660a..b63416edb6 100644
      int number_of_elements = 0;
      //! \brief number of degrees of freedom per element and per component
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 36a2b7ce73..35804e3824 100644
+index 8aa65be4dc..6838717aee 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -9,10 +9,13 @@
@@ -549,7 +549,7 @@ index 36a2b7ce73..35804e3824 100644
    if (opts.prediction) {
      problem.setPredictionPolicy(
          {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
-@@ -1304,7 +1321,34 @@ int main(int argc, char** argv) {
+@@ -1305,7 +1322,34 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});

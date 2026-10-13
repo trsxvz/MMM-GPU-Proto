@@ -1,4 +1,4 @@
-From 2a23e81e7713c3d4bd26e76e745fdc190fc79dfb Mon Sep 17 00:00:00 2001
+From 40109f9ea19f4f0318676c7e5dbb4b10384289d3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:46 +0200
 Subject: [PATCH] CMake: support of MFEM compiled with CUDA

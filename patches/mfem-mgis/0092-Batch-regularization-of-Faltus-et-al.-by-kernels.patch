@@ -1,4 +1,4 @@
-From ed19e652f249f0bff5f2cec517828a31d8812245 Mon Sep 17 00:00:00 2001
+From 818673ef868c3e90ddcd8b94dd6dadc2e6a09718 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:27:07 +0200
 Subject: [PATCH] Batch: regularization of Faltus et al. by kernels

@@ -224,18 +224,18 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
 
   // Validate arguments
   if (!args.Good()) {
-    if (mfem_mgis::getMPIrank() == 0) args.PrintUsage(std::cout);
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
     mfem_mgis::finalize();
     // an invalid option is a failure, which a test must see
     exit(EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
-    if (mfem_mgis::getMPIrank() == 0)
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
       std::cout << "ERROR: Mesh file missing" << std::endl;
     args.PrintUsage(std::cout);
     mfem_mgis::abort(EXIT_FAILURE);
   }
-  if (mfem_mgis::getMPIrank() == 0) args.PrintOptions(std::cout);
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
 }
 
 /**
@@ -287,12 +287,17 @@ static void calculateAverageHydrostaticStress(
     const mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& prob,
     const mfem_mgis::ImmutablePartialQuadratureFunctionView& f) {
   auto or_die = ctx.getFatalFailureHandler();
-  const auto m = f.getPartialQuadratureSpace().getId();
+  const auto l = f.getPartialQuadratureSpace().getLocation();
+  if (isInvalid(l.material_identifier)) {
+    mfem_mgis::abort(
+        "calculateAverageHydrostaticStress only works on materials");
+  }
+  const auto m = l.material_identifier->id;
   const auto& bi = prob.getBehaviourIntegrator(ctx, m, 0) | or_die;
   const auto volume = mfem_mgis::computeMeasure(bi);
   const auto integral = mfem_mgis::computeIntegral<mfem_mgis::real>(bi, f);
   // Write results on rank 0
-  if (mfem_mgis::getMPIrank() == 0) {
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     os << volume << "," << integral << "," << integral / volume << "\n";
   }
 }  // end of calculateAverageHydrostaticStress
@@ -403,9 +408,9 @@ int main(int argc, char** argv) {
   int verbosity = p.verbosity_level;
   int post_processing = p.post_processing;
   mfem_mgis::Parameters solverParameters;
-  solverParameters.insert(mfem_mgis::throwing,
+  solverParameters.insert(mfem_mgis::may_throw,
                           mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
-  solverParameters.insert(mfem_mgis::throwing,
+  solverParameters.insert(mfem_mgis::may_throw,
                           mfem_mgis::Parameters{{"Tolerance", 1e-10}});
   // algebraic multigrid preconditioner by default: with the diagonal
   // scaling, the solver does not reach its tolerance on the default mesh
@@ -413,7 +418,7 @@ int main(int argc, char** argv) {
     auto preconditioner =
         mfem_mgis::Parameters{{"Name", p.linear_solver_preconditioner}};
     solverParameters.insert(
-        mfem_mgis::throwing,
+        mfem_mgis::may_throw,
         mfem_mgis::Parameters{{"Preconditioner", preconditioner}});
   }
 
@@ -586,7 +591,7 @@ int main(int argc, char** argv) {
   if (post_processing) {
     CatchTimeSection(ctx, "common::post_processing_step");
 
-    if (mfem_mgis::getMPIrank() == 0) {
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
       // Write CSV header and bubble stress data
       write_message(output_file_locations, "Bubble ID", "Location[0]",
                     "Location[1]", "Location[2]", "Stress");
@@ -601,7 +606,7 @@ int main(int argc, char** argv) {
       write_bubble_infos(output_file_locations, bubbles_information);
     }
 
-    if (mfem_mgis::getMPIrank() == 0)
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
       write_message(outfile_sighydr, "Volume", "Integral", "Average");
 
     // Execute standard post-processing (Paraview export)
@@ -655,7 +660,7 @@ int main(int argc, char** argv) {
   }
 
   // Clean up, close, and win
-  if (mfem_mgis::getMPIrank() == 0) {
+  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     outfile_sighydr.close();
     output_file_locations.close();
   }

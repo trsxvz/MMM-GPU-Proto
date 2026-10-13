@@ -1,4 +1,4 @@
-From 840683d96f2ba4bf17d2ece70debd3cc03434646 Mon Sep 17 00:00:00 2001
+From ad14f161eebc71d6e1abc482b77056ad84fa365e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:18:10 +0200
 Subject: [PATCH] CuDSSSolver: direct solver of NVIDIA on the GPU in the
@@ -862,7 +862,7 @@ index c6eb5869c2..4323bd187f 100644
      size_type number_of_analyses = 0;
    };  // end of struct MUMPSSolverReusingAnalysis
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index e9daee2f32..fed648eec7 100644
+index 48ae740f8c..205b71b7ec 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -19,6 +19,7 @@
@@ -900,10 +900,10 @@ index e9daee2f32..fed648eec7 100644
    namespace {
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index bb6d70bc17..3400e39485 100644
+index f9b695ba9c..bdb205fa2f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1206,20 +1206,43 @@ if(MFEM_USE_MPI)
+@@ -1224,20 +1224,43 @@ if(MFEM_USE_MPI)
                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
  endif()
  

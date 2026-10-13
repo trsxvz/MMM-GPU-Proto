@@ -1,4 +1,4 @@
-From 8c9d2a245411e0d7e280c59599bf3bb201e2a4db Mon Sep 17 00:00:00 2001
+From 5bc114c0aac0ee152cebd1e32ccaaedf575f755e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] Config: short option names, device before PETSc, one GPU per
@@ -22,9 +22,9 @@ Subject: [PATCH] Config: short option names, device before PETSc, one GPU per
 ---
  docs/source/user_guide/tutorial.rst | 10 +++-
  include/MFEMMGIS/Config.hxx         |  8 +++
- src/Config.cxx                      | 76 ++++++++++++++++++++++++-----
+ src/Config.cxx                      | 75 ++++++++++++++++++++++++-----
  tests/CMakeLists.txt                |  2 +
- 4 files changed, 84 insertions(+), 12 deletions(-)
+ 4 files changed, 83 insertions(+), 12 deletions(-)
 
 diff --git a/docs/source/user_guide/tutorial.rst b/docs/source/user_guide/tutorial.rst
 index b2e36f28a0..40035d2793 100644
@@ -49,7 +49,7 @@ index b2e36f28a0..40035d2793 100644
  -  ``--use-petsc`` which specifies that linear and non linear solvers of
     the ``PETSc`` toolkit must be used.
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 41fae25035..69714a69d2 100644
+index 90fbdad6f2..0ec6e25cd0 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -127,6 +127,14 @@ namespace mfem_mgis {
@@ -68,18 +68,10 @@ index 41fae25035..69714a69d2 100644
    MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
    /*!
 diff --git a/src/Config.cxx b/src/Config.cxx
-index 5f72a481d6..34fb6fc976 100644
+index 9db26a9f41..6705a413d5 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -7,6 +7,7 @@
- 
- #include <cstring>
- #include <memory>
-+#include <string_view>
- #include <iostream>
- #ifdef MFEM_USE_MPI
- #include "mpi.h"
-@@ -33,6 +34,8 @@ namespace mfem_mgis {
+@@ -40,6 +40,8 @@ namespace mfem_mgis {
      static const char* const petsc_configuration_file_option;
      //! \brief option used to select the configuration of the MFEM device
      static const char* const device_option;
@@ -88,7 +80,7 @@ index 5f72a481d6..34fb6fc976 100644
      //! \return the unique instance of this class
      static Finalizer& get();
      /*!
-@@ -80,6 +83,45 @@ namespace mfem_mgis {
+@@ -87,6 +89,45 @@ namespace mfem_mgis {
  
    const char* const Finalizer::device_option = "--device";
  
@@ -134,7 +126,7 @@ index 5f72a481d6..34fb6fc976 100644
    Finalizer::Finalizer() = default;
  
  #ifdef MFEM_USE_PETSC
-@@ -99,7 +141,8 @@ namespace mfem_mgis {
+@@ -106,7 +147,8 @@ namespace mfem_mgis {
  #endif /* MFEM_USE_PETSC */
      const char* device_configuration = nullptr;
      for (const auto* a = argv; a != argv + argc; ++a) {
@@ -144,7 +136,7 @@ index 5f72a481d6..34fb6fc976 100644
          if (device_configuration != nullptr) {
            mgis::raise("initialize: MFEM device already specified");
          }
-@@ -111,10 +154,17 @@ namespace mfem_mgis {
+@@ -118,10 +160,17 @@ namespace mfem_mgis {
          continue;
        }
  #ifdef MFEM_USE_PETSC
@@ -164,7 +156,7 @@ index 5f72a481d6..34fb6fc976 100644
          if (petscrc_file != nullptr) {
            mgis::raise("initialize: PETSc configuration file already specified");
          }
-@@ -127,6 +177,13 @@ namespace mfem_mgis {
+@@ -134,6 +183,13 @@ namespace mfem_mgis {
        }
  #endif /* MFEM_USE_PETSC */
      }
@@ -178,7 +170,7 @@ index 5f72a481d6..34fb6fc976 100644
  #ifdef MFEM_USE_PETSC
      if (this->use_petsc) {
        if (petscrc_file == nullptr) {
-@@ -135,11 +192,6 @@ namespace mfem_mgis {
+@@ -142,11 +198,6 @@ namespace mfem_mgis {
        mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
      }
  #endif /* MFEM_USE_PETSC */
@@ -190,7 +182,7 @@ index 5f72a481d6..34fb6fc976 100644
    }    // end of initialize
  
    Finalizer& Finalizer::get() {
-@@ -241,11 +293,13 @@ namespace mfem_mgis {
+@@ -248,11 +299,13 @@ namespace mfem_mgis {
    void declareDefaultOptions(mfem::OptionsParser& parser) {
      // the device is created by `initialize`: the option is only declared
      // here, so that the parser accepts it
@@ -208,10 +200,10 @@ index 5f72a481d6..34fb6fc976 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 554f2d6e8a..17dcd3be99 100644
+index 79f8454285..e285d578fd 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -766,6 +766,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -784,6 +784,8 @@ if(MFEM_MGIS_HAVE_TFEL)
             COMMAND DeviceOptionTest --expected none)
    add_test(NAME DeviceOptionTest-debug
             COMMAND DeviceOptionTest --device debug --expected debug)

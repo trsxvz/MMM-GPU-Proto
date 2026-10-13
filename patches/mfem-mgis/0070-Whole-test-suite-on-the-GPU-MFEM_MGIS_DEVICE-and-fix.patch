@@ -1,4 +1,4 @@
-From 3410a92b3bbe0e027a8b28983138fdb2893a589e Mon Sep 17 00:00:00 2001
+From c98d5304ca0a2fb3584953ec288b088a45068619 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Whole test suite on the GPU: MFEM_MGIS_DEVICE and fixes of
@@ -70,7 +70,7 @@ cpu and DeviceOptionTest-none); 157/157 on the CPU.
  create mode 100644 tests/HypreILUTest.cxx
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index 73bcd9eb5c..f3b60ce3d1 100644
+index edd70dffa8..59aefc4d1d 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -136,7 +136,9 @@ namespace mfem_mgis {
@@ -84,7 +84,7 @@ index 73bcd9eb5c..f3b60ce3d1 100644
     */
    MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
    /*!
-@@ -213,6 +215,14 @@ namespace mfem_mgis {
+@@ -251,6 +253,14 @@ namespace mfem_mgis {
     * \param[in, out] parser: options parser
     */
    MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
@@ -203,18 +203,18 @@ index 2f217ad4cf..33436f2ba7 100644
      mfem::VectorFunctionCoefficient sol_coef(dim, f);
      return x.ComputeL2Error(sol_coef);
 diff --git a/src/Config.cxx b/src/Config.cxx
-index 9c7c005017..e8abc9594f 100644
+index 82420b2bd6..241f224610 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -5,6 +5,7 @@
-  * \date   14/02/2021
-  */
- 
+@@ -8,6 +8,7 @@
+ #include <tuple>
+ #include <string>
+ #include <vector>
 +#include <cstdlib>
  #include <cstring>
  #include <memory>
- #include <string_view>
-@@ -195,6 +196,14 @@ namespace mfem_mgis {
+ #include <numeric>
+@@ -201,6 +202,14 @@ namespace mfem_mgis {
        }
  #endif /* MFEM_USE_PETSC */
      }
@@ -229,7 +229,7 @@ index 9c7c005017..e8abc9594f 100644
      // the device is configured after the initialization of hypre and
      // before the one of PETSc, which uses the GPU of the device, as in the
      // parallel examples of MFEM
-@@ -319,6 +328,14 @@ namespace mfem_mgis {
+@@ -325,6 +334,14 @@ namespace mfem_mgis {
      Finalizer::get().abort(error);
    }  // end of abort
  
@@ -384,10 +384,10 @@ index cd064a7b52..7267c0a881 100644
  #else  /*  HYPRE_OLD_VERSION */
      return ctx.registerErrorMessage(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 75acda105b..ce5a4dc153 100644
+index ae156ee228..ffe374c6ff 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1035,6 +1035,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1053,6 +1053,10 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
@@ -431,7 +431,7 @@ index a0abad2b5b..0042b97452 100644
      if (c.accelerated) {
        check(r.iterations < none.iterations, c.name + ": number of iterations");
 diff --git a/tests/GridFunctionInterpolatorTest.cxx b/tests/GridFunctionInterpolatorTest.cxx
-index 5edb3d62e7..d7933240cb 100644
+index e9d2eebbd5..2c32c9f99a 100644
 --- a/tests/GridFunctionInterpolatorTest.cxx
 +++ b/tests/GridFunctionInterpolatorTest.cxx
 @@ -84,14 +84,18 @@ struct GridFunctionInterpolatorTest final : public tfel::tests::TestCase {
@@ -701,7 +701,7 @@ index 773d79c3a1..3862c2d0e3 100644
    const auto scaled = ScaledOperator{wrapped, scaling};
    auto iterations = std::vector<int>{};
 diff --git a/tests/PartialQuadratureFunctionTest.cxx b/tests/PartialQuadratureFunctionTest.cxx
-index c175027f56..f0a23e66c7 100644
+index e3c7ea956c..4321963e9c 100644
 --- a/tests/PartialQuadratureFunctionTest.cxx
 +++ b/tests/PartialQuadratureFunctionTest.cxx
 @@ -37,6 +37,10 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
@@ -733,7 +733,7 @@ index 8d431df22f..eaf6627b19 100644
        {"Name", "HypreDiagScale"},
        {"Options", mfem_mgis::Parameters{{"VerbosityLevel", 0}}}};
 diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
-index d392468be1..2b82ad1ab5 100644
+index fae5a3f1c9..e585604e3b 100644
 --- a/tests/UniaxialTensileTest.cxx
 +++ b/tests/UniaxialTensileTest.cxx
 @@ -114,7 +114,11 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {

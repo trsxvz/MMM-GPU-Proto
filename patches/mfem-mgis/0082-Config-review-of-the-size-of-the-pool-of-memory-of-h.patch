@@ -1,4 +1,4 @@
-From d16a29c28cbaf9793facf0b016f229d44c8f0bce Mon Sep 17 00:00:00 2001
+From 3c2b2a0859f6ab24c2e856c126ac943116fe0b74 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 03:23:46 +0200
 Subject: [PATCH] Config: review of the size of the pool of memory of hypre
@@ -28,7 +28,7 @@ of the prototype, the smaller pool makes the computations 2 to 4 % slower
  4 files changed, 85 insertions(+), 18 deletions(-)
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index f8e3d390e3..96dfd409ae 100644
+index ee564ed957..15f08a43cb 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -149,9 +149,11 @@ namespace mfem_mgis {
@@ -47,18 +47,18 @@ index f8e3d390e3..96dfd409ae 100644
    MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
    /*!
 diff --git a/src/Config.cxx b/src/Config.cxx
-index e8945f3dd8..3f8bf9a112 100644
+index a4d53b3ca9..8b2a43cddb 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -6,6 +6,7 @@
-  */
- 
- #include <cmath>
+@@ -8,6 +8,7 @@
+ #include <tuple>
+ #include <string>
+ #include <vector>
 +#include <limits>
  #include <cstdlib>
  #include <cstring>
  #include <memory>
-@@ -106,26 +107,42 @@ namespace mfem_mgis {
+@@ -111,26 +112,42 @@ namespace mfem_mgis {
    /*!
     * \brief sets the size of the pool of memory allocated at once by hypre
     * on the GPU through Umpire (4 GiB by default in hypre 3.2), before the
@@ -112,7 +112,7 @@ index e8945f3dd8..3f8bf9a112 100644
  #endif
    }  // end of setHypreDevicePoolSize
  
-@@ -201,6 +218,7 @@ namespace mfem_mgis {
+@@ -206,6 +223,7 @@ namespace mfem_mgis {
  #endif /* MFEM_USE_PETSC */
      const char* device_configuration = nullptr;
      const char* hypre_device_pool_size = nullptr;
@@ -120,7 +120,7 @@ index e8945f3dd8..3f8bf9a112 100644
      for (const auto* a = argv; a != argv + argc; ++a) {
        if ((std::strcmp(*a, hypre_device_pool_size_option) == 0) ||
            (std::strcmp(*a, hypre_device_pool_size_short_option) == 0)) {
-@@ -259,10 +277,12 @@ namespace mfem_mgis {
+@@ -264,10 +282,12 @@ namespace mfem_mgis {
        const auto* const e = std::getenv("MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE");
        if ((e != nullptr) && (*e != '\0')) {
          hypre_device_pool_size = e;
@@ -134,7 +134,7 @@ index e8945f3dd8..3f8bf9a112 100644
      }
      // without the option, the configuration of the device may be given by
      // the environment, for instance to run a whole test suite on a GPU
-@@ -414,7 +434,9 @@ namespace mfem_mgis {
+@@ -419,7 +439,9 @@ namespace mfem_mgis {
                       "cuda, hip, omp or debug), created by "
                       "mfem_mgis::initialize. No device is created by "
                       "default.");
@@ -146,10 +146,10 @@ index e8945f3dd8..3f8bf9a112 100644
                       Finalizer::hypre_device_pool_size_short_option,
                       Finalizer::hypre_device_pool_size_option,
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 2ce89db087..95a837a9a9 100644
+index 54be8d6120..7741b45b9d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1131,6 +1131,19 @@ if(MFEM_USE_MPI)
+@@ -1149,6 +1149,19 @@ if(MFEM_USE_MPI)
             COMMAND HypreDevicePoolSizeTest -hdps 1x --expected error)
    add_test(NAME HypreDevicePoolSizeTest-missing
             COMMAND HypreDevicePoolSizeTest --expected error -hdps)

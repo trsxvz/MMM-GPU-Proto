@@ -137,12 +137,15 @@ namespace mfem_mgis {
         const mfem::FiniteElement &e, const mfem::ElementTransformation &t);
     /*!
      * \brief build the quadrature space for the given material
+     * \param[in] throwing: throwing attribute.
      * \param[in] fed: finite element discretization.
      * \param[in] m: material attribute.
      * \return the partial quadrature space
      */
     static std::shared_ptr<const PartialQuadratureSpace> buildQuadratureSpace(
-        const FiniteElementDiscretization &fed, const size_type m);
+        attributes::Throwing throwing,
+        const FiniteElementDiscretization &fed,
+        const size_type m);
     /*!
      * \brief update the gradients at the integration point with the
      * contribution of the given node: micromorphic damage and its gradient

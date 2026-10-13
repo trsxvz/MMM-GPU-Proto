@@ -1,4 +1,4 @@
-From 025b782fc291d8e8ec070cc8eff736f1d0768bc1 Mon Sep 17 00:00:00 2001
+From 0995a3932b2d9eadc6227607a1939ebe7fa2591d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:54:21 +0200
 Subject: [PATCH] Polycrystal: fixes of an independent review of the direct
@@ -41,7 +41,7 @@ index 2453b5c..c2a4a84 100644
  | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
  | `--enable-post-processings`                 | bool   | `false`                      | Execute post-processing steps (default).                                                                                                      |
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 3988980..24f50ea 100644
+index 8b7bd2d..a8fd270 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -214,6 +214,39 @@ int main(int argc, char *argv[]) {

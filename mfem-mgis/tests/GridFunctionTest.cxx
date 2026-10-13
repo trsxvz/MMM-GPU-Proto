@@ -59,7 +59,7 @@ bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
   f.ProjectCoefficient(c);
   //
   auto qspace = std::make_shared<PartialQuadratureSpace>(
-      fed, 5,
+      fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
       -> const mfem::IntegrationRule& {
@@ -137,7 +137,7 @@ bool test2(mfem_mgis::Context& ctx, const TestParameters& params) {
   f.ProjectCoefficient(c);
   //
   auto qspace = std::make_shared<PartialQuadratureSpace>(
-      fed, 5,
+      fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
       -> const mfem::IntegrationRule& {
@@ -225,7 +225,7 @@ bool test3(mfem_mgis::Context& ctx,
   f.ProjectCoefficient(c);
   //
   auto qspace = std::make_shared<PartialQuadratureSpace>(
-      fed, 5,
+      fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
       -> const mfem::IntegrationRule& {
@@ -241,7 +241,9 @@ bool test3(mfem_mgis::Context& ctx,
   if (isInvalid(og)) {
     return false;
   }
-  updateGridFunction<parallel>(*og, {qf});
+  if (!updateGridFunction<parallel>(ctx, *og, {qf})) {
+    return false;
+  }
   *og -= f;
   const auto e = og->Normlinf();
   if (e > 1e-10) {

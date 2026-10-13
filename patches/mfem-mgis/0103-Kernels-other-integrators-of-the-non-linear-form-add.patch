@@ -1,4 +1,4 @@
-From 517e33cde4fb2ba5f56ee7766d8f2ad0e9f51f0e Mon Sep 17 00:00:00 2001
+From 5ee2d7b30e2a37e5c113c618edee3a4b7b249634 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 13:17:56 +0200
 Subject: [PATCH] Kernels: other integrators of the non linear form added to
@@ -728,7 +728,7 @@ index 3180ff5f6c..df3903dfcb 100644
        ~NonLinearEvolutionProblemImplementationBase() = default;
  
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 332d3620f4..8733eb1a3b 100644
+index fca6e5e1fb..dcfd9bc5da 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -18,9 +18,15 @@
@@ -1239,7 +1239,7 @@ index 332d3620f4..8733eb1a3b 100644
    const auto& u = problem.getUnknowns(ets);
    r.u.assign(u.HostRead(), u.HostRead() + u.Size());
    m.synchronizeOnHostForReading();
-@@ -1313,6 +1715,7 @@ int main(int argc, char** argv) {
+@@ -1314,6 +1716,7 @@ int main(int argc, char** argv) {
    const char* mesh_2d = "bar.msh";
    const char* square_mesh = "cube2d.msh";
    const char* two_materials_mesh = "cube-two-materials.mesh";
@@ -1247,7 +1247,7 @@ index 332d3620f4..8733eb1a3b 100644
    const char* library = "src/libBehaviourTest.so";
    const char* openmp_library = "";
    const char* stlpar_library = "";
-@@ -1328,6 +1731,9 @@ int main(int argc, char** argv) {
+@@ -1329,6 +1732,9 @@ int main(int argc, char** argv) {
    args.AddOption(&two_materials_mesh, "-mm", "--two-materials-mesh",
                   "mesh of a cube made of two materials (1 and 2), whose "
                   "boundaries are the ones of the mesh of a cube");
@@ -1257,7 +1257,7 @@ index 332d3620f4..8733eb1a3b 100644
    args.AddOption(&library, "-l", "--library", "behaviour library");
    args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                   "parallel computations (only their comparisons are made)");
-@@ -1352,6 +1758,9 @@ int main(int argc, char** argv) {
+@@ -1353,6 +1759,9 @@ int main(int argc, char** argv) {
      if (opts.plane_strain) {
        return square_mesh;
      }
@@ -1267,7 +1267,7 @@ index 332d3620f4..8733eb1a3b 100644
      return opts.second_material_library != nullptr ? two_materials_mesh : mesh;
    };
    // tolerance of the comparisons between the integrations point by point
-@@ -1480,8 +1889,8 @@ int main(int argc, char** argv) {
+@@ -1481,8 +1890,8 @@ int main(int argc, char** argv) {
                          .matrix_free = true},
                         ", pressure and prediction, matrix free"});
        // inner forces computed element by element: the imposed pressure is
@@ -1278,7 +1278,7 @@ index 332d3620f4..8733eb1a3b 100644
        cases.push_back({b,
                         {.prediction = true,
                          .pressure = true,
-@@ -1491,9 +1900,11 @@ int main(int argc, char** argv) {
+@@ -1492,9 +1901,11 @@ int main(int argc, char** argv) {
                         "element"});
      }
      // springs, depending on the unknowns: an integrator of the non linear
@@ -1293,7 +1293,7 @@ index 332d3620f4..8733eb1a3b 100644
      cases.push_back({"IsotropicLinearHardeningPlasticity",
                       {.prediction = true,
                        .pressure = true,
-@@ -1502,6 +1913,42 @@ int main(int argc, char** argv) {
+@@ -1503,6 +1914,42 @@ int main(int argc, char** argv) {
                        .inner_forces_kernels = true,
                        .tangent_operator_kernels = true},
                       ", pressure, springs and prediction"});
@@ -1336,7 +1336,7 @@ index 332d3620f4..8733eb1a3b 100644
      cases.push_back({"IsotropicLinearHardeningPlasticity",
                       {.prediction = true,
                        .gradients_kernels = true,
-@@ -1595,8 +2042,8 @@ int main(int argc, char** argv) {
+@@ -1596,8 +2043,8 @@ int main(int argc, char** argv) {
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});
        // imposed pressure, with the inner forces computed element by
@@ -1347,7 +1347,7 @@ index 332d3620f4..8733eb1a3b 100644
        // at about 1e-12 times its reference value in parallel, the numbers of
        // iterations differing by two with a tolerance of 1e-12
        cases.push_back({b,
-@@ -1608,9 +2055,8 @@ int main(int argc, char** argv) {
+@@ -1609,9 +2056,8 @@ int main(int argc, char** argv) {
                          .relative_tolerance = 1e-11},
                         ", FBar, pressure and prediction"});
        // imposed pressure added to the inner forces computed by kernels, the
@@ -1359,7 +1359,7 @@ index 332d3620f4..8733eb1a3b 100644
        cases.push_back({b,
                         {.fbar = true,
                          .prediction = true,
-@@ -1645,9 +2091,9 @@ int main(int argc, char** argv) {
+@@ -1646,9 +2092,9 @@ int main(int argc, char** argv) {
                        .relative_tolerance = 1e-11},
                       ", FBar, pressure and prediction, matrix free"});
      // a material using the FBar formulation and an elastic one, the
@@ -1372,7 +1372,7 @@ index 332d3620f4..8733eb1a3b 100644
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
                        .prediction = true,
-@@ -1694,8 +2140,8 @@ int main(int argc, char** argv) {
+@@ -1695,8 +2141,8 @@ int main(int argc, char** argv) {
                        .order = 2},
                       ", FBar, order 2"});
      // regularization of Faltus et al. by kernels: tangent operator assembled
@@ -1384,10 +1384,10 @@ index 332d3620f4..8733eb1a3b 100644
      // meshes (elements which are not affine and have different shapes); the
      // tangent operator computed by kernels with the inner forces computed
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 57bc4f0d93..9ddb7cb5cc 100644
+index abacf128cc..e918041e7a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -821,6 +821,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -839,6 +839,8 @@ if(MFEM_MGIS_HAVE_TFEL)
        --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
        --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh

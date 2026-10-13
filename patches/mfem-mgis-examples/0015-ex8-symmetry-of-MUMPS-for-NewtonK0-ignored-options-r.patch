@@ -1,4 +1,4 @@
-From 03c347eccb08db375347a07e6d9e043d3cdca58d Mon Sep 17 00:00:00 2001
+From 415014f55ad0aa2984333ad93432f786965e9827 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 21:46:20 +0200
 Subject: [PATCH] ex8: symmetry of MUMPS for NewtonK0, ignored options

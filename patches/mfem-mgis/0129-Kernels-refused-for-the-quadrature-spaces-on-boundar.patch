@@ -1,0 +1,111 @@
+From f10b61b4fe30c913315dd72d2fdb2d21a9374e1a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 11:47:19 +0200
+Subject: [PATCH] Kernels refused for the quadrature spaces on boundary
+ elements
+
+The kernels of the behaviour integrators (gradients, inner forces, tangent
+operator, measures and integrals of the post-processings) index the
+elements of the mesh with `PartialQuadratureSpace::getElements`. Since the
+partial quadrature spaces may now be built on the boundary elements of a
+mesh (`shallUseBoundaryElementsAPI`), the check shared by the
+`supportsKernels` methods of the standard, FBar and Faltus integrators
+(`BehaviourIntegratorBase::isQuadratureSpaceSupportedByKernels`) refuses
+these spaces, which keep the computations element by element. All the
+behaviour integrators are built on materials today: this guards future
+integrators defined on boundaries.
+---
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx           |  7 +++++++
+ include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx   |  4 +---
+ .../Faltus2026RegularizedBehaviourIntegrators.ixx      |  4 +---
+ .../MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx   |  4 +---
+ src/BehaviourIntegratorBase.cxx                        | 10 ++++++++++
+ 5 files changed, 20 insertions(+), 9 deletions(-)
+
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index a83b97467b..6393c526ec 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -142,6 +142,13 @@ namespace mfem_mgis {
+       //! \brief geometric data of this rule
+       const batch::ElementsGeometry* geometry = nullptr;
+     };
++    /*!
++     * \return if the quadrature space can be processed by kernels: elements
++     * of the mesh (the kernels do not support the boundary elements, see
++     * `PartialQuadratureSpace::shallUseBoundaryElementsAPI`) using the same
++     * integration rule, or no element
++     */
++    [[nodiscard]] bool isQuadratureSpaceSupportedByKernels() const noexcept;
+     /*!
+      * \brief checks that the material can be processed by kernels (same
+      * integration rule for all its elements, supported behaviour, geometric
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index 5f3aa8aad0..40216300cf 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -554,9 +554,7 @@ namespace mfem_mgis {
+     if ((!k.has_value()) || (*k != expected)) {
+       return false;
+     }
+-    // all the elements must use the same integration rule
+-    return (this->quadrature_space->getNumberOfElements() == 0) ||
+-           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++    return this->isQuadratureSpaceSupportedByKernels();
+   }  // end of supportsKernels
+ 
+   template <typename Child, Hypothesis H>
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+index 9d971f51bb..89578579fe 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+@@ -249,9 +249,7 @@ namespace mfem_mgis {
+       if ((!k.has_value()) || (*k != expected)) {
+         return false;
+       }
+-      // all the elements must use the same integration rule
+-      return (this->quadrature_space->getNumberOfElements() == 0) ||
+-             (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++      return this->isQuadratureSpaceSupportedByKernels();
+     }
+   }  // end of supportsKernels
+ 
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 066e254725..1fe0eb46c2 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -256,9 +256,7 @@ namespace mfem_mgis {
+         (this->requiresCurrentSolutionForJacobianAssembly())) {
+       return false;
+     }
+-    // all the elements must use the same integration rule
+-    return (this->quadrature_space->getNumberOfElements() == 0) ||
+-           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
++    return this->isQuadratureSpaceSupportedByKernels();
+   }  // end of supportsKernels
+ 
+   template <typename Child>
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index fad276194c..e0601602c4 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -1117,6 +1117,16 @@ namespace mfem_mgis {
+     }
+   }  // end of copyStatesOnDevice
+ 
++  bool BehaviourIntegratorBase::isQuadratureSpaceSupportedByKernels()
++      const noexcept {
++    const auto& s = *(this->quadrature_space);
++    if (s.shallUseBoundaryElementsAPI()) {
++      return false;
++    }
++    return (s.getNumberOfElements() == 0) ||
++           (s.getUniformIntegrationRule() != nullptr);
++  }  // end of isQuadratureSpaceSupportedByKernels
++
+   bool BehaviourIntegratorBase::getKernelsData(
+       Context& ctx,
+       KernelsData& data,
+-- 
+2.43.0
+

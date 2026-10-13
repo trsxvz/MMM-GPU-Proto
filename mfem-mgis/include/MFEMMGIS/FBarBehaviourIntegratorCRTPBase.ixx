@@ -554,9 +554,7 @@ namespace mfem_mgis {
     if ((!k.has_value()) || (*k != expected)) {
       return false;
     }
-    // all the elements must use the same integration rule
-    return (this->quadrature_space->getNumberOfElements() == 0) ||
-           (this->quadrature_space->getUniformIntegrationRule() != nullptr);
+    return this->isQuadratureSpaceSupportedByKernels();
   }  // end of supportsKernels
 
   template <typename Child, Hypothesis H>

@@ -1,4 +1,4 @@
-From fd93974cdcc392b5e1b5e505ec549b0de65dd99e Mon Sep 17 00:00:00 2001
+From ab139e6c008dbc4e308ff778064a570490209190 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 02:58:58 +0200
 Subject: [PATCH] Config: size of the pool of memory of hypre on the GPU
@@ -19,14 +19,14 @@ over environment, negative, invalid and missing values), checked by
 mutation.
 ---
  include/MFEMMGIS/Config.hxx       | 12 ++++-
- src/Config.cxx                    | 75 ++++++++++++++++++++++++++++
+ src/Config.cxx                    | 74 ++++++++++++++++++++++++++++
  tests/CMakeLists.txt              | 26 ++++++++++
  tests/HypreDevicePoolSizeTest.cxx | 82 +++++++++++++++++++++++++++++++
- 4 files changed, 193 insertions(+), 2 deletions(-)
+ 4 files changed, 192 insertions(+), 2 deletions(-)
  create mode 100644 tests/HypreDevicePoolSizeTest.cxx
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index d4e56f7acb..f8e3d390e3 100644
+index d18ee38433..ee564ed957 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -145,6 +145,13 @@ namespace mfem_mgis {
@@ -43,7 +43,7 @@ index d4e56f7acb..f8e3d390e3 100644
     */
    MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
    /*!
-@@ -216,8 +223,9 @@ namespace mfem_mgis {
+@@ -254,8 +261,9 @@ namespace mfem_mgis {
    MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
    /*!
     * \brief declare default options: the configuration of the MFEM device
@@ -56,20 +56,17 @@ index d4e56f7acb..f8e3d390e3 100644
     */
    MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);
 diff --git a/src/Config.cxx b/src/Config.cxx
-index e8abc9594f..e8945f3dd8 100644
+index 241f224610..a4d53b3ca9 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -5,14 +5,17 @@
-  * \date   14/02/2021
-  */
- 
-+#include <cmath>
- #include <cstdlib>
- #include <cstring>
+@@ -13,12 +13,14 @@
  #include <memory>
-+#include <string>
- #include <string_view>
+ #include <numeric>
+ #include <utility>
++#include <cmath>
  #include <iostream>
+ #include <algorithm>
+ #include <string_view>
  #ifdef MFEM_USE_MPI
  #include "mpi.h"
  #include "mfem/linalg/hypre.hpp"
@@ -77,7 +74,7 @@ index e8abc9594f..e8945f3dd8 100644
  #endif /* MFEM_USE_MPI */
  #include "mfem/general/error.hpp"
  #include "mfem/general/device.hpp"
-@@ -39,6 +42,13 @@ namespace mfem_mgis {
+@@ -45,6 +47,13 @@ namespace mfem_mgis {
      static const char* const device_option;
      //! \brief short name of the option `device_option`
      static const char* const device_short_option;
@@ -91,7 +88,7 @@ index e8abc9594f..e8945f3dd8 100644
      //! \return the unique instance of this class
      static Finalizer& get();
      /*!
-@@ -88,6 +98,37 @@ namespace mfem_mgis {
+@@ -94,6 +103,37 @@ namespace mfem_mgis {
  
    const char* const Finalizer::device_short_option = "-dev";
  
@@ -129,7 +126,7 @@ index e8abc9594f..e8945f3dd8 100644
    /*!
     * \return the identifier of the GPU used by this process: the processes
     * of a node use the GPUs of the node in turn (several processes may share
-@@ -159,7 +200,23 @@ namespace mfem_mgis {
+@@ -165,7 +205,23 @@ namespace mfem_mgis {
      const char* petscrc_file = nullptr;
  #endif /* MFEM_USE_PETSC */
      const char* device_configuration = nullptr;
@@ -153,7 +150,7 @@ index e8abc9594f..e8945f3dd8 100644
        if ((std::strcmp(*a, device_option) == 0) ||
            (std::strcmp(*a, device_short_option) == 0)) {
          if (device_configuration != nullptr) {
-@@ -196,6 +253,17 @@ namespace mfem_mgis {
+@@ -202,6 +258,17 @@ namespace mfem_mgis {
        }
  #endif /* MFEM_USE_PETSC */
      }
@@ -171,7 +168,7 @@ index e8abc9594f..e8945f3dd8 100644
      // without the option, the configuration of the device may be given by
      // the environment, for instance to run a whole test suite on a GPU
      if (device_configuration == nullptr) {
-@@ -346,6 +414,13 @@ namespace mfem_mgis {
+@@ -352,6 +419,13 @@ namespace mfem_mgis {
                       "cuda, hip, omp or debug), created by "
                       "mfem_mgis::initialize. No device is created by "
                       "default.");
@@ -186,10 +183,10 @@ index e8abc9594f..e8945f3dd8 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 72a9114ba0..2ce89db087 100644
+index d7dfde18bd..54be8d6120 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1107,6 +1107,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+@@ -1125,6 +1125,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
    set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

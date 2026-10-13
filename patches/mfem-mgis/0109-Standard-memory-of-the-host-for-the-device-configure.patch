@@ -1,4 +1,4 @@
-From 0c61fbfcb49b4902dfe7afeb026f30db1be7953c Mon Sep 17 00:00:00 2001
+From eeca077f44f8cec03be6c1aa4e22f901fab251ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:09:38 +0200
 Subject: [PATCH] Standard memory of the host for the device configured by
@@ -56,7 +56,7 @@ index df9572fdc4..978b526fba 100644
  "on the device" in a separate memory of the host, and detects the accesses
  to invalid copies, which allows checking the memory accesses of the
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index a1fde04972..170321ae30 100644
+index 8215426701..7f10338a5e 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -131,7 +131,12 @@ namespace mfem_mgis {
@@ -74,10 +74,10 @@ index a1fde04972..170321ae30 100644
     * `mgis::setProfilingSynchronization`). An application which uses
     * this option must neither create its own `mfem::Device` (MFEM refuses a
 diff --git a/src/Config.cxx b/src/Config.cxx
-index e5b01539c6..b5c828ce45 100644
+index 87722c16b5..9570462b11 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -172,6 +172,48 @@ namespace mfem_mgis {
+@@ -177,6 +177,48 @@ namespace mfem_mgis {
  #endif
    }  // end of setHypreDevicePoolSize
  
@@ -126,7 +126,7 @@ index e5b01539c6..b5c828ce45 100644
    /*!
     * \return the identifier of the GPU used by this process: the processes
     * of a node use the GPUs of the node in turn (several processes may share
-@@ -181,12 +223,8 @@ namespace mfem_mgis {
+@@ -186,12 +228,8 @@ namespace mfem_mgis {
    static int getDeviceIdentifier(const char* const configuration) {
  #if defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP)
      // MFEM aborts if the number of GPUs is queried on a machine without GPU:
@@ -141,7 +141,7 @@ index e5b01539c6..b5c828ce45 100644
        return 0;
      }
      const auto n = mfem::Device::GetDeviceCount();
-@@ -344,6 +382,7 @@ namespace mfem_mgis {
+@@ -349,6 +387,7 @@ namespace mfem_mgis {
              "option '--device' can't be used");
        }
        const auto identifier = getDeviceIdentifier(device_configuration);
@@ -150,10 +150,10 @@ index e5b01539c6..b5c828ce45 100644
            std::make_unique<mfem::Device>(device_configuration, identifier);
        // the kernels are launched asynchronously on a GPU: the profiling
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 2f7b99beb8..dd9678019d 100644
+index 0d3a06b9d3..ffa1406426 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1284,6 +1284,23 @@ add_test(NAME DeviceOptionTest-debug
+@@ -1302,6 +1302,23 @@ add_test(NAME DeviceOptionTest-debug
           COMMAND DeviceOptionTest --device debug --expected debug)
  add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)

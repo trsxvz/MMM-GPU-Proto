@@ -5,7 +5,9 @@
  * \date   14/09/2026
  */
 
+#include <tuple>
 #include <memory>
+#include <string>
 #include <cstdlib>
 #include <iostream>
 #include "TFEL/Tests/TestCase.hxx"
@@ -14,6 +16,7 @@
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
+#include "MFEMMGIS/MPI.hxx"
 
 struct TestParameters {
   const char* mesh_file = nullptr;
@@ -43,10 +46,16 @@ struct MeshDiscretizationTest final : public tfel::tests::TestCase {
 #ifdef MFEM_USE_MPI
     if (parameters.parallel == 1) {
       this->test1<true>();
+      this->test2<true>();
+      this->test3<true>();
+      this->test4<true>();
     }
 #endif /* MFEM_USE_MPI */
     if (parameters.parallel == 0) {
       this->test1<false>();
+      this->test2<false>();
+      this->test3<false>();
+      this->test4<false>();
     }
     return this->result;
   }
@@ -163,6 +172,106 @@ struct MeshDiscretizationTest final : public tfel::tests::TestCase {
         *(omesh->template getMutableMeshPointer<parallel>()), mids);
     TFEL_TESTS_CHECK(!omesh->manages(sm));
   }  // end of test1
+  //! \brief MPI functions on a mesh discretization
+  template <bool parallel>
+  void test2() {
+    using namespace mfem_mgis;
+    auto omesh = construct<MeshDiscretization>(
+        ctx, Parameters{{"MeshFileName", parameters.mesh_file},
+                        {"Parallel", bool(parameters.parallel)}});
+    TFEL_TESTS_ASSERT(isValid(omesh));
+    TFEL_TESTS_CHECK_EQUAL(isMPIMainProcess(*omesh),
+                           isMPIMainProcessForDefaultCommunicator());
+    TFEL_TESTS_CHECK_EQUAL(getMPIRank(*omesh),
+                           getMPIRankForDefaultCommunicator());
+    TFEL_TESTS_CHECK_EQUAL(getMPISize(*omesh),
+                           getMPISizeForDefaultCommunicator());
+  }  // end of test2
+  //! \brief gathering the error messages of all processes
+  template <bool parallel>
+  void test3() {
+    using namespace mfem_mgis;
+    auto omesh = construct<MeshDiscretization>(
+        ctx, Parameters{{"MeshFileName", parameters.mesh_file},
+                        {"Parallel", bool(parameters.parallel)}});
+    TFEL_TESTS_ASSERT(isValid(omesh));
+    const auto rank = getMPIRank(*omesh);
+    const auto size = getMPISize(*omesh);
+    const auto report = [](const std::string& msg) {
+      std::ignore = ctx.registerErrorMessageWithoutSourceLocation(msg);
+    };
+    // no error message
+    synchronize(ctx, *omesh);
+    TFEL_TESTS_CHECK(ctx.empty());
+    // the same error message on all processes
+    report("error");
+    synchronize(ctx, *omesh);
+    TFEL_TESTS_CHECK_EQUAL(ctx.getErrorMessage(), "error");
+    // an error message on the last process only
+    if (rank == size - 1) {
+      report("error on the last process");
+    }
+    synchronize(ctx, *omesh);
+    TFEL_TESTS_CHECK_EQUAL(ctx.getErrorMessage(), "error on the last process");
+    // a different error message on each process
+    report("error " + std::to_string(rank));
+    synchronize(ctx, *omesh);
+    auto e1 = std::string{"error 0"};
+    if (size > 1) {
+      e1.clear();
+      for (int r = 0; r != size; ++r) {
+        if (r != 0) {
+          e1 += '\n';
+        }
+        e1 += "- Error on rank " + std::to_string(r) + ": error " +
+              std::to_string(r);
+      }
+    }
+    TFEL_TESTS_CHECK_EQUAL(ctx.getErrorMessage(), e1);
+    // a multiline error message on the first process
+    if (rank == 0) {
+      report("first line\nsecond line");
+    } else {
+      report("error " + std::to_string(rank));
+    }
+    synchronize(ctx, *omesh);
+    auto e2 = std::string{"first line\nsecond line"};
+    if (size > 1) {
+      e2 = "# Error on rank 0\n\nfirst line\nsecond line";
+      for (int r = 1; r != size; ++r) {
+        e2 += "\n\n# Error on rank " + std::to_string(r) + "\n\nerror " +
+              std::to_string(r);
+      }
+    }
+    TFEL_TESTS_CHECK_EQUAL(ctx.getErrorMessage(), e2);
+  }  // end of test3
+  //! \brief failure of a computation on one of the processes
+  template <bool parallel>
+  void test4() {
+    using namespace mfem_mgis;
+    auto omesh = construct<MeshDiscretization>(
+        ctx, Parameters{{"MeshFileName", parameters.mesh_file},
+                        {"Parallel", bool(parameters.parallel)}});
+    TFEL_TESTS_ASSERT(isValid(omesh));
+    const auto rank = getMPIRank(*omesh);
+    const auto size = getMPISize(*omesh);
+    // success on all the processes
+    raiseOnFailureOnAnyProcess(*omesh, ctx, true, "computation");
+    // failure on the last process: all the processes throw, with its message
+    const auto last = rank == size - 1;
+    if (last) {
+      std::ignore = ctx.registerErrorMessageWithoutSourceLocation(
+          "failure on the last process");
+    }
+    auto message = std::string{};
+    try {
+      raiseOnFailureOnAnyProcess(*omesh, ctx, !last, "computation");
+    } catch (CollectiveFailure& e) {
+      message = e.what();
+    }
+    TFEL_TESTS_CHECK_EQUAL(message, "computation: failure on the last process");
+    TFEL_TESTS_CHECK(ctx.empty());
+  }  // end of test4
 };
 
 TFEL_TESTS_GENERATE_PROXY(MeshDiscretizationTest, "MeshDiscretizationTest");
@@ -175,9 +284,10 @@ int main(int argc, char** argv) {
   auto& m = tfel::tests::TestManager::getTestManager();
   m.addTestOutput(std::cout);
   if (parameters.parallel == 1) {
-    m.addXMLTestOutput("ParallelMeshDiscretizationTest-" +
-                       std::to_string(mfem_mgis::getMPIsize()) + "-" +
-                       std::to_string(mfem_mgis::getMPIrank()) + ".xml");
+    m.addXMLTestOutput(
+        "ParallelMeshDiscretizationTest-" +
+        std::to_string(mfem_mgis::getMPISizeForDefaultCommunicator()) + "-" +
+        std::to_string(mfem_mgis::getMPIRankForDefaultCommunicator()) + ".xml");
   } else {
     m.addXMLTestOutput("MeshDiscretizationTest.xml");
   }

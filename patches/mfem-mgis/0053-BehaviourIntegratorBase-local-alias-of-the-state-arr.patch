@@ -1,4 +1,4 @@
-From f251f862ebba4935d635a1b3290d68b84728d094 Mon Sep 17 00:00:00 2001
+From 5a93442d50182cc7123e4a501e1e68af4a3492b0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:05:10 +0200
 Subject: [PATCH] BehaviourIntegratorBase: local alias of the state arrays not
@@ -12,10 +12,10 @@ warnings.
  1 file changed, 21 insertions(+), 21 deletions(-)
 
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 3bf79c04da..4b88fd5449 100644
+index f987bf65e2..c5cd010a5b 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -872,7 +872,7 @@ namespace mfem_mgis {
+@@ -870,7 +870,7 @@ namespace mfem_mgis {
  
    bool BehaviourIntegratorBase::integrateBatchOnDevice(
        const IntegrationType it) {
@@ -24,7 +24,7 @@ index 3bf79c04da..4b88fd5449 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -900,7 +900,7 @@ namespace mfem_mgis {
+@@ -898,7 +898,7 @@ namespace mfem_mgis {
        // arrays read by the behaviour (`Read`), which are not modified by it,
        // or read and written (`ReadWrite`)
        const auto relocateArray =
@@ -33,7 +33,7 @@ index 3bf79c04da..4b88fd5449 100644
                      const TimeStepStage s, const bool output) {
              const auto& array = arrays.getArray(a, s);
              auto* const p = output ? arrays.readWrite(a, s)
-@@ -908,28 +908,28 @@ namespace mfem_mgis {
+@@ -906,28 +906,28 @@ namespace mfem_mgis {
              view = relocate(view, p, array.Size());
            };
        for (const auto& [view, a] :
@@ -72,7 +72,7 @@ index 3bf79c04da..4b88fd5449 100644
          relocateArray(*view, a, ets, true);
        }
        if (tangent) {
-@@ -1140,7 +1140,7 @@ namespace mfem_mgis {
+@@ -1138,7 +1138,7 @@ namespace mfem_mgis {
    }  // end of cleanup
  
    void BehaviourIntegratorBase::copyStatesOnDevice(const bool u) {
@@ -81,7 +81,7 @@ index 3bf79c04da..4b88fd5449 100644
      auto& arrays = this->getArrays();
      // view of the arrays on the host, whose views of the states and of the
      // tangent operator blocks are replaced by views of the copies on the
-@@ -1153,14 +1153,14 @@ namespace mfem_mgis {
+@@ -1151,14 +1151,14 @@ namespace mfem_mgis {
        // beginning of the time step by an update, and conversely
        const auto output = (stage == bts) == u;
        for (const auto& [view, a] :
@@ -101,7 +101,7 @@ index 3bf79c04da..4b88fd5449 100644
          const auto& array = arrays.getArray(a, stage);
          auto* const p =
              output ? arrays.write(a, stage) : const_cast<real*>(array.Read());
-@@ -1202,9 +1202,9 @@ namespace mfem_mgis {
+@@ -1200,9 +1200,9 @@ namespace mfem_mgis {
      // being invalid (see `MaterialArrays`). The tangent operator blocks, set
      // to zero, are set to zero on the host instead of being copied.
      for (const auto a :

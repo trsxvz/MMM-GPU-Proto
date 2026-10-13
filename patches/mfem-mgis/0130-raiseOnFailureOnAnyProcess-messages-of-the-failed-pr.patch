@@ -1,0 +1,133 @@
+From af7c329b77a95ce08fefe1aaa744f3a2d93d640c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 11:49:47 +0200
+Subject: [PATCH] raiseOnFailureOnAnyProcess: messages of the failed processes
+ on all processes
+
+The processes on which a computation succeeded threw a CollectiveFailure
+saying only "failure on another process". The error messages of the
+processes which failed are now gathered on all the processes by
+`synchronize` (gathering of the error messages of a context), in a new
+context, so that messages of failures already handled by the processes
+which succeeded are not reported.
+
+MeshDiscretizationTest: no exception without failure, and the message of
+a failure on the last process given by all the processes (sequential and
+on two processes; without the gathering, the test fails on two processes).
+---
+ include/MFEMMGIS/MPI.hxx         |  3 ++-
+ src/MPI.cxx                      | 17 +++++++++++++----
+ tests/MeshDiscretizationTest.cxx | 29 +++++++++++++++++++++++++++++
+ 3 files changed, 44 insertions(+), 5 deletions(-)
+
+diff --git a/include/MFEMMGIS/MPI.hxx b/include/MFEMMGIS/MPI.hxx
+index 17a1662c84..1903f6f27f 100644
+--- a/include/MFEMMGIS/MPI.hxx
++++ b/include/MFEMMGIS/MPI.hxx
+@@ -173,7 +173,8 @@ namespace mfem_mgis {
+   /*!
+    * \brief throws a `CollectiveFailure` exception on all the processes if a
+    * computation failed on one of them, before the collective operations
+-   * following it
++   * following it. The message of the exception gives the error messages of
++   * all the processes which failed (see `synchronize`).
+    *
+    * \param[in] m: mesh discretization
+    * \param[in, out] ctx: execution context of the computation
+diff --git a/src/MPI.cxx b/src/MPI.cxx
+index af8f258020..94a18212b9 100644
+--- a/src/MPI.cxx
++++ b/src/MPI.cxx
+@@ -6,10 +6,12 @@
+  */
+ 
+ #include <string>
++#include <tuple>
+ #include "mfem/config/config.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/fem/pfespace.hpp"
+ #endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/MeshDiscretization.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+ 
+ namespace mfem_mgis {
+@@ -95,12 +97,19 @@ namespace mfem_mgis {
+     if (isTrueOnAllProcesses(m, success)) {
+       return;
+     }
++    // the error messages of the processes which failed, given to all the
++    // processes (in a new context: the context of a process which succeeded
++    // may hold messages of failures already handled)
++    auto failures = Context{};
+     if (!success) {
+-      throw(
+-          CollectiveFailure(std::string{what} + ": " + ctx.getErrorMessage()));
++      std::ignore = failures.registerErrorMessageWithoutSourceLocation(
++          ctx.getErrorMessage());
+     }
+-    throw(
+-        CollectiveFailure(std::string{what} + ": failure on another process"));
++    synchronize(failures, m);
++    const auto message = failures.getErrorMessage();
++    throw(CollectiveFailure(
++        std::string{what} + ": " +
++        (message.empty() ? "failure without message" : message)));
+   }  // end of raiseOnFailureOnAnyProcess
+ 
+   CollectiveFailure::~CollectiveFailure() noexcept = default;
+diff --git a/tests/MeshDiscretizationTest.cxx b/tests/MeshDiscretizationTest.cxx
+index cfc7826767..03c08ed94f 100644
+--- a/tests/MeshDiscretizationTest.cxx
++++ b/tests/MeshDiscretizationTest.cxx
+@@ -48,12 +48,14 @@ struct MeshDiscretizationTest final : public tfel::tests::TestCase {
+       this->test1<true>();
+       this->test2<true>();
+       this->test3<true>();
++      this->test4<true>();
+     }
+ #endif /* MFEM_USE_MPI */
+     if (parameters.parallel == 0) {
+       this->test1<false>();
+       this->test2<false>();
+       this->test3<false>();
++      this->test4<false>();
+     }
+     return this->result;
+   }
+@@ -243,6 +245,33 @@ struct MeshDiscretizationTest final : public tfel::tests::TestCase {
+     }
+     TFEL_TESTS_CHECK_EQUAL(ctx.getErrorMessage(), e2);
+   }  // end of test3
++  //! \brief failure of a computation on one of the processes
++  template <bool parallel>
++  void test4() {
++    using namespace mfem_mgis;
++    auto omesh = construct<MeshDiscretization>(
++        ctx, Parameters{{"MeshFileName", parameters.mesh_file},
++                        {"Parallel", bool(parameters.parallel)}});
++    TFEL_TESTS_ASSERT(isValid(omesh));
++    const auto rank = getMPIRank(*omesh);
++    const auto size = getMPISize(*omesh);
++    // success on all the processes
++    raiseOnFailureOnAnyProcess(*omesh, ctx, true, "computation");
++    // failure on the last process: all the processes throw, with its message
++    const auto last = rank == size - 1;
++    if (last) {
++      std::ignore = ctx.registerErrorMessageWithoutSourceLocation(
++          "failure on the last process");
++    }
++    auto message = std::string{};
++    try {
++      raiseOnFailureOnAnyProcess(*omesh, ctx, !last, "computation");
++    } catch (CollectiveFailure& e) {
++      message = e.what();
++    }
++    TFEL_TESTS_CHECK_EQUAL(message, "computation: failure on the last process");
++    TFEL_TESTS_CHECK(ctx.empty());
++  }  // end of test4
+ };
+ 
+ TFEL_TESTS_GENERATE_PROXY(MeshDiscretizationTest, "MeshDiscretizationTest");
+-- 
+2.43.0
+

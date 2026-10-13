@@ -1,4 +1,4 @@
-From 8a6325335e5997fac27306df71bfb0c63149571b Mon Sep 17 00:00:00 2001
+From a106e532d1741d4072dca03167e462a7aea9303f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:00:05 +0200
 Subject: [PATCH] Batch: FBar formulation by kernels
@@ -2227,7 +2227,7 @@ index 15ae871206..4e577423b1 100644
    struct SparseMatrixAssembly {
      //! \brief assembled matrix
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 4b88fd5449..633197190f 100644
+index c5cd010a5b..d389838e4c 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -23,6 +23,7 @@
@@ -2238,7 +2238,7 @@ index 4b88fd5449..633197190f 100644
  #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
  #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
  
-@@ -1217,6 +1218,94 @@ namespace mfem_mgis {
+@@ -1215,6 +1216,94 @@ namespace mfem_mgis {
      }
    }  // end of copyStatesOnDevice
  
@@ -2418,10 +2418,10 @@ index c0f3a88a0b..8e508d9a56 100644
      return true;
    }  // end of computeElementsGeometry
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index a88481b2e3..ccacc66a21 100644
+index 21f960f39a..e53f764b08 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -1204,6 +1204,41 @@ int main(int argc, char** argv) {
+@@ -1205,6 +1205,41 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .assembled_preconditioner = true},
                       ", matrix free, assembled preconditioner"});
@@ -2463,7 +2463,7 @@ index a88481b2e3..ccacc66a21 100644
      for (const auto& [b, opts, name] : cases) {
        const auto* const m = getMesh(opts);
        auto reference = opts;
-@@ -1251,6 +1286,20 @@ int main(int argc, char** argv) {
+@@ -1252,6 +1287,20 @@ int main(int argc, char** argv) {
      cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
                       {.fbar = true},
                       ", FBar"});

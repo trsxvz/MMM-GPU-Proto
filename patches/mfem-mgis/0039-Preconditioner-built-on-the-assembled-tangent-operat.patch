@@ -1,4 +1,4 @@
-From b129009b0ca5bf2ffff3d1b26670179bff07b52b Mon Sep 17 00:00:00 2001
+From 632c36f9ec2f57b7cc9c3738074ebb6cf5733d51 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:16:46 +0200
 Subject: [PATCH] Preconditioner built on the assembled tangent operator

@@ -1,4 +1,4 @@
-From bae47cb2729d1cced219b1684009ec86d472bc1b Mon Sep 17 00:00:00 2001
+From 6f8c361207a227eeb0f6e6cb91e0127577ec1986 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:26:46 +0200
 Subject: [PATCH] Fix the findings of the review of the update on the device
@@ -83,7 +83,7 @@ index 3a9160d48e..2cfcd7520f 100644
       */
      void copyStatesOnDevice(const bool);
 diff --git a/include/MFEMMGIS/MPI.hxx b/include/MFEMMGIS/MPI.hxx
-index 8f5ea27c59..2968cb5ac2 100644
+index 62fc075124..17a1662c84 100644
 --- a/include/MFEMMGIS/MPI.hxx
 +++ b/include/MFEMMGIS/MPI.hxx
 @@ -9,6 +9,7 @@
@@ -94,7 +94,7 @@ index 8f5ea27c59..2968cb5ac2 100644
  #include <string_view>
  #include <concepts>
  #include "MFEMMGIS/Config.hxx"
-@@ -104,8 +105,20 @@ namespace mfem_mgis {
+@@ -159,8 +160,20 @@ namespace mfem_mgis {
    [[nodiscard]] bool isValidOnAllProcesses(const MeshDiscretization& m,
                                             const T& v) noexcept;
    /*!
@@ -253,7 +253,7 @@ index ea4d188b1f..2ec1a95f31 100644
      [[nodiscard]] std::ostream &getLogStream() const noexcept;
      /*!
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index a4c29f7633..14d40c6354 100644
+index d3ff2d3f38..2a63f96b07 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -7,6 +7,7 @@
@@ -264,7 +264,7 @@ index a4c29f7633..14d40c6354 100644
  #include <limits>
  #include <utility>
  #include <variant>
-@@ -1196,9 +1197,24 @@ namespace mfem_mgis {
+@@ -1194,9 +1195,24 @@ namespace mfem_mgis {
                            : "BehaviourIntegratorBase::revert: "} +
              ctx.getErrorMessage());
      }
@@ -386,7 +386,7 @@ index a0f8d9ab99..7c1600a7e0 100644
  
    }  // end of namespace
 diff --git a/src/MPI.cxx b/src/MPI.cxx
-index 8861a4f305..f025036042 100644
+index 5fba54d9e5..af8f258020 100644
 --- a/src/MPI.cxx
 +++ b/src/MPI.cxx
 @@ -10,7 +10,6 @@
@@ -397,7 +397,7 @@ index 8861a4f305..f025036042 100644
  #include "MFEMMGIS/MPI.hxx"
  
  namespace mfem_mgis {
-@@ -38,9 +37,13 @@ namespace mfem_mgis {
+@@ -97,9 +96,13 @@ namespace mfem_mgis {
        return;
      }
      if (!success) {

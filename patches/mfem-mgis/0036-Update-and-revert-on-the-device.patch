@@ -1,4 +1,4 @@
-From f0239ab807ef7c5a3288852cf7c8ffee53384044 Mon Sep 17 00:00:00 2001
+From 6b007d525070f9ec71900bc3cd30d281598e6563 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:44:17 +0200
 Subject: [PATCH] Update and revert on the device
@@ -56,7 +56,7 @@ index 5a7169e6ff..d836003584 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 770bfb3d07..90b468c236 100644
+index f0352266c0..be3bc083c7 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -6,6 +6,7 @@
@@ -75,7 +75,7 @@ index 770bfb3d07..90b468c236 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -1135,13 +1137,67 @@ namespace mfem_mgis {
+@@ -1133,13 +1135,67 @@ namespace mfem_mgis {
      return true;
    }  // end of cleanup
  

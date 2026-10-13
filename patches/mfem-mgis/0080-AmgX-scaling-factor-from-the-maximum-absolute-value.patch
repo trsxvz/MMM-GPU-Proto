@@ -1,4 +1,4 @@
-From e03fd927f7ead1f7d3cad7e139fce75934dd3765 Mon Sep 17 00:00:00 2001
+From 0e6b7b4aedfe1adde28cf0eebe061bfbd18cbb79 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 02:05:36 +0200
 Subject: [PATCH] AmgX: scaling factor from the maximum absolute value

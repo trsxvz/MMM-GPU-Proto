@@ -1,4 +1,4 @@
-From 30beae4764c7d0cbad651449f20fb8be8d04063a Mon Sep 17 00:00:00 2001
+From 65f260feb2bc163c616b4ce14584715afd55de5d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:28:48 +0200
 Subject: [PATCH] NewtonK0 method of the fixed point solver; findings of the

@@ -1,4 +1,4 @@
-From fbac8c024ab9018997ef65deecfb827c9022f9b8 Mon Sep 17 00:00:00 2001
+From d62a8e13cd2e4dbed3491de9c9becc5a39bdd68b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:41:38 +0200
 Subject: [PATCH] Heat transfer by kernels: review (all components tested, skew
@@ -52,10 +52,10 @@ detected.
  create mode 100644 tests/OrthotropicStationaryNonLinearHeatTransfer.mfront
 
 diff --git a/code-generation/behaviour-integrator.cxx b/code-generation/behaviour-integrator.cxx
-index 825eb728d9..f3b2203757 100644
+index 047bf6b087..7698c5de4d 100644
 --- a/code-generation/behaviour-integrator.cxx
 +++ b/code-generation/behaviour-integrator.cxx
-@@ -777,6 +777,9 @@ void generateSourceFile(std::ostream &os,
+@@ -779,6 +779,9 @@ void generateSourceFile(std::ostream &os,
                          const BehaviourIntegratorDescription &d) {
    const auto [b, B] = d.generator(os, "", false);
    writeFileDescription(os, d.name, "implements");
@@ -65,7 +65,7 @@ index 825eb728d9..f3b2203757 100644
    os << "#include <algorithm>\n"
       << "#include \"MGIS/Behaviour/Behaviour.hxx\"\n"
       << "#include \"MFEMMGIS/" << d.name << ".hxx\"\n\n"
-@@ -918,6 +921,17 @@ void generateSourceFile(std::ostream &os,
+@@ -922,6 +925,17 @@ void generateSourceFile(std::ostream &os,
         << "void " << d.name
         << "::setExternalStateVariablesFromUnknownsValues(\n"
         << "std::span<const real> values) {\n"
@@ -124,7 +124,7 @@ index 68819f6561..b44ae514d3 100644
    }  // end of isHeatTransferBehaviour
  
 diff --git a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 52ea39101a..6c63db6546 100644
+index 706e225052..6e7f2ac613 100644
 --- a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -135,7 +135,7 @@ index 52ea39101a..6c63db6546 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -114,6 +115,16 @@ namespace mfem_mgis {
+@@ -116,6 +117,16 @@ namespace mfem_mgis {
    void IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -153,7 +153,7 @@ index 52ea39101a..6c63db6546 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index f294fa6442..7207513181 100644
+index 9f8b0b5b0d..c1b5e8441b 100644
 --- a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -164,7 +164,7 @@ index f294fa6442..7207513181 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -114,6 +115,16 @@ namespace mfem_mgis {
+@@ -116,6 +117,16 @@ namespace mfem_mgis {
    void IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -182,7 +182,7 @@ index f294fa6442..7207513181 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index f615caa65d..0314692192 100644
+index e5b7c66db2..54dbb80273 100644
 --- a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -193,7 +193,7 @@ index f615caa65d..0314692192 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -117,6 +118,16 @@ namespace mfem_mgis {
+@@ -119,6 +120,16 @@ namespace mfem_mgis {
    IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -211,7 +211,7 @@ index f615caa65d..0314692192 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 3c1d241c9e..1a319d0bb9 100644
+index fa4307336d..7c0f4a05cd 100644
 --- a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -222,7 +222,7 @@ index 3c1d241c9e..1a319d0bb9 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -117,6 +118,16 @@ namespace mfem_mgis {
+@@ -119,6 +120,16 @@ namespace mfem_mgis {
    OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -240,7 +240,7 @@ index 3c1d241c9e..1a319d0bb9 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 41d7b43538..615d846ad9 100644
+index adfbabccef..e2d7831ff1 100644
 --- a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -251,7 +251,7 @@ index 41d7b43538..615d846ad9 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -117,6 +118,16 @@ namespace mfem_mgis {
+@@ -119,6 +120,16 @@ namespace mfem_mgis {
    OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -269,7 +269,7 @@ index 41d7b43538..615d846ad9 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index e5c48540d8..e48523daab 100644
+index 90a902ce54..4e0f0ab8a8 100644
 --- a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -280,7 +280,7 @@ index e5c48540d8..e48523daab 100644
  #include <algorithm>
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx"
-@@ -117,6 +118,16 @@ namespace mfem_mgis {
+@@ -119,6 +120,16 @@ namespace mfem_mgis {
    OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
        setExternalStateVariablesFromUnknownsValues(
            std::span<const real> values) {
@@ -298,7 +298,7 @@ index e5c48540d8..e48523daab 100644
    }  // end of setExternalStateVariablesFromUnknownsValues
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1799e732b7..9987314919 100644
+index 59731a35e9..1ffe1b7375 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -69,6 +69,7 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -309,7 +309,7 @@ index 1799e732b7..9987314919 100644
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
      OrthotropicSaintVenantKirchhoffElasticity)
-@@ -766,7 +767,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -784,7 +785,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                       FailingIsotropicLinearElasticity
                       OrthotropicElasticity
                       OrthotropicSaintVenantKirchhoffElasticity
@@ -319,7 +319,7 @@ index 1799e732b7..9987314919 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -857,23 +859,27 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -875,23 +877,27 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_test_executable(HeatTransferKernelsTest)
    set(heat_transfer_kernels_test_arguments
        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh

@@ -1,4 +1,4 @@
-From f3d8ed1e556532019d2adfeb4f64ad3c384dc4ea Mon Sep 17 00:00:00 2001
+From 459b45d2bb87732dd4ce1604c1d804c724067063 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:04:36 +0200
 Subject: [PATCH] Fixed point solver with acceleration algorithms (FixedPoint)
@@ -1356,10 +1356,10 @@ index 3c88090d56..ad6b73d56b 100644
  
    bool NonLinearSolverFactory::add(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9c745d057d..cbcabff3fb 100644
+index 470eba8005..e4f387d01f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -850,6 +850,23 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -868,6 +868,23 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

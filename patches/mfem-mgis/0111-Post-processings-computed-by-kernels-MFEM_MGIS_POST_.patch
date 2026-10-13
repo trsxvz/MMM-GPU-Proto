@@ -1,4 +1,4 @@
-From 2e1914daa56f0409127a50b90aaa8c29eeb33b2e Mon Sep 17 00:00:00 2001
+From e481f64f1ff7da36e4a0bded1852b5fb4e984532 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:05:56 +0200
 Subject: [PATCH] Post-processings computed by kernels
@@ -47,13 +47,13 @@ the GPU.
  .../IntegrationPointsFunctionsKernels.cxx     | 155 ++++++++
  .../IntegrationPointsFunctionsKernels.hxx     |  98 +++++
  src/CMakeLists.txt                            |   3 +
- src/L2Projection.cxx                          | 159 +++++++-
- src/PartialQuadratureFunction.cxx             | 148 ++++++++
+ src/L2Projection.cxx                          | 170 ++++++++-
+ src/PartialQuadratureFunction.cxx             | 153 ++++++++
  src/PostProcessingsComputation.cxx            |  52 +++
  src/PostProcessingsComputation.hxx            |  31 ++
  tests/CMakeLists.txt                          |  39 ++
- tests/PostProcessingsKernelsTest.cxx          | 339 ++++++++++++++++++
- 14 files changed, 1507 insertions(+), 14 deletions(-)
+ tests/PostProcessingsKernelsTest.cxx          | 341 ++++++++++++++++++
+ 14 files changed, 1525 insertions(+), 14 deletions(-)
  create mode 100644 include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
  create mode 100644 include/MFEMMGIS/PostProcessingsComputation.hxx
  create mode 100644 src/Batch/IntegrationPointsFunctions.cxx
@@ -925,7 +925,7 @@ index cc4acd3165..c00bdf856c 100644
    Batch/FBar.cxx
    Batch/Faltus.cxx
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index eaa87b0bb5..5df26a4abd 100644
+index 6caaea79df..5367cee749 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -6,8 +6,11 @@
@@ -940,7 +940,7 @@ index eaa87b0bb5..5df26a4abd 100644
  #include "mfem/mesh/submesh/submesh.hpp"
  #include "mfem/fem/linearform.hpp"
  #include "mfem/fem/bilinearform.hpp"
-@@ -20,10 +23,14 @@
+@@ -20,11 +23,15 @@
  #endif
  
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
@@ -949,13 +949,14 @@ index eaa87b0bb5..5df26a4abd 100644
 +#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
 +#include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
  #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/GridFunctionUtilities.hxx"
  #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
  #include "MFEMMGIS/L2Projection.hxx"
 +#include "PostProcessingsComputation.hxx"
  
  namespace mfem_mgis {
  
-@@ -486,6 +493,107 @@ namespace mfem_mgis {
+@@ -556,6 +563,113 @@ namespace mfem_mgis {
      return true;
    }  // end of checkUpdateFunctionsArguments
  
@@ -978,26 +979,32 @@ index eaa87b0bb5..5df26a4abd 100644
 +   * of the L2 projections of functions, or an empty value if the
 +   * post-processings are not computed by kernels (see
 +   * `internals::usePostProcessingsKernels`) or if the kernels can't be used:
-+   * functions defined on boundaries or on a part of the mesh (submesh),
-+   * elements of a function using different integration rules, geometric data
-+   * which can't be computed by kernels (elements of different geometries)
++   * functions defined on boundary elements or on another mesh than the one
++   * of the projection, elements of a function using different integration
++   * rules, geometric data which can't be computed by kernels (elements of
++   * different geometries)
 +   * \param[in] fes: scalar finite element space of the projection
 +   * \param[in] fcts: functions
-+   * \param[in] on_submesh: if true, the projection is made on a submesh
++   * \param[in] requires_mapping: if true, the functions are defined on
++   * another mesh than the one of the projection
 +   */
 +  template <bool parallel>
 +  static std::optional<L2ProjectionKernelsData> makeL2ProjectionKernelsData(
 +      attributes::MayThrow,
 +      const FiniteElementSpace<parallel>& fes,
 +      const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
-+      const bool on_submesh) {
-+    if ((on_submesh) || (!internals::usePostProcessingsKernels(may_throw))) {
++      const bool requires_mapping) {
++    if ((requires_mapping) ||
++        (!internals::usePostProcessingsKernels(may_throw))) {
 +      return {};
 +    }
 +    auto ctx = Context{};
 +    auto d = L2ProjectionKernelsData{};
 +    for (const auto& f : fcts) {
 +      const auto& qs = f.getPartialQuadratureSpace();
++      if (qs.shallUseBoundaryElementsAPI()) {
++        return {};
++      }
 +      auto& v = d.values.emplace_back();
 +      if (qs.getNumberOfElements() == 0) {
 +        continue;
@@ -1063,14 +1070,19 @@ index eaa87b0bb5..5df26a4abd 100644
    template <bool parallel>
    static bool updatePartialQuadratureRegularization_impl(
        Context& ctx,
-@@ -545,8 +653,19 @@ namespace mfem_mgis {
+@@ -617,8 +731,24 @@ namespace mfem_mgis {
            std::make_unique<GridFunction<parallel>>(&(*olocal_fespace));
        return local_gridfunction.get();
      }();
 +    // computation by kernels: right-hand sides by kernels, operator
 +    // assembled by MFEM, on the device if a device is enabled
-+    const auto kernels_data = makeL2ProjectionKernelsData<parallel>(
-+        may_throw, *olocal_fespace, fcts, r.submesh != nullptr);
++    auto kernels_data = std::optional<L2ProjectionKernelsData>{};
++    try {
++      kernels_data = makeL2ProjectionKernelsData<parallel>(
++          may_throw, *olocal_fespace, fcts, *orequiresMapping);
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
      // Regularization operator
      BilinearForm<parallel> a(&(*olocal_fespace));
 +    // assembly by MFEM on the device: supported for the elements with a
@@ -1082,40 +1094,40 @@ index eaa87b0bb5..5df26a4abd 100644
 +    }
      add_regularization_operator(a);
      a.Assemble();
-     // resolution(s)
-@@ -557,29 +676,38 @@ namespace mfem_mgis {
+     //
+@@ -649,29 +779,38 @@ namespace mfem_mgis {
        }
        // right-hand side
        LinearForm<parallel> b(&(*olocal_fespace));
--      if (rfespace.GetVDim() == 1) {
--        if (use_parent_elements) {
--          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
--              r.submesh->GetParentElementIDMap(), fcts));
+-      if (*orequiresMapping) {
+-        if (rfespace.GetVDim() == 1) {
+-          b.AddDomainIntegrator(
+-              new ScalarL2ProjectionRHSFormIntegratorII(fcts, mappings));
 -        } else {
--          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegrator(fcts));
+-          b.AddDomainIntegrator(
+-              new ComponentL2ProjectionRHSFormIntegratorII(fcts, mappings, c));
 +      if (kernels_data.has_value()) {
 +        if (!computeL2ProjectionRightHandSideByKernels<parallel>(
 +                ctx, b, *olocal_fespace, fcts, *kernels_data, c)) {
 +          return false;
          }
        } else {
--        if (use_parent_elements) {
--          b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
--              r.submesh->GetParentElementIDMap(), fcts, c));
-+        if (rfespace.GetVDim() == 1) {
-+          if (use_parent_elements) {
-+            b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegratorII(
-+                r.submesh->GetParentElementIDMap(), fcts));
-+          } else {
+-        if (rfespace.GetVDim() == 1) {
+-          b.AddDomainIntegrator(new ScalarL2ProjectionRHSFormIntegrator(fcts));
++        if (*orequiresMapping) {
++          if (rfespace.GetVDim() == 1) {
 +            b.AddDomainIntegrator(
-+                new ScalarL2ProjectionRHSFormIntegrator(fcts));
++                new ScalarL2ProjectionRHSFormIntegratorII(fcts, mappings));
++          } else {
++            b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
++                fcts, mappings, c));
 +          }
          } else {
 -          b.AddDomainIntegrator(
 -              new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
-+          if (use_parent_elements) {
-+            b.AddDomainIntegrator(new ComponentL2ProjectionRHSFormIntegratorII(
-+                r.submesh->GetParentElementIDMap(), fcts, c));
++          if (rfespace.GetVDim() == 1) {
++            b.AddDomainIntegrator(
++                new ScalarL2ProjectionRHSFormIntegrator(fcts));
 +          } else {
 +            b.AddDomainIntegrator(
 +                new ComponentL2ProjectionRHSFormIntegrator(fcts, c));
@@ -1136,7 +1148,7 @@ index eaa87b0bb5..5df26a4abd 100644
        l.linear_solver->Mult(B, X);
        clearHypreErrors();
        auto* const isolver =
-@@ -612,6 +740,9 @@ namespace mfem_mgis {
+@@ -704,6 +843,9 @@ namespace mfem_mgis {
          }
        }
      }
@@ -1147,17 +1159,19 @@ index eaa87b0bb5..5df26a4abd 100644
    }  // end of updatePartialQuadratureRegularization_impl
  
 diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
-index 164532c42b..c1285d2c95 100644
+index 0f95d45b98..5745ccce36 100644
 --- a/src/PartialQuadratureFunction.cxx
 +++ b/src/PartialQuadratureFunction.cxx
-@@ -18,10 +18,15 @@
+@@ -18,12 +18,17 @@
  #include "mfem/fem/pgridfunc.hpp"
  #endif /* MFEM_USE_MPI */
  #include "MGIS/Raise.hxx"
 +#include "mfem/fem/fe_coll.hpp"
 +#include "mfem/fem/intrules.hpp"
  
+ #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/GridFunctionUtilities.hxx"
  #include "MFEMMGIS/PartialQuadratureSpace.hxx"
  #include "MFEMMGIS/PartialQuadratureFunction.hxx"
 +#include "MFEMMGIS/Batch/ElementsGeometry.hxx"
@@ -1166,7 +1180,7 @@ index 164532c42b..c1285d2c95 100644
  
  namespace mfem_mgis {
  
-@@ -986,6 +991,143 @@ namespace mfem_mgis {
+@@ -1376,6 +1381,147 @@ namespace mfem_mgis {
      return makeGridFunction_impl<false>(ctx, fcts, mesh);
    }
  
@@ -1181,7 +1195,8 @@ index 164532c42b..c1285d2c95 100644
 +   * The kernels are used if the post-processings are computed by kernels
 +   * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
 +   * Lagrange elements, if the elements of each function use the same
-+   * integration rule and if the geometric data can be computed by kernels.
++   * integration rule and are elements of the mesh (not boundary elements)
++   * and if the geometric data can be computed by kernels.
 +   * In parallel, the decision is made by all the processes, before any
 +   * exchange between them.
 +   * \return true if the grid function is updated, false if the kernels can't
@@ -1226,6 +1241,9 @@ index 164532c42b..c1285d2c95 100644
 +      }
 +      for (size_type i = 0; i != fcts.size(); ++i) {
 +        const auto& qs = fcts[i].getPartialQuadratureSpace();
++        if (qs.shallUseBoundaryElementsAPI()) {
++          return false;
++        }
 +        if (qs.getNumberOfElements() == 0) {
 +          continue;
 +        }
@@ -1308,28 +1326,22 @@ index 164532c42b..c1285d2c95 100644
 +  }  // end of updateGridFunctionByKernels
 +
    template <bool parallel>
-   static void updateGridFunction_impl(
-       GridFunction<parallel>& f,
-@@ -1006,6 +1148,9 @@ namespace mfem_mgis {
-     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
-       raise(ctx.getErrorMessage());
-     }
-+    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
-+      return;
-+    }
-     if (n == 1u) {
-       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);
-       f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
-@@ -1053,6 +1198,9 @@ namespace mfem_mgis {
-     if (!checkGridFunctionMesh<parallel>(ctx, fcts, mesh)) {
-       raise(ctx.getErrorMessage());
-     }
-+    if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
-+      return;
-+    }
-     if (n == 1u) {
-       auto c = PartialQuadratureFunctionsScalarCoefficient(*fespace, fcts);
-       f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
+   [[nodiscard]] static bool updateGridFunction_impl(
+       Context& ctx,
+@@ -1453,6 +1599,13 @@ namespace mfem_mgis {
+         f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
+       }
+     } else {
++      try {
++        if (updateGridFunctionByKernels<parallel>(may_throw, f, fcts)) {
++          return true;
++        }
++      } catch (...) {
++        return registerExceptionInErrorBacktrace(ctx);
++      }
+       if (n == 1u) {
+         auto c = PartialQuadratureFunctionsScalarCoefficient(fespace, fcts);
+         f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
 diff --git a/src/PostProcessingsComputation.cxx b/src/PostProcessingsComputation.cxx
 new file mode 100644
 index 0000000000..971a629621
@@ -1426,12 +1438,12 @@ index 0000000000..0c641cde52
 +
 +#endif /* LIB_MFEM_MGIS_SRC_POSTPROCESSINGSCOMPUTATION_HXX */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 36f6eb59df..4a15080242 100644
+index e2bc83ec46..a95b94d527 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -593,6 +593,45 @@ if(MFEM_MGIS_HAVE_TFEL)
- 
-   add_grid_function_on_submesh_test()
+@@ -611,6 +611,45 @@ if(MFEM_MGIS_HAVE_TFEL)
+   add_assign_values_test(AssignValuesTest beam-tet.mesh)
+   add_assign_values_test(AssignValuesTest2D quad-2-materials.mesh)
  
 +  # PostProcessingsKernelsTest executable: measures, integrals, values at the
 +  # nodes and L2 projections computed by kernels and element by element, on
@@ -1477,10 +1489,10 @@ index 36f6eb59df..4a15080242 100644
  
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
 new file mode 100644
-index 0000000000..9d5afbe71d
+index 0000000000..2257aceee8
 --- /dev/null
 +++ b/tests/PostProcessingsKernelsTest.cxx
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,341 @@
 +/*!
 + * \file   tests/PostProcessingsKernelsTest.cxx
 + * \brief  Comparison of the computations on functions defined at the
@@ -1588,7 +1600,7 @@ index 0000000000..9d5afbe71d
 +  }
 +  const auto e = getMaximumAbsoluteValue<parallel>(d);
 +  const auto s = getMaximumAbsoluteValue<parallel>(a);
-+  if (mfem_mgis::getMPIrank() == 0) {
++  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
 +    std::cout << what << ": largest difference " << e << ", largest value " << s
 +              << '\n';
 +  }
@@ -1604,7 +1616,7 @@ index 0000000000..9d5afbe71d
 +                  const mfem_mgis::real a,
 +                  const mfem_mgis::real b,
 +                  const mfem_mgis::real tolerance) {
-+  if (mfem_mgis::getMPIrank() == 0) {
++  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
 +    std::cout << what << ": " << a << " (element by element), " << b
 +              << " (kernels)\n";
 +  }
@@ -1656,7 +1668,9 @@ index 0000000000..9d5afbe71d
 +    if (gf == nullptr) {
 +      return {};
 +    }
-+    updateGridFunction<parallel>(*gf, fcts);
++    if (!updateGridFunction<parallel>(ctx, *gf, fcts)) {
++      return {};
++    }
 +    r.nodes.emplace_back(*gf);
 +    auto& fespace =
 +        p.getFiniteElementDiscretization().getFiniteElementSpace<parallel>();

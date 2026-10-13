@@ -1,4 +1,4 @@
-From 080c20d1e31f9bc4c62b2512e64a9835a726bf65 Mon Sep 17 00:00:00 2001
+From cf449db5bb9a948aec89e9eff2be9e6fdd9a3d32 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 11:07:32 +0200
 Subject: [PATCH] GPU fixes: review (ILUT, test margins, documentation)
@@ -63,7 +63,7 @@ index 4a9a0f3af3..85c2fd4add 100644
  | ``VerbosityLevel``      | Define the verbosity of the solver. [int: 0,1] |
  +-------------------------+------------------------------------------------+
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
-index f3b60ce3d1..d4e56f7acb 100644
+index 59aefc4d1d..d18ee38433 100644
 --- a/include/MFEMMGIS/Config.hxx
 +++ b/include/MFEMMGIS/Config.hxx
 @@ -139,6 +139,12 @@ namespace mfem_mgis {
@@ -79,7 +79,7 @@ index f3b60ce3d1..d4e56f7acb 100644
     */
    MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
    /*!
-@@ -218,9 +224,8 @@ namespace mfem_mgis {
+@@ -256,9 +262,8 @@ namespace mfem_mgis {
    /*!
     * \return true if hypre computes on a GPU (hypre built with the support of
     * GPUs, its memory being located on the device), false otherwise and
@@ -245,10 +245,10 @@ index 7267c0a881..6320fc7b10 100644
      }
      if (level_of_fill.has_value()) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 3485120749..027d885c38 100644
+index 9aa1f998fb..aa7956d5b7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -831,7 +831,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -849,7 +849,9 @@ if(MFEM_MGIS_HAVE_TFEL)
    # Debug and Coverage builds. Without device, the stiffness matrices and
    # their diagonals are computed by the version of the kernel for the host
    # (one iteration per element): in these builds, the kernel itself (one
@@ -259,7 +259,7 @@ index 3485120749..027d885c38 100644
    set(long_debug_device_tests ON)
    if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
       (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
-@@ -1038,9 +1040,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1056,9 +1058,12 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)

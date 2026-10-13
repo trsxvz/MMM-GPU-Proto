@@ -1,4 +1,4 @@
-From 1bbcb877d821fedb4b8eb8fec066340131750c79 Mon Sep 17 00:00:00 2001
+From 9b7ecf435a3cafdc84b47ab9f6cc379f54700f1b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:21:34 +0200
 Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
@@ -94,12 +94,12 @@ index 136b0965e3..f9171ebfb5 100644
       */
      void copyStatesOnDevice(const bool);
 diff --git a/include/MFEMMGIS/FiniteElementDiscretization.hxx b/include/MFEMMGIS/FiniteElementDiscretization.hxx
-index c72fa30e6b..15874e4db0 100644
+index 596cdaea0e..d42f00127e 100644
 --- a/include/MFEMMGIS/FiniteElementDiscretization.hxx
 +++ b/include/MFEMMGIS/FiniteElementDiscretization.hxx
-@@ -201,6 +201,14 @@ namespace mfem_mgis {
-   MFEM_MGIS_EXPORT size_type
-   getTrueVSize(const FiniteElementDiscretization& fed) noexcept;
+@@ -215,6 +215,14 @@ namespace mfem_mgis {
+   MFEM_MGIS_EXPORT [[nodiscard]] size_type getTrueVSize(
+       const FiniteElementDiscretization& fed) noexcept;
  
 +  /*!
 +   * \return the finite element space, the parallel one for a parallel
@@ -113,7 +113,7 @@ index c72fa30e6b..15874e4db0 100644
     * \brief display information about a finite element discretization
     *
 diff --git a/include/MFEMMGIS/MPI.hxx b/include/MFEMMGIS/MPI.hxx
-index 4c5fa6f9d0..8f5ea27c59 100644
+index bf80f2d675..62fc075124 100644
 --- a/include/MFEMMGIS/MPI.hxx
 +++ b/include/MFEMMGIS/MPI.hxx
 @@ -9,6 +9,7 @@
@@ -124,7 +124,7 @@ index 4c5fa6f9d0..8f5ea27c59 100644
  #include <concepts>
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
-@@ -102,6 +103,21 @@ namespace mfem_mgis {
+@@ -157,6 +158,21 @@ namespace mfem_mgis {
    template <typename T>
    [[nodiscard]] bool isValidOnAllProcesses(const MeshDiscretization& m,
                                             const T& v) noexcept;
@@ -415,7 +415,7 @@ index 7dda821727..f3912126cb 100644
        }
        auto missing = mfem::Array<int>(1);
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 90b468c236..a4c29f7633 100644
+index be3bc083c7..d3ff2d3f38 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -16,6 +16,7 @@
@@ -426,7 +426,7 @@ index 90b468c236..a4c29f7633 100644
  #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
-@@ -1181,6 +1182,23 @@ namespace mfem_mgis {
+@@ -1179,6 +1180,23 @@ namespace mfem_mgis {
      } else {
        mgis::behaviour::revert(v, ops);
      }
@@ -451,10 +451,10 @@ index 90b468c236..a4c29f7633 100644
  
    void BehaviourIntegratorBase::revert() {
 diff --git a/src/FiniteElementDiscretization.cxx b/src/FiniteElementDiscretization.cxx
-index 487ae87bf2..383b91dc5c 100644
+index c5964ec49d..e7721bb5e6 100644
 --- a/src/FiniteElementDiscretization.cxx
 +++ b/src/FiniteElementDiscretization.cxx
-@@ -217,6 +217,18 @@ namespace mfem_mgis {
+@@ -227,6 +227,18 @@ namespace mfem_mgis {
      return fed.getFiniteElementSpace<false>().GetTrueVSize();
    }  // end of getTrueVSize
  
@@ -517,7 +517,7 @@ index 4707a49372..d502561eb0 100644
        std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
      };
 diff --git a/src/MPI.cxx b/src/MPI.cxx
-index fac67be614..8861a4f305 100644
+index b9ad4be868..5fba54d9e5 100644
 --- a/src/MPI.cxx
 +++ b/src/MPI.cxx
 @@ -5,10 +5,12 @@
@@ -533,9 +533,9 @@ index fac67be614..8861a4f305 100644
  #include "MFEMMGIS/MPI.hxx"
  
  namespace mfem_mgis {
-@@ -28,4 +30,17 @@ namespace mfem_mgis {
-     return b;
-   }  // end of isTrueOnAllProcesses
+@@ -87,4 +89,17 @@ namespace mfem_mgis {
+     return 1;
+   }  // end of getMPISize
  
 +  void raiseOnFailureOnAnyProcess(const MeshDiscretization& m,
 +                                  Context& ctx,
@@ -1317,7 +1317,7 @@ index 11ccb25367..d0643dc3e3 100644
      std::cout << (failures == 0 ? "success" : "failure") << '\n';
      return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 8bf8c8a983..9c745d057d 100644
+index 9458e399ac..470eba8005 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -61,6 +61,7 @@ if(MFEM_MGIS_HAVE_TFEL)
@@ -1328,7 +1328,7 @@ index 8bf8c8a983..9c745d057d 100644
      Mazars
      SaintVenantKirchhoffElasticity
      SaintVenantKirchhoffElasticityV2
-@@ -760,6 +761,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -778,6 +779,7 @@ if(MFEM_MGIS_HAVE_TFEL)
    set(batch_integration_test_libraries)
    set(batch_integration_test_behaviours)
    foreach(_behaviour IsotropicLinearHardeningPlasticity

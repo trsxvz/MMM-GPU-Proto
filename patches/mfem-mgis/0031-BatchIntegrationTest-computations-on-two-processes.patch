@@ -1,4 +1,4 @@
-From 8b0b18eec0de09fe3172dbb881c31604364bffad Mon Sep 17 00:00:00 2001
+From 49a33adfdedcc23af0035cfeee616aa3d5d22b8c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:52:19 +0200
 Subject: [PATCH] BatchIntegrationTest: computations on two processes
@@ -151,10 +151,10 @@ index 4acc914302..1b74a49f21 100644
    // invalid value
    {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1f90756926..5499065304 100644
+index 08e7bfdd62..1502529670 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -813,6 +813,23 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -831,6 +831,23 @@ if(MFEM_MGIS_HAVE_TFEL)
               COMMAND BatchIntegrationTest --device cuda
                       ${batch_integration_test_arguments})
    endif()

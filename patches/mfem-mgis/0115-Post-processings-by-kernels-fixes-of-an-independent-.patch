@@ -1,4 +1,4 @@
-From affeddab216cb7c3afed87f8fb6fedd8c5f6562b Mon Sep 17 00:00:00 2001
+From 1c68fc6cf8cbdebf3ba76e5e855d4694a765874a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 21:06:44 +0200
 Subject: [PATCH] Post-processings by kernels: fixes of an independent review
@@ -36,20 +36,20 @@ Subject: [PATCH] Post-processings by kernels: fixes of an independent review
   dimension and of order 3 (values at the nodes element by element).
 - Documentation updated.
 ---
- docs/source/user_guide/batch_computations.rst | 27 ++++--
+ docs/source/user_guide/batch_computations.rst | 27 +++--
  include/MFEMMGIS/Batch/ElementsGeometry.hxx   | 19 ++++
  .../Batch/IntegrationPointsFunctions.hxx      | 17 +++-
  src/AbstractBehaviourIntegrator.cxx           |  4 +-
- src/Batch/ElementsGeometry.cxx                | 62 +++++++++----
- src/Batch/IntegrationPointsFunctions.cxx      | 38 +++++++-
+ src/Batch/ElementsGeometry.cxx                | 62 ++++++++----
+ src/Batch/IntegrationPointsFunctions.cxx      | 38 ++++++-
  .../IntegrationPointsFunctionsKernels.cxx     | 24 +++--
  .../IntegrationPointsFunctionsKernels.hxx     |  9 ++
  src/Config.cxx                                |  5 +
- src/L2Projection.cxx                          | 92 +++++++++++++------
- src/PartialQuadratureFunction.cxx             | 20 ++--
+ src/L2Projection.cxx                          | 98 ++++++++++++-------
+ src/PartialQuadratureFunction.cxx             | 22 +++--
  tests/CMakeLists.txt                          |  7 ++
- tests/PostProcessingsKernelsTest.cxx          | 41 ++++++++-
- 13 files changed, 284 insertions(+), 81 deletions(-)
+ tests/PostProcessingsKernelsTest.cxx          | 41 +++++++-
+ 13 files changed, 288 insertions(+), 85 deletions(-)
 
 diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
 index 277b4c9241..e3575c523c 100644
@@ -540,10 +540,10 @@ index bac23db85f..b18fa9d08f 100644
                                  const int,
                                  real* const,
 diff --git a/src/Config.cxx b/src/Config.cxx
-index 1769194aeb..e8d95dddc2 100644
+index f034217a5d..9816f7c29d 100644
 --- a/src/Config.cxx
 +++ b/src/Config.cxx
-@@ -31,6 +31,7 @@
+@@ -36,6 +36,7 @@
  #ifdef MFEM_MGIS_HAVE_KOKKOS
  #include "KokkosRuntime.hxx"
  #endif /* MFEM_MGIS_HAVE_KOKKOS */
@@ -551,7 +551,7 @@ index 1769194aeb..e8d95dddc2 100644
  #include "MGIS/Profiling.hxx"
  #include <MFEMMGIS/Profiler.hxx>
  #include "MFEMMGIS/Config.hxx"
-@@ -425,6 +426,10 @@ namespace mfem_mgis {
+@@ -430,6 +431,10 @@ namespace mfem_mgis {
               "enable-kokkos), the variable MFEM_MGIS_KOKKOS is ignored\n";
  #endif /* MFEM_MGIS_HAVE_KOKKOS */
      }
@@ -563,7 +563,7 @@ index 1769194aeb..e8d95dddc2 100644
      if (this->use_petsc) {
        if (petscrc_file == nullptr) {
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index a80c7be231..5d106446c6 100644
+index 2789255be7..4591d7ec9c 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -12,6 +12,9 @@
@@ -576,30 +576,31 @@ index a80c7be231..5d106446c6 100644
  #include "mfem/mesh/submesh/submesh.hpp"
  #include "mfem/fem/linearform.hpp"
  #include "mfem/fem/bilinearform.hpp"
-@@ -515,8 +518,12 @@ namespace mfem_mgis {
+@@ -585,9 +588,13 @@ namespace mfem_mgis {
     * post-processings are not computed by kernels (see
     * `internals::usePostProcessingsKernels`) or if the kernels can't be used:
-    * functions defined on boundaries or on a part of the mesh (submesh),
--   * elements of a function using different integration rules, geometric data
--   * which can't be computed by kernels (elements of different geometries)
-+   * finite element space of another family than the Lagrange elements,
-+   * device of libCEED (whose assembly of the operators does not use the
-+   * element restrictions), elements of a function using different
-+   * integration rules, geometric data which can't be computed by kernels
-+   * (elements of different geometries). In parallel, the decision is made
-+   * by all the processes, which then assemble the operator in the same way.
+    * functions defined on boundary elements or on another mesh than the one
+-   * of the projection, elements of a function using different integration
+-   * rules, geometric data which can't be computed by kernels (elements of
+-   * different geometries)
++   * of the projection, finite element space of another family than the
++   * Lagrange elements, device of libCEED (whose assembly of the operators
++   * does not use the element restrictions), elements of a function using
++   * different integration rules, geometric data which can't be computed by
++   * kernels (elements of different geometries). In parallel, the decision is
++   * made by all the processes, which then assemble the operator in the same
++   * way.
     * \param[in] fes: scalar finite element space of the projection
     * \param[in] fcts: functions
-    * \param[in] on_submesh: if true, the projection is made on a submesh
-@@ -532,23 +539,49 @@ namespace mfem_mgis {
+    * \param[in] requires_mapping: if true, the functions are defined on
+@@ -605,27 +612,53 @@ namespace mfem_mgis {
      }
      auto ctx = Context{};
      auto d = L2ProjectionKernelsData{};
 -    for (const auto& f : fcts) {
 -      const auto& qs = f.getPartialQuadratureSpace();
--      auto& v = d.values.emplace_back();
--      if (qs.getNumberOfElements() == 0) {
--        continue;
+-      if (qs.shallUseBoundaryElementsAPI()) {
+-        return {};
 +    const auto ok = [&]() -> bool {
 +      const auto* const fec =
 +          dynamic_cast<const mfem::H1_FECollection*>(fes.FEColl());
@@ -608,11 +609,14 @@ index a80c7be231..5d106446c6 100644
 +          (mfem::Device::Allows(mfem::Backend::CEED_MASK))) {
 +        return false;
        }
--      const auto* const ir = qs.getUniformIntegrationRule();
--      if (ir == nullptr) {
--        return {};
+-      auto& v = d.values.emplace_back();
+-      if (qs.getNumberOfElements() == 0) {
+-        continue;
 +      for (const auto& f : fcts) {
 +        const auto& qs = f.getPartialQuadratureSpace();
++        if (qs.shallUseBoundaryElementsAPI()) {
++          return false;
++        }
 +        auto& v = d.values.emplace_back();
 +        if (qs.getNumberOfElements() == 0) {
 +          continue;
@@ -630,9 +634,8 @@ index a80c7be231..5d106446c6 100644
 +          return false;
 +        }
        }
--      auto& g = d.geometries[ir];
--      if ((g.rule == nullptr) &&
--          (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
+-      const auto* const ir = qs.getUniformIntegrationRule();
+-      if (ir == nullptr) {
 +      return true;
 +    }();
 +    if constexpr (parallel) {
@@ -643,18 +646,23 @@ index a80c7be231..5d106446c6 100644
 +      if (gok == 0) {
          return {};
        }
--      if (!batch::gatherValues(ctx, v, f)) {
--        raise(ctx.getErrorMessage());
+-      auto& g = d.geometries[ir];
+-      if ((g.rule == nullptr) &&
+-          (!batch::computeElementsGeometry(ctx, g, fes, *ir))) {
 +#else  /* MFEM_USE_MPI */
 +      reportUnsupportedParallelComputations();
 +#endif /* MFEM_USE_MPI */
 +    } else {
 +      if (!ok) {
-+        return {};
+         return {};
        }
+-      if (!batch::gatherValues(ctx, v, f)) {
+-        raise(ctx.getErrorMessage());
+-      }
      }
      return d;
-@@ -599,9 +632,12 @@ namespace mfem_mgis {
+   }  // end of makeL2ProjectionKernelsData
+@@ -675,9 +708,12 @@ namespace mfem_mgis {
    /*!
     * \brief integrator of the mass matrices of the elements computed by
     * kernels (see `batch::computeMassMatrices`), for the assembly of MFEM on
@@ -670,7 +678,7 @@ index a80c7be231..5d106446c6 100644
     */
    struct MassMatricesKernelsIntegrator final
        : public mfem::BilinearFormIntegrator {
-@@ -617,7 +653,8 @@ namespace mfem_mgis {
+@@ -693,7 +729,8 @@ namespace mfem_mgis {
        auto ctx = Context{};
        auto g = batch::ElementsGeometry{};
        if ((!batch::computeElementsGeometry(ctx, g, fes, ir)) ||
@@ -680,7 +688,7 @@ index a80c7be231..5d106446c6 100644
          raise(ctx.getErrorMessage());
        }
      }  // end of AssembleEA
-@@ -705,18 +742,13 @@ namespace mfem_mgis {
+@@ -788,18 +825,13 @@ namespace mfem_mgis {
          std::in_place, ctx, "L2Projection::Operator", ctx.isProfilingEnabled());
      BilinearForm<parallel> a(&(*olocal_fespace));
      auto diffusion = mfem::ConstantCoefficient(d);
@@ -706,23 +714,25 @@ index a80c7be231..5d106446c6 100644
        a.AddDomainIntegrator(new mfem::MassIntegrator);
      }
 diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
-index c1285d2c95..f2959f963a 100644
+index 5745ccce36..541f5201c5 100644
 --- a/src/PartialQuadratureFunction.cxx
 +++ b/src/PartialQuadratureFunction.cxx
-@@ -1001,8 +1001,10 @@ namespace mfem_mgis {
+@@ -1391,9 +1391,11 @@ namespace mfem_mgis {
     *
     * The kernels are used if the post-processings are computed by kernels
     * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
 -   * Lagrange elements, if the elements of each function use the same
--   * integration rule and if the geometric data can be computed by kernels.
+-   * integration rule and are elements of the mesh (not boundary elements)
+-   * and if the geometric data can be computed by kernels.
 +   * Lagrange elements (nodal basis) with at most
 +   * `batch::maximumNumberOfNodesOfLocalProjections` degrees of freedom, if
-+   * the elements of each function use the same integration rule and if the
-+   * geometric data can be computed by kernels.
++   * the elements of each function use the same integration rule and are
++   * elements of the mesh (not boundary elements) and if the geometric data
++   * can be computed by kernels.
     * In parallel, the decision is made by all the processes, before any
     * exchange between them.
     * \return true if the grid function is updated, false if the kernels can't
-@@ -1027,17 +1029,23 @@ namespace mfem_mgis {
+@@ -1418,17 +1420,23 @@ namespace mfem_mgis {
      auto values = std::vector<mfem::Vector>(fcts.size());
      const mfem::IntegrationRule* mass_rule = nullptr;
      const auto ok = [&]() -> bool {
@@ -751,10 +761,10 @@ index c1285d2c95..f2959f963a 100644
        mass_rule =
            &(mfem::IntRules.Get(fe.GetGeomType(), 2 * fe.GetOrder() + ow));
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4a15080242..2945d04995 100644
+index a95b94d527..1657cd0bb1 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -631,6 +631,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -649,6 +649,13 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_post_processings_kernels_test(hexahedra cube_2mat_per.mesh Tridimensional)
    add_post_processings_kernels_test(tetrahedra beam-tet.mesh Tridimensional)
    add_post_processings_kernels_test(quadrangles bar.msh PlaneStrain)
@@ -769,7 +779,7 @@ index 4a15080242..2945d04995 100644
    # ImplicitGradientRegularizationTest executable
    add_test_executable(ImplicitGradientRegularizationTest)
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index b017232f58..e35a0287c3 100644
+index 768d355d23..2301541b26 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -10,6 +10,7 @@
@@ -846,7 +856,7 @@ index b017232f58..e35a0287c3 100644
      return ctx.registerErrorMessage(what + ": the results differ");
    }
    return true;
-@@ -213,6 +227,7 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+@@ -215,6 +229,7 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
                        {"FiniteElementFamily", "H1"},
                        {"FiniteElementOrder", params.order},
                        {"UnknownsSize", dim},
@@ -854,7 +864,7 @@ index b017232f58..e35a0287c3 100644
                        {"Hypothesis", params.hypothesis},
                        {"Parallel", parallel}});
    if (isInvalid(oproblem)) {
-@@ -288,16 +303,32 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+@@ -290,16 +305,32 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
      return ctx.registerErrorMessage(
          "computations made by kernels with ElementByElement");
    }

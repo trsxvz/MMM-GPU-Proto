@@ -1,4 +1,4 @@
-From 82087f9f830fe9a448c87fa30dc7754f7de63ed3 Mon Sep 17 00:00:00 2001
+From 847f374cbfe9ae1f1afede95a732424b2d081580 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:23:04 +0200
 Subject: [PATCH] FixedPointSolver: review of the iterative solvers of the
@@ -167,7 +167,7 @@ index 6e390b1a6a..7fef8aabde 100644
        // `Name` and `Options`, as the preconditioners of the linear solvers
        if (!checkParameters(ctx, *oparams,
 diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
-index 01633a6e78..b22f89d0fc 100644
+index f6a2151745..d0cd012ea8 100644
 --- a/src/SolverUtilities.cxx
 +++ b/src/SolverUtilities.cxx
 @@ -33,21 +33,32 @@ namespace mfem_mgis {

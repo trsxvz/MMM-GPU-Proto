@@ -1,4 +1,4 @@
-From 014ac825a9edaf7bccc68748dabe7dce5f86feb1 Mon Sep 17 00:00:00 2001
+From cd54e9874309ae5fb241fe78c40db04558e10216 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 17:07:14 +0200
 Subject: [PATCH] Material arrays: second review of lot L1
@@ -694,10 +694,10 @@ index 101d39f447..81aa9f29ad 100644
  #ifdef MFEM_USE_MPI
      const auto& fed =
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 3000e86d70..bfc81fbce9 100644
+index 1dc4bd05f4..ee693241c6 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -759,12 +759,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -777,12 +777,14 @@ if(MFEM_MGIS_HAVE_TFEL)
                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                       --multi-material-mesh
                       ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
@@ -712,7 +712,7 @@ index 3000e86d70..bfc81fbce9 100644
                       --library $<TARGET_FILE:BehaviourTest>)
      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
        add_test(NAME MaterialArraysTest-cuda
-@@ -772,6 +774,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -790,6 +792,7 @@ if(MFEM_MGIS_HAVE_TFEL)
                         --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                         --multi-material-mesh
                         ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
@@ -721,7 +721,7 @@ index 3000e86d70..bfc81fbce9 100644
      endif()
    endif()
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 8a6c9bd4ae..736fea19c3 100644
+index 7597616192..ca231c5cc8 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -27,6 +27,11 @@
@@ -947,7 +947,7 @@ index 8a6c9bd4ae..736fea19c3 100644
 +                                 {"Parallel", false}}) |
 +             or_die;
 +  auto qspace = make_shared<const PartialQuadratureSpace>(
-+                    ctx, *fed, 5,
++                    ctx, *fed, MaterialIdentifier{.id = 5},
 +                    [](const mfem::FiniteElement& e,
 +                       const mfem::ElementTransformation&) noexcept
 +                        -> const mfem::IntegrationRule& {
