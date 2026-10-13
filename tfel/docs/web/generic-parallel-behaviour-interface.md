@@ -473,6 +473,19 @@ from their own parameters initializers, recursively: the behaviour gives
 them to its behaviour variables, and to the behaviour variables created by
 its factories.
 
+## Numerical type
+
+As with the `generic` interface, the `real_type` DSL option selects the
+numerical type of the data exchanged with the generated functions:
+`double` (the default) or `float` (`--dsl-option=real_type:float`). The
+`MFRONT_GB_REAL_TYPE` macro is defined by the generated sources, the size
+of the type is exported (`<name>_real_size`) and the version of the
+interface (`<name>_generic_parallel_api_version`) is shifted by 1000 for
+another type than `double`. The key of the time step scaling factor in
+the statistics of a batch is built from its value converted to `double`,
+whatever the numerical type. The standalone models (`@DSL Model`) only
+support `double`.
+
 # Standalone models
 
 The interface is also available for standalone models (`@DSL Model`). As

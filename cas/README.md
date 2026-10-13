@@ -101,7 +101,8 @@ imposée, lot L7.6), `mesures-backends-gpu.sh` et
 `generic-parallel`), `mesures-ex8.sh` (ex8 de bout en bout),
 `mesures-post-traitements.sh` (post-traitements, lot L8),
 `mesures-execution-poutre.sh` (placements donnés par `--execution`,
-tâche 9a). Outils :
+tâche 9a), `mesures-precision-poutre.sh` (float contre double sur le CPU,
+environnements spack jumeaux, tâche 9b). Outils :
 `resume-profilage.py` (temps par phase des sorties `--profiling`),
 `comparer-sorties.py` (comparaison de sorties numériques, `--csv` pour
 les valeurs séparées par des virgules), `assemblage/` (programme qui

@@ -30,6 +30,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
@@ -368,7 +369,8 @@ int main(int argc, char** argv) {
     auto unorm = mfem::InnerProduct(u, u);
 #ifdef MFEM_USE_MPI
     if (parallel) {
-      MPI_Allreduce(MPI_IN_PLACE, &unorm, 1, MPI_DOUBLE, MPI_SUM,
+      MPI_Allreduce(MPI_IN_PLACE, &unorm, 1,
+                    mfem_mgis::mpi_type<decltype(unorm)>, MPI_SUM,
                     MPI_COMM_WORLD);
       MPI_Allreduce(MPI_IN_PLACE, &total, 1, MPI_DOUBLE, MPI_MAX,
                     MPI_COMM_WORLD);

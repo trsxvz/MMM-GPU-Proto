@@ -185,3 +185,29 @@ Each of those functions has a variant treating an array of integration
 points, whose name is obtained by replacing `rotate` by `rotateArrayOf`
 (for instance
 `<behaviour_function_name>_<hypothesis>_rotateArrayOfThermodynamicForces_CauchyStress`).
+
+## Numerical type
+
+By default, the data exchanged with the generated functions are of type
+`double`. The `real_type` DSL option selects `float` instead:
+
+~~~~{.bash}
+$ mfront --obuild --interface=generic --dsl-option=real_type:float \
+    Plasticity.mfront
+~~~~
+
+The type of the data (`mfront_gb_real`, declared in
+`MFront/GenericBehaviour/Types.h`) is then given by the
+`MFRONT_GB_REAL_TYPE` macro, defined by the generated sources. Each
+behaviour exports the size of its numerical type
+(`<behaviour_function_name>_real_size`), and the version of its
+application programming interface is shifted by 1000 for another type
+than `double`: a caller expecting `double`, such as `MTest`, refuses the
+library. With `float`, the convergence criteria (`@Epsilon`) are raised to
+a tenth of the machine epsilon of `float` (about `1.2e-8`) and the
+perturbation of the numerical jacobian to the machine epsilon (about
+`1.2e-7`), with a warning. The same option is supported by the
+[`generic-parallel` interface](generic-parallel-behaviour-interface.html)
+and by the `generic` and `generic-parallel` interfaces for material
+properties (`MFRONT_GMP_REAL_TYPE` macro). See the release notes of
+version 5.2 for the writing of behaviours usable with `float`.

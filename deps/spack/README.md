@@ -10,6 +10,15 @@ Contenu :
   MPI, PETSc 3.26.0 avec Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
   MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. Le choix des
   solveurs est expliqué dans [docs/solveurs-gpu.md](../../docs/solveurs-gpu.md) ;
+- `mmm-float-cpu/spack.yaml`, `mmm-double-cpu/spack.yaml` et
+  `mmm-float-gpu/spack.yaml` : environnements de la précision float (tâche
+  9b, [docs/plan-precision.md](../../docs/plan-precision.md)). MFEM 4.10 en
+  simple précision, hypre en simple et MUMPS `+float`, sur le CPU
+  (`mmm-float-cpu`) ou avec CUDA et Umpire (`mmm-float-gpu`, sans AmgX ni
+  cuDSS) ; `mmm-double-cpu` est le jumeau en double de `mmm-float-cpu`,
+  pour comparer les deux précisions à environnement égal (dans `mmm-gpu`,
+  hypre est construit pour CUDA). Ils partagent l'instance de spack, les
+  paquets et les externes de `mmm-gpu`, qui n'est pas modifié ;
 - `repos/spack_repo/mmm_gpu` : dépôt de paquets complémentaire, prioritaire
   sur celui de spack :
   - `adaptivecpp` : AdaptiveCpp 25.10 (le paquet `hipsycl` de spack
