@@ -23,6 +23,15 @@ namespace mfront::generic_parallel::material_property {
 
   /*!
    * \brief This class implements a backend for the parallel STL algorithms
+   *
+   * Options:
+   *
+   * - `execution_policy`: `sequenced_policy` (or `seq`),
+   *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
+   *   `parallel_unsequenced_policy` (or `par_unseq`, default).
+   * - `device_stack_size`: minimal stack size, in bytes, of the threads of
+   *   the device when the parallel algorithms are offloaded to a GPU by
+   *   `nvc++ -stdpar=gpu` (ignored otherwise).
    */
   struct MFRONT_VISIBILITY_EXPORT ParallelSTLBackend
       : CxxProgrammingModelBackendBase {

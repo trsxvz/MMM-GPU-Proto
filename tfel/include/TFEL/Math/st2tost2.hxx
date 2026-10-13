@@ -271,9 +271,10 @@ namespace tfel::math {
    * \return the invert of a st2tost2
    * \param[in] s : st2tost2 to be inverted
    *
-   * On the host, an exception is thrown if the st2tost2 is singular. In
-   * device code, the result is filled with NaN values (see
-   * `TinyMatrixInvert`).
+   * On the host, an exception is thrown if the st2tost2 is singular. When
+   * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
+   * unit with the compilers translating host and device code in a single
+   * pass), the result is filled with NaN values (see `TinyMatrixInvert`).
    */
   TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto&);
   /*!

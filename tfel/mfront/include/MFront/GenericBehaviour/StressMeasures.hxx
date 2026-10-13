@@ -1,7 +1,10 @@
 /*!
  * \file   mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
- * \brief  This file declares the conversions of the Cauchy stress to the
- * stress measures of the finite strain behaviours of the generic interface.
+ * \brief  This file declares the `convertFromCauchyStress` function, which
+ * converts the Cauchy stress to the stress measures of the finite strain
+ * behaviours of the generic interface. This function is shared by the
+ * three integration headers (standard finite strain behaviours, Hencky and
+ * Green-Lagrange strain frameworks).
  * \date   06/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.

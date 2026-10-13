@@ -1,7 +1,9 @@
 /*!
  * \file
- * mfront/include/MFront/GenericBehaviour/StandardFiniteStrainIntegrate.hxx
- * \brief
+ * mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+ * \brief  This file declares the functions integrating the standard finite
+ * strain behaviours, shared by the `generic` and `generic-parallel`
+ * interfaces.
  * \author Thomas Helfer
  * \date   31/01/2022
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights

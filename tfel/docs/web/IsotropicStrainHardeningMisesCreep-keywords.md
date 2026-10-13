@@ -2001,7 +2001,10 @@ The `@Profiling` keyword is followed by a boolean. If true, several
 high resolutions clocks will be introduced in the generated code to
 profile performance bottlenecks. The total time spend in various
 portions of the generated code will be stored and displayed when the
-calling process exits. Profiling is disabled in device code.
+calling process exits. Profiling is disabled in device code, and in the
+whole library with the compilers translating host and device code in a
+single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
+AdaptiveCpp).
 
 ## Example
 
@@ -2128,8 +2131,11 @@ type must then be trivially copyable. The following restrictions apply:
   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
 - the copies are never freed (one copy per device with the `cuda` and
   `hip` backends, one copy per device and context with the `sycl`
-  backend), except with the `kokkos` backend, which frees its copy when
-  Kokkos is finalized.
+  backend, one copy on the heap with the `stlpar` and `openmp` backends),
+  except with the `kokkos` backend, which frees its copy when Kokkos is
+  finalized. With the `stlpar` and `openmp` backends, the heap must be
+  accessible by the device when the computations are offloaded (unified
+  or managed memory, as with `nvc++`).
 
 ## Example
 

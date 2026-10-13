@@ -21,7 +21,20 @@
 
 namespace mfront::generic_parallel::material_property {
 
-  //! \brief This class implements a backend for SYCL programming model
+  /*!
+   * \brief This class implements a backend for SYCL programming model
+   *
+   * Options:
+   *
+   * - `data_transfer_policy`: `automatic` (or `auto`, default), the
+   *   arguments which are not accessible by the device are copied in device
+   *   memory and the output is copied back, or `none`, all the arguments and
+   *   the output are assumed to be accessible by the device. This option has
+   *   the same meaning as for behaviours.
+   * - `device_stack_size`: minimal stack size, in bytes, of the threads of
+   *   the device when the computations are performed on an NVIDIA GPU
+   *   through the CUDA runtime (AdaptiveCpp).
+   */
   struct MFRONT_VISIBILITY_EXPORT SYCLBackend : CxxProgrammingModelBackendBase {
     //! \brief default constructor
     SYCLBackend();

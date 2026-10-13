@@ -76,7 +76,11 @@ changes:
   not supported, this boolean is `false` if a bound is violated with the
   `Strict` policy. On the host, an exception is still thrown.
 - the implementation of `LogarithmicStrainHandler` is defined in its header:
-  the `TFELMaterial` library no longer exports its functions.
+  the `TFELMaterial` library no longer exports its functions. A call of
+  `LogarithmicStrainHandler<3u>::findSingleEigenValue` with three equal
+  eigenvalues is reported by `tfel::reportContractViolation`, which aborts
+  the process on the host, instead of throwing a `std::runtime_error`, and
+  does nothing in device code.
 - the slip systems of single crystals (`getSlidingSystems` and the
   associated methods) are built at compile time. Their result must be bound
   to a constant reference: it is a copy with `nvc++ -stdpar=gpu` and
@@ -120,7 +124,7 @@ changes:
 - `TFEL_CLANGXX_COMPILER`: path to the `clang++` compiler.
 - `TFEL_ICPX_COMPILER`: path to INTEL's `icpx` compiler.
 - `TFEL_NVHPC_COMPILER`: path to NVIDIA's `nvhpc` compiler.
-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp's `acpp` compiler.
+- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp's `acpp` compiler.
 - `TFEL_CLANG_CUDA_PATH`: path to the `CUDA` toolkit used by `clang` in
   the `cuda-clang` and `hip-clang` configurations (by default, the
   toolkit of `nvcc`). A version of `clang` only supports the versions of
@@ -175,7 +179,17 @@ The following configurations are supported for parallel computations:
 The selected configurations are used by the tests of the
 `generic-parallel` interfaces for material properties and for behaviours.
 The associated configuration files are installed in the
-`share/tfel/mfront/configuration-files` directory.
+`mfront/configuration-files` subdirectory of the data directory of `TFEL`
+(`share/tfel`, or `share/tfel-<suffix>` if `TFEL_APPEND_SUFFIX` is set).
+If a file given by the `--configuration-file` option is not found in the
+current directory, `MFront` searches it in the directories given by the
+preceding `--search-path` options, then in the directories listed by the
+`MFRONT_INCLUDE_PATH` variable, then in
+`share/tfel/mfront/configuration-files`. If `TFEL_APPEND_SUFFIX` is set,
+`MFront` searches `share/tfel/mfront-<suffix>/configuration-files`
+instead, where the configuration files are not installed: they must then
+be found through the `--search-path` option or the `MFRONT_INCLUDE_PATH`
+variable.
 
 ## Add a `build-tests` target
 
@@ -230,7 +244,7 @@ substitutions used by `MFront` when reading configuration files and
   `cmake`,
   2. by using `icpx` as the main compiler to compile `TFEL`,
   3. by searching `icpx` using `cmake`'s `find_program` function.
-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp `acpp` compiler. The value
+- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp `acpp` compiler. The value
   associated with this key is determined as follows, by order of
   priority:
 
@@ -244,7 +258,7 @@ substitutions used by `MFront` when reading configuration files and
   1. by passing the variable `TFEL_NVHPC_COMPILER` during the invocation of
   `cmake`,
   2. by using `nvhpc` as the main compiler to compile `TFEL`,
-  3. by searching `nvhpc` using `cmake`'s `find_program` function.
+  3. by searching `nvc++` using `cmake`'s `find_program` function.
 - `TFEL_NVCC_COMPILER`: path to NVIDIA's `nvcc` as found by
   `FindCUDAToolkit`.
 - `TFEL_HIPCC_COMPILER`: path to AMD's `hipcc` compiler. The value
@@ -567,7 +581,7 @@ are:
 `MFront` now allows to define options in a configuration file define
 through the `--configuration-file` command line argument as follows:
 
-~~~~{bash}
+~~~~{.bash}
 $ mfront --configuration-file=config.json --interface=generic-parallel UO2_ShearModulus.mfront
 ~~~~
 
@@ -650,13 +664,13 @@ using the `--as-needed` policy.
 
 ### First syntax
 
-~~~~{bash}
+~~~~{.bash}
 $ mfront --obuild --interface='generic-parallel{backend:{"stlpar": {execution_policy:"par_unseq"}}}' UO2_ShearModulus.mfront
 ~~~~
 
 ### Second syntax
 
-~~~~{bash}
+~~~~{.bash}
 $ mfront --obuild --interface='{generic-parallel:{backend:"stlpar"{execution_policy:"par_unseq"}}}' UO2_ShearModulus.mfront
 ~~~~
 
@@ -705,7 +719,8 @@ details](generic-parallel-material-property-interface.html).
 - a bound violated with the warning policy gives the status `1`, as with
   the `generic` interface.
 - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
-  The `cuda`, `hip` and `kokkos` backends increase the stack size of the
+  The new `openmp` backend has the `offload` and `device_stack_size`
+  options. The `cuda`, `hip` and `kokkos` backends increase the stack size of the
   threads if the kernel requires it, as for the behaviours.
 - the automatic data transfers of the `sycl` backend are shared with the
   behaviours: they also copy the statistics of an asynchronous evaluation,
@@ -763,13 +778,23 @@ are shared with the `generic-parallel` interface for material properties.
   --help-keyword=Implicit:@SharedData`).
 - `tfel::utilities::getConstantObject` gives access to objects built at
   compile time in host and device code.
+- the static variables read by the code blocks are replaced by
+  `TFEL_STATIC_VARIABLE(<class>::<name>)`, which gives a temporary copy
+  of the variable in device code (and in the whole translation unit with
+  the compilers translating host and device code in a single pass), since
+  device code can't refer to a constexpr static variable of a class type,
+  such as a quantity. The address of such a variable can't be taken, and
+  a reference derived from it is only valid until the end of the full
+  expression (see the [`TFEL/Config` page](tfel-config.html)).
 - the `device_compatible_class` DSL option requires a behaviour class
   usable in device code: dynamically allocated arrays are not used and
   the parameters treated as static variables are declared as constant
   members. This option is set when the `generic-parallel` interface is
   selected, and is given to the behaviour variables.
 - the comparison to a numerical jacobian (`@CompareToNumericalJacobian`)
-  and the profiling (`@Profiling`) are only performed on the host.
+  and the profiling (`@Profiling`) are only performed on the host, and
+  never with the compilers translating host and device code in a single
+  pass (see the `TFEL_DEVICE_CODE` macro).
 
 ## Improvements to the `Cast3M` interface
 
@@ -947,3 +972,22 @@ code:
   headers of the backends overwrote each other; the device memory of the
   `SYCL` backend was never freed; the values between the values of a
   strided output were overwritten.
+- `RungeKutta` DSL, `rkCastem` algorithm: the `young` variable, when
+  defined, is used again as the stress error normalization factor, as
+  stated in the release notes of Version 4.1: the other choices (first
+  component of the stiffness tensor, variable associated with the
+  `YoungModulus` glossary name) were used instead, and a behaviour whose
+  `young` variable is a static variable was refused. The time steps may
+  change for the behaviours whose `young` variable differs from the factor
+  which was used instead.
+- `DDIF2` brick: a single non constant fracture stress was refused, and
+  three non constant fracture stresses or fracture energies were replaced
+  by the first one in all directions. Only one of the `softening_slope`,
+  `softening_slopes`, `fracture_energy` and `fracture_energies` options
+  can be given (the other combinations failed later with an unclear
+  message), and the sign of the constant components following a non
+  constant first component of `fracture_stresses`, `softening_slopes` or
+  `fracture_energies` is now checked.
+- isotropic DSLs: with the `use_stress_update_algorithm` option, the code
+  evaluating a non constant Poisson ratio at the beginning of the time
+  step did not compile with `@UseQt true`.

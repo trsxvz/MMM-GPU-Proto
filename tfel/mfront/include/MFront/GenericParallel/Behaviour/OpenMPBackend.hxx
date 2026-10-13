@@ -28,9 +28,9 @@ namespace mfront::generic_parallel::behaviour {
    * - `offload`: if true (default), the computations are offloaded to the
    *   default device (`target` construct). Otherwise, they are performed by
    *   the threads of the host (`parallel` construct).
-   * - `device_stack_size`: stack size, in bytes, of the threads of the
-   *   device when the computations are offloaded to an NVIDIA GPU through
-   *   the CUDA runtime (ignored otherwise).
+   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
+   *   device when the computations are offloaded to an NVIDIA GPU through the
+   *   CUDA runtime (ignored otherwise).
    */
   struct MFRONT_VISIBILITY_EXPORT OpenMPBackend final : AbstractBackend {
     //! \brief default constructor

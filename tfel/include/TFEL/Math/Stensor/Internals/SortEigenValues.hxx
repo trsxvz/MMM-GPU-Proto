@@ -24,7 +24,7 @@ namespace tfel::math::internals {
    */
   template <unsigned short N>
   struct SortEigenValues;
-  //! \brief partial specialisation of the `SortEigenValues` in 1D
+  //! \brief specialisation of `SortEigenValues` in 1D
   template <>
   struct SortEigenValues<1u> {
     //! a simple alias
@@ -40,7 +40,7 @@ namespace tfel::math::internals {
     TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {
     }  // end of exe
   };  // end of struct SortEigenValues<1u>
-  //! \brief partial specialisation of the `SortEigenValues` in 2D
+  //! \brief specialisation of `SortEigenValues` in 2D
   template <>
   struct SortEigenValues<2u> {
     //! a simple alias
@@ -68,7 +68,7 @@ namespace tfel::math::internals {
       }
     }  // end of exe
   };   // end of struct SortEigenValues<2u>
-  //! \brief partial specialisation of the `SortEigenValues` in 3D
+  //! \brief specialisation of `SortEigenValues` in 3D
   template <>
   struct SortEigenValues<3u> {
     //! a simple alias

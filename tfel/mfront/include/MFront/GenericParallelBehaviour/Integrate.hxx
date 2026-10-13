@@ -155,7 +155,8 @@ namespace mfront::gpb {
      * \param[out] dest: local copy
      * \param[in] f: field
      * \param[in] i: index of the point
-     * \param[in] n: number of values, lower than the capacity of `dest`
+     * \param[in] n: number of values, not greater than the capacity of
+     * `dest`
      */
     template <size_type N, typename FieldType>
     TFEL_HOST_DEVICE constexpr void gather(LocalValues<N>& dest,
@@ -169,10 +170,11 @@ namespace mfront::gpb {
 
     /*!
      * \brief copy the given values in a field at the given point
-     * \param[in] f: field
+     * \param[out] f: field
      * \param[in] i: index of the point
      * \param[in] src: local values
-     * \param[in] n: number of values, lower than the capacity of `src`
+     * \param[in] n: number of values, not greater than the capacity of
+     * `src`
      */
     template <size_type N>
     TFEL_HOST_DEVICE constexpr void scatter(const Field& f,

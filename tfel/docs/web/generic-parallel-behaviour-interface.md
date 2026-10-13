@@ -85,7 +85,10 @@ As with the `generic` interface:
 
 The output status and the `statuses` field have the same meaning as for
 the integration. In particular, the status is `1` on success, whereas the
-functions of the `generic` interface return `0` on success.
+functions of the `generic` interface return `0` on success. Those
+functions write the `statuses` field but not the `rdts` field, so that
+they can be called with the batch data of the integration without
+overwriting the time step scaling factors proposed by the behaviour.
 
 For orthotropic behaviours, the rotation functions of the `generic`
 interface are generated for batches (`rotateGradients`,
@@ -136,9 +139,12 @@ char*`) tells the calling code where the fields must be located:
 
 - `host`: the computations are performed on the host, the fields must be
   accessible by the host;
-- `device`: the computations are performed on a device which can't access
-  the ordinary memory of the host, the fields must be accessible by the
-  device (memory of the device, managed or shared memory);
+- `device`: the computations are performed on a device, which may not
+  access the ordinary memory of the host: the fields must be accessible by
+  the device (memory of the device, managed or shared memory). The library
+  can't assume that the device accesses the ordinary memory of the host,
+  even if the device is a CPU (`sycl` backend without data transfers, the
+  device being the one of the queue given at runtime);
 - `any`: the fields may be located anywhere (SYCL backend with automatic
   transfers, `nvc++` with the unified memory mode).
 
@@ -293,10 +299,16 @@ symmetric tensor for `DS_DEGL`, of a tensor with respect to a tensor for
 `DPK1_DF`, and of a symmetric tensor with respect to a tensor otherwise.
 Those three kinds of finite strain behaviours (standard finite strain
 behaviours and small strain behaviours written in the Hencky or in the
-Green-Lagrange strain) are supported.
+Green-Lagrange strain) are supported. Invalid options of a finite strain
+behaviour (invalid stress measure or tangent operator) are reported for
+the whole batch, as invalid arguments (status `-2`), whereas the function
+of the `generic` interface reports an integration failure (`-1`) at the
+point.
 
-All the pointers must be accessible by the device on which the computations
-are performed.
+All the fields and the `statuses` array must be located in the memory
+space exported by the library (see the `<name>_generic_parallel_memory_space`
+symbol above). The arrays of fields given variable by variable are only
+read on the host.
 
 ## Output status
 
@@ -413,7 +425,14 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
 generated functions do in synchronous mode (status, numbers of points,
 index of the first failure, time step scaling factor and error message),
 as the `<name>_generic_parallel_report` functions of the material
-properties. The rotations never fail and leave the statistics unchanged.
+properties. The rotations never fail. The `stlpar` and `openmp` backends
+merge the time step scaling factor of the batch (the `rdt` member of the
+batch data for the integration, `1` for the rotations) with the one of the
+statistics, even if no event occurs, whereas the other backends only
+update the statistics when an event occurs (see below). The statistics
+must thus be initialized with a time step scaling factor not greater than
+the one of the batches (`1` for the rotations): the rotations then leave
+them unchanged with all the backends.
 
 The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
@@ -510,9 +529,19 @@ backend is given, the `stlpar` backend is used with its default options.
 The following configuration files are installed in the
 `share/tfel/mfront/configuration-files` directory, for the configurations
 listed in the `generic-parallel-configurations` variable of `cmake` (see
-the [release notes of Version 5.2](release-notes-5.2.html)). `MFront`
-searches this directory if the file given by the `--configuration-file`
-option is not found in the current directory.
+the [release notes of Version 5.2](release-notes-5.2.html)). If the file
+given by the `--configuration-file` option is not found (relatively to the
+current directory), `MFront` searches it in the directories given by the
+`--search-path` options which precede it, then in the directories listed
+by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
+
+> **Note**
+>
+> If `TFEL_APPEND_SUFFIX` is set, the files are installed in
+> `share/tfel-<suffix>/mfront/configuration-files`, whereas `MFront`
+> searches `share/tfel/mfront-<suffix>/configuration-files`: the
+> configuration files must then be given by their path, or found through
+> the `--search-path` option or the `MFRONT_INCLUDE_PATH` variable.
 
 | Configuration file                      | Backend  | Compiler and target                                   |
 |:----------------------------------------|:---------|:------------------------------------------------------|
@@ -531,6 +560,13 @@ option is not found in the current directory.
 | `config-kokkos-host.json`               | `kokkos` | compiler of Kokkos, default host execution space      |
 | `config-openmp-host-gcc.json`           | `openmp` | `g++`, threads of the host                            |
 | `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
+
+The `sycl-gpu-acpp` configuration installs the files of the
+`sycl-default-acpp` configuration: it only adds tests of the material
+properties on the GPU, and no test of the behaviours. The
+`config-stlpar-parunseq-acpp-generic.json` file of the sources is not
+installed, since the `stlpar-parunseq-acpp-generic` configuration is
+disabled.
 
 Those files use the substitutions of `TFEL` (paths to the compilers,
 flags, etc.) described on the [`TFEL/Config` page](tfel-config.html).
@@ -816,6 +852,14 @@ The following rules apply to the code blocks written by the user:
   `tfel::utilities::getConstantObject` (`nvcc` does not initialize the
   device copy of a function scope `static constexpr` object whose
   constructor is called).
+- the static variables (`@StaticVariable`) read by the code blocks are
+  replaced by `MFront` by `TFEL_STATIC_VARIABLE(<class>::<name>)`, which
+  gives a temporary copy of the variable in device code, and in the whole
+  library with the compilers translating host and device code in a single
+  pass (see the [`TFEL/Config` page](tfel-config.html)). The address of
+  such a variable can't be taken, and a reference derived from it, for
+  instance the result of `std::min(Tref, T)` bound to a `const auto&`, is
+  only valid until the end of the full expression.
 - functions called by the code blocks must be callable in device code
   (`TFEL_HOST_DEVICE`).
 
@@ -855,13 +899,17 @@ on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
 14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2 and AdaptiveCpp 25.10.
 Some compiler defects found during these tests are
 worked around in the generated code and the headers (see the comments of
-`MFront/GenericParallelBehaviour/Integrate.hxx`).
+the headers of `MFront/GenericParallelBehaviour` and
+`MFront/GenericParallel`, of `TFEL/Utilities/ConstantObject.hxx`, and of
+the backends of the material properties).
 
 # Current limitations
 
 - the comparison of the jacobian to a numerical jacobian
   (`@CompareToNumericalJacobian`) prints its results on the standard
-  output: it is only performed on the host.
+  output: it is only performed on the host, and never with the compilers
+  translating host and device code in a single pass (see the
+  `TFEL_DEVICE_CODE` macro above).
 - the `HIP` backend has not been tested on AMD GPUs.
 - the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU)
   and with Intel's `icpx` (CPU).
@@ -894,7 +942,12 @@ subdirectory of each configuration (`compare-tdls.sh` script) if `TFEL` is
 built with `TDLS` support. The definitions shared by `compare-all.sh` and
 `compare-tdls.sh` are given by the `compare-functions.sh` script.
 
-The tests of a configuration are in the directory of the same name. The
+The tests of a configuration are in the directory of the same name. Some
+directories test the other configuration files of a configuration: the
+`kokkos-host` directory tests the `kokkos` configuration with the
+`config-kokkos-host.json` file, the `sycl-default-acpp-2` directory tests
+the `sycl-default-acpp` configuration with the
+`config-sycl-default-acpp-2.json` file (no data transfer), and the
 `sycl-default-acpp-omp` directory also tests the `sycl-default-acpp`
 configuration, with the computations performed on the CPU by the OpenMP
 backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).

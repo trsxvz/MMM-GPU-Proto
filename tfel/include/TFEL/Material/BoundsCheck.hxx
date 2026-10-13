@@ -47,7 +47,9 @@ namespace tfel::material {
    * On the host, an exception is thrown in this case, so the returned value
    * is always true. In device code, where exceptions are not available, the
    * returned value must be used to report the failure. Warnings are not
-   * displayed in device code.
+   * displayed in device code. The compilers translating host and device
+   * code in a single pass follow the rules of device code in the whole
+   * translation unit (see `TFEL_DEVICE_CODE`).
    *
    * The names of the variables are passed as C strings: constructing a
    * `std::string_view` from a C string is not supported in device code by
@@ -187,7 +189,7 @@ namespace tfel::material {
    protected:
     /*!
      * \return the name of the variable, or the name of the component of the
-     * variable if the given index is positive
+     * variable if the given index is positive or null
      * \param[in] n: variable name
      * \param[in] i: component index
      */

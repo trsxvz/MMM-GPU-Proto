@@ -587,7 +587,9 @@ namespace mfront {
      * \param[in] os: output stream
      * \param[in] h: modelling hypothesis
      * \param[in] src: name of an object giving the values of the parameters.
-     * If empty, the values are taken from the parameters initializers.
+     * If empty, the values are taken from the parameters initializers. If
+     * the parameters are treated as static variables, `src` is ignored (see
+     * `writeBehaviourParameterInitialisationToDefaultValues`).
      */
     virtual void writeBehaviourParameterInitialisation(
         std::ostream&, const Hypothesis, const std::string&) const;

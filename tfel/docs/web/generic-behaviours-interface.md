@@ -63,8 +63,8 @@ the stress measure and the tangent operator to be returned.
 The following stress measures are available:
 
 - the Cauchy stress
-- the first Piola-Kirchoff stress
-- the second Piola-Kirchoff stress
+- the first Piola-Kirchhoff stress
+- the second Piola-Kirchhoff stress
 
 The following tangent operators are available:
 
@@ -74,6 +74,8 @@ The following tangent operators are available:
   deformation gradient.
 - the derivative of the second Piola-Kirchhoff stress with respect to
   the Green-Lagrange strain.
+- the derivative of the Kirchhoff stress with respect to the spatial
+  increment of the deformation gradient.
 
 ## Support of orthotropic behaviours
 

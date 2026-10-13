@@ -167,7 +167,14 @@ namespace tfel::material {
    *   `computeAPosterioriTimeStepScalingFactor(rdt)`, which return a pair
    *   containing a boolean (saying if the integration shall be performed,
    *   or considered a success) and a time step scaling factor proposed by
-   *   the behaviour.
+   *   the behaviour, used to increase the time step if the integration
+   *   succeeded, or to decrease it if the integration failed or if the
+   *   results are not reliable. The argument `rdt` is the time step scaling
+   *   factor proposed by the calling code (a priori) or the current one (a
+   *   posteriori). The interfaces use the `hasAPrioriTimeStepScalingFactor`
+   *   and `hasAPosterioriTimeStepScalingFactor` members of the
+   *   `MechanicalBehaviourTraits` class to know if the behaviour gives such
+   *   a factor: if not, the behaviour may return `1`.
    *
    * Those methods are not virtual: behaviours are never manipulated through
    * a reference to this class and virtual functions are not supported in

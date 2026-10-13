@@ -1,6 +1,7 @@
 /*!
  * \file   mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
- * \brief
+ * \brief  This file implements the `CUDA` and `HIP` backends of the
+ * `generic-parallel` behaviour interface
  * \date   05/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.

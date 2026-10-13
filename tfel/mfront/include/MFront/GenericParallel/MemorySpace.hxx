@@ -24,9 +24,11 @@ namespace mfront::generic_parallel {
    */
   inline constexpr const char* host_memory_space = "host";
   /*!
-   * \brief the computations are performed on a device which can't access the
-   * ordinary memory of the host: the fields must be accessible by the device
-   * (memory of the device or shared memory)
+   * \brief the computations are performed on a device, which may not access
+   * the ordinary memory of the host: the fields must be accessible by the
+   * device (memory of the device or shared memory). The library can't
+   * assume that the device accesses the ordinary memory of the host, even
+   * if the device is a CPU (`sycl` backend without data transfers).
    */
   inline constexpr const char* device_memory_space = "device";
   /*!

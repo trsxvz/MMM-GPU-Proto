@@ -265,7 +265,10 @@ typedef struct mfront_gpb_RotationData {
   mfront_gpb_ConstField rotation_matrices;
   /*!
    * \brief options of the execution of the computations. The rotations
-   * never fail: the statistics, if given, are not modified.
+   * never fail: the statistics, if given, are not modified if their time
+   * step scaling factor is not greater than `1`. Otherwise, the `stlpar`
+   * and `openmp` backends set it to `1`, since they merge the time step
+   * scaling factor of the batch with the one of the statistics.
    */
   mfront_gpb_ExecutionOptions execution;
 } mfront_gpb_RotationData;

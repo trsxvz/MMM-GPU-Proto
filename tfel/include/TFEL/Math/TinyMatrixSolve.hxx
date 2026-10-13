@@ -32,7 +32,9 @@ namespace tfel::math {
     /*!
      * \brief exceptions can't be thrown in device code: the errors of the
      * `TinyMatrixSolve` class are then reported by the returned value, even if
-     * exceptions are requested.
+     * exceptions are requested. This is also the case in the whole
+     * translation unit with the compilers translating host and device code
+     * in a single pass (see `TFEL_DEVICE_CODE`).
      */
 #ifdef TFEL_DEVICE_CODE
     inline constexpr bool tiny_matrix_solve_throws = false;

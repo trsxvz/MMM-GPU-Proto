@@ -30,7 +30,7 @@ namespace tfel::utilities::internals {
   template <typename... Types>
   union TrivialGenTypeStorage;
 
-  //! \brief partial specialisation ending the recursion
+  //! \brief explicit specialisation ending the recursion
   template <>
   union TrivialGenTypeStorage<> {};
 
@@ -185,7 +185,9 @@ namespace tfel::utilities {
     /*!
      * \return the stored value
      * \note the type of the value is only checked on the host (an exception
-     * is thrown if the value is not of the given type).
+     * is thrown if the value is not of the given type), except with the
+     * compilers translating host and device code in a single pass, which
+     * follow the rules of device code (see `TFEL_DEVICE_CODE`).
      */
     template <typename T1>
     [[nodiscard]] TFEL_HOST_DEVICE const T1& get() const
@@ -199,7 +201,9 @@ namespace tfel::utilities {
     /*!
      * \return the stored value
      * \note the type of the value is only checked on the host (an exception
-     * is thrown if the value is not of the given type).
+     * is thrown if the value is not of the given type), except with the
+     * compilers translating host and device code in a single pass, which
+     * follow the rules of device code (see `TFEL_DEVICE_CODE`).
      */
     template <typename T1>
     [[nodiscard]] TFEL_HOST_DEVICE T1& get()

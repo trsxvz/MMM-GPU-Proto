@@ -1,6 +1,7 @@
 /*!
  * \file   mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
- * \brief
+ * \brief  This file implements the C++ parallel algorithms backend
+ * (`stlpar`) of the `generic-parallel` behaviour interface
  * \date   05/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.

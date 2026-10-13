@@ -31,9 +31,9 @@ namespace mfront::generic_parallel::material_property {
    *   the threads of the host (`parallel` construct). If the computations
    *   are offloaded, the arguments and the output must be accessible from
    *   the device (unified or managed memory).
-   * - `device_stack_size`: stack size, in bytes, of the threads of the
-   *   device when the computations are offloaded to an NVIDIA GPU through
-   *   the CUDA runtime (ignored otherwise).
+   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
+   *   device when the computations are offloaded to an NVIDIA GPU through the
+   *   CUDA runtime (ignored otherwise).
    */
   struct MFRONT_VISIBILITY_EXPORT OpenMPBackend
       : CxxProgrammingModelBackendBase {

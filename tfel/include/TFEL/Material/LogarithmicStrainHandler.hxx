@@ -36,13 +36,21 @@ namespace tfel::material {
     TFEL_HOST_DEVICE TFEL_INLINE explicit LogarithmicStrainHandlerBase(
         const Setting);
     /*!
-     * \brief throw an exception if the setting is not equal to
-     * `LAGRANGIAN`.
+     * \brief check that the setting is `LAGRANGIAN`: an exception is thrown
+     * on the host if it is not. The check is not performed when
+     * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
+     * unit with the compilers translating host and device code in a single
+     * pass), since contract violations are not reported in this case (see
+     * `tfel::reportContractViolation`).
      */
     TFEL_HOST_DEVICE void checkLagrangianSetting() const;
     /*!
-     * \brief throw an exception if the setting is not equal to
-     * `EULERIAN`.
+     * \brief check that the setting is `EULERIAN`: an exception is thrown
+     * on the host if it is not. The check is not performed when
+     * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
+     * unit with the compilers translating host and device code in a single
+     * pass), since contract violations are not reported in this case (see
+     * `tfel::reportContractViolation`).
      */
     TFEL_HOST_DEVICE void checkEulerianSetting() const;
     //! setting

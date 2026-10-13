@@ -196,6 +196,19 @@ Various other options can be passed to `cmake`:
   language, notably for the `MTest` tool, one may use the
   `-Denable-python-bindings=ON` option. This requires
   [pybind11](https://github.com/pybind/pybind11) to be available.
+- The `generic-parallel-configurations` variable selects the
+  configurations of the `generic-parallel` interfaces for material
+  properties and behaviours whose configuration files are installed and
+  tested, for instance
+  `-Dgeneric-parallel-configurations="cuda-nvcc;stlpar-parunseq-gcc"`.
+  The compilers used by those configurations may be given by the
+  `TFEL_GXX_COMPILER`, `TFEL_CLANGXX_COMPILER`, `TFEL_ICPX_COMPILER`,
+  `TFEL_ACPP_COMPILER`, `TFEL_NVHPC_COMPILER` and `TFEL_HIPCC_COMPILER`
+  variables. The list of the configurations and the other variables
+  (`HIP_PLATFORM`, `TFEL_CLANG_CUDA_PATH`) are described in the
+  [release notes of Version 5.2](release-notes-5.2.html).
+- The option `-Denable-tdls=ON` adds the support of the Tiny
+  Device-callable Linear Solvers (`TDLS`) library.
 
 Some default compiler settings are detected by `cmake`, depending on
 your system. To explicitly specify the compilers to be used, one may

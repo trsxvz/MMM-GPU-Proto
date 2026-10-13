@@ -25,6 +25,11 @@ namespace mfront::generic_parallel::material_property {
   /*!
    * \brief base class of the CUDA and HIP backends: each point is evaluated
    * by one thread of the device
+   *
+   * Options:
+   *
+   * - `number_of_threads_per_block`: number of threads per block, rounded up
+   *   to a multiple of the warp size (128 by default).
    */
   struct MFRONT_VISIBILITY_EXPORT CUDABackendBase : BackendBase {
     //! \brief default constructor

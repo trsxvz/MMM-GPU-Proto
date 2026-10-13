@@ -83,6 +83,14 @@ namespace mfront::generic_parallel::material_property {
      * `host`, `device` or `any`
      */
     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+    /*!
+     * \brief write the `<name>_generic_parallel_report` function, which
+     * analyses the statistics of an evaluation and fills an output status
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     */
     virtual void writeReportFunction(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,

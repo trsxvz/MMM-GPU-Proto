@@ -45,8 +45,10 @@ namespace mfront {
      * working on a batch. The exceptions are converted to an error status,
      * the batch data (`mfront_batch_data`) must be given, and the output
      * status is initialized. The output status and the batch data are then
-     * available as `mfront_status` and `mfront_data`. This function is
-     * shared with the `generic-parallel` interface for models.
+     * available as `mfront_status` and `mfront_data`. An empty batch is
+     * accepted without any check: the generated function returns before
+     * the body, with the status of success. This function is shared with the
+     * `generic-parallel` interface for models.
      * \param[out] os: output stream
      * \param[in] f: name of the function
      * \param[in] arguments: arguments of the function after the output

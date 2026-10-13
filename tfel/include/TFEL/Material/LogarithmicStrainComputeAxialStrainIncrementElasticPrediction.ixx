@@ -54,8 +54,10 @@ namespace tfel::material {
     while ((tfel::math::abs(f) > e) || (tfel::math::abs(f) > e * df)) {
       if (iter == iter_max) {
 #ifdef TFEL_DEVICE_CODE
-        // exceptions are not supported in device code: the invalid value
-        // makes the integration of the behaviour fail
+        // exceptions are not supported in device code: the invalid value is
+        // returned. Contrary to the exception thrown on the host, it does
+        // not make the integration fail by itself: the consequences depend
+        // on the use of the elastic prediction
         return std::numeric_limits<real>::quiet_NaN();
 #else  /* TFEL_DEVICE_CODE */
         tfel::raise<DivergenceException>(

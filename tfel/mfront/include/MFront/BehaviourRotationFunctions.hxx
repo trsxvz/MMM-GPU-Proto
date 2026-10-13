@@ -56,7 +56,10 @@ namespace mfront {
     };
     //! \brief a rotated object
     struct Object {
-      //! \brief type of the object, empty for a scalar
+      /*!
+       * \brief type of the object, empty for a scalar or for a block for
+       * which TFEL has no type (see `block`, which is tested first)
+       */
       std::string type;
       //! \brief offset of the object in the values of a point
       std::size_t offset;

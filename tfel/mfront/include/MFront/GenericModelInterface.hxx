@@ -25,8 +25,11 @@ namespace mfront {
     /*!
      * \brief if true, the class can be used in device code: its constructor
      * takes the behaviour data and a structure holding the values of the
-     * real parameters, its methods are host and device functions and the
-     * material laws are evaluated by their device implementations.
+     * real parameters, its methods are host and device functions and, in
+     * device code, the material laws are evaluated by their device
+     * implementations (the functions of the `mfront` interface are used on
+     * the host). String parameters are not supported in this case (an
+     * exception is thrown).
      */
     bool device = false;
     //! \brief type of the structure holding the values of the parameters
@@ -34,11 +37,12 @@ namespace mfront {
   };
 
   /*!
-   * \brief write the class implementing a model in the `mfront::gm`
-   * namespace, and the class holding the values of its real parameters (see
-   * `getGenericModelParametersInitializerName`). Each function of the model
-   * is implemented by a method returning false if a bounds check fails, and
-   * the `execute` method executes all the functions of the model.
+   * \brief write, in a namespace opened by the caller (`mfront::gm`), the
+   * class implementing a model and, if the model has real parameters which
+   * are not treated as static variables, the class holding their values
+   * (see `getGenericModelParametersInitializerName`). Each function of the
+   * model is implemented by a method returning false if a bounds check
+   * fails, and the `execute` method executes all the functions of the model.
    * \param[out] os: output stream
    * \param[in] fd: file description
    * \param[in] md: model description

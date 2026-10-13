@@ -101,7 +101,10 @@ namespace tfel::math {
      * \brief report an invalid index in an access to the values of a tensor
      *
      * On the host, an exception of the given type is thrown. Device code
-     * can't throw exceptions: a NaN value is returned.
+     * can't throw exceptions: a NaN value is returned. As for device code,
+     * a NaN value is returned in the whole translation unit by the
+     * compilers translating host and device code in a single pass (see
+     * `TFEL_DEVICE_CODE`).
      *
      * \tparam Exception: type of the exception
      * \tparam ValueType: type of the values of the tensor

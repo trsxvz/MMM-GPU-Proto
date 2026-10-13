@@ -38,9 +38,9 @@ namespace tfel {
    * `cert-err60-cpp` warning of `clang-tidy` (thrown exception type
    * is not nothrow copy constructible).
    * \tparam Exception: type of the exception to be thrown.
-   * \tparam Args: type of the arguments passed to the exception'
+   * \tparam Args: type of the arguments passed to the exception's
    * constructor.
-   * \param[in] a: arguments passed to the exception' constructor.
+   * \param[in] a: arguments passed to the exception's constructor.
    */
   template <typename Exception = std::runtime_error, typename... Args>
   [[noreturn]] TFEL_VISIBILITY_LOCAL TFEL_INLINE void raise(Args&&...);
@@ -57,11 +57,11 @@ namespace tfel {
   /*!
    * \brief raise an exception if the first argument is `true`.
    * \tparam Exception: type of the exception to be thrown.
-   * \tparam Args: type of the arguments passed to the exception'
+   * \tparam Args: type of the arguments passed to the exception's
    * constructor.
    * \param[in] b: condition to be checked. If `true`, an exception is
    * thrown.
-   * \param[in] a: arguments passed to the exception' constructor.
+   * \param[in] a: arguments passed to the exception's constructor.
    */
   template <typename Exception = std::runtime_error, typename... Args>
   TFEL_VISIBILITY_LOCAL TFEL_INLINE void raise_if(const bool, Args&&...);
@@ -81,9 +81,9 @@ namespace tfel {
    * \endcode
    *
    * \tparam Exception: type of the exception thrown on the host.
-   * \tparam Args: type of the arguments passed to the exception'
+   * \tparam Args: type of the arguments passed to the exception's
    * constructor.
-   * \param[in] a: arguments passed to the exception' constructor, which
+   * \param[in] a: arguments passed to the exception's constructor, which
    * are only used on the host.
    */
   template <typename Exception = std::runtime_error, typename... Args>

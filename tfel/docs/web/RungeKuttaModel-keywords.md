@@ -1627,8 +1627,11 @@ type must then be trivially copyable. The following restrictions apply:
   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
 - the copies are never freed (one copy per device with the `cuda` and
   `hip` backends, one copy per device and context with the `sycl`
-  backend), except with the `kokkos` backend, which frees its copy when
-  Kokkos is finalized.
+  backend, one copy on the heap with the `stlpar` and `openmp` backends),
+  except with the `kokkos` backend, which frees its copy when Kokkos is
+  finalized. With the `stlpar` and `openmp` backends, the heap must be
+  accessible by the device when the computations are offloaded (unified
+  or managed memory, as with `nvc++`).
 
 ## Example
 

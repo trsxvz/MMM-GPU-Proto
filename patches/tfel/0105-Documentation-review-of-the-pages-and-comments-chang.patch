@@ -1,0 +1,2109 @@
+From 409dfe4b205765ef9ac37fbbdce03c0fe011fa3a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 16:45:48 +0200
+Subject: [PATCH] Documentation: review of the pages and comments changed by
+ the prototype
+
+The pages of docs/ and the comments of the headers and sources added or
+changed by the prototype were checked against the code (84 findings, 78
+fixed here, the others being code defects left for later):
+
+- checkVariableExistence: the meaning of the two members of the result was
+  inverted;
+- configuration files: where they are installed and searched, including
+  the mismatch with TFEL_APPEND_SUFFIX;
+- generic-parallel interface: statistics of the stlpar and openmp backends
+  during rotations, hip-clang on AMD GPUs, sycl-gpu-acpp, accessibility of
+  the pointers by memory space, single-pass compilers (nvc++, generic
+  AdaptiveCpp) which follow the device branches on the host too;
+- TFEL_STATIC_VARIABLE (copies of the static variables of the code blocks)
+  in tfel-config.md, in the behaviours page and in the release notes;
+- release notes 5.2: rkCastem using the Young modulus again, DDIF2 fixes,
+  use_stress_update_algorithm with @UseQt, findSingleEigenValue aborting on
+  the host; bounds_status of the generic material properties, DTAU_DDF
+  operator of the generic behaviours, typos (AdaptiveCpp, nvc++, msg field
+  of OutputStatus).
+
+No code is changed: the sources without their comments are identical.
+---
+ docs/mfront/CompareToNumericalJacobian.md     |  5 +-
+ docs/mfront/Profiling.md                      |  5 +-
+ docs/mfront/SharedData.md                     |  7 +-
+ docs/web/DDIF2StressPotential.md              |  2 +-
+ docs/web/Default-keywords.md                  |  7 +-
+ docs/web/DefaultCZM-keywords.md               |  7 +-
+ docs/web/DefaultFiniteStrain-keywords.md      |  7 +-
+ docs/web/DefaultGenericBehaviour-keywords.md  |  7 +-
+ docs/web/DefaultModel-keywords.md             |  7 +-
+ docs/web/Implicit-keywords.md                 |  7 +-
+ docs/web/ImplicitCZM-keywords.md              |  7 +-
+ docs/web/ImplicitFiniteStrain-keywords.md     |  7 +-
+ docs/web/ImplicitGenericBehaviour-keywords.md |  7 +-
+ docs/web/ImplicitII-keywords.md               |  7 +-
+ docs/web/ImplicitModel-keywords.md            |  7 +-
+ docs/web/IsotropicMisesCreep-keywords.md      |  7 +-
+ .../web/IsotropicMisesPlasticFlow-keywords.md |  7 +-
+ .../web/IsotropicPlasticMisesFlow-keywords.md |  7 +-
+ ...ropicStrainHardeningMisesCreep-keywords.md | 12 ++-
+ .../MultipleIsotropicMisesFlows-keywords.md   |  7 +-
+ docs/web/RungeKutta-keywords.md               |  7 +-
+ docs/web/RungeKuttaFiniteStrain-keywords.md   |  7 +-
+ .../RungeKuttaGenericBehaviour-keywords.md    |  7 +-
+ docs/web/RungeKuttaModel-keywords.md          |  7 +-
+ docs/web/generic-behaviours-interface.md      |  6 +-
+ .../generic-material-property-interface.md    | 30 ++++---
+ .../generic-parallel-behaviour-interface.md   | 81 +++++++++++++++----
+ ...ic-parallel-material-property-interface.md | 43 ++++++----
+ docs/web/install.md                           | 13 +++
+ docs/web/release-notes-5.2.md                 | 64 ++++++++++++---
+ docs/web/tfel-config.md                       | 15 +++-
+ include/TFEL/Config/TFELConfig.hxx            |  4 +-
+ include/TFEL/Material/BoundsCheck.hxx         |  6 +-
+ ...nTvergaardNeedleman1982StressCriterion.ixx |  7 +-
+ ...eAxialStrainIncrementElasticPrediction.ixx |  6 +-
+ .../Material/LogarithmicStrainHandler.hxx     | 16 +++-
+ include/TFEL/Material/MechanicalBehaviour.hxx |  9 ++-
+ .../Material/PolyCrystalsSlidingSystems.ixx   |  1 -
+ ...sselierTanguyBesson2002StressCriterion.ixx |  7 +-
+ .../TFEL/Math/Array/GenericFixedSizeArray.hxx |  5 +-
+ .../Stensor/Internals/SortEigenValues.hxx     |  6 +-
+ .../Stensor/Internals/SortEigenVectors.hxx    |  6 +-
+ include/TFEL/Math/Tensor/TensorConcept.hxx    |  5 +-
+ include/TFEL/Math/TinyMatrixInvert.hxx        |  4 +-
+ include/TFEL/Math/TinyMatrixSolve.hxx         |  4 +-
+ include/TFEL/Math/st2tost2.hxx                |  7 +-
+ include/TFEL/Raise.hxx                        | 12 +--
+ include/TFEL/Utilities/TrivialGenTypeBase.hxx | 10 ++-
+ .../MFront/BehaviourCodeGeneratorBase.hxx     |  4 +-
+ .../include/MFront/BehaviourDescription.hxx   | 18 +++--
+ .../MFront/BehaviourRotationFunctions.hxx     |  5 +-
+ .../GreenLagrangeStrainIntegrate.hxx          |  4 +-
+ .../MFront/GenericBehaviour/Integrate.hxx     |  9 ++-
+ .../LogarithmicStrainIntegrate.hxx            |  4 +-
+ ...StandardFiniteStrainBehaviourIntegrate.hxx |  6 +-
+ .../GenericBehaviour/StressMeasures.hxx       |  7 +-
+ .../GenericMaterialProperty/OutputStatus.h    | 16 ++--
+ .../include/MFront/GenericModelInterface.hxx  | 18 +++--
+ .../Behaviour/OpenMPBackend.hxx               |  6 +-
+ .../Behaviour/ParallelSTLBackend.hxx          |  2 +-
+ .../MFront/GenericParallel/GPUStackSize.hxx   |  6 +-
+ .../MaterialProperty/AbstractBackend.hxx      |  8 ++
+ .../MaterialProperty/CUDABackendBase.hxx      |  5 ++
+ .../MaterialProperty/OpenMPBackend.hxx        |  6 +-
+ .../MaterialProperty/ParallelSTLBackend.hxx   |  9 +++
+ .../MaterialProperty/SYCLBackend.hxx          | 15 +++-
+ .../MFront/GenericParallel/MemorySpace.hxx    |  8 +-
+ .../GenericParallel/SYCLDeviceCopies.hxx      |  9 ++-
+ .../GenericParallelBehaviour/BatchData.h      |  5 +-
+ .../GenericParallelBehaviour/Integrate.hxx    |  8 +-
+ .../GenericParallelBehaviourInterface.hxx     |  6 +-
+ .../MFront/MaterialPropertyDescription.hxx    | 10 ++-
+ mfront/src/DDIF2StressPotential.cxx           |  7 +-
+ .../Behaviour/AbstractBackend.cxx             |  3 +-
+ .../Behaviour/BackendFactory.cxx              |  3 +-
+ .../GenericParallel/Behaviour/GPUBackend.cxx  |  3 +-
+ .../Behaviour/ParallelSTLBackend.cxx          |  3 +-
+ .../behaviours/generic-parallel/compare.cxx   |  4 +-
+ 78 files changed, 541 insertions(+), 207 deletions(-)
+
+diff --git a/docs/mfront/CompareToNumericalJacobian.md b/docs/mfront/CompareToNumericalJacobian.md
+index 9aca49133..746dd51c5 100644
+--- a/docs/mfront/CompareToNumericalJacobian.md
++++ b/docs/mfront/CompareToNumericalJacobian.md
+@@ -5,7 +5,10 @@ jacobian. This keyword is followed by a boolean value (`true` or
+ 
+ Jacobians are compared by blocks. Blocks for which the comparison
+ failed are reported on the standard output. The comparison is thus only
+-performed on the host: it is skipped in device code.
++performed on the host: it is skipped in device code, and in the whole
++library with the compilers translating host and device code in a single
++pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
++AdaptiveCpp).
+ 
+ The comparison criterion value can be changed used the
+ `@JacobianComparisonCriterion` keyword.
+diff --git a/docs/mfront/Profiling.md b/docs/mfront/Profiling.md
+index 83e906c7e..9973d8875 100644
+--- a/docs/mfront/Profiling.md
++++ b/docs/mfront/Profiling.md
+@@ -2,7 +2,10 @@ The `@Profiling` keyword is followed by a boolean. If true, several
+ high resolutions clocks will be introduced in the generated code to
+ profile performance bottlenecks. The total time spend in various
+ portions of the generated code will be stored and displayed when the
+-calling process exits. Profiling is disabled in device code.
++calling process exits. Profiling is disabled in device code, and in the
++whole library with the compilers translating host and device code in a
++single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
++AdaptiveCpp).
+ 
+ ## Example
+ 
+diff --git a/docs/mfront/SharedData.md b/docs/mfront/SharedData.md
+index 2278b9678..d65f67ce9 100644
+--- a/docs/mfront/SharedData.md
++++ b/docs/mfront/SharedData.md
+@@ -18,8 +18,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/DDIF2StressPotential.md b/docs/web/DDIF2StressPotential.md
+index 4d90e14d2..edcf8cf08 100644
+--- a/docs/web/DDIF2StressPotential.md
++++ b/docs/web/DDIF2StressPotential.md
+@@ -36,7 +36,7 @@ properties:
+ 	  are equal in each direction.
+ 	- otherwise, the `fracture_stresses` keyword can be used to
+       describe the fracture stresses in each of the three directions.
+-- the softening slopes stresses in each direction. Two options can be
++- the softening slopes in each direction. Two options can be
+   used to describe them:
+     - if the `softening_slope` option is used, the softening slopes
+ 	  are equal in each direction.
+diff --git a/docs/web/Default-keywords.md b/docs/web/Default-keywords.md
+index d914e6005..6d4e7d41f 100644
+--- a/docs/web/Default-keywords.md
++++ b/docs/web/Default-keywords.md
+@@ -1540,8 +1540,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/DefaultCZM-keywords.md b/docs/web/DefaultCZM-keywords.md
+index e8f0232a3..f63b87047 100644
+--- a/docs/web/DefaultCZM-keywords.md
++++ b/docs/web/DefaultCZM-keywords.md
+@@ -1526,8 +1526,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/DefaultFiniteStrain-keywords.md b/docs/web/DefaultFiniteStrain-keywords.md
+index 40af31851..f8bcfe657 100644
+--- a/docs/web/DefaultFiniteStrain-keywords.md
++++ b/docs/web/DefaultFiniteStrain-keywords.md
+@@ -1526,8 +1526,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/DefaultGenericBehaviour-keywords.md b/docs/web/DefaultGenericBehaviour-keywords.md
+index e9c283308..bcae372ee 100644
+--- a/docs/web/DefaultGenericBehaviour-keywords.md
++++ b/docs/web/DefaultGenericBehaviour-keywords.md
+@@ -1585,8 +1585,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/DefaultModel-keywords.md b/docs/web/DefaultModel-keywords.md
+index 59ef2cfb9..20757b09b 100644
+--- a/docs/web/DefaultModel-keywords.md
++++ b/docs/web/DefaultModel-keywords.md
+@@ -1577,8 +1577,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/Implicit-keywords.md b/docs/web/Implicit-keywords.md
+index e2ac05b37..69606e53c 100644
+--- a/docs/web/Implicit-keywords.md
++++ b/docs/web/Implicit-keywords.md
+@@ -2056,8 +2056,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/ImplicitCZM-keywords.md b/docs/web/ImplicitCZM-keywords.md
+index fd0e8bda0..a7d4d0874 100644
+--- a/docs/web/ImplicitCZM-keywords.md
++++ b/docs/web/ImplicitCZM-keywords.md
+@@ -1961,8 +1961,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/ImplicitFiniteStrain-keywords.md b/docs/web/ImplicitFiniteStrain-keywords.md
+index f11676b9e..3537f85eb 100644
+--- a/docs/web/ImplicitFiniteStrain-keywords.md
++++ b/docs/web/ImplicitFiniteStrain-keywords.md
+@@ -2005,8 +2005,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/ImplicitGenericBehaviour-keywords.md b/docs/web/ImplicitGenericBehaviour-keywords.md
+index f55212fe5..931bd1fb0 100644
+--- a/docs/web/ImplicitGenericBehaviour-keywords.md
++++ b/docs/web/ImplicitGenericBehaviour-keywords.md
+@@ -2012,8 +2012,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/ImplicitII-keywords.md b/docs/web/ImplicitII-keywords.md
+index 3f731467c..41b0f356c 100644
+--- a/docs/web/ImplicitII-keywords.md
++++ b/docs/web/ImplicitII-keywords.md
+@@ -2005,8 +2005,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/ImplicitModel-keywords.md b/docs/web/ImplicitModel-keywords.md
+index f97955b50..2ce0c5aa3 100644
+--- a/docs/web/ImplicitModel-keywords.md
++++ b/docs/web/ImplicitModel-keywords.md
+@@ -1996,8 +1996,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/IsotropicMisesCreep-keywords.md b/docs/web/IsotropicMisesCreep-keywords.md
+index c877e53a8..c7e59ffe7 100644
+--- a/docs/web/IsotropicMisesCreep-keywords.md
++++ b/docs/web/IsotropicMisesCreep-keywords.md
+@@ -1534,8 +1534,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/IsotropicMisesPlasticFlow-keywords.md b/docs/web/IsotropicMisesPlasticFlow-keywords.md
+index 68e1d20f8..45856f8b3 100644
+--- a/docs/web/IsotropicMisesPlasticFlow-keywords.md
++++ b/docs/web/IsotropicMisesPlasticFlow-keywords.md
+@@ -1534,8 +1534,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/IsotropicPlasticMisesFlow-keywords.md b/docs/web/IsotropicPlasticMisesFlow-keywords.md
+index 2d03f209e..7eb3a0f96 100644
+--- a/docs/web/IsotropicPlasticMisesFlow-keywords.md
++++ b/docs/web/IsotropicPlasticMisesFlow-keywords.md
+@@ -1534,8 +1534,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/IsotropicStrainHardeningMisesCreep-keywords.md b/docs/web/IsotropicStrainHardeningMisesCreep-keywords.md
+index 7be411d07..2921bc545 100644
+--- a/docs/web/IsotropicStrainHardeningMisesCreep-keywords.md
++++ b/docs/web/IsotropicStrainHardeningMisesCreep-keywords.md
+@@ -2001,7 +2001,10 @@ The `@Profiling` keyword is followed by a boolean. If true, several
+ high resolutions clocks will be introduced in the generated code to
+ profile performance bottlenecks. The total time spend in various
+ portions of the generated code will be stored and displayed when the
+-calling process exits. Profiling is disabled in device code.
++calling process exits. Profiling is disabled in device code, and in the
++whole library with the compilers translating host and device code in a
++single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
++AdaptiveCpp).
+ 
+ ## Example
+ 
+@@ -2128,8 +2131,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/MultipleIsotropicMisesFlows-keywords.md b/docs/web/MultipleIsotropicMisesFlows-keywords.md
+index 0d4a151c9..d551e262b 100644
+--- a/docs/web/MultipleIsotropicMisesFlows-keywords.md
++++ b/docs/web/MultipleIsotropicMisesFlows-keywords.md
+@@ -1534,8 +1534,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/RungeKutta-keywords.md b/docs/web/RungeKutta-keywords.md
+index 6d3454ab8..ff3b5b606 100644
+--- a/docs/web/RungeKutta-keywords.md
++++ b/docs/web/RungeKutta-keywords.md
+@@ -1636,8 +1636,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/RungeKuttaFiniteStrain-keywords.md b/docs/web/RungeKuttaFiniteStrain-keywords.md
+index 030b988b5..8ec0e3642 100644
+--- a/docs/web/RungeKuttaFiniteStrain-keywords.md
++++ b/docs/web/RungeKuttaFiniteStrain-keywords.md
+@@ -1636,8 +1636,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/RungeKuttaGenericBehaviour-keywords.md b/docs/web/RungeKuttaGenericBehaviour-keywords.md
+index 1ddf9f8e7..2a3c09d4b 100644
+--- a/docs/web/RungeKuttaGenericBehaviour-keywords.md
++++ b/docs/web/RungeKuttaGenericBehaviour-keywords.md
+@@ -1643,8 +1643,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/RungeKuttaModel-keywords.md b/docs/web/RungeKuttaModel-keywords.md
+index da5c36635..325aee5d6 100644
+--- a/docs/web/RungeKuttaModel-keywords.md
++++ b/docs/web/RungeKuttaModel-keywords.md
+@@ -1627,8 +1627,11 @@ type must then be trivially copyable. The following restrictions apply:
+   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
+ - the copies are never freed (one copy per device with the `cuda` and
+   `hip` backends, one copy per device and context with the `sycl`
+-  backend), except with the `kokkos` backend, which frees its copy when
+-  Kokkos is finalized.
++  backend, one copy on the heap with the `stlpar` and `openmp` backends),
++  except with the `kokkos` backend, which frees its copy when Kokkos is
++  finalized. With the `stlpar` and `openmp` backends, the heap must be
++  accessible by the device when the computations are offloaded (unified
++  or managed memory, as with `nvc++`).
+ 
+ ## Example
+ 
+diff --git a/docs/web/generic-behaviours-interface.md b/docs/web/generic-behaviours-interface.md
+index 12ee3fdbf..5dbe6ed48 100644
+--- a/docs/web/generic-behaviours-interface.md
++++ b/docs/web/generic-behaviours-interface.md
+@@ -63,8 +63,8 @@ the stress measure and the tangent operator to be returned.
+ The following stress measures are available:
+ 
+ - the Cauchy stress
+-- the first Piola-Kirchoff stress
+-- the second Piola-Kirchoff stress
++- the first Piola-Kirchhoff stress
++- the second Piola-Kirchhoff stress
+ 
+ The following tangent operators are available:
+ 
+@@ -74,6 +74,8 @@ The following tangent operators are available:
+   deformation gradient.
+ - the derivative of the second Piola-Kirchhoff stress with respect to
+   the Green-Lagrange strain.
++- the derivative of the Kirchhoff stress with respect to the spatial
++  increment of the deformation gradient.
+ 
+ ## Support of orthotropic behaviours
+ 
+diff --git a/docs/web/generic-material-property-interface.md b/docs/web/generic-material-property-interface.md
+index 7504ceab2..a5ddf5216 100644
+--- a/docs/web/generic-material-property-interface.md
++++ b/docs/web/generic-material-property-interface.md
+@@ -68,23 +68,24 @@ typedef struct {
+    * its bounds.
+    *
+    * All negative values indicates that the result is not usable. For a material
+-   * property, thereturned is `nan`.
++   * property, the returned value is `nan`.
+    *
+    * For a material property, a negative value has the following meaning:
+    *
+-   * - If the exit status is -1, an argument was out of its physical bounds, or
+-   *   out of its bounds and a strict out of bounds policy is declared.
++   * - If the exit status is -1, an argument (or the result) was out of its
++   *   physical bounds, or out of its bounds and a strict out of bounds
++   *   policy is declared.
+    * - If the exit status is -2, a C++ exception was thrown. If the exception
+    *   was a child of `std::exception`, the content of the string returned by
+-   *   the `what` method is copyied in the `message` field. Otherwise, the
+-   *   message field contains the "unknown exception" string.
++   *   the `what` method is copied in the `msg` field. Otherwise, the
++   *   `msg` field contains the "unknown exception" string.
+    * - If the exit status is -3, an error occured in the `C` library, i.e. the
+    *   `errno` value was set to a non zero value during the computation.
+    *   The value of `errno` corresponding to the error is stored to in the
+    *   `c_error_number` field of this structure. The string returned by
+    *   `strerrno` is returned. Note that the `errno` value is always reset to
+    *   the  value it had before the call.
+-   * - If the exit status is -4, the computed value is invalid (either \nan`,
++   * - If the exit status is -4, the computed value is invalid (either `nan`,
+    *   `inf`, or `-inf`).
+    * - If the exit status is -5, the number of arguments is invalid.
+    */
+@@ -96,12 +97,17 @@ typedef struct {
+    * This status has the following meaning:
+    * - zero means that no argument was outside its bounds or its physical
+    * bounds.
+-   * - a negative values means that one argument went beyond its physical
+-   * bounds.
+-   *   The absolute value gives the rank of this argument (here the rank starts
+-   * at 1).
+-   * - a positive value means that one argument went beyond its bounds.
+-   *   The value gives the rank of this argument (here the rank starts at 1).
++   * - a negative value means that the evaluation failed because one
++   *   argument went beyond its physical bounds, or beyond its bounds with
++   *   the strict out of bounds policy. The absolute value gives the rank of
++   *   this argument (here the rank starts at 1).
++   * - a positive value means that one argument went beyond its bounds with
++   *   the warning out of bounds policy: the result must be used with
++   *   caution. The value gives the rank of this argument (here the rank
++   *   starts at 1).
++   *
++   * The result is checked as the arguments: its rank is the number of
++   * arguments plus one.
+    */
+   int bounds_status;
+   //! \brief error message
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index abda379d5..c6463137b 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -85,7 +85,10 @@ As with the `generic` interface:
+ 
+ The output status and the `statuses` field have the same meaning as for
+ the integration. In particular, the status is `1` on success, whereas the
+-functions of the `generic` interface return `0` on success.
++functions of the `generic` interface return `0` on success. Those
++functions write the `statuses` field but not the `rdts` field, so that
++they can be called with the batch data of the integration without
++overwriting the time step scaling factors proposed by the behaviour.
+ 
+ For orthotropic behaviours, the rotation functions of the `generic`
+ interface are generated for batches (`rotateGradients`,
+@@ -136,9 +139,12 @@ char*`) tells the calling code where the fields must be located:
+ 
+ - `host`: the computations are performed on the host, the fields must be
+   accessible by the host;
+-- `device`: the computations are performed on a device which can't access
+-  the ordinary memory of the host, the fields must be accessible by the
+-  device (memory of the device, managed or shared memory);
++- `device`: the computations are performed on a device, which may not
++  access the ordinary memory of the host: the fields must be accessible by
++  the device (memory of the device, managed or shared memory). The library
++  can't assume that the device accesses the ordinary memory of the host,
++  even if the device is a CPU (`sycl` backend without data transfers, the
++  device being the one of the queue given at runtime);
+ - `any`: the fields may be located anywhere (SYCL backend with automatic
+   transfers, `nvc++` with the unified memory mode).
+ 
+@@ -293,10 +299,16 @@ symmetric tensor for `DS_DEGL`, of a tensor with respect to a tensor for
+ `DPK1_DF`, and of a symmetric tensor with respect to a tensor otherwise.
+ Those three kinds of finite strain behaviours (standard finite strain
+ behaviours and small strain behaviours written in the Hencky or in the
+-Green-Lagrange strain) are supported.
++Green-Lagrange strain) are supported. Invalid options of a finite strain
++behaviour (invalid stress measure or tangent operator) are reported for
++the whole batch, as invalid arguments (status `-2`), whereas the function
++of the `generic` interface reports an integration failure (`-1`) at the
++point.
+ 
+-All the pointers must be accessible by the device on which the computations
+-are performed.
++All the fields and the `statuses` array must be located in the memory
++space exported by the library (see the `<name>_generic_parallel_memory_space`
++symbol above). The arrays of fields given variable by variable are only
++read on the host.
+ 
+ ## Output status
+ 
+@@ -413,7 +425,14 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
+ generated functions do in synchronous mode (status, numbers of points,
+ index of the first failure, time step scaling factor and error message),
+ as the `<name>_generic_parallel_report` functions of the material
+-properties. The rotations never fail and leave the statistics unchanged.
++properties. The rotations never fail. The `stlpar` and `openmp` backends
++merge the time step scaling factor of the batch (the `rdt` member of the
++batch data for the integration, `1` for the rotations) with the one of the
++statistics, even if no event occurs, whereas the other backends only
++update the statistics when an event occurs (see below). The statistics
++must thus be initialized with a time step scaling factor not greater than
++the one of the batches (`1` for the rotations): the rotations then leave
++them unchanged with all the backends.
+ 
+ The devices only write in the statistics when an event occurs at a point
+ (failure, unreliable result, decrease of the time step scaling factor), by
+@@ -510,9 +529,19 @@ backend is given, the `stlpar` backend is used with its default options.
+ The following configuration files are installed in the
+ `share/tfel/mfront/configuration-files` directory, for the configurations
+ listed in the `generic-parallel-configurations` variable of `cmake` (see
+-the [release notes of Version 5.2](release-notes-5.2.html)). `MFront`
+-searches this directory if the file given by the `--configuration-file`
+-option is not found in the current directory.
++the [release notes of Version 5.2](release-notes-5.2.html)). If the file
++given by the `--configuration-file` option is not found (relatively to the
++current directory), `MFront` searches it in the directories given by the
++`--search-path` options which precede it, then in the directories listed
++by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
++
++> **Note**
++>
++> If `TFEL_APPEND_SUFFIX` is set, the files are installed in
++> `share/tfel-<suffix>/mfront/configuration-files`, whereas `MFront`
++> searches `share/tfel/mfront-<suffix>/configuration-files`: the
++> configuration files must then be given by their path, or found through
++> the `--search-path` option or the `MFRONT_INCLUDE_PATH` variable.
+ 
+ | Configuration file                      | Backend  | Compiler and target                                   |
+ |:----------------------------------------|:---------|:------------------------------------------------------|
+@@ -532,6 +561,13 @@ option is not found in the current directory.
+ | `config-openmp-host-gcc.json`           | `openmp` | `g++`, threads of the host                            |
+ | `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
+ 
++The `sycl-gpu-acpp` configuration installs the files of the
++`sycl-default-acpp` configuration: it only adds tests of the material
++properties on the GPU, and no test of the behaviours. The
++`config-stlpar-parunseq-acpp-generic.json` file of the sources is not
++installed, since the `stlpar-parunseq-acpp-generic` configuration is
++disabled.
++
+ Those files use the substitutions of `TFEL` (paths to the compilers,
+ flags, etc.) described on the [`TFEL/Config` page](tfel-config.html).
+ 
+@@ -816,6 +852,14 @@ The following rules apply to the code blocks written by the user:
+   `tfel::utilities::getConstantObject` (`nvcc` does not initialize the
+   device copy of a function scope `static constexpr` object whose
+   constructor is called).
++- the static variables (`@StaticVariable`) read by the code blocks are
++  replaced by `MFront` by `TFEL_STATIC_VARIABLE(<class>::<name>)`, which
++  gives a temporary copy of the variable in device code, and in the whole
++  library with the compilers translating host and device code in a single
++  pass (see the [`TFEL/Config` page](tfel-config.html)). The address of
++  such a variable can't be taken, and a reference derived from it, for
++  instance the result of `std::min(Tref, T)` bound to a `const auto&`, is
++  only valid until the end of the full expression.
+ - functions called by the code blocks must be callable in device code
+   (`TFEL_HOST_DEVICE`).
+ 
+@@ -855,13 +899,17 @@ on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
+ 14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2 and AdaptiveCpp 25.10.
+ Some compiler defects found during these tests are
+ worked around in the generated code and the headers (see the comments of
+-`MFront/GenericParallelBehaviour/Integrate.hxx`).
++the headers of `MFront/GenericParallelBehaviour` and
++`MFront/GenericParallel`, of `TFEL/Utilities/ConstantObject.hxx`, and of
++the backends of the material properties).
+ 
+ # Current limitations
+ 
+ - the comparison of the jacobian to a numerical jacobian
+   (`@CompareToNumericalJacobian`) prints its results on the standard
+-  output: it is only performed on the host.
++  output: it is only performed on the host, and never with the compilers
++  translating host and device code in a single pass (see the
++  `TFEL_DEVICE_CODE` macro above).
+ - the `HIP` backend has not been tested on AMD GPUs.
+ - the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU)
+   and with Intel's `icpx` (CPU).
+@@ -894,7 +942,12 @@ subdirectory of each configuration (`compare-tdls.sh` script) if `TFEL` is
+ built with `TDLS` support. The definitions shared by `compare-all.sh` and
+ `compare-tdls.sh` are given by the `compare-functions.sh` script.
+ 
+-The tests of a configuration are in the directory of the same name. The
++The tests of a configuration are in the directory of the same name. Some
++directories test the other configuration files of a configuration: the
++`kokkos-host` directory tests the `kokkos` configuration with the
++`config-kokkos-host.json` file, the `sycl-default-acpp-2` directory tests
++the `sycl-default-acpp` configuration with the
++`config-sycl-default-acpp-2.json` file (no data transfer), and the
+ `sycl-default-acpp-omp` directory also tests the `sycl-default-acpp`
+ configuration, with the computations performed on the CPU by the OpenMP
+ backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 8a534094e..c6c610646 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -56,7 +56,7 @@ In addition, the `generic-parallel` interface also exports:
+   statistics of an evaluation (see below),
+ - a function allowing to modify at runtime the value of the parameters
+   of the material property, if modification of parameters is allowed
+-  (see the DSL options `parameters_as_static_variables` options).
++  (see the `parameters_as_static_variables` DSL option).
+ 
+ ## First prototype supporting data with strides
+ 
+@@ -88,8 +88,9 @@ of the output can be null only if the number of points is one and if all
+ the strides of the arguments are null. Otherwise, the status `-7` is
+ reported.
+ 
+-Most backends will treat the case where all strides are equal to one as
+-a special case and will use an optimized implementation.
++All the backends treat the case where all the strides are equal to one,
++and the case of a uniform output (one point, all the strides being null),
++as special cases, with an optimized implementation.
+ 
+ ## Second prototype
+ 
+@@ -173,7 +174,9 @@ Inconel600_YoungModulus_generic_parallel_report(&output, statistics, policy);
+ ~~~~
+ 
+ A synchronous evaluation calls the same report function on statistics
+-held by blocks of memory reused from one call to another.
++held by blocks of memory reused from one call to another (`CUDA`, `HIP`,
++`SYCL` and `Kokkos` backends) or by a local variable (C++ parallel
++algorithms and `OpenMP`).
+ 
+ The statistics have the same structure as the ones of the behaviours: the
+ number of points where the evaluation failed, the first of them, the
+@@ -356,7 +359,8 @@ linking_options: {
+ }
+ ~~~~
+ 
+-The `cuda-clang` configuration delivered with `TFEL` uses the `CUDA`
++The `cuda-clang` configuration delivered with `TFEL` uses `-O2` and
++`--cuda-gpu-arch=native`, and the `CUDA`
+ toolkit given by the `TFEL_CLANG_CUDA_PATH` variable of `cmake` (see the
+ [`TFEL/Config` page](tfel-config.html)): a version of `clang` only
+ supports the versions of `CUDA` released before it.
+@@ -372,12 +376,13 @@ and \(256\). This option has the same meaning as for the behaviours.
+ 
+ ### Internal details
+ 
+-When required, the strides are stored in constant memory on the device.
++When required, the strides are passed by value to the kernel, as kernel
++parameters, which `CUDA` stores in constant memory.
+ 
+ If the material property exposes parameters, those are stored in a
+-global variable on the host (the CPU). For efficiency, parameters are
+-copied in constant memory on the device when evaluating the material
+-property. This mechanism allows to keep the flexibility provided by
++global variable on the host (the CPU). For efficiency, the values of the
++parameters are also passed by value to the kernel when evaluating the
++material property. This mechanism allows to keep the flexibility provided by
+ parameters: this flexibility is required to perform sensitivity
+ analyses, uncertainty propagation studies or perform a new
+ identification. Note that parameters' handling can still be disabled by
+@@ -420,7 +425,6 @@ The `HIP` backend is similar to the `CUDA` backend.
+ 
+ ~~~~{.cxx}
+ auto output = mfront_gpmp_OutputStatus{};
+-auto output_qt = mfront_gpmp_OutputStatus{};
+ auto E = createManagedData(4);
+ const auto T = createManagedData({300, 500, 300, 800});
+ const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -491,7 +495,12 @@ linking_options : {
+ ~~~~
+ 
+ The library is marked as never unloaded (`-Wl,-z,nodelete`): unloading
+-TBB while its threads are alive crashes the process.
++TBB while its threads are alive crashes the process. The
++`stlpar-parunseq-gcc` configuration delivered with `TFEL` uses the
++optimisation flags of the libraries generated by the `generic` interface
++(`-O2 -ftree-vectorize -DNDEBUG -DTFEL_NO_RUNTIME_CHECK_BOUNDS`, see the
++[page of the `generic-parallel` interface for
++behaviours](generic-parallel-behaviour-interface.html)).
+ 
+ #### Example of configuration file for `nvc++`
+ 
+@@ -539,7 +548,7 @@ Two options are available:
+ 
+ The exact meaning of those policies are implementations defined and may
+ depend on compiler flags used. See [this
+-page](https://en.cppreference.com/cpp/algorithm/execution_policy_tag_t)
++page](https://en.cppreference.com/w/cpp/algorithm/execution_policy_tag_t)
+ for details.
+ 
+ ### Notes
+@@ -638,7 +647,7 @@ the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
+ for the behaviours: they are reported with the status `-6` if this handler
+ throws them, as the handlers of most calling codes do.
+ 
+-> ** Providing data on the device**
++> **Providing data on the device**
+ > 
+ > Data copy in `SYCL` are asynchronous operations. Thus, if the
+ > data are provided on the device, the user is responsible for ensuring
+@@ -692,8 +701,8 @@ of `nvc++ -mp=gpu`.
+ # Tests
+ 
+ Unlike other material property interfaces, the tests for the
+-`generic-parallel` interface is performed in the installation directory.
+-This allows to tests various configurations that may use various `C++`
++`generic-parallel` interface are performed in the installation directory.
++This allows to test various configurations that may use various `C++`
+ compilers, a feature unsupported by the `cmake` build system.
+ 
+ The list of configurations tested must be specified by defining a list
+@@ -713,7 +722,9 @@ The following tests configurations are currently supported:
+   compiler.
+ - `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
+ - `hip-clang`: compilation of `HIP` files using the `clang++` compiler,
+-  only on the NVIDIA platform (`HIP_PLATFORM=nvidia`).
++  only on the NVIDIA platform (`HIP_PLATFORM=nvidia`). On the AMD
++  platform, this configuration is accepted but ignored: no configuration
++  file is installed and no test is declared.
+ - `stlpar-parunseq-gcc`, `stlpar-parunseq-clang`, `stlpar-parunseq-icpx`:
+   parallel algorithms of the standard library with the `par_unseq`
+   execution policy on the threads of the host (`g++`, `clang++` and `icpx`
+diff --git a/docs/web/install.md b/docs/web/install.md
+index d79fa0437..15ec104b8 100644
+--- a/docs/web/install.md
++++ b/docs/web/install.md
+@@ -196,6 +196,19 @@ Various other options can be passed to `cmake`:
+   language, notably for the `MTest` tool, one may use the
+   `-Denable-python-bindings=ON` option. This requires
+   [pybind11](https://github.com/pybind/pybind11) to be available.
++- The `generic-parallel-configurations` variable selects the
++  configurations of the `generic-parallel` interfaces for material
++  properties and behaviours whose configuration files are installed and
++  tested, for instance
++  `-Dgeneric-parallel-configurations="cuda-nvcc;stlpar-parunseq-gcc"`.
++  The compilers used by those configurations may be given by the
++  `TFEL_GXX_COMPILER`, `TFEL_CLANGXX_COMPILER`, `TFEL_ICPX_COMPILER`,
++  `TFEL_ACPP_COMPILER`, `TFEL_NVHPC_COMPILER` and `TFEL_HIPCC_COMPILER`
++  variables. The list of the configurations and the other variables
++  (`HIP_PLATFORM`, `TFEL_CLANG_CUDA_PATH`) are described in the
++  [release notes of Version 5.2](release-notes-5.2.html).
++- The option `-Denable-tdls=ON` adds the support of the Tiny
++  Device-callable Linear Solvers (`TDLS`) library.
+ 
+ Some default compiler settings are detected by `cmake`, depending on
+ your system. To explicitly specify the compilers to be used, one may
+diff --git a/docs/web/release-notes-5.2.md b/docs/web/release-notes-5.2.md
+index 3d5af3a8a..858a07594 100644
+--- a/docs/web/release-notes-5.2.md
++++ b/docs/web/release-notes-5.2.md
+@@ -76,7 +76,11 @@ changes:
+   not supported, this boolean is `false` if a bound is violated with the
+   `Strict` policy. On the host, an exception is still thrown.
+ - the implementation of `LogarithmicStrainHandler` is defined in its header:
+-  the `TFELMaterial` library no longer exports its functions.
++  the `TFELMaterial` library no longer exports its functions. A call of
++  `LogarithmicStrainHandler<3u>::findSingleEigenValue` with three equal
++  eigenvalues is reported by `tfel::reportContractViolation`, which aborts
++  the process on the host, instead of throwing a `std::runtime_error`, and
++  does nothing in device code.
+ - the slip systems of single crystals (`getSlidingSystems` and the
+   associated methods) are built at compile time. Their result must be bound
+   to a constant reference: it is a copy with `nvc++ -stdpar=gpu` and
+@@ -120,7 +124,7 @@ changes:
+ - `TFEL_CLANGXX_COMPILER`: path to the `clang++` compiler.
+ - `TFEL_ICPX_COMPILER`: path to INTEL's `icpx` compiler.
+ - `TFEL_NVHPC_COMPILER`: path to NVIDIA's `nvhpc` compiler.
+-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp's `acpp` compiler.
++- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp's `acpp` compiler.
+ - `TFEL_CLANG_CUDA_PATH`: path to the `CUDA` toolkit used by `clang` in
+   the `cuda-clang` and `hip-clang` configurations (by default, the
+   toolkit of `nvcc`). A version of `clang` only supports the versions of
+@@ -175,7 +179,17 @@ The following configurations are supported for parallel computations:
+ The selected configurations are used by the tests of the
+ `generic-parallel` interfaces for material properties and for behaviours.
+ The associated configuration files are installed in the
+-`share/tfel/mfront/configuration-files` directory.
++`mfront/configuration-files` subdirectory of the data directory of `TFEL`
++(`share/tfel`, or `share/tfel-<suffix>` if `TFEL_APPEND_SUFFIX` is set).
++If a file given by the `--configuration-file` option is not found in the
++current directory, `MFront` searches it in the directories given by the
++preceding `--search-path` options, then in the directories listed by the
++`MFRONT_INCLUDE_PATH` variable, then in
++`share/tfel/mfront/configuration-files`. If `TFEL_APPEND_SUFFIX` is set,
++`MFront` searches `share/tfel/mfront-<suffix>/configuration-files`
++instead, where the configuration files are not installed: they must then
++be found through the `--search-path` option or the `MFRONT_INCLUDE_PATH`
++variable.
+ 
+ ## Add a `build-tests` target
+ 
+@@ -230,7 +244,7 @@ substitutions used by `MFront` when reading configuration files and
+   `cmake`,
+   2. by using `icpx` as the main compiler to compile `TFEL`,
+   3. by searching `icpx` using `cmake`'s `find_program` function.
+-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp `acpp` compiler. The value
++- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp `acpp` compiler. The value
+   associated with this key is determined as follows, by order of
+   priority:
+ 
+@@ -244,7 +258,7 @@ substitutions used by `MFront` when reading configuration files and
+   1. by passing the variable `TFEL_NVHPC_COMPILER` during the invocation of
+   `cmake`,
+   2. by using `nvhpc` as the main compiler to compile `TFEL`,
+-  3. by searching `nvhpc` using `cmake`'s `find_program` function.
++  3. by searching `nvc++` using `cmake`'s `find_program` function.
+ - `TFEL_NVCC_COMPILER`: path to NVIDIA's `nvcc` as found by
+   `FindCUDAToolkit`.
+ - `TFEL_HIPCC_COMPILER`: path to AMD's `hipcc` compiler. The value
+@@ -567,7 +581,7 @@ are:
+ `MFront` now allows to define options in a configuration file define
+ through the `--configuration-file` command line argument as follows:
+ 
+-~~~~{bash}
++~~~~{.bash}
+ $ mfront --configuration-file=config.json --interface=generic-parallel UO2_ShearModulus.mfront
+ ~~~~
+ 
+@@ -650,13 +664,13 @@ using the `--as-needed` policy.
+ 
+ ### First syntax
+ 
+-~~~~{bash}
++~~~~{.bash}
+ $ mfront --obuild --interface='generic-parallel{backend:{"stlpar": {execution_policy:"par_unseq"}}}' UO2_ShearModulus.mfront
+ ~~~~
+ 
+ ### Second syntax
+ 
+-~~~~{bash}
++~~~~{.bash}
+ $ mfront --obuild --interface='{generic-parallel:{backend:"stlpar"{execution_policy:"par_unseq"}}}' UO2_ShearModulus.mfront
+ ~~~~
+ 
+@@ -705,7 +719,8 @@ details](generic-parallel-material-property-interface.html).
+ - a bound violated with the warning policy gives the status `1`, as with
+   the `generic` interface.
+ - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
+-  The `cuda`, `hip` and `kokkos` backends increase the stack size of the
++  The new `openmp` backend has the `offload` and `device_stack_size`
++  options. The `cuda`, `hip` and `kokkos` backends increase the stack size of the
+   threads if the kernel requires it, as for the behaviours.
+ - the automatic data transfers of the `sycl` backend are shared with the
+   behaviours: they also copy the statistics of an asynchronous evaluation,
+@@ -763,13 +778,23 @@ are shared with the `generic-parallel` interface for material properties.
+   --help-keyword=Implicit:@SharedData`).
+ - `tfel::utilities::getConstantObject` gives access to objects built at
+   compile time in host and device code.
++- the static variables read by the code blocks are replaced by
++  `TFEL_STATIC_VARIABLE(<class>::<name>)`, which gives a temporary copy
++  of the variable in device code (and in the whole translation unit with
++  the compilers translating host and device code in a single pass), since
++  device code can't refer to a constexpr static variable of a class type,
++  such as a quantity. The address of such a variable can't be taken, and
++  a reference derived from it is only valid until the end of the full
++  expression (see the [`TFEL/Config` page](tfel-config.html)).
+ - the `device_compatible_class` DSL option requires a behaviour class
+   usable in device code: dynamically allocated arrays are not used and
+   the parameters treated as static variables are declared as constant
+   members. This option is set when the `generic-parallel` interface is
+   selected, and is given to the behaviour variables.
+ - the comparison to a numerical jacobian (`@CompareToNumericalJacobian`)
+-  and the profiling (`@Profiling`) are only performed on the host.
++  and the profiling (`@Profiling`) are only performed on the host, and
++  never with the compilers translating host and device code in a single
++  pass (see the `TFEL_DEVICE_CODE` macro).
+ 
+ ## Improvements to the `Cast3M` interface
+ 
+@@ -947,3 +972,22 @@ code:
+   headers of the backends overwrote each other; the device memory of the
+   `SYCL` backend was never freed; the values between the values of a
+   strided output were overwritten.
++- `RungeKutta` DSL, `rkCastem` algorithm: the `young` variable, when
++  defined, is used again as the stress error normalization factor, as
++  stated in the release notes of Version 4.1: the other choices (first
++  component of the stiffness tensor, variable associated with the
++  `YoungModulus` glossary name) were used instead, and a behaviour whose
++  `young` variable is a static variable was refused. The time steps may
++  change for the behaviours whose `young` variable differs from the factor
++  which was used instead.
++- `DDIF2` brick: a single non constant fracture stress was refused, and
++  three non constant fracture stresses or fracture energies were replaced
++  by the first one in all directions. Only one of the `softening_slope`,
++  `softening_slopes`, `fracture_energy` and `fracture_energies` options
++  can be given (the other combinations failed later with an unclear
++  message), and the sign of the constant components following a non
++  constant first component of `fracture_stresses`, `softening_slopes` or
++  `fracture_energies` is now checked.
++- isotropic DSLs: with the `use_stress_update_algorithm` option, the code
++  evaluating a non constant Poisson ratio at the beginning of the time
++  step did not compile with `@UseQt true`.
+diff --git a/docs/web/tfel-config.md b/docs/web/tfel-config.md
+index fb7c6fa60..071eaf6cc 100644
+--- a/docs/web/tfel-config.md
++++ b/docs/web/tfel-config.md
+@@ -33,7 +33,16 @@ The `TFEL/Config/TFELConfig.hxx` header defines the following macros:
+   compiler of AdaptiveCpp. With those compilers, `TFEL_DEVICE_CODE` is
+   defined in the whole translation unit.
+ - `TFEL_NO_REPORT_CONTRACT_VIOLATION` is defined when contract violations
+-  can't be reported, in particular in device code.
++  can't be reported, in particular in device code and in the whole `SYCL`
++  sources.
++- `TFEL_STATIC_VARIABLE(v)` gives the value of a constexpr static variable
++  `v` in code which may be compiled as device code: the variable itself on
++  the host, a temporary copy `(decltype(v){v})` when `TFEL_DEVICE_CODE` is
++  defined, since device code can't refer to a constexpr static variable
++  defined in host code. `MFront` uses it for the static variables read by
++  the code blocks of the behaviours: a reference bound to such a variable
++  is only valid until the end of the full expression, and its address
++  can't be taken.
+ 
+ `TFEL_DEVICE_CODE` allows to select the code which can't be executed on
+ the device, for instance when throwing an exception, while keeping the
+@@ -74,7 +83,7 @@ substitutions used by `MFront` when reading configuration files and
+   `cmake`,
+   2. by using `icpx` as the main compiler to compile `TFEL`,
+   3. by searching `icpx` using `cmake`'s `find_program` function.
+-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp `acpp` compiler. The value
++- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp `acpp` compiler. The value
+   associated with this key is determined as follows, by order of
+   priority:
+ 
+@@ -88,7 +97,7 @@ substitutions used by `MFront` when reading configuration files and
+   1. by passing the variable `TFEL_NVHPC_COMPILER` during the invocation of
+   `cmake`,
+   2. by using `nvhpc` as the main compiler to compile `TFEL`,
+-  3. by searching `nvhpc` using `cmake`'s `find_program` function.
++  3. by searching `nvc++` using `cmake`'s `find_program` function.
+ - `TFEL_NVCC_COMPILER`: path to NVIDIA's `nvcc` as found by
+   `FindCUDAToolkit`.
+ - `TFEL_HIPCC_COMPILER`: path to AMD's `hipcc` compiler. The value
+diff --git a/include/TFEL/Config/TFELConfig.hxx b/include/TFEL/Config/TFELConfig.hxx
+index 5e93a7abe..71143c256 100644
+--- a/include/TFEL/Config/TFELConfig.hxx
++++ b/include/TFEL/Config/TFELConfig.hxx
+@@ -406,7 +406,9 @@
+  * the compilers translating host and device code in a single pass (`nvc++
+  * -stdpar=gpu`, `nvc++ -mp=gpu`, AdaptiveCpp's generic compiler). A
+  * reference bound to the copy is only valid until the end of the full
+- * expression, and its type is not const qualified.
++ * expression, and the address of the copy can't be taken. The type of the
++ * copy is not const qualified for scalar types, but it is const qualified
++ * for class types, such as quantities.
+  */
+ #ifdef TFEL_DEVICE_CODE
+ #define TFEL_STATIC_VARIABLE(v) (decltype(v){v})
+diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
+index 10c6d9127..f921b7d04 100644
+--- a/include/TFEL/Material/BoundsCheck.hxx
++++ b/include/TFEL/Material/BoundsCheck.hxx
+@@ -47,7 +47,9 @@ namespace tfel::material {
+    * On the host, an exception is thrown in this case, so the returned value
+    * is always true. In device code, where exceptions are not available, the
+    * returned value must be used to report the failure. Warnings are not
+-   * displayed in device code.
++   * displayed in device code. The compilers translating host and device
++   * code in a single pass follow the rules of device code in the whole
++   * translation unit (see `TFEL_DEVICE_CODE`).
+    *
+    * The names of the variables are passed as C strings: constructing a
+    * `std::string_view` from a C string is not supported in device code by
+@@ -187,7 +189,7 @@ namespace tfel::material {
+    protected:
+     /*!
+      * \return the name of the variable, or the name of the component of the
+-     * variable if the given index is positive
++     * variable if the given index is positive or null
+      * \param[in] n: variable name
+      * \param[in] i: component index
+      */
+diff --git a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx b/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
+index 3233f8997..db4aac3bc 100644
+--- a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
++++ b/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
+@@ -123,8 +123,11 @@ namespace tfel::material {
+     const auto r = tfel::math::scalarNewtonRaphson(SdS, c, x0, size_type{100});
+     if (!std::get<0>(r)) {
+ #ifdef TFEL_DEVICE_CODE
+-      // exceptions are not supported in device code: the invalid value
+-      // makes the integration of the behaviour fail
++      // exceptions are not supported in device code: the invalid value is
++      // returned. Contrary to the exception thrown on the host, it does not
++      // abort the integration: in the implicit DSLs, a non finite residual
++      // only rejects the current correction, which is reduced (the code
++      // block may call `abortResolution` to make the integration fail)
+       return GursonTvergaardNeedleman1982StressType<StressStensor>(
+           std::numeric_limits<real>::quiet_NaN());
+ #else  /* TFEL_DEVICE_CODE */
+diff --git a/include/TFEL/Material/LogarithmicStrainComputeAxialStrainIncrementElasticPrediction.ixx b/include/TFEL/Material/LogarithmicStrainComputeAxialStrainIncrementElasticPrediction.ixx
+index 855a1710c..133b3e128 100644
+--- a/include/TFEL/Material/LogarithmicStrainComputeAxialStrainIncrementElasticPrediction.ixx
++++ b/include/TFEL/Material/LogarithmicStrainComputeAxialStrainIncrementElasticPrediction.ixx
+@@ -54,8 +54,10 @@ namespace tfel::material {
+     while ((tfel::math::abs(f) > e) || (tfel::math::abs(f) > e * df)) {
+       if (iter == iter_max) {
+ #ifdef TFEL_DEVICE_CODE
+-        // exceptions are not supported in device code: the invalid value
+-        // makes the integration of the behaviour fail
++        // exceptions are not supported in device code: the invalid value is
++        // returned. Contrary to the exception thrown on the host, it does
++        // not make the integration fail by itself: the consequences depend
++        // on the use of the elastic prediction
+         return std::numeric_limits<real>::quiet_NaN();
+ #else  /* TFEL_DEVICE_CODE */
+         tfel::raise<DivergenceException>(
+diff --git a/include/TFEL/Material/LogarithmicStrainHandler.hxx b/include/TFEL/Material/LogarithmicStrainHandler.hxx
+index cfe3f6212..4d0bc5ad4 100644
+--- a/include/TFEL/Material/LogarithmicStrainHandler.hxx
++++ b/include/TFEL/Material/LogarithmicStrainHandler.hxx
+@@ -36,13 +36,21 @@ namespace tfel::material {
+     TFEL_HOST_DEVICE TFEL_INLINE explicit LogarithmicStrainHandlerBase(
+         const Setting);
+     /*!
+-     * \brief throw an exception if the setting is not equal to
+-     * `LAGRANGIAN`.
++     * \brief check that the setting is `LAGRANGIAN`: an exception is thrown
++     * on the host if it is not. The check is not performed when
++     * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
++     * unit with the compilers translating host and device code in a single
++     * pass), since contract violations are not reported in this case (see
++     * `tfel::reportContractViolation`).
+      */
+     TFEL_HOST_DEVICE void checkLagrangianSetting() const;
+     /*!
+-     * \brief throw an exception if the setting is not equal to
+-     * `EULERIAN`.
++     * \brief check that the setting is `EULERIAN`: an exception is thrown
++     * on the host if it is not. The check is not performed when
++     * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
++     * unit with the compilers translating host and device code in a single
++     * pass), since contract violations are not reported in this case (see
++     * `tfel::reportContractViolation`).
+      */
+     TFEL_HOST_DEVICE void checkEulerianSetting() const;
+     //! setting
+diff --git a/include/TFEL/Material/MechanicalBehaviour.hxx b/include/TFEL/Material/MechanicalBehaviour.hxx
+index ab57973a2..71559bea5 100644
+--- a/include/TFEL/Material/MechanicalBehaviour.hxx
++++ b/include/TFEL/Material/MechanicalBehaviour.hxx
+@@ -167,7 +167,14 @@ namespace tfel::material {
+    *   `computeAPosterioriTimeStepScalingFactor(rdt)`, which return a pair
+    *   containing a boolean (saying if the integration shall be performed,
+    *   or considered a success) and a time step scaling factor proposed by
+-   *   the behaviour.
++   *   the behaviour, used to increase the time step if the integration
++   *   succeeded, or to decrease it if the integration failed or if the
++   *   results are not reliable. The argument `rdt` is the time step scaling
++   *   factor proposed by the calling code (a priori) or the current one (a
++   *   posteriori). The interfaces use the `hasAPrioriTimeStepScalingFactor`
++   *   and `hasAPosterioriTimeStepScalingFactor` members of the
++   *   `MechanicalBehaviourTraits` class to know if the behaviour gives such
++   *   a factor: if not, the behaviour may return `1`.
+    *
+    * Those methods are not virtual: behaviours are never manipulated through
+    * a reference to this class and virtual functions are not supported in
+diff --git a/include/TFEL/Material/PolyCrystalsSlidingSystems.ixx b/include/TFEL/Material/PolyCrystalsSlidingSystems.ixx
+index 584f16d8f..367987e6d 100644
+--- a/include/TFEL/Material/PolyCrystalsSlidingSystems.ixx
++++ b/include/TFEL/Material/PolyCrystalsSlidingSystems.ixx
+@@ -38,7 +38,6 @@ namespace tfel::material {
+     const auto& gs = GS::getSlidingSystems();
+     if (f.empty()) {
+       for (unsigned short i = 0; i != Np; i++) {
+-        // allocting memory
+         // rotation matrix
+         tmatrix<3u, 3u, real> drot = getRandomRotationMatrix<real>();
+         for (unsigned short j = 0; j != Nss; j++) {
+diff --git a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx b/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
+index d95ab79be..952892a29 100644
+--- a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
++++ b/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
+@@ -121,8 +121,11 @@ namespace tfel::material {
+         tfel::math::scalarNewtonRaphson(SdS, criterion, x0, size_type{100});
+     if (!std::get<0>(r)) {
+ #ifdef TFEL_DEVICE_CODE
+-      // exceptions are not supported in device code: the invalid value
+-      // makes the integration of the behaviour fail
++      // exceptions are not supported in device code: the invalid value is
++      // returned. Contrary to the exception thrown on the host, it does not
++      // abort the integration: in the implicit DSLs, a non finite residual
++      // only rejects the current correction, which is reduced (the code
++      // block may call `abortResolution` to make the integration fail)
+       return RousselierTanguyBesson2002StressType<StressStensor>(
+           std::numeric_limits<real>::quiet_NaN());
+ #else  /* TFEL_DEVICE_CODE */
+diff --git a/include/TFEL/Math/Array/GenericFixedSizeArray.hxx b/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
+index 0009e3471..601cd8197 100644
+--- a/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
++++ b/include/TFEL/Math/Array/GenericFixedSizeArray.hxx
+@@ -121,8 +121,9 @@ namespace tfel::math {
+      *
+      * \note the copy and move operations are the implicit ones, so that the
+      * array is trivially copyable if its values are trivially copyable. In
+-     * particular, this allows the use of arrays in `std::variant` in device
+-     * code, without visitation.
++     * particular, this allows the use of arrays in
++     * `tfel::utilities::TrivialGenTypeBase`, which only holds trivially
++     * copyable types.
+      */
+     TFEL_HOST_DEVICE constexpr GenericFixedSizeArray(
+         const GenericFixedSizeArray&) noexcept = default;
+diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
+index 677dc6bf5..83063b25d 100644
+--- a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
++++ b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
+@@ -24,7 +24,7 @@ namespace tfel::math::internals {
+    */
+   template <unsigned short N>
+   struct SortEigenValues;
+-  //! \brief partial specialisation of the `SortEigenValues` in 1D
++  //! \brief specialisation of `SortEigenValues` in 1D
+   template <>
+   struct SortEigenValues<1u> {
+     //! a simple alias
+@@ -40,7 +40,7 @@ namespace tfel::math::internals {
+     TFEL_HOST_DEVICE static void exe(T&, T&, T&, const EigenValuesOrdering) {
+     }  // end of exe
+   };  // end of struct SortEigenValues<1u>
+-  //! \brief partial specialisation of the `SortEigenValues` in 2D
++  //! \brief specialisation of `SortEigenValues` in 2D
+   template <>
+   struct SortEigenValues<2u> {
+     //! a simple alias
+@@ -68,7 +68,7 @@ namespace tfel::math::internals {
+       }
+     }  // end of exe
+   };   // end of struct SortEigenValues<2u>
+-  //! \brief partial specialisation of the `SortEigenValues` in 3D
++  //! \brief specialisation of `SortEigenValues` in 3D
+   template <>
+   struct SortEigenValues<3u> {
+     //! a simple alias
+diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
+index f968c47ca..fe5d61e6f 100644
+--- a/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
++++ b/include/TFEL/Math/Stensor/Internals/SortEigenVectors.hxx
+@@ -25,7 +25,7 @@ namespace tfel::math::internals {
+   template <unsigned short N>
+   struct SortEigenVectors;
+ 
+-  //! \brief partial specialisation of the `SortEigenVectors` in 1D
++  //! \brief specialisation of `SortEigenVectors` in 1D
+   template <>
+   struct SortEigenVectors<1u> {
+     //! a simple alias
+@@ -42,7 +42,7 @@ namespace tfel::math::internals {
+                                      const EigenValuesOrdering) {
+     }  // end of exe
+   };  // end of struct SortEigenVectors<1u>
+-  //! \brief partial specialisation of the `SortEigenVectors` in 2D
++  //! \brief specialisation of `SortEigenVectors` in 2D
+   template <>
+   struct SortEigenVectors<2u> {
+     //! a simple alias
+@@ -72,7 +72,7 @@ namespace tfel::math::internals {
+       }
+     }  // end of exe
+   };   // end of struct SortEigenVectors<2u>
+-  //! \brief partial specialisation of the `SortEigenVectors` in 3D
++  //! \brief specialisation of `SortEigenVectors` in 3D
+   template <>
+   struct SortEigenVectors<3u> {
+     //! a simple alias
+diff --git a/include/TFEL/Math/Tensor/TensorConcept.hxx b/include/TFEL/Math/Tensor/TensorConcept.hxx
+index cc38d64a1..83b454520 100644
+--- a/include/TFEL/Math/Tensor/TensorConcept.hxx
++++ b/include/TFEL/Math/Tensor/TensorConcept.hxx
+@@ -101,7 +101,10 @@ namespace tfel::math {
+      * \brief report an invalid index in an access to the values of a tensor
+      *
+      * On the host, an exception of the given type is thrown. Device code
+-     * can't throw exceptions: a NaN value is returned.
++     * can't throw exceptions: a NaN value is returned. As for device code,
++     * a NaN value is returned in the whole translation unit by the
++     * compilers translating host and device code in a single pass (see
++     * `TFEL_DEVICE_CODE`).
+      *
+      * \tparam Exception: type of the exception
+      * \tparam ValueType: type of the values of the tensor
+diff --git a/include/TFEL/Math/TinyMatrixInvert.hxx b/include/TFEL/Math/TinyMatrixInvert.hxx
+index 815c834b3..ab4459d84 100644
+--- a/include/TFEL/Math/TinyMatrixInvert.hxx
++++ b/include/TFEL/Math/TinyMatrixInvert.hxx
+@@ -27,7 +27,9 @@ namespace tfel::math {
+     /*!
+      * \brief invert the given matrix
+      * \return true on success. On the host, an exception is thrown if the
+-     * matrix is singular. In device code, the matrix is filled with NaN
++     * matrix is singular. When `TFEL_DEVICE_CODE` is defined (device code,
++     * and the whole translation unit with the compilers translating host
++     * and device code in a single pass), the matrix is filled with NaN
+      * values if the matrix is singular.
+      * \param[in,out] m: matrix
+      * \param[in] eps: criterion used to detect a null pivot
+diff --git a/include/TFEL/Math/TinyMatrixSolve.hxx b/include/TFEL/Math/TinyMatrixSolve.hxx
+index 988cffd52..754d61614 100644
+--- a/include/TFEL/Math/TinyMatrixSolve.hxx
++++ b/include/TFEL/Math/TinyMatrixSolve.hxx
+@@ -32,7 +32,9 @@ namespace tfel::math {
+     /*!
+      * \brief exceptions can't be thrown in device code: the errors of the
+      * `TinyMatrixSolve` class are then reported by the returned value, even if
+-     * exceptions are requested.
++     * exceptions are requested. This is also the case in the whole
++     * translation unit with the compilers translating host and device code
++     * in a single pass (see `TFEL_DEVICE_CODE`).
+      */
+ #ifdef TFEL_DEVICE_CODE
+     inline constexpr bool tiny_matrix_solve_throws = false;
+diff --git a/include/TFEL/Math/st2tost2.hxx b/include/TFEL/Math/st2tost2.hxx
+index b3ede9253..e7725d135 100644
+--- a/include/TFEL/Math/st2tost2.hxx
++++ b/include/TFEL/Math/st2tost2.hxx
+@@ -271,9 +271,10 @@ namespace tfel::math {
+    * \return the invert of a st2tost2
+    * \param[in] s : st2tost2 to be inverted
+    *
+-   * On the host, an exception is thrown if the st2tost2 is singular. In
+-   * device code, the result is filled with NaN values (see
+-   * `TinyMatrixInvert`).
++   * On the host, an exception is thrown if the st2tost2 is singular. When
++   * `TFEL_DEVICE_CODE` is defined (device code, and the whole translation
++   * unit with the compilers translating host and device code in a single
++   * pass), the result is filled with NaN values (see `TinyMatrixInvert`).
+    */
+   TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto&);
+   /*!
+diff --git a/include/TFEL/Raise.hxx b/include/TFEL/Raise.hxx
+index 5dad96c09..9f7b6e6c9 100644
+--- a/include/TFEL/Raise.hxx
++++ b/include/TFEL/Raise.hxx
+@@ -38,9 +38,9 @@ namespace tfel {
+    * `cert-err60-cpp` warning of `clang-tidy` (thrown exception type
+    * is not nothrow copy constructible).
+    * \tparam Exception: type of the exception to be thrown.
+-   * \tparam Args: type of the arguments passed to the exception'
++   * \tparam Args: type of the arguments passed to the exception's
+    * constructor.
+-   * \param[in] a: arguments passed to the exception' constructor.
++   * \param[in] a: arguments passed to the exception's constructor.
+    */
+   template <typename Exception = std::runtime_error, typename... Args>
+   [[noreturn]] TFEL_VISIBILITY_LOCAL TFEL_INLINE void raise(Args&&...);
+@@ -57,11 +57,11 @@ namespace tfel {
+   /*!
+    * \brief raise an exception if the first argument is `true`.
+    * \tparam Exception: type of the exception to be thrown.
+-   * \tparam Args: type of the arguments passed to the exception'
++   * \tparam Args: type of the arguments passed to the exception's
+    * constructor.
+    * \param[in] b: condition to be checked. If `true`, an exception is
+    * thrown.
+-   * \param[in] a: arguments passed to the exception' constructor.
++   * \param[in] a: arguments passed to the exception's constructor.
+    */
+   template <typename Exception = std::runtime_error, typename... Args>
+   TFEL_VISIBILITY_LOCAL TFEL_INLINE void raise_if(const bool, Args&&...);
+@@ -81,9 +81,9 @@ namespace tfel {
+    * \endcode
+    *
+    * \tparam Exception: type of the exception thrown on the host.
+-   * \tparam Args: type of the arguments passed to the exception'
++   * \tparam Args: type of the arguments passed to the exception's
+    * constructor.
+-   * \param[in] a: arguments passed to the exception' constructor, which
++   * \param[in] a: arguments passed to the exception's constructor, which
+    * are only used on the host.
+    */
+   template <typename Exception = std::runtime_error, typename... Args>
+diff --git a/include/TFEL/Utilities/TrivialGenTypeBase.hxx b/include/TFEL/Utilities/TrivialGenTypeBase.hxx
+index 96b2fd448..c5eca3aed 100644
+--- a/include/TFEL/Utilities/TrivialGenTypeBase.hxx
++++ b/include/TFEL/Utilities/TrivialGenTypeBase.hxx
+@@ -30,7 +30,7 @@ namespace tfel::utilities::internals {
+   template <typename... Types>
+   union TrivialGenTypeStorage;
+ 
+-  //! \brief partial specialisation ending the recursion
++  //! \brief explicit specialisation ending the recursion
+   template <>
+   union TrivialGenTypeStorage<> {};
+ 
+@@ -185,7 +185,9 @@ namespace tfel::utilities {
+     /*!
+      * \return the stored value
+      * \note the type of the value is only checked on the host (an exception
+-     * is thrown if the value is not of the given type).
++     * is thrown if the value is not of the given type), except with the
++     * compilers translating host and device code in a single pass, which
++     * follow the rules of device code (see `TFEL_DEVICE_CODE`).
+      */
+     template <typename T1>
+     [[nodiscard]] TFEL_HOST_DEVICE const T1& get() const
+@@ -199,7 +201,9 @@ namespace tfel::utilities {
+     /*!
+      * \return the stored value
+      * \note the type of the value is only checked on the host (an exception
+-     * is thrown if the value is not of the given type).
++     * is thrown if the value is not of the given type), except with the
++     * compilers translating host and device code in a single pass, which
++     * follow the rules of device code (see `TFEL_DEVICE_CODE`).
+      */
+     template <typename T1>
+     [[nodiscard]] TFEL_HOST_DEVICE T1& get()
+diff --git a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
+index 332d511b5..3107ab188 100644
+--- a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
++++ b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
+@@ -587,7 +587,9 @@ namespace mfront {
+      * \param[in] os: output stream
+      * \param[in] h: modelling hypothesis
+      * \param[in] src: name of an object giving the values of the parameters.
+-     * If empty, the values are taken from the parameters initializers.
++     * If empty, the values are taken from the parameters initializers. If
++     * the parameters are treated as static variables, `src` is ignored (see
++     * `writeBehaviourParameterInitialisationToDefaultValues`).
+      */
+     virtual void writeBehaviourParameterInitialisation(
+         std::ostream&, const Hypothesis, const std::string&) const;
+diff --git a/mfront/include/MFront/BehaviourDescription.hxx b/mfront/include/MFront/BehaviourDescription.hxx
+index 58da72c37..8a8ef632e 100644
+--- a/mfront/include/MFront/BehaviourDescription.hxx
++++ b/mfront/include/MFront/BehaviourDescription.hxx
+@@ -1725,9 +1725,10 @@ namespace mfront {
+     /*!
+      * \brief check variable existence
+      * \return a pair of booleans. The first part tells if the
+-     * variable was found in a least one specialisation of the
+-     * behaviour and the second tells if the variable is available
+-     * for all distinct modelling hypothesis.
++     * variable is available for all the distinct modelling hypotheses
++     * and the second tells if the variable was found in at least one
++     * specialisation of the behaviour. The first part is false if the
++     * variable was not found.
+      * The variable could be any sort of variable (local variable,
+      * integration variable, static variable, ...)
+      * \param[in] v : variable name
+@@ -1736,13 +1737,14 @@ namespace mfront {
+     /*!
+      * \brief check variable existence for a particular sort of variable.
+      * \return a pair of booleans. The first part tells if the
+-     * variable was found in a least one specialisation of the
+-     * behaviour and the second tells if the variable is available
+-     * for all distinct modelling hypothesis.
++     * variable is available for all the distinct modelling hypotheses
++     * and the second tells if the variable was found in at least one
++     * specialisation of the behaviour. The first part is false if the
++     * variable was not found.
+      * \param[in] v: variable name
+      * \param[in] c: variable category
+-     * \param[in] b: if true, an exception if thrown if the variable is not
+-     * found
++     * \param[in] b: if true, an exception is thrown if the variable is not
++     * found for one of the distinct modelling hypotheses
+      */
+     std::pair<bool, bool> checkVariableExistence(const std::string&,
+                                                  const std::string&,
+diff --git a/mfront/include/MFront/BehaviourRotationFunctions.hxx b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+index 6b8723057..44f16244e 100644
+--- a/mfront/include/MFront/BehaviourRotationFunctions.hxx
++++ b/mfront/include/MFront/BehaviourRotationFunctions.hxx
+@@ -56,7 +56,10 @@ namespace mfront {
+     };
+     //! \brief a rotated object
+     struct Object {
+-      //! \brief type of the object, empty for a scalar
++      /*!
++       * \brief type of the object, empty for a scalar or for a block for
++       * which TFEL has no type (see `block`, which is tested first)
++       */
+       std::string type;
+       //! \brief offset of the object in the values of a point
+       std::size_t offset;
+diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+index 4d8d975d9..589e9d2c3 100644
+--- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+@@ -1,6 +1,8 @@
+ /*!
+  * \file mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+- * \brief
++ * \brief  This file declares the functions integrating the small strain
++ * behaviours written in the Green-Lagrange strain framework, shared by the
++ * `generic` and `generic-parallel` interfaces.
+  * \author Thomas Helfer
+  * \date   31/01/2022
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index d40aa5190..164f10bd5 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -498,7 +498,10 @@ namespace mfront::gb {
+         return -1;
+       }
+       if (!b.checkBounds()) {
+-        // in host code, out of bounds are reported by exceptions
++        // reached when `TFEL_DEVICE_CODE` is defined (device code, and the
++        // whole translation unit with the compilers translating host and
++        // device code in a single pass): otherwise, out of bounds are
++        // reported by exceptions
+         reportError(d, "out of bounds");
+         rdt = b.getMinimalTimeStepScalingFactor();
+         return -1;
+@@ -680,7 +683,7 @@ namespace mfront::gb {
+    * where `b` is the behaviour.
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+-   * \param[in] d: behaviour data.
++   * \param[in,out] d: behaviour data.
+    * \param[in] p: out of bounds policy.
+    * \param[in] args: additional arguments of the constructor of the
+    * behaviour
+@@ -735,7 +738,7 @@ namespace mfront::gb {
+    * the initial state of the material.
+    * \param[out] post_processing_variables: pointer to the values of the
+    * post-processing variables.
+-   * \param[in] d: behaviour data.
++   * \param[in,out] d: behaviour data.
+    * \param[in] p: out of bounds policy.
+    */
+   template <typename Behaviour,
+diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+index 535f71b07..4813255aa 100644
+--- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+@@ -1,6 +1,8 @@
+ /*!
+  * \file   mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+- * \brief
++ * \brief  This file declares the functions integrating the small strain
++ * behaviours written in the Hencky (logarithmic) strain framework, shared
++ * by the `generic` and `generic-parallel` interfaces.
+  * \author Thomas Helfer
+  * \date   31/01/2022
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+diff --git a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+index e5edc48bb..a20560d9e 100644
+--- a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+@@ -1,7 +1,9 @@
+ /*!
+  * \file
+- * mfront/include/MFront/GenericBehaviour/StandardFiniteStrainIntegrate.hxx
+- * \brief
++ * mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
++ * \brief  This file declares the functions integrating the standard finite
++ * strain behaviours, shared by the `generic` and `generic-parallel`
++ * interfaces.
+  * \author Thomas Helfer
+  * \date   31/01/2022
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+diff --git a/mfront/include/MFront/GenericBehaviour/StressMeasures.hxx b/mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
+index f656803c1..e4ea57ec2 100644
+--- a/mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
++++ b/mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
+@@ -1,7 +1,10 @@
+ /*!
+  * \file   mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
+- * \brief  This file declares the conversions of the Cauchy stress to the
+- * stress measures of the finite strain behaviours of the generic interface.
++ * \brief  This file declares the `convertFromCauchyStress` function, which
++ * converts the Cauchy stress to the stress measures of the finite strain
++ * behaviours of the generic interface. This function is shared by the
++ * three integration headers (standard finite strain behaviours, Hencky and
++ * Green-Lagrange strain frameworks).
+  * \date   06/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h b/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
+index 6e16874e3..828c1bdf2 100644
+--- a/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
++++ b/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
+@@ -34,23 +34,24 @@ typedef struct {
+    * its bounds.
+    *
+    * All negative values indicates that the result is not usable. For a material
+-   * property, thereturned is `nan`.
++   * property, the returned value is `nan`.
+    *
+    * For a material property, a negative value has the following meaning:
+    *
+-   * - If the exit status is -1, an argument was out of its physical bounds, or
+-   *   out of its bounds and a strict out of bounds policy is declared.
++   * - If the exit status is -1, an argument (or the result) was out of its
++   *   physical bounds, or out of its bounds and a strict out of bounds
++   *   policy is declared.
+    * - If the exit status is -2, a C++ exception was thrown. If the exception
+    *   was a child of `std::exception`, the content of the string returned by
+-   *   the `what` method is copyied in the `message` field. Otherwise, the
+-   *   message field contains the "unknown exception" string.
++   *   the `what` method is copied in the `msg` field. Otherwise, the
++   *   `msg` field contains the "unknown exception" string.
+    * - If the exit status is -3, an error occured in the `C` library, i.e. the
+    *   `errno` value was set to a non zero value during the computation.
+    *   The value of `errno` corresponding to the error is stored to in the
+    *   `c_error_number` field of this structure. The string returned by
+    *   `strerrno` is returned. Note that the `errno` value is always reset to
+    *   the  value it had before the call.
+-   * - If the exit status is -4, the computed value is invalid (either \nan`,
++   * - If the exit status is -4, the computed value is invalid (either `nan`,
+    *   `inf`, or `-inf`).
+    * - If the exit status is -5, the number of arguments is invalid.
+    */
+@@ -70,6 +71,9 @@ typedef struct {
+    *   the warning out of bounds policy: the result must be used with
+    *   caution. The value gives the rank of this argument (here the rank
+    *   starts at 1).
++   *
++   * The result is checked as the arguments: its rank is the number of
++   * arguments plus one.
+    */
+   int bounds_status;
+   //! \brief error message
+diff --git a/mfront/include/MFront/GenericModelInterface.hxx b/mfront/include/MFront/GenericModelInterface.hxx
+index ac70ef655..2f9706c20 100644
+--- a/mfront/include/MFront/GenericModelInterface.hxx
++++ b/mfront/include/MFront/GenericModelInterface.hxx
+@@ -25,8 +25,11 @@ namespace mfront {
+     /*!
+      * \brief if true, the class can be used in device code: its constructor
+      * takes the behaviour data and a structure holding the values of the
+-     * real parameters, its methods are host and device functions and the
+-     * material laws are evaluated by their device implementations.
++     * real parameters, its methods are host and device functions and, in
++     * device code, the material laws are evaluated by their device
++     * implementations (the functions of the `mfront` interface are used on
++     * the host). String parameters are not supported in this case (an
++     * exception is thrown).
+      */
+     bool device = false;
+     //! \brief type of the structure holding the values of the parameters
+@@ -34,11 +37,12 @@ namespace mfront {
+   };
+ 
+   /*!
+-   * \brief write the class implementing a model in the `mfront::gm`
+-   * namespace, and the class holding the values of its real parameters (see
+-   * `getGenericModelParametersInitializerName`). Each function of the model
+-   * is implemented by a method returning false if a bounds check fails, and
+-   * the `execute` method executes all the functions of the model.
++   * \brief write, in a namespace opened by the caller (`mfront::gm`), the
++   * class implementing a model and, if the model has real parameters which
++   * are not treated as static variables, the class holding their values
++   * (see `getGenericModelParametersInitializerName`). Each function of the
++   * model is implemented by a method returning false if a bounds check
++   * fails, and the `execute` method executes all the functions of the model.
+    * \param[out] os: output stream
+    * \param[in] fd: file description
+    * \param[in] md: model description
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+index 7c1785e30..1f00573b3 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+@@ -28,9 +28,9 @@ namespace mfront::generic_parallel::behaviour {
+    * - `offload`: if true (default), the computations are offloaded to the
+    *   default device (`target` construct). Otherwise, they are performed by
+    *   the threads of the host (`parallel` construct).
+-   * - `device_stack_size`: stack size, in bytes, of the threads of the
+-   *   device when the computations are offloaded to an NVIDIA GPU through
+-   *   the CUDA runtime (ignored otherwise).
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
++   *   device when the computations are offloaded to an NVIDIA GPU through the
++   *   CUDA runtime (ignored otherwise).
+    */
+   struct MFRONT_VISIBILITY_EXPORT OpenMPBackend final : AbstractBackend {
+     //! \brief default constructor
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+index 635e02a4c..1f3cbc4e4 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+@@ -29,7 +29,7 @@ namespace mfront::generic_parallel::behaviour {
+    * - `execution_policy`: `sequenced_policy` (or `seq`),
+    *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
+    *   `parallel_unsequenced_policy` (or `par_unseq`, default).
+-   * - `device_stack_size`: stack size, in bytes, of the threads of the
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
+    *   device when the parallel algorithms are offloaded to a GPU by
+    *   `nvc++ -stdpar=gpu` (ignored otherwise). The default stack size of
+    *   CUDA threads (1024 bytes) is too small for many behaviours.
+diff --git a/mfront/include/MFront/GenericParallel/GPUStackSize.hxx b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+index 2f53b6f15..22c69f0f1 100644
+--- a/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
++++ b/mfront/include/MFront/GenericParallel/GPUStackSize.hxx
+@@ -67,8 +67,10 @@ namespace mfront::generic_parallel::gpu {
+   /*!
+    * \brief increase the stack size of the threads of the current device if
+    * the given kernel requires it. The default stack size (1024 bytes with
+-   * CUDA) is too small for some behaviours and is not increased
+-   * automatically.
++   * CUDA) is too small for some behaviours, and the increase performed by
++   * the runtime at kernel launch does not account for the internal routines
++   * of the compilers (see `setMinimalCUDAStackSize`), hence the margin
++   * added below to the static estimate of the local memory of the kernel.
+    *
+    * The kernel is a template argument, so that this function is instantiated
+    * in the library defining the kernel. The CUDA runtime is linked
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+index 13b70d347..361e65c42 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+@@ -83,6 +83,14 @@ namespace mfront::generic_parallel::material_property {
+      * `host`, `device` or `any`
+      */
+     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
++    /*!
++     * \brief write the `<name>_generic_parallel_report` function, which
++     * analyses the statistics of an evaluation and fills an output status
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     */
+     virtual void writeReportFunction(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+index 3ef814cb9..2b48da846 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+@@ -25,6 +25,11 @@ namespace mfront::generic_parallel::material_property {
+   /*!
+    * \brief base class of the CUDA and HIP backends: each point is evaluated
+    * by one thread of the device
++   *
++   * Options:
++   *
++   * - `number_of_threads_per_block`: number of threads per block, rounded up
++   *   to a multiple of the warp size (128 by default).
+    */
+   struct MFRONT_VISIBILITY_EXPORT CUDABackendBase : BackendBase {
+     //! \brief default constructor
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+index c75de0fba..eec1f369d 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+@@ -31,9 +31,9 @@ namespace mfront::generic_parallel::material_property {
+    *   the threads of the host (`parallel` construct). If the computations
+    *   are offloaded, the arguments and the output must be accessible from
+    *   the device (unified or managed memory).
+-   * - `device_stack_size`: stack size, in bytes, of the threads of the
+-   *   device when the computations are offloaded to an NVIDIA GPU through
+-   *   the CUDA runtime (ignored otherwise).
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
++   *   device when the computations are offloaded to an NVIDIA GPU through the
++   *   CUDA runtime (ignored otherwise).
+    */
+   struct MFRONT_VISIBILITY_EXPORT OpenMPBackend
+       : CxxProgrammingModelBackendBase {
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+index c573da443..d4a4f3d0f 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+@@ -23,6 +23,15 @@ namespace mfront::generic_parallel::material_property {
+ 
+   /*!
+    * \brief This class implements a backend for the parallel STL algorithms
++   *
++   * Options:
++   *
++   * - `execution_policy`: `sequenced_policy` (or `seq`),
++   *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
++   *   `parallel_unsequenced_policy` (or `par_unseq`, default).
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of
++   *   the device when the parallel algorithms are offloaded to a GPU by
++   *   `nvc++ -stdpar=gpu` (ignored otherwise).
+    */
+   struct MFRONT_VISIBILITY_EXPORT ParallelSTLBackend
+       : CxxProgrammingModelBackendBase {
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index 5d8bfb6a5..cb154a0c9 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -21,7 +21,20 @@
+ 
+ namespace mfront::generic_parallel::material_property {
+ 
+-  //! \brief This class implements a backend for SYCL programming model
++  /*!
++   * \brief This class implements a backend for SYCL programming model
++   *
++   * Options:
++   *
++   * - `data_transfer_policy`: `automatic` (or `auto`, default), the
++   *   arguments which are not accessible by the device are copied in device
++   *   memory and the output is copied back, or `none`, all the arguments and
++   *   the output are assumed to be accessible by the device. This option has
++   *   the same meaning as for behaviours.
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of
++   *   the device when the computations are performed on an NVIDIA GPU
++   *   through the CUDA runtime (AdaptiveCpp).
++   */
+   struct MFRONT_VISIBILITY_EXPORT SYCLBackend : CxxProgrammingModelBackendBase {
+     //! \brief default constructor
+     SYCLBackend();
+diff --git a/mfront/include/MFront/GenericParallel/MemorySpace.hxx b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+index 741af31bb..bb6c1e423 100644
+--- a/mfront/include/MFront/GenericParallel/MemorySpace.hxx
++++ b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+@@ -24,9 +24,11 @@ namespace mfront::generic_parallel {
+    */
+   inline constexpr const char* host_memory_space = "host";
+   /*!
+-   * \brief the computations are performed on a device which can't access the
+-   * ordinary memory of the host: the fields must be accessible by the device
+-   * (memory of the device or shared memory)
++   * \brief the computations are performed on a device, which may not access
++   * the ordinary memory of the host: the fields must be accessible by the
++   * device (memory of the device or shared memory). The library can't
++   * assume that the device accesses the ordinary memory of the host, even
++   * if the device is a CPU (`sycl` backend without data transfers).
+    */
+   inline constexpr const char* device_memory_space = "device";
+   /*!
+diff --git a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+index 1538ee711..1e97086ad 100644
+--- a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
++++ b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
+@@ -156,8 +156,8 @@ namespace mfront::generic_parallel::sycl {
+     }
+     /*!
+      * \return if the given pointer is accessible by the device: any pointer
+-     * if the device is the host, the memory allocated by SYCL (unified
+-     * shared memory) otherwise
++     * if the device is a CPU, the memory allocated by SYCL (unified shared
++     * memory) otherwise
+      * \param[in] p: pointer
+      */
+     [[nodiscard]] bool isAccessible(const void* const p) const {
+@@ -221,8 +221,9 @@ namespace mfront::generic_parallel::sycl {
+                const std::size_t value_size,
+                const bool output,
+                const std::optional<Layout>& layout) {
+-      // the description of the copy is stored before the allocation, so
+-      // that the copy is freed by the destructor in case of exception
++      // the storage of the description is reserved before the allocation,
++      // and the description is stored before the transfer, so that the copy
++      // is freed by the destructor if the transfer throws
+       this->copies.reserve(this->copies.size() + 1);
+       auto* const c = ::sycl::malloc_device(size, this->queue);
+       if (c == nullptr) {
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index 3b9e9f558..ef0c8c21b 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -265,7 +265,10 @@ typedef struct mfront_gpb_RotationData {
+   mfront_gpb_ConstField rotation_matrices;
+   /*!
+    * \brief options of the execution of the computations. The rotations
+-   * never fail: the statistics, if given, are not modified.
++   * never fail: the statistics, if given, are not modified if their time
++   * step scaling factor is not greater than `1`. Otherwise, the `stlpar`
++   * and `openmp` backends set it to `1`, since they merge the time step
++   * scaling factor of the batch with the one of the statistics.
+    */
+   mfront_gpb_ExecutionOptions execution;
+ } mfront_gpb_RotationData;
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 0366a5567..e24714efc 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -155,7 +155,8 @@ namespace mfront::gpb {
+      * \param[out] dest: local copy
+      * \param[in] f: field
+      * \param[in] i: index of the point
+-     * \param[in] n: number of values, lower than the capacity of `dest`
++     * \param[in] n: number of values, not greater than the capacity of
++     * `dest`
+      */
+     template <size_type N, typename FieldType>
+     TFEL_HOST_DEVICE constexpr void gather(LocalValues<N>& dest,
+@@ -169,10 +170,11 @@ namespace mfront::gpb {
+ 
+     /*!
+      * \brief copy the given values in a field at the given point
+-     * \param[in] f: field
++     * \param[out] f: field
+      * \param[in] i: index of the point
+      * \param[in] src: local values
+-     * \param[in] n: number of values, lower than the capacity of `src`
++     * \param[in] n: number of values, not greater than the capacity of
++     * `src`
+      */
+     template <size_type N>
+     TFEL_HOST_DEVICE constexpr void scatter(const Field& f,
+diff --git a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+index 4503f8e87..5c98dc468 100644
+--- a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+@@ -45,8 +45,10 @@ namespace mfront {
+      * working on a batch. The exceptions are converted to an error status,
+      * the batch data (`mfront_batch_data`) must be given, and the output
+      * status is initialized. The output status and the batch data are then
+-     * available as `mfront_status` and `mfront_data`. This function is
+-     * shared with the `generic-parallel` interface for models.
++     * available as `mfront_status` and `mfront_data`. An empty batch is
++     * accepted without any check: the generated function returns before
++     * the body, with the status of success. This function is shared with the
++     * `generic-parallel` interface for models.
+      * \param[out] os: output stream
+      * \param[in] f: name of the function
+      * \param[in] arguments: arguments of the function after the output
+diff --git a/mfront/include/MFront/MaterialPropertyDescription.hxx b/mfront/include/MFront/MaterialPropertyDescription.hxx
+index 3bf84196b..eeff76135 100644
+--- a/mfront/include/MFront/MaterialPropertyDescription.hxx
++++ b/mfront/include/MFront/MaterialPropertyDescription.hxx
+@@ -196,7 +196,11 @@ namespace mfront {
+    *
+    * This function:
+    *
+-   * - imports the namespace std (`use namespace std`)
++   * - imports the namespace std (`using namespace std`) and the
++   *   `invert_type`, `result_type` and `derivative_type` aliases of
++   *   `tfel::math`
++   * - declares the `use_qt` constant, the `PhysicalConstants` alias and the
++   *   `min` and `max` functions
+    * - declares TFEL scalar type aliases (see the `writeScalarStandardTypedefs`
+    *   function).
+    * - imports material laws used by the material property (see the
+@@ -208,7 +212,7 @@ namespace mfront {
+    * \param[in] mpd: material property description
+    * \param[in] fd: file description
+    * \param[in] numeric_type: numeric type used by the interface
+-   * \param[in] bool: allow quantities
++   * \param[in] areQuantitiesSupported: allow quantities
+    * \param[in] device_code_only: the body is only executed in device code
+    * (see the `writeMaterialLaws` function)
+    */
+@@ -225,7 +229,7 @@ namespace mfront {
+    * \param[in, out] os: output stream
+    * \param[in] mpd: material property description
+    * \param[in] numeric_type: numeric type used by the interface
+-   * \param[in] bool: allow quantities
++   * \param[in] areQuantitiesSupported: allow quantities
+    */
+   MFRONT_VISIBILITY_EXPORT void writeScalarStandardTypedefs(
+       std::ostream&,
+diff --git a/mfront/src/DDIF2StressPotential.cxx b/mfront/src/DDIF2StressPotential.cxx
+index a54b71c00..dc4e1bd13 100644
+--- a/mfront/src/DDIF2StressPotential.cxx
++++ b/mfront/src/DDIF2StressPotential.cxx
+@@ -38,9 +38,10 @@ namespace mfront::bbrick {
+ 
+   /*!
+    * \brief extract a material property or an array of material properties
+-   * \param[out] mps: array of material properties. If only one material
+-   * property is defined in the options, then only the first entry of the
+-   * array is defined.
++   * \param[out] mps: array of material properties. If only one non
++   * constant material property is defined in the options, then only the
++   * first entry of the array is defined. A single constant value is copied
++   * in the three entries.
+    * \param[out] bd: behaviour description
+    * \param[in] dsl: abstract behaviour dsl
+    * \param[in] n: material property name
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+index 755dc5ed7..5a648a325 100644
+--- a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -1,6 +1,7 @@
+ /*!
+  * \file   mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+- * \brief
++ * \brief  This file implements the `AbstractBackend` class of the
++ * `generic-parallel` behaviour interface
+  * \date   05/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+index aef759a23..c88249a53 100644
+--- a/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
++++ b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+@@ -1,6 +1,7 @@
+ /*!
+  * \file   mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+- * \brief
++ * \brief  This file implements the `BackendFactory` class of the
++ * `generic-parallel` behaviour interface
+  * \date   05/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+index cbc803688..06dfd5d44 100644
+--- a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+@@ -1,6 +1,7 @@
+ /*!
+  * \file   mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+- * \brief
++ * \brief  This file implements the `CUDA` and `HIP` backends of the
++ * `generic-parallel` behaviour interface
+  * \date   05/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+index 990f04a20..a14c6c975 100644
+--- a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+@@ -1,6 +1,7 @@
+ /*!
+  * \file   mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+- * \brief
++ * \brief  This file implements the C++ parallel algorithms backend
++ * (`stlpar`) of the `generic-parallel` behaviour interface
+  * \date   05/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 06db162a2..42c044223 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -14,7 +14,9 @@
+  * - type of computation: consistent tangent operator (or the type of
+  *   tangent operator given by the `--tangent-operator` option), elastic
+  *   prediction operator, no tangent operator;
+- * - storage of the fields: point by point, component by component.
++ * - storage of the fields: point by point, component by component, and
++ *   component by component with the material properties and the external
++ *   state variables given variable by variable (see `Storage`).
+  *
+  * For finite strain behaviours, the stress measure and the tangent operator
+  * are given by the `--finite-strain` option (for instance
+-- 
+2.43.0
+

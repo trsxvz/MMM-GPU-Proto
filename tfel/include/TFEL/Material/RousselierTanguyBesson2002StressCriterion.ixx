@@ -121,8 +121,11 @@ namespace tfel::material {
         tfel::math::scalarNewtonRaphson(SdS, criterion, x0, size_type{100});
     if (!std::get<0>(r)) {
 #ifdef TFEL_DEVICE_CODE
-      // exceptions are not supported in device code: the invalid value
-      // makes the integration of the behaviour fail
+      // exceptions are not supported in device code: the invalid value is
+      // returned. Contrary to the exception thrown on the host, it does not
+      // abort the integration: in the implicit DSLs, a non finite residual
+      // only rejects the current correction, which is reduced (the code
+      // block may call `abortResolution` to make the integration fail)
       return RousselierTanguyBesson2002StressType<StressStensor>(
           std::numeric_limits<real>::quiet_NaN());
 #else  /* TFEL_DEVICE_CODE */

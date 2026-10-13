@@ -27,7 +27,9 @@ namespace tfel::math {
     /*!
      * \brief invert the given matrix
      * \return true on success. On the host, an exception is thrown if the
-     * matrix is singular. In device code, the matrix is filled with NaN
+     * matrix is singular. When `TFEL_DEVICE_CODE` is defined (device code,
+     * and the whole translation unit with the compilers translating host
+     * and device code in a single pass), the matrix is filled with NaN
      * values if the matrix is singular.
      * \param[in,out] m: matrix
      * \param[in] eps: criterion used to detect a null pivot

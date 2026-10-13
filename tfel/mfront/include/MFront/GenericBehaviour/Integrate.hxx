@@ -498,7 +498,10 @@ namespace mfront::gb {
         return -1;
       }
       if (!b.checkBounds()) {
-        // in host code, out of bounds are reported by exceptions
+        // reached when `TFEL_DEVICE_CODE` is defined (device code, and the
+        // whole translation unit with the compilers translating host and
+        // device code in a single pass): otherwise, out of bounds are
+        // reported by exceptions
         reportError(d, "out of bounds");
         rdt = b.getMinimalTimeStepScalingFactor();
         return -1;
@@ -680,7 +683,7 @@ namespace mfront::gb {
    * where `b` is the behaviour.
    * \param[out] post_processing_variables: pointer to the values of the
    * post-processing variables.
-   * \param[in] d: behaviour data.
+   * \param[in,out] d: behaviour data.
    * \param[in] p: out of bounds policy.
    * \param[in] args: additional arguments of the constructor of the
    * behaviour
@@ -735,7 +738,7 @@ namespace mfront::gb {
    * the initial state of the material.
    * \param[out] post_processing_variables: pointer to the values of the
    * post-processing variables.
-   * \param[in] d: behaviour data.
+   * \param[in,out] d: behaviour data.
    * \param[in] p: out of bounds policy.
    */
   template <typename Behaviour,

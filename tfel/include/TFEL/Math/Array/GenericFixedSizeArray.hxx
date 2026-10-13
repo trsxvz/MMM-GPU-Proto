@@ -121,8 +121,9 @@ namespace tfel::math {
      *
      * \note the copy and move operations are the implicit ones, so that the
      * array is trivially copyable if its values are trivially copyable. In
-     * particular, this allows the use of arrays in `std::variant` in device
-     * code, without visitation.
+     * particular, this allows the use of arrays in
+     * `tfel::utilities::TrivialGenTypeBase`, which only holds trivially
+     * copyable types.
      */
     TFEL_HOST_DEVICE constexpr GenericFixedSizeArray(
         const GenericFixedSizeArray&) noexcept = default;

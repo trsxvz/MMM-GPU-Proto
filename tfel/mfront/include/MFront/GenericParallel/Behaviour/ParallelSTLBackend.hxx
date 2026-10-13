@@ -29,7 +29,7 @@ namespace mfront::generic_parallel::behaviour {
    * - `execution_policy`: `sequenced_policy` (or `seq`),
    *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
    *   `parallel_unsequenced_policy` (or `par_unseq`, default).
-   * - `device_stack_size`: stack size, in bytes, of the threads of the
+   * - `device_stack_size`: minimal stack size, in bytes, of the threads of the
    *   device when the parallel algorithms are offloaded to a GPU by
    *   `nvc++ -stdpar=gpu` (ignored otherwise). The default stack size of
    *   CUDA threads (1024 bytes) is too small for many behaviours.

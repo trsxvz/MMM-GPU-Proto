@@ -14,7 +14,9 @@
  * - type of computation: consistent tangent operator (or the type of
  *   tangent operator given by the `--tangent-operator` option), elastic
  *   prediction operator, no tangent operator;
- * - storage of the fields: point by point, component by component.
+ * - storage of the fields: point by point, component by component, and
+ *   component by component with the material properties and the external
+ *   state variables given variable by variable (see `Storage`).
  *
  * For finite strain behaviours, the stress measure and the tangent operator
  * are given by the `--finite-strain` option (for instance

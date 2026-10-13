@@ -33,7 +33,16 @@ The `TFEL/Config/TFELConfig.hxx` header defines the following macros:
   compiler of AdaptiveCpp. With those compilers, `TFEL_DEVICE_CODE` is
   defined in the whole translation unit.
 - `TFEL_NO_REPORT_CONTRACT_VIOLATION` is defined when contract violations
-  can't be reported, in particular in device code.
+  can't be reported, in particular in device code and in the whole `SYCL`
+  sources.
+- `TFEL_STATIC_VARIABLE(v)` gives the value of a constexpr static variable
+  `v` in code which may be compiled as device code: the variable itself on
+  the host, a temporary copy `(decltype(v){v})` when `TFEL_DEVICE_CODE` is
+  defined, since device code can't refer to a constexpr static variable
+  defined in host code. `MFront` uses it for the static variables read by
+  the code blocks of the behaviours: a reference bound to such a variable
+  is only valid until the end of the full expression, and its address
+  can't be taken.
 
 `TFEL_DEVICE_CODE` allows to select the code which can't be executed on
 the device, for instance when throwing an exception, while keeping the
@@ -74,7 +83,7 @@ substitutions used by `MFront` when reading configuration files and
   `cmake`,
   2. by using `icpx` as the main compiler to compile `TFEL`,
   3. by searching `icpx` using `cmake`'s `find_program` function.
-- `TFEL_ACPP_COMPILER`: path to AdaptativeCpp `acpp` compiler. The value
+- `TFEL_ACPP_COMPILER`: path to AdaptiveCpp `acpp` compiler. The value
   associated with this key is determined as follows, by order of
   priority:
 
@@ -88,7 +97,7 @@ substitutions used by `MFront` when reading configuration files and
   1. by passing the variable `TFEL_NVHPC_COMPILER` during the invocation of
   `cmake`,
   2. by using `nvhpc` as the main compiler to compile `TFEL`,
-  3. by searching `nvhpc` using `cmake`'s `find_program` function.
+  3. by searching `nvc++` using `cmake`'s `find_program` function.
 - `TFEL_NVCC_COMPILER`: path to NVIDIA's `nvcc` as found by
   `FindCUDAToolkit`.
 - `TFEL_HIPCC_COMPILER`: path to AMD's `hipcc` compiler. The value

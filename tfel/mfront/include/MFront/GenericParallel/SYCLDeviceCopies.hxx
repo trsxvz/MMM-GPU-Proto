@@ -156,8 +156,8 @@ namespace mfront::generic_parallel::sycl {
     }
     /*!
      * \return if the given pointer is accessible by the device: any pointer
-     * if the device is the host, the memory allocated by SYCL (unified
-     * shared memory) otherwise
+     * if the device is a CPU, the memory allocated by SYCL (unified shared
+     * memory) otherwise
      * \param[in] p: pointer
      */
     [[nodiscard]] bool isAccessible(const void* const p) const {
@@ -221,8 +221,9 @@ namespace mfront::generic_parallel::sycl {
                const std::size_t value_size,
                const bool output,
                const std::optional<Layout>& layout) {
-      // the description of the copy is stored before the allocation, so
-      // that the copy is freed by the destructor in case of exception
+      // the storage of the description is reserved before the allocation,
+      // and the description is stored before the transfer, so that the copy
+      // is freed by the destructor if the transfer throws
       this->copies.reserve(this->copies.size() + 1);
       auto* const c = ::sycl::malloc_device(size, this->queue);
       if (c == nullptr) {

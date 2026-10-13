@@ -406,7 +406,9 @@
  * the compilers translating host and device code in a single pass (`nvc++
  * -stdpar=gpu`, `nvc++ -mp=gpu`, AdaptiveCpp's generic compiler). A
  * reference bound to the copy is only valid until the end of the full
- * expression, and its type is not const qualified.
+ * expression, and the address of the copy can't be taken. The type of the
+ * copy is not const qualified for scalar types, but it is const qualified
+ * for class types, such as quantities.
  */
 #ifdef TFEL_DEVICE_CODE
 #define TFEL_STATIC_VARIABLE(v) (decltype(v){v})

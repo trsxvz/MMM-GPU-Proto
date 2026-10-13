@@ -38,7 +38,6 @@ namespace tfel::material {
     const auto& gs = GS::getSlidingSystems();
     if (f.empty()) {
       for (unsigned short i = 0; i != Np; i++) {
-        // allocting memory
         // rotation matrix
         tmatrix<3u, 3u, real> drot = getRandomRotationMatrix<real>();
         for (unsigned short j = 0; j != Nss; j++) {

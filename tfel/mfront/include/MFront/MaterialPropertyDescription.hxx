@@ -196,7 +196,11 @@ namespace mfront {
    *
    * This function:
    *
-   * - imports the namespace std (`use namespace std`)
+   * - imports the namespace std (`using namespace std`) and the
+   *   `invert_type`, `result_type` and `derivative_type` aliases of
+   *   `tfel::math`
+   * - declares the `use_qt` constant, the `PhysicalConstants` alias and the
+   *   `min` and `max` functions
    * - declares TFEL scalar type aliases (see the `writeScalarStandardTypedefs`
    *   function).
    * - imports material laws used by the material property (see the
@@ -208,7 +212,7 @@ namespace mfront {
    * \param[in] mpd: material property description
    * \param[in] fd: file description
    * \param[in] numeric_type: numeric type used by the interface
-   * \param[in] bool: allow quantities
+   * \param[in] areQuantitiesSupported: allow quantities
    * \param[in] device_code_only: the body is only executed in device code
    * (see the `writeMaterialLaws` function)
    */
@@ -225,7 +229,7 @@ namespace mfront {
    * \param[in, out] os: output stream
    * \param[in] mpd: material property description
    * \param[in] numeric_type: numeric type used by the interface
-   * \param[in] bool: allow quantities
+   * \param[in] areQuantitiesSupported: allow quantities
    */
   MFRONT_VISIBILITY_EXPORT void writeScalarStandardTypedefs(
       std::ostream&,
