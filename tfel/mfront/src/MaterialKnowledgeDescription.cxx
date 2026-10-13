@@ -32,6 +32,7 @@ namespace mfront {
   const char* const MaterialKnowledgeDescription::validator = "validator";
   const char* const MaterialKnowledgeDescription::buildIdentifier =
       "build_identifier";
+  const char* const MaterialKnowledgeDescription::realType = "real_type";
 
   MaterialKnowledgeDescription::MaterialKnowledgeDescription() = default;
   MaterialKnowledgeDescription::MaterialKnowledgeDescription(
@@ -186,6 +187,19 @@ namespace mfront {
     return d.getAttribute<bool>(
         MaterialKnowledgeDescription::disableRuntimeChecks, false);
   }  // end of getDisableRuntimeChecks
+
+  void setRealType(MaterialKnowledgeDescription& d, const std::string& t) {
+    if ((t != "double") && (t != "float")) {
+      tfel::raise("setRealType: invalid numerical type '" + t +
+                  "' (expected 'double' or 'float')");
+    }
+    d.setAttribute(MaterialKnowledgeDescription::realType, t, false);
+  }  // end of setRealType
+
+  std::string getRealType(const MaterialKnowledgeDescription& d) {
+    return d.getAttribute<std::string>(MaterialKnowledgeDescription::realType,
+                                       "double");
+  }  // end of getRealType
 
   std::string getDefaultOutOfBoundsPolicyAsString(
       const MaterialKnowledgeDescription& d) {

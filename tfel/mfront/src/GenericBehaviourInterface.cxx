@@ -281,8 +281,9 @@ namespace mfront {
 
     const auto hg = this->getHeaderGuard(bd);
     out << "#ifndef " << hg << "\n"
-        << "#define " << hg << "\n\n"
-        << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
+        << "#define " << hg << "\n\n";
+    writeRealTypeDefinitions(out, bd);
+    out << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
         << "#include\"MFront/GenericBehaviour/BehaviourData.h\"\n\n";
 
     this->writeVisibilityDefines(out);
@@ -343,6 +344,7 @@ namespace mfront {
         << "* \\date   " << fd.date << '\n'
         << "*/\n\n";
 
+    writeRealTypeDefinitions(out, bd);
     this->writeVisibilityDefines(out);
 
     out << "#include<iostream>\n"

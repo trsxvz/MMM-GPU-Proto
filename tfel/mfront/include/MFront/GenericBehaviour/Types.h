@@ -21,9 +21,25 @@
 #endif /* __cplusplus */
 
 /*!
- * \brief numerical type used by the interface
+ * \brief numerical type used by the interface: the type given by the
+ * `MFRONT_GB_REAL_TYPE` macro if it is defined (`float`, for instance), or
+ * `double`. `mfront` defines this macro at the beginning of the generated
+ * sources of the `generic` and `generic-parallel` interfaces when the
+ * `real_type` DSL option is given.
  */
+#ifdef MFRONT_GB_REAL_TYPE
+typedef MFRONT_GB_REAL_TYPE mfront_gb_real;
+#else  /* MFRONT_GB_REAL_TYPE */
 typedef double mfront_gb_real;
+#endif /* MFRONT_GB_REAL_TYPE */
+/*!
+ * \brief offset of the versions of the application programming interfaces
+ * exported by a library whose numerical type is not `double`: such a
+ * library is refused by a caller expecting `double`, even if this caller
+ * does not read the size of the numerical type (symbol `<f>_real_size`)
+ */
+#define MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET \
+  (sizeof(mfront_gb_real) == sizeof(double) ? 0 : 1000)
 /*!
  * \brief numerical type used by the interface
  */

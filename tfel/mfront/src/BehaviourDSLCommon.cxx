@@ -1631,6 +1631,13 @@ namespace mfront {
   }  // end of getModellingHypothesesToBeTreated
 
   void BehaviourDSLCommon::generateOutputFiles() {
+    checkRealTypeSupport(this->mb, [this] {
+      auto names = std::vector<std::string>{};
+      for (const auto& i : this->interfaces) {
+        names.push_back(i.first);
+      }
+      return names;
+    }());
     for (const auto& em : this->mb.getExternalMFrontFiles()) {
       this->callMFront({em.first}, std::get<0>(em.second),
                        std::get<1>(em.second));

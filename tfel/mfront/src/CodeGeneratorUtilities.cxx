@@ -377,6 +377,24 @@ namespace mfront {
     exportStringSymbol(os, std::string{n} + "_build_id", build_id);
   }  // end of writeBuildIdentifierSymbols
 
+  void writeRealTypeDefinitions(std::ostream& os,
+                                const MaterialKnowledgeDescription& d) {
+    const auto t = getRealType(d);
+    if (t == "double") {
+      return;
+    }
+    os << "// numerical type of the interface (real_type option of mfront)\n"
+       << "#define MFRONT_GB_REAL_TYPE " << t << '\n'
+       << "#define MFRONT_GMP_REAL_TYPE " << t << "\n\n";
+  }  // end of writeRealTypeDefinitions
+
+  void writeRealSizeSymbol(std::ostream& os,
+                           const std::string_view n,
+                           const std::string_view t) {
+    exportSymbol(os, "unsigned short", std::string{n} + "_real_size",
+                 "sizeof(" + std::string{t} + ")");
+  }  // end of writeRealSizeSymbol
+
   void writeEntryPointSymbol(std::ostream& out, const std::string_view n) {
     writeEntryPointSymbol(out, n, n);
   }  // end of writeEntryPointSymbols

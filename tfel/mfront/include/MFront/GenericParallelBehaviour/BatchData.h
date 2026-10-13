@@ -308,12 +308,17 @@ typedef struct mfront_gpb_OutputStatus {
  * \brief initialize the statistics of a batch
  * \param[out] s: statistics
  * \param[in] rdt: initial value of the time step scaling factor
+ *
+ * \note the ordered key of the time step scaling factor is built from its
+ * value converted to `double`, whatever the numerical type of the
+ * interface, so that its 64 bits are defined
  */
 static inline void mfront_gpb_initializeBatchStatistics(
     mfront_gpb_BatchStatistics* const s, const mfront_gb_real rdt) {
   const unsigned long long sign = 0x8000000000000000ull;
+  const double v = rdt;
   unsigned long long b;
-  memcpy(&b, &rdt, sizeof(b));
+  memcpy(&b, &v, sizeof(b));
   s->number_of_failures = 0;
   s->first_failure_index = ~0ull;
   s->number_of_unreliable_results = 0;
@@ -328,9 +333,9 @@ static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
     const mfront_gpb_BatchStatistics* const s) {
   const unsigned long long sign = 0x8000000000000000ull;
   const unsigned long long b = (s->rdt & sign) ? (s->rdt & ~sign) : ~(s->rdt);
-  mfront_gb_real rdt;
+  double rdt;
   memcpy(&rdt, &b, sizeof(rdt));
-  return rdt;
+  return (mfront_gb_real)rdt;
 } /* end of mfront_gpb_getTimeStepScalingFactor */
 
 /*!

@@ -74,6 +74,11 @@ namespace mfront {
     static const char* const validatorOption;
     //! \brief standard option name
     static const char* const buildIdentifierOption;
+    /*!
+     * \brief option giving the numerical type of the `generic` and
+     * `generic-parallel` interfaces (`double` or `float`)
+     */
+    static const char* const realTypeOption;
     //! \brief standard option
     static const char* const overridingParameters;
     //! \brief standard option name
@@ -190,6 +195,16 @@ namespace mfront {
      */
     static void handleDSLOptions(MaterialKnowledgeDescription&,
                                  const DSLOptions&);
+    /*!
+     * \brief check that the numerical type selected by the `real_type`
+     * option is supported by the given interfaces: a type other than
+     * `double` is only supported by the `generic` and `generic-parallel`
+     * interfaces
+     * \param[in] d: material knowledge description
+     * \param[in] interfaces: names of the interfaces
+     */
+    static void checkRealTypeSupport(const MaterialKnowledgeDescription&,
+                                     const std::vector<std::string>&);
     /*!
      * \brief extract common options
      * \param[in] d: material knowledge description

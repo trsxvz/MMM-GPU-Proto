@@ -976,6 +976,13 @@ namespace mfront {
     };
     throw_if(this->md.className.empty(), "no material property name defined.");
     throw_if(this->md.f.body.empty(), "no function defined.");
+    checkRealTypeSupport(this->md, [this] {
+      auto names = std::vector<std::string>{};
+      for (const auto& i : this->interfaces) {
+        names.push_back(i.first);
+      }
+      return names;
+    }());
     // creating directories
     if (!this->interfaces.empty()) {
       tfel::system::systemCall::mkdir("include");

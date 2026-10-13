@@ -277,6 +277,7 @@ namespace mfront {
 
     os << "#ifndef " << makeUpperCase(name) << "_" << iucname << "_HH\n"
        << "#define " << makeUpperCase(name) << "_" << iucname << "_HH\n\n";
+    writeRealTypeDefinitions(os, mpd);
     writeExportDirectives(os);
 
     for (const auto& header : this->getInterfaceHeaderFiles()) {
@@ -337,8 +338,9 @@ namespace mfront {
     if (!date.empty()) {
       os << "* \\date   " << date << '\n';
     }
-    os << " */\n\n"
-       << "#include<algorithm>\n"
+    os << " */\n\n";
+    writeRealTypeDefinitions(os, mpd);
+    os << "#include<algorithm>\n"
        << "#include<iterator>\n"
        << "#include<iostream>\n"
        << "#include<sstream>\n"
@@ -375,6 +377,7 @@ namespace mfront {
     writeValidatorSymbol(os, name, mpd);
     writeBuildIdentifierSymbol(os, name, mpd);
     writeEntryPointSymbol(os, name);
+    writeRealSizeSymbol(os, name, types.real_type);
     writeTFELVersionSymbol(os, name);
     writeUnitSystemSymbol(os, name, mpd);
     writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());

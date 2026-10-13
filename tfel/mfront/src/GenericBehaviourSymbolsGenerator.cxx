@@ -11,6 +11,7 @@
  * project under specific licensing conditions.
  */
 
+#include <string>
 #include <ostream>
 #include "TFEL/Raise.hxx"
 #include "MFront/CodeGeneratorUtilities.hxx"
@@ -33,7 +34,12 @@ namespace mfront {
     const auto n = i.getFunctionNameBasis(name);
     const auto s = n + "_api_version";
     const auto api = GenericBehaviourInterface::getAPIVersion();
-    exportUnsignedShortSymbol(os, s, api);
+    // the version is shifted for a numerical type other than double (see
+    // `MFront/GenericBehaviour/Types.h`)
+    exportSymbol(
+        os, "unsigned short", s,
+        std::to_string(api) + " + MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET");
+    writeRealSizeSymbol(os, n, "mfront_gb_real");
   }  // end of writeSpecificSymbols
 
   void GenericBehaviourSymbolsGenerator::writeBehaviourTypeSymbols(

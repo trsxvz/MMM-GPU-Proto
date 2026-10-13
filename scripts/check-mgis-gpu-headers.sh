@@ -17,7 +17,8 @@ subst() {
   grep '^tfel-substitutions:STRING=' "$PROTO_TFEL_BUILD/CMakeCache.txt" |
     tr ';' '\n' | sed -n "s|^$1%||p"
 }
-INC="-I$PROTO/mgis/include"
+# MGIS/RealType.h is generated in the build directory of MGIS
+INC="-I$PROTO/build/mgis/include -I$PROTO/mgis/include"
 LIBS="-L$MGIS_LIB -lMFrontGenericInterface"
 export LD_LIBRARY_PATH="$MGIS_LIB:$LD_LIBRARY_PATH"
 BACKENDS=${*:-cuda hip sycl kokkos openmp}

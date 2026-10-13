@@ -71,6 +71,7 @@ namespace mfront {
   const char* const DSLBase::overridingParameters = "overriding_parameters";
   const char* const DSLBase::validatorOption = "validator";
   const char* const DSLBase::buildIdentifierOption = "build_identifier";
+  const char* const DSLBase::realTypeOption = "real_type";
   const char* const DSLBase::disableRuntimeChecksOption =
       "disable_runtime_checks";
 
@@ -97,6 +98,7 @@ namespace mfront {
         .addDataTypeValidator<bool>(DSLBase::disableRuntimeChecksOption)
         .addDataTypeValidator<std::string>(DSLBase::validatorOption)
         .addDataTypeValidator<std::string>(DSLBase::buildIdentifierOption)
+        .addDataTypeValidator<std::string>(DSLBase::realTypeOption)
         .addDataTypeValidator<tfel::utilities::DataMap>(
             DSLBase::overridingParameters);
     return v;
@@ -153,7 +155,28 @@ namespace mfront {
           opts.at(DSLBase::buildIdentifierOption).get<std::string>();
       d.setAttribute(MaterialKnowledgeDescription::buildIdentifier, id, false);
     }
+    //
+    if (opts.count(DSLBase::realTypeOption) != 0) {
+      setRealType(d, opts.at(DSLBase::realTypeOption).get<std::string>());
+    }
   }  // end of handleDSLOptions
+
+  void DSLBase::checkRealTypeSupport(
+      const MaterialKnowledgeDescription& d,
+      const std::vector<std::string>& interfaces) {
+    const auto t = getRealType(d);
+    if (t == "double") {
+      return;
+    }
+    for (const auto& i : interfaces) {
+      if ((i != "generic") && (i != "generic-parallel")) {
+        tfel::raise("DSLBase::checkRealTypeSupport: the numerical type '" + t +
+                    "' (real_type option) is not supported by interface '" + i +
+                    "', only by the 'generic' and 'generic-parallel' "
+                    "interfaces");
+      }
+    }
+  }  // end of checkRealTypeSupport
 
   AbstractDSL::DSLOptions DSLBase::buildCommonDSLOptions(
       const MaterialKnowledgeDescription& d) {
@@ -173,6 +196,7 @@ namespace mfront {
              allowsParametersInitializationFromFile(d)},
             {DSLBase::validatorOption, validator},
             {DSLBase::buildIdentifierOption, build_id},
+            {DSLBase::realTypeOption, getRealType(d)},
             {DSLBase::overridingParameters, tfel::utilities::DataMap{}}};
   }  // end of buildCommonOptions
 
@@ -202,6 +226,10 @@ namespace mfront {
             {DSLBase::buildIdentifierOption,
              "string specifying a build identifier. This option shall only be "
              "specified on the command line"},
+            {DSLBase::realTypeOption,
+             "string specifying the numerical type of the `generic` and "
+             "`generic-parallel` interfaces, `double` (default) or `float`. "
+             "The other interfaces and the models require `double`"},
             {DSLBase::overridingParameters,
              "map allowing to override material properties, parameters and "
              "external state variables by parameters"}};

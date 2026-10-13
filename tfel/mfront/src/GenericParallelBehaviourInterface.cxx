@@ -584,8 +584,9 @@ namespace mfront {
     const auto hg = this->getHeaderGuard(bd) + "_" +
                     makeUpperCase(this->backend->getName());
     os << "#ifndef " << hg << "\n"
-       << "#define " << hg << "\n\n"
-       << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
+       << "#define " << hg << "\n\n";
+    writeRealTypeDefinitions(os, bd);
+    os << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
        << "#include\"MFront/GenericParallelBehaviour/BatchData.h\"\n\n";
     this->writeVisibilityDefines(os);
     os << "#ifdef __cplusplus\n"
@@ -679,6 +680,7 @@ namespace mfront {
        << "* \\author " << fd.authorName << '\n'
        << "* \\date   " << fd.date << '\n'
        << "*/\n\n";
+    writeRealTypeDefinitions(os, bd);
     this->writeVisibilityDefines(os);
     os << "#include\"TFEL/Material/OutOfBoundsPolicy.hxx\"\n"
        << "#include\"TFEL/Material/" << bd.getClassName() << ".hxx\"\n"

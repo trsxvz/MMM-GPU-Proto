@@ -322,6 +322,21 @@ namespace tfel::system {
     return 2u;
   }  // end of getMaterialKnowledgeType
 
+  unsigned short ExternalLibraryManager::getRealSize(const std::string& l,
+                                                     const std::string& f) {
+    const auto s = f + "_real_size";
+    if (!this->contains(l, s)) {
+      return static_cast<unsigned short>(sizeof(double));
+    }
+    const auto lib = this->loadLibrary(l);
+    const int n = ::tfel_getUnsignedShort(lib, s.c_str());
+    raise_if(n == -1,
+             "ExternalLibraryManager::getRealSize: "
+             "the size of the numerical type could not be read (" +
+                 getErrorMessage() + ")");
+    return static_cast<unsigned short>(n);
+  }  // end of getRealSize
+
   bool ExternalLibraryManager::contains(const std::string& l,
                                         const std::string& s) {
     const auto lib = this->loadLibrary(l);

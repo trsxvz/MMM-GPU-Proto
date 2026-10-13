@@ -1,0 +1,50 @@
+# Environment of the prototype in float on the CPU (plan
+# docs/plan-precision.md, step 5): MFEM 4.10 with precision=single, which
+# requires hypre precision=single and MUMPS +float. The packages refused by
+# MFEM in single precision (SuiteSparse, AmgX, GSLIB, SUNDIALS, SuperLU,
+# STRUMPACK, Ginkgo, libCEED) are not used. Same instance of spack (1.2.2)
+# and same packages (develop branch of spack-packages, commit 3b7fdffc24) as
+# the environment mmm-gpu, which is not modified.
+spack:
+  specs:
+  - openmpi@5 +internal-hwloc +internal-pmix
+  - hypre@3.2.0 +mpi ~int64 precision=single
+  - mumps +mpi +float
+  # C++20, as mfem-mgis
+  - mfem@4.10.0 +mpi +shared ~static precision=single cxxstd=20 +mumps
+  - cmake
+  view: true
+  config:
+    # cache of this instance of spack (see the environment mmm-gpu)
+    misc_cache: $spack/var/spack/misc-cache
+  concretizer:
+    unify: true
+    reuse: false
+  repos:
+    mmm_gpu: $env/../repos/spack_repo/mmm_gpu
+    builtin: /home/t/Bureau/spack-packages-mmm/repos/spack_repo/builtin
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
+    c:
+      require: [gcc@14.2.0]
+    cxx:
+      require: [gcc@14.2.0]
+    fortran:
+      require: [gcc@14.2.0]
+    gcc:
+      buildable: false
+      externals:
+      - spec: gcc@14.2.0 languages:='c,c++,fortran'
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/gcc-14
+            cxx: /usr/bin/g++-14
+            fortran: /usr/bin/gfortran-14

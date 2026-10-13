@@ -26,9 +26,24 @@ extern "C" {
 #endif /* __cplusplus */
 
 /*!
- * \brief numerical type used by the interface
+ * \brief numerical type used by the interface: the type given by the
+ * `MFRONT_GMP_REAL_TYPE` macro if it is defined (`float`, for instance), or
+ * `double`. `mfront` defines this macro at the beginning of the generated
+ * sources of the `generic` and `generic-parallel` interfaces when the
+ * `real_type` DSL option is given.
  */
+#ifdef MFRONT_GMP_REAL_TYPE
+typedef MFRONT_GMP_REAL_TYPE mfront_gmp_real;
+#else  /* MFRONT_GMP_REAL_TYPE */
 typedef double mfront_gmp_real;
+#endif /* MFRONT_GMP_REAL_TYPE */
+/*!
+ * \brief offset of the versions of the application programming interfaces
+ * exported by a library whose numerical type is not `double` (see
+ * `MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET`)
+ */
+#define MFRONT_GMP_REAL_TYPE_API_VERSION_OFFSET \
+  (sizeof(mfront_gmp_real) == sizeof(double) ? 0 : 1000)
 /*!
  * \brief numerical type used by the interface
  */

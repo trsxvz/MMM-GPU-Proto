@@ -43,9 +43,12 @@ namespace mfront::generic_parallel::behaviour {
     const auto n = std::string{f} + "_generic_parallel_";
     exportStringSymbol(os, n + "backend", this->getName());
     exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
-    // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
-    exportSymbol(os, "unsigned short", n + "api_version",
-                 "MFRONT_GPB_API_VERSION");
+    // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`,
+    // and shifted for a numerical type other than double (see
+    // `MFront/GenericBehaviour/Types.h`)
+    exportSymbol(
+        os, "unsigned short", n + "api_version",
+        "MFRONT_GPB_API_VERSION + MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET");
   }  // end of writeSymbols
 
   std::string AbstractBackend::getSharedDataCopy(const std::string_view getter,

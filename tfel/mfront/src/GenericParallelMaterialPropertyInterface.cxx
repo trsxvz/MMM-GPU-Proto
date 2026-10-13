@@ -237,6 +237,7 @@ namespace mfront {
                        makeUpperCase(this->backend->getName()) + "_HH";
     os << "#ifndef " << guard << "\n"
        << "#define " << guard << "\n\n";
+    writeRealTypeDefinitions(os, mpd);
     writeExportDirectives(os);
 
     for (const auto& header : this->getInterfaceHeaderFiles()) {
@@ -305,8 +306,9 @@ namespace mfront {
     if (!date.empty()) {
       os << "* \\date   " << date << '\n';
     }
-    os << " */\n\n"
-       << "#include<algorithm>\n"
+    os << " */\n\n";
+    writeRealTypeDefinitions(os, mpd);
+    os << "#include<algorithm>\n"
        << "#include<iterator>\n"
        << "#include<iostream>\n"
        << "#include<sstream>\n"
@@ -356,14 +358,18 @@ namespace mfront {
     writeValidatorSymbol(os, name, mpd);
     writeBuildIdentifierSymbol(os, name, mpd);
     writeEntryPointSymbol(os, name);
+    writeRealSizeSymbol(os, name, types.real_type);
     writeTFELVersionSymbol(os, name);
     writeUnitSystemSymbol(os, name, mpd);
     writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());
-    // backend and version of the generated functions, as for the behaviours
+    // backend and version of the generated functions, as for the behaviours,
+    // the version being shifted for a numerical type other than double (see
+    // `MFront/GenericMaterialProperty/Types.h`)
     exportStringSymbol(os, name + "_generic_parallel_backend",
                        this->backend->getName());
-    exportSymbol(os, "unsigned short", name + "_generic_parallel_api_version",
-                 "MFRONT_GPMP_API_VERSION");
+    exportSymbol(
+        os, "unsigned short", name + "_generic_parallel_api_version",
+        "MFRONT_GPMP_API_VERSION + MFRONT_GMP_REAL_TYPE_API_VERSION_OFFSET");
     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
                  this->backend->getMemorySpace());
     writeLawSymbol(os, name, mpd.law);

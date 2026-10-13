@@ -21,6 +21,25 @@
 #include "TFEL/TypeTraits/Promote.hxx"
 #include "TFEL/Math/Forward/Complex.hxx"
 
+namespace tfel::typetraits::internals {
+
+  /*!
+   * \return if a value of type `X` is assignable to an object of type `Y`:
+   * either `X` is promoted to `Y`, or both are floating-point types, the
+   * value being then converted, possibly to a narrower type (`double` to
+   * `float`). The latter allows the code written with `double` literals to
+   * be compiled for `float` objects.
+   * \tparam X: type of the value
+   * \tparam Y: type of the object
+   */
+  template <typename X, typename Y>
+  constexpr bool isStandardNumericTypeAssignableTo() {
+    return std::is_same_v<typename Promote<X, Y>::type, Y> ||
+           (std::is_floating_point_v<X> && std::is_floating_point_v<Y>);
+  }  // end of isStandardNumericTypeAssignableTo
+
+}  // end of namespace tfel::typetraits::internals
+
 /*!
  * \def TFEL_MATH_IS_ASSIGNABLE_
  * \brief An helper macro to specialise IsAssignableTo for each
@@ -28,17 +47,19 @@
  * \author Thomas Helfer
  * \date   28 jun 2006
  */
-#define TFEL_MATH_IS_ASSIGNABLE_(X, Y)                                    \
-  /*!                                                                     \
-   * \brief Partial specialisation for X and Y                            \
-   * \see   IsAssignableTo                                                \
-   */                                                                     \
-  template <>                                                             \
-  struct IsAssignableTo<X, Y> {                                           \
-    /*! \brief result */                                                  \
-    static constexpr bool value = std::is_same_v<Promote<X, Y>::type, Y>; \
-    /*! \brief result */                                                  \
-    static constexpr bool cond = std::is_same_v<Promote<X, Y>::type, Y>;  \
+#define TFEL_MATH_IS_ASSIGNABLE_(X, Y)                        \
+  /*!                                                         \
+   * \brief Partial specialisation for X and Y                \
+   * \see   IsAssignableTo                                    \
+   */                                                         \
+  template <>                                                 \
+  struct IsAssignableTo<X, Y> {                               \
+    /*! \brief result */                                      \
+    static constexpr bool value =                             \
+        internals::isStandardNumericTypeAssignableTo<X, Y>(); \
+    /*! \brief result */                                      \
+    static constexpr bool cond =                              \
+        internals::isStandardNumericTypeAssignableTo<X, Y>(); \
   }
 
 /*!
@@ -73,7 +94,10 @@ namespace tfel::typetraits {
   /*!
    * \class IsAssignableTo
    * \brief Traits class which says if an object a of type A is
-   * assignable to an object b of type B, ie if b = a is valid.
+   * assignable to an object b of type B, ie if b = a is valid. For the
+   * standard numeric types, a value is assignable if its type is promoted
+   * to the type of the object, or if both types are floating-point types
+   * (`double` to `float`, with a conversion).
    *
    * \tparam  A, first type
    * \tparam  B, second type

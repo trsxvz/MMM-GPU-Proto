@@ -46,6 +46,8 @@ namespace mfront {
     static const char* const validator;
     //! \brief attribute name
     static const char* const buildIdentifier;
+    //! \brief standard option and attribute name
+    static const char* const realType;
     /*!
      * \brief throw an exception saying that no attribute with the given name
      * exists
@@ -184,6 +186,21 @@ namespace mfront {
    * \param[in] d: material knowledge description
    */
   MFRONT_VISIBILITY_EXPORT bool areRuntimeChecksDisabled(
+      const MaterialKnowledgeDescription&);
+  /*!
+   * \brief set the numerical type of the `generic` and `generic-parallel`
+   * interfaces
+   * \param[out] d: material knowledge description
+   * \param[in] t: numerical type, `double` or `float`
+   */
+  MFRONT_VISIBILITY_EXPORT void setRealType(MaterialKnowledgeDescription&,
+                                            const std::string&);
+  /*!
+   * \return the value of the `MaterialKnowledgeDescription::realType`
+   * attribute if it is defined (`double` or `float`), `double` otherwise.
+   * \param[in] d: material knowledge description
+   */
+  MFRONT_VISIBILITY_EXPORT std::string getRealType(
       const MaterialKnowledgeDescription&);
   /*!
    * \brief set the default out of bounds policy

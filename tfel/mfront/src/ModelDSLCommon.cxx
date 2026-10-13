@@ -280,6 +280,11 @@ namespace mfront {
   }  // end of setInterfaces
 
   void ModelDSLCommon::generateOutputFiles() {
+    if (getRealType(this->md) != "double") {
+      tfel::raise("ModelDSLCommon::generateOutputFiles: the numerical type '" +
+                  getRealType(this->md) +
+                  "' (real_type option) is not supported by the models");
+    }
     // creating directories
     if (!this->interfaces.empty()) {
       tfel::system::systemCall::mkdir("include");

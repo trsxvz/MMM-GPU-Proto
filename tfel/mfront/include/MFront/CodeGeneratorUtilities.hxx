@@ -152,6 +152,29 @@ namespace mfront {
       const std::string_view,
       const MaterialKnowledgeDescription&);
   /*!
+   * \brief write the definitions of the `MFRONT_GB_REAL_TYPE` and
+   * `MFRONT_GMP_REAL_TYPE` macros, which give the numerical type of the
+   * `generic` and `generic-parallel` interfaces, if the `real_type`
+   * attribute of the description selects a type other than `double`.
+   * Nothing is written otherwise. Those definitions must precede the first
+   * inclusion of the headers of the interfaces.
+   * \param[out] os: output stream
+   * \param[in] d: description
+   */
+  MFRONT_VISIBILITY_EXPORT void writeRealTypeDefinitions(
+      std::ostream&, const MaterialKnowledgeDescription&);
+  /*!
+   * \brief write a symbol giving the size in bytes of the numerical type of
+   * an entry point of the `generic` or `generic-parallel` interfaces
+   * (`<n>_real_size`), computed at compile time
+   * \param[out] os: output stream
+   * \param[in] n: entry point name
+   * \param[in] t: numerical type (`mfront_gb_real` or `mfront_gmp_real`)
+   */
+  MFRONT_VISIBILITY_EXPORT void writeRealSizeSymbol(std::ostream&,
+                                                    const std::string_view,
+                                                    const std::string_view);
+  /*!
    * \brief write a specific symbol stating that a given name entry
    * point (`C`-like function for example) has been created using
    * `MFront`.
