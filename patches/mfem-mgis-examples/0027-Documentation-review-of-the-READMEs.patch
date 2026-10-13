@@ -1,0 +1,270 @@
+From 816b2249ef37f5b21bbf85b9ef8443bea608a04e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:05:38 +0200
+Subject: [PATCH] Documentation: review of the READMEs
+
+The READMEs were checked against the sources and the registered tests: requirements of the prototype branch of mfem-mgis instead of mfem-mgis@master, tests on the GPU and their conditions, MUMPS required by the simulations of ex8, NewtonK0 factorizing the elastic operator at each resolution, cuDSS with hypre on the host (memory of the host read by the GPU), default values of the options.
+---
+ README.md                    | 45 ++++++++++++++++--------------------
+ ex7/README.md                | 24 ++++++++++++++-----
+ ex8/MFront/README.md         |  2 +-
+ ex8/PostProcessing/README.md |  2 +-
+ ex8/README.md                | 24 +++++++++++--------
+ ex8/Robin/README.md          | 13 +++++++----
+ 6 files changed, 64 insertions(+), 46 deletions(-)
+
+diff --git a/README.md b/README.md
+index e317388..3ad191b 100644
+--- a/README.md
++++ b/README.md
+@@ -5,41 +5,31 @@ You will find here meshes and a collection of use cases for the `mfem-mgis` libr
+ 
+ ## How to install
+ 
+-### Installing MFEM-MGIS with Spack
++### Installing mfem-mgis
+ 
+-```
+-git clone https://github.com/spack/spack.git
+-export SPACK_ROOT=$PWD/spack
+-source ${SPACK_ROOT}/share/spack/setup-env.sh
+-```
+-
+-Firstly, install the development version of mfem-mgis, which the examples follow. It is
+-provided by the `develop` branch of the Spack packages repository, used by default by this
+-clone of Spack. With a release of Spack, first switch to this branch with
+-`spack repo update builtin --branch develop`.
++The examples of this branch follow the prototype branch of mfem-mgis, which provides the CMake
++function `mfem_mgis_add_behaviours_library`, the option `--execution` and the function
++`mfem_mgis::getBehavioursLibrary` used by all the examples. This branch of mfem-mgis must be built
++from its sources, as described by its installation guide. It requires a version of MGIS providing
++`MGIS/FieldOperations.hxx`. The Spack package of mfem-mgis (`spack install mfem-mgis@master`)
++installs a version without these functions, with which the configuration of the examples fails.
++Spack may still provide the other dependencies (MFEM, TFEL...).
+ 
+-```
+-spack install mfem-mgis@master
+-```
+-
+-Secondly, load mfem-mgis
+-
+-```
+-spack load mfem-mgis
+-```
++The examples build their behaviour libraries with MFront: when CMake configures the build,
++`mfront` must be found in the `PATH` (or given by the CMake variable `MFRONT`).
+ 
+-Finally, build and run your examples:
++Then build and run the examples, `MFEMMGIS_DIR` giving the installation of mfem-mgis:
+ 
+ ```
+ cd mfem-mgis-examples
+-cmake -B build -DCMAKE_BUILD_TYPE=Release
++cmake -B build -DCMAKE_BUILD_TYPE=Release -DMFEMMGIS_DIR=<prefix of mfem-mgis>/share/mfem-mgis/cmake
+ cmake --build build -j 4
+ ctest --test-dir build
+ ```
+ 
+ The tests compute the complete simulations, except in the Debug and Coverage builds, where they
+ only compute their beginning to be faster. The `MFEM_MGIS_EXAMPLES_TEST_MODE` option, set to `full`
+-or `restricted`, selects the test mode explicitly:
++or `restricted` (`auto` by default), selects the test mode explicitly:
+ 
+ ```
+ cmake -B build -DCMAKE_BUILD_TYPE=Release -DMFEM_MGIS_EXAMPLES_TEST_MODE=restricted
+@@ -47,15 +37,20 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release -DMFEM_MGIS_EXAMPLES_TEST_MODE=restric
+ 
+ The `MFEM_MGIS_EXAMPLES_GPU_TESTS` option (off by default) adds the tests of the examples on a GPU
+ (option `--execution gpu`, or `mixed` when a phase stays on the CPU), when MFEM is compiled with
+-CUDA or HIP. A GPU is then required to run them.
++CUDA or HIP and the behaviour libraries of the example are built for the GPU (TFEL providing the
++configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints
++why they are not built). A GPU is then required to run them.
+ 
+ All the examples accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which
+ places the computations on the CPU, on the GPU, or each phase (finite elements, behaviours, linear
+ solvers, post-processings) on one of them. Each example builds its behaviour libraries for the CPU
+ and, if MFEM uses a GPU, for the GPU (CMake function `mfem_mgis_add_behaviours_library` of
+-mfem-mgis), and uses the one placed by `--execution`, unless a library is given by its option `-l`.
++mfem-mgis), and uses the one placed by `--execution`, unless a library is given by its option `-l` (`-lU` and
++`-lA` for ex8).
+ 
+ For an installation on a supercomputer without internet please follow the procedure described here for MFEM-MGIS installation: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html#installation-guide-on-topaze-ccrt-of-mfem-mgis-examples
++This procedure installs `mfem-mgis@master`: the prototype branch of mfem-mgis must then be built
++from its sources in this environment.
+ 
+ ## Test case description
+ 
+diff --git a/ex7/README.md b/ex7/README.md
+index 14e403a..cf94e3f 100644
+--- a/ex7/README.md
++++ b/ex7/README.md
+@@ -95,7 +95,7 @@ Command line | Description
+ --verbosity-level or -v | verbosity level of the linear solver (default = 0)
+ --linear-solver or -ls | linear solver: `HypreGMRES` preconditioned by `HypreBoomerAMG` (default), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only); an invalid value is refused
+ --matrix-symmetry or -ms | symmetry of the matrices given to the direct solver: `Unsymmetric` (default), `SymmetricIndefinite` or `SymmetricPositiveDefinite` (the lower triangle is given without checking the symmetry); an invalid value is refused
+---reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver
++--reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver. With `--use-petsc`, `-ls`, `-ms` and `-mra` are ignored, with a warning
+ --execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`)
+ --device, --hypre-on-host | options of mfem-mgis for the experts: device of MFEM (for instance `cuda`), computations of hypre on the host when the device is a GPU
+ --post-processing or -pp, --no-post-processing or -no-pp | export or not the results to Paraview (default = export)
+@@ -109,9 +109,10 @@ Example of customized simulation:
+ ./mox2 -r 2 -o 3 --mesh mesh/OneSphere.msh
+ ```
+ 
+-The example builds the behaviour for the CPU and, if MFEM uses a GPU, for
+-the GPU: `--execution gpu` runs all the computations on the GPU, with the
+-behaviour generated for the GPU:
++The example builds the behaviour for the CPU and, if MFEM uses a GPU and TFEL
++provides the configuration file of MFront for this GPU (see the main
++README), for the GPU: `--execution gpu` runs all the computations on the
++GPU, with the behaviour generated for the GPU:
+ 
+ ```bash
+ mpirun -n 1 ./mox2 --no-post-processing --execution gpu
+@@ -126,7 +127,10 @@ GPU, it takes 4.3 to 4.6 s with `HypreGMRES` (hypre on the host) and 2.0
+ to 2.1 s with the direct solver of the GPU, cuDSS, the matrices being
+ assembled by hypre on the host. This last placement (solver on the GPU,
+ hypre on the host) is only given by the options of mfem-mgis for the
+-experts, with the library for the GPU built by the example:
++experts, with the library for the GPU built by the example. It requires
++MFEM built with cuDSS and, with hypre on the host, a GPU which reads the
++pageable memory of the host (heterogeneous memory management); otherwise
++`CuDSSSolver` is refused:
+ 
+ ```bash
+ MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
+@@ -162,7 +166,15 @@ The test runs the default simulation (`mesh/OneSphere.msh`, order 2) and compare
+ in each material to the reference values of `OneSphere-avgStress-40steps.ref`. In the restricted
+ test mode, used by default in the debug and coverage builds, it uses 5 time steps instead of 40 and
+ compares the mean stresses to `OneSphere-avgStress-5steps.ref`. With 5 time steps, the average stress SZZ differs by
+-less than 9 % from the one computed with 40 time steps.
++less than 9 % from the one computed with 40 time steps. This test is `mox2`. The other tests do the same:
++
++- `mox2-mumps` on 2 processes with MUMPS and symmetric positive definite matrices
++  (`-ls MUMPSSolver -ms SymmetricPositiveDefinite`), if MFEM is built with MUMPS;
++- `mox2-petsc` with PETSc (`--use-petsc --petsc-configuration-file petscrc`), if MFEM is built with
++  PETSc;
++- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours cpu`,
++  if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU
++  (see the main README).
+ 
+ ## Post-processing of simulation data
+ 
+diff --git a/ex8/MFront/README.md b/ex8/MFront/README.md
+index 9bc61b0..94d9d65 100644
+--- a/ex8/MFront/README.md
++++ b/ex8/MFront/README.md
+@@ -55,4 +55,4 @@ Unlike ALFENI, U3Si2 does not undergo classical plasticity but instead creeps un
+ * **Flow Rule (Creep):**
+   * Driven by the fission rate ($fr = Pow / E_f$), where $E_f = 3.20436 \times 10^{-11}\text{ J/fission}$.
+   * Creep is proportional to the Von Mises equivalent stress ($seq$) multiplied by the fission rate and a constant $A = 500 \times 10^{-37}$.
+-* **Post-processing:** The scalar swelling is assigned to an auxiliary variable (`SwellingExport` of type `strain`) to force its export to visualization tools.
+\ No newline at end of file
++* **Post-processing:** The scalar swelling is assigned to an auxiliary variable (`SwellingExport` of type `strain`) to force its export to visualization tools.
+diff --git a/ex8/PostProcessing/README.md b/ex8/PostProcessing/README.md
+index 304dd72..cc4eac5 100644
+--- a/ex8/PostProcessing/README.md
++++ b/ex8/PostProcessing/README.md
+@@ -14,7 +14,7 @@ Dedicated to analyzing code performance and scalability on a supercomputer.
+ 
+ - **Contents:** Scripts for aggregating computation times, calculating speedup, and plotting Strong Scaling and Weak Scaling curves.
+ 
+-### SolverPreconditioner
++### SolverPreconditioner (directory `SolverPrecondtionner`)
+ 
+ Dedicated to profiling and optimizing linear algebra operations.
+ 
+diff --git a/ex8/README.md b/ex8/README.md
+index 57b7255..f9d2b2c 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -19,20 +19,23 @@ To compile and run this project, you need the **MFEM-MGIS** environment, which r
+ ### Main Dependencies
+ * **MPI** (OpenMPI, MPICH, etc.) for parallel computing.
+ * **TFEL/MFront** (compiled with generic interfaces).
+-* **MFEM** (compiled with MPI, Hypre, and ideally Metis support).
++* **MFEM** (compiled with MPI, Hypre and MUMPS, the default solver of the mechanics and the solver of the elastic operator of `NewtonK0`, and ideally Metis support).
++* For the GPU: MFEM compiled with CUDA (or HIP), TFEL providing the `generic-parallel` interface of MFront for this GPU (see the main README), and MFEM compiled with cuDSS for `CuDSSSolver`.
+ * **MGIS** (MFront Generic Interface Support).
+ 
+ ### Installation Guide
+ To install the library and its dependencies, please refer to the official documentation:
+ **[MFEM-MGIS Installation Guide](https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html)**
+ 
++The examples of this branch require the prototype branch of mfem-mgis, built from its sources (see the main README).
++
+ Once the environment is set up, you can compile this thermomechanical project by linking your `CMakeLists.txt` to the `mfem-mgis` installation.
+ 
+ ---
+ 
+ ## Mesh Generation
+ 
+-The default mesh (`mesh/assemblage_hexa.msh`) is generated from the `mesh/assemblage_hexa.py` **gmsh** script. It is copied next to the executable at build time, so regenerating it is only needed when the geometry or mesh density changes.
++The default mesh (`mesh/assemblage_hexa.msh`) is generated from the `mesh/assemblage_hexa.py` **gmsh** script. It is copied next to the executable when CMake configures the build, so regenerating it is only needed when the geometry or mesh density changes.
+ 
+ The script requires the `gmsh` Python module. If it is not installed (e.g. via `pip install gmsh`), point `PYTHONPATH` to a local gmsh SDK instead:
+ 
+@@ -79,14 +82,14 @@ Here is a summary table of the available options:
+ | `-lU` | `--libraryU3SI2` | Path to the compiled MFront library (`.so`) for the U3Si2 material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
+ | `-lA` | `--libraryALFENI` | Path to the compiled MFront library (`.so`) for the ALFENI material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
+ | `-x` | `--execution` | Option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`). |
+-| `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on the GPU only). |
++| `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS). |
+ | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+-| `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on the GPU only) or an iterative solver (e.g., `HyprePCG`). |
++| `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS) or an iterative solver (e.g., `HyprePCG`). |
+ | `-pcMc` | `--preconditioner-mechanics` | Preconditioner associated with the mechanics solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+-| `-nlsMc` | `--nonlinear-solver-mechanics` | Non linear solver of the mechanics problem: `Newton` (default) or `NewtonK0` (tangent systems solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step). |
++| `-nlsMc` | `--nonlinear-solver-mechanics` | Non linear solver of the mechanics problem: `Newton` (default) or `NewtonK0` (tangent systems solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanics problem, that is at each iteration of the coupling scheme). |
+ | `-oMc` | `--ordering-mechanics` | Ordering of the degrees of freedom of the mechanics problem: `byNODES` (default) or `byVDIM`. |
+ | `-amgMc` | `--amg-strategy-mechanics` | Strategy of the `HypreBoomerAMG` preconditioner of the mechanics problem: `System`, `Elasticity` (requires `byVDIM`) or `None` (default: the one of `mfem-mgis`). A warning is printed if the mechanics solver has no BoomerAMG preconditioner. |
+-| `-msMc` | `--matrix-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to the direct solver, `MUMPSSolver` or `CuDSSSolver` (tangent operator with `Newton`, elastic operator factorized by MUMPS with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to the solver without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up the factorizations of MUMPS by about 30 %. An invalid value is refused. |
++| `-msMc` | `--matrix-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to the direct solver, `MUMPSSolver` or `CuDSSSolver` (tangent operator with `Newton`, elastic operator factorized by MUMPS with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to the solver without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up the factorizations of MUMPS by about 30 %. An invalid value is refused. Ignored, with a warning, when the mechanics solver is not a direct solver (unless `-nlsMc NewtonK0`). |
+ | `-mra`, `-no-mra` | `--reuse-analysis`, `--no-reuse-analysis` | Reuse the analysis of the direct solvers (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations: heat transfer and mechanics problems solved by `MUMPSSolver` or `CuDSSSolver`, elastic operator of `NewtonK0` (parameter `ReuseAnalysis` of mfem-mgis, which must provide it). Disabled by default; ignored, with a warning, when no direct solver is used. On the original mesh, with `-msMc SymmetricPositiveDefinite`, the factorizations of the mechanics problem by MUMPS take about 20 % less time on one process and 26 % less on two; those of cuDSS are about 5 times faster. |
+ | `-o` | `--order` | Finite element order (polynomial degree, default: `1`). |
+ | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
+@@ -158,7 +161,10 @@ The following tests are run by `ctest`:
+ 
+ - `rjh_plate` runs the simulation on 2 processes with the default mesh and compares the statistics of the temperature and of the displacement to the reference values of `assemblage_hexa-statistics.ref`. In the restricted test mode, used by default in the debug and coverage builds, it uses the coarser mesh `assemblage_hexa_coarse.msh` and the reference values of `assemblage_hexa_coarse-statistics.ref`;
+ - `rjh_plate-kernels` runs the same simulation with the integration of the behaviours by batches and the gradients, the inner forces and the tangent operator computed by kernels (environment variables of mfem-mgis), compared to the same reference;
+-- `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each time step instead of the tangent operator at each iteration), compared to the same reference;
+-- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set (see the main README);
++- `rjh_plate-mumps-spd` runs the simulation by kernels with the tangent operator of the mechanical problem given to MUMPS as a symmetric positive definite matrix (`-msMc SymmetricPositiveDefinite`), compared to the same reference;
++- `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
++- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
+ - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
+-- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`).
++- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), with the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option.
++
++The simulations of the plate (`rjh_plate` and its variants) are only registered as tests if MFEM is built with MUMPS; `u3si2_swelling` and `robin_test` always are.
+diff --git a/ex8/Robin/README.md b/ex8/Robin/README.md
+index fd5abec..b0165c9 100644
+--- a/ex8/Robin/README.md
++++ b/ex8/Robin/README.md
+@@ -8,12 +8,17 @@ This test case validates the implementation of thermal convection through a **Ro
+ 
+ The problem consists of a steady-state heat conduction test in a three-dimensional bar with constant thermal conductivity. A prescribed temperature is imposed on one end of the domain, while a Robin (convective) boundary condition is applied on the opposite end:
+ 
+-\[
++$$
+ \mathbf{j} \cdot \mathbf{n} = h \left(T - T_\infty\right),
+-\]
++$$
+ 
+-where \(h\) is the heat transfer coefficient and \(T_\infty\) is the ambient temperature.
++where $h$ is the heat transfer coefficient and $T_\infty$ is the ambient temperature.
+ 
+ Because the analytical solution is known, this example provides a straightforward verification of the implementation by comparing the numerical and exact solutions. It also validates the residual and tangent contributions associated with the Robin boundary condition.
+ 
+-The test `robin_test`, run by `ctest` on 2 processes, fails if the L2 norm of the difference between the numerical and exact temperatures exceeds 1e-8.
+\ No newline at end of file
++The test `robin_test`, run by `ctest` on 2 processes, fails if the L2 norm of the difference between the numerical and exact temperatures exceeds 1e-8.
++
++The library of the behaviour is built for the CPU and, if MFEM uses a GPU, for the GPU; the one
++placed by the option `--execution` of mfem-mgis is used, unless a library is given by the option
++`-l`. With the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option (see the main README), `robin_test-gpu` runs the
++same test on the GPU (`--execution gpu`).
+-- 
+2.43.0
+

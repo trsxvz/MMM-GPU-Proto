@@ -95,7 +95,7 @@ Command line | Description
 --verbosity-level or -v | verbosity level of the linear solver (default = 0)
 --linear-solver or -ls | linear solver: `HypreGMRES` preconditioned by `HypreBoomerAMG` (default), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only); an invalid value is refused
 --matrix-symmetry or -ms | symmetry of the matrices given to the direct solver: `Unsymmetric` (default), `SymmetricIndefinite` or `SymmetricPositiveDefinite` (the lower triangle is given without checking the symmetry); an invalid value is refused
---reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver
+--reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver. With `--use-petsc`, `-ls`, `-ms` and `-mra` are ignored, with a warning
 --execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`)
 --device, --hypre-on-host | options of mfem-mgis for the experts: device of MFEM (for instance `cuda`), computations of hypre on the host when the device is a GPU
 --post-processing or -pp, --no-post-processing or -no-pp | export or not the results to Paraview (default = export)
@@ -109,9 +109,10 @@ Example of customized simulation:
 ./mox2 -r 2 -o 3 --mesh mesh/OneSphere.msh
 ```
 
-The example builds the behaviour for the CPU and, if MFEM uses a GPU, for
-the GPU: `--execution gpu` runs all the computations on the GPU, with the
-behaviour generated for the GPU:
+The example builds the behaviour for the CPU and, if MFEM uses a GPU and TFEL
+provides the configuration file of MFront for this GPU (see the main
+README), for the GPU: `--execution gpu` runs all the computations on the
+GPU, with the behaviour generated for the GPU:
 
 ```bash
 mpirun -n 1 ./mox2 --no-post-processing --execution gpu
@@ -126,7 +127,10 @@ GPU, it takes 4.3 to 4.6 s with `HypreGMRES` (hypre on the host) and 2.0
 to 2.1 s with the direct solver of the GPU, cuDSS, the matrices being
 assembled by hypre on the host. This last placement (solver on the GPU,
 hypre on the host) is only given by the options of mfem-mgis for the
-experts, with the library for the GPU built by the example:
+experts, with the library for the GPU built by the example. It requires
+MFEM built with cuDSS and, with hypre on the host, a GPU which reads the
+pageable memory of the host (heterogeneous memory management); otherwise
+`CuDSSSolver` is refused:
 
 ```bash
 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
@@ -162,7 +166,15 @@ The test runs the default simulation (`mesh/OneSphere.msh`, order 2) and compare
 in each material to the reference values of `OneSphere-avgStress-40steps.ref`. In the restricted
 test mode, used by default in the debug and coverage builds, it uses 5 time steps instead of 40 and
 compares the mean stresses to `OneSphere-avgStress-5steps.ref`. With 5 time steps, the average stress SZZ differs by
-less than 9 % from the one computed with 40 time steps.
+less than 9 % from the one computed with 40 time steps. This test is `mox2`. The other tests do the same:
+
+- `mox2-mumps` on 2 processes with MUMPS and symmetric positive definite matrices
+  (`-ls MUMPSSolver -ms SymmetricPositiveDefinite`), if MFEM is built with MUMPS;
+- `mox2-petsc` with PETSc (`--use-petsc --petsc-configuration-file petscrc`), if MFEM is built with
+  PETSc;
+- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours cpu`,
+  if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU
+  (see the main README).
 
 ## Post-processing of simulation data
 

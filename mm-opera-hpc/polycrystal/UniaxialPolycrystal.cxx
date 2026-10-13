@@ -405,7 +405,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "EisenstatWalker1 or EisenstatWalker2");
   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
                  "--adaptive-linear-solver-initial-tolerance",
-                 "initial adaptive tolerance, the default one if negative");
+                 "initial adaptive tolerance, the default one if -1");
   args.AddOption(&p.elastic_operator_linear_solver, "",
                  "--elastic-operator-linear-solver",
                  "linear solver of the elastic operator of NewtonK0: "
@@ -435,9 +435,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "choose the verbosity level");
   args.AddOption(&p.duration, "-d", "--duration",
-                 "choose the duration (default = 5)");
+                 "choose the duration");
   args.AddOption(&p.nstep, "-n", "--nstep",
-                 "choose the number of steps (default = 40)");
+                 "choose the number of steps");
 
   args.Parse();
 

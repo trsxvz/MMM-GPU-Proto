@@ -4,11 +4,11 @@
 
 This test case illustrates the simulation of a Representative Volume Element (RVE) of a polycrystal made of uranium dioxide (UO₂). The objective is to study the mechanical response of the material under a uniaxial loading (see the description of the boundary conditions below). In addition to the mechanical analysis, this example implements a fixed-point algorithm enabling the simulation of a uniaxial compression/tensile test with periodic boundary conditions.	
 
-- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macroscopic deformation gradient are set to zero. The components Fxx and Fzz are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is a stress-strain curve with the evolution of the axial component Szz of the Cauchy stress as a function of Fxx.
+- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macroscopic deformation gradient are set to zero. The components Fxx and Fyy are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is the evolution of the axial component Szz of the Cauchy stress as a function of time.
 - **Finite element order:** 1 (linear interpolation).
 - **Finite element space:** H1.
 - **Simulation duration:** 200 s.
-- **Number of time steps:** 600.
+- **Number of time steps:** 200 by default (option `--nstep`).
 - **[Crystal] Constitutive law:** The UO₂ crystal plasticity law used in the example is detailed in the reference [^2], the corresponding Mfront file is on the MMM Github. In the case of Uranium dioxide, the crystal symmetry is cubic and the corresponding orthotropic elastic properties used in the crystal plasticity law are:
 	- Young Modulus = 222.e9 Pa
 	- Poisson ratio = 0.27
@@ -72,8 +72,9 @@ Usage: ./uniaxial-polycrystal --help
 
 | Option                                      | Type   | Default                      | Description                                                                                                                                   |
 | ------------------------------------------- | ------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-h, --help`                                | —      | —                            | Print the help message and exit.                                                                                                              |
+| `-h, --help`                                | flag   | off                          | Print the help message and exit.                                                                                                              |
 | `-m <string>, --mesh <string>`              | string | `mesh/5crystals.msh`         | Mesh file to use.                                                                                                                             |
+| `-mm <string>, --mesh_mode <string>`        | string | `FromScratch`                | Mesh read mode: `FromScratch`, or `Restart` for a mesh already split in parts, one per process.                                               |
 | `-f <string>, --vect <string>`              | string | `mesh/vectors_5crystals.txt` | Vector file to use.                                                                                                                           |
 | `-l <string>, --library <string>`           | string | built with the case | Material library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                                                                             |
 | `-b <string>, --behaviour <string>`         | string | `Mono_UO2_Cosh_Jaco3`        | Mechanical behaviour.                                                                                                                         |
@@ -81,23 +82,20 @@ Usage: ./uniaxial-polycrystal --help
 | `-r <int>, --refinement <int>`              | int    | `0`                          | Refinement level of the mesh (default = 0).                                                                                                   |
 | `-v <int>, --verbosity-level <int>`         | int    | `0`                          | Verbosity level of the output.                                                                                                                |
 | `-d <double>, --duration <double>`          | double | `200`                        | Duration of the simulation.                                                                                                                   |
-| `-n <int>, --nstep <int>`                   | int    | `600`                        | Number of simulation steps.                                                                                                                   |
+| `-n <int>, --nstep <int>`                   | int    | `200`                        | Number of simulation steps.                                                                                                                   |
 | `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver of the Newton method: a Krylov solver of hypre (`HyprePCG`, `HypreGMRES` or `HypreFGMRES`, preconditioned by `--linear-solver-preconditioner`), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only), the matrices being given as general ones. Ignored by `NewtonK0`. |
-| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver. |
+| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver, with `NewtonK0` or with PETSc. |
 | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
 | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
-| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if negative.                                                                                      |
-| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX).                         |
+| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
+| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which requires mfem-mgis built with `-Denable-amgx=ON`). |
 | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
 | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
 | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
 | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
-| `--enable-post-processings`                 | bool   | `false`                      | Execute post-processing steps (default).                                                                                                      |
-| `--disable-post-processings`                | bool   | —                            | Do not execute post-processing steps.                                                                                                         |
-| `--enable-export-von-Mises-stress`          | bool   | `false`                      | Export the von Mises stress.                                                                                                                  |
-| `--disable-export-von-Mises-stress`         | bool   | —                            | Do not export the von Mises stress (default).                                                                                                 |
-| `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first eigen stress.                                                                                                                |
-| `--disable-export-first_eigen_stress`       | bool   | —                            | Do not export the first eigen stress (default).                                                                                               |
+| `--enable-post-processing`, `--disable-post-processing` | bool   | `true`           | Execute or not the post-processing steps.                                                                                                     |
+| `--enable-export-von-Mises-stress`, `--disable-export-von-Mises-stress` | bool   | `false` | Export or not the von Mises stress.                                                                                               |
+| `--enable-export-first_eigen_stress`, `--disable-export-first_eigen_stress` | bool   | `false` | Export or not the first eigen stress.                                                                                         |
 
 The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
 to compute on a GPU, the behaviours built by the case for the GPU being then
@@ -131,7 +129,7 @@ To visualize and compare the results, run the following Python script:
 python3 plot_polycrystal_results.py
 ```
 
-This script generates a figure named `plot_polycrystal.png` as given in the Figure 6. In this figure we can observe that there is a good agreement between Cast3M and MFEM-MGIS results. Although Cast3M is our reference, the stress-strain curve shows an unexpected non-smooth evolution. These oscillations are associated to the time step discretization which was specified in the MFEM-MGIS simulation. For a larger number of time steps the Cast3M curve is smoother as the MMM results presented in Figure 6. A first analysis of this issue led us to conclude that the implicit formulation of the Cast3M code, based on a quasi-Newton algorithm using the elastic stiffness and line search type convergence acceleration, is not fully stable. The main output of this work is that the implicit formulation of MFEM-MGIS (full newton algorithm using the tangent stiffness) is very performant, thanks to the quadratic convergence and parallelization, and provides a high-quality solution. For the verification process, the number of time steps has been significantly increased in order to avoid as much as possible the oscillation of the Cast3M solution.      
+This script generates a figure named `plot_polycrystal.png`, shown below. In this figure we can observe that there is a good agreement between Cast3M and MFEM-MGIS results. Although Cast3M is our reference, the stress-strain curve shows an unexpected non-smooth evolution. These oscillations are associated to the time step discretization which was specified in the MFEM-MGIS simulation. For a larger number of time steps the Cast3M curve is smoother as the MMM results presented in this figure. A first analysis of this issue led us to conclude that the implicit formulation of the Cast3M code, based on a quasi-Newton algorithm using the elastic stiffness and line search type convergence acceleration, is not fully stable. The main output of this work is that the implicit formulation of MFEM-MGIS (full newton algorithm using the tangent stiffness) is very performant, thanks to the quadratic convergence and parallelization, and provides a high-quality solution. For the verification process, the number of time steps has been significantly increased in order to avoid as much as possible the oscillation of the Cast3M solution.      
 
 ![](doc/plot_polycrystal.png)
 
@@ -166,6 +164,10 @@ Check PASS.
 ```
 
 This table shows the comparison between the simulated Cauchy stress values and the reference Cast3M results, along with the relative difference and a status check.
+
+## Tests
+
+`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.1 s without post-processing), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
 
 ## References
 

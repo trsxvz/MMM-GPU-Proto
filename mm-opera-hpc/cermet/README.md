@@ -7,26 +7,27 @@
 This case is similar to the `UO2` polycrystal with the addition of a metallic interface at the grain boundary. In the Gmsh mesh each grain has a material ID (from 2 to (N_grain + 1)), as well as its orientation needed for the orthotropic basis. The metallic interface has the material ID equal to 1, and is considered to be made of an isotropic elasto-viscoplastic material. In addition to the mechanical analysis, this example implements a fixed-point algorithm enabling the simulation of a uniaxial compression/tensile test with periodic boundary conditions.
 
 *Parameters:*
-- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macrocroscopic deformation gradient are set to zero. The components Fxx and Fzz are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is a stress-strain curve with the evolution of the axial component Szz of the Cauchy stress as a function of Fxx.
+- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macrocroscopic deformation gradient are set to zero. The components Fxx and Fyy are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is the evolution of the axial component Szz of the Cauchy stress as a function of time.
 - **[Crystal] Constitutive law:** The UO₂ crystal plasticity law used in the example is detailed in the reference [^1], the corresponding Mfront file is on the MMM Github. In the case of Uranium dioxide, the crystal symmetry is cubic and the corresponding orthotropic elastic properties used in the crystal plasticity law are:
 	- Young Modulus = 222.e9 Pa
 	- Poisson ratio = 0.27
 	- Shear Modulus = 54.e9 Pa
-- **[Metalic Interface] Constitutive law:** The Norton creep law used for the interface is derived from the elasto-viscoplastic properties of chromium coating used in eATF claddings as proposed in the reference [], the corresponding Mfront file is on the MMM Github. 
+- **[Metalic Interface] Constitutive law:** The Norton creep law used for the interface is derived from the elasto-viscoplastic properties of chromium coating used in eATF claddings as proposed in the literature, the corresponding Mfront file is on the MMM Github. 
 - **Elastic properties:**
 	- Young Modulus = 276e+09 Pa
 	- Shear Modulus = 54.e9
 - **Norton creep law:**
-	- </head> <body> <p>$$\dot{\varepsilon}_{eq} = \frac{A D_0 \exp\!\left(-\frac{Q}{R T}\right)}{b^2}\left( \frac{\sigma_{eq}}{C} \right)^n$$</p></body></html>
+	- $\dot{\varepsilon}_{eq} = \frac{A D_0 \exp\!\left(-\frac{Q}{R T}\right)}{b^2}\left( \frac{\sigma_{eq}}{C} \right)^n$
 	- A = 2.5e+11 [a. u.]
-	- n1 = 4.75
-	- Q = 306.27e+03 [a. u.]D0 = 1.55e-5 [a. u.]
+	- n = 4.75 (parameter `n1` of the law)
+	- Q = 306.27e+03 [a. u.]
+	- D0 = 1.55e-5 [a. u.]
 	- b = 2.5e-10 [a. u.]
 - **Finite element order:** 1 (linear interpolation).
 - **Finite element space:** H1.
 - **Simulation duration:** 200 s.
 - **Number of time steps:** 500.
-- **Linear solver:** HyprePCG (solver) /(precond)
+- **Linear solver:** HyprePCG preconditioned by HypreBoomerAMG.
 
 ## Mesh generation
 
@@ -62,8 +63,8 @@ This setup generates a small polycrystalline mesh with (gmsh version `11.1`):
 
 ```
 L = [1, 1, 1]
-nbSpheres = 20 
-distMin = 0.3
+nbSpheres = 5
+distMin = 0.4
 randomSeed = 0
 layer=0.02
 MeshOrder = 1
@@ -104,21 +105,25 @@ Usage: ./cermet [options] ...
 
 | Option                                      | Type   | Default               | Description                                                                                                                                                       |
 | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
+| `-h, --help`                                | flag   | off                   | Print the help message and exit.                                                                                                                                  |
 | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
 | `-l <string>, --library <string>`           | string | built with the case | Material library containing the behaviours of the grains and of the metallic interface (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                          |
 | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
-| `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh (default = 1).                                                                                                                       |
-| `-p <int>, --post-processing <int>`         | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
+| `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh.                                                                                                                                     |
+| `-p <int>, --postprocessing <int>`          | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
 | `-v <int>, --verbosity-level <int>`         | int    | `0`                   | Verbosity level of the output.                                                                                                                                    |
-| `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation (default = 5).                                                                                                                         |
-| `-n <int>, --nstep <int>`                   | int    | `400`                 | Number of simulation steps (default = 40).                                                                                                                        |
+| `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation.                                                                                                                                       |
+| `-n <int>, --nstep <int>`                   | int    | `500`                 | Number of simulation steps.                                                                                                                                       |
 | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
 | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
 
 The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
 to compute on a GPU, the behaviours built by the case for the GPU being then
 used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+
+### Tests
+
+`ctest` runs `CermetNullStrainXXYY` and `CermetImposeGradXXYY`, one time step of 0.4 s without post-processing (both tests run the same command), and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
 
 
 ### Run it

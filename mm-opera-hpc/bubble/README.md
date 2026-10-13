@@ -43,7 +43,7 @@ Usage: ./test-bubble [options] ...
 
 | Option                                    | Type   | Default                  | Description                                 |
 | ----------------------------------------- | ------ | ------------------------ | ------------------------------------------- |
-| `-h, --help`                              | —      | —                        | Print the help message and exit.            |
+| `-h, --help`                              | flag   | off                      | Print the help message and exit.            |
 | `-m <string>, --mesh <string>`            | string | `mesh/single_sphere.msh` | Mesh file to use.                           |
 | `-pm <int>, --parallel-mesh <int>`        | int    | `0`                      | Read a parallel mesh or not.                |
 | `-l <string>, --library <string>`         | string | built with the case | Material behaviour library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                 |
@@ -56,7 +56,7 @@ Usage: ./test-bubble [options] ...
 | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
 | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
 | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
-| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
+| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
 
 The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
 to compute on a GPU, the behaviours built by the case for the GPU being then
@@ -82,7 +82,7 @@ $$
 
 where $p_{in}$ is the internal pressure, $R_b$ the bubble radius, and reminding that the expression is holding for $r>R_b$.
 
-The script available in `verification/bubble` can be used to compare the analytical solution to the MMM one:
+The script `verification/mmm_vs_analytical.py`, copied in the build directory of the case, can be used to compare the analytical solution to the MMM one:
 
 ```bash
 python3 mmm_vs_analytical.py 
@@ -90,3 +90,7 @@ python3 mmm_vs_analytical.py
 The comparison between the computational results and and the analytical solution is showed below.
 
 ![Bubble Case](../img/bubble/comparison_analytical_mmm.png)
+
+## Tests
+
+`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`.

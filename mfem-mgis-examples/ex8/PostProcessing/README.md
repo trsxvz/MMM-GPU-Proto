@@ -14,7 +14,7 @@ Dedicated to analyzing code performance and scalability on a supercomputer.
 
 - **Contents:** Scripts for aggregating computation times, calculating speedup, and plotting Strong Scaling and Weak Scaling curves.
 
-### SolverPreconditioner
+### SolverPreconditioner (directory `SolverPrecondtionner`)
 
 Dedicated to profiling and optimizing linear algebra operations.
 

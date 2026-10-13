@@ -1,0 +1,395 @@
+From 7bebe29c0667abe801b516f76bfb51993211beea Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:05:38 +0200
+Subject: [PATCH] Documentation: review of the READMEs and of the help of the
+ options
+
+The READMEs were checked against the programs: requirements of the prototype branch of mfem-mgis, names of the options (--postprocessing, post-processing options of the polycrystal), default numbers of steps, unknown components Fxx and Fyy. The help texts of the cermet and of the polycrystal no longer give wrong default values (MFEM prints the actual ones).
+---
+ README.md                                    | 20 ++++++-------
+ bubble/README.md                             | 10 +++++--
+ cermet/README.md                             | 31 ++++++++++++--------
+ cermet/cermet.cxx                            |  6 ++--
+ cermet/randomVectorGeneration/README.md      | 14 ++++++---
+ polycrystal/README.md                        | 30 ++++++++++---------
+ polycrystal/UniaxialPolycrystal.cxx          |  6 ++--
+ polycrystal/randomVectorGeneration/README.md | 14 ++++++---
+ 8 files changed, 76 insertions(+), 55 deletions(-)
+
+diff --git a/README.md b/README.md
+index a66a8b7..3312cd7 100644
+--- a/README.md
++++ b/README.md
+@@ -12,22 +12,20 @@ spack repo update builtin --branch develop
+ 
+ The last command selects the `develop` branch of the Spack packages, because their releases do not provide mfem-mgis yet.
+ 
+-The test cases require the `@master` version of mfem-mgis:
++The test cases of this branch require the prototype branch of mfem-mgis, which provides the CMake function `mfem_mgis_add_behaviours_library`, the option `--execution` and the function `mfem_mgis::getBehavioursLibrary` used by the three cases. This branch of mfem-mgis must be built from its sources, as described by its installation guide, with a version of MGIS providing `MGIS/FieldOperations.hxx`. `spack install mfem-mgis@master` installs a version of mfem-mgis without these functions, with which the configuration of the test cases fails; Spack may still provide the other dependencies (MFEM, TFEL...).
+ 
+-```bash
+-spack install mfem-mgis@master
+-spack load mfem-mgis
+-```
++The test cases build their behaviour libraries with MFront: when CMake configures the build, `mfront` must be found in the `PATH` (or given by the CMake variable `MFRONT`).
+ 
+-Build and run the test cases:
++Build and run the test cases from the sources of this branch, `MFEMMGIS_DIR` giving the installation of mfem-mgis:
+ 
+ ```bash
+-git clone https://github.com/rprat-pro/mm-opera-hpc.git
+-cmake -S mm-opera-hpc -B build
++cmake -S mm-opera-hpc -B build -DMFEMMGIS_DIR=<prefix of mfem-mgis>/share/mfem-mgis/cmake
+ cmake --build build -j 4
+ ctest --test-dir build
+ ```
+ 
++The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
++
+ For more details on installing mfem-mgis, for example on a supercomputer without internet access, see its installation guide: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html
+ 
+ ## Over-pressurized bubbles scenario 
+@@ -54,15 +52,15 @@ Where $\overline{\overline{I}}$ is the identity tensor.
+ 
+ ### Link to transient fission gas release
+ 
+-Fission gas stored in high burnup structure (HBS) porosities into nuclear fuel can be release due to an overfragmentation mechanisms under certain conditions: we can use the present model to investigate this phenomenon. The fracture assessment is done based on a purely elastic calculation: from the stress tensor we calculate the principal stresses, and we assess all the physical points where the following relationship is satisfied:
++Fission gas stored in high burnup structure (HBS) porosities into nuclear fuel can be released due to an overfragmentation mechanism under certain conditions: we can use the present model to investigate this phenomenon. The fracture assessment is done based on a purely elastic calculation: from the stress tensor we calculate the principal stresses, and we assess all the physical points where the following relationship is satisfied:
+ 
+ $$
+ \sigma_I^{max}\mid_i (p_{in}) > \sigma_R
+ $$
+ 
+-where $$σ_I^{max}\mid_i (p_{in})$$ is the maximal value of the first principal stress near the bubble $$i$$ submitted to the pressure $$p_{in}$$ and $$σ_R$$ the rupture stress giving the critical pressure leading to crack initiation. For a bubble $$i$$, the maximal value of the first principal stress $$\sigma_I^{max}\mid_i$$ corresponds to the maximal value at a distance $$R+\delta$$ from the centre of the bubble, with R the radius of the bubble and $$δ$$ the distance needed to reach the first Gauss integration point around the bubble in the finite element mesh.
++where $σ_I^{max}\mid_i (p_{in})$ is the maximal value of the first principal stress near the bubble $i$ submitted to the pressure $p_{in}$ and $σ_R$ the rupture stress giving the critical pressure leading to crack initiation. For a bubble $i$, the maximal value of the first principal stress $\sigma_I^{max}\mid_i$ corresponds to the maximal value at a distance $R+\delta$ from the centre of the bubble, with R the radius of the bubble and $δ$ the distance needed to reach the first Gauss integration point around the bubble in the finite element mesh.
+ 
+-The fractional fission gas release for bubbles having all the same internal pressure $$p_{int}$$ can be calculated as follows
++The fractional fission gas release for bubbles having all the same internal pressure $p_{in}$ can be calculated as follows
+ 
+ $$
+ FGR=\dfrac{∑_i\left[V_i \mid\left(σ_I^{max} \mid_i \left(p_{in}\right)\right)>σ_R \right]}{∑_{i=1}^n V_i}
+diff --git a/bubble/README.md b/bubble/README.md
+index 4eb16fd..d49d78b 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -43,7 +43,7 @@ Usage: ./test-bubble [options] ...
+ 
+ | Option                                    | Type   | Default                  | Description                                 |
+ | ----------------------------------------- | ------ | ------------------------ | ------------------------------------------- |
+-| `-h, --help`                              | —      | —                        | Print the help message and exit.            |
++| `-h, --help`                              | flag   | off                      | Print the help message and exit.            |
+ | `-m <string>, --mesh <string>`            | string | `mesh/single_sphere.msh` | Mesh file to use.                           |
+ | `-pm <int>, --parallel-mesh <int>`        | int    | `0`                      | Read a parallel mesh or not.                |
+ | `-l <string>, --library <string>`         | string | built with the case | Material behaviour library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                 |
+@@ -56,7 +56,7 @@ Usage: ./test-bubble [options] ...
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
+ | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
+-| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver (`HypreDiagScale`..., `none` for no preconditioner). |
++| `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+@@ -82,7 +82,7 @@ $$
+ 
+ where $p_{in}$ is the internal pressure, $R_b$ the bubble radius, and reminding that the expression is holding for $r>R_b$.
+ 
+-The script available in `verification/bubble` can be used to compare the analytical solution to the MMM one:
++The script `verification/mmm_vs_analytical.py`, copied in the build directory of the case, can be used to compare the analytical solution to the MMM one:
+ 
+ ```bash
+ python3 mmm_vs_analytical.py 
+@@ -90,3 +90,7 @@ python3 mmm_vs_analytical.py
+ The comparison between the computational results and and the analytical solution is showed below.
+ 
+ ![Bubble Case](../img/bubble/comparison_analytical_mmm.png)
++
++## Tests
++
++`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`.
+diff --git a/cermet/README.md b/cermet/README.md
+index 65e447a..92c9477 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -7,26 +7,27 @@
+ This case is similar to the `UO2` polycrystal with the addition of a metallic interface at the grain boundary. In the Gmsh mesh each grain has a material ID (from 2 to (N_grain + 1)), as well as its orientation needed for the orthotropic basis. The metallic interface has the material ID equal to 1, and is considered to be made of an isotropic elasto-viscoplastic material. In addition to the mechanical analysis, this example implements a fixed-point algorithm enabling the simulation of a uniaxial compression/tensile test with periodic boundary conditions.
+ 
+ *Parameters:*
+-- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macrocroscopic deformation gradient are set to zero. The components Fxx and Fzz are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is a stress-strain curve with the evolution of the axial component Szz of the Cauchy stress as a function of Fxx.
++- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macrocroscopic deformation gradient are set to zero. The components Fxx and Fyy are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is the evolution of the axial component Szz of the Cauchy stress as a function of time.
+ - **[Crystal] Constitutive law:** The UO₂ crystal plasticity law used in the example is detailed in the reference [^1], the corresponding Mfront file is on the MMM Github. In the case of Uranium dioxide, the crystal symmetry is cubic and the corresponding orthotropic elastic properties used in the crystal plasticity law are:
+ 	- Young Modulus = 222.e9 Pa
+ 	- Poisson ratio = 0.27
+ 	- Shear Modulus = 54.e9 Pa
+-- **[Metalic Interface] Constitutive law:** The Norton creep law used for the interface is derived from the elasto-viscoplastic properties of chromium coating used in eATF claddings as proposed in the reference [], the corresponding Mfront file is on the MMM Github. 
++- **[Metalic Interface] Constitutive law:** The Norton creep law used for the interface is derived from the elasto-viscoplastic properties of chromium coating used in eATF claddings as proposed in the literature, the corresponding Mfront file is on the MMM Github. 
+ - **Elastic properties:**
+ 	- Young Modulus = 276e+09 Pa
+ 	- Shear Modulus = 54.e9
+ - **Norton creep law:**
+-	- </head> <body> <p>$$\dot{\varepsilon}_{eq} = \frac{A D_0 \exp\!\left(-\frac{Q}{R T}\right)}{b^2}\left( \frac{\sigma_{eq}}{C} \right)^n$$</p></body></html>
++	- $\dot{\varepsilon}_{eq} = \frac{A D_0 \exp\!\left(-\frac{Q}{R T}\right)}{b^2}\left( \frac{\sigma_{eq}}{C} \right)^n$
+ 	- A = 2.5e+11 [a. u.]
+-	- n1 = 4.75
+-	- Q = 306.27e+03 [a. u.]D0 = 1.55e-5 [a. u.]
++	- n = 4.75 (parameter `n1` of the law)
++	- Q = 306.27e+03 [a. u.]
++	- D0 = 1.55e-5 [a. u.]
+ 	- b = 2.5e-10 [a. u.]
+ - **Finite element order:** 1 (linear interpolation).
+ - **Finite element space:** H1.
+ - **Simulation duration:** 200 s.
+ - **Number of time steps:** 500.
+-- **Linear solver:** HyprePCG (solver) /(precond)
++- **Linear solver:** HyprePCG preconditioned by HypreBoomerAMG.
+ 
+ ## Mesh generation
+ 
+@@ -62,8 +63,8 @@ This setup generates a small polycrystalline mesh with (gmsh version `11.1`):
+ 
+ ```
+ L = [1, 1, 1]
+-nbSpheres = 20 
+-distMin = 0.3
++nbSpheres = 5
++distMin = 0.4
+ randomSeed = 0
+ layer=0.02
+ MeshOrder = 1
+@@ -104,15 +105,15 @@ Usage: ./cermet [options] ...
+ 
+ | Option                                      | Type   | Default               | Description                                                                                                                                                       |
+ | ------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `-h, --help`                                | —      | —                     | Print the help message and exit.                                                                                                                                  |
++| `-h, --help`                                | flag   | off                   | Print the help message and exit.                                                                                                                                  |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5grains.msh`    | Mesh file to use.                                                                                                                                                 |
+ | `-l <string>, --library <string>`           | string | built with the case | Material library containing the behaviours of the grains and of the metallic interface (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                          |
+ | `-o <int>, --order <int>`                   | int    | `1`                   | Finite element order (polynomial degree).                                                                                                                         |
+-| `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh (default = 1).                                                                                                                       |
+-| `-p <int>, --post-processing <int>`         | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
++| `-r <int>, --refinement <int>`              | int    | `0`                   | Refinement level of the mesh.                                                                                                                                     |
++| `-p <int>, --postprocessing <int>`          | int    | `1`                   | Run the post-processing step.                                                                                                                                     |
+ | `-v <int>, --verbosity-level <int>`         | int    | `0`                   | Verbosity level of the output.                                                                                                                                    |
+-| `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation (default = 5).                                                                                                                         |
+-| `-n <int>, --nstep <int>`                   | int    | `400`                 | Number of simulation steps (default = 40).                                                                                                                        |
++| `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation.                                                                                                                                       |
++| `-n <int>, --nstep <int>`                   | int    | `500`                 | Number of simulation steps.                                                                                                                                       |
+ | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
+ | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+ 
+@@ -120,6 +121,10 @@ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
++### Tests
++
++`ctest` runs `CermetNullStrainXXYY` and `CermetImposeGradXXYY`, one time step of 0.4 s without post-processing (both tests run the same command), and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
++
+ 
+ ### Run it
+ 
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index bfa02a9..74f6ea8 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -86,15 +86,15 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+   args.AddOption(&p.order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
+   args.AddOption(&p.refinement, "-r", "--refinement",
+-                 "refinement level of the mesh, default = 1");
++                 "refinement level of the mesh");
+   args.AddOption(&p.post_processing, "-p", "--postprocessing",
+                  "run post processing step");
+   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
+                  "choose the verbosity level");
+   args.AddOption(&p.duration, "-d", "--duration",
+-                 "choose the duration (default = 5)");
++                 "choose the duration");
+   args.AddOption(&p.nsteps, "-n", "--nstep",
+-                 "choose the number of steps (default = 40)");
++                 "choose the number of steps");
+   args.AddOption(&p.vector_file, "-f", "--file", "Vector file to use");
+   args.Parse();
+   if (!args.Good()) {
+diff --git a/cermet/randomVectorGeneration/README.md b/cermet/randomVectorGeneration/README.md
+index 00b633f..7c7756f 100644
+--- a/cermet/randomVectorGeneration/README.md
++++ b/cermet/randomVectorGeneration/README.md
+@@ -1,6 +1,6 @@
+ # Random Orthogonal Vector Pair Generator
+ 
+-This project provides a simple Python script to generate a specified number of pairs of orthogonal vectors. In mfem-mgis-examples, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
++This project provides a simple Python script to generate a specified number of pairs of orthogonal vectors. In mm-opera-hpc, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
+ 
+ ## Prerequisites
+ 
+@@ -8,9 +8,15 @@ To run this script, you need to have Python installed on your system. The script
+ 
+ ## Usage
+ 
+-The script generates pairs of orthonormal vectors. You can specify the number of vectors to be generated and the algorithm to use.
++The script generates pairs of orthonormal vectors. Run it with:
+ 
+-### Arguments
++```
++python3 generate_random_vectors.py
++```
++
++It writes 6 vectors (3 orthonormal pairs, the 5 vectors requested being completed to whole pairs), computed by the `angles` algorithm, to the file `vectors.txt`. The number of vectors and the algorithm are the arguments of the function `main` of the script: edit the call to `main` at the end of the script to change them.
++
++### Arguments of the function `main`
+ 
+ - nbVec (int): The number of vectors to generate.
+ - algoKey (str): The algorithm to use for generating vectors. It can be either 'default' or 'angles'. 'default' uses a standard method for generating orthonormal vectors, while 'angles' generates orthonormal vectors using specific angles.
+@@ -23,4 +29,4 @@ The “default” algorithm generates random vectors by generating vector coordi
+ 
+ #### Angles
+ 
+-The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the paper *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+\ No newline at end of file
++The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the paper *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index b38432e..09bccc5 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -4,11 +4,11 @@
+ 
+ This test case illustrates the simulation of a Representative Volume Element (RVE) of a polycrystal made of uranium dioxide (UO₂). The objective is to study the mechanical response of the material under a uniaxial loading (see the description of the boundary conditions below). In addition to the mechanical analysis, this example implements a fixed-point algorithm enabling the simulation of a uniaxial compression/tensile test with periodic boundary conditions.	
+ 
+-- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macroscopic deformation gradient are set to zero. The components Fxx and Fzz are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is a stress-strain curve with the evolution of the axial component Szz of the Cauchy stress as a function of Fxx.
++- **Boundary conditions:** periodic boundary conditions are applied on the RVE faces. The loading is imposed in one direction, ensuring compatibility and equilibrium across periodic faces. More precisely, the axial component Fzz of the macroscopic deformation gradient is imposed. The off-diagonal components of the macroscopic deformation gradient are set to zero. The components Fxx and Fyy are the unknowns, they are determined via the fixed-point algorithm imposing null values for the components Sxx and Syy of the macroscopic Cauchy stress tensor. The main result used for verification is the evolution of the axial component Szz of the Cauchy stress as a function of time.
+ - **Finite element order:** 1 (linear interpolation).
+ - **Finite element space:** H1.
+ - **Simulation duration:** 200 s.
+-- **Number of time steps:** 600.
++- **Number of time steps:** 200 by default (option `--nstep`).
+ - **[Crystal] Constitutive law:** The UO₂ crystal plasticity law used in the example is detailed in the reference [^2], the corresponding Mfront file is on the MMM Github. In the case of Uranium dioxide, the crystal symmetry is cubic and the corresponding orthotropic elastic properties used in the crystal plasticity law are:
+ 	- Young Modulus = 222.e9 Pa
+ 	- Poisson ratio = 0.27
+@@ -72,8 +72,9 @@ Usage: ./uniaxial-polycrystal --help
+ 
+ | Option                                      | Type   | Default                      | Description                                                                                                                                   |
+ | ------------------------------------------- | ------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+-| `-h, --help`                                | —      | —                            | Print the help message and exit.                                                                                                              |
++| `-h, --help`                                | flag   | off                          | Print the help message and exit.                                                                                                              |
+ | `-m <string>, --mesh <string>`              | string | `mesh/5crystals.msh`         | Mesh file to use.                                                                                                                             |
++| `-mm <string>, --mesh_mode <string>`        | string | `FromScratch`                | Mesh read mode: `FromScratch`, or `Restart` for a mesh already split in parts, one per process.                                               |
+ | `-f <string>, --vect <string>`              | string | `mesh/vectors_5crystals.txt` | Vector file to use.                                                                                                                           |
+ | `-l <string>, --library <string>`           | string | built with the case | Material library (by default, the library built with the case for the CPU or for the GPU, as `--execution` places the behaviours).                                                                                                                             |
+ | `-b <string>, --behaviour <string>`         | string | `Mono_UO2_Cosh_Jaco3`        | Mechanical behaviour.                                                                                                                         |
+@@ -81,23 +82,20 @@ Usage: ./uniaxial-polycrystal --help
+ | `-r <int>, --refinement <int>`              | int    | `0`                          | Refinement level of the mesh (default = 0).                                                                                                   |
+ | `-v <int>, --verbosity-level <int>`         | int    | `0`                          | Verbosity level of the output.                                                                                                                |
+ | `-d <double>, --duration <double>`          | double | `200`                        | Duration of the simulation.                                                                                                                   |
+-| `-n <int>, --nstep <int>`                   | int    | `600`                        | Number of simulation steps.                                                                                                                   |
++| `-n <int>, --nstep <int>`                   | int    | `200`                        | Number of simulation steps.                                                                                                                   |
+ | `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver of the Newton method: a Krylov solver of hypre (`HyprePCG`, `HypreGMRES` or `HypreFGMRES`, preconditioned by `--linear-solver-preconditioner`), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only), the matrices being given as general ones. Ignored by `NewtonK0`. |
+-| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver. |
++| `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver, with `NewtonK0` or with PETSc. |
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+ | `--adaptive-linear-solver-tolerance <string>` | string | `None`                       | Relative tolerance of the linear solver adapted to the decrease of the residual: `None`, `EisenstatWalker1` or `EisenstatWalker2`; requires an iterative linear solver. |
+-| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if negative.                                                                                      |
+-| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX).                         |
++| `--adaptive-linear-solver-initial-tolerance <double>` | double | `-1`                         | Initial adaptive tolerance, the default one if `-1`. Giving it without `--adaptive-linear-solver-tolerance` is an error.                      |
++| `--elastic-operator-linear-solver <string>` | string | `HypreBoomerAMG`             | Linear solver of the elastic operator of `NewtonK0`: `HypreBoomerAMG` or `AmgX` (one cycle of the multigrid of AmgX, which requires mfem-mgis built with `-Denable-amgx=ON`). |
+ | `--amgx-parameters <string>`                | string |                              | Parameters of AmgX, as `name=value` separated by commas.                                                                                      |
+ | `--amgx-single-precision`, `--no-amgx-single-precision` | bool   | `false`                      | Computations of AmgX in single precision.                                                                                                     |
+ | `--linear-solver-preconditioner <string>`   | string | `HypreBoomerAMG`             | Preconditioner for the linear solver. Use `none` to disable.                                                                                  |
+ | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
+-| `--enable-post-processings`                 | bool   | `false`                      | Execute post-processing steps (default).                                                                                                      |
+-| `--disable-post-processings`                | bool   | —                            | Do not execute post-processing steps.                                                                                                         |
+-| `--enable-export-von-Mises-stress`          | bool   | `false`                      | Export the von Mises stress.                                                                                                                  |
+-| `--disable-export-von-Mises-stress`         | bool   | —                            | Do not export the von Mises stress (default).                                                                                                 |
+-| `--enable-export-first_eigen_stress`        | bool   | `false`                      | Export the first eigen stress.                                                                                                                |
+-| `--disable-export-first_eigen_stress`       | bool   | —                            | Do not export the first eigen stress (default).                                                                                               |
++| `--enable-post-processing`, `--disable-post-processing` | bool   | `true`           | Execute or not the post-processing steps.                                                                                                     |
++| `--enable-export-von-Mises-stress`, `--disable-export-von-Mises-stress` | bool   | `false` | Export or not the von Mises stress.                                                                                               |
++| `--enable-export-first_eigen_stress`, `--disable-export-first_eigen_stress` | bool   | `false` | Export or not the first eigen stress.                                                                                         |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+ to compute on a GPU, the behaviours built by the case for the GPU being then
+@@ -131,7 +129,7 @@ To visualize and compare the results, run the following Python script:
+ python3 plot_polycrystal_results.py
+ ```
+ 
+-This script generates a figure named `plot_polycrystal.png` as given in the Figure 6. In this figure we can observe that there is a good agreement between Cast3M and MFEM-MGIS results. Although Cast3M is our reference, the stress-strain curve shows an unexpected non-smooth evolution. These oscillations are associated to the time step discretization which was specified in the MFEM-MGIS simulation. For a larger number of time steps the Cast3M curve is smoother as the MMM results presented in Figure 6. A first analysis of this issue led us to conclude that the implicit formulation of the Cast3M code, based on a quasi-Newton algorithm using the elastic stiffness and line search type convergence acceleration, is not fully stable. The main output of this work is that the implicit formulation of MFEM-MGIS (full newton algorithm using the tangent stiffness) is very performant, thanks to the quadratic convergence and parallelization, and provides a high-quality solution. For the verification process, the number of time steps has been significantly increased in order to avoid as much as possible the oscillation of the Cast3M solution.      
++This script generates a figure named `plot_polycrystal.png`, shown below. In this figure we can observe that there is a good agreement between Cast3M and MFEM-MGIS results. Although Cast3M is our reference, the stress-strain curve shows an unexpected non-smooth evolution. These oscillations are associated to the time step discretization which was specified in the MFEM-MGIS simulation. For a larger number of time steps the Cast3M curve is smoother as the MMM results presented in this figure. A first analysis of this issue led us to conclude that the implicit formulation of the Cast3M code, based on a quasi-Newton algorithm using the elastic stiffness and line search type convergence acceleration, is not fully stable. The main output of this work is that the implicit formulation of MFEM-MGIS (full newton algorithm using the tangent stiffness) is very performant, thanks to the quadratic convergence and parallelization, and provides a high-quality solution. For the verification process, the number of time steps has been significantly increased in order to avoid as much as possible the oscillation of the Cast3M solution.      
+ 
+ ![](doc/plot_polycrystal.png)
+ 
+@@ -167,6 +165,10 @@ Check PASS.
+ 
+ This table shows the comparison between the simulated Cauchy stress values and the reference Cast3M results, along with the relative difference and a status check.
+ 
++## Tests
++
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.1 s without post-processing), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
++
+ ## References
+ 
+ [^1]: JOSIEN, Marc. Mérope: A microstructure generator for simulation of heterogeneous materials. Journal of Computational Science, 2024, vol. 81, p. 102359.
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index c3fe689..967bff7 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -405,7 +405,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "EisenstatWalker1 or EisenstatWalker2");
+   args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
+                  "--adaptive-linear-solver-initial-tolerance",
+-                 "initial adaptive tolerance, the default one if negative");
++                 "initial adaptive tolerance, the default one if -1");
+   args.AddOption(&p.elastic_operator_linear_solver, "",
+                  "--elastic-operator-linear-solver",
+                  "linear solver of the elastic operator of NewtonK0: "
+@@ -435,9 +435,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
+                  "choose the verbosity level");
+   args.AddOption(&p.duration, "-d", "--duration",
+-                 "choose the duration (default = 5)");
++                 "choose the duration");
+   args.AddOption(&p.nstep, "-n", "--nstep",
+-                 "choose the number of steps (default = 40)");
++                 "choose the number of steps");
+ 
+   args.Parse();
+ 
+diff --git a/polycrystal/randomVectorGeneration/README.md b/polycrystal/randomVectorGeneration/README.md
+index 00b633f..0a92569 100644
+--- a/polycrystal/randomVectorGeneration/README.md
++++ b/polycrystal/randomVectorGeneration/README.md
+@@ -1,6 +1,6 @@
+ # Random Orthogonal Vector Pair Generator
+ 
+-This project provides a simple Python script to generate a specified number of pairs of orthogonal vectors. In mfem-mgis-examples, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
++This project provides a simple Python script to generate a specified number of pairs of orthogonal vectors. In mm-opera-hpc, these vectors are used to describe the principal directions of crystals. The script is used to randomly generate the principal directions of crystals within a polycrystal.
+ 
+ ## Prerequisites
+ 
+@@ -8,9 +8,15 @@ To run this script, you need to have Python installed on your system. The script
+ 
+ ## Usage
+ 
+-The script generates pairs of orthonormal vectors. You can specify the number of vectors to be generated and the algorithm to use.
++The script generates pairs of orthonormal vectors. Run it with:
+ 
+-### Arguments
++```
++python3 generate_random_vectors.py
++```
++
++It writes 16 vectors (8 orthonormal pairs), computed by the `angles` algorithm, to the file `vectors.txt`. The number of vectors and the algorithm are the arguments of the function `main` of the script: edit the call to `main` at the end of the script to change them.
++
++### Arguments of the function `main`
+ 
+ - nbVec (int): The number of vectors to generate.
+ - algoKey (str): The algorithm to use for generating vectors. It can be either 'default' or 'angles'. 'default' uses a standard method for generating orthonormal vectors, while 'angles' generates orthonormal vectors using specific angles.
+@@ -23,4 +29,4 @@ The “default” algorithm generates random vectors by generating vector coordi
+ 
+ #### Angles
+ 
+-The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the paper *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+\ No newline at end of file
++The “angles” algorithm generates random vector directions using Euler angles obtained from a uniform distribution. This method is based on the approach described in Appendix A of the paper *Approche micromécanique du comportement du combustible dioxyde d'uranium* by Julian Soulacroix (2014).
+-- 
+2.43.0
+
