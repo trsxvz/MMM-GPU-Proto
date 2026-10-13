@@ -999,11 +999,19 @@ namespace mfem_mgis {
     if (isInvalid(bptr)) {
       return {};
     }
-    if (!internals::checkBehaviourExecutionLocation(ctx, *bptr)) {
+    // location of the behaviour of this material, if given, taking
+    // precedence over the execution settings
+    const auto olocation =
+        internals::extractBehaviourExecutionLocation(ctx, params);
+    if (isInvalid(olocation)) {
+      return {};
+    }
+    if (!internals::checkBehaviourExecutionLocation(ctx, *bptr,
+                                                    olocation->first)) {
       return {};
     }
     auto bi = of->generate(ctx, n, *(this->fe_discretization), m,
-                           std::move(bptr), params);
+                           std::move(bptr), olocation->second);
     if (isInvalid(bi)) {
       return {};
     }

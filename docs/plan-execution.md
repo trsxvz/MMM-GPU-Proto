@@ -1,7 +1,9 @@
 # Plan : choix de l'exécution sur CPU, sur GPU ou mixte
 
 Statut : plan du 13/10/2026 (tâche 9a). Schéma d'options retenu le
-13/10/2026 ; ce document en tire la réalisation.
+13/10/2026. Réalisé le 13/10/2026 (étapes 1 à 5, voir la dernière
+section) : mfem-mgis 75bfd92a54 à 1348a95a5e, exemples dbf659f et suivant,
+mm-opera-hpc 7416eb8 et suivants, deux relectures indépendantes traitées.
 
 ## Objectif
 
@@ -144,3 +146,40 @@ l'assemblage de la tangente sur le GPU).
    options communes, lois construites par la fonction commune, variables
    d'environnement retirées des scripts.
 5. Mesure du surcoût de chaque combinaison (poutre), documentation.
+
+## Réalisation (13/10/2026)
+
+- Étape 1 : options et réglages (`ExecutionSettings`,
+  `getExecutionSettings`), lus avant l'initialisation de MPI et de hypre ;
+  avec `--execution`, les variables d'environnement de placement sont
+  ignorées (avertissement), un paramètre donné au problème garde la main.
+  En mode `cpu`, les éléments finis sont calculés par noyaux sur l'hôte
+  (plus rapide : 12,2 s au lieu de 16,5 s sur la poutre, 8 processus),
+  avec repli élément par élément si les intégrateurs ne les supportent
+  pas ; l'intégration par lots par défaut a le même repli. Le paramètre
+  `BehaviourExecutionLocation` de `addBehaviourIntegrator` place les lois
+  d'un matériau.
+- Étape 2 : copies des tableaux des matériaux comptées
+  (`getMaterialArraysTransfers`) et affichées après la table de profilage.
+  Les autres transferts (propriétés matériau, variables externes, vecteurs
+  et matrices de MFEM) ne sont pas comptés : le surcoût total se lit dans
+  les temps.
+- Étape 3 : `mfem_mgis_add_behaviours_library` (module CMake installé) et
+  `getBehavioursLibrary`.
+- Étape 4 : tous les exemples, mm-opera-hpc, ex1 et ex3 ; tests sur GPU par
+  `--execution`.
+- Étape 5 : `results/execution-poutre-2026-10-13-1432`. Les copies des
+  tableaux coûtent au plus 0,42 s (moins de 1 % à 14 % du calcul selon le
+  placement) ; le coût d'un placement mixte vient du processeur qui
+  calcule. Les copies asynchrones ne sont donc pas faites : le gain
+  possible est petit devant le risque (ordre des opérations, mémoire
+  épinglée).
+- Limites réelles (documentées dans le guide de mfem-mgis) : solveurs qui
+  n'existent que d'un côté ; solveurs de MFEM sur le GPU dès qu'un GPU est
+  utilisé ; placement de hypre global ; cuDSS sur le GPU avec hypre sur
+  l'hôte seulement par les options expertes ; avec HIP, éléments finis et
+  post-traitements sur le CPU tant que les noyaux de mfem-mgis ne sont pas
+  compilés pour HIP (tâche 9c).
+- Pistes : mettre à jour les états sur le GPU quand les lois y sont
+  intégrées (120 copies évitables sur la poutre, 0,07 s) ; compter les
+  autres transferts.

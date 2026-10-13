@@ -29,7 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   mode, `--finite-elements`, `--behaviours`, `--linear-solver-device` and
   `--post-processings` placing each phase on the CPU or on the GPU
   (`getExecutionSettings`); behaviour libraries and linear solvers checked
-  against them.
+  against them; parameter `BehaviourExecutionLocation` of
+  `addBehaviourIntegrator` placing the behaviour of a material.
 - CMake function `mfem_mgis_add_behaviours_library` (module
   `MFEMMGISBehaviours.cmake`): behaviour libraries for the CPU (generic
   interface) and for the GPU of MFEM (generic-parallel interface), chosen at

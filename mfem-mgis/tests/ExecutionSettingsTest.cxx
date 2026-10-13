@@ -439,12 +439,16 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,
 
 /*!
  * \brief checks that a behaviour library integrated elsewhere than where
- * the settings place the behaviours is refused
+ * the settings place the behaviours is refused, and accepted when the
+ * parameter `BehaviourExecutionLocation` places the behaviour of the
+ * material where the library computes, if a GPU is used
  * \param[in] mesh: mesh of the unit cube
  * \param[in] library: behaviour library
+ * \param[in] location: location of the library
  */
 static void checkBehaviourLibraryRefusal(const char* const mesh,
-                                         const char* const library) {
+                                         const char* const library,
+                                         const char* const location) {
   using namespace mfem_mgis;
   auto ctx = Context{};
   auto problem = makeProblem(ctx, mesh);
@@ -456,6 +460,19 @@ static void checkBehaviourLibraryRefusal(const char* const mesh,
              std::string::npos),
         "behaviour library '" + std::string{library} + "' not refused (" + msg +
             ")");
+  // placement of the behaviour of the material
+  const auto gpu =
+      mfem::Device::Allows(mfem::Backend::CUDA_MASK | mfem::Backend::HIP_MASK);
+  auto ctx2 = Context{};
+  auto problem2 = makeProblem(ctx2, mesh);
+  const auto r2 = problem2.addBehaviourIntegrator(
+      ctx2, "Mechanics", "Cube", library, "IsotropicLinearHardeningPlasticity",
+      {{"BehaviourExecutionLocation", location}});
+  const auto msg2 = std::string{ctx2.getErrorMessage()};
+  check(isValid(r2) == gpu,
+        "behaviour library '" + std::string{library} + "' placed on the " +
+            std::string{location} + " by the parameter of the material: " +
+            (isValid(r2) ? "accepted" : "refused (" + msg2 + ")"));
 }  // end of checkBehaviourLibraryRefusal
 
 /*!
@@ -593,9 +610,9 @@ int main(int argc, char** argv) {
   // libraries and linear solvers computing elsewhere are refused
   if (s.mode != ExecutionMode::UNSPECIFIED) {
     if (bh_gpu) {
-      checkBehaviourLibraryRefusal(mesh, cpu_library.c_str());
+      checkBehaviourLibraryRefusal(mesh, cpu_library.c_str(), "cpu");
     } else if (has_gpu_library) {
-      checkBehaviourLibraryRefusal(mesh, gpu_library.c_str());
+      checkBehaviourLibraryRefusal(mesh, gpu_library.c_str(), "gpu");
     }
 #ifdef MFEM_USE_MUMPS
     checkLinearSolver(mesh, "MUMPSSolver",
