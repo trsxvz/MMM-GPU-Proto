@@ -27,6 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
   MaterialQuantityProviderSearch.cxx
   AbstractBehaviourIntegrator.cxx
   PostProcessingsComputation.cxx
+  ExecutionSettings.cxx
   BehaviourIntegratorBase.cxx
   BehaviourIntegratorFactory.cxx
   MatrixFreeTangentOperator.cxx

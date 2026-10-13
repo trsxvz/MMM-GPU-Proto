@@ -24,6 +24,7 @@
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
+#include "ExecutionSettings.hxx"
 
 namespace mfem_mgis {
 
@@ -82,9 +83,12 @@ namespace mfem_mgis {
     const auto* const n =
         NonLinearEvolutionProblemImplementationBase::BehaviourIntegration;
     // default value given by the environment, for instance to run a whole
-    // test suite or an application with the integration by batches
+    // test suite or an application with the integration by batches, or
+    // else by the execution settings
     const auto* const e = std::getenv("MFEM_MGIS_BEHAVIOUR_INTEGRATION");
-    const auto d = std::string{e != nullptr ? e : "PointByPoint"};
+    const auto d =
+        e != nullptr ? std::string{e}
+                     : std::string{internals::getDefaultBehaviourIntegration()};
     const auto v = get_if<std::string>(throwing, p, n, d);
     if (v == "Batch") {
       return true;
@@ -113,8 +117,13 @@ namespace mfem_mgis {
                                        const Parameters& p,
                                        const char* const n,
                                        const char* const v) {
+    // default value given by the environment, or else by the execution
+    // settings
     const auto* const e = std::getenv(v);
-    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
+    const auto d =
+        e != nullptr
+            ? std::string{e}
+            : std::string{internals::getDefaultFiniteElementsComputation()};
     const auto value = get_if<std::string>(throwing, p, n, d);
     if (value == "Kernels") {
       return true;
@@ -144,8 +153,13 @@ namespace mfem_mgis {
     const auto* const n =
         NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
+    // default value given by the environment, or else by the execution
+    // settings
     const auto* const e = std::getenv(v);
-    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
+    const auto d =
+        e != nullptr
+            ? std::string{e}
+            : std::string{internals::getDefaultFiniteElementsComputation()};
     const auto value = get_if<std::string>(throwing, p, n, d);
     if (value == "ElementByElement") {
       return Mode::ELEMENT_BY_ELEMENT;

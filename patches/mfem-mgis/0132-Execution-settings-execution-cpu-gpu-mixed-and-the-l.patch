@@ -1,0 +1,1502 @@
+From 75bfd92a5451f52c1977a8432beb73de9008c944 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 12:52:25 +0200
+Subject: [PATCH] Execution settings: --execution cpu|gpu|mixed and the
+ location of each phase
+
+A single choice places the computations, declared by
+declareDefaultOptions and read by initialize:
+
+- `--execution cpu` (`-x`): no device, all the computations on the host;
+- `--execution gpu`: device `gpu` of MFEM (CUDA or HIP, as MFEM is built),
+  all the computations on the GPU;
+- `--execution mixed`: device `gpu` of MFEM, each phase placed on the CPU
+  or on the GPU (GPU by default) by `--finite-elements` (`-fe`),
+  `--behaviours` (`-bh`), `--linear-solver-device` (`-lsd`) and
+  `--post-processings` (`-ppd`), refused in the other modes.
+
+The settings (`getExecutionSettings`) give the default values of the
+parameters choosing the computations (BehaviourIntegration, the
+computations of the gradients, of the inner forces and of the tangent
+operator, the computation of the post-processings), below the parameters
+and the environment variables; the device of MFEM (`--device` refused if it
+contradicts the mode); the memory of hypre (on the host when the linear
+solvers are on the CPU, `--hypre-on-host` refused if it contradicts it).
+The behaviour libraries (behaviour integrators and point wise models) and
+the linear solvers and preconditioners are checked against them: a library
+or a solver computing elsewhere is refused, with the options accepting it.
+The solvers of MFEM compute where the device of MFEM computes, the solvers
+of hypre where its memory is. Without `--execution`, nothing changes.
+
+ExecutionSettingsTest: the settings read, the device and the memory of
+hypre, a uniaxial tension of a cube computed with the default parameters
+in the cpu and gpu modes and in the 16 combinations of the mixed mode
+(stress known, finite elements, behaviours and post-processings computed
+where placed, observed by the counters of the computations by kernels and
+by the location of the integration), refusal of the libraries and of the
+solvers computing elsewhere, and of the contradictory options (8 cases).
+Mutations of the default values, of the checks and of the memory of hypre
+are detected. CPU suite 195/195.
+---
+ CHANGELOG.md                                  |   5 +
+ docs/source/user_guide/batch_computations.rst |  56 +++
+ include/CMakeLists.txt                        |   1 +
+ include/MFEMMGIS/ExecutionSettings.hxx        |  92 +++++
+ .../MFEMMGIS/PostProcessingsComputation.hxx   |   7 +-
+ src/CMakeLists.txt                            |   1 +
+ src/Config.cxx                                | 103 +++++-
+ src/ExecutionSettings.cxx                     | 334 ++++++++++++++++++
+ src/ExecutionSettings.hxx                     |  94 +++++
+ src/LinearSolverFactory.cxx                   |  11 +
+ src/MultiMaterialNonLinearIntegrator.cxx      |   4 +
+ ...nearEvolutionProblemImplementationBase.cxx |  22 +-
+ src/PointWiseModel.cxx                        |  10 +-
+ src/PostProcessingsComputation.cxx            |   9 +-
+ src/PostProcessingsComputation.hxx            |   6 +-
+ tests/CMakeLists.txt                          |  88 +++++
+ tests/ExecutionSettingsTest.cxx               | 317 +++++++++++++++++
+ 17 files changed, 1145 insertions(+), 15 deletions(-)
+ create mode 100644 include/MFEMMGIS/ExecutionSettings.hxx
+ create mode 100644 src/ExecutionSettings.cxx
+ create mode 100644 src/ExecutionSettings.hxx
+ create mode 100644 tests/ExecutionSettingsTest.cxx
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 23dfc6e0f0..a16c56622c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -25,6 +25,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ - `IntegrationRuleOrder` parameter, to choose the order of the integration
+   rules of the behaviour integrators (8 points instead of 27 on the
+   hexahedra of order 1 with the order 3).
++- execution settings: option `--execution cpu|gpu|mixed` and, in the mixed
++  mode, `--finite-elements`, `--behaviours`, `--linear-solver-device` and
++  `--post-processings` placing each phase on the CPU or on the GPU
++  (`getExecutionSettings`); behaviour libraries and linear solvers checked
++  against them.
+ 
+ ### Changed
+ 
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index a223c0c35d..229b9de1cf 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -434,6 +434,62 @@ the sources of :code:`mfem-mgis` containing kernels are then compiled as
+ When :code:`MFEM` is compiled with :code:`HIP`, these sources are not
+ compiled, and the computations by kernels are refused.
+ 
++.. _mfem_mgis_batch_computations_execution:
++
++Execution settings
++------------------
++
++The option :code:`--execution` (or :code:`-x`), declared by
++:code:`mfem_mgis::declareDefaultOptions` and read by
++:code:`mfem_mgis::initialize`, places all the computations with a single
++choice:
++
++- :code:`cpu`: no device, all the computations on the host;
++- :code:`gpu`: device :code:`gpu` of :code:`MFEM` (:code:`CUDA` or
++  :code:`HIP`, as :code:`MFEM` is built), all the computations on the GPU;
++- :code:`mixed`: device :code:`gpu` of :code:`MFEM`, each phase being
++  placed on the CPU or on the GPU (:code:`gpu` by default) by
++  :code:`--finite-elements` (:code:`-fe`: gradients, inner forces, tangent
++  operator), :code:`--behaviours` (:code:`-bh`: integration of the
++  behaviours), :code:`--linear-solver-device` (:code:`-lsd`: linear
++  solvers and memory of hypre) and :code:`--post-processings`
++  (:code:`-ppd`). These options are refused in the other modes.
++
++All the combinations of the mixed mode are supported. The settings give:
++
++- the default values of the parameters choosing the computations:
++  :code:`BehaviourIntegration` is :code:`Batch` if the finite elements or
++  the behaviours are on the GPU; :code:`GradientsComputation`,
++  :code:`InnerForcesComputation` and :code:`TangentOperatorComputation` are
++  :code:`Kernels` if the finite elements are on the GPU; the
++  post-processings are computed by kernels if they are on the GPU. A
++  parameter given to a problem, or an environment variable giving its
++  default value, takes precedence;
++- the device of :code:`MFEM`: :code:`--device` may still give a
++  configuration of the device (for instance :code:`ceed-cuda`), refused if
++  it contradicts the mode (a GPU with :code:`cpu`, no GPU with
++  :code:`gpu` or :code:`mixed`);
++- the memory of hypre: on the host if the linear solvers are on the CPU
++  (as :code:`--hypre-on-host`, which can't contradict the settings).
++
++The behaviour libraries and the linear solvers are checked against the
++settings, since they decide where they compute:
++
++- a behaviour placed on the GPU requires a library generated by the
++  :code:`generic-parallel` interface of :code:`MFront` with a GPU backend,
++  a behaviour placed on the CPU a library computing on the host;
++- the direct solvers :code:`MUMPSSolver` and :code:`UMFPackSolver` compute
++  on the CPU, :code:`AmgX`, :code:`AmgXPCG` and :code:`CuDSSSolver` on the
++  GPU, the solvers of hypre where its memory is, and the solvers and
++  smoothers of :code:`MFEM` where the device of :code:`MFEM` computes (on
++  the GPU in the :code:`gpu` and :code:`mixed` modes).
++
++A library or a solver computing elsewhere than the settings place it is
++refused, with a message giving the options which would accept it. Without
++:code:`--execution`, nothing changes: the computations are placed by the
++other options, the parameters and the environment variables. The settings
++are returned by :code:`mfem_mgis::getExecutionSettings`.
++
+ Selection of the device
+ -----------------------
+ 
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index a823b62e82..bde439ecf2 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -3,6 +3,7 @@ mfem_mgis_header(MFEMMGIS MFEMForward.hxx)
+ mfem_mgis_header(MFEMMGIS Config.hxx)
+ mfem_mgis_header(MFEMMGIS Config.ixx)
+ mfem_mgis_header(MFEMMGIS PostProcessingsComputation.hxx)
++mfem_mgis_header(MFEMMGIS ExecutionSettings.hxx)
+ mfem_mgis_header(MFEMMGIS ExitStatus.hxx)
+ mfem_mgis_header(MFEMMGIS ExitStatus.ixx)
+ mfem_mgis_header(MFEMMGIS MPI.hxx)
+diff --git a/include/MFEMMGIS/ExecutionSettings.hxx b/include/MFEMMGIS/ExecutionSettings.hxx
+new file mode 100644
+index 0000000000..0f17101fd1
+--- /dev/null
++++ b/include/MFEMMGIS/ExecutionSettings.hxx
+@@ -0,0 +1,92 @@
++/*!
++ * \file   include/MFEMMGIS/ExecutionSettings.hxx
++ * \brief  This file declares the choice of the execution of the
++ * computations on the CPU, on the GPU, or of each phase of the computations
++ * on one of them
++ * \date   13/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_EXECUTIONSETTINGS_HXX
++#define LIB_MFEM_MGIS_EXECUTIONSETTINGS_HXX
++
++#include <string_view>
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis {
++
++  //! \brief processor computing a phase of the computations
++  enum struct ExecutionLocation { CPU, GPU };
++
++  //! \brief execution of the computations, given by the option `--execution`
++  enum struct ExecutionMode {
++    /*!
++     * \brief no choice: the computations are placed by the other options
++     * (`--device`, `--hypre-on-host`), the parameters of the problems and
++     * the environment variables, as without this option
++     */
++    UNSPECIFIED,
++    //! \brief no device: all the computations on the host
++    CPU,
++    //! \brief device `gpu` of MFEM: all the computations on the GPU
++    GPU,
++    /*!
++     * \brief device `gpu` of MFEM, each phase of the computations being
++     * placed on the CPU or on the GPU
++     */
++    MIXED
++  };
++
++  /*!
++   * \brief choice of the processor computing each phase of the computations
++   *
++   * The settings are given by the options declared by
++   * `declareDefaultOptions` and read by `initialize`:
++   *
++   * - `--execution` (`-x`): `cpu`, `gpu` or `mixed`;
++   * - in the `mixed` mode only, the location of each phase, `cpu` or `gpu`
++   *   (`gpu` by default): `--finite-elements` (`-fe`), `--behaviours`
++   *   (`-bh`), `--linear-solver-device` (`-lsd`) and `--post-processings`
++   *   (`-ppd`).
++   *
++   * The locations give the default values of the parameters of the non
++   * linear evolution problems choosing the computations (the integration of
++   * the behaviours by batches, the computations by kernels), the
++   * configuration of the device of MFEM and the memory of hypre. A
++   * parameter given to a problem, or an environment variable giving its
++   * default value, takes precedence. The behaviours and the linear solvers
++   * are checked against these locations.
++   */
++  struct ExecutionSettings {
++    //! \brief execution mode
++    ExecutionMode mode = ExecutionMode::UNSPECIFIED;
++    /*!
++     * \brief location of the computations of the finite elements: data of
++     * MFEM, gradients, inner forces and tangent operator
++     */
++    ExecutionLocation finite_elements = ExecutionLocation::CPU;
++    //! \brief location of the integration of the behaviours
++    ExecutionLocation behaviours = ExecutionLocation::CPU;
++    //! \brief location of the linear solvers (and of the memory of hypre)
++    ExecutionLocation linear_solver = ExecutionLocation::CPU;
++    //! \brief location of the post-processings
++    ExecutionLocation post_processings = ExecutionLocation::CPU;
++  };
++
++  /*!
++   * \return the execution settings, read by `initialize`. The mode is
++   * `UNSPECIFIED` before the call to `initialize` or if the option
++   * `--execution` is not given.
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] const ExecutionSettings&
++  getExecutionSettings() noexcept;
++  /*!
++   * \return the name of a location, as given to the options: `cpu` or
++   * `gpu`
++   * \param[in] l: location
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::string_view getExecutionLocationName(
++      const ExecutionLocation) noexcept;
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_EXECUTIONSETTINGS_HXX */
+diff --git a/include/MFEMMGIS/PostProcessingsComputation.hxx b/include/MFEMMGIS/PostProcessingsComputation.hxx
+index 8f901dd3a5..25401ba19b 100644
+--- a/include/MFEMMGIS/PostProcessingsComputation.hxx
++++ b/include/MFEMMGIS/PostProcessingsComputation.hxx
+@@ -19,9 +19,10 @@ namespace mfem_mgis {
+    * projections and implicit gradient regularizations, values at the nodes
+    * (`updateGridFunction`). The computations are made by kernels if the
+    * environment variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is
+-   * `Kernels` and if the kernels support them; otherwise, they are made
+-   * element by element. This counter makes the choice observable, for the
+-   * tests.
++   * `Kernels`, or, without this variable, if the execution settings place
++   * the post-processings on the GPU (see `ExecutionSettings`), and if the
++   * kernels support them; otherwise, they are made element by element. This
++   * counter makes the choice observable, for the tests.
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] size_type
+   getNumberOfPostProcessingsComputationsByKernels() noexcept;
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ff2eb09323..c7c099f03d 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -27,6 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
+   MaterialQuantityProviderSearch.cxx
+   AbstractBehaviourIntegrator.cxx
+   PostProcessingsComputation.cxx
++  ExecutionSettings.cxx
+   BehaviourIntegratorBase.cxx
+   BehaviourIntegratorFactory.cxx
+   MatrixFreeTangentOperator.cxx
+diff --git a/src/Config.cxx b/src/Config.cxx
+index dae62a719c..c71a941ef8 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -37,6 +37,7 @@
+ #include "KokkosRuntime.hxx"
+ #endif /* MFEM_MGIS_HAVE_KOKKOS */
+ #include "PostProcessingsComputation.hxx"
++#include "ExecutionSettings.hxx"
+ #include "MGIS/Profiling.hxx"
+ #include <MFEMMGIS/Profiler.hxx>
+ #include "MFEMMGIS/Config.hxx"
+@@ -208,7 +209,10 @@ namespace mfem_mgis {
+   /*!
+    * \return the request of the computations of hypre on the host, given by
+    * the options `--hypre-on-host` and `--no-hypre-on-host` (the last one
+-   * prevails) or else by the environment variable `MFEM_MGIS_HYPRE_ON_HOST`
++   * prevails) or else by the environment variable `MFEM_MGIS_HYPRE_ON_HOST`,
++   * or, in the `gpu` and `mixed` execution modes, by the location of the
++   * linear solvers (see `ExecutionSettings`), which those options can't
++   * contradict
+    * \param[in] argc: number of arguments
+    * \param[in] argv: arguments
+    */
+@@ -225,6 +229,25 @@ namespace mfem_mgis {
+         r = false;
+       }
+     }
++    const auto& s = getExecutionSettings();
++    if ((s.mode == ExecutionMode::GPU) || (s.mode == ExecutionMode::MIXED)) {
++      const auto on_host = s.linear_solver == ExecutionLocation::CPU;
++      if (!r.has_value()) {
++        const auto* const e = std::getenv("MFEM_MGIS_HYPRE_ON_HOST");
++        if ((e != nullptr) && (*e != '\0')) {
++          r = std::string_view{e} != "0";
++        }
++      }
++      if ((r.has_value()) && (*r != on_host)) {
++        mgis::raise(
++            "initialize: the computations of hypre on the " +
++            std::string{*r ? "host" : "GPU"} +
++            " (option '--hypre-on-host' or variable MFEM_MGIS_HYPRE_ON_HOST) "
++            "contradict the location of the linear solvers given by the "
++            "execution settings");
++      }
++      return {.requested = on_host, .from_environment = false};
++    }
+     if (r.has_value()) {
+       return {.requested = *r, .from_environment = false};
+     }
+@@ -470,6 +493,42 @@ namespace mfem_mgis {
+         device_configuration = e;
+       }
+     }
++    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
++    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
++    const auto& execution = getExecutionSettings();
++    if (execution.mode == ExecutionMode::CPU) {
++      if ((device_configuration != nullptr) &&
++          (usesGPU(device_configuration))) {
++        mgis::raise("initialize: the device '" +
++                    std::string{device_configuration} +
++                    "' uses a GPU, which contradicts '--execution cpu'");
++      }
++      if ((mfem::Device::IsConfigured()) &&
++          (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
++                                mfem::Backend::HIP_MASK))) {
++        mgis::raise(
++            "initialize: the device of MFEM, configured by the program, uses "
++            "a GPU, which contradicts '--execution cpu'");
++      }
++    } else if (execution.mode != ExecutionMode::UNSPECIFIED) {
++      if ((device_configuration == nullptr) &&
++          (!mfem::Device::IsConfigured())) {
++        device_configuration = "gpu";
++      }
++      if ((device_configuration != nullptr) &&
++          (!usesGPU(device_configuration))) {
++        mgis::raise("initialize: the device '" +
++                    std::string{device_configuration} +
++                    "' does not use a GPU, which the execution mode requires");
++      }
++      if ((device_configuration == nullptr) &&
++          (!mfem::Device::Allows(mfem::Backend::CUDA_MASK |
++                                 mfem::Backend::HIP_MASK))) {
++        mgis::raise(
++            "initialize: the device of MFEM, configured by the program, does "
++            "not use a GPU, which the execution mode requires");
++      }
++    }
+     // the device is configured after the initialization of hypre and
+     // before the one of PETSc, which uses the GPU of the device, as in the
+     // parallel examples of MFEM
+@@ -617,6 +676,9 @@ namespace mfem_mgis {
+     if (first) {
+       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
+       MPI_Init(&argc, &argv);
++      // the location of the linear solvers decides the memory of hypre,
++      // before its initialization
++      internals::readExecutionSettings(argc, argv);
+       // with hypre on the host, neither the initialization of hypre nor the
+       // configuration of the device of MFEM make hypre use the GPU (nor
+       // initialize its libraries on the GPU), even if the device is
+@@ -639,6 +701,7 @@ namespace mfem_mgis {
+   void initialize(int& argc, MainFunctionArguments& argv) {
+     static bool first = true;
+     if (first) {
++      internals::readExecutionSettings(argc, argv);
+       Finalizer::get().initialize(argc, argv);
+       first = false;
+     }
+@@ -674,6 +737,44 @@ namespace mfem_mgis {
+   }  // end of isKokkosInitialized
+ 
+   void declareDefaultOptions(mfem::OptionsParser& parser) {
++    // execution settings, read by `initialize`: only declared here, as
++    // strings, so that the parser accepts them
++    static const char* execution = "";
++    parser.AddOption(
++        &execution, internals::execution_short_option,
++        internals::execution_option,
++        "Execution of the computations: cpu (no device, all the "
++        "computations on the host), gpu (device gpu of MFEM, all the "
++        "computations on the GPU) or mixed (device gpu of MFEM, each phase "
++        "placed by the options --finite-elements, --behaviours, "
++        "--linear-solver-device and --post-processings, gpu by default). "
++        "Read by mfem_mgis::initialize. Without this option, the "
++        "computations are placed by the other options, the parameters and "
++        "the environment variables.");
++    static const char* finite_elements = "";
++    parser.AddOption(&finite_elements, internals::finite_elements_short_option,
++                     internals::finite_elements_option,
++                     "With --execution mixed: location (cpu or gpu) of the "
++                     "computations of the finite elements (gradients, inner "
++                     "forces, tangent operator).");
++    static const char* behaviours = "";
++    parser.AddOption(&behaviours, internals::behaviours_short_option,
++                     internals::behaviours_option,
++                     "With --execution mixed: location (cpu or gpu) of the "
++                     "integration of the behaviours, checked against the "
++                     "libraries of the behaviours.");
++    static const char* linear_solver_device = "";
++    parser.AddOption(&linear_solver_device,
++                     internals::linear_solver_device_short_option,
++                     internals::linear_solver_device_option,
++                     "With --execution mixed: location (cpu or gpu) of the "
++                     "linear solvers and of the memory of hypre.");
++    static const char* post_processings = "";
++    parser.AddOption(&post_processings,
++                     internals::post_processings_short_option,
++                     internals::post_processings_option,
++                     "With --execution mixed: location (cpu or gpu) of the "
++                     "post-processings.");
+     // the device is created by `initialize`: the option is only declared
+     // here, so that the parser accepts it
+     static const char* device_configuration = "";
+diff --git a/src/ExecutionSettings.cxx b/src/ExecutionSettings.cxx
+new file mode 100644
+index 0000000000..8edf860eb1
+--- /dev/null
++++ b/src/ExecutionSettings.cxx
+@@ -0,0 +1,334 @@
++/*!
++ * \file   src/ExecutionSettings.cxx
++ * \brief  This file implements the choice of the execution of the
++ * computations on the CPU, on the GPU, or of each phase on one of them
++ * \date   13/10/2026
++ */
++
++#include <array>
++#include <string>
++#include <cstring>
++#include <optional>
++#include <string_view>
++#include "mfem/config/config.hpp"
++#include "MGIS/Raise.hxx"
++#include "MGIS/Behaviour/BehaviourDescription.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
++#include "ExecutionSettings.hxx"
++
++namespace mfem_mgis {
++
++  //! \return the execution settings, modifiable by `readExecutionSettings`
++  static ExecutionSettings& getMutableExecutionSettings() noexcept {
++    static ExecutionSettings s;
++    return s;
++  }  // end of getMutableExecutionSettings
++
++  const ExecutionSettings& getExecutionSettings() noexcept {
++    return getMutableExecutionSettings();
++  }  // end of getExecutionSettings
++
++  std::string_view getExecutionLocationName(
++      const ExecutionLocation l) noexcept {
++    return l == ExecutionLocation::GPU ? "gpu" : "cpu";
++  }  // end of getExecutionLocationName
++
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::internals {
++
++  //! \brief option placing a phase of the computations
++  struct LocationOption {
++    //! \brief long name
++    const char* name;
++    //! \brief short name
++    const char* short_name;
++    //! \brief location, modified if the option is given
++    ExecutionLocation ExecutionSettings::* location;
++  };
++
++  //! \brief options placing the phases of the computations
++  static constexpr auto location_options = std::array<LocationOption, 4>{
++      LocationOption{finite_elements_option, finite_elements_short_option,
++                     &ExecutionSettings::finite_elements},
++      LocationOption{behaviours_option, behaviours_short_option,
++                     &ExecutionSettings::behaviours},
++      LocationOption{linear_solver_device_option,
++                     linear_solver_device_short_option,
++                     &ExecutionSettings::linear_solver},
++      LocationOption{post_processings_option, post_processings_short_option,
++                     &ExecutionSettings::post_processings}};
++
++  /*!
++   * \return the value of an option, if the current argument is this option
++   * \param[in, out] a: current argument, moved to the value of the option
++   * \param[in] e: end of the arguments
++   * \param[in] name: long name of the option
++   * \param[in] short_name: short name of the option
++   * \param[in] previous: value already given, if any
++   */
++  static const char* readOptionValue(MainFunctionArguments& a,
++                                     const MainFunctionArguments e,
++                                     const char* const name,
++                                     const char* const short_name,
++                                     const char* const previous) {
++    if ((std::strcmp(*a, name) != 0) && (std::strcmp(*a, short_name) != 0)) {
++      return previous;
++    }
++    if (previous != nullptr) {
++      mgis::raise("initialize: option '" + std::string{name} + "' given twice");
++    }
++    ++a;
++    if (a == e) {
++      mgis::raise("initialize: no value given to '" + std::string{name} + "'");
++    }
++    return *a;
++  }  // end of readOptionValue
++
++  /*!
++   * \return the location given to an option
++   * \param[in] name: long name of the option
++   * \param[in] v: value
++   */
++  static ExecutionLocation getLocation(const char* const name,
++                                       const std::string_view v) {
++    if (v == "cpu") {
++      return ExecutionLocation::CPU;
++    }
++    if (v == "gpu") {
++      return ExecutionLocation::GPU;
++    }
++    mgis::raise("initialize: invalid value '" + std::string{v} +
++                "' for option '" + std::string{name} +
++                "' (expected 'cpu' or 'gpu')");
++  }  // end of getLocation
++
++  void readExecutionSettings(const int argc, const MainFunctionArguments argv) {
++    const char* mode = nullptr;
++    auto locations = std::array<const char*, location_options.size()>{};
++    const auto e = argv + argc;
++    for (auto a = argv; a != e; ++a) {
++      const auto* const previous = mode;
++      mode =
++          readOptionValue(a, e, execution_option, execution_short_option, mode);
++      if (mode != previous) {
++        continue;
++      }
++      for (std::size_t i = 0; i != location_options.size(); ++i) {
++        const auto& o = location_options[i];
++        const auto* const p = locations[i];
++        locations[i] = readOptionValue(a, e, o.name, o.short_name, p);
++        if (locations[i] != p) {
++          break;
++        }
++      }
++    }
++    auto s = ExecutionSettings{};
++    if (mode != nullptr) {
++      const auto m = std::string_view{mode};
++      if (m == "cpu") {
++        s.mode = ExecutionMode::CPU;
++      } else if (m == "gpu") {
++        s.mode = ExecutionMode::GPU;
++      } else if (m == "mixed") {
++        s.mode = ExecutionMode::MIXED;
++      } else {
++        mgis::raise("initialize: invalid value '" + std::string{m} +
++                    "' for option '" + std::string{execution_option} +
++                    "' (expected 'cpu', 'gpu' or 'mixed')");
++      }
++    }
++    // the locations of the phases are only given in the mixed mode: in the
++    // other modes, all the computations are at the same place
++    for (std::size_t i = 0; i != location_options.size(); ++i) {
++      if ((locations[i] != nullptr) && (s.mode != ExecutionMode::MIXED)) {
++        mgis::raise("initialize: option '" +
++                    std::string{location_options[i].name} + "' requires '" +
++                    std::string{execution_option} + " mixed'");
++      }
++    }
++#if !defined(MFEM_USE_CUDA) && !defined(MFEM_USE_HIP)
++    if ((s.mode == ExecutionMode::GPU) || (s.mode == ExecutionMode::MIXED)) {
++      mgis::raise("initialize: MFEM is built without CUDA nor HIP, '" +
++                  std::string{execution_option} + " " + std::string{mode} +
++                  "' requires a GPU");
++    }
++#endif /* !defined(MFEM_USE_CUDA) && !defined(MFEM_USE_HIP) */
++    const auto d = s.mode == ExecutionMode::CPU ? ExecutionLocation::CPU
++                                                : ExecutionLocation::GPU;
++    for (std::size_t i = 0; i != location_options.size(); ++i) {
++      const auto& o = location_options[i];
++      s.*(o.location) =
++          locations[i] != nullptr ? getLocation(o.name, locations[i]) : d;
++    }
++    getMutableExecutionSettings() = s;
++  }  // end of readExecutionSettings
++
++  //! \return true if the execution mode is given
++  static bool isExecutionModeSpecified() noexcept {
++    return getExecutionSettings().mode != ExecutionMode::UNSPECIFIED;
++  }  // end of isExecutionModeSpecified
++
++  std::string_view getDefaultBehaviourIntegration() noexcept {
++    const auto& s = getExecutionSettings();
++    if ((isExecutionModeSpecified()) &&
++        ((s.finite_elements == ExecutionLocation::GPU) ||
++         (s.behaviours == ExecutionLocation::GPU))) {
++      return "Batch";
++    }
++    return "PointByPoint";
++  }  // end of getDefaultBehaviourIntegration
++
++  std::string_view getDefaultFiniteElementsComputation() noexcept {
++    const auto& s = getExecutionSettings();
++    if ((isExecutionModeSpecified()) &&
++        (s.finite_elements == ExecutionLocation::GPU)) {
++      return "Kernels";
++    }
++    return "ElementByElement";
++  }  // end of getDefaultFiniteElementsComputation
++
++  std::string_view getDefaultPostProcessingsComputation() noexcept {
++    const auto& s = getExecutionSettings();
++    if ((isExecutionModeSpecified()) &&
++        (s.post_processings == ExecutionLocation::GPU)) {
++      return "Kernels";
++    }
++    return "ElementByElement";
++  }  // end of getDefaultPostProcessingsComputation
++
++  /*!
++   * \return the options to give to select a location of the behaviours or
++   * of the linear solvers, for the error messages
++   * \param[in] o: long name of the option placing the phase
++   * \param[in] l: location
++   */
++  static std::string getLocationOptions(const char* const o,
++                                        const ExecutionLocation l) {
++    return "'" + std::string{execution_option} + " " +
++           std::string{getExecutionLocationName(l)} + "' or '" +
++           std::string{execution_option} + " mixed " + std::string{o} + " " +
++           std::string{getExecutionLocationName(l)} + "'";
++  }  // end of getLocationOptions
++
++  bool checkBehaviourExecutionLocation(Context& ctx,
++                                       const Behaviour& b) noexcept {
++    if (!isExecutionModeSpecified()) {
++      return true;
++    }
++    const auto requested = getExecutionSettings().behaviours;
++    // a library generated by the generic-parallel interface for a device
++    // can't compute on the host
++    const auto on_device = isIntegratedByBatchesOnDevice(b);
++    const auto host_only = (!on_device) &&
++                           mgis::behaviour::isGenericParallelBehaviour(b) &&
++                           (!mgis::behaviour::isMemoryLocationAccessible(
++                               b, mgis::MemoryLocation::HOST));
++    const auto location =
++        on_device ? ExecutionLocation::GPU : ExecutionLocation::CPU;
++    if ((location == requested) && (!host_only)) {
++      return true;
++    }
++    auto msg = "the behaviour '" + b.behaviour + "' of the library '" +
++               b.library + "' ";
++    if (host_only) {
++      msg += "computes on a device, which is not enabled";
++    } else {
++      msg += "is integrated on the " +
++             std::string{location == ExecutionLocation::GPU ? "GPU" : "CPU"};
++    }
++    msg += ", while the execution settings place the behaviours on the ";
++    if (requested == ExecutionLocation::GPU) {
++      msg +=
++          "GPU: a library generated by the generic-parallel interface of "
++          "MFront with a GPU backend (cuda or hip) is expected (or use " +
++          getLocationOptions(behaviours_option, ExecutionLocation::CPU) + ")";
++    } else {
++      msg +=
++          "CPU: a library computing on the host (generic interface, or "
++          "generic-parallel interface with a host backend) is expected (or "
++          "use " +
++          getLocationOptions(behaviours_option, ExecutionLocation::GPU) + ")";
++    }
++    return ctx.registerErrorMessage(msg);
++  }  // end of checkBehaviourExecutionLocation
++
++  /*!
++   * \brief where a linear solver or a preconditioner computes
++   */
++  enum struct LinearSolverPlacement {
++    //! \brief on the host only (direct solvers of the CPU)
++    HOST,
++    //! \brief on the GPU only (AmgX, cuDSS)
++    DEVICE,
++    /*!
++     * \brief where the device of MFEM computes (solvers and smoothers of
++     * MFEM)
++     */
++    MFEM,
++    //! \brief where the memory of hypre is (solvers of hypre)
++    HYPRE
++  };
++
++  /*!
++   * \return where a linear solver or a preconditioner computes
++   * \param[in] n: name of the linear solver or of the preconditioner
++   */
++  static LinearSolverPlacement getLinearSolverPlacement(
++      const std::string_view n) noexcept {
++    if ((n == "MUMPSSolver") || (n == "UMFPackSolver")) {
++      return LinearSolverPlacement::HOST;
++    }
++    if ((n == "AmgX") || (n == "AmgXPCG") || (n == "CuDSSSolver")) {
++      return LinearSolverPlacement::DEVICE;
++    }
++    if (n.starts_with("Hypre")) {
++      return LinearSolverPlacement::HYPRE;
++    }
++    return LinearSolverPlacement::MFEM;
++  }  // end of getLinearSolverPlacement
++
++  bool checkLinearSolverExecutionLocation(Context& ctx,
++                                          const std::string_view n) noexcept {
++    const auto& s = getExecutionSettings();
++    if (!isExecutionModeSpecified()) {
++      return true;
++    }
++    const auto p = getLinearSolverPlacement(n);
++    const auto requested = s.linear_solver;
++    // computations of MFEM on the GPU in the gpu and mixed modes
++    const auto mfem_location = s.mode == ExecutionMode::CPU
++                                   ? ExecutionLocation::CPU
++                                   : ExecutionLocation::GPU;
++    auto location = requested;
++    if (p == LinearSolverPlacement::HOST) {
++      location = ExecutionLocation::CPU;
++    } else if (p == LinearSolverPlacement::DEVICE) {
++      location = ExecutionLocation::GPU;
++    } else if (p == LinearSolverPlacement::MFEM) {
++      location = mfem_location;
++    }
++    if (location == requested) {
++      return true;
++    }
++    auto msg = "the linear solver or preconditioner '" + std::string{n} +
++               "' computes on the " +
++               std::string{location == ExecutionLocation::GPU ? "GPU" : "CPU"};
++    if (p == LinearSolverPlacement::MFEM) {
++      msg += " (as the device of MFEM)";
++    }
++    msg += ", while the execution settings place the linear solvers on the " +
++           std::string{requested == ExecutionLocation::GPU ? "GPU" : "CPU"};
++    if (p == LinearSolverPlacement::MFEM) {
++      msg +=
++          ": use a solver of hypre or a direct solver, or place the linear "
++          "solvers on the GPU";
++    } else {
++      msg += " (use " +
++             getLocationOptions(linear_solver_device_option, location) + ")";
++    }
++    return ctx.registerErrorMessage(msg);
++  }  // end of checkLinearSolverExecutionLocation
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/ExecutionSettings.hxx b/src/ExecutionSettings.hxx
+new file mode 100644
+index 0000000000..d7f1339a46
+--- /dev/null
++++ b/src/ExecutionSettings.hxx
+@@ -0,0 +1,94 @@
++/*!
++ * \file   src/ExecutionSettings.hxx
++ * \brief  This file declares the reading of the execution settings and the
++ * checks and default values derived from them (internal header)
++ * \date   13/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_EXECUTIONSETTINGS_HXX
++#define LIB_MFEM_MGIS_SRC_EXECUTIONSETTINGS_HXX
++
++#include <string_view>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
++
++namespace mfem_mgis::internals {
++
++  //! \brief long name of the option giving the execution mode
++  inline constexpr const char* execution_option = "--execution";
++  //! \brief short name of the option `execution_option`
++  inline constexpr const char* execution_short_option = "-x";
++  //! \brief long name of the option placing the finite elements
++  inline constexpr const char* finite_elements_option = "--finite-elements";
++  //! \brief short name of the option `finite_elements_option`
++  inline constexpr const char* finite_elements_short_option = "-fe";
++  //! \brief long name of the option placing the behaviours
++  inline constexpr const char* behaviours_option = "--behaviours";
++  //! \brief short name of the option `behaviours_option`
++  inline constexpr const char* behaviours_short_option = "-bh";
++  //! \brief long name of the option placing the linear solvers
++  inline constexpr const char* linear_solver_device_option =
++      "--linear-solver-device";
++  //! \brief short name of the option `linear_solver_device_option`
++  inline constexpr const char* linear_solver_device_short_option = "-lsd";
++  //! \brief long name of the option placing the post-processings
++  inline constexpr const char* post_processings_option = "--post-processings";
++  //! \brief short name of the option `post_processings_option`
++  inline constexpr const char* post_processings_short_option = "-ppd";
++
++  /*!
++   * \brief reads the execution settings given by the options of the command
++   * line (see `ExecutionSettings`), returned afterwards by
++   * `getExecutionSettings`
++   * \param[in] argc: number of arguments
++   * \param[in] argv: arguments
++   * \throws std::runtime_error on an invalid or contradictory option
++   */
++  void readExecutionSettings(const int, const MainFunctionArguments);
++  /*!
++   * \return the default value of the `BehaviourIntegration` parameter of
++   * the non linear evolution problems: `Batch` if the finite elements or
++   * the behaviours are computed on the GPU, `PointByPoint` otherwise or if
++   * the execution mode is not given
++   */
++  [[nodiscard]] std::string_view getDefaultBehaviourIntegration() noexcept;
++  /*!
++   * \return the default value of the parameters choosing the computations
++   * of the finite elements (`GradientsComputation`,
++   * `InnerForcesComputation`, `TangentOperatorComputation`): `Kernels` if
++   * the finite elements are computed on the GPU, `ElementByElement`
++   * otherwise or if the execution mode is not given
++   */
++  [[nodiscard]] std::string_view getDefaultFiniteElementsComputation() noexcept;
++  /*!
++   * \return the default choice of the computation of the post-processings:
++   * `Kernels` if they are computed on the GPU, `ElementByElement` otherwise
++   * or if the execution mode is not given
++   */
++  [[nodiscard]] std::string_view
++  getDefaultPostProcessingsComputation() noexcept;
++  /*!
++   * \brief checks that a behaviour is integrated where the execution
++   * settings place the behaviours: on the GPU, a library generated by the
++   * `generic-parallel` interface of MFront for a GPU; on the CPU, a library
++   * computing on the host
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] b: behaviour
++   */
++  [[nodiscard]] bool checkBehaviourExecutionLocation(Context&,
++                                                     const Behaviour&) noexcept;
++  /*!
++   * \brief checks that a linear solver or a preconditioner computes where
++   * the execution settings place the linear solvers
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] n: name of the linear solver or of the preconditioner
++   */
++  [[nodiscard]] bool checkLinearSolverExecutionLocation(
++      Context&, std::string_view) noexcept;
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_EXECUTIONSETTINGS_HXX */
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 0102b1f42b..e0d72f77a5 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -35,6 +35,7 @@
+ #include "AmgXSolvers.hxx"
+ #include "MUMPSSolvers.hxx"
+ #include "CuDSSSolvers.hxx"
++#include "ExecutionSettings.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+ 
+@@ -662,6 +663,10 @@ namespace mfem_mgis {
+     if (isInvalid(oname)) {
+       return {};
+     }
++    if ((*oname != "None") &&
++        (!internals::checkLinearSolverExecutionLocation(ctx, *oname))) {
++      return {};
++    }
+     if (*oname == "None") {
+       if (contains(pr, "Options")) {
+         return ctx.registerErrorMessage(
+@@ -1430,6 +1435,9 @@ namespace mfem_mgis {
+       }
+       return ctx.registerErrorMessage(msg);
+     }
++    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
++      return {};
++    }
+     const auto& g = pg->second;
+     LinearSolverHandler s;
+     try {
+@@ -1489,6 +1497,9 @@ namespace mfem_mgis {
+       }
+       return ctx.registerErrorMessage(msg);
+     }
++    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
++      return {};
++    }
+     const auto& g = pg->second;
+     LinearSolverHandler s;
+     try {
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 7e7a7bbf00..dd1f64c544 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -25,6 +25,7 @@
+ #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
++#include "ExecutionSettings.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -998,6 +999,9 @@ namespace mfem_mgis {
+     if (isInvalid(bptr)) {
+       return {};
+     }
++    if (!internals::checkBehaviourExecutionLocation(ctx, *bptr)) {
++      return {};
++    }
+     auto bi = of->generate(ctx, n, *(this->fe_discretization), m,
+                            std::move(bptr), params);
+     if (isInvalid(bi)) {
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 63352e1a3d..299cb304b8 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -24,6 +24,7 @@
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
++#include "ExecutionSettings.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -82,9 +83,12 @@ namespace mfem_mgis {
+     const auto* const n =
+         NonLinearEvolutionProblemImplementationBase::BehaviourIntegration;
+     // default value given by the environment, for instance to run a whole
+-    // test suite or an application with the integration by batches
++    // test suite or an application with the integration by batches, or
++    // else by the execution settings
+     const auto* const e = std::getenv("MFEM_MGIS_BEHAVIOUR_INTEGRATION");
+-    const auto d = std::string{e != nullptr ? e : "PointByPoint"};
++    const auto d =
++        e != nullptr ? std::string{e}
++                     : std::string{internals::getDefaultBehaviourIntegration()};
+     const auto v = get_if<std::string>(throwing, p, n, d);
+     if (v == "Batch") {
+       return true;
+@@ -113,8 +117,13 @@ namespace mfem_mgis {
+                                        const Parameters& p,
+                                        const char* const n,
+                                        const char* const v) {
++    // default value given by the environment, or else by the execution
++    // settings
+     const auto* const e = std::getenv(v);
+-    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
++    const auto d =
++        e != nullptr
++            ? std::string{e}
++            : std::string{internals::getDefaultFiniteElementsComputation()};
+     const auto value = get_if<std::string>(throwing, p, n, d);
+     if (value == "Kernels") {
+       return true;
+@@ -144,8 +153,13 @@ namespace mfem_mgis {
+     const auto* const n =
+         NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
+     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
++    // default value given by the environment, or else by the execution
++    // settings
+     const auto* const e = std::getenv(v);
+-    const auto d = std::string{e != nullptr ? e : "ElementByElement"};
++    const auto d =
++        e != nullptr
++            ? std::string{e}
++            : std::string{internals::getDefaultFiniteElementsComputation()};
+     const auto value = get_if<std::string>(throwing, p, n, d);
+     if (value == "ElementByElement") {
+       return Mode::ELEMENT_BY_ELEMENT;
+diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
+index 431aafd78d..54f208e2b1 100644
+--- a/src/PointWiseModel.cxx
++++ b/src/PointWiseModel.cxx
+@@ -10,6 +10,7 @@
+ #include "MFEMMGIS/TimeStep.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PointWiseModel.hxx"
++#include "ExecutionSettings.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -19,8 +20,15 @@ namespace mfem_mgis {
+     const auto model = get<std::string>(throwing, parameters, "Model");
+     const auto hypothesis = mgis::behaviour::fromString(
+         get<std::string>(throwing, parameters, "Hypothesis"));
+-    return std::make_unique<mgis::model::Model>(
++    auto m = std::make_unique<mgis::model::Model>(
+         mgis::model::load(library, model, hypothesis));
++    // the model must be integrated where the execution settings place the
++    // behaviours
++    auto ctx = Context{};
++    if (!internals::checkBehaviourExecutionLocation(ctx, *m)) {
++      raise(ctx.getErrorMessage());
++    }
++    return m;
+   }  // end of loadModel
+ 
+   std::map<std::string, std::string>
+diff --git a/src/PostProcessingsComputation.cxx b/src/PostProcessingsComputation.cxx
+index 971a629621..3ee7be7fae 100644
+--- a/src/PostProcessingsComputation.cxx
++++ b/src/PostProcessingsComputation.cxx
+@@ -12,6 +12,7 @@
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/PostProcessingsComputation.hxx"
+ #include "PostProcessingsComputation.hxx"
++#include "ExecutionSettings.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
+@@ -26,10 +27,10 @@ namespace mfem_mgis::internals {
+   bool usePostProcessingsKernels(attributes::MayThrow) {
+     const auto* const v = "MFEM_MGIS_POST_PROCESSINGS_COMPUTATION";
+     const auto* const e = std::getenv(v);
+-    if (e == nullptr) {
+-      return false;
+-    }
+-    const auto value = std::string_view{e};
++    // default value given by the execution settings
++    const auto value = e != nullptr
++                           ? std::string_view{e}
++                           : internals::getDefaultPostProcessingsComputation();
+     if (value == "ElementByElement") {
+       return false;
+     }
+diff --git a/src/PostProcessingsComputation.hxx b/src/PostProcessingsComputation.hxx
+index 0c641cde52..fdf73ce70a 100644
+--- a/src/PostProcessingsComputation.hxx
++++ b/src/PostProcessingsComputation.hxx
+@@ -16,8 +16,10 @@ namespace mfem_mgis::internals {
+    * \return true if the computations on functions defined at the integration
+    * points used by the post-processings (integrals, L2 projections, values
+    * at the nodes) are made by kernels, as given by the environment variable
+-   * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`: `ElementByElement` (default)
+-   * or `Kernels`. An invalid value is an error.
++   * `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`: `ElementByElement` or
++   * `Kernels`, or, without this variable, by the execution settings
++   * (`ElementByElement` if they are not given). An invalid value is an
++   * error.
+    */
+   [[nodiscard]] bool usePostProcessingsKernels(attributes::MayThrow);
+   /*!
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 145ce5e7aa..28b8bf1c67 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1225,6 +1225,94 @@ if(MFEM_MGIS_HAVE_TFEL)
+                COMMAND IntegrationRuleOrderTest --device debug
+                        ${integration_rule_order_test_arguments})
+     endif()
++    # ExecutionSettingsTest executable: execution settings (option
++    # --execution and locations of the phases in the mixed mode), uniaxial
++    # tension computed where the settings place each phase, refusal of the
++    # behaviour libraries and of the linear solvers computing elsewhere, and
++    # refusal of the contradictory options by initialize
++    if(MFEM_USE_MPI)
++      add_test_executable(ExecutionSettingsTest)
++      set(execution_settings_test_arguments
++          --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++          --library $<TARGET_FILE:BehaviourTest>)
++      add_test(NAME ExecutionSettingsTest
++               COMMAND ExecutionSettingsTest
++                       ${execution_settings_test_arguments})
++      add_test(NAME ExecutionSettingsTest-cpu
++               COMMAND ExecutionSettingsTest --execution cpu
++                       --expected-settings cpu,cpu,cpu,cpu,cpu
++                       ${execution_settings_test_arguments})
++      function(add_execution_settings_refusal_test name message)
++        add_test(NAME ExecutionSettingsTest-refused-${name}
++                 COMMAND ExecutionSettingsTest ${ARGN})
++        set_tests_properties(ExecutionSettingsTest-refused-${name}
++                             PROPERTIES PASS_REGULAR_EXPRESSION "${message}")
++      endfunction()
++      add_execution_settings_refusal_test(
++        location "option '--finite-elements' requires '--execution mixed'"
++        --execution cpu --finite-elements gpu)
++      add_execution_settings_refusal_test(
++        mode "invalid value 'xpu' for option '--execution'" --execution xpu)
++      add_execution_settings_refusal_test(
++        twice "option '--execution' given twice" --execution cpu -x cpu)
++      add_execution_settings_refusal_test(
++        cpu-device "the device 'cuda' uses a GPU, which contradicts"
++        --execution cpu --device cuda)
++      if((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
++        # refused before any use of the GPU
++        add_execution_settings_refusal_test(
++          location-value "invalid value 'tpu' for option '--behaviours'"
++          --execution mixed --behaviours tpu)
++        add_execution_settings_refusal_test(
++          host-device "the device 'debug' does not use a GPU"
++          --execution gpu --device debug)
++        add_execution_settings_refusal_test(
++          hypre-on-host
++          "contradict the location of the linear solvers"
++          --execution gpu --hypre-on-host)
++        add_execution_settings_refusal_test(
++          no-hypre-on-host
++          "contradict the location of the linear solvers"
++          --execution mixed --linear-solver-device cpu --no-hypre-on-host)
++      endif()
++      if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
++         AND enable-gpu-tests)
++        set(execution_settings_test_gpu_arguments
++            ${execution_settings_test_arguments})
++        if(batch_integration_test_cuda_library)
++          list(GET batch_integration_test_cuda_library 1 _gpu_library)
++          list(APPEND execution_settings_test_gpu_arguments
++               --gpu-library ${_gpu_library})
++        endif()
++        add_test(NAME ExecutionSettingsTest-gpu
++                 COMMAND ExecutionSettingsTest --execution gpu
++                         --expected-settings gpu,gpu,gpu,gpu,gpu
++                         ${execution_settings_test_gpu_arguments})
++        add_test(NAME ExecutionSettingsTest-mixed-gpu
++                 COMMAND ExecutionSettingsTest --execution mixed
++                         --expected-settings mixed,gpu,gpu,gpu,gpu
++                         ${execution_settings_test_gpu_arguments})
++        # the 16 locations of the four phases in the mixed mode
++        foreach(_fe cpu gpu)
++          foreach(_bh cpu gpu)
++            foreach(_lsd cpu gpu)
++              foreach(_ppd cpu gpu)
++                set(_name "${_fe}-${_bh}-${_lsd}-${_ppd}")
++                add_test(NAME ExecutionSettingsTest-mixed-${_name}-gpu
++                         COMMAND ExecutionSettingsTest --execution mixed
++                                 --finite-elements ${_fe}
++                                 --behaviours ${_bh}
++                                 --linear-solver-device ${_lsd}
++                                 --post-processings ${_ppd}
++                                 --expected-settings
++                                 mixed,${_fe},${_bh},${_lsd},${_ppd}
++                                 ${execution_settings_test_gpu_arguments})
++              endforeach()
++            endforeach()
++          endforeach()
++        endforeach()
++      endif()
++    endif()
+   endif()
+ 
+   # HypreBoomerAMGTest executable
+diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
+new file mode 100644
+index 0000000000..217cc6feaf
+--- /dev/null
++++ b/tests/ExecutionSettingsTest.cxx
+@@ -0,0 +1,317 @@
++/*!
++ * \file   ExecutionSettingsTest.cxx
++ * \brief  Test of the execution settings (`--execution cpu|gpu|mixed` and
++ * the locations of the phases in the mixed mode): the settings read by
++ * `initialize`, the device of MFEM and the memory of hypre, and a uniaxial
++ * tension of a cube, whose stress is known, computed with the default
++ * values of the parameters given by the settings: the finite elements, the
++ * behaviours and the post-processings must be computed where the settings
++ * place them, and a behaviour library or a linear solver computing
++ * elsewhere must be refused. The contradictory options are refused by
++ * `initialize` (tests registered with the expected message).
++ * \date   13/10/2026
++ */
++
++#include <cmath>
++#include <cstdlib>
++#include <cstring>
++#include <exception>
++#include <iostream>
++#include <string>
++#include <string_view>
++#include "mfem/general/device.hpp"
++#include "mfem/general/optparser.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/linalg/hypre.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
++#include "MFEMMGIS/PostProcessingsComputation.hxx"
++#include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \return a description of the execution settings
++static std::string describe(const mfem_mgis::ExecutionSettings& s) {
++  using namespace mfem_mgis;
++  const auto mode = [&s]() -> std::string {
++    switch (s.mode) {
++      case ExecutionMode::CPU:
++        return "cpu";
++      case ExecutionMode::GPU:
++        return "gpu";
++      case ExecutionMode::MIXED:
++        return "mixed";
++      case ExecutionMode::UNSPECIFIED:
++        break;
++    }
++    return "none";
++  }();
++  if (s.mode == ExecutionMode::UNSPECIFIED) {
++    return mode;
++  }
++  return mode + "," + std::string{getExecutionLocationName(s.finite_elements)} +
++         "," + std::string{getExecutionLocationName(s.behaviours)} + "," +
++         std::string{getExecutionLocationName(s.linear_solver)} + "," +
++         std::string{getExecutionLocationName(s.post_processings)};
++}  // end of describe
++
++//! \brief Young modulus of the behaviour IsotropicLinearHardeningPlasticity
++static constexpr mfem_mgis::real young = 70e9;
++//! \brief imposed strain, in the elastic domain of the behaviour
++static constexpr mfem_mgis::real strain = 1e-5;
++
++/*!
++ * \return the problem of the uniaxial tension of the unit cube, with the
++ * default values of the parameters choosing the computations
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: mesh of the unit cube
++ */
++static mfem_mgis::NonLinearEvolutionProblem makeProblem(
++    mfem_mgis::Context& ctx, const char* const mesh) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  return construct<NonLinearEvolutionProblem>(
++             ctx, Parameters{{"MeshFileName", mesh},
++                             {"FiniteElementFamily", "H1"},
++                             {"FiniteElementOrder", 1},
++                             {"UnknownsSize", 3},
++                             {"NumberOfUniformRefinements", 1},
++                             {"Materials", Parameters{{"Cube", 1}}},
++                             {"Boundaries", Parameters{{"Ymin", 1},
++                                                       {"Zmin", 2},
++                                                       {"Xmax", 3},
++                                                       {"Xmin", 5}}},
++                             {"Hypothesis", "Tridimensional"},
++                             {"Parallel", true}}) |
++         or_die;
++}  // end of makeProblem
++
++/*!
++ * \brief uniaxial tension of the unit cube, computed with the default
++ * values of the parameters given by the execution settings, and checks of
++ * the locations of the computations
++ * \param[in] mesh: mesh of the unit cube
++ * \param[in] library: behaviour library integrated where the settings place
++ * the behaviours
++ */
++static void computeUniaxialTension(const char* const mesh,
++                                   const char* const library) {
++  using namespace mfem_mgis;
++  const auto& s = getExecutionSettings();
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem = makeProblem(ctx, mesh);
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* st : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *st, "Temperature", 293.15) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Xmin"}, {"Component", 0}}) |
++      or_die;
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Ymin"}, {"Component", 1}}) |
++      or_die;
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Zmin"}, {"Component", 2}}) |
++      or_die;
++  problem.addUniformDirichletBoundaryCondition(
++      ctx, {{"Boundary", "Xmax"},
++            {"Component", 0},
++            {"LoadingEvolution",
++             [](const real t) noexcept { return strain * t; }}}) |
++      or_die;
++  // the solvers of hypre compute where its memory is: they are accepted in
++  // all the execution modes
++  problem.setLinearSolver(
++      ctx, "HyprePCG",
++      {{"VerbosityLevel", 0},
++       {"Tolerance", 1e-14},
++       {"MaximumNumberOfIterations", 1000},
++       {"Preconditioner", Parameters{{"Name", "HypreBoomerAMG"}}}}) |
++      or_die;
++  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
++                                    {"RelativeTolerance", 1e-12},
++                                    {"AbsoluteTolerance", 0.},
++                                    {"MaximumNumberOfIterations", 10}}) |
++      or_die;
++  const auto o = problem.solve(ctx, 0, 1);
++  check(o.status, "resolution failed (" + ctx.getErrorMessage() + ")");
++  // uniaxial stress state: sxx = E e, the other components are null
++  m.synchronizeOnHostForReading();
++  const auto& sig = m.s1.thermodynamic_forces;
++  const auto sxx = young * strain;
++  auto dmax = real{};
++  for (std::size_t i = 0; i != sig.size(); ++i) {
++    const auto expected = (i % 6 == 0) ? sxx : real{0};
++    dmax = std::max(dmax, std::abs(sig[i] - expected));
++  }
++  check(dmax < 1e-8 * sxx, "stress: largest difference " +
++                               std::to_string(dmax / sxx) +
++                               " (relative to the axial stress)");
++  // location of the computations of the finite elements
++  const auto& implementation = problem.getImplementation<true>();
++  const auto fe_kernels =
++      implementation.getNumberOfTangentOperatorAssembliesByKernels() != 0;
++  const auto fe_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
++                      (s.finite_elements == ExecutionLocation::GPU);
++  check(fe_kernels == fe_gpu,
++        std::string{"finite elements computed "} +
++            (fe_kernels ? "by kernels" : "element by element"));
++  // location of the integration of the behaviours
++  const auto bh_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
++                      (s.behaviours == ExecutionLocation::GPU);
++  check(isIntegratedByBatchesOnDevice(m.b) == bh_gpu,
++        "behaviour integrated on the wrong processor");
++  // location of the post-processings: the measure of the material
++  const auto n0 = getNumberOfPostProcessingsComputationsByKernels();
++  auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
++  const auto measure = computeMeasure(bi);
++  check(std::abs(measure - 1) < 1e-12,
++        "measure of the cube: " + std::to_string(measure));
++  const auto pp_kernels =
++      getNumberOfPostProcessingsComputationsByKernels() != n0;
++  const auto pp_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
++                      (s.post_processings == ExecutionLocation::GPU);
++  check(pp_kernels == pp_gpu,
++        std::string{"post-processings computed "} +
++            (pp_kernels ? "by kernels" : "element by element"));
++}  // end of computeUniaxialTension
++
++/*!
++ * \brief checks that a behaviour library integrated elsewhere than where
++ * the settings place the behaviours is refused
++ * \param[in] mesh: mesh of the unit cube
++ * \param[in] library: behaviour library
++ */
++static void checkBehaviourLibraryRefusal(const char* const mesh,
++                                         const char* const library) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto problem = makeProblem(ctx, mesh);
++  const auto r = problem.addBehaviourIntegrator(
++      ctx, "Mechanics", "Cube", library, "IsotropicLinearHardeningPlasticity");
++  const auto msg = std::string{ctx.getErrorMessage()};
++  check(isInvalid(r) &&
++            (msg.find("while the execution settings place the behaviours") !=
++             std::string::npos),
++        "behaviour library '" + std::string{library} + "' not refused (" + msg +
++            ")");
++}  // end of checkBehaviourLibraryRefusal
++
++/*!
++ * \brief checks that a linear solver is refused, or accepted
++ * \param[in] mesh: mesh of the unit cube
++ * \param[in] solver: name of the linear solver
++ * \param[in] refused: expected result
++ */
++static void checkLinearSolver(const char* const mesh,
++                              const char* const solver,
++                              const bool refused) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto problem = makeProblem(ctx, mesh);
++  const auto r = problem.setLinearSolver(ctx, solver, {});
++  const auto msg = std::string{ctx.getErrorMessage()};
++  if (refused) {
++    check((!r) && (msg.find("while the execution settings place the linear "
++                            "solvers") != std::string::npos),
++          "linear solver '" + std::string{solver} + "' not refused (" + msg +
++              ")");
++  } else {
++    check(r,
++          "linear solver '" + std::string{solver} + "' refused (" + msg + ")");
++  }
++}  // end of checkLinearSolver
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  try {
++    initialize(argc, argv);
++  } catch (std::exception& e) {
++    // contradictory options: the message is checked by the test, and the
++    // program stops at once (MPI and hypre may be partially initialized)
++    std::cerr << "refused: " << e.what() << std::endl;
++    std::_Exit(EXIT_FAILURE);
++  }
++  const char* expected = "none";
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  const char* gpu_library = "";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&expected, "-e", "--expected-settings",
++                 "expected settings: none, or the mode followed by the "
++                 "locations of the finite elements, of the behaviours, of "
++                 "the linear solvers and of the post-processings, separated "
++                 "by commas (for instance mixed,cpu,gpu,gpu,cpu)");
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of the unit cube (hexahedra)");
++  args.AddOption(&library, "-l", "--library",
++                 "behaviour library computing on the host");
++  args.AddOption(&gpu_library, "-lg", "--gpu-library",
++                 "behaviour library generated by the generic-parallel "
++                 "interface for the GPU (not tested if empty)");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  const auto& s = getExecutionSettings();
++  check(describe(s) == expected, "settings '" + describe(s) + "' instead of '" +
++                                     std::string{expected} + "'");
++  // device of MFEM and memory of hypre
++  const auto gpu_device =
++      mfem::Device::Allows(mfem::Backend::CUDA_MASK | mfem::Backend::HIP_MASK);
++  if (s.mode == ExecutionMode::CPU) {
++    check(!gpu_device, "the device uses a GPU with --execution cpu");
++  } else if (s.mode != ExecutionMode::UNSPECIFIED) {
++    check(gpu_device, "the device does not use a GPU");
++#if defined(MFEM_USE_MPI) && defined(HYPRE_USING_GPU)
++    check(isHypreUsingGPU() == (s.linear_solver == ExecutionLocation::GPU),
++          "hypre does not compute where the linear solvers are placed");
++#endif /* defined(MFEM_USE_MPI) && defined(HYPRE_USING_GPU) */
++  }
++  const auto has_gpu_library = std::strlen(gpu_library) != 0;
++  const auto bh_gpu = (s.mode != ExecutionMode::UNSPECIFIED) &&
++                      (s.behaviours == ExecutionLocation::GPU);
++  if ((!bh_gpu) || (has_gpu_library)) {
++    computeUniaxialTension(mesh, bh_gpu ? gpu_library : library);
++  } else {
++    std::cout << "no library for the GPU, computation not tested\n";
++  }
++  // libraries and linear solvers computing elsewhere are refused
++  if (s.mode != ExecutionMode::UNSPECIFIED) {
++    if (bh_gpu) {
++      checkBehaviourLibraryRefusal(mesh, library);
++    } else if (has_gpu_library) {
++      checkBehaviourLibraryRefusal(mesh, gpu_library);
++    }
++#ifdef MFEM_USE_MUMPS
++    checkLinearSolver(mesh, "MUMPSSolver",
++                      s.linear_solver == ExecutionLocation::GPU);
++#endif /* MFEM_USE_MUMPS */
++    // the solvers of MFEM compute where the device of MFEM computes
++    checkLinearSolver(mesh, "CGSolver",
++                      (s.mode == ExecutionMode::MIXED) &&
++                          (s.linear_solver == ExecutionLocation::CPU));
++  }
++  std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

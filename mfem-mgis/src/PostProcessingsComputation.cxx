@@ -12,6 +12,7 @@
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/PostProcessingsComputation.hxx"
 #include "PostProcessingsComputation.hxx"
+#include "ExecutionSettings.hxx"
 
 namespace mfem_mgis::internals {
 
@@ -26,10 +27,10 @@ namespace mfem_mgis::internals {
   bool usePostProcessingsKernels(attributes::MayThrow) {
     const auto* const v = "MFEM_MGIS_POST_PROCESSINGS_COMPUTATION";
     const auto* const e = std::getenv(v);
-    if (e == nullptr) {
-      return false;
-    }
-    const auto value = std::string_view{e};
+    // default value given by the execution settings
+    const auto value = e != nullptr
+                           ? std::string_view{e}
+                           : internals::getDefaultPostProcessingsComputation();
     if (value == "ElementByElement") {
       return false;
     }

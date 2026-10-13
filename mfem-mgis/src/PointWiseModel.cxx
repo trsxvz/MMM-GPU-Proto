@@ -10,6 +10,7 @@
 #include "MFEMMGIS/TimeStep.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PointWiseModel.hxx"
+#include "ExecutionSettings.hxx"
 
 namespace mfem_mgis {
 
@@ -19,8 +20,15 @@ namespace mfem_mgis {
     const auto model = get<std::string>(throwing, parameters, "Model");
     const auto hypothesis = mgis::behaviour::fromString(
         get<std::string>(throwing, parameters, "Hypothesis"));
-    return std::make_unique<mgis::model::Model>(
+    auto m = std::make_unique<mgis::model::Model>(
         mgis::model::load(library, model, hypothesis));
+    // the model must be integrated where the execution settings place the
+    // behaviours
+    auto ctx = Context{};
+    if (!internals::checkBehaviourExecutionLocation(ctx, *m)) {
+      raise(ctx.getErrorMessage());
+    }
+    return m;
   }  // end of loadModel
 
   std::map<std::string, std::string>

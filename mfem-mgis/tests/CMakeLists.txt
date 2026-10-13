@@ -1225,6 +1225,94 @@ if(MFEM_MGIS_HAVE_TFEL)
                COMMAND IntegrationRuleOrderTest --device debug
                        ${integration_rule_order_test_arguments})
     endif()
+    # ExecutionSettingsTest executable: execution settings (option
+    # --execution and locations of the phases in the mixed mode), uniaxial
+    # tension computed where the settings place each phase, refusal of the
+    # behaviour libraries and of the linear solvers computing elsewhere, and
+    # refusal of the contradictory options by initialize
+    if(MFEM_USE_MPI)
+      add_test_executable(ExecutionSettingsTest)
+      set(execution_settings_test_arguments
+          --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+          --library $<TARGET_FILE:BehaviourTest>)
+      add_test(NAME ExecutionSettingsTest
+               COMMAND ExecutionSettingsTest
+                       ${execution_settings_test_arguments})
+      add_test(NAME ExecutionSettingsTest-cpu
+               COMMAND ExecutionSettingsTest --execution cpu
+                       --expected-settings cpu,cpu,cpu,cpu,cpu
+                       ${execution_settings_test_arguments})
+      function(add_execution_settings_refusal_test name message)
+        add_test(NAME ExecutionSettingsTest-refused-${name}
+                 COMMAND ExecutionSettingsTest ${ARGN})
+        set_tests_properties(ExecutionSettingsTest-refused-${name}
+                             PROPERTIES PASS_REGULAR_EXPRESSION "${message}")
+      endfunction()
+      add_execution_settings_refusal_test(
+        location "option '--finite-elements' requires '--execution mixed'"
+        --execution cpu --finite-elements gpu)
+      add_execution_settings_refusal_test(
+        mode "invalid value 'xpu' for option '--execution'" --execution xpu)
+      add_execution_settings_refusal_test(
+        twice "option '--execution' given twice" --execution cpu -x cpu)
+      add_execution_settings_refusal_test(
+        cpu-device "the device 'cuda' uses a GPU, which contradicts"
+        --execution cpu --device cuda)
+      if((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+        # refused before any use of the GPU
+        add_execution_settings_refusal_test(
+          location-value "invalid value 'tpu' for option '--behaviours'"
+          --execution mixed --behaviours tpu)
+        add_execution_settings_refusal_test(
+          host-device "the device 'debug' does not use a GPU"
+          --execution gpu --device debug)
+        add_execution_settings_refusal_test(
+          hypre-on-host
+          "contradict the location of the linear solvers"
+          --execution gpu --hypre-on-host)
+        add_execution_settings_refusal_test(
+          no-hypre-on-host
+          "contradict the location of the linear solvers"
+          --execution mixed --linear-solver-device cpu --no-hypre-on-host)
+      endif()
+      if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+         AND enable-gpu-tests)
+        set(execution_settings_test_gpu_arguments
+            ${execution_settings_test_arguments})
+        if(batch_integration_test_cuda_library)
+          list(GET batch_integration_test_cuda_library 1 _gpu_library)
+          list(APPEND execution_settings_test_gpu_arguments
+               --gpu-library ${_gpu_library})
+        endif()
+        add_test(NAME ExecutionSettingsTest-gpu
+                 COMMAND ExecutionSettingsTest --execution gpu
+                         --expected-settings gpu,gpu,gpu,gpu,gpu
+                         ${execution_settings_test_gpu_arguments})
+        add_test(NAME ExecutionSettingsTest-mixed-gpu
+                 COMMAND ExecutionSettingsTest --execution mixed
+                         --expected-settings mixed,gpu,gpu,gpu,gpu
+                         ${execution_settings_test_gpu_arguments})
+        # the 16 locations of the four phases in the mixed mode
+        foreach(_fe cpu gpu)
+          foreach(_bh cpu gpu)
+            foreach(_lsd cpu gpu)
+              foreach(_ppd cpu gpu)
+                set(_name "${_fe}-${_bh}-${_lsd}-${_ppd}")
+                add_test(NAME ExecutionSettingsTest-mixed-${_name}-gpu
+                         COMMAND ExecutionSettingsTest --execution mixed
+                                 --finite-elements ${_fe}
+                                 --behaviours ${_bh}
+                                 --linear-solver-device ${_lsd}
+                                 --post-processings ${_ppd}
+                                 --expected-settings
+                                 mixed,${_fe},${_bh},${_lsd},${_ppd}
+                                 ${execution_settings_test_gpu_arguments})
+              endforeach()
+            endforeach()
+          endforeach()
+        endforeach()
+      endif()
+    endif()
   endif()
 
   # HypreBoomerAMGTest executable

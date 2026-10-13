@@ -35,6 +35,7 @@
 #include "AmgXSolvers.hxx"
 #include "MUMPSSolvers.hxx"
 #include "CuDSSSolvers.hxx"
+#include "ExecutionSettings.hxx"
 
 #ifdef MFEM_USE_MPI
 
@@ -660,6 +661,10 @@ namespace mfem_mgis {
     }
     const auto oname = get<std::string>(ctx, pr, "Name");
     if (isInvalid(oname)) {
+      return {};
+    }
+    if ((*oname != "None") &&
+        (!internals::checkLinearSolverExecutionLocation(ctx, *oname))) {
       return {};
     }
     if (*oname == "None") {
@@ -1430,6 +1435,9 @@ namespace mfem_mgis {
       }
       return ctx.registerErrorMessage(msg);
     }
+    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
+      return {};
+    }
     const auto& g = pg->second;
     LinearSolverHandler s;
     try {
@@ -1488,6 +1496,9 @@ namespace mfem_mgis {
         msg += " " + g.first;
       }
       return ctx.registerErrorMessage(msg);
+    }
+    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
+      return {};
     }
     const auto& g = pg->second;
     LinearSolverHandler s;

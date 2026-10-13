@@ -25,6 +25,7 @@
 #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+#include "ExecutionSettings.hxx"
 
 namespace mfem_mgis {
 
@@ -996,6 +997,9 @@ namespace mfem_mgis {
     const auto s = static_cast<size_type>(bis.size());
     auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis);
     if (isInvalid(bptr)) {
+      return {};
+    }
+    if (!internals::checkBehaviourExecutionLocation(ctx, *bptr)) {
       return {};
     }
     auto bi = of->generate(ctx, n, *(this->fe_discretization), m,

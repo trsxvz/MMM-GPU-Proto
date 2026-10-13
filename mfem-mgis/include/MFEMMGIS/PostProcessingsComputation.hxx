@@ -19,9 +19,10 @@ namespace mfem_mgis {
    * projections and implicit gradient regularizations, values at the nodes
    * (`updateGridFunction`). The computations are made by kernels if the
    * environment variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is
-   * `Kernels` and if the kernels support them; otherwise, they are made
-   * element by element. This counter makes the choice observable, for the
-   * tests.
+   * `Kernels`, or, without this variable, if the execution settings place
+   * the post-processings on the GPU (see `ExecutionSettings`), and if the
+   * kernels support them; otherwise, they are made element by element. This
+   * counter makes the choice observable, for the tests.
    */
   MFEM_MGIS_EXPORT [[nodiscard]] size_type
   getNumberOfPostProcessingsComputationsByKernels() noexcept;

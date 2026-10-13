@@ -37,6 +37,7 @@
 #include "KokkosRuntime.hxx"
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
 #include "PostProcessingsComputation.hxx"
+#include "ExecutionSettings.hxx"
 #include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
@@ -208,7 +209,10 @@ namespace mfem_mgis {
   /*!
    * \return the request of the computations of hypre on the host, given by
    * the options `--hypre-on-host` and `--no-hypre-on-host` (the last one
-   * prevails) or else by the environment variable `MFEM_MGIS_HYPRE_ON_HOST`
+   * prevails) or else by the environment variable `MFEM_MGIS_HYPRE_ON_HOST`,
+   * or, in the `gpu` and `mixed` execution modes, by the location of the
+   * linear solvers (see `ExecutionSettings`), which those options can't
+   * contradict
    * \param[in] argc: number of arguments
    * \param[in] argv: arguments
    */
@@ -224,6 +228,25 @@ namespace mfem_mgis {
           (std::strcmp(*a, Finalizer::no_hypre_on_host_short_option) == 0)) {
         r = false;
       }
+    }
+    const auto& s = getExecutionSettings();
+    if ((s.mode == ExecutionMode::GPU) || (s.mode == ExecutionMode::MIXED)) {
+      const auto on_host = s.linear_solver == ExecutionLocation::CPU;
+      if (!r.has_value()) {
+        const auto* const e = std::getenv("MFEM_MGIS_HYPRE_ON_HOST");
+        if ((e != nullptr) && (*e != '\0')) {
+          r = std::string_view{e} != "0";
+        }
+      }
+      if ((r.has_value()) && (*r != on_host)) {
+        mgis::raise(
+            "initialize: the computations of hypre on the " +
+            std::string{*r ? "host" : "GPU"} +
+            " (option '--hypre-on-host' or variable MFEM_MGIS_HYPRE_ON_HOST) "
+            "contradict the location of the linear solvers given by the "
+            "execution settings");
+      }
+      return {.requested = on_host, .from_environment = false};
     }
     if (r.has_value()) {
       return {.requested = *r, .from_environment = false};
@@ -470,6 +493,42 @@ namespace mfem_mgis {
         device_configuration = e;
       }
     }
+    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
+    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
+    const auto& execution = getExecutionSettings();
+    if (execution.mode == ExecutionMode::CPU) {
+      if ((device_configuration != nullptr) &&
+          (usesGPU(device_configuration))) {
+        mgis::raise("initialize: the device '" +
+                    std::string{device_configuration} +
+                    "' uses a GPU, which contradicts '--execution cpu'");
+      }
+      if ((mfem::Device::IsConfigured()) &&
+          (mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                mfem::Backend::HIP_MASK))) {
+        mgis::raise(
+            "initialize: the device of MFEM, configured by the program, uses "
+            "a GPU, which contradicts '--execution cpu'");
+      }
+    } else if (execution.mode != ExecutionMode::UNSPECIFIED) {
+      if ((device_configuration == nullptr) &&
+          (!mfem::Device::IsConfigured())) {
+        device_configuration = "gpu";
+      }
+      if ((device_configuration != nullptr) &&
+          (!usesGPU(device_configuration))) {
+        mgis::raise("initialize: the device '" +
+                    std::string{device_configuration} +
+                    "' does not use a GPU, which the execution mode requires");
+      }
+      if ((device_configuration == nullptr) &&
+          (!mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                 mfem::Backend::HIP_MASK))) {
+        mgis::raise(
+            "initialize: the device of MFEM, configured by the program, does "
+            "not use a GPU, which the execution mode requires");
+      }
+    }
     // the device is configured after the initialization of hypre and
     // before the one of PETSc, which uses the GPU of the device, as in the
     // parallel examples of MFEM
@@ -617,6 +676,9 @@ namespace mfem_mgis {
     if (first) {
       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
       MPI_Init(&argc, &argv);
+      // the location of the linear solvers decides the memory of hypre,
+      // before its initialization
+      internals::readExecutionSettings(argc, argv);
       // with hypre on the host, neither the initialization of hypre nor the
       // configuration of the device of MFEM make hypre use the GPU (nor
       // initialize its libraries on the GPU), even if the device is
@@ -639,6 +701,7 @@ namespace mfem_mgis {
   void initialize(int& argc, MainFunctionArguments& argv) {
     static bool first = true;
     if (first) {
+      internals::readExecutionSettings(argc, argv);
       Finalizer::get().initialize(argc, argv);
       first = false;
     }
@@ -674,6 +737,44 @@ namespace mfem_mgis {
   }  // end of isKokkosInitialized
 
   void declareDefaultOptions(mfem::OptionsParser& parser) {
+    // execution settings, read by `initialize`: only declared here, as
+    // strings, so that the parser accepts them
+    static const char* execution = "";
+    parser.AddOption(
+        &execution, internals::execution_short_option,
+        internals::execution_option,
+        "Execution of the computations: cpu (no device, all the "
+        "computations on the host), gpu (device gpu of MFEM, all the "
+        "computations on the GPU) or mixed (device gpu of MFEM, each phase "
+        "placed by the options --finite-elements, --behaviours, "
+        "--linear-solver-device and --post-processings, gpu by default). "
+        "Read by mfem_mgis::initialize. Without this option, the "
+        "computations are placed by the other options, the parameters and "
+        "the environment variables.");
+    static const char* finite_elements = "";
+    parser.AddOption(&finite_elements, internals::finite_elements_short_option,
+                     internals::finite_elements_option,
+                     "With --execution mixed: location (cpu or gpu) of the "
+                     "computations of the finite elements (gradients, inner "
+                     "forces, tangent operator).");
+    static const char* behaviours = "";
+    parser.AddOption(&behaviours, internals::behaviours_short_option,
+                     internals::behaviours_option,
+                     "With --execution mixed: location (cpu or gpu) of the "
+                     "integration of the behaviours, checked against the "
+                     "libraries of the behaviours.");
+    static const char* linear_solver_device = "";
+    parser.AddOption(&linear_solver_device,
+                     internals::linear_solver_device_short_option,
+                     internals::linear_solver_device_option,
+                     "With --execution mixed: location (cpu or gpu) of the "
+                     "linear solvers and of the memory of hypre.");
+    static const char* post_processings = "";
+    parser.AddOption(&post_processings,
+                     internals::post_processings_short_option,
+                     internals::post_processings_option,
+                     "With --execution mixed: location (cpu or gpu) of the "
+                     "post-processings.");
     // the device is created by `initialize`: the option is only declared
     // here, so that the parser accepts it
     static const char* device_configuration = "";
