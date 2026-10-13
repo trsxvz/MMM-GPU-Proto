@@ -259,23 +259,27 @@ nonlinear form without interior face integrators nor extension of
   the columns of the rows are reordered, for instance by a direct solver.
   They take two bytes per entry of the stiffness matrices of the
   elements;
-- with :code:`TangentOperatorAssembly` set to :code:`Ordered`, the
-  stiffness matrices of all the elements are first stored element by
-  element (:math:`n^{2}` values per element, :math:`n` being the number of
-  degrees of freedom of an element), then added to the matrix by one
-  thread per row, which adds the contributions to its row in a fixed
-  order: by element, then by row and column of the stiffness matrices of
-  the elements. The values of the matrix are then the same at each
-  assembly, also on a GPU, where the order of the atomic additions changes
-  from one run to the next, and with it the last digits of the results.
-  In the sequential computations of the tests of :code:`mfem-mgis` on a
-  GPU, the results are then the same at each run; other operations, such
-  as the products of :code:`hypre` on several processes, may still change
-  their last digits. This also applies to the elastic operator of the
-  fixed point solver. The stiffness matrices of all the elements must fit
-  in an array of :code:`MFEM` (fewer than :math:`2^{31}` values). The
-  parameter has no effect when the stiffness matrices are computed element
-  by element;
+- with :code:`TangentOperatorAssembly` set to :code:`Ordered` and a
+  device, the stiffness matrices of all the elements are first stored
+  element by element (:math:`n^{2}` values per element, :math:`n` being the
+  number of degrees of freedom of an element), then added to the matrix by
+  one thread per value of the matrix, which adds the contributions to this
+  value in a fixed order. These contributions are computed on the host at
+  the first assembly of each layout of the rows (one integer per entry of
+  the stiffness matrices of the elements, plus one per value of the
+  matrix), and again if they do not match the matrix. The values of the
+  matrix are then the same at each assembly, also on a GPU, where the order
+  of the atomic additions changes from one run to the next, and with it the
+  last digits of the results. In the sequential computations of the tests
+  of :code:`mfem-mgis` on a GPU, the results are then the same at each run;
+  other operations, such as the products of :code:`hypre` on several
+  processes, may still change their last digits. This also applies to the
+  elastic operator of the fixed point solver. The stiffness matrices of
+  all the elements must fit in an array of :code:`MFEM` (fewer than
+  :math:`2^{31}` values). Without device, the elements are already added
+  one after the other, in a fixed order, and both values of the parameter
+  give the same assembly. The parameter has no effect when the stiffness
+  matrices are computed element by element;
 - the contributions of the other integrators of the nonlinear form, if
   any, are added to this matrix on the host (see
   :ref:`mfem_mgis_batch_computations_other_integrators`);

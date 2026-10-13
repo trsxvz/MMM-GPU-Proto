@@ -189,8 +189,10 @@ de trois façons, qui doivent toutes passer :
   (l'action par noyaux et la réduction de MFEM sont déterministes).
   L'assemblage ordonné (paramètre `TangentOperatorAssembly` à `Ordered`,
   variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) supprime ces écarts :
-  matrices élémentaires stockées, puis ajoutées par un fil par ligne de la
-  matrice, dans un ordre fixe. Avec lui, quatre passages de
+  avec un périphérique, matrices élémentaires stockées, puis ajoutées par
+  un fil par valeur de la matrice, dans un ordre fixe ; sans périphérique,
+  le chemin de l'hôte ajoute déjà les éléments l'un après l'autre (coût
+  mesuré sur la poutre r4 : `results/assemblage-ordonne-2026-10-12`). Avec lui, quatre passages de
   `FixedPointSolverTest` sur le GPU, noyaux forcés, donnent des historiques
   identiques bit à bit (les deux variantes du diagnostic), contre trois
   historiques différents en trois passages avec l'assemblage atomique

@@ -763,16 +763,19 @@ namespace mfem_mgis {
     if (!batch::zeroSparseMatrixValues(ctx, m)) {
       return false;
     }
-    if (this->ordered_stiffness_matrices_assembly) {
-      // stiffness matrices stored element by element, then added row by row
-      // in a fixed order
+    // ordered assembly with a device (see
+    // `setOrderedStiffnessMatricesAssembly`): stiffness matrices stored
+    // element by element, then added value by value in a fixed order.
+    // Without device, the stiffness matrices are added one element after
+    // the other on the host, which is already a fixed order.
+    if ((this->ordered_stiffness_matrices_assembly) &&
+        (mfem::Device::IsEnabled())) {
       if (fes.GetNE() == 0) {
         ++(this->ordered_stiffness_matrices_assemblies);
         return true;
       }
-      const auto n =
-          static_cast<std::int64_t>(this->element_dofs.Size()) / fes.GetNE();
-      if (n * n * fes.GetNE() > std::numeric_limits<int>::max()) {
+      const auto n = this->element_dofs.Size() / fes.GetNE();
+      if (std::int64_t{n} * n * fes.GetNE() > std::numeric_limits<int>::max()) {
         return ctx.registerErrorMessage(
             "assembleStiffnessMatrixByKernels: too many values to store the "
             "stiffness matrices of all the elements in the ordered assembly "
@@ -781,19 +784,32 @@ namespace mfem_mgis {
       if (!this->computeStiffnessMatricesByKernels(ctx, fes)) {
         return false;
       }
-      if (this->elements_rows.offsets.Size() != m.Height() + 1) {
-        if (!batch::computeElementsRows(
-                ctx, this->elements_rows, this->element_dofs,
-                this->element_dofs.Size() / fes.GetNE(), m.Height())) {
+      // contributions of the stiffness matrices of the elements to the
+      // values of the matrix, kept for each layout of the rows (as the
+      // positions below), computed again if they do not match the matrix
+      // (another layout of the rows)
+      const auto layout = m.ColumnsAreSorted() ? 1 : 0;
+      auto& contributions = this->stiffness_matrices_contributions[layout];
+      const auto compute_contributions = [&]() {
+        ++(this->stiffness_matrices_contributions_computations[layout]);
+        return batch::computeEntriesContributions(ctx, contributions, m,
+                                                  this->element_dofs, n);
+      };
+      const auto a = batch::AssembledStiffnessMatrix{
+          .matrix = &m, .element_dofs = &(this->element_dofs)};
+      if ((contributions.offsets.Size() == 0) && (!compute_contributions())) {
+        return false;
+      }
+      auto first_attempt = Context{};
+      if (!batch::addStiffnessMatricesByEntries(first_attempt, a, contributions,
+                                                this->stiffness_matrices)) {
+        // the values were partially updated
+        if ((!batch::zeroSparseMatrixValues(ctx, m)) ||
+            (!compute_contributions()) ||
+            (!batch::addStiffnessMatricesByEntries(ctx, a, contributions,
+                                                   this->stiffness_matrices))) {
           return false;
         }
-      }
-      if (!batch::addStiffnessMatricesByRows(
-              ctx,
-              batch::AssembledStiffnessMatrix{
-                  .matrix = &m, .element_dofs = &(this->element_dofs)},
-              this->elements_rows, this->stiffness_matrices)) {
-        return false;
       }
       ++(this->ordered_stiffness_matrices_assemblies);
       return true;
@@ -847,8 +863,18 @@ namespace mfem_mgis {
         positions.DeleteAll();
       }
     }
+    if (this->ordered_stiffness_matrices_assembly) {
+      // no device: the elements were added one after the other
+      ++(this->ordered_stiffness_matrices_assemblies);
+    }
     return true;
   }  // end of assembleStiffnessMatrixByKernels
+
+  int MultiMaterialNonLinearIntegrator::
+      getNumberOfEntriesContributionsComputations(
+          const bool sorted) const noexcept {
+    return this->stiffness_matrices_contributions_computations[sorted ? 1 : 0];
+  }  // end of getNumberOfEntriesContributionsComputations
 
   void MultiMaterialNonLinearIntegrator::AssembleElementVector(
       const mfem::FiniteElement& e,

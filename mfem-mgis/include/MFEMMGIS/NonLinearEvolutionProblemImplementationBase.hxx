@@ -138,17 +138,18 @@ namespace mfem_mgis {
      * \brief name of the parameter selecting the assembly of the stiffness
      * matrices computed by kernels in the sparse matrices of the tangent
      * operator and of the elastic operator (see `TangentOperatorComputation`):
-     * `Atomic` (default: they are added without being stored, by atomic
-     * additions whose order depends on the scheduling of the threads on a
-     * GPU, so that the values may differ, in the last digits, from one
-     * assembly to the next) or `Ordered` (they are stored element by
-     * element, then added row by row in a fixed order: the values are the
-     * same at each assembly, at the cost of the storage of the stiffness
-     * matrices of all the elements, see
+     * `Atomic` (default: with a device, they are added without being stored,
+     * by atomic additions whose order depends on the scheduling of the
+     * threads, so that the values may differ, in the last digits, from one
+     * assembly to the next) or `Ordered` (they are added in a fixed order:
+     * the values are the same at each assembly, at the cost of the storage
+     * of the stiffness matrices of all the elements with a device, see
      * `MultiMaterialNonLinearIntegrator::setOrderedStiffnessMatricesAssembly`).
-     * The parameter has no effect when the stiffness matrices are computed
-     * element by element. The default value is given by the environment
-     * variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, if defined.
+     * Without device, both values give the same assembly, one element after
+     * the other on the host. The parameter has no effect when the stiffness
+     * matrices are computed element by element. The default value is given
+     * by the environment variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, if
+     * defined.
      */
     static const char* const TangentOperatorAssembly;
     //! \brief computations of the tangent operator

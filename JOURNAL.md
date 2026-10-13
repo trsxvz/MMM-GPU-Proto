@@ -4531,3 +4531,37 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   Eisenstat-Walker. Factorisation de 132 ms (réutilisation effective :
   222 ms sans), contre 24 ms pour la matrice d'ex8 de taille voisine :
   la périodicité et la non-symétrie coûtent cher au solveur direct.
+
+### 2026-10-12 et 13, assemblage ordonné de la tangente
+
+- Sur le GPU, les calculs n'étaient pas reproductibles d'un passage à
+  l'autre (`FixedPointSolverTest` échouait environ une fois sur 20). La
+  source est l'assemblage par noyaux : les matrices des éléments sont
+  ajoutées à la matrice creuse par additions atomiques, dont l'ordre change
+  à chaque passage. Le sous-test sans assemblage divergeait pour la même
+  raison : l'opérateur élastique de son préconditionneur est assemblé par
+  noyaux ; l'action sans matrice et la réduction de MFEM sont, elles,
+  déterministes.
+- mfem-mgis 0dbae0fcc7, 456c298dd6 et f57072220f : paramètre
+  `TangentOperatorAssembly` (`Atomic` par défaut, `Ordered`), variable
+  `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`. Avec un périphérique, les matrices
+  des éléments sont stockées, puis ajoutées par un fil par valeur de la
+  matrice, dans un ordre fixe, à partir de la liste des contributions de
+  chaque valeur (calculée une fois par agencement des lignes, vérifiée
+  colonne par colonne, recalculée si elle ne correspond plus à la
+  matrice). Sans périphérique, le chemin de l'hôte, déjà séquentiel, est
+  gardé. S'applique à la tangente, à l'opérateur élastique du point fixe,
+  à FBar et à la régularisation de Faltus.
+- Résultat : quatre passages de `FixedPointSolverTest` sur le GPU donnent
+  des historiques identiques bit à bit ; trois passages en atomique en
+  donnent trois différents. Nouveaux tests : `GradientsKernelsTest`
+  (assemblage valeur par valeur comparé à l'atomique, identique à chaque
+  assemblage, autre agencement des lignes détecté, contributions calculées
+  une fois par agencement), `BatchIntegrationTest` (cas ordonnés, deux
+  calculs identiques bit à bit, nombre d'assemblages ordonnés vérifié),
+  `FixedPointSolverTest-kernels-ordered-cpu` et `-cuda`.
+- Première version avec un fil par ligne : 7,1 ms par assemblage pour ce
+  noyau contre 0,48 ms pour l'atomique (profil Nsight Systems). Version par
+  valeur : tangente de la poutre r4 en 6 ms contre 4,3 ms en atomique, plus
+  0,13 s au premier assemblage ; NewtonK0 2,2 à 2,35 s contre 1,9 s.
+  Sur CPU, même coût que l'atomique (`results/assemblage-ordonne-2026-10-12`).

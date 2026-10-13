@@ -10,8 +10,8 @@
  * matrix detected, positions of the entries in the rows of the sparse
  * matrix (`batch::computeStiffnessMatricesPositions`) checked and used,
  * including positions of another matrix, wrong positions and positions of
- * a wrong size, assembly row by row in a fixed order
- * (`batch::addStiffnessMatricesByRows`, same values at each assembly), for
+ * a wrong size, assembly value by value in a fixed order
+ * (`batch::addStiffnessMatricesByEntries`, same values at each assembly), for
  * small and finite strain behaviours, isotropic and
  * orthotropic, in 3D (hexahedra and tetrahedra, orders 1 and 2, two
  * materials with macroscopic gradients) and under the plane strain
@@ -440,28 +440,33 @@ static void testCase(mfem_mgis::Context& ctx,
               << " values, maximum difference " << da << " (maximum value "
               << amax << ")\n";
     check((amax != 0) && (da <= 1e-13 * amax), name + ": assembled matrix");
-    // stiffness matrices stored element by element, added row by row in a
-    // fixed order (`batch::addStiffnessMatricesByRows`), in the pattern of
-    // all the elements: same values as the atomic additions, and the same
-    // values at each assembly; rows of another matrix, stiffness matrices of
-    // a wrong size and degrees of freedom outside of the matrix refused
+    // stiffness matrices stored element by element, added value by value in
+    // a fixed order (`batch::addStiffnessMatricesByEntries`), in the pattern
+    // of all the elements: same values as the atomic additions, and the same
+    // values at each assembly; contributions of another layout of the rows,
+    // stiffness matrices of a wrong size and entries outside of the pattern
+    // detected
     {
       const auto all =
           batch::makeAssembledStiffnessMatrix(ctx, fes, element_dofs);
-      auto rows = batch::ElementsRows{};
+      auto contributions = batch::EntriesContributions{};
       check((all != nullptr) &&
-                batch::computeElementsRows(ctx, rows, element_dofs, ndofs,
-                                           fes.GetVSize()),
-            name + ": rows of the stiffness matrices of the elements (" +
+                batch::computeEntriesContributions(ctx, contributions, *all,
+                                                   element_dofs, ndofs),
+            name +
+                ": contributions of the stiffness matrices of the "
+                "elements (" +
                 ctx.getErrorMessage() + ")");
-      auto sorted = rows.offsets.Size() == fes.GetVSize() + 1;
-      for (int r = 0; sorted && (r != fes.GetVSize()); ++r) {
-        sorted = std::is_sorted(rows.entries.HostRead() + rows.offsets[r],
-                                rows.entries.HostRead() + rows.offsets[r + 1]);
+      auto sorted =
+          (all != nullptr) &&
+          (contributions.offsets.Size() == all->NumNonZeroElems() + 1) &&
+          (contributions.contributions.Size() == ke.Size());
+      for (int p = 0; sorted && (p + 1 < contributions.offsets.Size()); ++p) {
+        const auto* const c = contributions.contributions.HostRead();
+        sorted = std::is_sorted(c + contributions.offsets[p],
+                                c + contributions.offsets[p + 1]);
       }
-      check(sorted, name +
-                        ": rows of the stiffness matrices of the elements "
-                        "sorted");
+      check(sorted, name + ": contributions sorted");
       if (all != nullptr) {
         const auto atomic = [&](mfem::SparseMatrix& matrix) {
           auto c2 = Context{};
@@ -472,14 +477,15 @@ static void testCase(mfem_mgis::Context& ctx,
                          .matrix = &matrix, .element_dofs = &element_dofs},
                      geometry);
         };
-        const auto by_rows = [&](mfem::SparseMatrix& matrix) {
+        const auto by_entries = [&](mfem::SparseMatrix& matrix,
+                                    const mfem::Vector& k) {
           auto c2 = Context{};
           return batch::zeroSparseMatrixValues(c2, matrix) &&
-                 batch::addStiffnessMatricesByRows(
+                 batch::addStiffnessMatricesByEntries(
                      c2,
                      batch::AssembledStiffnessMatrix{
                          .matrix = &matrix, .element_dofs = &element_dofs},
-                     rows, ke);
+                     contributions, k);
         };
         auto a1 = mfem::SparseMatrix(*all);
         auto a2 = mfem::SparseMatrix(*all);
@@ -487,7 +493,8 @@ static void testCase(mfem_mgis::Context& ctx,
         auto r2 = mfem::SparseMatrix(*all);
         check(atomic(a1) && atomic(a2),
               name + ": atomic assembly in the matrix of all the elements");
-        check(by_rows(r1) && by_rows(r2), name + ": assembly row by row");
+        check(by_entries(r1, ke) && by_entries(r2, ke),
+              name + ": assembly value by value");
         const auto nnz = all->NumNonZeroElems();
         const auto* const va1 = a1.HostReadData();
         const auto* const va2 = a2.HostReadData();
@@ -498,36 +505,31 @@ static void testCase(mfem_mgis::Context& ctx,
           dr = std::max(dr, std::abs(vr1[i] - va1[i]));
         }
         const auto same_atomic = std::equal(va1, va1 + nnz, va2);
-        const auto same_rows = std::equal(vr1, vr1 + nnz, vr2);
-        std::cout << name << ": assembly row by row, maximum difference to "
-                  << "the atomic additions " << dr << ", same values at each "
-                  << "assembly: " << (same_rows ? "yes" : "no")
+        const auto same_entries = std::equal(vr1, vr1 + nnz, vr2);
+        std::cout << name << ": assembly value by value, maximum difference "
+                  << "to the atomic additions " << dr << ", same values at "
+                  << "each assembly: " << (same_entries ? "yes" : "no")
                   << " (atomic additions: " << (same_atomic ? "yes" : "no")
                   << ")\n";
-        check(dr <= 1e-13 * amax, name + ": assembly row by row");
-        check(same_rows,
-              name + ": assembly row by row, same values at each assembly");
-        auto c3 = Context{};
-        auto other_rows = batch::ElementsRows{};
-        check(batch::computeElementsRows(c3, other_rows, element_dofs, ndofs,
-                                         fes.GetVSize() + 1) &&
-                  !batch::addStiffnessMatricesByRows(
-                      c3,
-                      batch::AssembledStiffnessMatrix{
-                          .matrix = &r1, .element_dofs = &element_dofs},
-                      other_rows, ke),
-              name + ": rows of another matrix not detected");
+        check(dr <= 1e-13 * amax, name + ": assembly value by value");
+        check(same_entries,
+              name +
+                  ": assembly value by value, same values at each "
+                  "assembly");
+        // the matrix with sorted columns: another layout of the rows, unless
+        // the diagonal entry is the first one of each row
+        auto other_layout = mfem::SparseMatrix(*all);
+        other_layout.SortColumnIndices();
+        const auto* const J1 = all->HostReadJ();
+        const auto* const J2 = other_layout.HostReadJ();
+        if (!std::equal(J1, J1 + nnz, J2)) {
+          check(!by_entries(other_layout, ke),
+                name + ": contributions of another layout not detected");
+        }
         auto small = mfem::Vector(ke.Size() - 1);
         small = real{0};
-        check(!batch::addStiffnessMatricesByRows(
-                  c3,
-                  batch::AssembledStiffnessMatrix{
-                      .matrix = &r1, .element_dofs = &element_dofs},
-                  rows, small),
+        check(!by_entries(r1, small),
               name + ": stiffness matrices of a wrong size not detected");
-        check(!batch::computeElementsRows(c3, other_rows, element_dofs, ndofs,
-                                          fes.GetVSize() - 1),
-              name + ": degree of freedom outside of the matrix not detected");
         // with other materials, the entries of their elements are not in the
         // pattern of the matrix of the elements of the material
         auto other_materials = false;
@@ -536,8 +538,10 @@ static void testCase(mfem_mgis::Context& ctx,
               other_materials || (fes.GetAttribute(i) != static_cast<int>(m));
         }
         if (other_materials) {
-          auto partial = mfem::SparseMatrix(mfem_ordering);
-          check(!by_rows(partial),
+          auto c3 = Context{};
+          auto partial = batch::EntriesContributions{};
+          check(!batch::computeEntriesContributions(c3, partial, mfem_ordering,
+                                                    element_dofs, ndofs),
                 name + ": entries outside of the pattern not detected");
         }
       }
@@ -782,7 +786,8 @@ static void testCase(mfem_mgis::Context& ctx,
  * assembly in another layout of the rows, at most three times, then
  * abandoned; never computed with a device which is not the host. The
  * ordered assembly gives the same values at each assembly, close to the ones
- * of the atomic additions.
+ * of the atomic additions; with a device, its contributions are computed
+ * once for each layout of the rows, and again for another matrix.
  * \param[in, out] ctx: execution context
  * \param[in] library: behaviour library
  * \param[in] mesh: mesh of a cube (hexahedra)
@@ -910,6 +915,17 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
   check(close, "integrator positions: ordered assembly, assembled values");
   check(mi.getNumberOfOrderedStiffnessMatricesAssemblies() == 6,
         "integrator positions: number of ordered assemblies");
+  // with a device, the contributions are computed once for the matrices
+  // created by `makeAssembledStiffnessMatrix`, again for the matrix in the
+  // layout of MFEM, and once for the matrix whose columns are sorted;
+  // without device, the elements are added one after the other
+  const auto device = mfem::Device::IsEnabled();
+  const auto c1 = mi.getNumberOfEntriesContributionsComputations(false);
+  const auto c2 = mi.getNumberOfEntriesContributionsComputations(true);
+  std::cout << "integrator positions, ordered assembly: " << c1 << " and " << c2
+            << " computations of the contributions\n";
+  check((c1 == (device ? 2 : 0)) && (c2 == (device ? 1 : 0)),
+        "integrator positions: computations of the contributions");
   mi.setOrderedStiffnessMatricesAssembly(false);
 }  // end of testIntegratorPositions
 

@@ -230,16 +230,23 @@ namespace mfem_mgis {
      */
     void setStiffnessMatricesComputedByKernels(const bool) noexcept;
     /*!
-     * \brief if true, `assembleStiffnessMatrixByKernels` stores the
-     * stiffness matrices of all the elements (see
-     * `computeStiffnessMatricesByKernels`), then adds them to the sparse
-     * matrix row by row, in a fixed order (see
-     * `batch::addStiffnessMatricesByRows`): the values of the matrix are the
-     * same at each assembly, on a GPU too, at the cost of the storage of the
-     * stiffness matrices of the elements (`n * n * ne` values, which must
-     * fit in an `int`). Otherwise (default), they are added without being
-     * stored, by atomic additions whose order depends on the scheduling of
-     * the threads on a GPU.
+     * \brief if true, `assembleStiffnessMatrixByKernels` adds the stiffness
+     * matrices of the elements in a fixed order, so that the values of the
+     * matrix are the same at each assembly. With a device, the stiffness
+     * matrices of all the elements are stored (see
+     * `computeStiffnessMatricesByKernels`), then added by one thread per
+     * value of the matrix (see `batch::addStiffnessMatricesByEntries`), the
+     * contributions of the stiffness matrices to each value being computed
+     * at the first assembly of each layout of the rows (see
+     * `batch::computeEntriesContributions`), and again if they do not match
+     * the matrix. This costs the storage of the stiffness matrices
+     * (`n * n * ne` values, which must fit in an `int`) and of their
+     * contributions (`n * n * ne` integers per layout, plus one per value of
+     * the matrix). Without device, the stiffness matrices are added one
+     * element after the other on the host, which is already a fixed order.
+     * Otherwise (default), they are added without being stored, by atomic
+     * additions whose order depends on the scheduling of the threads on a
+     * device.
      * \param[in] b: boolean
      */
     void setOrderedStiffnessMatricesAssembly(const bool) noexcept;
@@ -250,6 +257,16 @@ namespace mfem_mgis {
      */
     [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
         const noexcept;
+    /*!
+     * \return the number of computations of the contributions of the
+     * stiffness matrices of the elements to the values of the assembled
+     * matrices in the ordered assembly with a device (see
+     * `setOrderedStiffnessMatricesAssembly`)
+     * \param[in] sorted: if true, for the matrices whose columns are sorted,
+     * otherwise for the others
+     */
+    [[nodiscard]] int getNumberOfEntriesContributionsComputations(
+        const bool) const noexcept;
     /*!
      * \brief add the action of the tangent operator, assembled from the
      * stiffness matrices of the elements computed by kernels from the
@@ -515,12 +532,14 @@ namespace mfem_mgis {
     //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
     size_type ordered_stiffness_matrices_assemblies = 0;
     /*!
-     * \brief rows of the stiffness matrices of the elements contributing to
-     * each row of the assembled matrices, computed by
-     * `assembleStiffnessMatrixByKernels` in the ordered assembly (see
-     * `setOrderedStiffnessMatricesAssembly`)
+     * \brief contributions of the stiffness matrices of the elements to the
+     * values of the assembled matrices in the ordered assembly with a device
+     * (see `setOrderedStiffnessMatricesAssembly`), for the matrices whose
+     * columns are not sorted (first array) or sorted (second array)
      */
-    batch::ElementsRows elements_rows;
+    std::array<batch::EntriesContributions, 2> stiffness_matrices_contributions;
+    //! \brief numbers of computations of `stiffness_matrices_contributions`
+    std::array<int, 2> stiffness_matrices_contributions_computations = {0, 0};
     /*!
      * \brief degrees of freedom of all the elements (see
      * `batch::computeElementsDegreesOfFreedom`), computed once by

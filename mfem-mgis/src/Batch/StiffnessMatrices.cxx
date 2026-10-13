@@ -558,60 +558,122 @@ namespace mfem_mgis::batch {
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of zeroSparseMatrixValues
 
-  bool computeElementsRows(Context& ctx,
-                           ElementsRows& r,
-                           const mfem::Array<int>& dofs,
-                           const int n,
-                           const int nrows) noexcept {
+  bool computeEntriesContributions(Context& ctx,
+                                   EntriesContributions& c,
+                                   const mfem::SparseMatrix& m,
+                                   const mfem::Array<int>& dofs,
+                                   const int n) noexcept {
+#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+    static_cast<void>(c);
+    static_cast<void>(m);
+    static_cast<void>(dofs);
+    static_cast<void>(n);
+    return ctx.registerErrorMessage(
+        "computeEntriesContributions: the kernels are not compiled (MFEM "
+        "compiled with HIP)");
+#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
-      if ((n <= 0) || (nrows < 0) || (dofs.Size() % n != 0)) {
+      if ((!m.Finalized()) || (n <= 0) || (dofs.Size() % n != 0)) {
         return ctx.registerErrorMessage(
-            "computeElementsRows: invalid number of degrees of freedom of an "
-            "element or of rows");
+            "computeEntriesContributions: invalid matrix or number of degrees "
+            "of freedom of an element");
       }
-      // built in a local object, so that `r` is left unchanged on failure
-      auto rows = ElementsRows{};
+      const auto ne = dofs.Size() / n;
+      const auto sn = std::int64_t{n};
+      if (sn * sn * ne > std::numeric_limits<int>::max()) {
+        return ctx.registerErrorMessage(
+            "computeEntriesContributions: too many entries in the stiffness "
+            "matrices of the elements");
+      }
+      const auto nrows = m.Height();
+      const auto nnz = m.NumNonZeroElems();
+      // positions of the entries in their rows, computed by a kernel (on
+      // the device if a device is enabled)
+      const auto use_device = mfem::Device::IsEnabled();
+      auto positions =
+          mfem::Array<std::uint16_t>(static_cast<int>(sn * sn * ne));
+      {
+        auto o = internals::SparseMatrixOutput{};
+        o.number_of_rows = nrows;
+        o.I = m.ReadI(use_device);
+        o.J = m.ReadJ(use_device);
+        o.element_dofs = dofs.Read(use_device);
+        internals::launchStiffnessMatricesPositionsKernel(
+            o, ne, n, positions.Write(use_device), use_device);
+      }
+      const auto* const pos = positions.HostRead();
+      const auto* const I = m.HostReadI();
+      const auto* const J = m.HostReadJ();
       const auto* const d = dofs.HostRead();
-      rows.offsets.SetSize(nrows + 1);
-      auto* const o = rows.offsets.HostWrite();
-      std::fill(o, o + nrows + 1, 0);
-      for (int k = 0; k != dofs.Size(); ++k) {
-        if ((d[k] < 0) || (d[k] >= nrows)) {
-          return ctx.registerErrorMessage(
-              "computeElementsRows: the degree of freedom " +
-              std::to_string(d[k]) + " is not a row of the matrix");
+      // value of the matrix receiving each entry of the stiffness matrices
+      // of the elements, in the order of their storage (see
+      // `addStiffnessMatrices`): element, then column, then row. An entry
+      // whose position does not fit in the positions is searched.
+      auto targets = std::vector<int>(static_cast<std::size_t>(sn * sn * ne));
+      auto k = std::size_t{};
+      for (int e = 0; e != ne; ++e) {
+        const auto* const de = d + n * e;
+        for (int j = 0; j != n; ++j) {
+          for (int i = 0; i != n; ++i, ++k) {
+            const auto row = de[i];
+            const auto valid = (row >= 0) && (row < nrows);
+            const auto o = static_cast<int>(
+                pos[(static_cast<std::size_t>(n) * e + i) * n + j]);
+            const auto p =
+                !valid ? -1
+                : (o != internals::unknown_position)
+                    ? I[row] + o
+                    : internals::findColumn(J, I[row], I[row + 1], de[j]);
+            if ((p == -1) || (p == I[row + 1]) || (J[p] != de[j])) {
+              return ctx.registerErrorMessage(
+                  "computeEntriesContributions: the entry (" +
+                  std::to_string(i) + ", " + std::to_string(j) +
+                  ") of the stiffness matrix of the element " +
+                  std::to_string(e) + " is not in the pattern of the matrix");
+            }
+            targets[k] = p;
+          }
         }
-        ++o[d[k] + 1];
       }
-      std::partial_sum(o, o + nrows + 1, o);
-      // the rows of the stiffness matrices of the elements, `n * e + i`, are
-      // visited in increasing order, which sorts each row of `r`
-      rows.entries.SetSize(dofs.Size());
-      auto* const entries = rows.entries.HostWrite();
-      auto next = std::vector<int>(o, o + nrows);
-      for (int k = 0; k != dofs.Size(); ++k) {
-        entries[next[d[k]]++] = k;
+      // built in a local object, so that `c` is left unchanged on failure
+      auto contributions = EntriesContributions{};
+      contributions.offsets.SetSize(nnz + 1);
+      auto* const o = contributions.offsets.HostWrite();
+      std::fill(o, o + nnz + 1, 0);
+      for (const auto p : targets) {
+        ++o[p + 1];
       }
-      std::swap(r, rows);
+      std::partial_sum(o, o + nnz + 1, o);
+      contributions.contributions.SetSize(static_cast<int>(targets.size()));
+      auto* const v = contributions.contributions.HostWrite();
+      auto next = std::vector<int>(o, o + nnz);
+      // the entries are visited by increasing index, which sorts the
+      // contributions to each value
+      for (std::size_t q = 0; q != targets.size(); ++q) {
+        v[next[targets[q]]++] = static_cast<int>(q);
+      }
+      std::swap(c, contributions);
     } catch (std::exception& e) {
-      return ctx.registerErrorMessage(std::string{"computeElementsRows: "} +
-                                      e.what());
+      return ctx.registerErrorMessage(
+          std::string{"computeEntriesContributions: "} + e.what());
     } catch (...) {
-      return ctx.registerErrorMessage("computeElementsRows: unknown exception");
+      return ctx.registerErrorMessage(
+          "computeEntriesContributions: unknown exception");
     }
     return true;
-  }  // end of computeElementsRows
+#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+  }  // end of computeEntriesContributions
 
-  bool addStiffnessMatricesByRows(Context& ctx,
-                                  const AssembledStiffnessMatrix& m,
-                                  const ElementsRows& r,
-                                  const mfem::Vector& k) noexcept {
+  bool addStiffnessMatricesByEntries(Context& ctx,
+                                     const AssembledStiffnessMatrix& m,
+                                     const EntriesContributions& c,
+                                     const mfem::Vector& k) noexcept {
 #ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
     static_cast<void>(m);
-    static_cast<void>(r);
+    static_cast<void>(c);
     static_cast<void>(k);
     return ctx.registerErrorMessage(
-        "addStiffnessMatricesByRows: the kernels are not compiled (MFEM "
+        "addStiffnessMatricesByEntries: the kernels are not compiled (MFEM "
         "compiled with HIP)");
 #else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
@@ -622,38 +684,43 @@ namespace mfem_mgis::batch {
       if ((nv == 0) || (n == 0) || (n * nv != std::int64_t{k.Size()}) ||
           (nv % n != 0)) {
         return ctx.registerErrorMessage(
-            "addStiffnessMatricesByRows: unexpected size of the stiffness "
+            "addStiffnessMatricesByEntries: unexpected size of the stiffness "
             "matrices of the elements");
       }
       if (!internals::checkAssembledStiffnessMatrix(
-              ctx, m, nv / n, n, "addStiffnessMatricesByRows")) {
+              ctx, m, nv / n, n, "addStiffnessMatricesByEntries")) {
         return false;
       }
-      if ((r.offsets.Size() != m.matrix->Height() + 1) ||
-          (std::int64_t{r.entries.Size()} != nv)) {
+      const auto nnz = m.matrix->NumNonZeroElems();
+      if ((c.offsets.Size() != nnz + 1) ||
+          (std::int64_t{c.contributions.Size()} != std::int64_t{k.Size()})) {
         return ctx.registerErrorMessage(
-            "addStiffnessMatricesByRows: the rows of the stiffness matrices "
-            "of the elements do not match the matrix");
+            "addStiffnessMatricesByEntries: the contributions do not match "
+            "the matrix");
       }
       const auto use_device = mfem::Device::IsEnabled();
       auto counters = mfem::Array<int>{};
       auto o = internals::SparseMatrixOutput{};
       internals::getSparseMatrixOutput(o, counters, m, use_device);
-      internals::launchStiffnessMatricesByRowsKernel(
-          o, r.offsets.Read(use_device), r.entries.Read(use_device),
+      internals::launchStiffnessMatricesByEntriesKernel(
+          o, nnz, c.offsets.Read(use_device), c.contributions.Read(use_device),
           k.Read(use_device), static_cast<int>(n), use_device);
-      return internals::checkSparseMatrixOutputCounters(
-          ctx, counters, m, "addStiffnessMatricesByRows");
+      if (counters.HostRead()[0] != 0) {
+        return ctx.registerErrorMessage(
+            "addStiffnessMatricesByEntries: the contributions do not match "
+            "the columns of the matrix (" +
+            std::to_string(counters.HostRead()[0]) + " entries)");
+      }
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(
-          std::string{"addStiffnessMatricesByRows: "} + e.what());
+          std::string{"addStiffnessMatricesByEntries: "} + e.what());
     } catch (...) {
       return ctx.registerErrorMessage(
-          "addStiffnessMatricesByRows: unknown exception");
+          "addStiffnessMatricesByEntries: unknown exception");
     }
     return true;
 #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-  }  // end of addStiffnessMatricesByRows
+  }  // end of addStiffnessMatricesByEntries
 
   bool addStiffnessMatrices(Context& ctx,
                             const AssembledStiffnessMatrix& m,

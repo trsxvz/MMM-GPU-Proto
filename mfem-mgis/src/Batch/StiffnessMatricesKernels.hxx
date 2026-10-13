@@ -225,24 +225,30 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel adding stiffness matrices stored element by
-   * element to an assembled sparse matrix (see `addStiffnessMatricesByRows`):
-   * one thread per row of the matrix, which adds the contributions to its
-   * row in a fixed order, without atomic additions
+   * element to an assembled sparse matrix (see
+   * `addStiffnessMatricesByEntries`): one thread per value of the matrix,
+   * which adds the contributions to this value in a fixed order, without
+   * atomic additions, after checking their columns (the contributions whose
+   * column is not the one of the value are counted in `missing` and not
+   * added)
    * \param[in] o: assembled matrix (`positions` and `searched` are not used)
-   * \param[in] offsets: offsets of the rows (see `ElementsRows`)
-   * \param[in] entries: rows of the stiffness matrices of the elements
-   * contributing to each row (see `ElementsRows`)
+   * \param[in] nnz: number of values of the matrix
+   * \param[in] offsets: offsets of the values (see `EntriesContributions`)
+   * \param[in] contributions: indices of the entries of the stiffness
+   * matrices of the elements contributing to each value (see
+   * `EntriesContributions`)
    * \param[in] k: stiffness matrices of all the elements, stored element by
    * element, column by column
    * \param[in] n: number of degrees of freedom of an element
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  void launchStiffnessMatricesByRowsKernel(const SparseMatrixOutput&,
-                                           const int* const,
-                                           const int* const,
-                                           const real* const,
-                                           const int,
-                                           const bool);
+  void launchStiffnessMatricesByEntriesKernel(const SparseMatrixOutput&,
+                                              const int,
+                                              const int* const,
+                                              const int* const,
+                                              const real* const,
+                                              const int,
+                                              const bool);
 
   /*!
    * \brief launches the kernel adding the stiffness matrices of the
