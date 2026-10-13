@@ -243,9 +243,10 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
       std::cout << "ERROR: Mesh file missing" << std::endl;
-    args.PrintUsage(std::cout);
+      args.PrintUsage(std::cout);
+    }
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
@@ -350,9 +351,9 @@ int main(int argc, char** argv) {
   fill_parameters(args, p);
 
   // Open the output files of the bubble stresses and of the hydrostatic
-  // stress, written by the main process only, after the parsing of the
-  // options, so that the help does not overwrite the results of a previous
-  // run
+  // stress, written by the post-processing step on the main process only,
+  // after the parsing of the options, so that the help does not overwrite
+  // the results of a previous run
   const auto bubbles_selected =
       std::string{"bubbles_and_stresses_selected.txt"};
   const auto hydrostatic_stress_f = std::string{"sig_hydro.txt"};
@@ -361,11 +362,11 @@ int main(int argc, char** argv) {
   const auto open = [](std::ofstream& file, const std::string& name) {
     file.open(name);
     if (!file.is_open()) {
-      std::cerr << "Failed to open the file: " << name << std::endl;
-      mfem_mgis::abort(EXIT_FAILURE);
+      mfem_mgis::abort(("Failed to open the file: " + name).c_str());
     }
   };
-  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+  if ((p.post_processing) &&
+      (mfem_mgis::isMPIMainProcessForDefaultCommunicator())) {
     open(output_file_locations, bubbles_selected);
     open(outfile_sighydr, hydrostatic_stress_f);
   }

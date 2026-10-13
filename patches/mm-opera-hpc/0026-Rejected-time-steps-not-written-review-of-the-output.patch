@@ -1,0 +1,211 @@
+From 1a9eaf242e2af2c6765d37fbc258bf1211f318d9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 19:06:38 +0200
+Subject: [PATCH] Rejected time steps not written, review of the output files
+
+- uniaxial periodic simulation: the values of a time step were written
+  before the test of the fixed-point algorithm, so that a rejected step
+  left non-converged values in the output file, at the same time as the
+  accepted ones; they are now written only for an accepted step. A
+  fixed-point algorithm converging at its last allowed iteration was also
+  counted as a failure: the failure is now the absence of convergence
+  after at most the given number of iterations.
+- bubble: the output files are only opened when the post-processing step,
+  which writes them, is enabled.
+- the errors of opening of the output files use the message overload of
+  mfem_mgis::abort; the usage is printed by the main process only when the
+  mesh file is missing; documentation of the output stream of `run`.
+---
+ bubble/src/Bubble.cxx                         | 17 ++++++++--------
+ cermet/cermet.cxx                             | 10 ++++++----
+ ...ialMacroscopicStressPeriodicSimulation.hxx |  5 +++--
+ polycrystal/UniaxialPolycrystal.cxx           | 10 ++++++----
+ polycrystal/common.hxx                        |  5 +++--
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 20 +++++++++----------
+ 6 files changed, 37 insertions(+), 30 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 24bd591..63a79f6 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -243,9 +243,10 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+       std::cout << "ERROR: Mesh file missing" << std::endl;
+-    args.PrintUsage(std::cout);
++      args.PrintUsage(std::cout);
++    }
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+@@ -350,9 +351,9 @@ int main(int argc, char** argv) {
+   fill_parameters(args, p);
+ 
+   // Open the output files of the bubble stresses and of the hydrostatic
+-  // stress, written by the main process only, after the parsing of the
+-  // options, so that the help does not overwrite the results of a previous
+-  // run
++  // stress, written by the post-processing step on the main process only,
++  // after the parsing of the options, so that the help does not overwrite
++  // the results of a previous run
+   const auto bubbles_selected =
+       std::string{"bubbles_and_stresses_selected.txt"};
+   const auto hydrostatic_stress_f = std::string{"sig_hydro.txt"};
+@@ -361,11 +362,11 @@ int main(int argc, char** argv) {
+   const auto open = [](std::ofstream& file, const std::string& name) {
+     file.open(name);
+     if (!file.is_open()) {
+-      std::cerr << "Failed to open the file: " << name << std::endl;
+-      mfem_mgis::abort(EXIT_FAILURE);
++      mfem_mgis::abort(("Failed to open the file: " + name).c_str());
+     }
+   };
+-  if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
++  if ((p.post_processing) &&
++      (mfem_mgis::isMPIMainProcessForDefaultCommunicator())) {
+     open(output_file_locations, bubbles_selected);
+     open(outfile_sighydr, hydrostatic_stress_f);
+   }
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index a4d6eda..1013876 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -105,9 +105,10 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+       std::cout << "ERROR: Mesh file missing" << std::endl;
+-    args.PrintUsage(std::cout);
++      args.PrintUsage(std::cout);
++    }
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+@@ -309,8 +310,9 @@ int main(int argc, char **argv) {
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+     out.open(p.output_file);
+     if (!out) {
+-      std::cerr << "can't open output file '" << p.output_file << "'\n";
+-      mfem_mgis::abort(EXIT_FAILURE);
++      mfem_mgis::abort(
++          ("can't open output file '" + std::string{p.output_file} + "'")
++              .c_str());
+     }
+     out.precision(14);
+   }
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index b0ecb66..18e9419 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -90,9 +90,10 @@ namespace mm_opera_hpc {
+         const bool) noexcept;
+     /*!
+      * \brief run the simulation over the given temporal sequences
+-     * \param[in] out: output files for the macroscopic results (diagonal
++     * \param[out] out: output stream of the macroscopic results (diagonal
+      * components of the deformation gradient and diagonal components of the
+-     * Cauchy stress), written by the main process only.
++     * Cauchy stress) at the end of each accepted time step, written by the
++     * main process only.
+      * \param[in] temporal_sequences: list of times defining the
+      * temporal sequences.
+      * \pre the times must be sorted in ascending order
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 23ebc15..952c511 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -345,8 +345,9 @@ int main(int argc, char *argv[]) {
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+     out.open(p.output_file);
+     if (!out) {
+-      std::cerr << "can't open output file '" << p.output_file << "'\n";
+-      mfem_mgis::abort(EXIT_FAILURE);
++      mfem_mgis::abort(
++          ("can't open output file '" + std::string{p.output_file} + "'")
++              .c_str());
+     }
+     out.precision(14);
+   }
+@@ -452,9 +453,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
+   }
+   if (p.mesh_file == nullptr) {
+-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+       std::cout << "ERROR: Mesh file missing" << std::endl;
+-    args.PrintUsage(std::cout);
++      args.PrintUsage(std::cout);
++    }
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+diff --git a/polycrystal/common.hxx b/polycrystal/common.hxx
+index 00c6814..4fb2861 100644
+--- a/polycrystal/common.hxx
++++ b/polycrystal/common.hxx
+@@ -54,9 +54,10 @@ void common_parameters(mfem::OptionsParser &args, TestParameters &p) {
+     exit(0);
+   }
+   if (p.mesh_file == nullptr) {
+-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+       std::cout << "ERROR: Mesh file missing" << std::endl;
+-    args.PrintUsage(std::cout);
++      args.PrintUsage(std::cout);
++    }
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 6fa2a8a..5bedfd6 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -96,7 +96,7 @@ namespace mm_opera_hpc {
+     // --- fixed point loop --- //
+     bool converged = false;
+     auto initial_residual = mfem_mgis::real{};
+-    while ((!converged) && (itFP <= maxitFP)) {
++    while ((!converged) && (itFP < maxitFP)) {
+       const auto &mp = np.macroscopic_elastic_material_properties;
+       // -- compute correction -- //
+       // -- note that S[0] and S[1] are updated at the end of this loop section,
+@@ -154,15 +154,7 @@ namespace mm_opera_hpc {
+       converged = std::abs(r) < tolFP;
+       itFP++;
+     }
+-    // the macroscopic values are the same on all the processes
+-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+-      out << ets << " "                                 //
+-          << F[0] << " " << F[1] << " " << F[2] << " "  //
+-          << S[0] << " " << S[1] << " " << S[2] << std::endl;
+-    }
+-    Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
+-    //
+-    if (itFP >= maxitFP) {
++    if (!converged) {
+       Message(
+           "error: maximum number of iterations for the "
+           "fixed-point algorithm reached");
+@@ -171,6 +163,14 @@ namespace mm_opera_hpc {
+       problem.revert(ctx) | or_die;
+       return false;
+     }
++    // the values of a rejected time step are not written. The macroscopic
++    // values are the same on all the processes
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
++      out << ets << " "                                 //
++          << F[0] << " " << F[1] << " " << F[2] << " "  //
++          << S[0] << " " << S[1] << " " << S[2] << std::endl;
++    }
++    Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
+     //
+     if (post_processing) {
+       // add postprocessing
+-- 
+2.43.0
+

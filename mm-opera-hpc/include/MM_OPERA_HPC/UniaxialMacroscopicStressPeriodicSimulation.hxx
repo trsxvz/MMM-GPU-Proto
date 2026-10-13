@@ -90,9 +90,10 @@ namespace mm_opera_hpc {
         const bool) noexcept;
     /*!
      * \brief run the simulation over the given temporal sequences
-     * \param[in] out: output files for the macroscopic results (diagonal
+     * \param[out] out: output stream of the macroscopic results (diagonal
      * components of the deformation gradient and diagonal components of the
-     * Cauchy stress), written by the main process only.
+     * Cauchy stress) at the end of each accepted time step, written by the
+     * main process only.
      * \param[in] temporal_sequences: list of times defining the
      * temporal sequences.
      * \pre the times must be sorted in ascending order

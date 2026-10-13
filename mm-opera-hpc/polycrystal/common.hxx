@@ -54,9 +54,10 @@ void common_parameters(mfem::OptionsParser &args, TestParameters &p) {
     exit(0);
   }
   if (p.mesh_file == nullptr) {
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
       std::cout << "ERROR: Mesh file missing" << std::endl;
-    args.PrintUsage(std::cout);
+      args.PrintUsage(std::cout);
+    }
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);

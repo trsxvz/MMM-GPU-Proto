@@ -96,7 +96,7 @@ namespace mm_opera_hpc {
     // --- fixed point loop --- //
     bool converged = false;
     auto initial_residual = mfem_mgis::real{};
-    while ((!converged) && (itFP <= maxitFP)) {
+    while ((!converged) && (itFP < maxitFP)) {
       const auto &mp = np.macroscopic_elastic_material_properties;
       // -- compute correction -- //
       // -- note that S[0] and S[1] are updated at the end of this loop section,
@@ -154,15 +154,7 @@ namespace mm_opera_hpc {
       converged = std::abs(r) < tolFP;
       itFP++;
     }
-    // the macroscopic values are the same on all the processes
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
-      out << ets << " "                                 //
-          << F[0] << " " << F[1] << " " << F[2] << " "  //
-          << S[0] << " " << S[1] << " " << S[2] << std::endl;
-    }
-    Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
-    //
-    if (itFP >= maxitFP) {
+    if (!converged) {
       Message(
           "error: maximum number of iterations for the "
           "fixed-point algorithm reached");
@@ -171,6 +163,14 @@ namespace mm_opera_hpc {
       problem.revert(ctx) | or_die;
       return false;
     }
+    // the values of a rejected time step are not written. The macroscopic
+    // values are the same on all the processes
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+      out << ets << " "                                 //
+          << F[0] << " " << F[1] << " " << F[2] << " "  //
+          << S[0] << " " << S[1] << " " << S[2] << std::endl;
+    }
+    Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
     //
     if (post_processing) {
       // add postprocessing

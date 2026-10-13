@@ -170,7 +170,9 @@ chiffres datés ci-dessous sont ceux des passages notés au journal) :
   en 226 s). Les variantes qui calculent sur le GPU partagent le verrou
   `RESOURCE_LOCK gpu` : sans lui, hypre réserve un pool sur le GPU pour
   chaque processus de deux tests simultanés et l'allocation échoue (vu le
-  13/10 avec `ExecutionSettingsTest`, corrigé par 898f63edf9) ;
+  13/10 avec `ExecutionSettingsTest`, corrigé par 898f63edf9 puis
+  a836c34207 : le verrou est donné à tout test dont le nom finit par
+  `-cuda`, `-hip` ou `-gpu`) ;
 - avec tous les calculs forcés aux noyaux du chemin par lots, par les
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,

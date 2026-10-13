@@ -1,0 +1,66 @@
+From a836c34207330759b340b73d57c156db8d2fc13b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 19:11:04 +0200
+Subject: [PATCH] Tests: GPU lock given by the suffixes -cuda, -hip and -gpu
+
+The lock shared by the tests on the GPU was given by name to the tests
+ending with -cuda only, the variants of ExecutionSettingsTest ending with
+-gpu receiving it by an explicit list. The rule now covers the suffixes
+-cuda, -hip and -gpu, so that a new variant on the GPU gets the lock
+without being listed; the explicit list is removed.
+---
+ tests/CMakeLists.txt | 16 ++++------------
+ 1 file changed, 4 insertions(+), 12 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 0d7d0ee074..72e5b6b1d0 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1330,12 +1330,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+       # the variants placing the behaviours on the GPU require their
+       # library for the GPU
+       set(_bh_locations cpu)
+-      set(_execution_settings_gpu_tests)
+       if(ExecutionSettingsBehaviours_HAVE_GPU_BEHAVIOURS)
+         list(APPEND _bh_locations gpu)
+-        list(APPEND _execution_settings_gpu_tests ExecutionSettingsTest-gpu
+-             ExecutionSettingsTest-mixed-gpu
+-             ExecutionSettingsTest-mixed-environment-gpu)
+         add_test(NAME ExecutionSettingsTest-gpu
+                  COMMAND ExecutionSettingsTest --execution gpu
+                          --expected-settings gpu,gpu,gpu,gpu,gpu
+@@ -1367,16 +1363,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+                                --expected-settings
+                                mixed,${_fe},${_bh},${_lsd},${_ppd}
+                                ${execution_settings_test_gpu_arguments})
+-              list(APPEND _execution_settings_gpu_tests
+-                   ExecutionSettingsTest-mixed-${_name}-gpu)
+             endforeach()
+           endforeach()
+         endforeach()
+       endforeach()
+-      # the GPU is shared with the other tests on the GPU: hypre reserves a
+-      # pool of memory on the GPU for each process
+-      set_tests_properties(${_execution_settings_gpu_tests}
+-                           PROPERTIES RESOURCE_LOCK gpu)
+     endif()
+   endif()
+ 
+@@ -1764,10 +1754,12 @@ install(
+   RENAME CMakeLists.txt)
+ 
+ # each process on the GPU may reserve a large memory pool (4 GiB for hypre
+-# with Umpire): the tests on the GPU are not run at the same time
++# with Umpire): the tests on the GPU, whose names end with -cuda, -hip or
++# -gpu, are not run at the same time (the other tests on the GPU are given
++# the lock where they are declared)
+ get_property(_tests DIRECTORY PROPERTY TESTS)
+ foreach(_test ${_tests})
+-  if(_test MATCHES "-cuda$")
++  if(_test MATCHES "-(cuda|hip|gpu)$")
+     set_tests_properties(${_test} PROPERTIES RESOURCE_LOCK gpu)
+   endif()
+ endforeach()
+-- 
+2.43.0
+

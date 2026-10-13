@@ -345,8 +345,9 @@ int main(int argc, char *argv[]) {
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
     out.open(p.output_file);
     if (!out) {
-      std::cerr << "can't open output file '" << p.output_file << "'\n";
-      mfem_mgis::abort(EXIT_FAILURE);
+      mfem_mgis::abort(
+          ("can't open output file '" + std::string{p.output_file} + "'")
+              .c_str());
     }
     out.precision(14);
   }
@@ -452,9 +453,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
     exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
   }
   if (p.mesh_file == nullptr) {
-    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
       std::cout << "ERROR: Mesh file missing" << std::endl;
-    args.PrintUsage(std::cout);
+      args.PrintUsage(std::cout);
+    }
     mfem_mgis::abort(EXIT_FAILURE);
   }
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintOptions(std::cout);

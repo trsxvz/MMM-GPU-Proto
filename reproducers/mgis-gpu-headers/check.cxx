@@ -225,14 +225,20 @@ static void test(Backend& backend) {
     backend.synchronize();
     check(v == std::pmr::vector<real>(100, real{3}),
           "invalid memory resource");
-    // allocations aligned more strictly than the memory of the backend, as
-    // requested by the pools of the standard library
-    for (const auto al : {std::size_t{512}, std::size_t{4096}}) {
+    // allocations aligned up to and beyond the alignment guaranteed by the
+    // memory of the backend (stricter ones being requested by the pools of
+    // the standard library)
+    for (const auto al : {std::size_t{32}, std::size_t{64}, std::size_t{256},
+                          std::size_t{512}, std::size_t{4096}}) {
       auto* const q = r.allocate(1000, al);
       check(reinterpret_cast<std::uintptr_t>(q) % al == 0,
             "invalid alignment of the memory resource");
       r.deallocate(q, 1000, al);
     }
+    // a memory resource returns an address even for zero bytes
+    auto* const z = r.allocate(0, alignof(real));
+    check(z != nullptr, "allocation of zero bytes: null pointer returned");
+    r.deallocate(z, 0, alignof(real));
     auto pool = std::pmr::synchronized_pool_resource(&r);
     auto w = std::pmr::vector<real>(600, real{1}, &pool);
     ops.fill(mgis::makeFieldView(std::span<real>(w),
