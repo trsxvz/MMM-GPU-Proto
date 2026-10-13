@@ -58,32 +58,32 @@ struct TestParameters {
   int verbosity_level = 0;      // verbosity level of the linear solvers
 
   // Physical properties
-  double Ti = 293.15;           // initial temperature (K)
-  double Te = 315.0;            // external/convection temperature (K)
-  double source = 1e10;         // volumetric power source term
-  double water_pressure = 1e6;  // coolant pressure
-  double end_time = 1e5;        // end time of the simulation
+  mfem_mgis::real Ti = 293.15;           // initial temperature (K)
+  mfem_mgis::real Te = 315.0;            // external/convection temperature (K)
+  mfem_mgis::real source = 1e10;         // volumetric power source term
+  mfem_mgis::real water_pressure = 1e6;  // coolant pressure
+  mfem_mgis::real end_time = 1e5;        // end time of the simulation
   int nbsteps = 1;              // number of time steps
-  double t_ramp = 1e5;          // duration of the power ramp
-  double h_conv = 5e4;          // thermal convection coefficient
+  mfem_mgis::real t_ramp = 1e5;          // duration of the power ramp
+  mfem_mgis::real h_conv = 5e4;          // thermal convection coefficient
 };
 
 struct GaussFieldStorage {
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       T_s0;  // temperature at the beginning of the time step
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       T_s1;  // temperature at the end of the time step
 
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       Pow_s0_sw;  // power density (swelling model) at the beginning of the time
                   // step
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       Pow_s1_sw;  // power density (swelling model) at the end of the time step
 
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       Pow_s0_mmc;  // power density (mechanical material) at the beginning of
                    // the time step
-  std::shared_ptr<std::vector<double>>
+  std::shared_ptr<std::vector<mfem_mgis::real>>
       Pow_s1_mmc;  // power density (mechanical material) at the end of the time
                    // step
 };

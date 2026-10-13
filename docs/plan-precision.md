@@ -1,10 +1,11 @@
 # Plan : précision float ou double unifiée sur toute la chaîne
 
-Statut : plan du 13/10/2026 (tâche 9b), à valider avant de coder. Une
-relecture indépendante (même jour) a vérifié chaque constat contre les
-sources et en a corrigé ou complété plusieurs : elle est intégrée ici. Les
-décisions à prendre sont regroupées à la fin (D1 à D9), avec une
-recommandation pour chacune.
+Statut : plan du 13/10/2026 (tâche 9b). Une relecture indépendante (même
+jour) a vérifié chaque constat contre les sources et en a corrigé ou
+complété plusieurs : elle est intégrée ici. Les décisions D1 à D9 ont été
+prises le 13/10 au soir, toutes selon la recommandation (D3 : (b) et (a)),
+ainsi que les deux environnements spack séparés en float. La mise en œuvre
+est décrite à la fin (section « Mise en œuvre »).
 
 ## Objectif
 
@@ -343,3 +344,45 @@ sont pas touchés.
 5. Exemples et mm-opera-hpc ; puis float sur le GPU.
 6. Mesures, documentation (guide de mfem-mgis, pages de MGIS et de
    MFront).
+
+## Mise en œuvre
+
+Fait le 13/10/2026 :
+
+- TFEL : option de DSL `real_type` (`double` par défaut, ou `float`),
+  macros `MFRONT_GB_REAL_TYPE` et `MFRONT_GMP_REAL_TYPE` écrites en tête des
+  sources des interfaces `generic` et `generic-parallel`, symbole
+  `<f>_real_size`, versions d'API décalées de 1000 dans un autre type que
+  `double`, clé de `rdt` construite en `double`. Les autres interfaces et
+  les modèles refusent `float`. MTest refuse une loi qui n'est pas en
+  `double`. `IsAssignableTo` accepte un flottant vers un flottant plus
+  étroit (D3 a). En double, le code généré ne change que par le symbole de
+  taille.
+- MGIS : option `MGIS_REAL_TYPE`, en-tête généré `MGIS/RealType.h`, type
+  contrôlé au chargement de chaque point d'entrée, versions attendues
+  décalées comme dans MFront. En `float`, le critère `epsilon` des lois
+  implicites est relevé à 10 ε (1,2e-6) et `numerical_jacobian_epsilon` au
+  dixième (D7). Tests : 51/51 en double, 47/47 en float.
+- Environnement `deps/spack/mmm-float-cpu` : MFEM 4.10
+  `precision=single`, hypre et MUMPS en simple.
+
+Ce que les essais ont appris :
+
+- Le facteur du critère se mesure : avec 100 ε (1,2e-5), un incrément de
+  déformation de 5e-5 de la loi Norton des tests est jugé convergé avant
+  la première itération, avec une contrainte nulle et un succès. 10 ε donne
+  le bon résultat ; l'erreur sur la déformation viscoplastique reste alors
+  bornée par le critère (2,2e-6 au début du fluage, puis moins de 1e-9).
+- Une loi écrite dans des unités où ses coefficients sortent de la plage
+  du `float` ne peut pas tourner en `float` : la loi Norton des tests de
+  MGIS (`A = 8e-67`, en Pa) donnait `A = 0` et un débordement de
+  `seq^n`. Elle a été réécrite `A (seq/K)^n` avec `A = 1` et
+  `K = A^(-1/n)`, ce qui ne change le résultat en double qu'à l'arrondi
+  près. Les lois des utilisateurs devront souvent être écrites en MPa.
+- Les tolérances des tests écrites pour le double (1e-14) n'ont pas de
+  sens en `float` : elles sont bornées à 10 ε, ou données explicitement
+  pour `float` quand l'erreur dépend du calcul.
+
+Restent : mfem-mgis (configuration, paramètres en `double`, types MPI,
+tests), les exemples et mm-opera-hpc, puis le GPU, les mesures et la
+documentation des bibliothèques.

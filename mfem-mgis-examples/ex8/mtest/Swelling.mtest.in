@@ -1,7 +1,7 @@
 @Author RIGAL Julien;
 @Description {"Gonflement sous puissance constante - Pow=1e10 W/m3"};
 
-@Behaviour<generic> 'BehavioursEx8/cpu/libU3SI2.so' 'U3SI2_SolidSwelling';
+@Behaviour<generic> '@U3SI2_MTEST_LIBRARY@' 'U3SI2_SolidSwelling';
 
 @ExternalStateVariable 'Temperature' 293.15;
 // Puissance volumique constante

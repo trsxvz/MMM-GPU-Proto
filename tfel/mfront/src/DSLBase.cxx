@@ -168,12 +168,15 @@ namespace mfront {
     if (t == "double") {
       return;
     }
+    // the mfront interface generates the C++ functions of the material laws
+    // used by the behaviours (@MaterialLaw), computed in double and called
+    // with conversions
     for (const auto& i : interfaces) {
-      if ((i != "generic") && (i != "generic-parallel")) {
+      if ((i != "generic") && (i != "generic-parallel") && (i != "mfront")) {
         tfel::raise("DSLBase::checkRealTypeSupport: the numerical type '" + t +
                     "' (real_type option) is not supported by interface '" + i +
-                    "', only by the 'generic' and 'generic-parallel' "
-                    "interfaces");
+                    "', only by the 'generic', 'generic-parallel' and "
+                    "'mfront' interfaces");
       }
     }
   }  // end of checkRealTypeSupport
@@ -229,7 +232,8 @@ namespace mfront {
             {DSLBase::realTypeOption,
              "string specifying the numerical type of the `generic` and "
              "`generic-parallel` interfaces, `double` (default) or `float`. "
-             "The other interfaces and the models require `double`"},
+             "The other interfaces (except the `mfront` interface of the "
+             "material laws) and the models require `double`"},
             {DSLBase::overridingParameters,
              "map allowing to override material properties, parameters and "
              "external state variables by parameters"}};

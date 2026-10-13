@@ -202,8 +202,21 @@ build_mfem_mgis() {
 # lance les tests de la construction donnée ; sur le GPU, par `sg render`
 # si la session n'a pas encore le groupe render (sg, programme setuid,
 # retire LD_LIBRARY_PATH de l'environnement : il est redonné)
+#
+# Sur le GPU, les noyaux et les copies sont sérialisés : avec ROCm 10.1
+# (HIP 7.16, paquets de TheRock) sur le GPU intégré gfx1036, un noyau encore
+# en attente est perdu quand un noyau d'une bibliothèque partagée dont le
+# code n'est pas encore chargé est lancé pour la première fois (reproducteur
+# reproducers/hip-lost-kernel) : résidus faux (composantes imposées non
+# annulées) et fautes mémoire de hypre. Le chargement immédiat du code
+# (HIP_ENABLE_DEFERRED_LOADING=0) échoue, libhipblaslt n'ayant pas de code
+# pour gfx1036.
 run_tests() {
-  local cmd="cd '$1' && taskset -c '$CPUS' ctest --output-on-failure"
+  local serialize=
+  if [ "$GPU_TESTS" = ON ]; then
+    serialize="export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
+  fi
+  local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --output-on-failure"
   if [ "$GPU_TESTS" = ON ] && ! id -nG | grep -qw render; then
     sg render -c "export LD_LIBRARY_PATH='$LD_LIBRARY_PATH'; $cmd"
   else

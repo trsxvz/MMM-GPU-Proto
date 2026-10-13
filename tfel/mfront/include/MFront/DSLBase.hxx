@@ -199,7 +199,8 @@ namespace mfront {
      * \brief check that the numerical type selected by the `real_type`
      * option is supported by the given interfaces: a type other than
      * `double` is only supported by the `generic` and `generic-parallel`
-     * interfaces
+     * interfaces, and by the `mfront` interface of the material laws used
+     * by the behaviours (computed in double)
      * \param[in] d: material knowledge description
      * \param[in] interfaces: names of the interfaces
      */

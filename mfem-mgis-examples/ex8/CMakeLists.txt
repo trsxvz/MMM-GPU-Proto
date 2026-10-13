@@ -51,7 +51,7 @@ add_executable(rjh_plate
 # file(COPY), configure_file updates the copies when these files are modified.
 foreach(input mesh/assemblage_hexa.msh mesh/assemblage_hexa_coarse.msh
               assemblage_hexa-statistics.ref
-              assemblage_hexa_coarse-statistics.ref mtest/Swelling.mtest)
+              assemblage_hexa_coarse-statistics.ref)
   get_filename_component(name ${input} NAME)
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/${input}
                  ${CMAKE_CURRENT_BINARY_DIR}/${name} COPYONLY)
@@ -162,7 +162,28 @@ if(MFEM_USE_MUMPS)
   endif()
 endif()
 
-# comparison of the swelling model to its exact value
+# comparison of the swelling model to its exact value. MTest computes in
+# double: with another numerical type, the behaviours are also generated in
+# double for this test (a mfem-mgis without numerical type uses double).
+if((NOT BehavioursEx8_REAL_TYPE) OR (BehavioursEx8_REAL_TYPE STREQUAL "double"))
+  set(U3SI2_MTEST_LIBRARY
+      "BehavioursEx8/cpu/libU3SI2${CMAKE_SHARED_LIBRARY_SUFFIX}")
+else()
+  set(_mtest_directory "${CMAKE_CURRENT_BINARY_DIR}/BehavioursEx8-mtest")
+  set(U3SI2_MTEST_LIBRARY
+      "${_mtest_directory}/src/libU3SI2-generic${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  file(MAKE_DIRECTORY "${_mtest_directory}")
+  add_custom_command(
+    OUTPUT "${U3SI2_MTEST_LIBRARY}"
+    COMMAND "${MFRONT}" --obuild --interface=generic
+            "--include=${MFRONT_INCLUDE_DIR}" ${MFRONT_LOIS}
+    WORKING_DIRECTORY "${_mtest_directory}"
+    DEPENDS ${MFRONT_LOIS} ${MFRONT_HEADERS}
+    COMMENT "MFront: behaviours of ex8 in double for MTest")
+  add_custom_target(BehavioursEx8-mtest ALL DEPENDS "${U3SI2_MTEST_LIBRARY}")
+endif()
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mtest/Swelling.mtest.in
+               ${CMAKE_CURRENT_BINARY_DIR}/Swelling.mtest @ONLY)
 add_test(NAME u3si2_swelling
     COMMAND mtest Swelling.mtest
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

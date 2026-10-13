@@ -26,15 +26,18 @@ struct FieldStatistics {
 };
 
 /*!
- * \return the statistics of values distributed over all processes
+ * \return the statistics of values distributed over all processes, computed
+ * in double whatever the type of the values
  * \param[in] values: values of the current process
  * \param[in] comm: communicator
  */
-inline FieldStatistics computeFieldStatistics(const std::vector<double>& values,
-                                              MPI_Comm comm) {
+template <typename ValueType>
+inline FieldStatistics computeFieldStatistics(
+    const std::vector<ValueType>& values, MPI_Comm comm) {
   auto s = FieldStatistics{std::numeric_limits<double>::max(),
                            -std::numeric_limits<double>::max(), 0};
-  for (const auto v : values) {
+  for (const auto value : values) {
+    const auto v = static_cast<double>(value);
     s.min = std::min(s.min, v);
     s.max = std::max(s.max, v);
     s.mean += v;
