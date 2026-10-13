@@ -755,8 +755,7 @@ namespace mfront {
     this->mb.addParameter(h, e, BehaviourData::ALREADYREGISTRED);
     this->mb.setParameterDefaultValue(
         h, "numerical_jacobian_epsilon",
-        this->getConvergenceCriterionForRealType("numerical_jacobian_epsilon",
-                                                 epsilon, 0.1));
+        this->getNumericalJacobianPerturbationForRealType(epsilon));
   }  // ImplicitDSLBase::treatEpsilon
 
   void ImplicitDSLBase::treatIterMax() {
@@ -1491,8 +1490,9 @@ namespace mfront {
         (this->solver->usesJacobian())) {
       const std::string nje = "numerical_jacobian_epsilon";
       if (!this->mb.hasParameter(uh, nje)) {
-        const auto eps = 0.1 * this->mb.getFloattingPointParameterDefaultValue(
-                                   uh, "epsilon");
+        const auto eps = this->getNumericalJacobianPerturbationForRealType(
+            0.1 *
+            this->mb.getFloattingPointParameterDefaultValue(uh, "epsilon"));
         VariableDescription v("NumericType", nje, 1u, 0u);
         v.description =
             "perturbation value used to compute a numerical "

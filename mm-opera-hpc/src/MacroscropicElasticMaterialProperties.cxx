@@ -6,6 +6,8 @@
  */
 
 #include <cmath>
+#include <limits>
+#include <algorithm>
 #include "MFEMMGIS/Profiler.hxx"
 #include "MM_OPERA_HPC/MacroscropicElasticMaterialProperties.hxx"
 
@@ -40,6 +42,10 @@ namespace mm_opera_hpc {
     mfem_mgis::real m0, mus;
     mfem_mgis::real D1, sD1, D2;
     mfem_mgis::real GK = 0.;
+    // the relative change can not go below the precision of mfem_mgis::real
+    constexpr auto kroener_tolerance =
+        std::max(mfem_mgis::real{1e-10},
+                 10 * std::numeric_limits<mfem_mgis::real>::epsilon());
     do {
       m0 = GK;
       D1 = Keff + 2 * GK;
@@ -47,7 +53,7 @@ namespace mm_opera_hpc {
       mus = GK * (9 * Keff + 8 * GK) / sD1;
       D2 = 5 * mus + 2 * C44 + 3 * Gv;
       GK = (3 * C44 * mus + 2 * Gv * mus + 5 * Gv * C44) / D2;
-    } while (std::abs(GK - m0) / Keff > 1e-10);
+    } while (std::abs(GK - m0) / Keff > kroener_tolerance);
 
     // Shear modulus choice
     mfem_mgis::Profiler::Utils::Message("GReuss =", GReuss);

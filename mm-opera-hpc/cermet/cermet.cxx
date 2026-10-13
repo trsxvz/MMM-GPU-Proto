@@ -66,7 +66,7 @@ struct TestParameters {
   int post_processing = 1;  // default value : activated
   int verbosity_level = 0;  // default value : lower level
   int nsteps = 500;
-  double duration = 200.;
+  mfem_mgis::real duration = 200.;
 };
 
 static void parseCommandLineOptions(mfem::OptionsParser &args,

@@ -72,9 +72,11 @@ def main():
         if row == "first":
             selected = rows[0] if rows else None
         else:
+            # times are compared up to the rounding of the float type, the
+            # time 0.2 being written 0.20000000298023 with float
             selected = next((r for r in rows
                              if abs(float(r[0]) - float(row)) <=
-                             1e-12 * max(1, abs(float(row)))), None)
+                             1e-6 * max(1, abs(float(row)))), None)
         if selected is None:
             print(f"no row '{row}' in '{args.file}'")
             success = False

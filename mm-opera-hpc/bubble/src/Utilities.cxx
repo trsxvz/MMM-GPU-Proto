@@ -15,6 +15,7 @@
 #include "mfem/fem/pfespace.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -122,13 +123,14 @@ namespace opera_hpc {
       MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
       // Collect all maximum stresses and locations from all processes
-      auto all_max_stresses = std::vector<double>(nprocs);
-      auto all_locations = std::vector<double>(3 * nprocs);
+      auto all_max_stresses = std::vector<mfem_mgis::real>(nprocs);
+      auto all_locations = std::vector<mfem_mgis::real>(3 * nprocs);
+      const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
 
-      MPI_Allgather(&max_stress, 1, MPI_DOUBLE, all_max_stresses.data(), 1,
-                    MPI_DOUBLE, MPI_COMM_WORLD);
-      MPI_Allgather(max_stress_location.data(), 3, MPI_DOUBLE,
-                    all_locations.data(), 3, MPI_DOUBLE, MPI_COMM_WORLD);
+      MPI_Allgather(&max_stress, 1, mpi_real, all_max_stresses.data(), 1,
+                    mpi_real, MPI_COMM_WORLD);
+      MPI_Allgather(max_stress_location.data(), 3, mpi_real,
+                    all_locations.data(), 3, mpi_real, MPI_COMM_WORLD);
 
       // Find the process with the global maximum
       const auto i =
@@ -227,7 +229,7 @@ namespace opera_hpc {
 
       // Flatten local locations into a single array (x1,y1,z1,x2,y2,z2,...)
       const auto lsize = static_cast<int>(local_locations.size());
-      std::vector<double> local_locations_tmp;
+      std::vector<mfem_mgis::real> local_locations_tmp;
       local_locations_tmp.resize(3 * lsize);
       for (int idx = 0; idx != lsize; ++idx) {
         local_locations_tmp[3 * idx] = local_locations[idx][0];
@@ -240,7 +242,7 @@ namespace opera_hpc {
       MPI_Allreduce(&lsize, &gsize, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
       // Prepare arrays for variable-length gather operation
-      std::vector<double> all_locations_tmp(3 * gsize);
+      std::vector<mfem_mgis::real> all_locations_tmp(3 * gsize);
       std::vector<int> counts_recv(nprocs);
       std::vector<int> displacements(nprocs);
 
@@ -260,9 +262,10 @@ namespace opera_hpc {
       }
 
       // Gather all locations from all processes
-      MPI_Allgatherv(local_locations_tmp.data(), 3 * lsize, MPI_DOUBLE,
+      const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
+      MPI_Allgatherv(local_locations_tmp.data(), 3 * lsize, mpi_real,
                      all_locations_tmp.data(), counts_recv.data(),
-                     displacements.data(), MPI_DOUBLE, MPI_COMM_WORLD);
+                     displacements.data(), mpi_real, MPI_COMM_WORLD);
 
       // Reconstruct array of 3D locations
       std::vector<std::array<mfem_mgis::real, 3u>> all_locations;
@@ -408,22 +411,23 @@ namespace opera_hpc {
         }
       }
 
-      // Convert item counts/displacements to double counts/displacements
-      std::vector<int> counts_recv_doubles(nprocs);
-      std::vector<int> displacements_doubles(nprocs);
+      // Convert item counts/displacements to value counts/displacements
+      std::vector<int> counts_recv_values(nprocs);
+      std::vector<int> displacements_values(nprocs);
       for (int i = 0; i < nprocs; ++i) {
-        counts_recv_doubles[i] = item_counts_per_proc[i] * values_per_item;
-        displacements_doubles[i] = displacements_items[i] * values_per_item;
+        counts_recv_values[i] = item_counts_per_proc[i] * values_per_item;
+        displacements_values[i] = displacements_items[i] * values_per_item;
       }
 
       // Gather all flattened data from all processes
       std::vector<mfem_mgis::real> all_items_flat(gsize_items *
                                                   values_per_item);
       if (gsize_items > 0 || lsize > 0) {
+        const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
         MPI_Allgatherv(local_items_tmp.data(), lsize * values_per_item,
-                       MPI_DOUBLE, all_items_flat.data(),
-                       counts_recv_doubles.data(), displacements_doubles.data(),
-                       MPI_DOUBLE, MPI_COMM_WORLD);
+                       mpi_real, all_items_flat.data(),
+                       counts_recv_values.data(), displacements_values.data(),
+                       mpi_real, MPI_COMM_WORLD);
       }
 
       // Reconstruct structured data from flattened array

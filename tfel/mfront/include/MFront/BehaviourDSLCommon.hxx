@@ -555,19 +555,28 @@ namespace mfront {
     //! \brief treat the `@StrainMeasure` keyword
     virtual void treatStrainMeasure();
     /*!
-     * \return the value of a convergence criterion or of a perturbation,
-     * bounded below, with the float numerical type (`real_type` DSL option),
-     * by `f` times 10 times the machine epsilon of this type: the values
-     * written for double (1e-14 or less) can't be reached with float. A
-     * warning is reported when the value is changed.
+     * \return the value of a convergence criterion, bounded below, with the
+     * float numerical type (`real_type` DSL option), by a tenth of the
+     * machine epsilon of this type (1.2e-8, the order of the default
+     * criterion of the implicit DSL): the values written for double (1e-14
+     * or less) can't be reached, whereas residuals expressed in strains
+     * reach this bound for strains up to about 0.1. A looser bound leaves
+     * errors on the stresses of the order of the bound times the elastic
+     * moduli. A warning is reported when the value is changed.
      * \param[in] n: name of the parameter
      * \param[in] v: value
-     * \param[in] f: factor (0.1 for the perturbation of the numerical
-     * jacobian, the ratio used by default)
      */
     double getConvergenceCriterionForRealType(const std::string_view,
-                                              const double,
-                                              const double = 1) const;
+                                              const double) const;
+    /*!
+     * \return the perturbation used to compute the numerical jacobian,
+     * bounded below, with the float numerical type (`real_type` DSL
+     * option), by the machine epsilon of this type (1.2e-7): smaller
+     * perturbations of the unknowns are lost in their rounding. A warning
+     * is reported when the value is changed.
+     * \param[in] v: value
+     */
+    double getNumericalJacobianPerturbationForRealType(const double) const;
     /*!
      * \brief treat the `@TangentOperator` keyword
      * \note this method read the code block options and determines

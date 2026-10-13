@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string_view>
+#include <type_traits>
 
 #include "MGIS/Function/TFEL/Mechanics.hxx"
 
@@ -449,8 +450,13 @@ int main(int argc, char** argv) {
 
   // Set up conjugate gradient solver
   problem.setLinearSolver(ctx, "HyprePCG", solverParameters) | or_die;
+  // the behaviour is elastic: one iteration. With float, the linear solver
+  // stops at 1.2e-5 (tolerance bounded by mfem-mgis) and the relative
+  // residual reaches 2.8e-5
+  constexpr auto relative_tolerance =
+      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-4;
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
-                                    {"RelativeTolerance", 1e-8},
+                                    {"RelativeTolerance", relative_tolerance},
                                     {"AbsoluteTolerance", 0.},
                                     {"MaximumNumberOfIterations", 1}}) |
       or_die;

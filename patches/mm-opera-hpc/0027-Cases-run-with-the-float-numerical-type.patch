@@ -1,0 +1,316 @@
+From 9b31d94f29a790e283ad5aafaea101673adcd0fd Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 22:15:06 +0200
+Subject: [PATCH] Cases run with the float numerical type
+
+- The MPI reductions and gathers of real values use the MPI type of
+  mfem_mgis::real instead of MPI_DOUBLE (macroscopic stress, bubble
+  post-processings), and the option --duration of the cermet case is a
+  mfem_mgis::real, as MFEM expects.
+- The loop computing the Kroener shear modulus stops when the relative
+  change is below 1e-10 or ten times the machine epsilon of
+  mfem_mgis::real, instead of 1e-10 which can't be reached in float.
+- The absolute tolerance of the microscopic equilibrium is kept when the
+  criterion is switched (it is null by default with double). With float,
+  the residual of the polycrystal and cermet cases stagnates at about 6e3
+  whatever the loading (the deformation gradient, close to the identity,
+  is rounded to about 1e-7): its default is ten times this floor.
+- The bubble case, elastic and solved in one iteration, uses a relative
+  tolerance of 1e-4 with float (2.8e-5 measured).
+- run-and-check.py compares the times of the rows up to 1e-6, the time
+  0.2 being written 0.20000000298023 with float.
+
+Double: the 6 CPU tests pass with the same output files, to the bit.
+Float (MFEM precision=single): the 6 tests pass; the axial stresses
+differ from the double ones by 0.06 % to 0.15 %, and from the Cast3M
+references by 0.005 % to 0.23 %.
+---
+ bubble/src/Bubble.cxx                         |  8 +++-
+ bubble/src/Utilities.cxx                      | 40 ++++++++++---------
+ cermet/cermet.cxx                             |  2 +-
+ cmake/run-and-check.py                        |  4 +-
+ ...ialMacroscopicStressPeriodicSimulation.hxx | 12 +++++-
+ src/MacroscropicElasticMaterialProperties.cxx |  8 +++-
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 17 +++++---
+ 7 files changed, 62 insertions(+), 29 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 63a79f6..4b9921c 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -12,6 +12,7 @@
+ #include <cstdlib>
+ #include <fstream>
+ #include <string_view>
++#include <type_traits>
+ 
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ 
+@@ -449,8 +450,13 @@ int main(int argc, char** argv) {
+ 
+   // Set up conjugate gradient solver
+   problem.setLinearSolver(ctx, "HyprePCG", solverParameters) | or_die;
++  // the behaviour is elastic: one iteration. With float, the linear solver
++  // stops at 1.2e-5 (tolerance bounded by mfem-mgis) and the relative
++  // residual reaches 2.8e-5
++  constexpr auto relative_tolerance =
++      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-4;
+   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
+-                                    {"RelativeTolerance", 1e-8},
++                                    {"RelativeTolerance", relative_tolerance},
+                                     {"AbsoluteTolerance", 0.},
+                                     {"MaximumNumberOfIterations", 1}}) |
+       or_die;
+diff --git a/bubble/src/Utilities.cxx b/bubble/src/Utilities.cxx
+index bb74249..49994ec 100644
+--- a/bubble/src/Utilities.cxx
++++ b/bubble/src/Utilities.cxx
+@@ -15,6 +15,7 @@
+ #include "mfem/fem/pfespace.hpp"
+ #endif /* MFEM_USE_MPI */
+ #include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Material.hxx"
+@@ -122,13 +123,14 @@ namespace opera_hpc {
+       MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+ 
+       // Collect all maximum stresses and locations from all processes
+-      auto all_max_stresses = std::vector<double>(nprocs);
+-      auto all_locations = std::vector<double>(3 * nprocs);
++      auto all_max_stresses = std::vector<mfem_mgis::real>(nprocs);
++      auto all_locations = std::vector<mfem_mgis::real>(3 * nprocs);
++      const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
+ 
+-      MPI_Allgather(&max_stress, 1, MPI_DOUBLE, all_max_stresses.data(), 1,
+-                    MPI_DOUBLE, MPI_COMM_WORLD);
+-      MPI_Allgather(max_stress_location.data(), 3, MPI_DOUBLE,
+-                    all_locations.data(), 3, MPI_DOUBLE, MPI_COMM_WORLD);
++      MPI_Allgather(&max_stress, 1, mpi_real, all_max_stresses.data(), 1,
++                    mpi_real, MPI_COMM_WORLD);
++      MPI_Allgather(max_stress_location.data(), 3, mpi_real,
++                    all_locations.data(), 3, mpi_real, MPI_COMM_WORLD);
+ 
+       // Find the process with the global maximum
+       const auto i =
+@@ -227,7 +229,7 @@ namespace opera_hpc {
+ 
+       // Flatten local locations into a single array (x1,y1,z1,x2,y2,z2,...)
+       const auto lsize = static_cast<int>(local_locations.size());
+-      std::vector<double> local_locations_tmp;
++      std::vector<mfem_mgis::real> local_locations_tmp;
+       local_locations_tmp.resize(3 * lsize);
+       for (int idx = 0; idx != lsize; ++idx) {
+         local_locations_tmp[3 * idx] = local_locations[idx][0];
+@@ -240,7 +242,7 @@ namespace opera_hpc {
+       MPI_Allreduce(&lsize, &gsize, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+ 
+       // Prepare arrays for variable-length gather operation
+-      std::vector<double> all_locations_tmp(3 * gsize);
++      std::vector<mfem_mgis::real> all_locations_tmp(3 * gsize);
+       std::vector<int> counts_recv(nprocs);
+       std::vector<int> displacements(nprocs);
+ 
+@@ -260,9 +262,10 @@ namespace opera_hpc {
+       }
+ 
+       // Gather all locations from all processes
+-      MPI_Allgatherv(local_locations_tmp.data(), 3 * lsize, MPI_DOUBLE,
++      const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
++      MPI_Allgatherv(local_locations_tmp.data(), 3 * lsize, mpi_real,
+                      all_locations_tmp.data(), counts_recv.data(),
+-                     displacements.data(), MPI_DOUBLE, MPI_COMM_WORLD);
++                     displacements.data(), mpi_real, MPI_COMM_WORLD);
+ 
+       // Reconstruct array of 3D locations
+       std::vector<std::array<mfem_mgis::real, 3u>> all_locations;
+@@ -408,22 +411,23 @@ namespace opera_hpc {
+         }
+       }
+ 
+-      // Convert item counts/displacements to double counts/displacements
+-      std::vector<int> counts_recv_doubles(nprocs);
+-      std::vector<int> displacements_doubles(nprocs);
++      // Convert item counts/displacements to value counts/displacements
++      std::vector<int> counts_recv_values(nprocs);
++      std::vector<int> displacements_values(nprocs);
+       for (int i = 0; i < nprocs; ++i) {
+-        counts_recv_doubles[i] = item_counts_per_proc[i] * values_per_item;
+-        displacements_doubles[i] = displacements_items[i] * values_per_item;
++        counts_recv_values[i] = item_counts_per_proc[i] * values_per_item;
++        displacements_values[i] = displacements_items[i] * values_per_item;
+       }
+ 
+       // Gather all flattened data from all processes
+       std::vector<mfem_mgis::real> all_items_flat(gsize_items *
+                                                   values_per_item);
+       if (gsize_items > 0 || lsize > 0) {
++        const auto mpi_real = mfem_mgis::mpi_type<mfem_mgis::real>;
+         MPI_Allgatherv(local_items_tmp.data(), lsize * values_per_item,
+-                       MPI_DOUBLE, all_items_flat.data(),
+-                       counts_recv_doubles.data(), displacements_doubles.data(),
+-                       MPI_DOUBLE, MPI_COMM_WORLD);
++                       mpi_real, all_items_flat.data(),
++                       counts_recv_values.data(), displacements_values.data(),
++                       mpi_real, MPI_COMM_WORLD);
+       }
+ 
+       // Reconstruct structured data from flattened array
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index 1013876..7235a18 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -66,7 +66,7 @@ struct TestParameters {
+   int post_processing = 1;  // default value : activated
+   int verbosity_level = 0;  // default value : lower level
+   int nsteps = 500;
+-  double duration = 200.;
++  mfem_mgis::real duration = 200.;
+ };
+ 
+ static void parseCommandLineOptions(mfem::OptionsParser &args,
+diff --git a/cmake/run-and-check.py b/cmake/run-and-check.py
+index 9f24f1b..e16b450 100755
+--- a/cmake/run-and-check.py
++++ b/cmake/run-and-check.py
+@@ -72,9 +72,11 @@ def main():
+         if row == "first":
+             selected = rows[0] if rows else None
+         else:
++            # times are compared up to the rounding of the float type, the
++            # time 0.2 being written 0.20000000298023 with float
+             selected = next((r for r in rows
+                              if abs(float(r[0]) - float(row)) <=
+-                             1e-12 * max(1, abs(float(row)))), None)
++                             1e-6 * max(1, abs(float(row)))), None)
+         if selected is None:
+             print(f"no row '{row}' in '{args.file}'")
+             success = False
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index 18e9419..9aa269b 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -11,6 +11,7 @@
+ #include <array>
+ #include <vector>
+ #include <optional>
++#include <type_traits>
+ #include <functional>
+ #include <string_view>
+ #include "MGIS/Context.hxx"
+@@ -55,8 +56,17 @@ namespace mm_opera_hpc {
+           microscopic_equilibrium_maximum_number_of_iterations{20};
+       const mfem_mgis::real microscopic_equilibrium_relative_tolerance =
+           mfem_mgis::real{1e-4};
++      /*!
++       * \brief absolute tolerance of the microscopic equilibrium, also kept
++       * when the criterion is switched. None with double. With float, the
++       * residual of the polycrystal and cermet cases stagnates at about 6e3
++       * whatever the loading: the deformation gradient, close to the
++       * identity, is rounded to about 1e-7, so the stresses are only known
++       * to about 2e4 Pa. The absolute tolerance is ten times this floor.
++       */
+       const mfem_mgis::real microscopic_equilibrium_absolute_tolerance =
+-          mfem_mgis::real{0};
++          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{0}
++                                                  : mfem_mgis::real{6e4};
+       const bool switch_microscopic_equilibrium_convergence_criterion = true;
+       //
+       //! \brief macroscopic material parameters
+diff --git a/src/MacroscropicElasticMaterialProperties.cxx b/src/MacroscropicElasticMaterialProperties.cxx
+index b609b5c..1fe0930 100644
+--- a/src/MacroscropicElasticMaterialProperties.cxx
++++ b/src/MacroscropicElasticMaterialProperties.cxx
+@@ -6,6 +6,8 @@
+  */
+ 
+ #include <cmath>
++#include <limits>
++#include <algorithm>
+ #include "MFEMMGIS/Profiler.hxx"
+ #include "MM_OPERA_HPC/MacroscropicElasticMaterialProperties.hxx"
+ 
+@@ -40,6 +42,10 @@ namespace mm_opera_hpc {
+     mfem_mgis::real m0, mus;
+     mfem_mgis::real D1, sD1, D2;
+     mfem_mgis::real GK = 0.;
++    // the relative change can not go below the precision of mfem_mgis::real
++    constexpr auto kroener_tolerance =
++        std::max(mfem_mgis::real{1e-10},
++                 10 * std::numeric_limits<mfem_mgis::real>::epsilon());
+     do {
+       m0 = GK;
+       D1 = Keff + 2 * GK;
+@@ -47,7 +53,7 @@ namespace mm_opera_hpc {
+       mus = GK * (9 * Keff + 8 * GK) / sD1;
+       D2 = 5 * mus + 2 * C44 + 3 * Gv;
+       GK = (3 * C44 * mus + 2 * Gv * mus + 5 * Gv * C44) / D2;
+-    } while (std::abs(GK - m0) / Keff > 1e-10);
++    } while (std::abs(GK - m0) / Keff > kroener_tolerance);
+ 
+     // Shear modulus choice
+     mfem_mgis::Profiler::Utils::Message("GReuss =", GReuss);
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 5bedfd6..bf36ea4 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -6,8 +6,10 @@
+  */
+ 
+ #include <cmath>
++#include <algorithm>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+ #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
+ #include "MM_OPERA_HPC/Utilities.hxx"
+@@ -40,10 +42,12 @@ namespace mm_opera_hpc {
+     }
+     assert(volume > 0.0);
+     // -- sum volumes of all processess
+-    MPI_Allreduce(MPI_IN_PLACE, &volume, 1, MPI_DOUBLE, MPI_SUM,
++    MPI_Allreduce(MPI_IN_PLACE, &volume, 1,
++                  mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM,
+                   MPI_COMM_WORLD);
+     // -- sum integrals from all processes
+-    MPI_Allreduce(MPI_IN_PLACE, pk1_integral.data(), 3, MPI_DOUBLE, MPI_SUM,
++    MPI_Allreduce(MPI_IN_PLACE, pk1_integral.data(), 3,
++                  mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM,
+                   MPI_COMM_WORLD);
+     // macroscopic values of the First Piola-Kirchhoff stress
+     const auto pk1 = std::array<mfem_mgis::real, 3u>{pk1_integral[0] / volume,
+@@ -72,7 +76,7 @@ namespace mm_opera_hpc {
+     auto or_die = ctx.getFatalFailureHandler();
+     Message("Solving time step from ", bts, " to ", ets);
+     // --- fixed-point param
+-    const double tolFP = np.macroscopic_stress_absolute_tolerance;
++    const auto tolFP = np.macroscopic_stress_absolute_tolerance;
+     const int maxitFP = np.macroscopic_stress_maximum_number_of_iterations;
+     // Traction
+     const auto dt = ets - bts;
+@@ -122,8 +126,9 @@ namespace mm_opera_hpc {
+         }
+       } else {
+         if (np.switch_microscopic_equilibrium_convergence_criterion) {
+-          const auto atol =
+-              initial_residual * np.microscopic_equilibrium_relative_tolerance;
++          const auto atol = std::max(
++              initial_residual * np.microscopic_equilibrium_relative_tolerance,
++              np.microscopic_equilibrium_absolute_tolerance);
+           if (!problem.setSolverParameters(
+                   ctx,
+                   {{"VerbosityLevel",
+@@ -247,7 +252,7 @@ namespace mm_opera_hpc {
+         numerical_parameters(np),
+         post_processing(b) {
+     // warning Fxx, F[1], and Fzz are defined during the following loop
+-    problem.setMacroscopicGradientsEvolution([this](const double) {
++    problem.setMacroscopicGradientsEvolution([this](const mfem_mgis::real) {
+       const auto &F = this->macroscopic_unknowns.F;
+       auto ret = std::vector<mfem_mgis::real>(9, mfem_mgis::real{});
+       std::copy(F.begin(), F.end(), ret.begin());
+-- 
+2.43.0
+

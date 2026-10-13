@@ -364,8 +364,9 @@ Fait le 13/10/2026 :
 - MGIS : option `MGIS_REAL_TYPE`, en-tête généré `MGIS/RealType.h`, type
   contrôlé au chargement de chaque point d'entrée, versions attendues
   décalées comme dans MFront. En `float`, le critère `epsilon` des lois
-  implicites est relevé à 10 ε (1,2e-6) et `numerical_jacobian_epsilon` au
-  dixième (D7). Tests : 51/51 en double, 47/47 en float.
+  implicites était relevé à 10 ε (1,2e-6) au chargement (première version
+  de D7, remplacée par une borne de MFront à ε/10, voir plus bas). Tests :
+  51/51 en double, 47/47 en float.
 - Environnement `deps/spack/mmm-float-cpu` : MFEM 4.10
   `precision=single`, hypre et MUMPS en simple.
 
@@ -374,8 +375,10 @@ Ce que les essais ont appris :
 - Le facteur du critère se mesure : avec 100 ε (1,2e-5), un incrément de
   déformation de 5e-5 de la loi Norton des tests est jugé convergé avant
   la première itération, avec une contrainte nulle et un succès. 10 ε donne
-  le bon résultat ; l'erreur sur la déformation viscoplastique reste alors
-  bornée par le critère (2,2e-6 au début du fluage, puis moins de 1e-9).
+  le bon résultat sur ce test ; l'erreur sur la déformation viscoplastique
+  reste alors bornée par le critère (2,2e-6 au début du fluage, puis moins
+  de 1e-9). Le polycristal de mm-opera-hpc a montré ensuite que 10 ε reste
+  trop lâche (voir plus bas) : la borne retenue est ε/10.
 - Une loi écrite dans des unités où ses coefficients sortent de la plage
   du `float` ne peut pas tourner en `float` : la loi Norton des tests de
   MGIS (`A = 8e-67`, en Pa) donnait `A = 0` et un débordement de
@@ -388,15 +391,29 @@ Ce que les essais ont appris :
 
 Suite (13/10/2026, soir) :
 
-- D7 retenue avec des valeurs mesurées : le critère `epsilon` des lois
-  (et `numerical_jacobian_epsilon` au dixième) est borné à 10 ε (1,2e-6)
-  par MFront à la génération, avec un avertissement. Une première version
-  bornait au chargement dans MGIS, par `setParameter` : elle écrasait les
-  valeurs données à l'exécution (fichier de paramètres, `setParameter`),
-  d'où le déplacement dans MFront. Seuls les paramètres `epsilon` et
+- D7 retenue avec des valeurs mesurées : le critère `epsilon` des lois est
+  borné à ε/10 (1,2e-8) par MFront à la génération, avec un avertissement,
+  et `numerical_jacobian_epsilon` à ε (1,2e-7), y compris sa valeur par
+  défaut (le dixième du critère). Une première version bornait au
+  chargement dans MGIS, par `setParameter` : elle écrasait les valeurs
+  données à l'exécution (fichier de paramètres, `setParameter`), d'où le
+  déplacement dans MFront. Seuls les paramètres `epsilon` et
   `numerical_jacobian_epsilon` sont bornés : un autre critère écrit pour
   le double (critère local d'une loi, borne relative d'une brique) passe
   tel quel.
+- Pourquoi ε/10 et non 10 ε (première valeur) : les critères de ces DSL
+  sont absolus et les résidus s'expriment en déformations. Avec des
+  déformations élastiques de 1e-4, un critère de 1,2e-6 laisse environ
+  1 % d'erreur sur les contraintes. Sur le polycristal de mm-opera-hpc
+  (loi monocristalline en grandes transformations, `@Epsilon 1e-11`), la
+  première itération de Newton de la structure ramenait le résidu à 0,45
+  de sa valeur initiale avec 10 ε, contre 0,024 avec 1e-8 ou 1e-10, que
+  le solveur local atteint en float ; Newton ne convergeait pas. ε/10 est
+  l'ordre du critère par défaut du DSL implicite (1e-8), atteint par des
+  résidus en déformations jusqu'à environ 0,1. La perturbation du
+  jacobien numérique garde sa propre borne : une perturbation plus petite
+  que ε se perd dans l'arrondi des inconnues. Tests de MGIS en float :
+  49/49 avec ces bornes.
 - Tolérances relatives des solveurs de mfem-mgis
   (`boundRelativeTolerance`) bornées à 100 ε (1,2e-5) : les résidus
   relatifs des tests stagnent vers 10 ε (1,2e-6), et une borne de 10 ε
@@ -408,6 +425,17 @@ Suite (13/10/2026, soir) :
   et d'AmgX en float), paramètres stockés en `double`, types MPI, tests
   compilés en float ; double inchangé (216/216). Adaptation des tests au
   float en cours.
+- Plancher du résidu en grandes transformations : le gradient de la
+  transformation, proche de l'identité, est arrondi à environ 1e-7 en
+  float, donc les contraintes ne sont connues qu'à environ ε E (2e4 Pa
+  pour l'UO2). Le résidu du polycristal et du cermet de mm-opera-hpc
+  stagne vers 6e3 quel que soit le chargement : une tolérance relative au
+  résidu initial d'un pas ne peut pas l'atteindre. mm-opera-hpc (9b31d94)
+  prend en float une tolérance absolue de dix fois ce plancher, gardée
+  quand le critère des itérations de point fixe change ; types MPI de
+  `real`, boucle de Kröner bornée par ε, temps des lignes comparés à 1e-6
+  près. Double : 6/6, mêmes fichiers au bit près. Float : 6/6, contraintes
+  axiales à 0,06 % à 0,15 % du double et à 0,005 % à 0,23 % de Cast3M.
 - Exemples : tous passent en float sauf ex1 et ex3, dont les sources sont
   des tests de mfem-mgis. Les tolérances de Newton et des comparaisons
   restent celles du double, et sont données explicitement pour le float

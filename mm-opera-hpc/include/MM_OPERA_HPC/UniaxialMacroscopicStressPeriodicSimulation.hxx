@@ -11,6 +11,7 @@
 #include <array>
 #include <vector>
 #include <optional>
+#include <type_traits>
 #include <functional>
 #include <string_view>
 #include "MGIS/Context.hxx"
@@ -55,8 +56,17 @@ namespace mm_opera_hpc {
           microscopic_equilibrium_maximum_number_of_iterations{20};
       const mfem_mgis::real microscopic_equilibrium_relative_tolerance =
           mfem_mgis::real{1e-4};
+      /*!
+       * \brief absolute tolerance of the microscopic equilibrium, also kept
+       * when the criterion is switched. None with double. With float, the
+       * residual of the polycrystal and cermet cases stagnates at about 6e3
+       * whatever the loading: the deformation gradient, close to the
+       * identity, is rounded to about 1e-7, so the stresses are only known
+       * to about 2e4 Pa. The absolute tolerance is ten times this floor.
+       */
       const mfem_mgis::real microscopic_equilibrium_absolute_tolerance =
-          mfem_mgis::real{0};
+          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{0}
+                                                  : mfem_mgis::real{6e4};
       const bool switch_microscopic_equilibrium_convergence_criterion = true;
       //
       //! \brief macroscopic material parameters

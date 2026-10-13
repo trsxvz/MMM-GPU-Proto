@@ -1677,24 +1677,43 @@ namespace mfront {
     return this->standardModifier(h, var, addThisPtr);
   }  // end of tangentOperatorVariableModifier
 
-  double BehaviourDSLCommon::getConvergenceCriterionForRealType(
-      const std::string_view n, const double v, const double f) const {
-    if (getRealType(this->mb) != "float") {
-      return v;
-    }
-    const auto vmin =
-        f * 10 * static_cast<double>(std::numeric_limits<float>::epsilon());
-    if (v >= vmin) {
+  /*!
+   * \return the given value, raised to the given lower bound with a warning
+   * if the behaviour uses the float numerical type (`real_type` DSL option)
+   * \param[in] bd: behaviour description
+   * \param[in] n: name of the parameter
+   * \param[in] v: value
+   * \param[in] vmin: lower bound
+   */
+  static double raiseForFloatRealType(const BehaviourDescription& bd,
+                                      const std::string_view n,
+                                      const double v,
+                                      const double vmin) {
+    if ((getRealType(bd) != "float") || (v >= vmin)) {
       return v;
     }
     auto msg = std::ostringstream{};
     msg << std::scientific << "the value of '" << n << "' (" << v
         << ") is raised to " << vmin
-        << " for the float numerical type (real_type option): smaller "
-           "values can't be reached";
+        << " for the float numerical type (real_type option)";
     reportWarning(msg.str());
     return vmin;
+  }  // end of raiseForFloatRealType
+
+  double BehaviourDSLCommon::getConvergenceCriterionForRealType(
+      const std::string_view n, const double v) const {
+    const auto vmin =
+        static_cast<double>(std::numeric_limits<float>::epsilon()) / 10;
+    return raiseForFloatRealType(this->mb, n, v, vmin);
   }  // end of getConvergenceCriterionForRealType
+
+  double BehaviourDSLCommon::getNumericalJacobianPerturbationForRealType(
+      const double v) const {
+    const auto vmin =
+        static_cast<double>(std::numeric_limits<float>::epsilon());
+    return raiseForFloatRealType(this->mb, "numerical_jacobian_epsilon", v,
+                                 vmin);
+  }  // end of getNumericalJacobianPerturbationForRealType
 
   void BehaviourDSLCommon::treatStrainMeasure() {
     this->checkNotEndOfFile("BehaviourDSLCommon::treatStrainMeasure",

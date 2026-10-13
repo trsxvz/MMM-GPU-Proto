@@ -6,8 +6,10 @@
  */
 
 #include <cmath>
+#include <algorithm>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Profiler.hxx"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
 #include "MM_OPERA_HPC/Utilities.hxx"
@@ -40,10 +42,12 @@ namespace mm_opera_hpc {
     }
     assert(volume > 0.0);
     // -- sum volumes of all processess
-    MPI_Allreduce(MPI_IN_PLACE, &volume, 1, MPI_DOUBLE, MPI_SUM,
+    MPI_Allreduce(MPI_IN_PLACE, &volume, 1,
+                  mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM,
                   MPI_COMM_WORLD);
     // -- sum integrals from all processes
-    MPI_Allreduce(MPI_IN_PLACE, pk1_integral.data(), 3, MPI_DOUBLE, MPI_SUM,
+    MPI_Allreduce(MPI_IN_PLACE, pk1_integral.data(), 3,
+                  mfem_mgis::mpi_type<mfem_mgis::real>, MPI_SUM,
                   MPI_COMM_WORLD);
     // macroscopic values of the First Piola-Kirchhoff stress
     const auto pk1 = std::array<mfem_mgis::real, 3u>{pk1_integral[0] / volume,
@@ -72,7 +76,7 @@ namespace mm_opera_hpc {
     auto or_die = ctx.getFatalFailureHandler();
     Message("Solving time step from ", bts, " to ", ets);
     // --- fixed-point param
-    const double tolFP = np.macroscopic_stress_absolute_tolerance;
+    const auto tolFP = np.macroscopic_stress_absolute_tolerance;
     const int maxitFP = np.macroscopic_stress_maximum_number_of_iterations;
     // Traction
     const auto dt = ets - bts;
@@ -122,8 +126,9 @@ namespace mm_opera_hpc {
         }
       } else {
         if (np.switch_microscopic_equilibrium_convergence_criterion) {
-          const auto atol =
-              initial_residual * np.microscopic_equilibrium_relative_tolerance;
+          const auto atol = std::max(
+              initial_residual * np.microscopic_equilibrium_relative_tolerance,
+              np.microscopic_equilibrium_absolute_tolerance);
           if (!problem.setSolverParameters(
                   ctx,
                   {{"VerbosityLevel",
@@ -247,7 +252,7 @@ namespace mm_opera_hpc {
         numerical_parameters(np),
         post_processing(b) {
     // warning Fxx, F[1], and Fzz are defined during the following loop
-    problem.setMacroscopicGradientsEvolution([this](const double) {
+    problem.setMacroscopicGradientsEvolution([this](const mfem_mgis::real) {
       const auto &F = this->macroscopic_unknowns.F;
       auto ret = std::vector<mfem_mgis::real>(9, mfem_mgis::real{});
       std::copy(F.begin(), F.end(), ret.begin());
