@@ -88,7 +88,17 @@ function(mfem_mgis_add_behaviours_library target)
     # configuration file of TFEL (which may target the NVIDIA platform, or
     # the default architecture of hipcc) are replaced by the ones of MFEM
     get_property(_hipcc GLOBAL PROPERTY MFEM_MGIS_MFEM_HIP_COMPILER)
+    get_filename_component(_hipcc_name "${_hipcc}" NAME)
+    if((NOT _hipcc_name MATCHES "^hipcc") AND hip_HIPCC_EXECUTABLE)
+      # MFEM built by CMake: its compiler is the C++ compiler, hipcc is the
+      # one of the ROCm found for MFEM (see `FindMFEM.cmake`)
+      set(_hipcc "${hip_HIPCC_EXECUTABLE}")
+    endif()
     get_property(_hip_archs GLOBAL PROPERTY MFEM_MGIS_MFEM_HIP_ARCHITECTURES)
+    if((NOT _hip_archs) AND CMAKE_HIP_ARCHITECTURES)
+      set(_hip_archs ${CMAKE_HIP_ARCHITECTURES})
+    endif()
+    # C++20, the standard of TFEL and of mfem-mgis
     set(_hip_flags "-fPIC -O2 -std=c++20")
     foreach(_arch IN LISTS _hip_archs)
       string(APPEND _hip_flags " --offload-arch=${_arch}")

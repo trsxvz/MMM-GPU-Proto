@@ -634,7 +634,8 @@ The behaviours generated with the configuration files :code:`config-cuda-nvcc.js
 :code:`config-hip-clang-nvidia-platform.json` run on a NVIDIA GPU in
 :code:`mfem-mgis`. When :code:`MFEM` is compiled with :code:`HIP` for an
 AMD GPU, :code:`mfem_mgis_add_behaviours_library` compiles the behaviours
-with the :code:`hipcc` of :code:`MFEM`, for its GPU architectures. The ones generated with :code:`config-kokkos.json`
+with the :code:`hipcc` of :code:`MFEM`, for its GPU architectures. The
+ones generated with :code:`config-kokkos.json`
 require :code:`Kokkos` to be initialized: :code:`mfem-mgis` built with the
 option :code:`enable-kokkos` initializes it with the option
 :code:`--kokkos` (see :doc:`../installation_guide/installation_guide`).

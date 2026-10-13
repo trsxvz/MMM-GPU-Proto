@@ -53,7 +53,15 @@ if(("@MFEM_USE_HIP@" STREQUAL "YES") AND (NOT TARGET hip::host))
   if(NOT DEFINED hip_DIR)
     set(hip_DIR "@MFEM_MGIS_HIP_DIR@")
   endif()
-  find_package(hip CONFIG)
+  # AMD platform (the one of the libraries of ROCm used by MFEM), whatever
+  # the environment variable HIP_PLATFORM, for this search only
+  if(NOT DEFINED HIP_PLATFORM)
+    set(HIP_PLATFORM amd)
+    find_package(hip CONFIG)
+    unset(HIP_PLATFORM)
+  else()
+    find_package(hip CONFIG)
+  endif()
   if(NOT TARGET hip::host)
     set(MFEMMGIS_FOUND FALSE)
     set(MFEMMGIS_NOT_FOUND_MESSAGE

@@ -12,8 +12,10 @@
 #   which compiled MFEM (CMake does not accept hipcc as HIP compiler),
 #   unless `CMAKE_HIP_COMPILER` is given, the platform is AMD (the one of
 #   the libraries of ROCm used by MFEM) unless `CMAKE_HIP_PLATFORM` is given,
-#   and the GPU architectures default to the ones of MFEM (CMake requires
-#   them when no AMD GPU is found). This
+#   and `CMAKE_HIP_ARCHITECTURES`, unless given, is set to the GPU
+#   architectures of MFEM (CMake would otherwise detect the GPU of the
+#   machine, or use the default architecture of clang), the sources being
+#   compiled for the architectures of MFEM anyway (as with CUDA). This
 #   macro enables a language: it must be called at file scope (not in a
 #   function), before `mfem_mgis_compile_as_device_code`. A warning is
 #   printed if the compiler is not the one of MFEM (for instance a build
@@ -170,7 +172,7 @@ macro(mfem_mgis_enable_device_language)
     endif()
     get_property(_mfem_mgis_hipcc GLOBAL PROPERTY MFEM_MGIS_MFEM_HIP_COMPILER)
     mfem_mgis_hip_compiler(_mfem_mgis_hip_clang "${_mfem_mgis_hipcc}")
-    if(NOT CMAKE_HIP_COMPILER AND NOT DEFINED ENV{HIPCXX}
+    if(NOT CMAKE_HIP_COMPILER AND ("$ENV{HIPCXX}" STREQUAL "")
        AND _mfem_mgis_hip_clang)
       set(CMAKE_HIP_COMPILER "${_mfem_mgis_hip_clang}")
     endif()
@@ -178,7 +180,7 @@ macro(mfem_mgis_enable_device_language)
     if(NOT DEFINED CMAKE_HIP_PLATFORM)
       set(CMAKE_HIP_PLATFORM amd)
     endif()
-    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES AND NOT DEFINED ENV{HIPARCHS})
+    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
       get_property(_mfem_mgis_hip_archs GLOBAL
                    PROPERTY MFEM_MGIS_MFEM_HIP_ARCHITECTURES)
       if(_mfem_mgis_hip_archs)
@@ -186,6 +188,11 @@ macro(mfem_mgis_enable_device_language)
       endif()
     endif()
     enable_language(HIP)
+    # the programs and libraries linked to mfem-mgis (a static library
+    # containing HIP code) are linked by the C++ compiler, as with CUDA, and
+    # not by the HIP compiler (whose linker preference is greater than the
+    # one of C++); the HIP runtime is given by the target `hip::host`
+    set(CMAKE_HIP_LINKER_PREFERENCE_PROPAGATES 0)
     if(_mfem_mgis_hip_clang)
       get_filename_component(_mfem_mgis_c1 "${CMAKE_HIP_COMPILER}" REALPATH)
       get_filename_component(_mfem_mgis_c2 "${_mfem_mgis_hip_clang}" REALPATH)

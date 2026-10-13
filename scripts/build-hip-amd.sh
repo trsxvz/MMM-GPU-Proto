@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Construction d'un MFEM compilé avec HIP pour un GPU AMD (gfx90a), pour
-# vérifier que mfem-mgis compile et se lie avec lui. La machine n'a pas de
-# GPU AMD : rien ne s'exécute sur le GPU, seules la compilation et l'édition
-# de liens sont vérifiées.
+# vérifier que mfem-mgis compile et se lie avec lui. Rien ne s'exécute sur
+# un GPU AMD : seules la compilation et l'édition de liens sont vérifiées
+# (le GPU AMD intégré de la machine de développement, gfx1036, n'est
+# accessible qu'aux membres du groupe render).
 #
 # ROCm vient des paquets Python de ROCm (TheRock), installés sans droits
 # d'administrateur dans un environnement virtuel :
 #   python3 -m venv $ROCM_VENV
 #   $ROCM_VENV/bin/pip install --index-url \
 #     https://stable.repo.amd.com/rocm/whl-next/ \
-#     "rocm[libraries,devel,device-gfx90a]"
+#     "rocm[libraries,devel,device-gfx90a]==10.1.0"
 #   $ROCM_VENV/bin/rocm-sdk init
 #
 # Pièges :
@@ -23,19 +24,21 @@
 #   HIP_PLATFORM=amd, et mfem-mgis choisit lui-même la plateforme AMD quand
 #   MFEM utilise HIP.
 #
-# hypre est compilé pour le CPU (MFEM avec HIP accepte un hypre sur l'hôte).
-# MPI, METIS, SuiteSparse et OpenBLAS sont ceux de l'environnement spack
-# mmm-gpu. Résultat : deps/hip-amd/install/{hypre,mfem}.
+# hypre est compilé pour le CPU (MFEM avec HIP accepte un hypre sur l'hôte),
+# depuis l'archive mise en cache par spack. MFEM 4.10 vient du dépôt officiel
+# (étiquette v4.10). MPI, METIS, SuiteSparse et OpenBLAS sont ceux de
+# l'environnement spack mmm-gpu. Résultat : deps/hip-amd/install/{hypre,mfem}.
 #
 # L'étape mfem-mgis construit mfem-mgis (dossier mfem-mgis du prototype)
 # avec ce MFEM, MGIS et TFEL du prototype, dans build/mfem-mgis-hip, avec
-# ses tests (cible build-tests), puis lance les tests qui ne demandent pas
-# de GPU (ctest -E gpu ; il n'y a pas de GPU AMD).
+# ses tests (cibles build-tests et BehaviourTest) sauf ceux qui demandent
+# un GPU (-Denable-gpu-tests=OFF), puis les lance.
 #
 # L'étape examples installe ce mfem-mgis dans install/mfem-mgis-hip et
 # construit les exemples de mfem-mgis-examples avec lui (configuration
 # installée, lois compilées pour le GPU AMD), dans build/examples-hip, puis
-# lance les tests qui ne demandent pas de GPU.
+# lance ses tests (ceux sur GPU ne sont pas demandés, option
+# MFEM_MGIS_EXAMPLES_GPU_TESTS).
 #
 # Utilisation : scripts/build-hip-amd.sh [hypre|mfem|mfem-mgis|examples|all]
 
@@ -47,7 +50,7 @@ ROCM=$("$ROCM_VENV/bin/rocm-sdk" path --root)
 HIP_ARCH=${HIP_ARCH:-gfx90a}
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 JOBS=${JOBS:-4}
-# cœurs utilisés par la compilation
+# cœurs utilisés par la compilation et par les tests
 CPUS=${CPUS:-0,1,8,9}
 
 location() {
@@ -66,7 +69,9 @@ build_hypre() {
   local version=3.2.0
   # archive mise en cache par spack (somme de contrôle de la recette)
   local sha=5273205a310fb6aa3ae506ce216760fb67b30e02024874f3cdb8b811e4801de7
-  local archive=$HOME/Bureau/spack-mmm/var/spack/cache/_source-cache/archive/${sha:0:2}/$sha.tar.gz
+  local spack_root
+  spack_root=$(dirname "$(dirname "$SPACK")")
+  local archive=$spack_root/var/spack/cache/_source-cache/archive/${sha:0:2}/$sha.tar.gz
   echo "$sha  $archive" | sha256sum -c -
   rm -rf "$D/hypre-src" "$D/build-hypre"
   mkdir -p "$D/hypre-src"
@@ -86,9 +91,8 @@ build_mfem() {
   # MFEM 4.10, comme l'environnement mmm-gpu ; les sources déjà extraites
   # sont gardées (la compilation reprend où elle s'est arrêtée)
   if [ ! -f "$D/mfem-src/makefile" ]; then
-    mkdir -p "$D/mfem-src"
-    git -C "$HOME/Documents/GitHub/mfem-amgx-pr" archive v4.10 |
-      tar -x -C "$D/mfem-src"
+    git clone --quiet --depth 1 --branch v4.10 \
+      https://github.com/mfem/mfem.git "$D/mfem-src"
   fi
   local blas="-Wl,-rpath,$OPENBLAS/lib -L$OPENBLAS/lib -lopenblas"
   export HIPCC_COMPILE_FLAGS_APPEND="-isystem $ROCM/include"
@@ -139,19 +143,19 @@ build_mfem_mgis() {
     -DMFEM_DIR="$D/install/mfem" \
     -DMFrontGenericInterface_DIR="$P/install/mgis/share/mgis/cmake" \
     -DTFELHOME="$tfel" -DTFEL_DIR="$tfel/share/tfel/cmake" \
+    -Denable-gpu-tests=OFF \
     -DCMAKE_INSTALL_PREFIX="$P/install/mfem-mgis-hip"
   taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
-  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS" --target build-tests
+  # la bibliothèque de lois des tests (BehaviourTest) dépend de la cible
+  # check, pas de build-tests
+  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS" \
+    --target build-tests BehaviourTest
   run_tests "$b"
 }
 
-# lance les tests de la construction donnée qui ne demandent pas de GPU.
-# Un MFEM construit avant l'ajout des chemins de hypre et de METIS à
-# HYPRE_LIB et METIS_LIB ne les trouve pas seul à l'exécution.
+# lance les tests de la construction donnée
 run_tests() {
-  (cd "$1" &&
-    LD_LIBRARY_PATH="$D/install/hypre/lib:$METIS/lib:$LD_LIBRARY_PATH" \
-    taskset -c "$CPUS" ctest -E gpu --output-on-failure)
+  (cd "$1" && taskset -c "$CPUS" ctest --output-on-failure)
 }
 
 build_examples() {

@@ -195,15 +195,18 @@ if(MFEM_USE_HIP STREQUAL "YES")
   endif()
   # MFEM compiled with HIP uses the libraries of ROCm (rocsparse, ...): the
   # platform is AMD, whatever the environment variable HIP_PLATFORM (which
-  # may select the NVIDIA platform for other codes)
-  if(NOT DEFINED HIP_PLATFORM)
-    set(HIP_PLATFORM amd)
-  endif()
+  # may select the NVIDIA platform for other codes), for this search only.
   # `hip_ROOT` is used (policy CMP0074, not set by the minimum version of
   # CMake required by mfem-mgis)
   cmake_policy(PUSH)
   cmake_policy(SET CMP0074 NEW)
-  find_package(hip CONFIG REQUIRED)
+  if(NOT DEFINED HIP_PLATFORM)
+    set(HIP_PLATFORM amd)
+    find_package(hip CONFIG REQUIRED)
+    unset(HIP_PLATFORM)
+  else()
+    find_package(hip CONFIG REQUIRED)
+  endif()
   cmake_policy(POP)
   set_property(TARGET MFEM::mfem APPEND
     PROPERTY INTERFACE_LINK_LIBRARIES hip::host)

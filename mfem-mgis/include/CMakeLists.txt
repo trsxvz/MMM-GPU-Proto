@@ -35,12 +35,8 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
 mfem_mgis_header(MFEMMGIS Material.hxx)
 mfem_mgis_header(MFEMMGIS Material.ixx)
 mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
-# the sources containing kernels of MFEM are not compiled when MFEM uses HIP
-if(NOT MFEM_USE_HIP STREQUAL "YES")
-  mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
-endif()
-# computations by kernels (an error is reported if the kernels are not
-# compiled)
+mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
+# computations by kernels
 mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
 mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
 mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
