@@ -209,17 +209,30 @@ namespace mfem_mgis::internals {
   }  // end of getPlacementEnvironmentVariable
 
   std::string_view getDefaultBehaviourIntegration() noexcept {
-    return isExecutionModeSpecified() ? "Batch" : "PointByPoint";
+    // PETSc does not support the integration by batches
+    return (isExecutionModeSpecified() && (!usePETSc())) ? "Batch"
+                                                         : "PointByPoint";
   }  // end of getDefaultBehaviourIntegration
 
   std::string_view getDefaultFiniteElementsComputation() noexcept {
     const auto& s = getExecutionSettings();
-    if ((isExecutionModeSpecified()) &&
+    // PETSc does not support the computations by kernels
+    if ((!isExecutionModeSpecified()) || (usePETSc())) {
+      return "ElementByElement";
+    }
+    // with `--execution cpu`, the kernels compute on the host, faster than
+    // the computations element by element (optional, see
+    // `areFiniteElementsKernelsOptional`)
+    if ((s.mode == ExecutionMode::CPU) ||
         (s.finite_elements == ExecutionLocation::GPU)) {
       return "Kernels";
     }
     return "ElementByElement";
   }  // end of getDefaultFiniteElementsComputation
+
+  bool areFiniteElementsKernelsOptional() noexcept {
+    return (getExecutionSettings().mode == ExecutionMode::CPU) && (!usePETSc());
+  }  // end of areFiniteElementsKernelsOptional
 
   std::string_view getDefaultPostProcessingsComputation() noexcept {
     const auto& s = getExecutionSettings();

@@ -1,0 +1,59 @@
+date : 2026-10-13 14:32:56
+cas : poutre
+machine : 16 cœurs, 30 Go
+charge : 4.61 4.63 5.04
+mfem-mgis : 8728b7979f
+== execution-cpu-8p : 8 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 3 4 3 4 4 4 4 | total 29
+time 12.167 s
+== execution-gpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 2.955 s
+ host to device: 120 copies, 597.688 MB, 0.0353844 s
+ device to host: 120 copies, 597.688 MB, 0.0361791 s
+== execution-mixte-fe-cpu-lois-cpu-solveur-cpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 66.904 s
+== execution-mixte-fe-cpu-lois-cpu-solveur-gpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 31.168 s
+== execution-mixte-fe-cpu-lois-gpu-solveur-cpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
+time 66.004 s
+ host to device: 576 copies, 2868.9 MB, 0.156054 s
+ device to host: 348 copies, 3998.22 MB, 0.226485 s
+== execution-mixte-fe-cpu-lois-gpu-solveur-gpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 30.615 s
+ host to device: 624 copies, 3107.98 MB, 0.172557 s
+ device to host: 372 copies, 4306.5 MB, 0.242442 s
+== execution-mixte-fe-gpu-lois-cpu-solveur-cpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 2 2 2 3 3 4 4 4 4 | total 29
+time 44.655 s
+ host to device: 176 copies, 2670.72 MB, 0.14637 s
+ device to host: 78 copies, 368.05 MB, 0.0241825 s
+== execution-mixte-fe-gpu-lois-cpu-solveur-gpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
+time 3.730 s
+ host to device: 184 copies, 2802.84 MB, 0.138852 s
+ device to host: 82 copies, 386.925 MB, 0.0266152 s
+== execution-mixte-fe-gpu-lois-gpu-solveur-cpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 3 4 3 4 4 4 4 | total 29
+time 42.739 s
+ host to device: 120 copies, 597.688 MB, 0.0328038 s
+ device to host: 120 copies, 597.688 MB, 0.0359839 s
+== execution-mixte-fe-gpu-lois-gpu-solveur-gpu : 1 processus, 1 fils, cpu, défaut
+   statut 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 4 4 4 4 4 | total 32
+time 2.874 s
+ host to device: 120 copies, 597.688 MB, 0.0342139 s
+ device to host: 120 copies, 597.688 MB, 0.0359576 s

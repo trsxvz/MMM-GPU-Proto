@@ -408,17 +408,31 @@ namespace mfem_mgis {
     PredictionPolicy prediction_policy;
     //! \brief modelling hypothesis
     const Hypothesis hypothesis;
+    /*!
+     * \brief replaces the computations of the finite elements by kernels by
+     * the computations element by element if they are an optional default
+     * (see `optional_finite_elements_kernels`) not supported by the
+     * behaviour integrators. Collective.
+     */
+    void selectOptionalFiniteElementsKernels() noexcept;
     //! \brief if true, the behaviours are integrated by batches
     const bool batch_integration;
     /*!
      * \brief if true, the gradients of the integration by batches are
      * computed by kernels
      */
-    const bool gradients_kernels;
+    bool gradients_kernels;
     //! \brief if true, the inner forces are computed by kernels
-    const bool inner_forces_kernels;
+    bool inner_forces_kernels;
     //! \brief computation of the tangent operator
-    const TangentOperatorComputationMode tangent_operator_computation;
+    TangentOperatorComputationMode tangent_operator_computation;
+    /*!
+     * \brief if true, the computations of the finite elements by kernels
+     * are a default of the execution settings (`--execution cpu`), replaced
+     * by the computations element by element at the first setup if the
+     * behaviour integrators do not support them
+     */
+    bool optional_finite_elements_kernels;
     /*!
      * \brief if true, the stiffness matrices computed by kernels are added
      * to the sparse matrices in a fixed order (see `TangentOperatorAssembly`)

@@ -199,8 +199,9 @@ static void computeUniaxialTension(const char* const mesh,
   const auto& implementation = problem.getImplementation<true>();
   const auto fe_kernels =
       implementation.getNumberOfTangentOperatorAssembliesByKernels() != 0;
+  // with --execution cpu, the kernels compute on the host
   if (specified) {
-    check(fe_kernels == fe_on_gpu,
+    check(fe_kernels == (fe_on_gpu || (s.mode == ExecutionMode::CPU)),
           std::string{"finite elements computed "} +
               (fe_kernels ? "by kernels" : "element by element"));
   }
@@ -226,6 +227,86 @@ static void computeUniaxialTension(const char* const mesh,
               (pp_kernels ? "by kernels" : "element by element"));
   }
 }  // end of computeUniaxialTension
+
+/*!
+ * \brief with `--execution cpu`, the finite elements are computed by
+ * kernels on the host, unless the behaviour integrators do not support
+ * them: uniaxial tension (plane strain) of a square made of elements of
+ * different geometries (different integration rules), computed element by
+ * element
+ * \param[in] mesh: mesh of the square
+ * \param[in] library: behaviour library
+ */
+static void checkFiniteElementsKernelsFallback(const char* const mesh,
+                                               const char* const library) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 2},
+                                     {"Materials", Parameters{{"Square", 1}}},
+                                     {"Boundaries", Parameters{{"Bottom", 1},
+                                                               {"Right", 2},
+                                                               {"Top", 3},
+                                                               {"Left", 4}}},
+                                     {"Hypothesis", "PlaneStrain"},
+                                     {"Parallel", true}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "Mechanics", "Square", library,
+                                 "IsotropicLinearHardeningPlasticity") |
+      or_die;
+  auto& m = problem.getMaterial(ctx, "Square", 0) | or_die;
+  for (auto* st : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *st, "Temperature", 293.15) |
+        or_die;
+  }
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Left"}, {"Component", 0}}) |
+      or_die;
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Bottom"}, {"Component", 1}}) |
+      or_die;
+  problem.addUniformDirichletBoundaryCondition(
+      ctx, {{"Boundary", "Right"},
+            {"Component", 0},
+            {"LoadingEvolution",
+             [](const real t) noexcept { return strain * t; }}}) |
+      or_die;
+  problem.setLinearSolver(
+      ctx, "HyprePCG",
+      {{"VerbosityLevel", 0},
+       {"Tolerance", 1e-14},
+       {"MaximumNumberOfIterations", 1000},
+       {"Preconditioner", Parameters{{"Name", "HypreBoomerAMG"}}}}) |
+      or_die;
+  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                    {"RelativeTolerance", 1e-12},
+                                    {"AbsoluteTolerance", 0.},
+                                    {"MaximumNumberOfIterations", 10}}) |
+      or_die;
+  const auto o = problem.solve(ctx, 0, 1);
+  check(o.status, "elements of different geometries: resolution failed (" +
+                      ctx.getErrorMessage() + ")");
+  check(problem.getImplementation<true>()
+                .getNumberOfTangentOperatorAssembliesByKernels() == 0,
+        "elements of different geometries: computations by kernels");
+  // plane strain: sxx = E e / (1 - nu * nu)
+  m.synchronizeOnHostForReading();
+  const auto& sig = m.s1.thermodynamic_forces;
+  constexpr auto nu = mfem_mgis::real{0.34};
+  const auto sxx = young * strain / (1 - nu * nu);
+  auto dmax = real{};
+  for (std::size_t i = 0; i < sig.size(); i += 4) {
+    dmax = std::max(dmax, std::abs(sig[i] - sxx));
+  }
+  check(dmax < 1e-8 * sxx,
+        "elements of different geometries: stress, "
+        "largest difference " +
+            std::to_string(dmax / sxx));
+}  // end of checkFiniteElementsKernelsFallback
 
 /*!
  * \brief checks that a behaviour library integrated elsewhere than where
@@ -299,6 +380,7 @@ int main(int argc, char** argv) {
   const char* mesh = "cube.mesh";
   const char* behaviours = "ExecutionSettingsBehaviours";
   const char* host_library = "";
+  const char* mixed_mesh = "";
   auto args = mfem::OptionsParser(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&expected, "-e", "--expected-settings",
@@ -311,6 +393,9 @@ int main(int argc, char** argv) {
                  "directory of the behaviour libraries built by "
                  "mfem_mgis_add_behaviours_library (the library for the GPU "
                  "is not tested if it is not built)");
+  args.AddOption(&mixed_mesh, "-mm", "--mixed-mesh",
+                 "mesh of a square made of elements of different geometries "
+                 "(not used if empty)");
   args.AddOption(&host_library, "-lh", "--host-library",
                  "library generated by the generic-parallel interface for "
                  "the host, used too if the behaviours are on the CPU (not "
@@ -358,6 +443,10 @@ int main(int argc, char** argv) {
   if ((s.mode != ExecutionMode::UNSPECIFIED) && (!bh_gpu) &&
       (std::strlen(host_library) != 0)) {
     computeUniaxialTension(mesh, host_library);
+  }
+  // computations element by element when the kernels are not supported
+  if ((s.mode == ExecutionMode::CPU) && (std::strlen(mixed_mesh) != 0)) {
+    checkFiniteElementsKernelsFallback(mixed_mesh, library.c_str());
   }
   // no preconditioner, for the solvers of hypre and of MFEM
   checkLinearSolver(mesh, "HyprePCG", false, "None");

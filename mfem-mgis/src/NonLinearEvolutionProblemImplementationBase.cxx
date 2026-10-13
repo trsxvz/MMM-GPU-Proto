@@ -232,6 +232,17 @@ namespace mfem_mgis {
             "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
         tangent_operator_computation(
             getTangentOperatorComputation(throwing, p)),
+        optional_finite_elements_kernels(
+            internals::areFiniteElementsKernelsOptional() &&
+            (!contains(p,
+                       NonLinearEvolutionProblemImplementationBase::
+                           GradientsComputation)) &&
+            (!contains(p,
+                       NonLinearEvolutionProblemImplementationBase::
+                           InnerForcesComputation)) &&
+            (!contains(p,
+                       NonLinearEvolutionProblemImplementationBase::
+                           TangentOperatorComputation))),
         ordered_tangent_operator_assembly(
             useOrderedTangentOperatorAssembly(throwing, p)) {
     if (this->mgis_integrator != nullptr) {
@@ -531,10 +542,39 @@ namespace mfem_mgis {
     return this->boundary_conditions;
   }  // end of getBoundaryConditions
 
+  void NonLinearEvolutionProblemImplementationBase::
+      selectOptionalFiniteElementsKernels() noexcept {
+    if (!this->optional_finite_elements_kernels) {
+      return;
+    }
+    // decided once, by all the processes
+    this->optional_finite_elements_kernels = false;
+    auto ctx = Context{};
+    const auto supported =
+        (this->mgis_integrator != nullptr) && (this->batch_integration) &&
+        (this->mgis_integrator->checkKernelsSupport(ctx)) &&
+        (this->mgis_integrator->checkStiffnessMatricesKernelsSupport(
+            ctx, this->gradients_kernels)) &&
+        (this->mgis_integrator->checkInnerForcesKernelsSupport(
+            ctx, this->gradients_kernels));
+    if (isTrueOnAllProcesses(*(this->fe_discretization), supported)) {
+      return;
+    }
+    this->gradients_kernels = false;
+    this->inner_forces_kernels = false;
+    this->tangent_operator_computation =
+        TangentOperatorComputationMode::ELEMENT_BY_ELEMENT;
+    if (this->mgis_integrator != nullptr) {
+      this->mgis_integrator->setInnerForcesComputedByKernels(false);
+      this->mgis_integrator->setStiffnessMatricesComputedByKernels(false);
+    }
+  }  // end of selectOptionalFiniteElementsKernels
+
   bool NonLinearEvolutionProblemImplementationBase::setup(
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::setup");
     this->setTimeIncrement(dt);
+    this->selectOptionalFiniteElementsKernels();
     const auto success = [this, &ctx, t, dt] {
       if (this->initialization_phase) {
         if (!this->dirichlet_boundary_conditions.empty()) {

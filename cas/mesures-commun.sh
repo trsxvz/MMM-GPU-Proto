@@ -17,7 +17,9 @@
 # (par défaut le sous-module mfem-mgis), pour un exécutable construit
 # contre une autre installation. La variable `examples_build`, lue avant,
 # donne la construction de mfem-mgis-examples utilisée pour ssna303 et ex8
-# (par défaut build/mfem-mgis-examples).
+# (par défaut build/mfem-mgis-examples). La variable `cas_build`, lue
+# avant, donne la construction des cas du prototype utilisée pour la poutre
+# et la thermique (par défaut build/cas).
 #
 # - poutre : poutre r4 du prototype (cas/poutre), von Mises à écrouissage
 #   linéaire ;
@@ -66,7 +68,7 @@ case_name=${1:-poutre}
 out=${2:-$P/results/$lot-$case_name-$(date +%Y-%m-%d-%H%M)}
 case "$case_name" in
   poutre)
-    B=$P/build/cas/poutre
+    B=${cas_build:-$P/build/cas}/poutre
     generic=$B/src/libBehaviour.so
     gp=$B
     ;;
@@ -76,7 +78,7 @@ case "$case_name" in
     gp=$P/build/cas/polycristal
     ;;
   thermique)
-    B=$P/build/cas/thermique
+    B=${cas_build:-$P/build/cas}/thermique
     generic=$B/src/libBehaviour.so
     gp=$B
     ;;
