@@ -13,8 +13,9 @@ l'opérateur propre complet et l'assemblage partiel de MFEM. Tranche
 minimale de L6 faite (loi `cuda` intégrée sur les tableaux du GPU, fin de
 pas sur le GPU, validation par le périphérique `debug`, profil sans copie
 cachée), prédiction de L4 par noyaux faite. Sur un GPU : poutre r4 en
-3,3 s contre 17,5 s sur 8 cœurs, polycristal en 13,2 s contre 31,7 s
-(`results/L6-*`). Au 10/10/2026 : action de la tangente sans
+3,3 s après la fin de pas sur le GPU (journal du 09/10 ; 4,06 s avant,
+`results/L6-poutre-2026-10-09`) contre 17,5 s sur 8 cœurs, polycristal
+en 13,2 s contre 31,7 s (`results/L6-polycristal-2026-10-09`). Au 10/10/2026 : action de la tangente sans
 assemblage par un noyau fusionné et dérivées des inconnues par un noyau
 propre (`results/L4-*`), préconditionneur construit sur la tangente
 assemblée (`AssembledOperator`) ; L5 vague 1 en grande partie faite :
@@ -28,7 +29,16 @@ poutre et ×1,06 sur le polycristal, sur 8 cœurs ×1,19 sur le
 polycristal, mêmes itérations que Newton. Newton inexact fait (option
 `AdaptiveLinearSolverTolerance`, Eisenstat-Walker) : avec NewtonK0, ×1,59
 contre Newton sur le GPU (poutre). Restent en L5 : précision mixte,
-recherche linéaire, lisseurs sans matrice, vagues 2 et 3. Les choix
+recherche linéaire, lisseurs sans matrice, vagues 2 et 3. Au 13/10/2026 :
+lots L0 à L10 faits (état dans
+[vue-ensemble.md](vue-ensemble.md#état-davancement)) ; lisseurs sans
+matrice faits (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`),
+ainsi que cuDSS et AmgX (enveloppe propre) de la vague 2. Restent la
+précision mixte (tâche 9b, [plan-precision.md](plan-precision.md)), la
+recherche linéaire, le Jacobi par blocs nodaux, Ginkgo et le reste des
+vagues 2 et 3. Tâches faites ensuite le 13/10 : 9a, réglages
+d'exécution ([plan-execution.md](plan-execution.md)), et 9c, noyaux de
+mfem-mgis compilés pour HIP. Les choix
 de fond sont dans [plan-mfem-mgis.md](plan-mfem-mgis.md) ; la liste des
 solveurs dans [solveurs-gpu.md](solveurs-gpu.md). Ce document découpe le
 travail en lots, dit quels fichiers changent, ce qui est testé et quand
@@ -307,6 +317,32 @@ de bord ou à marqueurs.
 ## Paramètres proposés
 
 Noms à discuter, dans le style des paramètres existants.
+
+Noms retenus par le code (mfem-mgis b5e7d12fc4, 13/10/2026), qui
+remplacent ceux du tableau :
+
+- problème : `BehaviourIntegration` (`PointByPoint`, `Batch`),
+  `GradientsComputation`, `InnerForcesComputation` et
+  `TangentOperatorComputation` (`ElementByElement`, `Kernels`, et
+  `MatrixFree` pour la tangente), `TangentOperatorAssembly` (`Atomic`,
+  `Ordered`), chacun avec sa variable `MFEM_MGIS_*` ; post-traitements
+  par la variable `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` ;
+- discrétisation : `IntegrationRuleOrder` ;
+- solveur `FixedPoint` : `Method` (`ElasticOperator`, `ModifiedNewton`,
+  `NewtonK0`), `ElasticOperatorUpdate` (`EachResolution`, `Once`),
+  `ElasticOperatorComputation`, `ElasticOperatorLinearSolver`,
+  `PredictionLinearSolver`, `TangentLinearSolver`, `Acceleration` (avec
+  les options de chaque accélération, par exemple `Depth` et `Period`) et
+  `AdaptiveLinearSolverTolerance`, aussi option du `Newton` ;
+- préconditionneurs : `OperatorJacobiSmoother`,
+  `OperatorChebyshevSmoother`, `AssembledOperator` ;
+- application : `--device`, `--execution` et les options de placement
+  ([plan-execution.md](plan-execution.md)).
+
+N'existent pas dans le code : `AssemblyStrategy`, `QuadratureDataLayout`,
+`TangentOperator`, `Prediction`, `PreconditionerUpdate`,
+`PreconditionerOperator`, `LineSearch`, `NodalBlockJacobi`. Le
+préconditionneur gardé sur `K0` passe par la méthode `NewtonK0`.
 
 | Où | Paramètre | Valeurs |
 |---|---|---|
@@ -978,6 +1014,11 @@ CPU et sur GPU.
 
 Tests : sorties identiques sur CPU et sur GPU, dans les deux rangements.
 
+État au 13/10/2026 : fait. Post-traitements par noyaux (variable
+`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`), mesurés dans
+`results/post-traitements-noyaux-2026-10-11` et
+`results/L8-polycristal-2026-10-13-1027`.
+
 ## L9. Exemples et mesures
 
 - mfem-mgis-examples et mm-opera-hpc : options `--device`,
@@ -992,6 +1033,14 @@ Tests : sorties identiques sur CPU et sur GPU, dans les deux rangements.
 - Campagne de mesures (section suivante), résultats dans `results/`,
   scripts dans `scripts/`.
 
+État au 13/10/2026 : fait, avec d'autres noms. Les exemples et les cas
+prennent les options de mfem-mgis (`--device`, `--execution` et le
+placement), la bibliothèque de la loi, les solveurs et le profilage
+(`patches/mfem-mgis-examples/`, `patches/mm-opera-hpc/`) ;
+`AssemblyStrategy`, `TangentOperator` et `QuadratureDataLayout`
+n'existent pas (voir [Paramètres proposés](#paramètres-proposés)). Les
+scripts de mesure sont dans `cas/`.
+
 ## L10. Documentation et propositions amont
 
 - Documentation de mfem-mgis (en anglais, dans son arbre) : chemin par
@@ -999,6 +1048,11 @@ Tests : sorties identiques sur CPU et sur GPU, dans les deux rangements.
 - Découpage en propositions amont indépendantes : corrections (L0),
   données aux points (L1), lois par lots (L2), noyaux et opérateur (L3),
   solveurs (L5), GPU (L6). Voir [integration-amont.md](integration-amont.md).
+
+État au 13/10/2026 : documentation de mfem-mgis dans son arbre (par
+exemple `docs/source/user_guide/batch_computations.rst`) et découpage
+dans [integration-amont.md](integration-amont.md) faits ; rien n'est
+encore proposé aux dépôts officiels.
 
 ## Stratégie de test
 
@@ -1044,7 +1098,8 @@ Comparaisons :
 
 ## Questions à trancher
 
-1. **Noms des paramètres** proposés plus haut.
+1. **Noms des paramètres** proposés plus haut. Tranché par le code (voir
+   [Paramètres proposés](#paramètres-proposés)).
 2. **Ordre des points d'entrée** : opérateur propre d'abord (proposé), à
    cause des intégrateurs de bord ignorés ou refusés par l'assemblage
    partiel de MFEM.

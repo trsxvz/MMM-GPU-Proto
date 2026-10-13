@@ -7,8 +7,8 @@ mm-opera-hpc 7416eb8 et suivants, deux relectures indépendantes traitées.
 
 ## Objectif
 
-Aujourd'hui, placer un calcul sur le GPU demande plusieurs réglages
-indépendants, et chaque exemple les expose à sa façon :
+Avant cette tâche, placer un calcul sur le GPU demandait plusieurs
+réglages indépendants, et chaque exemple les exposait à sa façon :
 
 - l'option `--device` (ou la variable `MFEM_MGIS_DEVICE`) configure le
   périphérique de MFEM ;
@@ -61,11 +61,19 @@ problème, variable d'environnement, réglage déduit de `--execution`,
 valeur par défaut. Un paramètre donné explicitement garde donc la main
 (un test peut toujours forcer un chemin).
 
+Réalisé autrement (voir [Réalisation](#réalisation-13102026)) : avec
+`--execution`, les variables d'environnement de placement
+(`MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST`,
+`MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`) sont
+ignorées, avec un avertissement. L'ordre est donc : paramètre donné au
+problème, réglage déduit de `--execution`, valeur par défaut. Sans
+`--execution`, les variables s'appliquent comme avant.
+
 ## Correspondance avec les réglages existants
 
 | Phase | GPU | CPU |
 |---|---|---|
-| éléments finis | `BehaviourIntegration=Batch`, gradients, forces intérieures et tangente `Kernels` sur le périphérique | `ElementByElement`, boucles de MFEM sur l'hôte |
+| éléments finis | `BehaviourIntegration=Batch`, gradients, forces intérieures et tangente `Kernels` sur le périphérique | `ElementByElement`, boucles de MFEM sur l'hôte (réalisé : en `mixed` seulement ; `Kernels` sur l'hôte en mode `cpu`) |
 | lois | bibliothèque d'un backend GPU de `generic-parallel` | bibliothèque `generic` (ou `generic-parallel` sur l'hôte) |
 | solveur linéaire | hypre sur le GPU | hypre sur l'hôte (`--hypre-on-host`) |
 | post-traitements | `PostProcessingsComputation=Kernels` sur le périphérique | `ElementByElement` sur l'hôte |
@@ -74,6 +82,12 @@ En mode `cpu`, les éléments finis et les post-traitements gardent le
 chemin par défaut de mfem-mgis (élément par élément) ; les noyaux restent
 accessibles par les paramètres et les variables existants, pour les
 mesures.
+
+Réalisé autrement : en mode `cpu`, les éléments finis sont calculés par
+noyaux sur l'hôte, plus rapides, avec repli élément par élément si les
+intégrateurs ne les supportent pas. Ils restent élément par élément quand
+ils sont placés sur l'hôte en mode `mixed`. Seuls les post-traitements
+gardent le chemin élément par élément sur l'hôte.
 
 ## Combinaisons
 
@@ -129,7 +143,8 @@ l'assemblage de la tangente sur le GPU).
   `mfem_mgis_add_behaviours_library(NAME <nom> SOURCES <.mfront...>
   [BACKENDS ...])`, qui construit la bibliothèque `generic` et, si MFEM
   utilise un GPU, celle du backend GPU de `generic-parallel` (`cuda` ou
-  `hip`), avec un nommage fixe.
+  `hip`), avec un nommage fixe. La signature réalisée est différente
+  (voir l'étape 3 de la [Réalisation](#réalisation-13102026)).
 - Une fonction de mfem-mgis qui choisit la bibliothèque d'après le
   placement des lois : `mfem_mgis::getBehavioursLibrary(ctx, nom)`.
 - L'option `-l` des exemples force une bibliothèque (pour les mesures).
@@ -165,11 +180,16 @@ l'assemblage de la tangente sur le GPU).
   et matrices de MFEM) ne sont pas comptés : le surcoût total se lit dans
   les temps.
 - Étape 3 : `mfem_mgis_add_behaviours_library` (module CMake installé) et
-  `getBehavioursLibrary`.
+  `getBehavioursLibrary`. Signature réalisée, sans `NAME` ni `BACKENDS` :
+  `mfem_mgis_add_behaviours_library(<cible> SOURCES <fichiers.mfront>...
+  [LIBRARIES <noms>...] [INCLUDE_DIRECTORY <dossier>] [DEPENDS
+  <fichiers>...] [EXCLUDE_FROM_ALL] [NO_GPU])`. Les bibliothèques sont
+  rangées dans `<dossier>/cpu/` et `<dossier>/gpu/`
+  (`cmake/modules/MFEMMGISBehaviours.cmake` de mfem-mgis).
 - Étape 4 : tous les exemples, mm-opera-hpc, ex1 et ex3 ; tests sur GPU par
   `--execution`.
 - Étape 5 : `results/execution-poutre-2026-10-13-1432`. Les copies des
-  tableaux coûtent au plus 0,42 s (moins de 1 % à 14 % du calcul selon le
+  tableaux coûtent au plus 0,42 s (de 0,2 % à 4,5 % du calcul selon le
   placement) ; le coût d'un placement mixte vient du processeur qui
   calcule. Les copies asynchrones ne sont donc pas faites : le gain
   possible est petit devant le risque (ordre des opérations, mémoire

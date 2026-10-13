@@ -600,6 +600,13 @@ TFEL est construit et testé avec 14 configurations de l'interface des lois
 | `openmp-host-gcc` | g++ 14 | CPU |
 | `openmp-offload-nvhpc-gpu` | nvc++ 25.11 | GPU NVIDIA |
 
+Le backend `hip` compile aussi les lois pour un GPU AMD : quand MFEM est
+compilé avec HIP, mfem-mgis les génère avec le compilateur et les
+architectures de MFEM, sur la plateforme `amd`
+(`mfem-mgis/cmake/modules/MFEMMGISBehaviours.cmake`). C'est vérifié par
+`scripts/build-hip-amd.sh` pour gfx90a, compilation et édition de liens
+seulement : aucun GPU AMD ne les exécute.
+
 Options notables :
 
 - `nvc++ -stdpar=gpu` utilise `-gpu=mem:managed,nordc`. Le mode mémoire

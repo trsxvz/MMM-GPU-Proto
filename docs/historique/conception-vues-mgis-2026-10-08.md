@@ -21,7 +21,7 @@
   bibliothèque standard et des runtimes GPU interdisent les recouvrements).
 
 Statut : proposition, aucun code écrit. Première étape du
-[plan pour mfem-mgis](../docs/plan-mfem-mgis.md). Cette version intègre
+[plan pour mfem-mgis](../plan-mfem-mgis.md). Cette version intègre
 trois relectures indépendantes (version 1 : constats A1 à C5 ; version 2 :
 constats N1 à N10 ; version 3 : constats F1 à F6), tous vérifiés dans le
 code. Leur traitement est en annexe. La dernière relecture conclut que la

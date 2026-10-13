@@ -48,6 +48,11 @@ propriétés matériau calculés par lots, sur CPU ou sur GPU.
   accessibles par les calculs de la bibliothèque.
 - MGIS ne dépend d'aucune bibliothèque GPU. Les tableaux viennent de
   l'appelant, ou d'une ressource mémoire qu'il fournit.
+- Profilage : `setProfilingSynchronization` donne une fonction appelée au
+  début et à la fin de chaque section chronométrée active, avant la
+  lecture du temps. Les calculs lancés de façon asynchrone, par exemple
+  sur un GPU, sont alors comptés dans la section qui les lance. Aucune
+  fonction par défaut.
 
 ## Chargement
 
@@ -189,7 +194,8 @@ n'a besoin d'aucun changement dans MGIS.
 ### Fonctions qui lisent les tableaux sur l'hôte
 
 Certaines fonctions de MGIS lisent les tableaux sur l'hôte : `update`,
-`revert`, `updateValues`, l'extraction des variables internes, `save`,
+`revert` et `updateValues` sans opérations de copie (`FieldOperations`,
+voir [Vues et rangements](#vues-et-rangements)), l'extraction des variables internes, `save`,
 `restore`, les conversions des grandes transformations et le calcul point
 par point. Elles refusent les tableaux placés sur un GPU au lieu de
 planter.
@@ -335,6 +341,20 @@ changer : son contrat décrit déjà chaque champ par deux pas.
   passent par une `std::pmr::memory_resource`. MGIS sait quels tableaux
   copier, l'appelant fournit la copie. En-têtes pour CUDA, HIP, SYCL,
   Kokkos et OpenMP, compilés par l'appelant avec sa chaîne GPU.
+- **Vue sans contrôle et mise à jour des seules entrées** :
+  `make_unchecked_view` rend la vue d'un gestionnaire comme `make_view`,
+  sans vérifier que les valeurs gardées sur l'hôte (valeurs uniformes,
+  stockage local, masse volumique) sont accessibles par les calculs.
+  L'appelant remplace ensuite les vues des tableaux par celles de leurs
+  copies sur le GPU, et copie ces valeurs dans une mémoire accessible.
+  `updateInputValues` met à jour les propriétés matériau, les variables
+  externes et la masse volumique d'un état à partir d'un autre, avec la
+  même procédure et les mêmes politiques que `updateValues`, sans copier
+  les tableaux de l'état (gradients, forces thermodynamiques, variables
+  internes, énergies) : l'appelant les copie lui-même, par exemple sur
+  leurs copies sur le GPU. `updateValues` copie maintenant les tableaux,
+  puis appelle `updateInputValues`. mfem-mgis se sert des deux pour les
+  données des matériaux qu'il garde sur le GPU.
 - **`MaterialFunctionManager`** : constructeur avec initialiseur. Rangé
   composante par composante, il rend des vues *strided coalesced* de
   `mgis::function`.
@@ -425,7 +445,7 @@ Ces défauts ont été trouvés en chemin et corrigés dans des commits séparé
   [Vues et rangements](#vues-et-rangements)).
 - **Pas de variante avec `Context`** : les fonctions de lot lèvent des
   exceptions, comme les autres fonctions sur un gestionnaire. mfem-mgis
-  les enrobera.
+  les enrobe dans des blocs `try`/`catch`.
 - **`MaterialFunctionManager`** construit son gestionnaire sur l'hôte. Il
   n'est pas utilisé par mfem-mgis.
 - **Intégration continue** : les tests `generic-parallel` de MGIS ne sont

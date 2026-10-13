@@ -113,9 +113,9 @@ mais pas encore par une construction directe :
   relogeable, elle ne pouvait pas entrer dans `libmfem.so`. L'originale est
   gardée hors du dépôt.
 
-À faire : imposer gslib `+shared` dans `mmm-gpu/spack.yaml`, reconcrétiser
-et reconstruire MFEM (environ 3 h), pour une installation entièrement
-produite par les recettes. La condition du patch de la convection
+À faire : reconcrétiser et reconstruire MFEM (environ 3 h), pour une
+installation entièrement produite par les recettes. gslib `+shared` est
+déjà imposé dans `mmm-gpu/spack.yaml` (voir [AmgX patché](#amgx-patché-10102026)). La condition du patch de la convection
 (`^cuda@13:`, ajoutée après l'installation) change aussi le hachage de
 MFEM : la même reconcrétisation la prend en compte.
 
@@ -152,6 +152,14 @@ même reconstruction.
 - hypre est construit sans `+gpu-aware-mpi` (valeur par défaut) : ses
   échanges MPI passent par l'hôte, même avec OpenMPI compatible CUDA.
   Variante à comparer pour les mesures sur GPU à plusieurs processus.
+
+## GPU AMD (HIP)
+
+Le MFEM compilé avec HIP pour un GPU AMD (gfx90a) ne vient pas de cet
+environnement : `scripts/build-hip-amd.sh` installe ROCm par ses paquets
+Python, sans droits d'administrateur, et construit hypre et MFEM dans
+`deps/hip-amd/` (non suivi), avec MPI, METIS, SuiteSparse et OpenBLAS de
+`mmm-gpu`. Voir l'en-tête du script.
 
 ## Pilotes
 

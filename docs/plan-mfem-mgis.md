@@ -42,7 +42,10 @@ pas assez, tant que le code reste propre.
 
 ## Point de départ
 
-### mfem-mgis aujourd'hui
+### mfem-mgis au départ (base `a011d97d6f`, 06/10/2026)
+
+Cette section décrit le code avant le prototype. L'état actuel est dans
+[vue-ensemble.md](vue-ensemble.md#état-davancement).
 
 - Assemblage élément par élément sur l'hôte. Un intégrateur MFEM par
   matériau (`MultiMaterialNonLinearIntegrator`, `AssembleElementVector`,
@@ -88,9 +91,9 @@ pas assez, tant que le code reste propre.
   ressources mémoire.
 - Calcul synchrone par défaut, ou asynchrone : plusieurs matériaux peuvent
   être soumis avant une seule synchronisation.
-- Pas encore : rangement des données composante par composante, mise à
-  jour des états sur GPU (`update`, `revert`). Les deux sont la première
-  étape de ce plan.
+- Au 08/10, pas encore : rangement des données composante par
+  composante, mise à jour des états sur GPU (`update`, `revert`). Les deux
+  sont la première étape de ce plan, faite le 09/10.
 
 ### Essais préalables
 
@@ -241,9 +244,9 @@ lie (`scripts/build-hip-amd.sh`), sans exécution sur un GPU AMD.
 
 ## Solveurs
 
-### Ce qui existe dans mfem-mgis
+### Ce qui existait dans mfem-mgis au départ
 
-Fabrique `src/LinearSolverFactory.cxx` :
+Fabrique `src/LinearSolverFactory.cxx` de la base :
 
 - MFEM : `CGSolver`, `GMRESSolver`, `BiCGSTABSolver`, `MINRESSolver`,
   `SLISolver` (séquentiel et parallèle) ;
@@ -255,7 +258,16 @@ Fabrique `src/LinearSolverFactory.cxx` :
 - PETSc : un chemin existe (`Config.cxx`), il plantait lors d'essais
   antérieurs.
 
-### Portabilité sur GPU (à confirmer sur la machine)
+Ajoutés depuis par le prototype : solveurs `FGMRESSolver`, `AmgX`,
+`AmgXPCG` et `CuDSSSolver`, paramètre `ReuseAnalysis` de `MUMPSSolver`,
+préconditionneurs `OperatorJacobiSmoother`, `OperatorChebyshevSmoother`
+et `AssembledOperator`, options de `HypreBoomerAMG` (voir
+[solveurs-gpu.md](solveurs-gpu.md)).
+
+### Portabilité sur GPU
+
+Tableau du 08/10, complété le 13/10 par ce qui a été essayé sur la
+machine (ILU, ParaSails, solveurs ajoutés).
 
 | Solveur ou préconditionneur | GPU |
 |---|---|
@@ -263,8 +275,11 @@ Fabrique `src/LinearSolverFactory.cxx` :
 | Krylov de hypre (PCG, GMRES, FGMRES) | oui, avec hypre compilé pour CUDA ou HIP |
 | `HypreBoomerAMG` | oui avec hypre GPU, pour une partie des options (grossissement PMIS, interpolations directe et étendues, lisseurs Jacobi, l1-Jacobi, Gauss-Seidel hybride, Chebyshev) ; MFEM choisit des valeurs compatibles sur GPU |
 | `HypreDiagScale` | oui |
-| `HypreILU` | oui avec hypre 2.29 et plus (sans mémoire unifiée) |
-| `HypreEuclid`, `HypreParaSails` | non |
+| `HypreILU` | en partie : avec hypre 3.2.0, ILU(k) de niveau 1 ou plus plante sur le GPU ; mfem-mgis y prend le niveau 0 et refuse les autres ; ILUT fonctionne (`reproducers/hypre-ilu-gpu`) |
+| `HypreEuclid` | non |
+| `HypreParaSails` | non : refusé par mfem-mgis quand hypre calcule sur le GPU |
+| `AmgX`, `AmgXPCG` (mfem-mgis) | GPU NVIDIA seulement |
+| `CuDSSSolver` (mfem-mgis) | GPU NVIDIA seulement |
 | `MUMPSSolver`, `UMFPackSolver` | non : solveurs directs sur CPU, matrice copiée vers l'hôte |
 | PETSc | seulement avec PETSc compilé pour GPU ; chemin à réparer |
 | Ginkgo (enveloppes `mfem::Ginkgo`) | CPU (OpenMP) et GPU (CUDA, HIP) avec le même code, choisi par l'exécuteur (Ginkgo lui-même a aussi SYCL, pas les enveloppes de MFEM) ; Krylov, Jacobi, ILU, IC, ISAI dans les enveloppes, pas l'AMG de Ginkgo ; matrices séquentielles ou opérateurs sans matrice ; matrices séquentielles seulement dans les enveloppes de MFEM 4.9 (distribuées en MFEM 4.10) ; demande MFEM compilé avec Ginkgo |
@@ -272,8 +287,9 @@ Fabrique `src/LinearSolverFactory.cxx` :
 Les options « élasticité » de BoomerAMG (grossissement nodal, vecteurs de
 modes rigides) ne marchent pas sur GPU : `SetElasticityOptions` arrête le
 programme avec hypre GPU (vérifié dans MFEM 4.9 et 4.10). La stratégie
-« Elasticity » de mfem-mgis devra être refusée sur GPU, ou remplacée par
-« System » (`SetSystemsOptions`, qui marche sur GPU).
+« Elasticity » de mfem-mgis est remplacée par « System »
+(`SetSystemsOptions`, qui marche sur GPU), avec un avertissement, quand
+hypre calcule sur le GPU.
 
 ### Ajouts envisagés
 
@@ -312,10 +328,13 @@ profil `nsys`.
 
 - Les données restent sur le GPU d'un pas à l'autre. Pas de mémoire
   managée sur le chemin tout GPU.
-- Les noyaux `generic-parallel` n'ont pas encore été mesurés sérieusement.
-  Premières mesures : loi J2 par lot contre le noyau J2 écrit à la main des
-  essais préalables, rangement point par point contre composante par
-  composante, puis des lois plus lourdes (Norton implicite, monocristal).
+- Au 08/10, les noyaux `generic-parallel` n'avaient pas encore été
+  mesurés sérieusement. Premières mesures prévues : loi J2 par lot contre
+  le noyau J2 écrit à la main des essais préalables, rangement point par
+  point contre composante par composante, puis des lois plus lourdes
+  (Norton implicite, monocristal). Mesurés depuis : par exemple
+  `results/L2-poutre-2026-10-09`, `results/backends-gpu-2026-10-11` et
+  `results/backends-polycristal-2026-10-11`.
 - Plusieurs matériaux : soumission asynchrone et une seule
   synchronisation.
 - MPI : un processus par GPU (pile des polycristaux), MPI compatible GPU si
@@ -344,23 +363,31 @@ critères de fin, paramètres proposés) est dans
    [mgis.md](mgis.md#vues-et-rangements)).
 2. **MFEM 4.10 avec CUDA** dans l'environnement `mmm-gpu`, avec toutes
    les bibliothèques de solveurs (peu de tâches à la fois : `ptxas` prend
-   22 Go pour un fichier).
+   22 Go pour un fichier). Fait.
 3. **mfem-mgis sur CPU** : données aux points dans la mémoire de MFEM, puis
    noyaux par lot (gradients, MGIS, résidu, action de la tangente), petites
    déformations 3D, résultats identiques au chemin actuel. Les deux points
-   d'entrée et les deux rangements.
+   d'entrée et les deux rangements. Fait (lots L1 à L3).
 4. **Opérateur tangent** : les trois options et le point fixe ; solveurs
-   compatibles GPU ; Ginkgo dans la fabrique.
+   compatibles GPU ; Ginkgo dans la fabrique. Fait, sauf Ginkgo dans la
+   fabrique.
 5. **GPU** : périphérique de MFEM, mêmes résultats que sur CPU à l'arrondi
    près, sans copie cachée (périphérique `debug`, GPU sans HMM, `nsys`).
+   Fait (lot L6).
 6. **Fin de pas sans copie vers l'hôte**, plusieurs matériaux en
-   asynchrone.
+   asynchrone. En partie : la fin de pas est faite sur le GPU, mais les
+   états reviennent ensuite sur l'hôte, comme le veut le contrat de
+   `MaterialArrays` (`results/L7-transferts-2026-10-11`) ; mfem-mgis
+   n'utilise pas les calculs asynchrones de MGIS.
 7. **Tout mfem-mgis** : hypothèses, cinématiques, rotations orthotropes,
-   propriétés matériau, variables externes.
+   propriétés matériau, variables externes. Fait (lot L7, restes dans le
+   plan détaillé).
 8. **Exemples** de mfem-mgis-examples et de mm-opera-hpc avec les options
    CPU/GPU et les autres options ; mesures et comparaison des variantes.
+   Fait (lot L9).
 9. **Documentation** du prototype et préparation des propositions amont
-   ([integration-amont.md](integration-amont.md)).
+   ([integration-amont.md](integration-amont.md)). Fait ; rien n'est
+   encore proposé.
 
 À chaque étape : tests verts (passe ciblée), relecture indépendante avant
 de déclarer l'étape finie, journal à jour, commit, synchronisation, push,
@@ -368,14 +395,19 @@ bundle.
 
 ## Questions ouvertes
 
+Questions du 08/10, tranchées depuis :
+
 - Propriétaire de la mémoire aux points sur GPU : `mfem::Memory` dans les
   `PartialQuadratureFunction`, vues par MGIS. La fin d'un pas de temps
   sans copie vers l'hôte est réglée côté MGIS : copie sur le GPU par
   `update` avec des opérations fournies par l'appelant. L'échange des
   tableaux est écarté : il n'équivaut pas à `update` (une prédiction
-  n'écrit pas l'état de fin de pas).
+  n'écrit pas l'état de fin de pas). Tranché ainsi : tableaux des
+  matériaux dans la mémoire de MFEM (`MaterialArrays`), fin de pas par
+  `update` avec les opérations de mfem-mgis (`MFEMFieldOperations`).
 - Proposition amont : un chemin parallèle activé par option, acceptable
-  par les mainteneurs de mfem-mgis.
+  par les mainteneurs de mfem-mgis. Découpage proposé dans
+  [integration-amont.md](integration-amont.md).
 
 ## Risques
 

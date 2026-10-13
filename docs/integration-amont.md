@@ -1,8 +1,9 @@
 # Intégration amont
 
 Ce document propose un découpage des changements en contributions pour les
-dépôts officiels de TFEL, de MGIS et de mfem-mgis. Chaque contribution doit pouvoir être
-relue et testée seule.
+dépôts officiels de TFEL, de MGIS et de mfem-mgis, puis des exemples et de
+mm-opera-hpc. Chaque contribution doit pouvoir être relue et testée seule.
+Les corrections déjà proposées à MFEM et à AmgX sont listées à la fin.
 
 Certains commits du prototype mêlent plusieurs sujets. Les contributions
 seront donc reconstruites à partir de l'état final des branches, fichier par
@@ -84,7 +85,10 @@ elles lisent le contrat. Les détails sont dans [mgis.md](mgis.md).
    et fonction `evaluate`.
 5. **Rangements et opérations de copie** : rangement des tableaux d'un
    gestionnaire (`MaterialDataManagerInitializer::layout`), opérations de
-   copie (`FieldOperations`), fichiers HDF5 et liaisons C, Fortran et
+   copie (`FieldOperations`), vue sans contrôle des valeurs gardées sur
+   l'hôte (`make_unchecked_view`) et mise à jour des seules entrées d'un
+   état (`updateInputValues`), dont dépendent les données des matériaux
+   de mfem-mgis sur le GPU, fichiers HDF5 et liaisons C, Fortran et
    Python qui suivent le rangement.
 6. **Profilage** : fonction de synchronisation appelée autour des
    sections mesurées, pour attendre les noyaux lancés sur un GPU.
@@ -96,9 +100,8 @@ continue de MGIS reste sur CPU.
 
 ## mfem-mgis
 
-La branche `gpu-proto` de mfem-mgis part de la branche principale
-officielle (fusion de la PR #472, rangement des inconnues par dimension,
-déjà en amont). L'ordre suit les dépendances :
+La branche `gpu-proto` de mfem-mgis part du master officiel `8fac67336e`
+(13/10/2026, fusion de la PR #485). L'ordre suit les dépendances :
 
 - les contributions 1 et 2 ne demandent ni le TFEL ni le MGIS du
   prototype ;
@@ -144,7 +147,8 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
    - lisseurs de Jacobi et de Chebyshev de MFEM comme préconditionneurs ;
    - analyse de MUMPS réutilisée tant que le motif de la matrice ne change
      sur aucun processus (`ReuseAnalysis`, nombre d'analyses donné par
-     `getNumberOfMUMPSAnalyses`) ;
+     `getNumberOfAnalyses`, pour MUMPS et cuDSS ; test
+     `DirectSolverReuseAnalysisTest`) ;
    - paramètres du problème transmis par les constructeurs de
      `PeriodicNonLinearEvolutionProblem` ;
    - `TransientHeatTransfer` en déformations planes et en contraintes
@@ -153,7 +157,10 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
      fin de pas, post-traitements).
 3. **Construction et configuration pour le GPU** :
    - MFEM compilé avec CUDA, sources contenant des noyaux de MFEM
-     compilées comme du code CUDA ;
+     compilées comme du code CUDA, ou comme du code HIP quand MFEM utilise
+     HIP (plateforme AMD, architectures de MFEM ; compilation vérifiée,
+     sans essai sur un GPU AMD) ;
+   - `FindMFEM` : `MFEM_DIR` prime sur `CMAKE_PREFIX_PATH` ;
    - option `--device` d'`initialize` (un GPU par processus, périphérique
      déjà configuré par le programme, périphérique créé avant PETSc) ;
    - réserve de mémoire de hypre sur le GPU ;
@@ -181,15 +188,19 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
    de quadrature lisibles sur le GPU, copies des états par des noyaux.
 6. **Intégration des lois par lots**, sur l'hôte et sur le GPU : lots de
    MGIS, rotations des lois orthotropes, `update` et `revert` sur le GPU,
-   modèles point par point (`PointWiseModel`). L'intégration point par
-   point reste le défaut ; le paramètre `BehaviourIntegration` (ou la
-   variable `MFEM_MGIS_BEHAVIOUR_INTEGRATION`) choisit les lots.
+   modèles point par point (`PointWiseModel`). Sans l'option
+   `--execution` (contribution 11), l'intégration point par point reste le
+   défaut ; le paramètre `BehaviourIntegration` (ou la variable
+   `MFEM_MGIS_BEHAVIOUR_INTEGRATION`) choisit les lots.
 7. **Mécanique par noyaux** :
    - géométrie des éléments (jacobiens et leurs inverses calculés une
      fois), gradients, forces intérieures, matrices de rigidité ;
    - assemblage direct dans la matrice creuse (motif construit à partir
      des éléments, positions des entrées calculées une fois, échanges
-     gardés) ;
+     gardés), par additions atomiques ou dans un ordre fixe, qui rend les
+     résultats identiques d'un passage à l'autre (paramètre
+     `TangentOperatorAssembly`, variable
+     `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) ;
    - prédiction, action et diagonale de l'opérateur tangent sans
      assemblage (`MatrixFree`), préconditionneur sur l'opérateur assemblé
      (`AssembledOperator`) ;
@@ -198,10 +209,10 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
      chaleur) assemblées une fois et ajoutées aux forces intérieures
      calculées par noyaux.
 
-   Le calcul élément par élément reste le défaut ; les paramètres
-   `GradientsComputation`, `InnerForcesComputation` et
-   `TangentOperatorComputation` (ou les variables correspondantes)
-   choisissent les noyaux.
+   Sans l'option `--execution`, le calcul élément par élément reste le
+   défaut ; les paramètres `GradientsComputation`,
+   `InnerForcesComputation` et `TangentOperatorComputation` (ou les
+   variables correspondantes) choisissent les noyaux.
 8. **Autres formulations par noyaux** : thermique stationnaire et
    transitoire, endommagement micromorphe, FBar, régularisation de
    Faltus et al.
@@ -211,7 +222,17 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
 10. **Post-traitements par noyaux** (variable
     `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION`) : intégrales, projections
     L2, valeurs aux nœuds.
-11. **Facultatif, à proposer plus tard** :
+11. **Réglages d'exécution** (voir [plan-execution.md](plan-execution.md)) :
+    option `--execution cpu|gpu|mixed` et placement de chaque phase en
+    mode `mixed` (`--finite-elements`, `--behaviours`,
+    `--linear-solver-device`, `--post-processings`), valeurs par défaut
+    déduites du placement (lots et noyaux, sauf avec PETSc), variables de
+    placement ignorées avec un avertissement, placement de la loi d'un
+    matériau (paramètre `BehaviourExecutionLocation`), copies des tableaux
+    des matériaux comptées, bibliothèques de lois pour le CPU et le GPU
+    (`mfem_mgis_add_behaviours_library`, `getBehavioursLibrary`). Elle
+    dépend des lots, des noyaux et des post-traitements.
+12. **Facultatif, à proposer plus tard** :
     - Kokkos initialisé par mfem-mgis (option `enable-kokkos`), pour les
       lois compilées avec le backend Kokkos ;
     - solveurs AmgX, qui utilisent directement l'interface C d'AmgX :
@@ -242,3 +263,39 @@ final, par morceaux de fichier.
   `PeriodicNonLinearEvolutionProblem`) ;
 - formatage par `clang-format` limité aux lignes modifiées (le dépôt n'est
   pas formaté dans son ensemble).
+
+## mfem-mgis-examples et mm-opera-hpc
+
+Les changements des exemples (26 patchs depuis `600da70`) et de
+mm-opera-hpc (21 patchs depuis `49147f2`) suivent les contributions de
+mfem-mgis dont ils se servent. Ils seront proposés après elles, par
+thème :
+
+- options de mfem-mgis et de la loi dans chaque exemple et chaque cas
+  (bibliothèque de lois, périphérique, solveurs, profilage), puis
+  `--execution` et les bibliothèques de lois pour le CPU et le GPU
+  (contribution 11) ;
+- synchronisations sur l'hôte avant les lectures de l'hôte (contribution
+  5) ;
+- choix du solveur non linéaire (Newton, NewtonK0) et de la tolérance
+  adaptée (contributions 2 et 9), solveurs directs et réutilisation de
+  l'analyse (contributions 2 et 3), AmgX (contribution 12) ;
+- tests sur le GPU, enregistrés seulement quand la loi pour le GPU est
+  construite.
+
+## Déjà proposé en amont
+
+Corrections de MFEM et d'AmgX proposées pendant le prototype à
+leurs dépôts officiels (ouvertes au 13/10/2026) :
+
+- MFEM #5604 : ressources partagées d'`AmgXSolver` (durée de vie,
+  initialisation séquentielle) ;
+- MFEM #5605 : ordre des sommets des éléments de bord d'un `SubMesh`,
+  repris de l'élément de bord parent ;
+- MFEM #5615 : `HypreParaSails::SetOperator` prend le communicateur du
+  nouvel opérateur. mfem-mgis contourne ce défaut dans la contribution 1 ;
+- AmgX #386 : multigrille classique avec CUDA 13 (« invalid device
+  function », reproducteur `reproducers/amgx-classical-cuda13`).
+
+La reconstruction de MFEM et d'AmgX dans l'environnement attend leur
+fusion (voir `deps/spack/README.md`).

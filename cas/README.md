@@ -72,8 +72,14 @@ problème comme de l'opérateur élastique (`-mra`, ignorée avec un
 avertissement sans solveur direct). L'outil
 `poutre-k0` résout l'opérateur élastique K0 seul, mise en place et
 résolutions chronométrées à part. Les options de mfem-mgis s'appliquent à
-tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`), et les
-variables `MFEM_MGIS_*` des calculs par lots et par noyaux.
+tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`),
+`--hypre-on-host`, `--execution cpu|gpu|mixed` (`-x`) et, en mode
+`mixed`, les options de placement `--finite-elements`, `--behaviours`,
+`--linear-solver-device` et `--post-processings` (voir
+[docs/plan-execution.md](../docs/plan-execution.md)), et les variables
+`MFEM_MGIS_*` des calculs par lots et par noyaux. Avec `--execution`, les
+variables `MFEM_MGIS_*` de placement sont ignorées, avec un
+avertissement.
 
 Scripts de mesures (résultats dans `results/<lot>-<cas>-<date>/`) :
 `mesures-commun.sh` (fonctions communes ; cas poutre, polycristal,
@@ -83,10 +89,25 @@ thermique, ssna303, ex8, bulle, cermet ; variable `refinement`), `mesures-L2.sh`
 GPU), `mesures-ssna303.sh` (ssna303 sur 8 cœurs et sur le GPU),
 `balayage-amgx-k0.sh` (configurations d'AmgX sur K0),
 `profil-transferts.sh` (copies entre l'hôte et le GPU, nsys),
-`mesures-memoire-hote.sh` (types de mémoire de MFEM sur le GPU). Outils :
+`mesures-memoire-hote.sh` (types de mémoire de MFEM sur le GPU),
+`mesures-positions.sh`, `mesures-jacobiennes-gpu.sh`,
+`mesures-matrice-globale.sh` et `mesures-bilan-gpu.sh` (assemblage de la
+tangente par noyaux, lots du 11/10), `mesures-autres-integrateurs.sh`
+(autres intégrateurs de la forme), `mesures-pression-poutre.sh` (pression
+imposée, lot L7.6), `mesures-backends-gpu.sh` et
+`mesures-backends-polycristal.sh` (backends GPU de l'interface
+`generic-parallel`), `mesures-ex8.sh` (ex8 de bout en bout),
+`mesures-post-traitements.sh` (post-traitements, lot L8),
+`mesures-execution-poutre.sh` (placements donnés par `--execution`,
+tâche 9a). Outils :
 `resume-profilage.py` (temps par phase des sorties `--profiling`),
 `comparer-sorties.py` (comparaison de sorties numériques, `--csv` pour
-les valeurs séparées par des virgules).
+les valeurs séparées par des virgules), `assemblage/` (programme qui
+chronomètre l'assemblage par noyaux des matrices de rigidité dans la
+matrice creuse locale, avec et sans les positions des entrées calculées
+une fois, et en parallèle la construction de la matrice globale),
+`commun/` (`KokkosRuntime` : initialisation de Kokkos pour les lois du
+backend `kokkos`).
 
 `mesures-reference.sh` mesure les temps de référence du chemin actuel de
 mfem-mgis sur CPU (lot L0) : poutre, ssna303 en 3D (ex4), polycristal

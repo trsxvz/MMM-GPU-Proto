@@ -8,8 +8,9 @@
 # the tests on four processes fit in its memory.
 #
 # Modes:
-# - default: the computations selected by each test;
-# - kernels: all the computations forced to the kernels of the batch path.
+# - kernels (used when no mode is given): all the computations forced to
+#   the kernels of the batch path;
+# - default: the computations selected by each test.
 #
 # The tests whose name selects a device (cuda, gpu, debug) are excluded:
 # they run with `ctest -R "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"`.

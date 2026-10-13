@@ -6,6 +6,10 @@
 # the opposite), C++11 attributes placed after `__host__ __device__`, and
 # headers using `TFEL_HOST_DEVICE` without including the TFEL configuration.
 # Errors due to headers which are not self-contained are not reported.
+# CLANG defaults to the clang++ of the former spack environment
+# tfelgpu_local (its PROTO_LLVM in scripts/env.sh), not to the LLVM of the
+# default environment mmm-gpu: give CLANG=$PROTO_LLVM/bin/clang++ to use
+# the latter.
 # usage: scripts/clang-cuda-header-scan.sh [number of jobs]
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
