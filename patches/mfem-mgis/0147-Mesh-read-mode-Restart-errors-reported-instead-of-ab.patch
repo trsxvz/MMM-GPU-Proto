@@ -1,0 +1,154 @@
+From 01a9a75b13ea686017d5a4bef5a3bd31a9d5b6f4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:23:18 +0200
+Subject: [PATCH] Mesh read mode Restart: errors reported instead of aborting
+
+With a '.med' file, with a missing checkpoint file (MFEM_VERIFY) or without MPI, the mode Restart printed a message and aborted the program, while the other errors of the constructor of MeshDiscretization are exceptions which the calling code may handle. They are now exceptions too. MeshReadModeTest checks the errors of a missing checkpoint file, of Restart in a sequential computation and of an invalid mode.
+---
+ src/MeshDiscretization.cxx | 21 ++++++------
+ tests/CMakeLists.txt       |  8 +++++
+ tests/MeshReadModeTest.cxx | 69 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 88 insertions(+), 10 deletions(-)
+ create mode 100644 tests/MeshReadModeTest.cxx
+
+diff --git a/src/MeshDiscretization.cxx b/src/MeshDiscretization.cxx
+index ab1fee6df4..d836e6c0a5 100644
+--- a/src/MeshDiscretization.cxx
++++ b/src/MeshDiscretization.cxx
+@@ -107,10 +107,12 @@ namespace mfem_mgis {
+ #ifdef MFEM_USE_MED
+     const auto extension = getFileExt(mesh_name);
+     if (extension == "med") {
+-      std::cout << "Aborting. The option '--restart' is not handled with a "
+-                   "'.med' file format"
+-                << std::endl;
+-      std::abort();
++      // an exception, as the other errors of the constructor of
++      // `MeshDiscretization`, which the calling code may catch
++      raise(
++          "the mesh read mode 'Restart' is not handled with the '.med' "
++          "file format (mesh file '" +
++          mesh_name + "')");
+     }
+ #endif /* MFEM_USE_MED */
+ #ifdef MFEM_USE_MPI
+@@ -119,17 +121,16 @@ namespace mfem_mgis {
+ 
+     std::string fname(mfem::MakeParFilename(mesh_name, myid));
+     std::ifstream ifs(fname);
+-    MFEM_VERIFY(ifs.good(), "Checkpoint file " << fname << " not found.");
++    if (!ifs.good()) {
++      raise("checkpoint file '" + fname + "' not found");
++    }
+     auto smesh = std::make_shared<Mesh<true>>(Mesh<true>(MPI_COMM_WORLD, ifs));
+     //    auto smesh = std::make_shared<Mesh<true>>(mesh_name.c_str(),
+     //                                               generate_edges, refine);
+     return smesh;
+ #else
+-    std::cout
+-        << "Aborting. The option Restart is not compatible with sequential run."
+-        << "Enable to load mesh file '" << mesh_name << "'\n"
+-        << std::endl;
+-    std::abort();
++    raise("the mesh read mode 'Restart' requires MPI (mesh file '" + mesh_name +
++          "')");
+ #endif
+   }  // end of loadMeshParallel
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 4856f124bb..bc041fc9d3 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -830,6 +830,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+     # Restart_Parallel_Read_Mode_MPI_2 COMMAND mpirun -n 2 ./ParallelReadMode
+     # --mesh ${CMAKE_CURRENT_SOURCE_DIR}/mesh-test. --library
+     # "$<TARGET_FILE:BehaviourTest>" --read-mesh-mode Restart)
++    # MeshReadModeTest executable: errors of the mesh read modes reported to
++    # the calling code instead of aborting the program
++    add_test_executable(MeshReadModeTest)
++    add_test(NAME MeshReadModeTestP
++             COMMAND mpirun -n 2 ./MeshReadModeTest
++                     ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh)
++    set_tests_properties(MeshReadModeTestP PROPERTIES
++                         PROCESSORS 2 ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+ 
+   # PostProSubMesh executable (MPI only)
+diff --git a/tests/MeshReadModeTest.cxx b/tests/MeshReadModeTest.cxx
+new file mode 100644
+index 0000000000..42805da949
+--- /dev/null
++++ b/tests/MeshReadModeTest.cxx
+@@ -0,0 +1,69 @@
++/*!
++ * \file   tests/MeshReadModeTest.cxx
++ * \brief  This file tests the errors of the mesh read modes: they are
++ * reported to the calling code, which may handle them, instead of aborting
++ * the program
++ * \date   13/10/2026
++ */
++
++#include <string>
++#include <cstdlib>
++#include <iostream>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/FiniteElementDiscretization.hxx"
++
++/*!
++ * \return true if building a finite element discretization with the given
++ * mesh read mode fails with an error message containing the given text
++ * \param[in] mesh_file: mesh file
++ * \param[in] mode: mesh read mode
++ * \param[in] parallel: parallel computation
++ * \param[in] expected: text expected in the error message
++ */
++static bool checkRefusal(const std::string& mesh_file,
++                         const std::string& mode,
++                         const bool parallel,
++                         const std::string& expected) {
++  auto ctx = mfem_mgis::Context{};
++  const auto fed =
++      mfem_mgis::make_shared<mfem_mgis::FiniteElementDiscretization>(
++          ctx, mfem_mgis::Parameters{{"MeshFileName", mesh_file},
++                                     {"MeshReadMode", mode},
++                                     {"FiniteElementFamily", "H1"},
++                                     {"FiniteElementOrder", 1},
++                                     {"UnknownsSize", 3},
++                                     {"Parallel", parallel}});
++  if (fed) {
++    std::cerr << "mode '" << mode << "' accepted\n";
++    return false;
++  }
++  const auto message = ctx.getErrorMessage();
++  if (message.find(expected) == std::string::npos) {
++    std::cerr << "mode '" << mode << "': unexpected message '" << message
++              << "'\n";
++    return false;
++  }
++  return true;
++}  // end of checkRefusal
++
++int main(int argc, char** argv) {
++  mfem_mgis::initialize(argc, argv);
++  if (argc != 2) {
++    std::cerr << "usage: MeshReadModeTest mesh_file\n";
++    return EXIT_FAILURE;
++  }
++  const auto mesh = std::string{argv[1]};
++  auto success = true;
++  // restart from checkpoint files which do not exist
++  success = checkRefusal("does-not-exist", "Restart", true,
++                         "checkpoint file 'does-not-exist") &&
++            success;
++  // restart in a sequential computation
++  success = checkRefusal(mesh, "Restart", false, "'Restart' is not handled") &&
++            success;
++  // invalid mode
++  success = checkRefusal(mesh, "FromNowhere", true, "MeshReadMode") && success;
++  std::cout << (success ? "success" : "failure") << '\n';
++  return success ? EXIT_SUCCESS : EXIT_FAILURE;
++}
+-- 
+2.43.0
+

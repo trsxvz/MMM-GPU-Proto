@@ -1,0 +1,25 @@
+From 73754bb6ea698e2e28417ae277503391a18caff0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:24:00 +0200
+Subject: [PATCH] NonLinearSolverFactory.ixx installed
+
+The installed header NonLinearSolvers/NonLinearSolverFactory.hxx includes NonLinearSolverFactory.ixx, which was not installed: a program including it from the installation did not compile. The installed header now compiles alone.
+---
+ include/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 77936f34db..7184ad596b 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -129,6 +129,7 @@ mfem_mgis_header(MFEMMGIS Simulation.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AbstractNonLinearSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverBase.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.hxx)
++mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.ixx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NewtonSolver.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AccelerationAlgorithm.hxx)
+ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AdaptiveLinearSolverTolerance.hxx)
+-- 
+2.43.0
+

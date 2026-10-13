@@ -1,0 +1,108 @@
+From c4c841f7a845220cae8a1205a1a67784fbea3bc3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:21:03 +0200
+Subject: [PATCH] Imposed pressure and heat source: misspelled parameters
+ refused
+
+Built from parameters, UniformImposedPressureBoundaryCondition and UniformHeatSourceBoundaryCondition ignored a misspelled parameter, unlike the Dirichlet boundary conditions: the parameters are now checked. ImposedPressureTest checks that both refuse a misspelled parameter and accept the valid ones.
+---
+ src/UniformHeatSourceBoundaryCondition.cxx    |  5 +++
+ ...niformImposedPressureBoundaryCondition.cxx |  5 +++
+ tests/ImposedPressureTest.cxx                 | 39 +++++++++++++++++++
+ 3 files changed, 49 insertions(+)
+
+diff --git a/src/UniformHeatSourceBoundaryCondition.cxx b/src/UniformHeatSourceBoundaryCondition.cxx
+index ff31934ba4..dd0b152910 100644
+--- a/src/UniformHeatSourceBoundaryCondition.cxx
++++ b/src/UniformHeatSourceBoundaryCondition.cxx
+@@ -151,6 +151,11 @@ namespace mfem_mgis {
+         qfct(get<std::function<real(const real)>>(
+             throwing, params, "LoadingEvolution")),
+         nfi(new UniformHeatSourceNonlinearFormIntegrator) {
++    // as the Dirichlet boundary conditions, a misspelled parameter is
++    // reported instead of being ignored
++    checkParameters(
++        throwing, params,
++        std::vector<std::string>{"Material", "Materials", "LoadingEvolution"});
+     if (!qfct) {
+       raise("invalid evolution of the heat source");
+     }
+diff --git a/src/UniformImposedPressureBoundaryCondition.cxx b/src/UniformImposedPressureBoundaryCondition.cxx
+index 86b8c9718a..0b38fe2b92 100644
+--- a/src/UniformImposedPressureBoundaryCondition.cxx
++++ b/src/UniformImposedPressureBoundaryCondition.cxx
+@@ -166,6 +166,11 @@ namespace mfem_mgis {
+         prfct(get<std::function<real(const real)>>(
+             throwing, params, "LoadingEvolution")),
+         nfi(new UniformImposedPressureNonlinearFormIntegrator) {
++    // as the Dirichlet boundary conditions, a misspelled parameter is
++    // reported instead of being ignored
++    checkParameters(
++        throwing, params,
++        std::vector<std::string>{"Boundary", "Boundaries", "LoadingEvolution"});
+     if (!prfct) {
+       raise("invalid evolution of the imposed pressure");
+     }
+diff --git a/tests/ImposedPressureTest.cxx b/tests/ImposedPressureTest.cxx
+index 2d190fc902..2ea11a4312 100644
+--- a/tests/ImposedPressureTest.cxx
++++ b/tests/ImposedPressureTest.cxx
+@@ -17,9 +17,37 @@
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
++#include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "UnitTestingUtilities.hxx"
+ 
++/*!
++ * \return true if the boundary condition `BoundaryCondition` refuses a
++ * misspelled parameter (`LoadingEvolutions`) given with the parameters `p`
++ * \param[in] problem: non linear problem
++ * \param[in] p: valid parameters of the boundary condition
++ */
++template <typename BoundaryCondition>
++static bool checkMisspelledParameterRefusal(
++    mfem_mgis::AbstractNonLinearEvolutionProblem& problem,
++    mfem_mgis::Parameters p) {
++  // the valid parameters are accepted
++  try {
++    BoundaryCondition bc(problem, p);
++  } catch (std::exception& e) {
++    std::cerr << "valid parameters refused: " << e.what() << '\n';
++    return false;
++  }
++  p.insert(mfem_mgis::throwing, {{"LoadingEvolutions", 1}});
++  try {
++    BoundaryCondition bc(problem, p);
++  } catch (std::exception&) {
++    return true;
++  }
++  std::cerr << "misspelled parameter 'LoadingEvolutions' accepted\n";
++  return false;
++}  // end of checkMisspelledParameterRefusal
++
+ int main(int argc, char** argv) {
+   auto ctx = mgis::Context{};
+   auto or_die = ctx.getFatalFailureHandler();
+@@ -112,6 +140,17 @@ int main(int argc, char** argv) {
+                  [](const mfem_mgis::real t) noexcept { return 150e6 * t; }) |
+                  or_die) |
+         or_die;
++    // the boundary conditions built from parameters refuse a misspelled
++    // parameter, as the Dirichlet boundary conditions
++    const auto loading = [](const mfem_mgis::real t) noexcept { return t; };
++    success = checkMisspelledParameterRefusal<
++                  mfem_mgis::UniformImposedPressureBoundaryCondition>(
++                  problem, {{"Boundary", 3}, {"LoadingEvolution", loading}}) &&
++              success;
++    success = checkMisspelledParameterRefusal<
++                  mfem_mgis::UniformHeatSourceBoundaryCondition>(
++                  problem, {{"Material", 1}, {"LoadingEvolution", loading}}) &&
++              success;
+     // set the solver parameters
+     mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
+                                            parameters);
+-- 
+2.43.0
+

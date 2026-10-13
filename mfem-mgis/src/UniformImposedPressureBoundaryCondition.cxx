@@ -166,6 +166,11 @@ namespace mfem_mgis {
         prfct(get<std::function<real(const real)>>(
             throwing, params, "LoadingEvolution")),
         nfi(new UniformImposedPressureNonlinearFormIntegrator) {
+    // as the Dirichlet boundary conditions, a misspelled parameter is
+    // reported instead of being ignored
+    checkParameters(
+        throwing, params,
+        std::vector<std::string>{"Boundary", "Boundaries", "LoadingEvolution"});
     if (!prfct) {
       raise("invalid evolution of the imposed pressure");
     }

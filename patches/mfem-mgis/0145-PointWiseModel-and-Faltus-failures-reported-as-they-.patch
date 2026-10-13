@@ -1,0 +1,53 @@
+From 5cea81852a0f8568b069f4c029e29065b9b7089b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:21:03 +0200
+Subject: [PATCH] PointWiseModel and Faltus: failures reported as they are
+
+- PointWiseModel::computeNextState returned recoverableError after any failure, so that an exception thrown by the integration (status unrecoverableError) was reported as a recoverable error: the synchronized status is now returned.
+- computeFaltusCenters marked the centers invalid only after its first checks: an early failure left the centers of a previous computation valid. They are now invalid from the start of the computation.
+---
+ src/Batch/Faltus.cxx   | 5 +++--
+ src/PointWiseModel.cxx | 4 +++-
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index 57c6332c52..370c6881fe 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -146,6 +146,9 @@ namespace mfem_mgis::batch {
+                             const UnknownsDerivatives* const d0,
+                             const ElementsGeometry& g0,
+                             const GradientsKind k) noexcept {
++    // valid only after a successful computation: the centers of a previous
++    // computation must not be used after a failure
++    data.valid = false;
+     try {
+       if (!isFaltusSupportedByKernels(k)) {
+         return ctx.registerErrorMessage(
+@@ -160,8 +163,6 @@ namespace mfem_mgis::batch {
+         return ctx.registerErrorMessage(
+             "computeFaltusCenters: array too large for MFEM");
+       }
+-      // valid only after a successful computation
+-      data.valid = false;
+       data.centers.UseDevice(true);
+       data.centers.SetSize(static_cast<int>(size));
+       if (elements.Size() == 0) {
+diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
+index 54f208e2b1..43140c9c15 100644
+--- a/src/PointWiseModel.cxx
++++ b/src/PointWiseModel.cxx
+@@ -124,7 +124,9 @@ namespace mfem_mgis {
+         std::ignore =
+             ctx.registerErrorMessage("point wise model integration failed");
+       }
+-      return {ExitStatus::recoverableError, {}};
++      // the synchronized status: recoverable error, or unrecoverable error
++      // if an exception was thrown on one of the processes
++      return {s, {}};
+     }
+     return {s, ooutput};
+   }  // end of computeNextState
+-- 
+2.43.0
+

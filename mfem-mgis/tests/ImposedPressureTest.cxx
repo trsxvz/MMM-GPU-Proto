@@ -17,8 +17,36 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
+#include "MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 #include "UnitTestingUtilities.hxx"
+
+/*!
+ * \return true if the boundary condition `BoundaryCondition` refuses a
+ * misspelled parameter (`LoadingEvolutions`) given with the parameters `p`
+ * \param[in] problem: non linear problem
+ * \param[in] p: valid parameters of the boundary condition
+ */
+template <typename BoundaryCondition>
+static bool checkMisspelledParameterRefusal(
+    mfem_mgis::AbstractNonLinearEvolutionProblem& problem,
+    mfem_mgis::Parameters p) {
+  // the valid parameters are accepted
+  try {
+    BoundaryCondition bc(problem, p);
+  } catch (std::exception& e) {
+    std::cerr << "valid parameters refused: " << e.what() << '\n';
+    return false;
+  }
+  p.insert(mfem_mgis::throwing, {{"LoadingEvolutions", 1}});
+  try {
+    BoundaryCondition bc(problem, p);
+  } catch (std::exception&) {
+    return true;
+  }
+  std::cerr << "misspelled parameter 'LoadingEvolutions' accepted\n";
+  return false;
+}  // end of checkMisspelledParameterRefusal
 
 int main(int argc, char** argv) {
   auto ctx = mgis::Context{};
@@ -112,6 +140,17 @@ int main(int argc, char** argv) {
                  [](const mfem_mgis::real t) noexcept { return 150e6 * t; }) |
                  or_die) |
         or_die;
+    // the boundary conditions built from parameters refuse a misspelled
+    // parameter, as the Dirichlet boundary conditions
+    const auto loading = [](const mfem_mgis::real t) noexcept { return t; };
+    success = checkMisspelledParameterRefusal<
+                  mfem_mgis::UniformImposedPressureBoundaryCondition>(
+                  problem, {{"Boundary", 3}, {"LoadingEvolution", loading}}) &&
+              success;
+    success = checkMisspelledParameterRefusal<
+                  mfem_mgis::UniformHeatSourceBoundaryCondition>(
+                  problem, {{"Material", 1}, {"LoadingEvolution", loading}}) &&
+              success;
     // set the solver parameters
     mfem_mgis::unit_tests::setLinearSolver(mfem_mgis::may_abort, ctx, problem,
                                            parameters);

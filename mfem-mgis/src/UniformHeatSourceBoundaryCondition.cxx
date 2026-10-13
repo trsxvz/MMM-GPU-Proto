@@ -151,6 +151,11 @@ namespace mfem_mgis {
         qfct(get<std::function<real(const real)>>(
             throwing, params, "LoadingEvolution")),
         nfi(new UniformHeatSourceNonlinearFormIntegrator) {
+    // as the Dirichlet boundary conditions, a misspelled parameter is
+    // reported instead of being ignored
+    checkParameters(
+        throwing, params,
+        std::vector<std::string>{"Material", "Materials", "LoadingEvolution"});
     if (!qfct) {
       raise("invalid evolution of the heat source");
     }

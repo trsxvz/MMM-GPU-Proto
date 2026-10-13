@@ -146,6 +146,9 @@ namespace mfem_mgis::batch {
                             const UnknownsDerivatives* const d0,
                             const ElementsGeometry& g0,
                             const GradientsKind k) noexcept {
+    // valid only after a successful computation: the centers of a previous
+    // computation must not be used after a failure
+    data.valid = false;
     try {
       if (!isFaltusSupportedByKernels(k)) {
         return ctx.registerErrorMessage(
@@ -160,8 +163,6 @@ namespace mfem_mgis::batch {
         return ctx.registerErrorMessage(
             "computeFaltusCenters: array too large for MFEM");
       }
-      // valid only after a successful computation
-      data.valid = false;
       data.centers.UseDevice(true);
       data.centers.SetSize(static_cast<int>(size));
       if (elements.Size() == 0) {

@@ -830,6 +830,14 @@ if(MFEM_MGIS_HAVE_TFEL)
     # Restart_Parallel_Read_Mode_MPI_2 COMMAND mpirun -n 2 ./ParallelReadMode
     # --mesh ${CMAKE_CURRENT_SOURCE_DIR}/mesh-test. --library
     # "$<TARGET_FILE:BehaviourTest>" --read-mesh-mode Restart)
+    # MeshReadModeTest executable: errors of the mesh read modes reported to
+    # the calling code instead of aborting the program
+    add_test_executable(MeshReadModeTest)
+    add_test(NAME MeshReadModeTestP
+             COMMAND mpirun -n 2 ./MeshReadModeTest
+                     ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh)
+    set_tests_properties(MeshReadModeTestP PROPERTIES
+                         PROCESSORS 2 ENVIRONMENT OMP_NUM_THREADS=1)
   endif()
 
   # PostProSubMesh executable (MPI only)

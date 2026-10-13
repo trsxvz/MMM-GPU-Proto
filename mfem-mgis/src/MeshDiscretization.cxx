@@ -107,10 +107,12 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_MED
     const auto extension = getFileExt(mesh_name);
     if (extension == "med") {
-      std::cout << "Aborting. The option '--restart' is not handled with a "
-                   "'.med' file format"
-                << std::endl;
-      std::abort();
+      // an exception, as the other errors of the constructor of
+      // `MeshDiscretization`, which the calling code may catch
+      raise(
+          "the mesh read mode 'Restart' is not handled with the '.med' "
+          "file format (mesh file '" +
+          mesh_name + "')");
     }
 #endif /* MFEM_USE_MED */
 #ifdef MFEM_USE_MPI
@@ -119,17 +121,16 @@ namespace mfem_mgis {
 
     std::string fname(mfem::MakeParFilename(mesh_name, myid));
     std::ifstream ifs(fname);
-    MFEM_VERIFY(ifs.good(), "Checkpoint file " << fname << " not found.");
+    if (!ifs.good()) {
+      raise("checkpoint file '" + fname + "' not found");
+    }
     auto smesh = std::make_shared<Mesh<true>>(Mesh<true>(MPI_COMM_WORLD, ifs));
     //    auto smesh = std::make_shared<Mesh<true>>(mesh_name.c_str(),
     //                                               generate_edges, refine);
     return smesh;
 #else
-    std::cout
-        << "Aborting. The option Restart is not compatible with sequential run."
-        << "Enable to load mesh file '" << mesh_name << "'\n"
-        << std::endl;
-    std::abort();
+    raise("the mesh read mode 'Restart' requires MPI (mesh file '" + mesh_name +
+          "')");
 #endif
   }  // end of loadMeshParallel
 

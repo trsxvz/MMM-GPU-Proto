@@ -1,0 +1,42 @@
+From 1d0276aebea5990c77ccdbdce3e097bdb0b2663c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:24:00 +0200
+Subject: [PATCH] Help of --device and --hypre-device-pool-size: environment
+ variables
+
+The help texts now give the environment variables read when the options are not given: MFEM_MGIS_DEVICE (ignored with --execution) and MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE.
+---
+ src/Config.cxx | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 73337c0768..0928f31dc7 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -821,8 +821,10 @@ namespace mfem_mgis {
+                      Finalizer::device_option,
+                      "Configuration of the MFEM device (for instance cpu, "
+                      "cuda, hip, omp or debug), created by "
+-                     "mfem_mgis::initialize. No device is created by "
+-                     "default, unless --execution selects a GPU.");
++                     "mfem_mgis::initialize, or else by the environment "
++                     "variable MFEM_MGIS_DEVICE (ignored with --execution). "
++                     "No device is created by default, unless --execution "
++                     "selects a GPU.");
+     // read by `initialize`: only declared here, as a string, so that the
+     // parser accepts it
+     static const char* hypre_device_pool_size = "";
+@@ -831,7 +833,9 @@ namespace mfem_mgis {
+                      Finalizer::hypre_device_pool_size_option,
+                      "Size in GiB of the pool of memory allocated at once by "
+                      "hypre on the GPU (Umpire), set by "
+-                     "mfem_mgis::initialize. Default of hypre if not given.");
++                     "mfem_mgis::initialize, or else by the environment "
++                     "variable MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE. Default of "
++                     "hypre if not given.");
+     // read by `initialize`: only declared here, so that the parser accepts
+     // it
+     static bool hypre_on_host = false;
+-- 
+2.43.0
+

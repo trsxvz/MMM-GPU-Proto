@@ -821,8 +821,10 @@ namespace mfem_mgis {
                      Finalizer::device_option,
                      "Configuration of the MFEM device (for instance cpu, "
                      "cuda, hip, omp or debug), created by "
-                     "mfem_mgis::initialize. No device is created by "
-                     "default, unless --execution selects a GPU.");
+                     "mfem_mgis::initialize, or else by the environment "
+                     "variable MFEM_MGIS_DEVICE (ignored with --execution). "
+                     "No device is created by default, unless --execution "
+                     "selects a GPU.");
     // read by `initialize`: only declared here, as a string, so that the
     // parser accepts it
     static const char* hypre_device_pool_size = "";
@@ -831,7 +833,9 @@ namespace mfem_mgis {
                      Finalizer::hypre_device_pool_size_option,
                      "Size in GiB of the pool of memory allocated at once by "
                      "hypre on the GPU (Umpire), set by "
-                     "mfem_mgis::initialize. Default of hypre if not given.");
+                     "mfem_mgis::initialize, or else by the environment "
+                     "variable MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE. Default of "
+                     "hypre if not given.");
     // read by `initialize`: only declared here, so that the parser accepts
     // it
     static bool hypre_on_host = false;

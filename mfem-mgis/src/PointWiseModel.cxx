@@ -124,7 +124,9 @@ namespace mfem_mgis {
         std::ignore =
             ctx.registerErrorMessage("point wise model integration failed");
       }
-      return {ExitStatus::recoverableError, {}};
+      // the synchronized status: recoverable error, or unrecoverable error
+      // if an exception was thrown on one of the processes
+      return {s, {}};
     }
     return {s, ooutput};
   }  // end of computeNextState
