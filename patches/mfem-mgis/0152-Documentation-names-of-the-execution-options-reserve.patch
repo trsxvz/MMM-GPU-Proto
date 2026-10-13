@@ -1,0 +1,30 @@
+From 6b9ebf5bccfa9f172e337d3b76f25649ce05da31 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:14:55 +0200
+Subject: [PATCH] Documentation: names of the execution options reserved
+
+The execution options are read by mfem_mgis::initialize from the arguments of the program, before the initialization of MPI, whatever the options declared by the program: a program must not use their long or short names for its own options.
+---
+ docs/source/user_guide/batch_computations.rst | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 202379ee9a..466f3facc4 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -475,6 +475,12 @@ choice:
+   solvers and memory of hypre) and :code:`--post-processings`
+   (:code:`-ppd`). These options are refused in the other modes.
+ 
++These options are read by :code:`mfem_mgis::initialize` directly from the
++arguments of the program, before the initialization of :code:`MPI` and of
++:code:`hypre`, whatever the options declared by the program: a program must
++not use their long or short names (:code:`-x`, :code:`-fe`, :code:`-bh`,
++:code:`-lsd`, :code:`-ppd`) for its own options.
++
+ The 16 combinations of the mixed mode are tested
+ (:code:`ExecutionSettingsTest`, when the behaviour library for the GPU is
+ built). The settings give:
+-- 
+2.43.0
+

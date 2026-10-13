@@ -475,6 +475,12 @@ choice:
   solvers and memory of hypre) and :code:`--post-processings`
   (:code:`-ppd`). These options are refused in the other modes.
 
+These options are read by :code:`mfem_mgis::initialize` directly from the
+arguments of the program, before the initialization of :code:`MPI` and of
+:code:`hypre`, whatever the options declared by the program: a program must
+not use their long or short names (:code:`-x`, :code:`-fe`, :code:`-bh`,
+:code:`-lsd`, :code:`-ppd`) for its own options.
+
 The 16 combinations of the mixed mode are tested
 (:code:`ExecutionSettingsTest`, when the behaviour library for the GPU is
 built). The settings give:
