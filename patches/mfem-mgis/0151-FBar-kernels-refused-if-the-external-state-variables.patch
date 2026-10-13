@@ -1,0 +1,47 @@
+From e09d26d9ebb81490edec618352c5c97767d4e37f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:08:59 +0200
+Subject: [PATCH] FBar: kernels refused if the external state variables follow
+ the unknowns
+
+The computations by kernels of the FBar integrators do not update the external state variables from the values of the unknowns: supportsKernels now refuses them for an integrator whose traits require it (none of the current FBar integrators), instead of skipping the update. getDeviceMemoryLocation was checked: it is only called when a device is enabled or for a behaviour compiled for the GPU.
+---
+ include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx | 4 ++--
+ include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx | 6 ++++++
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+index 89ddf322d3..339d044182 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+@@ -35,8 +35,8 @@ namespace mfem_mgis {
+    * - if the external state variables are updated from the values of the
+    *   unknowns (see `BehaviourIntegratorTraits`), a method called
+    *   `updateExternalStateVariablesFromUnknownsValues`, which sets them at
+-   *   one integration point (it is not called by the computations by
+-   *   kernels)
++   *   one integration point (the computations by kernels, which do not call
++   *   it, are then not supported)
+    *
+    * The thermodynamic forces of an orthotropic behaviour without functions
+    * rotating the values of one point (`generic-parallel` interface) are
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index ff65f2031a..daa842a5bc 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -541,6 +541,12 @@ namespace mfem_mgis {
+   template <typename Child, Hypothesis H>
+   bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsKernels()
+       const noexcept {
++    // the kernels do not update the external state variables from the
++    // values of the unknowns (none of the FBar integrators does)
++    if constexpr (BehaviourIntegratorTraits<
++                      Child>::updateExternalStateVariablesFromUnknownsValues) {
++      return false;
++    }
+     // deformation gradient in 3D or in plane strain, computed by the
+     // kernels as by the FBar behaviour integrator
+     const auto k = batch::getGradientsKind(this->b);
+-- 
+2.43.0
+

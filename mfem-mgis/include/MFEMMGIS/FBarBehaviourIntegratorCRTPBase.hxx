@@ -35,8 +35,8 @@ namespace mfem_mgis {
    * - if the external state variables are updated from the values of the
    *   unknowns (see `BehaviourIntegratorTraits`), a method called
    *   `updateExternalStateVariablesFromUnknownsValues`, which sets them at
-   *   one integration point (it is not called by the computations by
-   *   kernels)
+   *   one integration point (the computations by kernels, which do not call
+   *   it, are then not supported)
    *
    * The thermodynamic forces of an orthotropic behaviour without functions
    * rotating the values of one point (`generic-parallel` interface) are

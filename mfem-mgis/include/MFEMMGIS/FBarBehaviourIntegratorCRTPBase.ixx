@@ -541,6 +541,12 @@ namespace mfem_mgis {
   template <typename Child, Hypothesis H>
   bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsKernels()
       const noexcept {
+    // the kernels do not update the external state variables from the
+    // values of the unknowns (none of the FBar integrators does)
+    if constexpr (BehaviourIntegratorTraits<
+                      Child>::updateExternalStateVariablesFromUnknownsValues) {
+      return false;
+    }
     // deformation gradient in 3D or in plane strain, computed by the
     // kernels as by the FBar behaviour integrator
     const auto k = batch::getGradientsKind(this->b);
