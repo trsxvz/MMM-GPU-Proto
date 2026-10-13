@@ -55,7 +55,7 @@ Usage: ./test-bubble [options] ...
 | `-sf <double>, --scale-factor-vp <double>`| double | `0.9`                    | Scaling factor for the principal stress.    |
 | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
 | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
-| `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
+| `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N µm<sup>-2</sup>, the unit of the Young modulus. |
 | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
 
 The options of `mfem-mgis` are also accepted, for instance `--execution gpu`

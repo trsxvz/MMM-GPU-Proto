@@ -1,0 +1,75 @@
+From f1abb48482342b3af45dc111387bfd253e2bf623 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:25:29 +0200
+Subject: [PATCH] Bubble pressure unit, number of the generated vectors
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- The internal pressure of the bubble is in N µm^-2, the unit of the Young modulus of the case whose lengths are in µm, not in Pa (help of -pr and README).
+- generate_random_vectors.py generates the vectors in pairs and printed the requested number: it now prints the number of exported vectors (6 for 5 requested).
+---
+ bubble/README.md                                              | 2 +-
+ bubble/src/Bubble.cxx                                         | 3 ++-
+ cermet/randomVectorGeneration/generate_random_vectors.py      | 3 ++-
+ polycrystal/randomVectorGeneration/generate_random_vectors.py | 3 ++-
+ 4 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/bubble/README.md b/bubble/README.md
+index d49d78b..d9240c2 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -55,7 +55,7 @@ Usage: ./test-bubble [options] ...
+ | `-sf <double>, --scale-factor-vp <double>`| double | `0.9`                    | Scaling factor for the principal stress.    |
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
+ | `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+-| `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in Pa.             |
++| `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N µm<sup>-2</sup>, the unit of the Young modulus. |
+ | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 3be825d..42058fb 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -229,7 +229,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+       &p.d_min, "-dm", "--dmin",
+       "Distance to evaluate bubble rupture, in µm, default = 0.950.");
+   args.AddOption(&p.bubble_pressure, "-pr", "--pref",
+-                 "Internal bubble pressure, in Pa, default = 1");
++                 "Internal bubble pressure, in N µm^-2 (unit of the Young "
++                 "modulus of the case, whose lengths are in µm)");
+ 
+   args.Parse();
+ 
+diff --git a/cermet/randomVectorGeneration/generate_random_vectors.py b/cermet/randomVectorGeneration/generate_random_vectors.py
+index 074eeb9..0770431 100644
+--- a/cermet/randomVectorGeneration/generate_random_vectors.py
++++ b/cermet/randomVectorGeneration/generate_random_vectors.py
+@@ -36,7 +36,8 @@ def main(nbVec:int, algoKey:str='default'):
+             file.write(line + "\n")
+ 
+     # Display
+-    print(f"{nbVec} vectors have been exported to the file vectors.txt.")
++    # vectors are generated in pairs: one more than nbVec if nbVec is odd
++    print(f"{len(vectors)} vectors have been exported to the file vectors.txt.")
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/polycrystal/randomVectorGeneration/generate_random_vectors.py b/polycrystal/randomVectorGeneration/generate_random_vectors.py
+index 293c77a..5d7c83a 100644
+--- a/polycrystal/randomVectorGeneration/generate_random_vectors.py
++++ b/polycrystal/randomVectorGeneration/generate_random_vectors.py
+@@ -36,7 +36,8 @@ def main(nbVec:int, algoKey:str='default'):
+             file.write(line + "\n")
+ 
+     # Display
+-    print(f"{nbVec} vectors have been exported to the file vectors.txt.")
++    # vectors are generated in pairs: one more than nbVec if nbVec is odd
++    print(f"{len(vectors)} vectors have been exported to the file vectors.txt.")
+ 
+ 
+ if __name__ == '__main__':
+-- 
+2.43.0
+

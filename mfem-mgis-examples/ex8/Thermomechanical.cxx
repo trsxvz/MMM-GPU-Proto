@@ -51,7 +51,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "Non linear solver of the mechanical problem: Newton, or "
                  "NewtonK0 (Newton method whose tangent systems are solved "
                  "by GMRES preconditioned by the elastic operator, "
-                 "factorized by MUMPS at each time step).");
+                 "factorized by MUMPS at each resolution of the mechanical "
+                 "problem).");
   args.AddOption(&p.ordering_meca, "-oMc", "--ordering-mechanics",
                  "Ordering of the degrees of freedom of the mechanical "
                  "problem: byNODES (default) or byVDIM.");
@@ -198,7 +199,7 @@ int main(int argc, char* argv[]) {
   const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
   if (nonlinear_solver_meca == "NewtonK0") {
     // the elastic operator depends on the temperature: it is factorized at
-    // each time step
+    // each resolution of the mechanical problem
     const auto newton_k0 = mfem_mgis::Parameters{
         {"Method", "NewtonK0"},
         {"ElasticOperatorUpdate", "EachResolution"},

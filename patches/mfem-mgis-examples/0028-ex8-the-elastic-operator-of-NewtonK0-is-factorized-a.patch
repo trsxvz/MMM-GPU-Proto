@@ -1,0 +1,52 @@
+From f59949ae35677692dcf240dec4f38cd681bff1e1 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:25:29 +0200
+Subject: [PATCH] ex8: the elastic operator of NewtonK0 is factorized at each
+ resolution
+
+The help of -nlsMc and two comments said that the elastic operator of NewtonK0 is factorized at each time step, while ElasticOperatorUpdate is EachResolution: it is factorized at each resolution of the mechanical problem.
+---
+ ex8/Thermomechanical.cxx | 5 +++--
+ ex8/headers/Setup.hxx    | 3 ++-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index cd3af8c..522e24f 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -51,7 +51,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "Non linear solver of the mechanical problem: Newton, or "
+                  "NewtonK0 (Newton method whose tangent systems are solved "
+                  "by GMRES preconditioned by the elastic operator, "
+-                 "factorized by MUMPS at each time step).");
++                 "factorized by MUMPS at each resolution of the mechanical "
++                 "problem).");
+   args.AddOption(&p.ordering_meca, "-oMc", "--ordering-mechanics",
+                  "Ordering of the degrees of freedom of the mechanical "
+                  "problem: byNODES (default) or byVDIM.");
+@@ -198,7 +199,7 @@ int main(int argc, char* argv[]) {
+   const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
+   if (nonlinear_solver_meca == "NewtonK0") {
+     // the elastic operator depends on the temperature: it is factorized at
+-    // each time step
++    // each resolution of the mechanical problem
+     const auto newton_k0 = mfem_mgis::Parameters{
+         {"Method", "NewtonK0"},
+         {"ElasticOperatorUpdate", "EachResolution"},
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index 5a833f3..8fa4628 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -31,7 +31,8 @@ struct TestParameters {
+                          // solver, ignored by direct solvers
+   // non linear solver of the mechanical problem: Newton, or NewtonK0 (the
+   // tangent systems are solved by GMRES preconditioned by the elastic
+-  // operator, factorized by MUMPS at each time step)
++  // operator, factorized by MUMPS at each resolution of the mechanical
++  // problem)
+   const char* nonlinear_solver_meca = "Newton";
+   // ordering of the degrees of freedom of the mechanical problem (byNODES or
+   // byVDIM, which the elasticity options of BoomerAMG require)
+-- 
+2.43.0
+

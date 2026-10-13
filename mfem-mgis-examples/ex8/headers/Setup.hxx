@@ -31,7 +31,8 @@ struct TestParameters {
                          // solver, ignored by direct solvers
   // non linear solver of the mechanical problem: Newton, or NewtonK0 (the
   // tangent systems are solved by GMRES preconditioned by the elastic
-  // operator, factorized by MUMPS at each time step)
+  // operator, factorized by MUMPS at each resolution of the mechanical
+  // problem)
   const char* nonlinear_solver_meca = "Newton";
   // ordering of the degrees of freedom of the mechanical problem (byNODES or
   // byVDIM, which the elasticity options of BoomerAMG require)

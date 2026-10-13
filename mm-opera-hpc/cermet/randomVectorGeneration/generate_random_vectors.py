@@ -36,7 +36,8 @@ def main(nbVec:int, algoKey:str='default'):
             file.write(line + "\n")
 
     # Display
-    print(f"{nbVec} vectors have been exported to the file vectors.txt.")
+    # vectors are generated in pairs: one more than nbVec if nbVec is odd
+    print(f"{len(vectors)} vectors have been exported to the file vectors.txt.")
 
 
 if __name__ == '__main__':

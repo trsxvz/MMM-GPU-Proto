@@ -229,7 +229,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
       &p.d_min, "-dm", "--dmin",
       "Distance to evaluate bubble rupture, in µm, default = 0.950.");
   args.AddOption(&p.bubble_pressure, "-pr", "--pref",
-                 "Internal bubble pressure, in Pa, default = 1");
+                 "Internal bubble pressure, in N µm^-2 (unit of the Young "
+                 "modulus of the case, whose lengths are in µm)");
 
   args.Parse();
 
