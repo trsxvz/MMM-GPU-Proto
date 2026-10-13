@@ -38,7 +38,7 @@ GPU.
 | Bibliothèque | Base officielle | Ce qui change | Détails |
 |---|---|---|---|
 | TFEL/MFront | master `fec0ade99` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
-| MGIS | master `818f0f9` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
+| MGIS | master `e8ef4b4` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
 | mfem-mgis | master `a011d97d6f` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, réutilisation de l'analyse de MUMPS, solveur direct cuDSS sur le GPU, assemblage ordonné de la tangente (mêmes résultats à chaque passage sur le GPU), corrections ; 128 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
 | mfem-mgis-examples | master `8397eec` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs ; 23 patchs | `patches/mfem-mgis-examples/` |
 | mm-opera-hpc | main `8bd56eb` (dépôt `rprat-pro/mm-opera-hpc`) | polycristal : choix du solveur non linéaire (Newton, NewtonK0), de la tolérance adaptative et d'AmgX, loi intégrée sur le GPU ; bulle et cermet : options de mfem-mgis et de la loi, synchronisations sur l'hôte, profilage des post-traitements, solveurs directs ; 17 patchs | [results/L5-polycristal-2026-10-10-0502/README.md](results/L5-polycristal-2026-10-10-0502/README.md) |
@@ -117,7 +117,7 @@ MGIS, depuis le dépôt officiel, contre ce TFEL :
 
 ```bash
 git clone <dépôt officiel de MGIS> mgis && cd mgis
-git checkout -b gpu-proto 818f0f9
+git checkout -b gpu-proto e8ef4b4
 git am ../patches/mgis/*.patch
 cd .. && source scripts/env.sh
 cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \

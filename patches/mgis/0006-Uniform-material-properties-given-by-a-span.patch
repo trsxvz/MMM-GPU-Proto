@@ -1,4 +1,4 @@
-From afb1c55daa19b15fff903206b6a54073b0592cae Mon Sep 17 00:00:00 2001
+From 06a5a6eca9a30687de8748af968bae69e5cdb9c0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:13:18 +0200
 Subject: [PATCH] Uniform material properties given by a span

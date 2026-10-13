@@ -1,4 +1,4 @@
-From cc42bb30d1b7d7ae11c31b3f4cda6f9960bc2b39 Mon Sep 17 00:00:00 2001
+From 98d38bd869f33012ea11313c007fc569364571a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:55:03 +0200
 Subject: [PATCH] Tests of the batches: policies, locations, failures,

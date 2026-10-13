@@ -1,4 +1,4 @@
-From 9543f9daed861cb378f13488ca43f96f2e3fbace Mon Sep 17 00:00:00 2001
+From 1416b1e8a3ee394af52bedf419c4cbb3c99b2bf1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:15:53 +0200
 Subject: [PATCH] No allocation on the heap in the usual calls
@@ -23,7 +23,7 @@ Subject: [PATCH] No allocation on the heap in the usual calls
  create mode 100644 tests/AllocationTest.cxx
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 21a1700..664a27b 100644
+index c6972b9..6ed008e 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -117,6 +117,28 @@ namespace mgis::behaviour::internals {

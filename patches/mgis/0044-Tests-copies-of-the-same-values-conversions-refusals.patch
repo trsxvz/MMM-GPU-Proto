@@ -1,4 +1,4 @@
-From b14b76a1957e4c0d509e69b0b9a4bf7b97e8c159 Mon Sep 17 00:00:00 2001
+From c86d83e4ad4b7df8577013e6535f08007b599bbf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:22:16 +0200
 Subject: [PATCH] Tests: copies of the same values, conversions refusals, mass

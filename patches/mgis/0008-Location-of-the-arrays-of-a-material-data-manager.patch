@@ -1,4 +1,4 @@
-From 1f979cd015256aede8748e62340c6ecd00e3d78a Mon Sep 17 00:00:00 2001
+From 6d1f4c5eb9ff0a78f35f448e2cf1144ed9ccfd98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:19:11 +0200
 Subject: [PATCH] Location of the arrays of a material data manager
@@ -126,7 +126,7 @@ index 0000000..27401d5
 +
 +#endif /* LIB_MGIS_BEHAVIOUR_MEMORYLOCATION_HXX */
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 92331e5..55e1822 100644
+index b1f6adc..8ce531a 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -443,6 +443,23 @@ namespace mgis::behaviour::internals {

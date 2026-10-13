@@ -1,4 +1,4 @@
-From 0c1fbcd533d82b945ac5e9ea35555eed84f7b31c Mon Sep 17 00:00:00 2001
+From 73fb68d38896279bfeb7c9d61933e62e5c202cc7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:21:18 +0200
 Subject: [PATCH] Test of the batch rotations of finite strain behaviours

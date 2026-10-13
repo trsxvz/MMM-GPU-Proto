@@ -1,11 +1,11 @@
 # Patches
 
 Series of patches giving the MGIS of the prototype from MGIS master, commit
-`818f0f9` (02/10/2026):
+`e8ef4b4` (13/10/2026):
 
 ```bash
 git clone <official MGIS repository> mgis && cd mgis
-git checkout 818f0f9
+git checkout e8ef4b4
 git am /path/to/patches/*.patch
 ```
 

@@ -1,4 +1,4 @@
-From 6adde23e71e6abaec6f2b32784985ccb5ccdd686 Mon Sep 17 00:00:00 2001
+From c9f69faf07af7487998aa43394272339f026dc6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:26:55 +0200
 Subject: [PATCH] Field operations: two-dimensional kernels, dense copies, SYCL

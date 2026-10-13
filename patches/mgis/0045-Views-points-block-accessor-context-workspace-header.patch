@@ -1,4 +1,4 @@
-From f4bddf2bce883dad6b65a5c12eea1c5865a1a0c9 Mon Sep 17 00:00:00 2001
+From bb17ff6cab877df6e4619793eb10904a5e07a638 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:24:57 +0200
 Subject: [PATCH] Views: points, block accessor, context, workspace header,

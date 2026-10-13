@@ -1,4 +1,4 @@
-From 4025259e1f7c7874c2c8f0a0178d59d83b4780f2 Mon Sep 17 00:00:00 2001
+From 31100ee45968eea2c74e2db033d5177874b94dd6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:42:39 +0200
 Subject: [PATCH] Rotations and evaluations of material properties on views

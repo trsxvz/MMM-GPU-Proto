@@ -1,4 +1,4 @@
-From 72ea5efbbf2f9c73dcbd79ac2497348f01b1c46c Mon Sep 17 00:00:00 2001
+From 7cf98a03d7af07b1e7fb1e8c0f99f48214e2c814 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:16:46 +0200
 Subject: [PATCH] Material properties of the generic-parallel interface
@@ -736,7 +736,7 @@ index 75ebc6e..b499856 100644
      }
      d.tfel_version = lm.getTFELVersion(l, b);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index a29d24e..30b5664 100644
+index 6eaa316..7bce28b 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -457,17 +457,9 @@ namespace mgis::behaviour::internals {

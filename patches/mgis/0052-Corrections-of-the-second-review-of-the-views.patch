@@ -1,4 +1,4 @@
-From c0440b08c5c4fb5634d4c5513ecd9791f1961397 Mon Sep 17 00:00:00 2001
+From e3a0487dc1be3dcfe1f0a049db6348eb12949212 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:58:08 +0200
 Subject: [PATCH] Corrections of the second review of the views
@@ -536,7 +536,7 @@ index 8867c67..b2279f9 100644
     * \return a constant view on the values of a function stored point by
     * point
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 8ebe813..92f4439 100644
+index 34897b0..69c226f 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -199,6 +199,7 @@ namespace mgis::behaviour::internals {

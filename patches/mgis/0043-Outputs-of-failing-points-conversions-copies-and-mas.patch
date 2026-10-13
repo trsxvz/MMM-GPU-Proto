@@ -1,4 +1,4 @@
-From 0102cd68265650ec801abcbf471a44ce9eef0069 Mon Sep 17 00:00:00 2001
+From 4a127a7eb727335479943d06e498b2d35aab202e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:21:31 +0200
 Subject: [PATCH] Outputs of failing points, conversions, copies and mass
@@ -319,7 +319,7 @@ index 027b40b..7f4aeec 100644
    }  // end of convertFiniteStrainTangentOperator
  
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 3ab5cd4..8ebe813 100644
+index 3bb0483..34897b0 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -329,14 +329,18 @@ namespace mgis::behaviour::internals {

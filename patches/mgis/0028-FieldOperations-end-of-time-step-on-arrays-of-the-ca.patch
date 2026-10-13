@@ -1,4 +1,4 @@
-From 63330ae3d2fe8a03495c23c4261d2891d0b3c8f9 Mon Sep 17 00:00:00 2001
+From b8462be3369e3cd0f9bf04c4416b122bba7df27b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:23:48 +0200
 Subject: [PATCH] FieldOperations: end of time step on arrays of the calling

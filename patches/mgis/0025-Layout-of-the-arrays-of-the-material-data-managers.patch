@@ -1,4 +1,4 @@
-From 0a48a18f47dbd3ac9ee59467c75bdff7cfb94f3f Mon Sep 17 00:00:00 2001
+From e2b5d5f716af9b1896e3288f6e07fa659a70db43 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:07:51 +0200
 Subject: [PATCH] Layout of the arrays of the material data managers
@@ -1462,7 +1462,7 @@ index 41aefc8..027b40b 100644
  
    static void convertFiniteStrainTangentOperator_PK1_2D(
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 8ec30e4..21a1700 100644
+index 9b8550d..c6972b9 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1401,7 +1401,7 @@ namespace mgis::behaviour {

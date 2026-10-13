@@ -1,4 +1,4 @@
-From 93f0a3d4919d109b726a2667dc7085494aa26908 Mon Sep 17 00:00:00 2001
+From 4aefe6a01f7ca17f3a8a1f2a40349464998364d1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 00:46:10 +0200
 Subject: [PATCH] Views on the variables of a state view, extraction

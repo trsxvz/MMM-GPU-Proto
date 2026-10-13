@@ -1,4 +1,4 @@
-From 67bd5dd41ab907b18424473576a5849798928e87 Mon Sep 17 00:00:00 2001
+From 1ffdea9b8bc8c92f3d739eae0bd0bbe8acb2a872 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 17:46:17 +0200
 Subject: [PATCH] Asynchronous computations on batches
@@ -1496,7 +1496,7 @@ index eba5bc5..31775b0 100644
    Markdown.cxx
    MaterialProperty.cxx
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 30b5664..6e4ae46 100644
+index 7bce28b..253056f 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -20,6 +20,7 @@

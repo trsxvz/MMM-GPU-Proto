@@ -1,4 +1,4 @@
-From 5c0985f3a4c058285305cf36784e6a80220afe17 Mon Sep 17 00:00:00 2001
+From 272f9eaf69033cd20c4ef9553f43a9c66fa15285 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 02:11:27 +0200
 Subject: [PATCH] Tests: nvcc options of the cuda-nvcc configuration of TFEL

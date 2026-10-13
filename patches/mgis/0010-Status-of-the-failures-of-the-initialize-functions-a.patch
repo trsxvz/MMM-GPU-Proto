@@ -1,4 +1,4 @@
-From 82c473f66b38b315dc656876e4b4d38a6e0841ae Mon Sep 17 00:00:00 2001
+From c8bd10b723e9a9dd31aef4f0b535306e49e263ab Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:25:57 +0200
 Subject: [PATCH] Status of the failures of the initialize functions and
@@ -12,7 +12,7 @@ message, but the exit status stayed equal to 1.
  1 file changed, 3 insertions(+)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 55e1822..6313f6d 100644
+index 8ce531a..ba8a435 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -670,6 +670,7 @@ namespace mgis::behaviour::internals {

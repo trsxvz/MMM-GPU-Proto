@@ -1,4 +1,4 @@
-From 79fe9340d659955197514be2adf92560975ccee2 Mon Sep 17 00:00:00 2001
+From 2cdcb9759558aeea46ca323f813001e3ca222fce Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:18:35 +0200
 Subject: [PATCH] Thread pools: checks once, all tasks completed before an
@@ -20,7 +20,7 @@ Subject: [PATCH] Thread pools: checks once, all tasks completed before an
  3 files changed, 194 insertions(+), 54 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 664a27b..3ab5cd4 100644
+index 6ed008e..3bb0483 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -117,6 +117,19 @@ namespace mgis::behaviour::internals {

@@ -1,4 +1,4 @@
-From 0fd130e78d0392b755d16c6e1ea4b375f24bb07d Mon Sep 17 00:00:00 2001
+From 81c01597214a55d702f927302325136e8ae3bcf7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 01:08:36 +0200
 Subject: [PATCH] CUDA test: rotation without policy on views of the device

@@ -1,4 +1,4 @@
-From 860b693d1c2dd4a4a41f6456d3f72f538910ac63 Mon Sep 17 00:00:00 2001
+From 6f48547484805b4eca2b26cfbe7845af9eca769d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:43:03 +0200
 Subject: [PATCH] updateInputValues: update of the values of a state except its

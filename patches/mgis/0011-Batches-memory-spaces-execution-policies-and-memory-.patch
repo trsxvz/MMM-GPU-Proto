@@ -1,4 +1,4 @@
-From 6dd3930db3d6a91c853e04b7d2e3e6b4cfd8b609 Mon Sep 17 00:00:00 2001
+From 79e30df121867508124d4da21c8e6fb55bb57986 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:55:03 +0200
 Subject: [PATCH] Batches: memory spaces, execution policies and memory
@@ -1718,7 +1718,7 @@ index cd571a5..75ebc6e 100644
      d.tfel_version = lm.getTFELVersion(l, b);
      d.unit_system = lm.getUnitSystem(l, b);
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 6313f6d..a29d24e 100644
+index ba8a435..6eaa316 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -30,6 +30,14 @@

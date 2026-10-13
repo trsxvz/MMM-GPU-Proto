@@ -1,4 +1,4 @@
-From 66db6c88039a7a1f227f05acc354d89fec86b9b5 Mon Sep 17 00:00:00 2001
+From 12cba38dcd3da6d901fbc91775590544e3f71c4e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 19:40:48 +0200
 Subject: [PATCH] generic-parallel: location of the arrays of the rotations,
@@ -1739,7 +1739,7 @@ index 511a020..41aefc8 100644
      if (t == FiniteStrainTangentOperator::DPK1_DF) {
        if (h == Hypothesis::TRIDIMENSIONAL) {
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 6e4ae46..9bdce74 100644
+index 253056f..b102e47 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -1002,10 +1002,8 @@ namespace mgis::behaviour {

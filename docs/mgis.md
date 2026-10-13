@@ -6,7 +6,7 @@ charge les bibliothèques générées par MFront et gère les données matériau
 bibliothèques de l'interface `generic-parallel` : lois, modèles et
 propriétés matériau calculés par lots, sur CPU ou sur GPU.
 
-- Base : MGIS master `818f0f9` (02/10/2026).
+- Base : MGIS master `e8ef4b4` (13/10/2026 ; branche du prototype rebasée sur cette version, partie de `818f0f9` du 02/10/2026).
 - Sources modifiées : dépôt `mgis/`, branche `gpu-proto`. Série de patchs :
   `patches/mgis/` (`git am`).
 - La documentation de l'API, en anglais, est dans l'arbre de MGIS (voir

@@ -1,4 +1,4 @@
-From cb9081caba69d23b6c162c0454b6a752631cbb08 Mon Sep 17 00:00:00 2001
+From 39a9d4bac55872e7a04fddb8305f4a1d6af68949 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:06:29 +0200
 Subject: [PATCH] Initialize functions and post-processings of batches
@@ -23,7 +23,7 @@ post-processing with the ones of the generic interface.
  2 files changed, 258 insertions(+), 58 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index bf74934..92331e5 100644
+index d799dd2..b1f6adc 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -444,51 +444,41 @@ namespace mgis::behaviour::internals {

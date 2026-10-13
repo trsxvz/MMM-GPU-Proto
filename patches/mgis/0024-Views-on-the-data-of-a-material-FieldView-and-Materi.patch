@@ -1,4 +1,4 @@
-From 6ad216826da96b2d020b1d3df546e2399e16e91b Mon Sep 17 00:00:00 2001
+From 6b346c5f81f55baf5bb84af37a95c612a18d4fe3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 23:48:26 +0200
 Subject: [PATCH] Views on the data of a material: FieldView and
@@ -23,12 +23,12 @@ point.
  include/MGIS/FieldView.hxx                    |  247 ++
  include/MGIS/FieldView.ixx                    |  263 ++
  src/CMakeLists.txt                            |    1 +
- src/Integrate.cxx                             | 2418 ++++++++++-------
+ src/Integrate.cxx                             | 2420 ++++++++++-------
  src/MaterialDataManager.cxx                   |   35 +-
  src/MaterialDataView.cxx                      |  332 +++
  tests/CMakeLists.txt                          |   13 +
  tests/MaterialDataViewTest.cxx                |  780 ++++++
- 12 files changed, 3752 insertions(+), 931 deletions(-)
+ 12 files changed, 3753 insertions(+), 932 deletions(-)
  create mode 100644 include/MGIS/Behaviour/MaterialDataView.hxx
  create mode 100644 include/MGIS/FieldView.hxx
  create mode 100644 include/MGIS/FieldView.ixx
@@ -1224,7 +1224,7 @@ index 31775b0..7bb523d 100644
    FiniteStrainSupport.cxx
    Model.cxx
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index 9bdce74..8ec30e4 100644
+index b102e47..9b8550d 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
 @@ -12,7 +12,9 @@
@@ -3306,8 +3306,11 @@ index 9bdce74..8ec30e4 100644
    /*!
 -   * \brief execute an initialize function without inputs on a batch,
 -   * synchronously or asynchronously depending on the execution policy
--   */
--  template <typename ExecutionPolicy>
++   * \brief execute an initialize function on a batch of points of a
++   * material data manager, synchronously or asynchronously depending on the
++   * execution policy
+    */
+   template <typename ExecutionPolicy>
 -  static auto executeInitializeFunctionOnBatch(const ExecutionPolicy& p,
 -                                               MaterialDataManager& m,
 -                                               const std::string_view n,
@@ -3322,11 +3325,8 @@ index 9bdce74..8ec30e4 100644
 -  /*!
 -   * \brief execute an initialize function with inputs on a batch,
 -   * synchronously or asynchronously depending on the execution policy
-+   * \brief execute an initialize function on a batch of points of a
-+   * material data manager, synchronously or asynchronously depending on the
-+   * execution policy
-    */
-   template <typename ExecutionPolicy>
+-   */
+-  template <typename ExecutionPolicy>
 -  static auto executeInitializeFunctionOnBatch(const ExecutionPolicy& p,
 -                                               MaterialDataManager& m,
 -                                               const std::string_view n,
@@ -3440,12 +3440,6 @@ index 9bdce74..8ec30e4 100644
 -        return internals::executeInitializeFunction(m, ifct, b, b + d);
 -      }));
 -      b += d;
--    }
--    auto res = MultiThreadedBehaviourIntegrationResult{};
--    for (auto& t : tasks) {
--      const auto ri = *(t.get());
--      res.exit_status = std::min(res.exit_status, ri.exit_status);
--      res.results.push_back(ri);
 +    auto memory = internals::TemporaryMemory{};
 +    const auto v = make_view(m, memory.get());
 +    return executeOnThreadPool(
@@ -3464,7 +3458,11 @@ index 9bdce74..8ec30e4 100644
 +    if (isGenericParallelBehaviour(m.b)) {
 +      return makeMultiThreadedResult(executeInitializeFunction(m, n, inputs));
      }
--    return res;
+-    auto res = MultiThreadedBehaviourIntegrationResult{};
+-    for (auto& t : tasks) {
+-      const auto ri = *(t.get());
+-      res.exit_status = std::min(res.exit_status, ri.exit_status);
+-      res.results.push_back(ri);
 +    const auto& f = getBehaviourInitializeFunction(m.b, n);
 +    const auto i = getInitializeFunctionInputsView(m, f, n, inputs);
 +    m.setThreadSafe(true);
@@ -3475,46 +3473,8 @@ index 9bdce74..8ec30e4 100644
 +          return internals::executeInitializeFunctionPointwise(
 +              m.getBehaviourIntegrationWorkSpace(), v, f, i, b, e);
 +        });
-   }  // end of executeInitializeFunction
- 
--  MultiThreadedBehaviourIntegrationResult executeInitializeFunction(
--      mgis::ThreadPool& p,
--      MaterialDataManager& m,
--      const std::string_view n,
--      std::span<const real> inputs) {
--    if (isGenericParallelBehaviour(m.b)) {
--      return makeMultiThreadedResult(executeInitializeFunction(m, n, inputs));
--    }
--    const auto& ifct = getBehaviourInitializeFunction(m.b, n);
--    const auto estride = getInitializeFunctionInputsStride(m, ifct, n, inputs);
--    m.setThreadSafe(true);
--    // get number of threads
--    const auto nth = p.getNumberOfThreads();
--    const auto d = m.n / nth;
--    const auto r = m.n % nth;
--    size_type b = 0;
--    std::vector<std::future<ThreadedTaskResult<BehaviourIntegrationResult>>>
--        tasks;
--    tasks.reserve(nth);
--    for (size_type i = 0; i != r; ++i) {
--      tasks.push_back(p.addTask([&inputs, &m, &ifct, estride, b, d] {
--        return internals::executeInitializeFunction(m, ifct, inputs, estride, b,
--                                                    b + d + 1);
--      }));
--      b += d + 1;
--    }
--    for (size_type i = r; i != nth; ++i) {
--      tasks.push_back(p.addTask([&inputs, &m, &ifct, estride, b, d] {
--        return internals::executeInitializeFunction(m, ifct, inputs, estride, b,
--                                                    b + d);
--      }));
--      b += d;
--    }
--    auto res = MultiThreadedBehaviourIntegrationResult{};
--    for (auto& t : tasks) {
--      const auto ri = *(t.get());
--      res.exit_status = std::min(res.exit_status, ri.exit_status);
--      res.results.push_back(ri);
++  }  // end of executeInitializeFunction
++
 +  /*
 +   * integration
 +   */
@@ -3568,11 +3528,51 @@ index 9bdce74..8ec30e4 100644
 +    return internals::integratePointwise(ws, v, opts, dt, b, e, nullptr);
 +  }  // end of integrate
  
--  BehaviourIntegrationResult integrate(MaterialDataManager& m,
+-  MultiThreadedBehaviourIntegrationResult executeInitializeFunction(
+-      mgis::ThreadPool& p,
+-      MaterialDataManager& m,
+-      const std::string_view n,
+-      std::span<const real> inputs) {
+-    if (isGenericParallelBehaviour(m.b)) {
+-      return makeMultiThreadedResult(executeInitializeFunction(m, n, inputs));
+-    }
+-    const auto& ifct = getBehaviourInitializeFunction(m.b, n);
+-    const auto estride = getInitializeFunctionInputsStride(m, ifct, n, inputs);
+-    m.setThreadSafe(true);
+-    // get number of threads
+-    const auto nth = p.getNumberOfThreads();
+-    const auto d = m.n / nth;
+-    const auto r = m.n % nth;
+-    size_type b = 0;
+-    std::vector<std::future<ThreadedTaskResult<BehaviourIntegrationResult>>>
+-        tasks;
+-    tasks.reserve(nth);
+-    for (size_type i = 0; i != r; ++i) {
+-      tasks.push_back(p.addTask([&inputs, &m, &ifct, estride, b, d] {
+-        return internals::executeInitializeFunction(m, ifct, inputs, estride, b,
+-                                                    b + d + 1);
+-      }));
+-      b += d + 1;
+-    }
+-    for (size_type i = r; i != nth; ++i) {
+-      tasks.push_back(p.addTask([&inputs, &m, &ifct, estride, b, d] {
+-        return internals::executeInitializeFunction(m, ifct, inputs, estride, b,
+-                                                    b + d);
+-      }));
+-      b += d;
+-    }
+-    auto res = MultiThreadedBehaviourIntegrationResult{};
+-    for (auto& t : tasks) {
+-      const auto ri = *(t.get());
+-      res.exit_status = std::min(res.exit_status, ri.exit_status);
+-      res.results.push_back(ri);
+-    }
+-    return res;
+-  }  // end of executeInitializeFunction
 +  BehaviourIntegrationResult integrate(BehaviourIntegrationWorkSpace& ws,
 +                                       const MaterialDataView& v,
-                                        const BehaviourIntegrationOptions& opts,
-                                        const real dt) {
++                                       const BehaviourIntegrationOptions& opts,
++                                       const real dt) {
 +    return integrate(ws, v, opts, dt, 0, v.n);
 +  }  // end of integrate
 +
@@ -3617,9 +3617,10 @@ index 9bdce74..8ec30e4 100644
 +  }  // end of integrate_debug
 +
 +  // material data managers
-+
-+  BehaviourIntegrationResult integrate(MaterialDataManager& m,
-+                                       const BehaviourIntegrationOptions& opts,
+ 
+   BehaviourIntegrationResult integrate(MaterialDataManager& m,
+                                        const BehaviourIntegrationOptions& opts,
+-                                       const real dt) {
 +                                       const real dt,
 +                                       const size_type b,
 +                                       const size_type e) {
@@ -3850,7 +3851,7 @@ index 9bdce74..8ec30e4 100644
 -    }
 -    auto res = MultiThreadedBehaviourIntegrationResult{};
 -    for (auto& t : tasks) {
--      const auto& ri = *(t.get());
+-      const auto ri = *(t.get());
 -      res.exit_status = std::min(res.exit_status, ri.exit_status);
 -      res.results.push_back(ri);
 -    }
