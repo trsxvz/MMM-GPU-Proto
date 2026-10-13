@@ -159,7 +159,13 @@ de trois façons, qui doivent toutes passer :
   précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`,
   182 tests, 180/182 le 12/10 en 624 s sans les variables précédentes,
   179/182 en 652 s avec) : des tests simultanés se
-  partagent le GPU et échouent. Les
+  partagent le GPU et échouent. Le script
+  `scripts/mfem-mgis-gpu-suite.sh [default|kernels]` lance cette suite
+  avec l'assemblage ordonné des matrices de rigidité
+  (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`), qui rend les résultats
+  identiques d'un passage à l'autre : 184/186 le 13/10 en 668 s avec les
+  noyaux forcés (mfem-mgis 54ff8e6c8a), seuls les deux tests qui exigent
+  l'absence de périphérique échouant. Les
   tests à 4 processus demandent aussi
   `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1` : hypre réserve sinon 4 Gio par
   processus sur le GPU (16 Go). Seuls `DeviceForallTest-cpu` et

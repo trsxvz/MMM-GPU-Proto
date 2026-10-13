@@ -1,0 +1,43 @@
+date : 2026-10-13 10:30:17
+cas : poutre
+machine : 16 cœurs, 30 Go
+charge : 5.18 5.46 4.99
+mfem-mgis : 54ff8e6c8a
+pression : 1e8 Pa, exécutable avant : /home/t/Documents/GitHub/mfem-mgis-gpu-proto/scratch/nuit-2026-10-11/l76/poutre-avant
+== poutre-gpu-sans-pression-avant : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704597 | iterations per step: 2 2 2 3 4 4 4 4 5 5 | total 35
+time 1.808 s
+== poutre-gpu-pression-avant : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.8094358 | iterations per step: 2 2 2 4 4 4 5 4 5 5 | total 37
+time 17.630 s
+== poutre-np8-sans-pression-avant : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704598 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 7.128 s
+== poutre-np8-pression-avant : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.80943646 | iterations per step: 2 2 3 4 4 4 4 5 5 4 | total 37
+time 9.876 s
+== poutre-gpu-sans-pression-apres : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704568 | iterations per step: 2 2 2 3 4 4 4 5 5 5 | total 36
+time 1.499 s
+== poutre-gpu-pression-apres : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.80943584 | iterations per step: 2 2 2 3 4 4 4 4 4 5 | total 34
+time 1.704 s
+== poutre-gpu-pression-sans-matrice-apres : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.80943559 | iterations per step: 2 2 2 3 4 4 5 4 5 5 | total 36
+time 1.864 s
+== poutre-np8-sans-pression-apres : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704598 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 5.696 s
+== poutre-np8-pression-apres : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   statut 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.80943561 | iterations per step: 2 2 2 3 4 4 4 4 5 4 | total 34
+time 5.681 s
+fin : 2026-10-13 10:31:19

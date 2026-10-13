@@ -138,10 +138,11 @@ if [ "$case_name" = ex8 ]; then
 elif [ "$case_name" = bulle ]; then
   summary="^Newton iteration|^PCG Iterations"
 fi
-# poutre : exécutable (par défaut celui du dossier de construction, chemin
-# absolu pour un autre exécutable, par exemple construit avec une version
-# précédente de mfem-mgis)
-executable=./poutre
+# poutre et polycristal : exécutable (par défaut celui du dossier de
+# construction, chemin absolu pour un autre exécutable, par exemple
+# construit avec une autre version de mfem-mgis), lu dans la variable
+# `executable` si elle est définie avant
+executable=${executable:-}
 # polycristal : option des post-traitements (vide pour les exécuter : export
 # ParaView et moyennes des contraintes à chaque pas)
 post_processing=--disable-post-processing
@@ -151,7 +152,8 @@ command_of() {
   local library=$1 name=$2
   case "$case_name" in
     poutre)
-      echo "$executable" -r "${refinement:-4}" -n 10 -mi 3000 -ls "$linear_solver" \
+      echo "${executable:-./poutre}" -r "${refinement:-4}" -n 10 -mi 3000 \
+        -ls "$linear_solver" \
         -lt "$linear_tolerance" \
         -l "$library" --profiling ${device:+--device $device} $options
       ;;
@@ -182,7 +184,7 @@ command_of() {
         ${device:+--device $device} $options
       ;;
     polycristal)
-      echo ./uniaxial-polycrystal $post_processing --nstep 10 \
+      echo "${executable:-./uniaxial-polycrystal}" $post_processing --nstep 10 \
         --duration 10 -l "$library" \
         --macroscopic-stress-output-file "$out/$name.res" \
         ${device:+--device $device} $options

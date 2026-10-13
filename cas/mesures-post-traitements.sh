@@ -2,7 +2,10 @@
 # Coût des post-traitements (lot L8) : polycristal de mm-opera-hpc, 10 pas,
 # tous les noyaux, Newton, sur le GPU et sur 8 processus CPU, sans puis
 # avec les post-traitements du cas (export ParaView des résultats et
-# moyennes des contraintes à chaque pas). Les sections de profilage de
+# moyennes des contraintes à chaque pas), calculés sur l'hôte puis par
+# noyaux (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels). La variable
+# `executable` donne un autre exécutable que celui du dossier de
+# construction (chemin absolu). Les sections de profilage de
 # mfem-mgis séparent la recopie des matériaux vers l'hôte
 # (NLEP::PP::synchronizeOnHost) de l'exécution des post-traitements
 # (NLEP::PP::execute). Les fichiers ParaView sont écrits dans le dossier de
@@ -50,6 +53,9 @@ for device in cuda ""; do
   [ -n "$device" ] && wait_for_gpu
   run "polycristal-$where-post-traitements" 1 $np "$library" "$batch" \
     "${kernels[@]}"
+  [ -n "$device" ] && wait_for_gpu
+  run "polycristal-$where-post-traitements-noyaux" 1 $np "$library" \
+    "$batch" "${kernels[@]}" MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
   rm -rf "$B"/OutputFile-Uniaxial-polycrystal* "$B"/PolycrystalParaviewOutput
 done
 python3 "$P/cas/resume-profilage.py" "$out"/polycristal-*.txt > "$out/profilage.txt" 2>&1

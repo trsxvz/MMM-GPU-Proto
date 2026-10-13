@@ -4565,3 +4565,21 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   valeur : tangente de la poutre r4 en 6 ms contre 4,3 ms en atomique, plus
   0,13 s au premier assemblage ; NewtonK0 2,2 à 2,35 s contre 1,9 s.
   Sur CPU, même coût que l'atomique (`results/assemblage-ordonne-2026-10-12`).
+
+### 2026-10-13, mesures de la pression et des post-traitements, suite GPU ordonnée
+
+- Pression imposée sur la poutre r4 (lot L7.6,
+  `results/pression-poutre-2026-10-13-1030`) : sur le GPU, avec pression,
+  17,6 s avant le lot (intégrateur de bord sur l'hôte, tangente assemblée
+  par MFEM sur l'hôte) contre 1,70 s après ; sur 8 cœurs, le surcoût de la
+  pression disparaît (9,88 contre 5,68 s).
+- Post-traitements du polycristal (lot L8,
+  `results/L8-polycristal-2026-10-13-1027`) : 1,5 s sur 11 s sur le GPU,
+  sans gain par noyaux (l'export ParaView domine), contre ×2,8 sur le
+  temps total de la bulle (projections).
+- Suite de mfem-mgis sur le GPU avec l'assemblage ordonné
+  (`scripts/mfem-mgis-gpu-suite.sh`) : 184/186 avec les noyaux forcés,
+  seuls les deux tests qui exigent l'absence de périphérique échouant.
+- Série ssna303 refaite (`results/ssna303-ssna303-2026-10-13-0924`) :
+  raffinement 1, GPU ×2,3 (FBar ×2,7) ; raffinement 2 hors de la mémoire
+  du GPU.

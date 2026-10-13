@@ -13,6 +13,9 @@
 # Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
 # autre processus libère le GPU, puis le signale dans le résumé.
 #
+# La variable APRES donne l'exécutable de la nouvelle version (par défaut
+# celui du dossier de construction du cas).
+#
 # usage : cas/mesures-pression-poutre.sh exécutable-avant [dossier de résultats]
 lot=pression
 before=$(realpath "$1")
@@ -48,7 +51,7 @@ for version in avant apres; do
   if [ "$version" = avant ]; then
     executable=$before
   else
-    executable=./poutre
+    executable=${APRES:-./poutre}
   fi
   device=cuda
   options="$base -hdps 0.5"
