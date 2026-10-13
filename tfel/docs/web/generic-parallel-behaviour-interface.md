@@ -537,11 +537,8 @@ by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
 
 > **Note**
 >
-> If `TFEL_APPEND_SUFFIX` is set, the files are installed in
-> `share/tfel-<suffix>/mfront/configuration-files`, whereas `MFront`
-> searches `share/tfel/mfront-<suffix>/configuration-files`: the
-> configuration files must then be given by their path, or found through
-> the `--search-path` option or the `MFRONT_INCLUDE_PATH` variable.
+> If `TFEL_APPEND_SUFFIX` is set, the files are installed in, and searched
+> by `MFront` in, `share/tfel-<suffix>/mfront/configuration-files`.
 
 | Configuration file                      | Backend  | Compiler and target                                   |
 |:----------------------------------------|:---------|:------------------------------------------------------|

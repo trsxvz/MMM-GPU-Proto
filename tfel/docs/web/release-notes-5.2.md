@@ -185,11 +185,9 @@ If a file given by the `--configuration-file` option is not found in the
 current directory, `MFront` searches it in the directories given by the
 preceding `--search-path` options, then in the directories listed by the
 `MFRONT_INCLUDE_PATH` variable, then in
-`share/tfel/mfront/configuration-files`. If `TFEL_APPEND_SUFFIX` is set,
-`MFront` searches `share/tfel/mfront-<suffix>/configuration-files`
-instead, where the configuration files are not installed: they must then
-be found through the `--search-path` option or the `MFRONT_INCLUDE_PATH`
-variable.
+`share/tfel/mfront/configuration-files` (or
+`share/tfel-<suffix>/mfront/configuration-files` if `TFEL_APPEND_SUFFIX`
+is set).
 
 ## Add a `build-tests` target
 
