@@ -1,0 +1,325 @@
+From ab219a8ea8a1f0c2d66ac603905287be387eeaa7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:14:27 +0200
+Subject: [PATCH] Tests compared to reference solutions
+
+The tests of the three cases only checked that the computations ran: a
+wrong result, for instance a null stress field, passed. They now compare
+values of the output files, through cmake/run-and-check.py (Python 3,
+standard library only; without Python 3, the cases are only run):
+
+- polycrystal: one time step of 0.2 s (instead of 0.1 s), the axial stress
+  Szz being compared to the one of Cast3M (results/polycrystal_cast3m.csv),
+  relative tolerance of 1 % (difference 7.6e-5);
+- cermet: two time steps of 0.2 s (instead of one of 0.4 s), Szz at 0.2 s
+  and 0.4 s compared to Cast3M (results/cermet_cast3m.csv), 1 %
+  (differences 0.16 % and 0.29 %);
+- bubble: the stress at the bubble compared to the analytical hoop stress
+  at the surface of the cavity, half the pressure, 20 % for the coarse mesh
+  of the test (difference 16 %).
+
+Each test writes its own output file (the bubble tests share theirs and
+are serialized). The GPU variants give the same values as on the CPU.
+---
+ CMakeLists.txt             | 39 ++++++++++++++++
+ bubble/CMakeLists.txt      | 21 +++++++--
+ bubble/README.md           |  2 +-
+ cermet/CMakeLists.txt      | 16 ++++++-
+ cermet/README.md           |  2 +-
+ cmake/run-and-check.py     | 95 ++++++++++++++++++++++++++++++++++++++
+ polycrystal/CMakeLists.txt | 27 +++++++++--
+ polycrystal/README.md      |  2 +-
+ 8 files changed, 192 insertions(+), 12 deletions(-)
+ create mode 100755 cmake/run-and-check.py
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9bd1308..32a538f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -56,6 +56,45 @@ if(MM_OPERA_HPC_GPU_TESTS)
+   endif()
+ endif()
+ 
++# Tests comparing results to reference solutions: the case is run by
++# cmake/run-and-check.py, which then compares values of its output file to
++# the expected ones. Without Python 3, the cases are only run.
++#
++# usage: mm_opera_hpc_add_checked_test(NAME <name> FILE <output file>
++#            TOLERANCE <relative tolerance>
++#            CHECKS <row> <column> <expected> [<row> <column> <expected>...]
++#            COMMAND <command...>)
++set(MM_OPERA_HPC_RUN_AND_CHECK
++    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-check.py")
++find_package(Python3 COMPONENTS Interpreter QUIET)
++if(NOT Python3_Interpreter_FOUND)
++  message(STATUS "Python 3 not found: the results of the cases are not "
++                 "compared to the reference solutions")
++endif()
++function(mm_opera_hpc_add_checked_test)
++  cmake_parse_arguments(_t "" "NAME;FILE;TOLERANCE" "CHECKS;COMMAND" ${ARGN})
++  if(NOT Python3_Interpreter_FOUND)
++    add_test(NAME ${_t_NAME} COMMAND ${_t_COMMAND})
++    return()
++  endif()
++  set(_checks)
++  list(LENGTH _t_CHECKS _n)
++  math(EXPR _last "${_n} - 1")
++  foreach(_i RANGE 0 ${_last} 3)
++    math(EXPR _j "${_i} + 1")
++    math(EXPR _k "${_i} + 2")
++    list(GET _t_CHECKS ${_i} _row)
++    list(GET _t_CHECKS ${_j} _column)
++    list(GET _t_CHECKS ${_k} _expected)
++    list(APPEND _checks --check ${_row} ${_column} ${_expected})
++  endforeach()
++  add_test(NAME ${_t_NAME}
++           COMMAND ${Python3_EXECUTABLE}
++                   ${MM_OPERA_HPC_RUN_AND_CHECK}
++                   --file ${_t_FILE} --tolerance ${_t_TOLERANCE} ${_checks}
++                   -- ${_t_COMMAND})
++endfunction()
++
+ add_subdirectory(src)
+ add_subdirectory(polycrystal)
+ add_subdirectory(bubble)
+diff --git a/bubble/CMakeLists.txt b/bubble/CMakeLists.txt
+index 8805a4e..6fb2cb5 100644
+--- a/bubble/CMakeLists.txt
++++ b/bubble/CMakeLists.txt
+@@ -32,10 +32,25 @@ target_include_directories(test-bubble
+ 
+ file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
+ 
+-add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
++# the stress at the bubble (column Stress of the output file) is compared to
++# the analytical hoop stress at the surface of a spherical cavity under the
++# internal pressure p (1 by default), p / 2, with a tolerance of 20 % for
++# the coarse mesh of the test (a null stress field fails). Both tests write
++# the same output file.
++set(_bubble_options --mesh mesh/mesh_sphere.msh
++    --bubble-file mesh/single_bubble_ci.txt)
++mm_opera_hpc_add_checked_test(NAME BubbleTest
++  FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5
++  TOLERANCE 0.2
++  COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
++set_tests_properties(BubbleTest PROPERTIES RESOURCE_LOCK bubble_output)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
+-  add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
+-  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
++  mm_opera_hpc_add_checked_test(NAME BubbleTest-gpu
++    FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5
++    TOLERANCE 0.2
++    COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options} --execution gpu)
++  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK
++                       "gpu;bubble_output")
+ endif()
+ 
+ 
+diff --git a/bubble/README.md b/bubble/README.md
+index d9240c2..b8e5be4 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -93,4 +93,4 @@ The comparison between the computational results and and the analytical solution
+ 
+ ## Tests
+ 
+-`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`.
++`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`. Both compare the stress at the bubble (column `Stress` of `bubbles_and_stresses_selected.txt`) to the analytical hoop stress at the surface of the cavity, half the pressure, with a tolerance of 20 % for this coarse mesh (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run).
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index da69fcc..f6ce264 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -21,10 +21,22 @@ target_compile_definitions(cermet PRIVATE
+ 
+ ## Test
+ add_dependencies(check cermet BehavioursCermet)
+-add_test(NAME CermetNullStrainXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
++# two time steps of 0.2 s, the axial stress Szz (column 7 of the output
++# file) being compared to the one computed by Cast3M at each step
++# (results/cermet_cast3m.csv)
++set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
++set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
++mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
++  FILE cermet-test.res ${_cermet_checks}
++  COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
++          --macroscopic-stress-output-file cermet-test.res)
+ add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
+-  add_test(NAME CermetNullStrainXXYY-gpu COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0 --execution gpu)
++  mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-gpu
++    FILE cermet-test-gpu.res ${_cermet_checks}
++    COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
++            --macroscopic-stress-output-file cermet-test-gpu.res
++            --execution gpu)
+   set_tests_properties(CermetNullStrainXXYY-gpu PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+ 
+diff --git a/cermet/README.md b/cermet/README.md
+index 92c9477..83e4a1e 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -123,7 +123,7 @@ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
+ ### Tests
+ 
+-`ctest` runs `CermetNullStrainXXYY` and `CermetImposeGradXXYY`, one time step of 0.4 s without post-processing (both tests run the same command), and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
++`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
+ 
+ 
+ ### Run it
+diff --git a/cmake/run-and-check.py b/cmake/run-and-check.py
+new file mode 100755
+index 0000000..9f24f1b
+--- /dev/null
++++ b/cmake/run-and-check.py
+@@ -0,0 +1,95 @@
++#!/usr/bin/env python3
++"""Runs a test case, then compares values of its output file to expected
++values (reference solutions), with a relative tolerance.
++
++usage: run-and-check.py --file <output file> --tolerance <relative>
++           --check <row> <column> <expected> [--check ...] -- <command...>
++
++- <row>: value of the first column of the row (for instance a time), or
++  `first` (first row of values);
++- <column>: index of the column (starting at 1) or name given by the header
++  of the file;
++- the output file is removed before running the command, so that a result
++  of a previous run can't be checked.
++
++The values are separated by spaces or by commas; the lines whose first
++field is not a number are headers. Only the standard library is used.
++"""
++
++import argparse
++import os
++import subprocess
++import sys
++
++
++def is_number(s):
++    try:
++        float(s)
++        return True
++    except ValueError:
++        return False
++
++
++def read_values(path):
++    """returns the header (names of the columns) and the rows of values"""
++    header = []
++    rows = []
++    with open(path) as f:
++        for line in f:
++            sep = "," if "," in line else None
++            fields = [v.strip() for v in line.split(sep)]
++            fields = [v for v in fields if v]
++            if not fields:
++                continue
++            if is_number(fields[0]):
++                rows.append(fields)
++            elif not rows:
++                header = fields
++    return header, rows
++
++
++def main():
++    if "--" not in sys.argv:
++        sys.exit("run-and-check.py: no command given (after --)")
++    i = sys.argv.index("--")
++    command = sys.argv[i + 1:]
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--file", required=True)
++    parser.add_argument("--tolerance", type=float, required=True)
++    parser.add_argument("--check", nargs=3, action="append", required=True,
++                        metavar=("ROW", "COLUMN", "EXPECTED"))
++    args = parser.parse_args(sys.argv[1:i])
++    if os.path.exists(args.file):
++        os.remove(args.file)
++    status = subprocess.run(command).returncode
++    if status != 0:
++        sys.exit(f"run-and-check.py: the command failed (status {status})")
++    if not os.path.exists(args.file):
++        sys.exit(f"run-and-check.py: no output file '{args.file}'")
++    header, rows = read_values(args.file)
++    success = True
++    for row, column, expected in args.check:
++        if row == "first":
++            selected = rows[0] if rows else None
++        else:
++            selected = next((r for r in rows
++                             if abs(float(r[0]) - float(row)) <=
++                             1e-12 * max(1, abs(float(row)))), None)
++        if selected is None:
++            print(f"no row '{row}' in '{args.file}'")
++            success = False
++            continue
++        c = int(column) - 1 if column.isdigit() else header.index(column)
++        value = float(selected[c])
++        reference = float(expected)
++        error = abs(value - reference) / abs(reference)
++        ok = error <= args.tolerance
++        print(f"row {row}, column {column}: {value:.8g} (expected "
++              f"{reference:.8g}, relative error {error:.3g}, tolerance "
++              f"{args.tolerance:g}): {'OK' if ok else 'MISMATCH'}")
++        success = success and ok
++    sys.exit(0 if success else 1)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 6598600..1489830 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -22,11 +22,30 @@ target_compile_definitions(uniaxial-polycrystal PRIVATE
+     
+ # testing
+ add_dependencies(check uniaxial-polycrystal BehavioursPolycrystal)
+-add_test(NAME UniaxialPolycrystalTest COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
++# one time step of 0.2 s, the axial stress Szz (column 7 of the output file)
++# being compared to the one computed by Cast3M (results/polycrystal_cast3m.csv)
++set(_polycrystal_checks CHECKS 0.2 7 1.7994e7 TOLERANCE 0.01)
++set(_polycrystal_options --disable-post-processing --nstep 1 --duration 0.2)
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest
++  FILE polycrystal-test.res ${_polycrystal_checks}
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test.res)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
+-  add_test(NAME UniaxialPolycrystalTest-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution gpu)
+-  add_test(NAME UniaxialPolycrystalTest-mixed-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution mixed --behaviours cpu)
++  mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-gpu
++    FILE polycrystal-test-gpu.res ${_polycrystal_checks}
++    COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++            --macroscopic-stress-output-file polycrystal-test-gpu.res
++            --execution gpu)
++  mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-mixed-gpu
++    FILE polycrystal-test-mixed-gpu.res ${_polycrystal_checks}
++    COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++            --macroscopic-stress-output-file polycrystal-test-mixed-gpu.res
++            --execution mixed --behaviours cpu)
+   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+-add_test(NAME UniaxialPolycrystalTestPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTestPar
++  FILE polycrystal-test-par.res ${_polycrystal_checks}
++  COMMAND mpirun -n 2 $<TARGET_FILE:uniaxial-polycrystal>
++          ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-par.res)
+ add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 09bccc5..32bf6a4 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -167,7 +167,7 @@ This table shows the comparison between the simulated Cauchy stress values and t
+ 
+ ## Tests
+ 
+-`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.1 s without post-processing), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
+ 
+ ## References
+ 
+-- 
+2.43.0
+

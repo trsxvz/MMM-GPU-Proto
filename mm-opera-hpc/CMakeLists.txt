@@ -56,6 +56,45 @@ if(MM_OPERA_HPC_GPU_TESTS)
   endif()
 endif()
 
+# Tests comparing results to reference solutions: the case is run by
+# cmake/run-and-check.py, which then compares values of its output file to
+# the expected ones. Without Python 3, the cases are only run.
+#
+# usage: mm_opera_hpc_add_checked_test(NAME <name> FILE <output file>
+#            TOLERANCE <relative tolerance>
+#            CHECKS <row> <column> <expected> [<row> <column> <expected>...]
+#            COMMAND <command...>)
+set(MM_OPERA_HPC_RUN_AND_CHECK
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/run-and-check.py")
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(NOT Python3_Interpreter_FOUND)
+  message(STATUS "Python 3 not found: the results of the cases are not "
+                 "compared to the reference solutions")
+endif()
+function(mm_opera_hpc_add_checked_test)
+  cmake_parse_arguments(_t "" "NAME;FILE;TOLERANCE" "CHECKS;COMMAND" ${ARGN})
+  if(NOT Python3_Interpreter_FOUND)
+    add_test(NAME ${_t_NAME} COMMAND ${_t_COMMAND})
+    return()
+  endif()
+  set(_checks)
+  list(LENGTH _t_CHECKS _n)
+  math(EXPR _last "${_n} - 1")
+  foreach(_i RANGE 0 ${_last} 3)
+    math(EXPR _j "${_i} + 1")
+    math(EXPR _k "${_i} + 2")
+    list(GET _t_CHECKS ${_i} _row)
+    list(GET _t_CHECKS ${_j} _column)
+    list(GET _t_CHECKS ${_k} _expected)
+    list(APPEND _checks --check ${_row} ${_column} ${_expected})
+  endforeach()
+  add_test(NAME ${_t_NAME}
+           COMMAND ${Python3_EXECUTABLE}
+                   ${MM_OPERA_HPC_RUN_AND_CHECK}
+                   --file ${_t_FILE} --tolerance ${_t_TOLERANCE} ${_checks}
+                   -- ${_t_COMMAND})
+endfunction()
+
 add_subdirectory(src)
 add_subdirectory(polycrystal)
 add_subdirectory(bubble)

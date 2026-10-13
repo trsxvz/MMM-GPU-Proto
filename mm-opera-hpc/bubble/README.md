@@ -93,4 +93,4 @@ The comparison between the computational results and and the analytical solution
 
 ## Tests
 
-`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`.
+`ctest` runs `BubbleTest`, the case on the coarse mesh `mesh/mesh_sphere.msh` with `mesh/single_bubble_ci.txt`, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `BubbleTest-gpu`, the same with `--execution gpu`. Both compare the stress at the bubble (column `Stress` of `bubbles_and_stresses_selected.txt`) to the analytical hoop stress at the surface of the cavity, half the pressure, with a tolerance of 20 % for this coarse mesh (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run).

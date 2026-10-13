@@ -123,7 +123,7 @@ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
 
 ### Tests
 
-`ctest` runs `CermetNullStrainXXYY` and `CermetImposeGradXXYY`, one time step of 0.4 s without post-processing (both tests run the same command), and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
+`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
 
 
 ### Run it

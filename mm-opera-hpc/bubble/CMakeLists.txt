@@ -32,10 +32,25 @@ target_include_directories(test-bubble
 
 file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
 
-add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
+# the stress at the bubble (column Stress of the output file) is compared to
+# the analytical hoop stress at the surface of a spherical cavity under the
+# internal pressure p (1 by default), p / 2, with a tolerance of 20 % for
+# the coarse mesh of the test (a null stress field fails). Both tests write
+# the same output file.
+set(_bubble_options --mesh mesh/mesh_sphere.msh
+    --bubble-file mesh/single_bubble_ci.txt)
+mm_opera_hpc_add_checked_test(NAME BubbleTest
+  FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5
+  TOLERANCE 0.2
+  COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
+set_tests_properties(BubbleTest PROPERTIES RESOURCE_LOCK bubble_output)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
-  add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
-  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
+  mm_opera_hpc_add_checked_test(NAME BubbleTest-gpu
+    FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5
+    TOLERANCE 0.2
+    COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options} --execution gpu)
+  set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK
+                       "gpu;bubble_output")
 endif()
 
 

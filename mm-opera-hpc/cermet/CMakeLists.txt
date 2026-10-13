@@ -21,10 +21,22 @@ target_compile_definitions(cermet PRIVATE
 
 ## Test
 add_dependencies(check cermet BehavioursCermet)
-add_test(NAME CermetNullStrainXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
+# two time steps of 0.2 s, the axial stress Szz (column 7 of the output
+# file) being compared to the one computed by Cast3M at each step
+# (results/cermet_cast3m.csv)
+set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
+set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
+mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+  FILE cermet-test.res ${_cermet_checks}
+  COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
+          --macroscopic-stress-output-file cermet-test.res)
 add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
-  add_test(NAME CermetNullStrainXXYY-gpu COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0 --execution gpu)
+  mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-gpu
+    FILE cermet-test-gpu.res ${_cermet_checks}
+    COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
+            --macroscopic-stress-output-file cermet-test-gpu.res
+            --execution gpu)
   set_tests_properties(CermetNullStrainXXYY-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()
 

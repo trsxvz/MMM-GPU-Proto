@@ -22,11 +22,30 @@ target_compile_definitions(uniaxial-polycrystal PRIVATE
     
 # testing
 add_dependencies(check uniaxial-polycrystal BehavioursPolycrystal)
-add_test(NAME UniaxialPolycrystalTest COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
+# one time step of 0.2 s, the axial stress Szz (column 7 of the output file)
+# being compared to the one computed by Cast3M (results/polycrystal_cast3m.csv)
+set(_polycrystal_checks CHECKS 0.2 7 1.7994e7 TOLERANCE 0.01)
+set(_polycrystal_options --disable-post-processing --nstep 1 --duration 0.2)
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest
+  FILE polycrystal-test.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test.res)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
-  add_test(NAME UniaxialPolycrystalTest-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution gpu)
-  add_test(NAME UniaxialPolycrystalTest-mixed-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution mixed --behaviours cpu)
+  mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-gpu
+    FILE polycrystal-test-gpu.res ${_polycrystal_checks}
+    COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+            --macroscopic-stress-output-file polycrystal-test-gpu.res
+            --execution gpu)
+  mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-mixed-gpu
+    FILE polycrystal-test-mixed-gpu.res ${_polycrystal_checks}
+    COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+            --macroscopic-stress-output-file polycrystal-test-mixed-gpu.res
+            --execution mixed --behaviours cpu)
   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()
-add_test(NAME UniaxialPolycrystalTestPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTestPar
+  FILE polycrystal-test-par.res ${_polycrystal_checks}
+  COMMAND mpirun -n 2 $<TARGET_FILE:uniaxial-polycrystal>
+          ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-par.res)
 add_test(NAME PolycrystalTestWithPostProPar COMMAND mpirun -n 2 ./uniaxial-polycrystal --enable-export-von-Mises-stress --enable-export-first_eigen_stress --nstep 1 --duration 0.01)
