@@ -38,10 +38,14 @@ placement donné des éléments finis (EF), des lois et du solveur linéaire
   élément environ 28 s, l'intégration des lois sur le CPU 0,86 s (dont
   0,17 s de copies).
 - Tout sur le GPU, 120 copies dans chaque sens (0,07 s, 2,5 % du calcul)
-  restent, soit 12 par pas : hypothèse à vérifier, la mise à jour des états
-  à la fin de chaque pas, faite sur l'hôte, qui recopie les tableaux sur
-  l'hôte, le pas suivant les renvoyant sur le GPU. Piste : mettre à jour
-  les états sur le GPU quand les lois y sont intégrées.
+  restent, 12 par pas. Leur origine est celle trouvée par l'analyse des
+  transferts du 11/10 (`results/L7-transferts-2026-10-11`, mêmes 80 et 40
+  copies par sens sur la poutre) : la mise à jour de fin de pas est faite
+  sur le GPU, puis les tableaux d'état sont ramenés sur l'hôte, comme le
+  veut le contrat de `MaterialArrays` (l'état peut être modifié sur l'hôte
+  après une mise à jour), et l'intégration suivante les renvoie sur le
+  GPU. Piste : une option qui garde les états sur le GPU, les écritures
+  sur l'hôte étant alors synchronisées explicitement.
 - Les compteurs ne voient que les tableaux des matériaux : les propriétés
   matériau et les variables externes copiées vers le GPU à chaque
   intégration, et les recopies faites par MFEM (vecteurs, matrices données

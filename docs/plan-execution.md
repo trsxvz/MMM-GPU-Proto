@@ -181,6 +181,8 @@ l'assemblage de la tangente sur le GPU).
   mfem-mgis sont compilés pour HIP depuis la tâche 9c : compilation et
   édition de liens vérifiées pour un GPU AMD (gfx90a), pas d'essai sur un
   tel GPU.
-- Pistes : mettre à jour les états sur le GPU quand les lois y sont
-  intégrées (120 copies évitables sur la poutre, 0,07 s) ; compter les
-  autres transferts.
+- Pistes : garder les états sur le GPU après la mise à jour de fin de pas
+  (faite sur le GPU, mais suivie d'un retour sur l'hôte voulu par le
+  contrat de `MaterialArrays`, voir `results/L7-transferts-2026-10-11`),
+  avec des écritures sur l'hôte synchronisées explicitement (120 copies
+  évitables sur la poutre, 0,07 s) ; compter les autres transferts.
