@@ -58,3 +58,5 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   isotropic DSLs (and the test Plasticity8, which depends on it), DDIF2
   brick (non constant fracture stresses and energies, checks of the
   options), error normalization factor of `rkCastem`.
+- documentation: the pages and comments of the changed code, checked
+  against it (last patch).
