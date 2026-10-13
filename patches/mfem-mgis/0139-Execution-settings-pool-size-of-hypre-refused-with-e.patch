@@ -1,0 +1,61 @@
+From 1310acc702cefb2c8ffff6af0f01d02b4e915539 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 15:49:45 +0200
+Subject: [PATCH] Execution settings: pool size of hypre refused with
+ --execution cpu before the checks of hypre
+
+The contradiction between --execution cpu and --hypre-device-pool-size was reported after the setting of the size, which refuses it first when hypre does not use a pool of memory of Umpire: the message then depended on the build of hypre (ExecutionSettingsTest-refused-cpu-pool-size failed with a hypre without Umpire).
+---
+ src/Config.cxx | 22 ++++++++++++----------
+ 1 file changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 628fa9537e..5b34573d5b 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -482,6 +482,16 @@ namespace mfem_mgis {
+     // initialization of hypre)
+     const auto hypre_on_host_request = getHypreOnHostRequest(argc, argv);
+     const auto hypre_on_host = hypre_on_host_request.requested;
++    // contradictions between the options, reported before the checks
++    // depending on the build of hypre
++    const auto& execution = getExecutionSettings();
++    if ((execution.mode == ExecutionMode::CPU) &&
++        (hypre_device_pool_size != nullptr) &&
++        (!hypre_device_pool_size_from_environment)) {
++      mgis::raise(
++          "initialize: the size of the pool of memory of hypre on the GPU "
++          "can't be given with '--execution cpu'");
++    }
+     if (hypre_device_pool_size != nullptr) {
+       if (hypre_on_host && (!hypre_device_pool_size_from_environment)) {
+         mgis::raise(
+@@ -500,16 +510,6 @@ namespace mfem_mgis {
+         device_configuration = e;
+       }
+     }
+-    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
+-    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
+-    const auto& execution = getExecutionSettings();
+-    if ((execution.mode == ExecutionMode::CPU) &&
+-        (hypre_device_pool_size != nullptr) &&
+-        (!hypre_device_pool_size_from_environment)) {
+-      mgis::raise(
+-          "initialize: the size of the pool of memory of hypre on the GPU "
+-          "can't be given with '--execution cpu'");
+-    }
+ #ifdef MFEM_USE_PETSC
+     // PETSc solves the non linear problems on the host
+     if ((this->use_petsc) && (execution.mode != ExecutionMode::UNSPECIFIED) &&
+@@ -520,6 +520,8 @@ namespace mfem_mgis {
+           "cpu' or '--execution mixed --linear-solver-device cpu')");
+     }
+ #endif /* MFEM_USE_PETSC */
++    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
++    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
+     if (execution.mode == ExecutionMode::CPU) {
+       if ((device_configuration != nullptr) &&
+           (usesGPU(device_configuration))) {
+-- 
+2.43.0
+

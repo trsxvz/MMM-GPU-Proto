@@ -47,6 +47,21 @@ if(("@MFEM_USE_CUDA@" STREQUAL "YES") AND (NOT TARGET CUDA::cudart))
   endif()
 endif()
 
+# the library uses the runtime of HIP when MFEM is compiled with HIP: the
+# ROCm used to build mfem-mgis is searched first
+if(("@MFEM_USE_HIP@" STREQUAL "YES") AND (NOT TARGET hip::host))
+  if(NOT DEFINED hip_DIR)
+    set(hip_DIR "@MFEM_MGIS_HIP_DIR@")
+  endif()
+  find_package(hip CONFIG)
+  if(NOT TARGET hip::host)
+    set(MFEMMGIS_FOUND FALSE)
+    set(MFEMMGIS_NOT_FOUND_MESSAGE
+        "the ROCm used to build mfem-mgis is not found")
+    return()
+  endif()
+endif()
+
 # AmgX, if mfem-mgis uses it (see `FindAMGX.cmake`), the installation used
 # to build mfem-mgis being searched first
 set(MFEMMGIS_HAVE_AMGX @MFEM_MGIS_HAVE_AMGX@)
@@ -86,6 +101,10 @@ if(NOT _mfem_mgis_mfem_described)
                "@MFEM_MGIS_MFEM_CUDA_HOST_COMPILER@")
   set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_CUDA_ARCHITECTURES
                "@MFEM_MGIS_MFEM_CUDA_ARCHITECTURES@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_HIP_COMPILER
+               "@MFEM_MGIS_MFEM_HIP_COMPILER@")
+  set_property(GLOBAL PROPERTY MFEM_MGIS_MFEM_HIP_ARCHITECTURES
+               "@MFEM_MGIS_MFEM_HIP_ARCHITECTURES@")
 endif()
 
 # Require MGIS

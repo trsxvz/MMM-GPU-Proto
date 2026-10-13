@@ -432,11 +432,10 @@ Computations on a GPU
 Requirements
 ------------
 
-The kernels run on a GPU when :code:`MFEM` is compiled with :code:`CUDA`:
-the sources of :code:`mfem-mgis` containing kernels are then compiled as
-:code:`CUDA` code (see :doc:`../installation_guide/installation_guide`).
-When :code:`MFEM` is compiled with :code:`HIP`, these sources are not
-compiled, and the computations by kernels are refused.
+The kernels run on a GPU when :code:`MFEM` is compiled with :code:`CUDA`
+or :code:`HIP`: the sources of :code:`mfem-mgis` containing kernels are
+then compiled as :code:`CUDA` or :code:`HIP` code (see
+:doc:`../installation_guide/installation_guide`).
 
 .. _mfem_mgis_batch_computations_execution:
 
@@ -633,7 +632,9 @@ command above produces :code:`src/libGenericParallelBehaviour-cuda.so`.
 The behaviours generated with the configuration files :code:`config-cuda-nvcc.json`,
 :code:`config-cuda-clang.json`, :code:`config-hip-hipcc.json` and
 :code:`config-hip-clang-nvidia-platform.json` run on a NVIDIA GPU in
-:code:`mfem-mgis`. The ones generated with :code:`config-kokkos.json`
+:code:`mfem-mgis`. When :code:`MFEM` is compiled with :code:`HIP` for an
+AMD GPU, :code:`mfem_mgis_add_behaviours_library` compiles the behaviours
+with the :code:`hipcc` of :code:`MFEM`, for its GPU architectures. The ones generated with :code:`config-kokkos.json`
 require :code:`Kokkos` to be initialized: :code:`mfem-mgis` built with the
 option :code:`enable-kokkos` initializes it with the option
 :code:`--kokkos` (see :doc:`../installation_guide/installation_guide`).
@@ -903,8 +904,8 @@ being performed on the GPU.
 Limitations
 ===========
 
-- The kernels are not compiled when :code:`MFEM` is compiled with
-  :code:`HIP`.
+- With :code:`HIP`, :code:`mfem-mgis` compiles and links for an AMD GPU
+  but has not been run on one.
 - The integration by batches and the computations by kernels of the inner
   forces and of the tangent operator are not supported with the solvers of
   :code:`PETSc`.

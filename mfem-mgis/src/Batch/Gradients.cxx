@@ -15,9 +15,7 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "GradientsKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -150,14 +148,6 @@ namespace mfem_mgis::batch {
     return {};
   }  // end of getGradientsKind
 
-  bool areGradientsKernelsAvailable() noexcept {
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    return true;
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-    return false;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-  }  // end of areGradientsKernelsAvailable
-
   /*!
    * \brief resizes an array of the memory of MFEM, used on the device if a
    * device is enabled
@@ -181,16 +171,6 @@ namespace mfem_mgis::batch {
                                   const mfem::Vector& u,
                                   const mfem::IntegrationRule& ir,
                                   const bool values) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(d);
-    static_cast<void>(fes);
-    static_cast<void>(u);
-    static_cast<void>(ir);
-    static_cast<void>(values);
-    return ctx.registerErrorMessage(
-        "computeUnknownsDerivatives: the kernels computing the gradients are "
-        "not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto& mesh = *(fes.GetMesh());
       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
@@ -270,7 +250,6 @@ namespace mfem_mgis::batch {
           "computeUnknownsDerivatives: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeUnknownsDerivatives
 
   size_type getGradientsSize(const GradientsKind k) noexcept {
@@ -345,8 +324,6 @@ namespace mfem_mgis::batch {
   int getUnknownsSize(const GradientsKind k) noexcept {
     return requiresUnknownsValues(k) ? 1 : getSpaceDimension(k);
   }  // end of getUnknownsSize
-
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
   /*!
    * \brief checks the arguments of the computation of the gradients of a
@@ -427,22 +404,11 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of getGradientsKernelArguments
 
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
   bool computeGradients(Context& ctx,
                         Material& m,
                         const UnknownsDerivatives& d,
                         const ElementsGeometry& g,
                         const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(d);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return ctx.registerErrorMessage(
-        "computeGradients: the kernels computing the gradients are not "
-        "compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto gsize = getGradientsSize(k);
     if (m.s1.gradients_stride != gsize) {
       return ctx.registerErrorMessage(
@@ -476,21 +442,12 @@ namespace mfem_mgis::batch {
       return ctx.registerErrorMessage("computeGradients: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeGradients
 
   bool getUnknownsValues(Context& ctx,
                          mfem::Vector& v,
                          const PartialQuadratureSpace& qs,
                          const UnknownsDerivatives& d) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(v);
-    static_cast<void>(qs);
-    static_cast<void>(d);
-    return ctx.registerErrorMessage(
-        "getUnknownsValues: the kernels computing the gradients are not "
-        "compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto& elements = qs.getElements();
     const auto& offsets = qs.getElementOffsets();
     const auto n = std::int64_t{qs.getNumberOfIntegrationPoints()};
@@ -528,7 +485,6 @@ namespace mfem_mgis::batch {
       return ctx.registerErrorMessage("getUnknownsValues: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of getUnknownsValues
 
 }  // end of namespace mfem_mgis::batch

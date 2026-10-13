@@ -482,6 +482,16 @@ namespace mfem_mgis {
     // initialization of hypre)
     const auto hypre_on_host_request = getHypreOnHostRequest(argc, argv);
     const auto hypre_on_host = hypre_on_host_request.requested;
+    // contradictions between the options, reported before the checks
+    // depending on the build of hypre
+    const auto& execution = getExecutionSettings();
+    if ((execution.mode == ExecutionMode::CPU) &&
+        (hypre_device_pool_size != nullptr) &&
+        (!hypre_device_pool_size_from_environment)) {
+      mgis::raise(
+          "initialize: the size of the pool of memory of hypre on the GPU "
+          "can't be given with '--execution cpu'");
+    }
     if (hypre_device_pool_size != nullptr) {
       if (hypre_on_host && (!hypre_device_pool_size_from_environment)) {
         mgis::raise(
@@ -500,16 +510,6 @@ namespace mfem_mgis {
         device_configuration = e;
       }
     }
-    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
-    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
-    const auto& execution = getExecutionSettings();
-    if ((execution.mode == ExecutionMode::CPU) &&
-        (hypre_device_pool_size != nullptr) &&
-        (!hypre_device_pool_size_from_environment)) {
-      mgis::raise(
-          "initialize: the size of the pool of memory of hypre on the GPU "
-          "can't be given with '--execution cpu'");
-    }
 #ifdef MFEM_USE_PETSC
     // PETSc solves the non linear problems on the host
     if ((this->use_petsc) && (execution.mode != ExecutionMode::UNSPECIFIED) &&
@@ -520,6 +520,8 @@ namespace mfem_mgis {
           "cpu' or '--execution mixed --linear-solver-device cpu')");
     }
 #endif /* MFEM_USE_PETSC */
+    // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
+    // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
     if (execution.mode == ExecutionMode::CPU) {
       if ((device_configuration != nullptr) &&
           (usesGPU(device_configuration))) {

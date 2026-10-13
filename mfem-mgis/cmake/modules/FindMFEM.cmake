@@ -17,28 +17,32 @@
 #   - MFEM_LIBRARY_DIRS
 # and the variables of the `config.mk` file of MFEM (`MFEM_USE_CUDA`, ...).
 #
-# When MFEM is compiled with CUDA, the sources containing kernels of MFEM
-# must be compiled as CUDA code: see `MFEMMGISDeviceCode.cmake`, loaded by
-# this file (`mfem_mgis_enable_device_language`,
-# `mfem_mgis_compile_as_device_code`). CMake 3.18 is then required.
+# When MFEM is compiled with CUDA or HIP, the sources containing kernels of
+# MFEM must be compiled as CUDA or HIP code: see `MFEMMGISDeviceCode.cmake`,
+# loaded by this file (`mfem_mgis_enable_device_language`,
+# `mfem_mgis_compile_as_device_code`). CMake 3.18 (CUDA) or 3.21 (HIP) is
+# then required.
 
 # FIXME: Perhaps I should try to assert that we're building against
 # the same hypre library MFEM built on?
 
 ## We require parallel MFEM, which has explicit dependency on METIS and HYPRE
 
-# Start by finding the MFEM config.mk file
+# Start by finding the MFEM config.mk file: in the directory given by
+# MFEM_DIR (variable, then environment variable) first, then in the
+# prefixes of the environment variable CMAKE_PREFIX_PATH, which must not
+# hide the MFEM explicitly given
 
 set(INPUT_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}")
 STRING(REPLACE ":" ";" MYSEARCH_PATH "${INPUT_PREFIX_PATH}")
 find_file(MFEM_CONFIG_FILE config.mk
-  PATHS ${MYSEARCH_PATH} 
   PATHS ${MFEM_DIR}/build $ENV{MFEM_DIR}/build
   ${MFEM_DIR}
   $ENV{MFEM_DIR}
   # MFEM_DIR generally points to MFEM_INSTALL_DIR/lib/share/mfem
   ${MFEM_DIR}/../../../
   $ENV{MFEM_DIR}/../../../
+  ${MYSEARCH_PATH}
   PATH_SUFFIXES share/mfem
   NO_DEFAULT_PATH
   DOC "The MFEM configuration file")
@@ -178,6 +182,31 @@ if(MFEM_USE_CUDA STREQUAL "YES")
   list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
   set_property(TARGET MFEM::mfem APPEND
     PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)
+endif()
+# MFEM compiled with HIP: its headers include the headers of HIP
+# (`hip/hip_runtime.h`, ...), found by the C++ compiler through the target
+# `hip::host` of ROCm, which also gives the HIP runtime used by MFEM (linked
+# by hipcc, so not named in its external libraries)
+if(MFEM_USE_HIP STREQUAL "YES")
+  # the ROCm of the hipcc used to compile MFEM
+  if((NOT DEFINED hip_ROOT) AND (MFEM_CXX MATCHES "hipcc$"))
+    get_filename_component(_mfem_hip_bin "${MFEM_CXX}" DIRECTORY)
+    get_filename_component(hip_ROOT "${_mfem_hip_bin}" DIRECTORY)
+  endif()
+  # MFEM compiled with HIP uses the libraries of ROCm (rocsparse, ...): the
+  # platform is AMD, whatever the environment variable HIP_PLATFORM (which
+  # may select the NVIDIA platform for other codes)
+  if(NOT DEFINED HIP_PLATFORM)
+    set(HIP_PLATFORM amd)
+  endif()
+  # `hip_ROOT` is used (policy CMP0074, not set by the minimum version of
+  # CMake required by mfem-mgis)
+  cmake_policy(PUSH)
+  cmake_policy(SET CMP0074 NEW)
+  find_package(hip CONFIG REQUIRED)
+  cmake_policy(POP)
+  set_property(TARGET MFEM::mfem APPEND
+    PROPERTY INTERFACE_LINK_LIBRARIES hip::host)
 endif()
 set_property(TARGET MFEM::mfem APPEND
     PROPERTY INTERFACE_LINK_LIBRARIES ${MFEM_EXT_LIBS_LIST})

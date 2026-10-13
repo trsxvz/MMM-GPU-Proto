@@ -35,10 +35,10 @@ static void check(const bool b, const std::string& msg) {
  */
 static mgis::FieldView<mfem_mgis::real> getView(mfem::Vector& v,
                                                 const bool d,
-                                                const mfem_mgis::size_type n,
-                                                const mfem_mgis::size_type nc,
-                                                const mfem_mgis::size_type ps,
-                                                const mfem_mgis::size_type cs) {
+                                                const mgis::size_type n,
+                                                const mgis::size_type nc,
+                                                const mgis::size_type ps,
+                                                const mgis::size_type cs) {
   auto* const p = d ? v.ReadWrite() : v.HostReadWrite();
   return {std::span<mfem_mgis::real>(p, static_cast<std::size_t>(v.Size())), n,
           nc, ps, cs};

@@ -232,12 +232,6 @@ namespace mfem_mgis::batch {
   MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
       const GradientsKind) noexcept;
   /*!
-   * \return true if the kernels computing the gradients are compiled. They
-   * are not when MFEM is compiled with HIP (see the `CMakeLists.txt` of the
-   * sources).
-   */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsKernelsAvailable() noexcept;
-  /*!
    * \brief computes the derivatives of the unknowns at the points of an
    * integration rule, for all the elements of the mesh: element
    * restriction, then derivatives with respect to the reference coordinates

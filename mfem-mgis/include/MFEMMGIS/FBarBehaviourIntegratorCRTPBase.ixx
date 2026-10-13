@@ -543,9 +543,6 @@ namespace mfem_mgis {
       const noexcept {
     // deformation gradient in 3D or in plane strain, computed by the
     // kernels as by the FBar behaviour integrator
-    if (!batch::areGradientsKernelsAvailable()) {
-      return false;
-    }
     const auto k = batch::getGradientsKind(this->b);
     constexpr auto expected =
         (H == Hypothesis::PLANESTRAIN)

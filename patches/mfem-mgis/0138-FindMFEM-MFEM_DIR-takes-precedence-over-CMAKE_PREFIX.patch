@@ -1,0 +1,41 @@
+From 8bf113883e22b66522dca33e6f33075bc41f0ffa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 15:49:36 +0200
+Subject: [PATCH] FindMFEM: MFEM_DIR takes precedence over CMAKE_PREFIX_PATH
+
+The configuration file of MFEM was searched in the prefixes of the environment variable CMAKE_PREFIX_PATH before the directory given by MFEM_DIR: a MFEM found there (for instance in a spack view) hid the one given explicitly.
+---
+ cmake/modules/FindMFEM.cmake | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index e3accce111..d9112a5612 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -27,18 +27,21 @@
+ 
+ ## We require parallel MFEM, which has explicit dependency on METIS and HYPRE
+ 
+-# Start by finding the MFEM config.mk file
++# Start by finding the MFEM config.mk file: in the directory given by
++# MFEM_DIR (variable, then environment variable) first, then in the
++# prefixes of the environment variable CMAKE_PREFIX_PATH, which must not
++# hide the MFEM explicitly given
+ 
+ set(INPUT_PREFIX_PATH "$ENV{CMAKE_PREFIX_PATH}")
+ STRING(REPLACE ":" ";" MYSEARCH_PATH "${INPUT_PREFIX_PATH}")
+ find_file(MFEM_CONFIG_FILE config.mk
+-  PATHS ${MYSEARCH_PATH} 
+   PATHS ${MFEM_DIR}/build $ENV{MFEM_DIR}/build
+   ${MFEM_DIR}
+   $ENV{MFEM_DIR}
+   # MFEM_DIR generally points to MFEM_INSTALL_DIR/lib/share/mfem
+   ${MFEM_DIR}/../../../
+   $ENV{MFEM_DIR}/../../../
++  ${MYSEARCH_PATH}
+   PATH_SUFFIXES share/mfem
+   NO_DEFAULT_PATH
+   DOC "The MFEM configuration file")
+-- 
+2.43.0
+

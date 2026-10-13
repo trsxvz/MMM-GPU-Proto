@@ -15,9 +15,7 @@
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/FBar.hxx"
 #include "MFEMMGIS/Batch/Faltus.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "FaltusKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -57,17 +55,6 @@ namespace mfem_mgis::batch {
     return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
   }  // end of isFaltusSupportedByKernels
-
-  //! \brief error reported if the kernels are not compiled
-  [[maybe_unused]] static bool reportFaltusKernelsNotCompiled(
-      Context& ctx, const char* const name) {
-    return ctx.registerErrorMessage(
-        std::string{name} +
-        ": the kernels of the regularization of Faltus et al. are not "
-        "compiled (MFEM compiled with HIP)");
-  }  // end of reportFaltusKernelsNotCompiled
-
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
   /*!
    * \brief checks the geometric data of the integration points and of the
@@ -148,22 +135,12 @@ namespace mfem_mgis::batch {
     return std::int64_t{g.nd} * getUnknownsSize(k);
   }  // end of getNumberOfElementDegreesOfFreedom
 
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
   bool computeFaltusCenters(Context& ctx,
                             FaltusData& data,
                             const Material& m,
                             const UnknownsDerivatives* const d0,
                             const ElementsGeometry& g0,
                             const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(data);
-    static_cast<void>(m);
-    static_cast<void>(d0);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(ctx, "computeFaltusCenters");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       if (!isFaltusSupportedByKernels(k)) {
         return ctx.registerErrorMessage(
@@ -221,7 +198,6 @@ namespace mfem_mgis::batch {
           "computeFaltusCenters: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeFaltusCenters
 
   bool addFaltusInnerForces(Context& ctx,
@@ -232,16 +208,6 @@ namespace mfem_mgis::batch {
                             const ElementsGeometry& g,
                             const ElementsGeometry& g0,
                             const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(f);
-    static_cast<void>(data);
-    static_cast<void>(m);
-    static_cast<void>(alpha);
-    static_cast<void>(g);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusInnerForces");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto& qs = m.getPartialQuadratureSpace();
       const auto& elements = qs.getElements();
@@ -287,7 +253,6 @@ namespace mfem_mgis::batch {
           "addFaltusInnerForces: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFaltusInnerForces
 
   bool addFaltusStiffnessMatrices(Context& ctx,
@@ -297,15 +262,6 @@ namespace mfem_mgis::batch {
                                   const ElementsGeometry& g,
                                   const ElementsGeometry& g0,
                                   const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(qs);
-    static_cast<void>(alpha);
-    static_cast<void>(g);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
@@ -334,7 +290,6 @@ namespace mfem_mgis::batch {
           "addFaltusStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFaltusStiffnessMatrices
 
   bool addFaltusStiffnessMatrices(Context& ctx,
@@ -344,15 +299,6 @@ namespace mfem_mgis::batch {
                                   const ElementsGeometry& g,
                                   const ElementsGeometry& g0,
                                   const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(qs);
-    static_cast<void>(alpha);
-    static_cast<void>(g);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FaltusGeometryKernelArguments{};
@@ -386,7 +332,6 @@ namespace mfem_mgis::batch {
           "addFaltusStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFaltusStiffnessMatrices
 
   bool addFaltusStiffnessMatricesDiagonals(Context& ctx,
@@ -396,16 +341,6 @@ namespace mfem_mgis::batch {
                                            const ElementsGeometry& g,
                                            const ElementsGeometry& g0,
                                            const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(d);
-    static_cast<void>(qs);
-    static_cast<void>(alpha);
-    static_cast<void>(g);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(
-        ctx, "addFaltusStiffnessMatricesDiagonals");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
@@ -434,7 +369,6 @@ namespace mfem_mgis::batch {
           "addFaltusStiffnessMatricesDiagonals: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFaltusStiffnessMatricesDiagonals
 
   bool addFaltusTangentOperatorAction(Context& ctx,
@@ -445,17 +379,6 @@ namespace mfem_mgis::batch {
                                       const ElementsGeometry& g,
                                       const ElementsGeometry& g0,
                                       const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(y);
-    static_cast<void>(qs);
-    static_cast<void>(x);
-    static_cast<void>(alpha);
-    static_cast<void>(g);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFaltusKernelsNotCompiled(ctx,
-                                          "addFaltusTangentOperatorAction");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
@@ -485,7 +408,6 @@ namespace mfem_mgis::batch {
           "addFaltusTangentOperatorAction: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFaltusTangentOperatorAction
 
 }  // end of namespace mfem_mgis::batch

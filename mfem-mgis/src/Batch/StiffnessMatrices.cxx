@@ -24,13 +24,9 @@
 #include "mfem/linalg/sparsemat.hpp"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "StiffnessMatricesKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
-
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
   /*!
    * \brief checks the arguments of `addStiffnessMatrices` and fills the
@@ -198,8 +194,6 @@ namespace mfem_mgis::batch {
 
   }  // end of namespace internals
 
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
   bool addStiffnessMatrices(Context& ctx,
                             mfem::Vector& m,
                             const PartialQuadratureSpace& qs,
@@ -207,17 +201,6 @@ namespace mfem_mgis::batch {
                             const ElementsGeometry& g,
                             const GradientsKind k,
                             const TangentOperatorModification& mod) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    static_cast<void>(mod);
-    return ctx.registerErrorMessage(
-        "addStiffnessMatrices: the kernels computing the stiffness matrices "
-        "are not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
@@ -243,7 +226,6 @@ namespace mfem_mgis::batch {
           "addStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatrices
 
   bool addStiffnessMatricesDiagonals(
@@ -254,17 +236,6 @@ namespace mfem_mgis::batch {
       const ElementsGeometry& g,
       const GradientsKind k,
       const TangentOperatorModification& mod) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(d);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    static_cast<void>(mod);
-    return ctx.registerErrorMessage(
-        "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
-        "matrices are not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
@@ -291,7 +262,6 @@ namespace mfem_mgis::batch {
           "addStiffnessMatricesDiagonals: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatricesDiagonals
 
   bool addTangentOperatorAction(
@@ -303,18 +273,6 @@ namespace mfem_mgis::batch {
       const ElementsGeometry& g,
       const GradientsKind k,
       const TangentOperatorModification& mod) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(y);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(x);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    static_cast<void>(mod);
-    return ctx.registerErrorMessage(
-        "addTangentOperatorAction: the kernels computing the stiffness "
-        "matrices are not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::StiffnessMatricesKernelArguments{};
@@ -344,7 +302,6 @@ namespace mfem_mgis::batch {
           "addTangentOperatorAction: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addTangentOperatorAction
 
   bool computeElementsDegreesOfFreedom(
@@ -480,15 +437,6 @@ namespace mfem_mgis::batch {
                                          const mfem::FiniteElementSpace& fes,
                                          const mfem::Array<int>& dofs,
                                          const mfem::SparseMatrix& m) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(positions);
-    static_cast<void>(fes);
-    static_cast<void>(dofs);
-    static_cast<void>(m);
-    return ctx.registerErrorMessage(
-        "computeStiffnessMatricesPositions: the kernels are not compiled "
-        "(MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       positions.SetSize(0);
       const auto ne = std::int64_t{fes.GetNE()};
@@ -529,16 +477,9 @@ namespace mfem_mgis::batch {
           "computeStiffnessMatricesPositions: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeStiffnessMatricesPositions
 
   bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    return ctx.registerErrorMessage(
-        "zeroSparseMatrixValues: the kernels are not compiled (MFEM compiled "
-        "with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       if (!m.Finalized()) {
         return ctx.registerErrorMessage(
@@ -555,7 +496,6 @@ namespace mfem_mgis::batch {
           "zeroSparseMatrixValues: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of zeroSparseMatrixValues
 
   bool computeEntriesContributions(Context& ctx,
@@ -563,15 +503,6 @@ namespace mfem_mgis::batch {
                                    const mfem::SparseMatrix& m,
                                    const mfem::Array<int>& dofs,
                                    const int n) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(c);
-    static_cast<void>(m);
-    static_cast<void>(dofs);
-    static_cast<void>(n);
-    return ctx.registerErrorMessage(
-        "computeEntriesContributions: the kernels are not compiled (MFEM "
-        "compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       if ((!m.Finalized()) || (n <= 0) || (dofs.Size() % n != 0)) {
         return ctx.registerErrorMessage(
@@ -661,21 +592,12 @@ namespace mfem_mgis::batch {
           "computeEntriesContributions: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeEntriesContributions
 
   bool addStiffnessMatricesByEntries(Context& ctx,
                                      const AssembledStiffnessMatrix& m,
                                      const EntriesContributions& c,
                                      const mfem::Vector& k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(c);
-    static_cast<void>(k);
-    return ctx.registerErrorMessage(
-        "addStiffnessMatricesByEntries: the kernels are not compiled (MFEM "
-        "compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto nv = (m.element_dofs != nullptr)
                           ? std::int64_t{m.element_dofs->Size()}
@@ -721,7 +643,6 @@ namespace mfem_mgis::batch {
           "addStiffnessMatricesByEntries: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatricesByEntries
 
   bool addStiffnessMatrices(Context& ctx,
@@ -731,17 +652,6 @@ namespace mfem_mgis::batch {
                             const ElementsGeometry& g,
                             const GradientsKind k,
                             const TangentOperatorModification& mod) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    static_cast<void>(mod);
-    return ctx.registerErrorMessage(
-        "addStiffnessMatrices: the kernels computing the stiffness matrices "
-        "are not compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       if (!internals::checkAssembledStiffnessMatrix(
               ctx, m, g.ne, std::int64_t{g.nd} * getUnknownsSize(k),
@@ -770,7 +680,6 @@ namespace mfem_mgis::batch {
           "addStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addStiffnessMatrices
 
 }  // end of namespace mfem_mgis::batch

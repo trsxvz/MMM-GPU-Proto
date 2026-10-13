@@ -177,9 +177,10 @@ l'assemblage de la tangente sur le GPU).
 - Limites réelles (documentées dans le guide de mfem-mgis) : solveurs qui
   n'existent que d'un côté ; solveurs de MFEM sur le GPU dès qu'un GPU est
   utilisé ; placement de hypre global ; cuDSS sur le GPU avec hypre sur
-  l'hôte seulement par les options expertes ; avec HIP, éléments finis et
-  post-traitements sur le CPU tant que les noyaux de mfem-mgis ne sont pas
-  compilés pour HIP (tâche 9c).
+  l'hôte seulement par les options expertes. Avec HIP, les noyaux de
+  mfem-mgis sont compilés pour HIP depuis la tâche 9c : compilation et
+  édition de liens vérifiées pour un GPU AMD (gfx90a), pas d'essai sur un
+  tel GPU.
 - Pistes : mettre à jour les états sur le GPU quand les lois y sont
   intégrées (120 copies évitables sur la poutre, 0,07 s) ; compter les
   autres transferts.

@@ -237,9 +237,6 @@ namespace mfem_mgis {
     if constexpr (H == Hypothesis::PLANESTRESS) {
       return false;
     } else {
-      if (!batch::areGradientsKernelsAvailable()) {
-        return false;
-      }
       // deformation gradient in 3D or in plane strain
       const auto k = batch::getGradientsKind(this->b);
       constexpr auto expected =

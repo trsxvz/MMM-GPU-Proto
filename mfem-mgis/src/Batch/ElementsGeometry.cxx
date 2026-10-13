@@ -18,9 +18,7 @@
 #include "mfem/fem/gridfunc.hpp"
 #include "mfem/mesh/mesh.hpp"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "ElementsGeometryKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -145,14 +143,6 @@ namespace mfem_mgis::batch {
                                const mfem::Mesh& mesh,
                                const mfem::IntegrationRule& ir,
                                const mfem::Array<int>* const elements) {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(g);
-    static_cast<void>(mesh);
-    static_cast<void>(ir);
-    return ctx.registerErrorMessage(
-        "computeElementsGeometry: the kernel computing the jacobians is not "
-        "compiled (MFEM compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     if (std::int64_t{g.ne} * g.nq * g.dim * g.dim >
         std::numeric_limits<int>::max()) {
       return ctx.registerErrorMessage(
@@ -206,7 +196,6 @@ namespace mfem_mgis::batch {
     // the end of the kernels
     g.jacobians = std::move(jacobians);
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeJacobians
 
   /*!

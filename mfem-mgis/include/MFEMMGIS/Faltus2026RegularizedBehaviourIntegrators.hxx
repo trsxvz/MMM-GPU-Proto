@@ -142,10 +142,9 @@ namespace mfem_mgis {
     void update() override;
     /*!
      * \return true in 3D and in plane strain (deformation gradient of the
-     * kind of the hypothesis), if the kernels are available (see
-     * `batch::areGradientsKernelsAvailable`) and if all the elements of the
-     * material use the same integration rule: the regularization is
-     * computed by the kernels of `MFEMMGIS/Batch/Faltus.hxx`
+     * kind of the hypothesis) and if all the elements of the material use
+     * the same integration rule: the regularization is computed by the
+     * kernels of `MFEMMGIS/Batch/Faltus.hxx`
      */
     [[nodiscard]] bool supportsKernels() const noexcept override;
     //! \return the integration rule of the center of the elements

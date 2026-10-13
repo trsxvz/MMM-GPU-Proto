@@ -16,9 +16,7 @@
 #include "mfem/fem/fe/fe_base.hpp"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "InnerForcesKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -37,18 +35,6 @@ namespace mfem_mgis::batch {
                                            const GradientsKind k,
                                            const bool by_material_element,
                                            const char* const name) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(f);
-    static_cast<void>(qs);
-    static_cast<void>(s);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    static_cast<void>(by_material_element);
-    return ctx.registerErrorMessage(
-        std::string{name} +
-        ": the kernels computing the inner forces are not compiled (MFEM "
-        "compiled with HIP)");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto& elements = qs.getElements();
     const auto& offsets = qs.getElementOffsets();
     if (elements.Size() == 0) {
@@ -109,7 +95,6 @@ namespace mfem_mgis::batch {
                                       ": unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addInnerForcesImplementation
 
   bool addInnerForces(Context& ctx,

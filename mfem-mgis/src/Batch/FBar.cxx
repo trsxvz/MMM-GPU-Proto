@@ -18,9 +18,7 @@
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
 #include "MFEMMGIS/Batch/FBar.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "FBarKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -83,8 +81,6 @@ namespace mfem_mgis::batch {
     return (k == GradientsKind::DEFORMATION_GRADIENT_3D) ||
            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
   }  // end of isFBarSupportedByKernels
-
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
   /*!
    * \brief resizes an array of the memory of MFEM, used on the device if a
@@ -269,31 +265,12 @@ namespace mfem_mgis::batch {
             .c = data.tangent_c.Read(use_device)};
   }  // end of getFBarTangentOperatorModification
 
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
-  //! \brief error reported if the kernels are not compiled
-  [[maybe_unused]] static bool reportFBarKernelsNotCompiled(
-      Context& ctx, const char* const name) {
-    return ctx.registerErrorMessage(
-        std::string{name} +
-        ": the kernels of the FBar formulation are not compiled (MFEM "
-        "compiled with HIP)");
-  }  // end of reportFBarKernelsNotCompiled
-
   bool applyFBar(Context& ctx,
                  FBarData& data,
                  Material& m,
                  const UnknownsDerivatives& d0,
                  const ElementsGeometry& g0,
                  const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(data);
-    static_cast<void>(m);
-    static_cast<void>(d0);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "applyFBar");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       if (m.s1.gradients_stride != getGradientsSize(k)) {
         return ctx.registerErrorMessage(
@@ -311,7 +288,6 @@ namespace mfem_mgis::batch {
     } catch (...) {
       return ctx.registerErrorMessage("applyFBar: unknown exception");
     }
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of applyFBar
 
   bool initializeFBar(Context& ctx,
@@ -319,13 +295,6 @@ namespace mfem_mgis::batch {
                       const Material& m,
                       const ElementsGeometry& g0,
                       const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(data);
-    static_cast<void>(m);
-    static_cast<void>(g0);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "initializeFBar");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       return computeFBarData(ctx, data, m, nullptr, true, nullptr, g0, k,
                              "initializeFBar");
@@ -335,7 +304,6 @@ namespace mfem_mgis::batch {
     } catch (...) {
       return ctx.registerErrorMessage("initializeFBar: unknown exception");
     }
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of initializeFBar
 
   bool computeFBarTangentOperator(Context& ctx,
@@ -344,14 +312,6 @@ namespace mfem_mgis::batch {
                                   const mgis::FieldView<const real>& K,
                                   const ElementsGeometry& g,
                                   const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(data);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "computeFBarTangentOperator");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       data.has_tangent_operator = false;
       data.tangent_operator_blocks = nullptr;
@@ -426,7 +386,6 @@ namespace mfem_mgis::batch {
           "computeFBarTangentOperator: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeFBarTangentOperator
 
   bool addFBarStiffnessMatrices(Context& ctx,
@@ -436,15 +395,6 @@ namespace mfem_mgis::batch {
                                 const mgis::FieldView<const real>& K,
                                 const ElementsGeometry& g,
                                 const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(data);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
@@ -471,7 +421,6 @@ namespace mfem_mgis::batch {
           "addFBarStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFBarStiffnessMatrices
 
   bool addFBarStiffnessMatrices(Context& ctx,
@@ -481,15 +430,6 @@ namespace mfem_mgis::batch {
                                 const mgis::FieldView<const real>& K,
                                 const ElementsGeometry& g,
                                 const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(data);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
@@ -523,7 +463,6 @@ namespace mfem_mgis::batch {
           "addFBarStiffnessMatrices: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFBarStiffnessMatrices
 
   bool addFBarStiffnessMatricesDiagonals(Context& ctx,
@@ -533,16 +472,6 @@ namespace mfem_mgis::batch {
                                          const mgis::FieldView<const real>& K,
                                          const ElementsGeometry& g,
                                          const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(d);
-    static_cast<void>(data);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx,
-                                        "addFBarStiffnessMatricesDiagonals");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
@@ -570,7 +499,6 @@ namespace mfem_mgis::batch {
           "addFBarStiffnessMatricesDiagonals: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFBarStiffnessMatricesDiagonals
 
   bool addFBarTangentOperatorAction(Context& ctx,
@@ -581,16 +509,6 @@ namespace mfem_mgis::batch {
                                     const mfem::Vector& x,
                                     const ElementsGeometry& g,
                                     const GradientsKind k) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(y);
-    static_cast<void>(data);
-    static_cast<void>(qs);
-    static_cast<void>(K);
-    static_cast<void>(x);
-    static_cast<void>(g);
-    static_cast<void>(k);
-    return reportFBarKernelsNotCompiled(ctx, "addFBarTangentOperatorAction");
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     try {
       const auto use_device = mfem::Device::IsEnabled();
       auto a = internals::FBarRankOneKernelArguments{};
@@ -616,7 +534,6 @@ namespace mfem_mgis::batch {
           "addFBarTangentOperatorAction: unknown exception");
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addFBarTangentOperatorAction
 
 }  // end of namespace mfem_mgis::batch

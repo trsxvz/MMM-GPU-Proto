@@ -39,8 +39,8 @@ GPU.
 |---|---|---|---|
 | TFEL/MFront | master `ff0959ece` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant | [docs/tfel.md](docs/tfel.md) |
 | MGIS | master `e8ef4b4` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections | [docs/mgis.md](docs/mgis.md) |
-| mfem-mgis | master `8fac67336e` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, réutilisation de l'analyse de MUMPS, solveur direct cuDSS sur le GPU, assemblage ordonné de la tangente (mêmes résultats à chaque passage sur le GPU), réglages d'exécution (`--execution cpu|gpu|mixed`, placement de chaque phase, copies hôte/GPU comptées, bibliothèques de lois pour le CPU et le GPU), corrections ; 137 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
-| mfem-mgis-examples | master `600da70` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU ; 25 patchs | `patches/mfem-mgis-examples/` |
+| mfem-mgis | master `8fac67336e` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, réutilisation de l'analyse de MUMPS, solveur direct cuDSS sur le GPU, assemblage ordonné de la tangente (mêmes résultats à chaque passage sur le GPU), réglages d'exécution (`--execution cpu|gpu|mixed`, placement de chaque phase, copies hôte/GPU comptées, bibliothèques de lois pour le CPU et le GPU), noyaux compilés pour CUDA ou HIP (GPU AMD : compilation vérifiée, sans essai), corrections ; 141 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
+| mfem-mgis-examples | master `600da70` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU ; 26 patchs | `patches/mfem-mgis-examples/` |
 | mm-opera-hpc | main `49147f2` (dépôt `rprat-pro/mm-opera-hpc`) | polycristal : choix du solveur non linéaire (Newton, NewtonK0), de la tolérance adaptative et d'AmgX, loi intégrée sur le GPU ; bulle et cermet : options de mfem-mgis et de la loi, synchronisations sur l'hôte, profilage des post-traitements, solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU ; 20 patchs | [results/L5-polycristal-2026-10-10-0502/README.md](results/L5-polycristal-2026-10-10-0502/README.md) |
 
 ## Documentation
@@ -129,3 +129,9 @@ cmake --build build/mgis --target check -j16   # construit et lance les tests
 
 Les tests et leur lecture sont décrits dans
 [docs/validation.md](docs/validation.md).
+
+Compilation pour un GPU AMD (la machine de développement n'en a pas :
+compilation et édition de liens seulement) : `scripts/build-hip-amd.sh`
+construit hypre, MFEM compilé avec HIP pour gfx90a et mfem-mgis avec ce
+MFEM, à partir de ROCm installé sans droits d'administrateur (paquets
+Python de ROCm, voir l'en-tête du script).

@@ -157,9 +157,8 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
        PartialQuadratureFunctionsSet.cxx)
 endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
 
-# batch processing (sources containing kernels of MFEM, compiled as CUDA
-# code when MFEM is compiled with CUDA). The compilation of kernels of MFEM
-# compiled with HIP is not supported yet: those sources are then left out.
+# batch processing (sources containing kernels of MFEM, compiled as CUDA or
+# HIP code when MFEM is compiled with CUDA or HIP)
 set(MFEMMGIS_DEVICE_SOURCES
   Batch/MFEMFieldOperations.cxx
   Batch/GradientsKernels.cxx
@@ -173,14 +172,8 @@ set(MFEMMGIS_DEVICE_SOURCES
 if(MFEM_MGIS_HAVE_AMGX)
   list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
 endif()
-if(MFEM_USE_HIP STREQUAL "YES")
-  message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
-          "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
-  set(MFEMMGIS_DEVICE_SOURCES)
-endif()
 list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
-# host part of the computations by kernels (gradients, inner forces), which
-# reports an error if the kernels are not compiled
+# host part of the computations by kernels (gradients, inner forces)
 list(APPEND MFEMMGIS_SOURCES
   Batch/ElementsGeometry.cxx
   Batch/Gradients.cxx
@@ -192,15 +185,15 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/GlobalStiffnessMatrix.cxx)
 
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
-if(MFEMMGIS_DEVICE_SOURCES)
-  mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
-  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_DEVICE_SOURCES)
-endif()
-# the kernels of the library use the runtime of CUDA: the dependency is
-# carried by the library itself, not only by the target of MFEM, which a
+mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
+# the kernels of the library use the runtime of CUDA or HIP: the dependency
+# is carried by the library itself, not only by the target of MFEM, which a
 # project may define on its own
 if(MFEM_USE_CUDA STREQUAL "YES")
   target_link_libraries(MFEMMGIS PUBLIC CUDA::cudart)
+endif()
+if(MFEM_USE_HIP STREQUAL "YES")
+  target_link_libraries(MFEMMGIS PUBLIC hip::host)
 endif()
 # AmgX precedes MFEM in the link line: a MFEM compiled with AmgX contains
 # its own copy of AmgX (static library), which the library of AmgX given to

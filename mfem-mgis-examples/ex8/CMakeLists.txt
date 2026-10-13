@@ -77,85 +77,88 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
 else()
   set(rjh_plate_mesh assemblage_hexa_coarse)
 endif()
-add_test(NAME rjh_plate
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-        $<TARGET_FILE:rjh_plate>
-        -m ${rjh_plate_mesh}.msh
-        -lsMc MUMPSSolver
-        -rf ${rjh_plate_mesh}-statistics.ref
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-# one OpenMP thread per process, otherwise MUMPS oversubscribes the cores
-set_tests_properties(rjh_plate PROPERTIES
-    PROCESSORS 2
-    ENVIRONMENT OMP_NUM_THREADS=1)
-# the same computation by batches and by kernels (integration of the
-# behaviours by batches, gradients, inner forces and tangent operator
-# computed by kernels, the Robin boundary condition being added to them),
-# compared to the same reference
-add_test(NAME rjh_plate-kernels
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-        $<TARGET_FILE:rjh_plate>
-        -m ${rjh_plate_mesh}.msh
-        -lsMc MUMPSSolver
-        -rf ${rjh_plate_mesh}-statistics.ref
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set(rjh_plate_kernels_environment
-    "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-set_tests_properties(rjh_plate-kernels PROPERTIES
-    PROCESSORS 2
-    ENVIRONMENT "${rjh_plate_kernels_environment}")
-# the tangent operator of the mechanical problem given to MUMPS as a
-# symmetric positive definite matrix, compared to the same reference
-add_test(NAME rjh_plate-mumps-spd
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-        $<TARGET_FILE:rjh_plate>
-        -m ${rjh_plate_mesh}.msh
-        -lsMc MUMPSSolver
-        -msMc SymmetricPositiveDefinite
-        -rf ${rjh_plate_mesh}-statistics.ref
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(rjh_plate-mumps-spd PROPERTIES
-    PROCESSORS 2
-    ENVIRONMENT "${rjh_plate_kernels_environment}")
-# the mechanical problem solved by the NewtonK0 method (tangent systems
-# solved by GMRES preconditioned by the elastic operator, factorized by
-# MUMPS at each time step), all the computations being made by kernels
-add_test(NAME rjh_plate-newton-k0
-    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-        $<TARGET_FILE:rjh_plate>
-        -m ${rjh_plate_mesh}.msh
-        -lsMc MUMPSSolver
-        -nlsMc NewtonK0
-        -rf ${rjh_plate_mesh}-statistics.ref
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(rjh_plate-newton-k0 PROPERTIES
-    PROCESSORS 2
-    ENVIRONMENT "${rjh_plate_kernels_environment}")
-# the same computation on a GPU, the direct solver MUMPS computing on the
-# CPU (option --execution mixed --linear-solver-device cpu), and with the
-# finite elements computed on the CPU too (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx8_HAVE_GPU_BEHAVIOURS)
-  add_test(NAME rjh_plate-gpu
+# the mechanical problem is solved by MUMPS
+if(MFEM_USE_MUMPS)
+  add_test(NAME rjh_plate
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
           $<TARGET_FILE:rjh_plate>
           -m ${rjh_plate_mesh}.msh
           -lsMc MUMPSSolver
           -rf ${rjh_plate_mesh}-statistics.ref
-          --execution mixed --linear-solver-device cpu
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-  add_test(NAME rjh_plate-mixed-gpu
-      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-          $<TARGET_FILE:rjh_plate>
-          -m ${rjh_plate_mesh}.msh
-          -lsMc MUMPSSolver
-          -rf ${rjh_plate_mesh}-statistics.ref
-          --execution mixed --linear-solver-device cpu
-          --finite-elements cpu
-      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-  set_tests_properties(rjh_plate-gpu rjh_plate-mixed-gpu PROPERTIES
+  # one OpenMP thread per process, otherwise MUMPS oversubscribes the cores
+  set_tests_properties(rjh_plate PROPERTIES
       PROCESSORS 2
-      RESOURCE_LOCK gpu
       ENVIRONMENT OMP_NUM_THREADS=1)
+  # the same computation by batches and by kernels (integration of the
+  # behaviours by batches, gradients, inner forces and tangent operator
+  # computed by kernels, the Robin boundary condition being added to them),
+  # compared to the same reference
+  add_test(NAME rjh_plate-kernels
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc MUMPSSolver
+          -rf ${rjh_plate_mesh}-statistics.ref
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set(rjh_plate_kernels_environment
+      "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
+  set_tests_properties(rjh_plate-kernels PROPERTIES
+      PROCESSORS 2
+      ENVIRONMENT "${rjh_plate_kernels_environment}")
+  # the tangent operator of the mechanical problem given to MUMPS as a
+  # symmetric positive definite matrix, compared to the same reference
+  add_test(NAME rjh_plate-mumps-spd
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc MUMPSSolver
+          -msMc SymmetricPositiveDefinite
+          -rf ${rjh_plate_mesh}-statistics.ref
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(rjh_plate-mumps-spd PROPERTIES
+      PROCESSORS 2
+      ENVIRONMENT "${rjh_plate_kernels_environment}")
+  # the mechanical problem solved by the NewtonK0 method (tangent systems
+  # solved by GMRES preconditioned by the elastic operator, factorized by
+  # MUMPS at each time step), all the computations being made by kernels
+  add_test(NAME rjh_plate-newton-k0
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc MUMPSSolver
+          -nlsMc NewtonK0
+          -rf ${rjh_plate_mesh}-statistics.ref
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(rjh_plate-newton-k0 PROPERTIES
+      PROCESSORS 2
+      ENVIRONMENT "${rjh_plate_kernels_environment}")
+  # the same computation on a GPU, the direct solver MUMPS computing on the
+  # CPU (option --execution mixed --linear-solver-device cpu), and with the
+  # finite elements computed on the CPU too (see ../config/TestMode.cmake)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx8_HAVE_GPU_BEHAVIOURS)
+    add_test(NAME rjh_plate-gpu
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+            $<TARGET_FILE:rjh_plate>
+            -m ${rjh_plate_mesh}.msh
+            -lsMc MUMPSSolver
+            -rf ${rjh_plate_mesh}-statistics.ref
+            --execution mixed --linear-solver-device cpu
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    add_test(NAME rjh_plate-mixed-gpu
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+            $<TARGET_FILE:rjh_plate>
+            -m ${rjh_plate_mesh}.msh
+            -lsMc MUMPSSolver
+            -rf ${rjh_plate_mesh}-statistics.ref
+            --execution mixed --linear-solver-device cpu
+            --finite-elements cpu
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(rjh_plate-gpu rjh_plate-mixed-gpu PROPERTIES
+        PROCESSORS 2
+        RESOURCE_LOCK gpu
+        ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
 endif()
 
 # comparison of the swelling model to its exact value

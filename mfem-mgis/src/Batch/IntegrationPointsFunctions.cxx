@@ -15,9 +15,7 @@
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
 #include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 #include "IntegrationPointsFunctionsKernels.hxx"
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 
 namespace mfem_mgis::batch {
 
@@ -61,8 +59,6 @@ namespace mfem_mgis::batch {
     }
     return true;
   }  // end of gatherValues
-
-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
 
   /*!
    * \brief checks the geometric data of a partial quadrature space and the
@@ -130,28 +126,10 @@ namespace mfem_mgis::batch {
     return std::string{name} + ": unknown exception";
   }  // end of getExceptionMessage
 
-#else /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
-  //! \return an error message reporting kernels which are not compiled
-  static std::string getUnavailableKernelsMessage(const char* const name) {
-    return std::string{name} +
-           ": the kernels on the functions at the integration points are not "
-           "compiled (MFEM compiled with HIP)";
-  }  // end of getUnavailableKernelsMessage
-
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
-
   std::optional<real> computeIntegral(Context& ctx,
                                       const PartialQuadratureSpace& qs,
                                       const mfem::Vector* const v,
                                       const ElementsGeometry& g) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(qs);
-    static_cast<void>(v);
-    static_cast<void>(g);
-    return ctx.registerErrorMessage(
-        getUnavailableKernelsMessage("computeIntegral"));
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     if (qs.getElements().Size() == 0) {
       return real{0};
     }
@@ -169,7 +147,6 @@ namespace mfem_mgis::batch {
     } catch (...) {
       return ctx.registerErrorMessage(getExceptionMessage("computeIntegral"));
     }
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeIntegral
 
   bool addL2ProjectionRightHandSide(Context& ctx,
@@ -179,16 +156,6 @@ namespace mfem_mgis::batch {
                                     const size_type nc,
                                     const size_type c,
                                     const ElementsGeometry& g) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(r);
-    static_cast<void>(qs);
-    static_cast<void>(v);
-    static_cast<void>(nc);
-    static_cast<void>(c);
-    static_cast<void>(g);
-    return ctx.registerErrorMessage(
-        getUnavailableKernelsMessage("addL2ProjectionRightHandSide"));
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto* const name = "addL2ProjectionRightHandSide";
     if (qs.getElements().Size() == 0) {
       return true;
@@ -214,7 +181,6 @@ namespace mfem_mgis::batch {
       return ctx.registerErrorMessage(getExceptionMessage(name));
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of addL2ProjectionRightHandSide
 
   bool computeLocalProjections(Context& ctx,
@@ -224,16 +190,6 @@ namespace mfem_mgis::batch {
                                const size_type nc,
                                const ElementsGeometry& g,
                                const ElementsGeometry& m) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(r);
-    static_cast<void>(qs);
-    static_cast<void>(v);
-    static_cast<void>(nc);
-    static_cast<void>(g);
-    static_cast<void>(m);
-    return ctx.registerErrorMessage(
-        getUnavailableKernelsMessage("computeLocalProjections"));
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto* const name = "computeLocalProjections";
     if (qs.getElements().Size() == 0) {
       return true;
@@ -273,7 +229,6 @@ namespace mfem_mgis::batch {
       return ctx.registerErrorMessage(getExceptionMessage(name));
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeLocalProjections
 
   bool computeMassMatrices(Context& ctx,
@@ -281,14 +236,6 @@ namespace mfem_mgis::batch {
                            const ElementsGeometry& g,
                            const mfem::ElementDofOrdering o,
                            const bool add) noexcept {
-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
-    static_cast<void>(m);
-    static_cast<void>(g);
-    static_cast<void>(o);
-    static_cast<void>(add);
-    return ctx.registerErrorMessage(
-        getUnavailableKernelsMessage("computeMassMatrices"));
-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
     const auto* const name = "computeMassMatrices";
     if ((g.rule == nullptr) || (g.maps == nullptr) ||
         (g.jacobians == nullptr)) {
@@ -343,7 +290,6 @@ namespace mfem_mgis::batch {
       return ctx.registerErrorMessage(getExceptionMessage(name));
     }
     return true;
-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
   }  // end of computeMassMatrices
 
 }  // end of namespace mfem_mgis::batch

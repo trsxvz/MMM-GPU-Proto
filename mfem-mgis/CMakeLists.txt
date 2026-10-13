@@ -43,18 +43,22 @@ if(MFEM_DIR)
   set(MFEM_MGIS_MFEM_DIR "${MFEM_DIR}")
 endif(MFEM_DIR)
 find_package(MFEM REQUIRED)
-# MFEM compiled with CUDA: the sources containing kernels of MFEM are
-# compiled as CUDA code (see `MFEMMGISDeviceCode.cmake`)
+# MFEM compiled with CUDA or HIP: the sources containing kernels of MFEM
+# are compiled as CUDA or HIP code (see `MFEMMGISDeviceCode.cmake`)
 mfem_mgis_enable_device_language()
-# CUDA toolkit used to build mfem-mgis, written in its configuration file
+# CUDA toolkit or ROCm used to build mfem-mgis, written in its configuration
+# file
 if(MFEM_USE_CUDA STREQUAL "YES")
   get_filename_component(MFEM_MGIS_CUDA_TOOLKIT_ROOT "${CUDAToolkit_BIN_DIR}"
                          DIRECTORY)
 endif()
+if(MFEM_USE_HIP STREQUAL "YES")
+  set(MFEM_MGIS_HIP_DIR "${hip_DIR}")
+endif()
 # description of MFEM written in the configuration file of mfem-mgis, for
 # the projects which find MFEM before mfem-mgis
 foreach(_property USE_CUDA USE_HIP CUDA_COMPILER CUDA_HOST_COMPILER
-                  CUDA_ARCHITECTURES)
+                  CUDA_ARCHITECTURES HIP_COMPILER HIP_ARCHITECTURES)
   get_property(MFEM_MGIS_MFEM_${_property} GLOBAL
                PROPERTY MFEM_MGIS_MFEM_${_property})
 endforeach(_property)

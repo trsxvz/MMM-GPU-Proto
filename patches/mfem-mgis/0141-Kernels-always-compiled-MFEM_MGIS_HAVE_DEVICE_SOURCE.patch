@@ -1,0 +1,1092 @@
+From b5e7d12fc461afe644cc57e81776c642fdffc4a8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 15:49:58 +0200
+Subject: [PATCH] Kernels always compiled: MFEM_MGIS_HAVE_DEVICE_SOURCES and
+ areGradientsKernelsAvailable removed
+
+The sources containing kernels are compiled with or without a GPU, with CUDA or HIP: the definition MFEM_MGIS_HAVE_DEVICE_SOURCES was always given, and batch::areGradientsKernelsAvailable always returned true. The branches reporting kernels not compiled, the refusal of the finite elements and of the post-processings on the GPU with HIP in the execution settings, and the function are removed.
+---
+ include/MFEMMGIS/Batch/Gradients.hxx          |  6 --
+ .../FBarBehaviourIntegratorCRTPBase.ixx       |  3 -
+ ...tus2026RegularizedBehaviourIntegrators.hxx |  7 +-
+ ...tus2026RegularizedBehaviourIntegrators.ixx |  3 -
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  3 -
+ src/Batch/ElementsGeometry.cxx                | 11 ---
+ src/Batch/FBar.cxx                            | 83 -----------------
+ src/Batch/Faltus.cxx                          | 78 ----------------
+ src/Batch/Gradients.cxx                       | 44 ---------
+ src/Batch/InnerForces.cxx                     | 15 ---
+ src/Batch/IntegrationPointsFunctions.cxx      | 54 -----------
+ src/Batch/StiffnessMatrices.cxx               | 91 -------------------
+ src/CMakeLists.txt                            |  8 +-
+ src/ExecutionSettings.cxx                     | 11 ---
+ 14 files changed, 5 insertions(+), 412 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index 4f28470cf0..e7a9899556 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -231,12 +231,6 @@ namespace mfem_mgis::batch {
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
+       const GradientsKind) noexcept;
+-  /*!
+-   * \return true if the kernels computing the gradients are compiled. They
+-   * are not when MFEM is compiled with HIP (see the `CMakeLists.txt` of the
+-   * sources).
+-   */
+-  MFEM_MGIS_EXPORT [[nodiscard]] bool areGradientsKernelsAvailable() noexcept;
+   /*!
+    * \brief computes the derivatives of the unknowns at the points of an
+    * integration rule, for all the elements of the mesh: element
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index 40216300cf..ff65f2031a 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -543,9 +543,6 @@ namespace mfem_mgis {
+       const noexcept {
+     // deformation gradient in 3D or in plane strain, computed by the
+     // kernels as by the FBar behaviour integrator
+-    if (!batch::areGradientsKernelsAvailable()) {
+-      return false;
+-    }
+     const auto k = batch::getGradientsKind(this->b);
+     constexpr auto expected =
+         (H == Hypothesis::PLANESTRAIN)
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+index 7ca8339f75..10eff5ce17 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+@@ -142,10 +142,9 @@ namespace mfem_mgis {
+     void update() override;
+     /*!
+      * \return true in 3D and in plane strain (deformation gradient of the
+-     * kind of the hypothesis), if the kernels are available (see
+-     * `batch::areGradientsKernelsAvailable`) and if all the elements of the
+-     * material use the same integration rule: the regularization is
+-     * computed by the kernels of `MFEMMGIS/Batch/Faltus.hxx`
++     * kind of the hypothesis) and if all the elements of the material use
++     * the same integration rule: the regularization is computed by the
++     * kernels of `MFEMMGIS/Batch/Faltus.hxx`
+      */
+     [[nodiscard]] bool supportsKernels() const noexcept override;
+     //! \return the integration rule of the center of the elements
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+index 89578579fe..9f941d356d 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+@@ -237,9 +237,6 @@ namespace mfem_mgis {
+     if constexpr (H == Hypothesis::PLANESTRESS) {
+       return false;
+     } else {
+-      if (!batch::areGradientsKernelsAvailable()) {
+-        return false;
+-      }
+       // deformation gradient in 3D or in plane strain
+       const auto k = batch::getGradientsKind(this->b);
+       constexpr auto expected =
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 1fe0eb46c2..96e30354d3 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -234,9 +234,6 @@ namespace mfem_mgis {
+     // also computed for the behaviours which update their external state
+     // variables from them. The kind of the gradients of the behaviour must
+     // match the computations of the behaviour integrator.
+-    if (!batch::areGradientsKernelsAvailable()) {
+-      return false;
+-    }
+     const auto k = batch::getGradientsKind(this->b);
+     if ((!k.has_value()) ||
+         (batch::gradientsRequireUnknownsValues(*k) !=
+diff --git a/src/Batch/ElementsGeometry.cxx b/src/Batch/ElementsGeometry.cxx
+index 1d94b33565..3e560ecbf4 100644
+--- a/src/Batch/ElementsGeometry.cxx
++++ b/src/Batch/ElementsGeometry.cxx
+@@ -18,9 +18,7 @@
+ #include "mfem/fem/gridfunc.hpp"
+ #include "mfem/mesh/mesh.hpp"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "ElementsGeometryKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -145,14 +143,6 @@ namespace mfem_mgis::batch {
+                                const mfem::Mesh& mesh,
+                                const mfem::IntegrationRule& ir,
+                                const mfem::Array<int>* const elements) {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(g);
+-    static_cast<void>(mesh);
+-    static_cast<void>(ir);
+-    return ctx.registerErrorMessage(
+-        "computeElementsGeometry: the kernel computing the jacobians is not "
+-        "compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     if (std::int64_t{g.ne} * g.nq * g.dim * g.dim >
+         std::numeric_limits<int>::max()) {
+       return ctx.registerErrorMessage(
+@@ -206,7 +196,6 @@ namespace mfem_mgis::batch {
+     // the end of the kernels
+     g.jacobians = std::move(jacobians);
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeJacobians
+ 
+   /*!
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index bffff99119..28d40c6679 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -18,9 +18,7 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/InnerForces.hxx"
+ #include "MFEMMGIS/Batch/FBar.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "FBarKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -84,8 +82,6 @@ namespace mfem_mgis::batch {
+            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
+   }  // end of isFBarSupportedByKernels
+ 
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-
+   /*!
+    * \brief resizes an array of the memory of MFEM, used on the device if a
+    * device is enabled
+@@ -269,31 +265,12 @@ namespace mfem_mgis::batch {
+             .c = data.tangent_c.Read(use_device)};
+   }  // end of getFBarTangentOperatorModification
+ 
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+-  //! \brief error reported if the kernels are not compiled
+-  [[maybe_unused]] static bool reportFBarKernelsNotCompiled(
+-      Context& ctx, const char* const name) {
+-    return ctx.registerErrorMessage(
+-        std::string{name} +
+-        ": the kernels of the FBar formulation are not compiled (MFEM "
+-        "compiled with HIP)");
+-  }  // end of reportFBarKernelsNotCompiled
+-
+   bool applyFBar(Context& ctx,
+                  FBarData& data,
+                  Material& m,
+                  const UnknownsDerivatives& d0,
+                  const ElementsGeometry& g0,
+                  const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(data);
+-    static_cast<void>(m);
+-    static_cast<void>(d0);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "applyFBar");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       if (m.s1.gradients_stride != getGradientsSize(k)) {
+         return ctx.registerErrorMessage(
+@@ -311,7 +288,6 @@ namespace mfem_mgis::batch {
+     } catch (...) {
+       return ctx.registerErrorMessage("applyFBar: unknown exception");
+     }
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of applyFBar
+ 
+   bool initializeFBar(Context& ctx,
+@@ -319,13 +295,6 @@ namespace mfem_mgis::batch {
+                       const Material& m,
+                       const ElementsGeometry& g0,
+                       const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(data);
+-    static_cast<void>(m);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "initializeFBar");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       return computeFBarData(ctx, data, m, nullptr, true, nullptr, g0, k,
+                              "initializeFBar");
+@@ -335,7 +304,6 @@ namespace mfem_mgis::batch {
+     } catch (...) {
+       return ctx.registerErrorMessage("initializeFBar: unknown exception");
+     }
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of initializeFBar
+ 
+   bool computeFBarTangentOperator(Context& ctx,
+@@ -344,14 +312,6 @@ namespace mfem_mgis::batch {
+                                   const mgis::FieldView<const real>& K,
+                                   const ElementsGeometry& g,
+                                   const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(data);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "computeFBarTangentOperator");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       data.has_tangent_operator = false;
+       data.tangent_operator_blocks = nullptr;
+@@ -426,7 +386,6 @@ namespace mfem_mgis::batch {
+           "computeFBarTangentOperator: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeFBarTangentOperator
+ 
+   bool addFBarStiffnessMatrices(Context& ctx,
+@@ -436,15 +395,6 @@ namespace mfem_mgis::batch {
+                                 const mgis::FieldView<const real>& K,
+                                 const ElementsGeometry& g,
+                                 const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(data);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+@@ -471,7 +421,6 @@ namespace mfem_mgis::batch {
+           "addFBarStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFBarStiffnessMatrices
+ 
+   bool addFBarStiffnessMatrices(Context& ctx,
+@@ -481,15 +430,6 @@ namespace mfem_mgis::batch {
+                                 const mgis::FieldView<const real>& K,
+                                 const ElementsGeometry& g,
+                                 const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(data);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "addFBarStiffnessMatrices");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+@@ -523,7 +463,6 @@ namespace mfem_mgis::batch {
+           "addFBarStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFBarStiffnessMatrices
+ 
+   bool addFBarStiffnessMatricesDiagonals(Context& ctx,
+@@ -533,16 +472,6 @@ namespace mfem_mgis::batch {
+                                          const mgis::FieldView<const real>& K,
+                                          const ElementsGeometry& g,
+                                          const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(d);
+-    static_cast<void>(data);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx,
+-                                        "addFBarStiffnessMatricesDiagonals");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+@@ -570,7 +499,6 @@ namespace mfem_mgis::batch {
+           "addFBarStiffnessMatricesDiagonals: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFBarStiffnessMatricesDiagonals
+ 
+   bool addFBarTangentOperatorAction(Context& ctx,
+@@ -581,16 +509,6 @@ namespace mfem_mgis::batch {
+                                     const mfem::Vector& x,
+                                     const ElementsGeometry& g,
+                                     const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(y);
+-    static_cast<void>(data);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(x);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return reportFBarKernelsNotCompiled(ctx, "addFBarTangentOperatorAction");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FBarRankOneKernelArguments{};
+@@ -616,7 +534,6 @@ namespace mfem_mgis::batch {
+           "addFBarTangentOperatorAction: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFBarTangentOperatorAction
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index 772547b866..95f012b9a6 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -15,9 +15,7 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/FBar.hxx"
+ #include "MFEMMGIS/Batch/Faltus.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "FaltusKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -58,17 +56,6 @@ namespace mfem_mgis::batch {
+            (k == GradientsKind::DEFORMATION_GRADIENT_2D);
+   }  // end of isFaltusSupportedByKernels
+ 
+-  //! \brief error reported if the kernels are not compiled
+-  [[maybe_unused]] static bool reportFaltusKernelsNotCompiled(
+-      Context& ctx, const char* const name) {
+-    return ctx.registerErrorMessage(
+-        std::string{name} +
+-        ": the kernels of the regularization of Faltus et al. are not "
+-        "compiled (MFEM compiled with HIP)");
+-  }  // end of reportFaltusKernelsNotCompiled
+-
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-
+   /*!
+    * \brief checks the geometric data of the integration points and of the
+    * center of the elements of a material, and returns the arguments of the
+@@ -148,22 +135,12 @@ namespace mfem_mgis::batch {
+     return std::int64_t{g.nd} * getUnknownsSize(k);
+   }  // end of getNumberOfElementDegreesOfFreedom
+ 
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+   bool computeFaltusCenters(Context& ctx,
+                             FaltusData& data,
+                             const Material& m,
+                             const UnknownsDerivatives* const d0,
+                             const ElementsGeometry& g0,
+                             const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(data);
+-    static_cast<void>(m);
+-    static_cast<void>(d0);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(ctx, "computeFaltusCenters");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       if (!isFaltusSupportedByKernels(k)) {
+         return ctx.registerErrorMessage(
+@@ -221,7 +198,6 @@ namespace mfem_mgis::batch {
+           "computeFaltusCenters: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeFaltusCenters
+ 
+   bool addFaltusInnerForces(Context& ctx,
+@@ -232,16 +208,6 @@ namespace mfem_mgis::batch {
+                             const ElementsGeometry& g,
+                             const ElementsGeometry& g0,
+                             const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(f);
+-    static_cast<void>(data);
+-    static_cast<void>(m);
+-    static_cast<void>(alpha);
+-    static_cast<void>(g);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusInnerForces");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto& qs = m.getPartialQuadratureSpace();
+       const auto& elements = qs.getElements();
+@@ -287,7 +253,6 @@ namespace mfem_mgis::batch {
+           "addFaltusInnerForces: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFaltusInnerForces
+ 
+   bool addFaltusStiffnessMatrices(Context& ctx,
+@@ -297,15 +262,6 @@ namespace mfem_mgis::batch {
+                                   const ElementsGeometry& g,
+                                   const ElementsGeometry& g0,
+                                   const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(qs);
+-    static_cast<void>(alpha);
+-    static_cast<void>(g);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
+@@ -334,7 +290,6 @@ namespace mfem_mgis::batch {
+           "addFaltusStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFaltusStiffnessMatrices
+ 
+   bool addFaltusStiffnessMatrices(Context& ctx,
+@@ -344,15 +299,6 @@ namespace mfem_mgis::batch {
+                                   const ElementsGeometry& g,
+                                   const ElementsGeometry& g0,
+                                   const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(qs);
+-    static_cast<void>(alpha);
+-    static_cast<void>(g);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(ctx, "addFaltusStiffnessMatrices");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::FaltusGeometryKernelArguments{};
+@@ -386,7 +332,6 @@ namespace mfem_mgis::batch {
+           "addFaltusStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFaltusStiffnessMatrices
+ 
+   bool addFaltusStiffnessMatricesDiagonals(Context& ctx,
+@@ -396,16 +341,6 @@ namespace mfem_mgis::batch {
+                                            const ElementsGeometry& g,
+                                            const ElementsGeometry& g0,
+                                            const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(d);
+-    static_cast<void>(qs);
+-    static_cast<void>(alpha);
+-    static_cast<void>(g);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(
+-        ctx, "addFaltusStiffnessMatricesDiagonals");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
+@@ -434,7 +369,6 @@ namespace mfem_mgis::batch {
+           "addFaltusStiffnessMatricesDiagonals: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFaltusStiffnessMatricesDiagonals
+ 
+   bool addFaltusTangentOperatorAction(Context& ctx,
+@@ -445,17 +379,6 @@ namespace mfem_mgis::batch {
+                                       const ElementsGeometry& g,
+                                       const ElementsGeometry& g0,
+                                       const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(y);
+-    static_cast<void>(qs);
+-    static_cast<void>(x);
+-    static_cast<void>(alpha);
+-    static_cast<void>(g);
+-    static_cast<void>(g0);
+-    static_cast<void>(k);
+-    return reportFaltusKernelsNotCompiled(ctx,
+-                                          "addFaltusTangentOperatorAction");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       const auto n = getNumberOfElementDegreesOfFreedom(g, k);
+@@ -485,7 +408,6 @@ namespace mfem_mgis::batch {
+           "addFaltusTangentOperatorAction: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addFaltusTangentOperatorAction
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index a838b8e8c9..8d019f0892 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -15,9 +15,7 @@
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "GradientsKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -150,14 +148,6 @@ namespace mfem_mgis::batch {
+     return {};
+   }  // end of getGradientsKind
+ 
+-  bool areGradientsKernelsAvailable() noexcept {
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    return true;
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-    return false;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-  }  // end of areGradientsKernelsAvailable
+-
+   /*!
+    * \brief resizes an array of the memory of MFEM, used on the device if a
+    * device is enabled
+@@ -181,16 +171,6 @@ namespace mfem_mgis::batch {
+                                   const mfem::Vector& u,
+                                   const mfem::IntegrationRule& ir,
+                                   const bool values) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(d);
+-    static_cast<void>(fes);
+-    static_cast<void>(u);
+-    static_cast<void>(ir);
+-    static_cast<void>(values);
+-    return ctx.registerErrorMessage(
+-        "computeUnknownsDerivatives: the kernels computing the gradients are "
+-        "not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto& mesh = *(fes.GetMesh());
+       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
+@@ -270,7 +250,6 @@ namespace mfem_mgis::batch {
+           "computeUnknownsDerivatives: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeUnknownsDerivatives
+ 
+   size_type getGradientsSize(const GradientsKind k) noexcept {
+@@ -346,8 +325,6 @@ namespace mfem_mgis::batch {
+     return requiresUnknownsValues(k) ? 1 : getSpaceDimension(k);
+   }  // end of getUnknownsSize
+ 
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-
+   /*!
+    * \brief checks the arguments of the computation of the gradients of a
+    * material and fills the arguments of the kernel which do not depend on
+@@ -427,22 +404,11 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of getGradientsKernelArguments
+ 
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+   bool computeGradients(Context& ctx,
+                         Material& m,
+                         const UnknownsDerivatives& d,
+                         const ElementsGeometry& g,
+                         const GradientsKind k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(d);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    return ctx.registerErrorMessage(
+-        "computeGradients: the kernels computing the gradients are not "
+-        "compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto gsize = getGradientsSize(k);
+     if (m.s1.gradients_stride != gsize) {
+       return ctx.registerErrorMessage(
+@@ -476,21 +442,12 @@ namespace mfem_mgis::batch {
+       return ctx.registerErrorMessage("computeGradients: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeGradients
+ 
+   bool getUnknownsValues(Context& ctx,
+                          mfem::Vector& v,
+                          const PartialQuadratureSpace& qs,
+                          const UnknownsDerivatives& d) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(v);
+-    static_cast<void>(qs);
+-    static_cast<void>(d);
+-    return ctx.registerErrorMessage(
+-        "getUnknownsValues: the kernels computing the gradients are not "
+-        "compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto& elements = qs.getElements();
+     const auto& offsets = qs.getElementOffsets();
+     const auto n = std::int64_t{qs.getNumberOfIntegrationPoints()};
+@@ -528,7 +485,6 @@ namespace mfem_mgis::batch {
+       return ctx.registerErrorMessage("getUnknownsValues: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of getUnknownsValues
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/InnerForces.cxx b/src/Batch/InnerForces.cxx
+index 7f9c1c675d..2cdb5e1c88 100644
+--- a/src/Batch/InnerForces.cxx
++++ b/src/Batch/InnerForces.cxx
+@@ -16,9 +16,7 @@
+ #include "mfem/fem/fe/fe_base.hpp"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/InnerForces.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "InnerForcesKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -37,18 +35,6 @@ namespace mfem_mgis::batch {
+                                            const GradientsKind k,
+                                            const bool by_material_element,
+                                            const char* const name) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(f);
+-    static_cast<void>(qs);
+-    static_cast<void>(s);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    static_cast<void>(by_material_element);
+-    return ctx.registerErrorMessage(
+-        std::string{name} +
+-        ": the kernels computing the inner forces are not compiled (MFEM "
+-        "compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto& elements = qs.getElements();
+     const auto& offsets = qs.getElementOffsets();
+     if (elements.Size() == 0) {
+@@ -109,7 +95,6 @@ namespace mfem_mgis::batch {
+                                       ": unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addInnerForcesImplementation
+ 
+   bool addInnerForces(Context& ctx,
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index 9ecd145138..a7b5665e29 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -15,9 +15,7 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/PartialQuadratureFunction.hxx"
+ #include "MFEMMGIS/Batch/IntegrationPointsFunctions.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "IntegrationPointsFunctionsKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+@@ -62,8 +60,6 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of gatherValues
+ 
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-
+   /*!
+    * \brief checks the geometric data of a partial quadrature space and the
+    * size of the values of a function, and fills the arguments of the
+@@ -130,28 +126,10 @@ namespace mfem_mgis::batch {
+     return std::string{name} + ": unknown exception";
+   }  // end of getExceptionMessage
+ 
+-#else /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+-  //! \return an error message reporting kernels which are not compiled
+-  static std::string getUnavailableKernelsMessage(const char* const name) {
+-    return std::string{name} +
+-           ": the kernels on the functions at the integration points are not "
+-           "compiled (MFEM compiled with HIP)";
+-  }  // end of getUnavailableKernelsMessage
+-
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+   std::optional<real> computeIntegral(Context& ctx,
+                                       const PartialQuadratureSpace& qs,
+                                       const mfem::Vector* const v,
+                                       const ElementsGeometry& g) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(qs);
+-    static_cast<void>(v);
+-    static_cast<void>(g);
+-    return ctx.registerErrorMessage(
+-        getUnavailableKernelsMessage("computeIntegral"));
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     if (qs.getElements().Size() == 0) {
+       return real{0};
+     }
+@@ -169,7 +147,6 @@ namespace mfem_mgis::batch {
+     } catch (...) {
+       return ctx.registerErrorMessage(getExceptionMessage("computeIntegral"));
+     }
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeIntegral
+ 
+   bool addL2ProjectionRightHandSide(Context& ctx,
+@@ -179,16 +156,6 @@ namespace mfem_mgis::batch {
+                                     const size_type nc,
+                                     const size_type c,
+                                     const ElementsGeometry& g) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(r);
+-    static_cast<void>(qs);
+-    static_cast<void>(v);
+-    static_cast<void>(nc);
+-    static_cast<void>(c);
+-    static_cast<void>(g);
+-    return ctx.registerErrorMessage(
+-        getUnavailableKernelsMessage("addL2ProjectionRightHandSide"));
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto* const name = "addL2ProjectionRightHandSide";
+     if (qs.getElements().Size() == 0) {
+       return true;
+@@ -214,7 +181,6 @@ namespace mfem_mgis::batch {
+       return ctx.registerErrorMessage(getExceptionMessage(name));
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addL2ProjectionRightHandSide
+ 
+   bool computeLocalProjections(Context& ctx,
+@@ -224,16 +190,6 @@ namespace mfem_mgis::batch {
+                                const size_type nc,
+                                const ElementsGeometry& g,
+                                const ElementsGeometry& m) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(r);
+-    static_cast<void>(qs);
+-    static_cast<void>(v);
+-    static_cast<void>(nc);
+-    static_cast<void>(g);
+-    static_cast<void>(m);
+-    return ctx.registerErrorMessage(
+-        getUnavailableKernelsMessage("computeLocalProjections"));
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto* const name = "computeLocalProjections";
+     if (qs.getElements().Size() == 0) {
+       return true;
+@@ -273,7 +229,6 @@ namespace mfem_mgis::batch {
+       return ctx.registerErrorMessage(getExceptionMessage(name));
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeLocalProjections
+ 
+   bool computeMassMatrices(Context& ctx,
+@@ -281,14 +236,6 @@ namespace mfem_mgis::batch {
+                            const ElementsGeometry& g,
+                            const mfem::ElementDofOrdering o,
+                            const bool add) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(g);
+-    static_cast<void>(o);
+-    static_cast<void>(add);
+-    return ctx.registerErrorMessage(
+-        getUnavailableKernelsMessage("computeMassMatrices"));
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     const auto* const name = "computeMassMatrices";
+     if ((g.rule == nullptr) || (g.maps == nullptr) ||
+         (g.jacobians == nullptr)) {
+@@ -343,7 +290,6 @@ namespace mfem_mgis::batch {
+       return ctx.registerErrorMessage(getExceptionMessage(name));
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeMassMatrices
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 5ab9d8de61..8dbf6a127c 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -24,14 +24,10 @@
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+ #include "StiffnessMatricesKernels.hxx"
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+ 
+ namespace mfem_mgis::batch {
+ 
+-#ifdef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-
+   /*!
+    * \brief checks the arguments of `addStiffnessMatrices` and fills the
+    * arguments of the kernels which do not depend on the destination
+@@ -198,8 +194,6 @@ namespace mfem_mgis::batch {
+ 
+   }  // end of namespace internals
+ 
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+-
+   bool addStiffnessMatrices(Context& ctx,
+                             mfem::Vector& m,
+                             const PartialQuadratureSpace& qs,
+@@ -207,17 +201,6 @@ namespace mfem_mgis::batch {
+                             const ElementsGeometry& g,
+                             const GradientsKind k,
+                             const TangentOperatorModification& mod) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    static_cast<void>(mod);
+-    return ctx.registerErrorMessage(
+-        "addStiffnessMatrices: the kernels computing the stiffness matrices "
+-        "are not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+@@ -243,7 +226,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatrices
+ 
+   bool addStiffnessMatricesDiagonals(
+@@ -254,17 +236,6 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry& g,
+       const GradientsKind k,
+       const TangentOperatorModification& mod) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(d);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    static_cast<void>(mod);
+-    return ctx.registerErrorMessage(
+-        "addStiffnessMatricesDiagonals: the kernels computing the stiffness "
+-        "matrices are not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+@@ -291,7 +262,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatricesDiagonals: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatricesDiagonals
+ 
+   bool addTangentOperatorAction(
+@@ -303,18 +273,6 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry& g,
+       const GradientsKind k,
+       const TangentOperatorModification& mod) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(y);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(x);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    static_cast<void>(mod);
+-    return ctx.registerErrorMessage(
+-        "addTangentOperatorAction: the kernels computing the stiffness "
+-        "matrices are not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto a = internals::StiffnessMatricesKernelArguments{};
+@@ -344,7 +302,6 @@ namespace mfem_mgis::batch {
+           "addTangentOperatorAction: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addTangentOperatorAction
+ 
+   bool computeElementsDegreesOfFreedom(
+@@ -480,15 +437,6 @@ namespace mfem_mgis::batch {
+                                          const mfem::FiniteElementSpace& fes,
+                                          const mfem::Array<int>& dofs,
+                                          const mfem::SparseMatrix& m) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(positions);
+-    static_cast<void>(fes);
+-    static_cast<void>(dofs);
+-    static_cast<void>(m);
+-    return ctx.registerErrorMessage(
+-        "computeStiffnessMatricesPositions: the kernels are not compiled "
+-        "(MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       positions.SetSize(0);
+       const auto ne = std::int64_t{fes.GetNE()};
+@@ -529,16 +477,9 @@ namespace mfem_mgis::batch {
+           "computeStiffnessMatricesPositions: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeStiffnessMatricesPositions
+ 
+   bool zeroSparseMatrixValues(Context& ctx, mfem::SparseMatrix& m) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    return ctx.registerErrorMessage(
+-        "zeroSparseMatrixValues: the kernels are not compiled (MFEM compiled "
+-        "with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       if (!m.Finalized()) {
+         return ctx.registerErrorMessage(
+@@ -555,7 +496,6 @@ namespace mfem_mgis::batch {
+           "zeroSparseMatrixValues: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of zeroSparseMatrixValues
+ 
+   bool computeEntriesContributions(Context& ctx,
+@@ -563,15 +503,6 @@ namespace mfem_mgis::batch {
+                                    const mfem::SparseMatrix& m,
+                                    const mfem::Array<int>& dofs,
+                                    const int n) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(c);
+-    static_cast<void>(m);
+-    static_cast<void>(dofs);
+-    static_cast<void>(n);
+-    return ctx.registerErrorMessage(
+-        "computeEntriesContributions: the kernels are not compiled (MFEM "
+-        "compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       if ((!m.Finalized()) || (n <= 0) || (dofs.Size() % n != 0)) {
+         return ctx.registerErrorMessage(
+@@ -661,21 +592,12 @@ namespace mfem_mgis::batch {
+           "computeEntriesContributions: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of computeEntriesContributions
+ 
+   bool addStiffnessMatricesByEntries(Context& ctx,
+                                      const AssembledStiffnessMatrix& m,
+                                      const EntriesContributions& c,
+                                      const mfem::Vector& k) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(c);
+-    static_cast<void>(k);
+-    return ctx.registerErrorMessage(
+-        "addStiffnessMatricesByEntries: the kernels are not compiled (MFEM "
+-        "compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       const auto nv = (m.element_dofs != nullptr)
+                           ? std::int64_t{m.element_dofs->Size()}
+@@ -721,7 +643,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatricesByEntries: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatricesByEntries
+ 
+   bool addStiffnessMatrices(Context& ctx,
+@@ -731,17 +652,6 @@ namespace mfem_mgis::batch {
+                             const ElementsGeometry& g,
+                             const GradientsKind k,
+                             const TangentOperatorModification& mod) noexcept {
+-#ifndef MFEM_MGIS_HAVE_DEVICE_SOURCES
+-    static_cast<void>(m);
+-    static_cast<void>(qs);
+-    static_cast<void>(K);
+-    static_cast<void>(g);
+-    static_cast<void>(k);
+-    static_cast<void>(mod);
+-    return ctx.registerErrorMessage(
+-        "addStiffnessMatrices: the kernels computing the stiffness matrices "
+-        "are not compiled (MFEM compiled with HIP)");
+-#else  /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+     try {
+       if (!internals::checkAssembledStiffnessMatrix(
+               ctx, m, g.ne, std::int64_t{g.nd} * getUnknownsSize(k),
+@@ -770,7 +680,6 @@ namespace mfem_mgis::batch {
+           "addStiffnessMatrices: unknown exception");
+     }
+     return true;
+-#endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
+   }  // end of addStiffnessMatrices
+ 
+ }  // end of namespace mfem_mgis::batch
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 2145d5c646..30f745e4f1 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -173,8 +173,7 @@ if(MFEM_MGIS_HAVE_AMGX)
+   list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
+ endif()
+ list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
+-# host part of the computations by kernels (gradients, inner forces), which
+-# reports an error if the kernels are not compiled
++# host part of the computations by kernels (gradients, inner forces)
+ list(APPEND MFEMMGIS_SOURCES
+   Batch/ElementsGeometry.cxx
+   Batch/Gradients.cxx
+@@ -186,10 +185,7 @@ list(APPEND MFEMMGIS_SOURCES
+   Batch/GlobalStiffnessMatrix.cxx)
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+-if(MFEMMGIS_DEVICE_SOURCES)
+-  mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
+-  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_DEVICE_SOURCES)
+-endif()
++mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
+ # the kernels of the library use the runtime of CUDA or HIP: the dependency
+ # is carried by the library itself, not only by the target of MFEM, which a
+ # project may define on its own
+diff --git a/src/ExecutionSettings.cxx b/src/ExecutionSettings.cxx
+index 6d7748815c..fff5cc9b46 100644
+--- a/src/ExecutionSettings.cxx
++++ b/src/ExecutionSettings.cxx
+@@ -183,17 +183,6 @@ namespace mfem_mgis::internals {
+       s.*(o.location) =
+           locations[i] != nullptr ? getLocation(o.name, locations[i]) : d;
+     }
+-#if defined(MFEM_USE_HIP) && !defined(MFEM_MGIS_HAVE_DEVICE_SOURCES)
+-    // the kernels of mfem-mgis are not compiled with HIP
+-    if ((s.finite_elements == ExecutionLocation::GPU) ||
+-        (s.post_processings == ExecutionLocation::GPU)) {
+-      mgis::raise(
+-          "initialize: the kernels of mfem-mgis are not compiled with HIP: "
+-          "the finite elements and the post-processings can't be computed on "
+-          "the GPU (use '--execution mixed --finite-elements cpu "
+-          "--post-processings cpu')");
+-    }
+-#endif /* defined(MFEM_USE_HIP) && !defined(MFEM_MGIS_HAVE_DEVICE_SOURCES) */
+     getMutableExecutionSettings() = s;
+   }  // end of readExecutionSettings
+ 
+-- 
+2.43.0
+

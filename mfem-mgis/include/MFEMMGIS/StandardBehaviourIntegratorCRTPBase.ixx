@@ -234,9 +234,6 @@ namespace mfem_mgis {
     // also computed for the behaviours which update their external state
     // variables from them. The kind of the gradients of the behaviour must
     // match the computations of the behaviour integrator.
-    if (!batch::areGradientsKernelsAvailable()) {
-      return false;
-    }
     const auto k = batch::getGradientsKind(this->b);
     if ((!k.has_value()) ||
         (batch::gradientsRequireUnknownsValues(*k) !=
