@@ -1,0 +1,158 @@
+From 6bf892d4ce783fa510354d7eae0cf07fcd195cf6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:47:55 +0200
+Subject: [PATCH] Documentation: fixes found by the check of the review
+
+An independent check of the documentation fixes found: the reference of computeMeasure and computeIntegral (functions of the behaviour integrators, not of the partial quadrature functions), the validity flag of the Faltus centers (made invalid by any failure since the previous fix), the memory of hypre following the linear solvers only in the gpu and mixed modes, the variable of the post-processings computation ignored with any --execution option, the regularization of Faltus et al. in plane stress not computed by kernels, two code snippets of the curves missing a brace, and two items of the changelog. sphinx-build -W and Doxygen give no warning.
+---
+ CHANGELOG.md                                          |  5 +++--
+ docs/source/user_guide/batch_computations.rst         | 11 ++++++-----
+ docs/source/user_guide/behaviour_integrators.rst      |  3 ++-
+ docs/source/user_guide/mesh/curves.rst                |  4 ++--
+ .../post_processings/general_post_processings.rst     |  8 +++++---
+ include/MFEMMGIS/Batch/Faltus.hxx                     |  6 ++----
+ include/MFEMMGIS/Config.hxx                           | 11 ++++++-----
+ 7 files changed, 26 insertions(+), 22 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 590c050a58..7f2d798237 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -39,7 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ - `getMaterialArraysTransfers`: copies of the arrays of the materials
+   between the host and the device, printed after the profiling table;
+   `MaterialArrays::read` and `MaterialArrays::readTangentOperatorBlocks`
+-  (also available in `BehaviourIntegratorBase`).
++  (the latter also available in `BehaviourIntegratorBase`).
+ - integration of the behaviours by batches and computations by kernels of
+   the gradients, of the inner forces and of the tangent operator, on the
+   host or on a GPU: parameters `BehaviourIntegration`,
+@@ -67,7 +67,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother`
+ - options `--device`, `--hypre-device-pool-size`, `--hypre-on-host` and
+   `--kokkos` read by `mfem_mgis::initialize` (environment variables
+-  `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
++  `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`,
++  `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
+   CMake options `enable-gpu-tests` and `enable-kokkos`
+ - CMake module `MFEMMGISDeviceCode.cmake`, compiling the sources containing
+   kernels of MFEM as CUDA or HIP code; MFEM compiled with HIP is supported
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index dfae4e9927..202379ee9a 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -387,11 +387,12 @@ The computations on functions defined at the integration points used by
+ the post-processings are also made by kernels, on the device if a device
+ is enabled, when the environment variable
+ :code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is :code:`Kernels`
+-(:code:`ElementByElement` by default, :code:`Kernels` when the option
+-:code:`--execution` places the post-processings on the GPU, the variable
+-being then ignored, see :ref:`mfem_mgis_batch_computations_execution`;
+-the variable is read at each computation, and an invalid value is
+-reported by :code:`mfem_mgis::initialize`):
++(:code:`ElementByElement` by default; with the option :code:`--execution`,
++the variable is ignored and the post-processings are computed by kernels
++if they are placed on the GPU, see
++:ref:`mfem_mgis_batch_computations_execution`; the variable is read at
++each computation, and an invalid value is reported by
++:code:`mfem_mgis::initialize`):
+ 
+ - :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
+   elements, for the behaviour integrators which support kernels (the
+diff --git a/docs/source/user_guide/behaviour_integrators.rst b/docs/source/user_guide/behaviour_integrators.rst
+index 86534e6f39..a705044da9 100644
+--- a/docs/source/user_guide/behaviour_integrators.rst
++++ b/docs/source/user_guide/behaviour_integrators.rst
+@@ -45,7 +45,8 @@ material. Behaviour integrators are associated with:
+ 
+    All the behaviour integrators described below support the integration
+    by batches and the computations by kernels, on the GPU if a GPU is used
+-   (see :ref:`mfem_mgis_batch_computations`).
++   (except the regularization of Faltus et al. in plane stress, see
++   :ref:`mfem_mgis_batch_computations`).
+ 
+ Behaviour integrators based on :code:`MFront` behaviours
+ ========================================================
+diff --git a/docs/source/user_guide/mesh/curves.rst b/docs/source/user_guide/mesh/curves.rst
+index a72651f92c..0d467cf84d 100644
+--- a/docs/source/user_guide/mesh/curves.rst
++++ b/docs/source/user_guide/mesh/curves.rst
+@@ -93,7 +93,7 @@ The function accepts a ``Parameters`` object structured as follows:
+                      mfem_mgis::Parameters{
+                          {"NumberOfPoints", 10},
+                          {"NormalizedInitialDensity", mfem_mgis::real{1} / 150},
+-                         {"NormalizedFinalDensity", mfem_mgis::real{1} / 3}}}}
++                         {"NormalizedFinalDensity", mfem_mgis::real{1} / 3}}}}}
+            }}};
+       const auto points = mfem_mgis::makePointsOnCurve<2>(ctx, params);
+ 
+@@ -129,7 +129,7 @@ Common errors include:
+             {"InitialPoint", std::vector<mfem_mgis::Parameter>{-2, 0.5, 2}},  // Invalid: 3D point for 2D curve
+             {"FinalPoint", std::vector<mfem_mgis::Parameter>{6, 8}},
+             {"Discretization",
+-             mfem_mgis::Parameters{{"Uniform", mfem_mgis::Parameters{{"NumberOfPoints", 10}}}}
++             mfem_mgis::Parameters{{"Uniform", mfem_mgis::Parameters{{"NumberOfPoints", 10}}}}}
+         }}};
+    const auto points = mfem_mgis::makePointsOnCurve<2>(ctx, invalid_params);
+    if (!points) {
+diff --git a/docs/source/user_guide/post_processings/general_post_processings.rst b/docs/source/user_guide/post_processings/general_post_processings.rst
+index d66d530faa..603cd14503 100644
+--- a/docs/source/user_guide/post_processings/general_post_processings.rst
++++ b/docs/source/user_guide/post_processings/general_post_processings.rst
+@@ -19,9 +19,11 @@ The post-processings computing values at the nodes and L2 projections may
+ be computed by kernels, on the GPU if a GPU is used (see
+ :ref:`mfem_mgis_batch_computations_post_processings`). The post-processings
+ along curves or at sets of points are described in
+-:doc:`../mesh/curves`, and the functions :code:`computeL2Projection`,
+-:code:`computeMeasure` and :code:`computeIntegral` in
+-:doc:`../partial_quadrature_functions/partial_quadrature_functions`.
++:doc:`../mesh/curves`, the function :code:`computeL2Projection` in
++:doc:`../partial_quadrature_functions/partial_quadrature_functions`, and
++the functions :code:`computeMeasure` and :code:`computeIntegral` of a
++behaviour integrator (header :code:`MFEMMGIS/AbstractBehaviourIntegrator.hxx`,
++see :ref:`mfem_mgis_batch_computations_post_processings`).
+ 
+ The :code:`ParaviewExportResults` post-processing
+ =================================================
+diff --git a/include/MFEMMGIS/Batch/Faltus.hxx b/include/MFEMMGIS/Batch/Faltus.hxx
+index 1f00535647..e8c4359814 100644
+--- a/include/MFEMMGIS/Batch/Faltus.hxx
++++ b/include/MFEMMGIS/Batch/Faltus.hxx
+@@ -65,10 +65,8 @@ namespace mfem_mgis::batch {
+     /*!
+      * \brief false if the gradients have been computed element by element
+      * since the last computation of `F0` by kernels, or if this computation
+-     * failed after the checks of the kind of the gradients and of the size
+-     * of `centers` (`valid` is left unchanged by these two failures): `F0`
+-     * does not match the gradients, and the inner forces can't be computed
+-     * by kernels
++     * failed: `F0` does not match the gradients, and the inner forces can't
++     * be computed by kernels
+      */
+     bool valid = true;
+     //! \brief copies of the data at the beginning of the time step
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index cda56032ba..459ef5cece 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -137,11 +137,12 @@ namespace mfem_mgis {
+    * device is already configured, which must then use a GPU; with
+    * `--execution cpu`, a device using a GPU is an error. When `--execution`
+    * is given, the environment variables `MFEM_MGIS_DEVICE` and
+-   * `MFEM_MGIS_HYPRE_ON_HOST` are ignored with a warning, the memory of
+-   * hypre follows the location of the linear solvers (an option
+-   * `--hypre-on-host` or `--no-hypre-on-host` contradicting it is an
+-   * error), `--hypre-device-pool-size` is an error with `--execution cpu`,
+-   * and PETSc is an error if the linear solvers are placed on the GPU.
++   * `MFEM_MGIS_HYPRE_ON_HOST` are ignored with a warning; in the `gpu` and
++   * `mixed` modes, the memory of hypre follows the location of the linear
++   * solvers (an option `--hypre-on-host` or `--no-hypre-on-host`
++   * contradicting it is an error); `--hypre-device-pool-size` is an error
++   * with `--execution cpu`, and PETSc is an error if the linear solvers are
++   * placed on the GPU.
+    *
+    * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
+    * device is created with this configuration (for instance `cuda`), after
+-- 
+2.43.0
+

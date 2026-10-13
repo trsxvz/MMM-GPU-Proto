@@ -782,8 +782,9 @@ are shared with the `generic-parallel` interface for material properties.
   `TFEL_STATIC_VARIABLE(<class>::<name>)`, which gives a temporary copy
   of the variable in device code (and in the whole translation unit with
   the compilers translating host and device code in a single pass), since
-  device code can't refer to a constexpr static variable of a class type,
-  such as a quantity. The address of such a variable can't be taken, and
+  device code can't refer to a constexpr static variable defined in host
+  code (for instance a quantity given to an operator taking its arguments
+  by reference). The address of such a variable can't be taken, and
   a reference derived from it is only valid until the end of the full
   expression (see the [`TFEL/Config` page](tfel-config.html)).
 - the `device_compatible_class` DSL option requires a behaviour class

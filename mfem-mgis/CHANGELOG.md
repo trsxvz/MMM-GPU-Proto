@@ -39,7 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `getMaterialArraysTransfers`: copies of the arrays of the materials
   between the host and the device, printed after the profiling table;
   `MaterialArrays::read` and `MaterialArrays::readTangentOperatorBlocks`
-  (also available in `BehaviourIntegratorBase`).
+  (the latter also available in `BehaviourIntegratorBase`).
 - integration of the behaviours by batches and computations by kernels of
   the gradients, of the inner forces and of the tangent operator, on the
   host or on a GPU: parameters `BehaviourIntegration`,
@@ -67,7 +67,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother`
 - options `--device`, `--hypre-device-pool-size`, `--hypre-on-host` and
   `--kokkos` read by `mfem_mgis::initialize` (environment variables
-  `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
+  `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`,
+  `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
   CMake options `enable-gpu-tests` and `enable-kokkos`
 - CMake module `MFEMMGISDeviceCode.cmake`, compiling the sources containing
   kernels of MFEM as CUDA or HIP code; MFEM compiled with HIP is supported

@@ -339,9 +339,10 @@ remplacent ceux du tableau :
 - application : `--device`, `--execution` et les options de placement
   ([plan-execution.md](plan-execution.md)).
 
-N'existent pas dans le code : `AssemblyStrategy`, `QuadratureDataLayout`,
-`TangentOperator`, `Prediction`, `PreconditionerUpdate`,
-`PreconditionerOperator`, `LineSearch`, `NodalBlockJacobi`. Le
+Ne sont des paramètres nulle part dans le code : `AssemblyStrategy`,
+`QuadratureDataLayout`, `TangentOperator`, `Prediction`,
+`PreconditionerUpdate`, `PreconditionerOperator`, `LineSearch`,
+`NodalBlockJacobi`. Le
 préconditionneur gardé sur `K0` passe par la méthode `NewtonK0`.
 
 | Où | Paramètre | Valeurs |

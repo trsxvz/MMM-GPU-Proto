@@ -19,9 +19,11 @@ The post-processings computing values at the nodes and L2 projections may
 be computed by kernels, on the GPU if a GPU is used (see
 :ref:`mfem_mgis_batch_computations_post_processings`). The post-processings
 along curves or at sets of points are described in
-:doc:`../mesh/curves`, and the functions :code:`computeL2Projection`,
-:code:`computeMeasure` and :code:`computeIntegral` in
-:doc:`../partial_quadrature_functions/partial_quadrature_functions`.
+:doc:`../mesh/curves`, the function :code:`computeL2Projection` in
+:doc:`../partial_quadrature_functions/partial_quadrature_functions`, and
+the functions :code:`computeMeasure` and :code:`computeIntegral` of a
+behaviour integrator (header :code:`MFEMMGIS/AbstractBehaviourIntegrator.hxx`,
+see :ref:`mfem_mgis_batch_computations_post_processings`).
 
 The :code:`ParaviewExportResults` post-processing
 =================================================

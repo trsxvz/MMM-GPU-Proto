@@ -165,6 +165,6 @@ The following tests are run by `ctest`:
 - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
 - `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
 - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
-- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), with the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option.
+- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU (see the main README).
 
 The simulations of the plate (`rjh_plate` and its variants) are only registered as tests if MFEM is built with MUMPS; `u3si2_swelling` and `robin_test` always are.

@@ -387,11 +387,12 @@ The computations on functions defined at the integration points used by
 the post-processings are also made by kernels, on the device if a device
 is enabled, when the environment variable
 :code:`MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` is :code:`Kernels`
-(:code:`ElementByElement` by default, :code:`Kernels` when the option
-:code:`--execution` places the post-processings on the GPU, the variable
-being then ignored, see :ref:`mfem_mgis_batch_computations_execution`;
-the variable is read at each computation, and an invalid value is
-reported by :code:`mfem_mgis::initialize`):
+(:code:`ElementByElement` by default; with the option :code:`--execution`,
+the variable is ignored and the post-processings are computed by kernels
+if they are placed on the GPU, see
+:ref:`mfem_mgis_batch_computations_execution`; the variable is read at
+each computation, and an invalid value is reported by
+:code:`mfem_mgis::initialize`):
 
 - :code:`computeMeasure` and :code:`computeIntegral`: reduction over the
   elements, for the behaviour integrators which support kernels (the

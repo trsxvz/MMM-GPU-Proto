@@ -121,7 +121,8 @@ if(MFEM_USE_MUMPS)
       ENVIRONMENT "${rjh_plate_kernels_environment}")
   # the mechanical problem solved by the NewtonK0 method (tangent systems
   # solved by GMRES preconditioned by the elastic operator, factorized by
-  # MUMPS at each time step), all the computations being made by kernels
+  # MUMPS at each resolution of the mechanical problem), all the computations
+  # being made by kernels
   add_test(NAME rjh_plate-newton-k0
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
           $<TARGET_FILE:rjh_plate>

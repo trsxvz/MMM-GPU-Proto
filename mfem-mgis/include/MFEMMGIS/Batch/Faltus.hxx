@@ -65,10 +65,8 @@ namespace mfem_mgis::batch {
     /*!
      * \brief false if the gradients have been computed element by element
      * since the last computation of `F0` by kernels, or if this computation
-     * failed after the checks of the kind of the gradients and of the size
-     * of `centers` (`valid` is left unchanged by these two failures): `F0`
-     * does not match the gradients, and the inner forces can't be computed
-     * by kernels
+     * failed: `F0` does not match the gradients, and the inner forces can't
+     * be computed by kernels
      */
     bool valid = true;
     //! \brief copies of the data at the beginning of the time step

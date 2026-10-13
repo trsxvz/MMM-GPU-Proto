@@ -93,7 +93,7 @@ The function accepts a ``Parameters`` object structured as follows:
                      mfem_mgis::Parameters{
                          {"NumberOfPoints", 10},
                          {"NormalizedInitialDensity", mfem_mgis::real{1} / 150},
-                         {"NormalizedFinalDensity", mfem_mgis::real{1} / 3}}}}
+                         {"NormalizedFinalDensity", mfem_mgis::real{1} / 3}}}}}
            }}};
       const auto points = mfem_mgis::makePointsOnCurve<2>(ctx, params);
 
@@ -129,7 +129,7 @@ Common errors include:
             {"InitialPoint", std::vector<mfem_mgis::Parameter>{-2, 0.5, 2}},  // Invalid: 3D point for 2D curve
             {"FinalPoint", std::vector<mfem_mgis::Parameter>{6, 8}},
             {"Discretization",
-             mfem_mgis::Parameters{{"Uniform", mfem_mgis::Parameters{{"NumberOfPoints", 10}}}}
+             mfem_mgis::Parameters{{"Uniform", mfem_mgis::Parameters{{"NumberOfPoints", 10}}}}}
         }}};
    const auto points = mfem_mgis::makePointsOnCurve<2>(ctx, invalid_params);
    if (!points) {

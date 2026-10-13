@@ -1,0 +1,41 @@
+From 6a365732c6b07a9740b02ea95fc20ee53dae6464 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:48:35 +0200
+Subject: [PATCH] ex8: conditions of robin_test-gpu, factorization of NewtonK0
+ in a comment
+
+robin_test-gpu is registered if the option MFEM_MGIS_EXAMPLES_GPU_TESTS is set and the behaviour library is built for the GPU; the comment of the NewtonK0 test said that the elastic operator is factorized at each time step (at each resolution of the mechanical problem).
+---
+ ex8/CMakeLists.txt | 3 ++-
+ ex8/README.md      | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index 86a845f..84e7c3b 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -121,7 +121,8 @@ if(MFEM_USE_MUMPS)
+       ENVIRONMENT "${rjh_plate_kernels_environment}")
+   # the mechanical problem solved by the NewtonK0 method (tangent systems
+   # solved by GMRES preconditioned by the elastic operator, factorized by
+-  # MUMPS at each time step), all the computations being made by kernels
++  # MUMPS at each resolution of the mechanical problem), all the computations
++  # being made by kernels
+   add_test(NAME rjh_plate-newton-k0
+       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+           $<TARGET_FILE:rjh_plate>
+diff --git a/ex8/README.md b/ex8/README.md
+index f9d2b2c..a55af94 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -165,6 +165,6 @@ The following tests are run by `ctest`:
+ - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
+ - `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
+ - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
+-- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), with the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option.
++- `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU (see the main README).
+ 
+ The simulations of the plate (`rjh_plate` and its variants) are only registered as tests if MFEM is built with MUMPS; `u3si2_swelling` and `robin_test` always are.
+-- 
+2.43.0
+

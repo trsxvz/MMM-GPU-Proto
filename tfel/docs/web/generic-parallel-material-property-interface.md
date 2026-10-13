@@ -723,8 +723,8 @@ The following tests configurations are currently supported:
 - `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
 - `hip-clang`: compilation of `HIP` files using the `clang++` compiler,
   only on the NVIDIA platform (`HIP_PLATFORM=nvidia`). On the AMD
-  platform, this configuration is accepted but ignored: no configuration
-  file is installed and no test is declared.
+  platform, this configuration installs no configuration file and
+  declares no test, but `HIP` and `clang++` are still required.
 - `stlpar-parunseq-gcc`, `stlpar-parunseq-clang`, `stlpar-parunseq-icpx`:
   parallel algorithms of the standard library with the `par_unseq`
   execution policy on the threads of the host (`g++`, `clang++` and `icpx`

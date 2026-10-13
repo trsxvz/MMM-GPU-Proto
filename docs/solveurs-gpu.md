@@ -42,7 +42,7 @@ lignes.
 
 | Technique | CPU/GPU | Intérêt | Où |
 |---|---|---|---|
-| Réutiliser le préconditionneur (AMG construit une fois, sur l'opérateur élastique, ou gardé plusieurs itérations ou pas de temps) | les deux | 9 | fait : méthode `NewtonK0` du solveur `FixedPoint` de mfem-mgis (AMG construit une fois sur l'opérateur élastique) |
+| Réutiliser le préconditionneur (AMG construit une fois, sur l'opérateur élastique, ou gardé plusieurs itérations ou pas de temps) | les deux | 9 | fait : méthode `NewtonK0` du solveur `FixedPoint` de mfem-mgis (AMG construit une fois par résolution sur l'opérateur élastique, ou une fois pour tout le calcul avec `ElasticOperatorUpdate` à `Once`) |
 | Ajout : réutilisation partielle de la hiérarchie AMG (prolongateurs gardés, opérateurs grossiers recalculés) | les deux | 7 | GAMG de PETSc ; AmgX (`AMGX_solver_resetup`, pas exposé par MFEM) |
 | Point fixe accéléré par Anderson | les deux | 9 | fait : solveur `FixedPoint` de mfem-mgis, accélérations de MTest (paramètre `Acceleration` : `Anderson`, `UAnderson`, `FAnderson`, `Secant`, `IronsTuck`, etc.) ; KINSOL non essayé |
 | Ajout : assemblage de la matrice tangente globale sur GPU (option c sur GPU), motif creux et matrice hypre réutilisés d'une itération à l'autre | les deux | 9 | fait dans mfem-mgis : tangente assemblée par noyaux (voir [plus bas](#assemblage-et-opérateur-tangent)) |

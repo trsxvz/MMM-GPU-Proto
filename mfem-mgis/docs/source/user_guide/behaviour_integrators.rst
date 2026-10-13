@@ -45,7 +45,8 @@ material. Behaviour integrators are associated with:
 
    All the behaviour integrators described below support the integration
    by batches and the computations by kernels, on the GPU if a GPU is used
-   (see :ref:`mfem_mgis_batch_computations`).
+   (except the regularization of Faltus et al. in plane stress, see
+   :ref:`mfem_mgis_batch_computations`).
 
 Behaviour integrators based on :code:`MFront` behaviours
 ========================================================

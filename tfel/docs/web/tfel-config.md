@@ -40,9 +40,9 @@ The `TFEL/Config/TFELConfig.hxx` header defines the following macros:
   the host, a temporary copy `(decltype(v){v})` when `TFEL_DEVICE_CODE` is
   defined, since device code can't refer to a constexpr static variable
   defined in host code. `MFront` uses it for the static variables read by
-  the code blocks of the behaviours: a reference bound to such a variable
-  is only valid until the end of the full expression, and its address
-  can't be taken.
+  the code blocks of the behaviours: a reference derived from such a
+  variable, for instance the result of `std::min(Tref, T)`, is only valid
+  until the end of the full expression, and its address can't be taken.
 
 `TFEL_DEVICE_CODE` allows to select the code which can't be executed on
 the device, for instance when throwing an exception, while keeping the

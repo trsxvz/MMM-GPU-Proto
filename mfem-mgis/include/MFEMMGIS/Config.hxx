@@ -137,11 +137,12 @@ namespace mfem_mgis {
    * device is already configured, which must then use a GPU; with
    * `--execution cpu`, a device using a GPU is an error. When `--execution`
    * is given, the environment variables `MFEM_MGIS_DEVICE` and
-   * `MFEM_MGIS_HYPRE_ON_HOST` are ignored with a warning, the memory of
-   * hypre follows the location of the linear solvers (an option
-   * `--hypre-on-host` or `--no-hypre-on-host` contradicting it is an
-   * error), `--hypre-device-pool-size` is an error with `--execution cpu`,
-   * and PETSc is an error if the linear solvers are placed on the GPU.
+   * `MFEM_MGIS_HYPRE_ON_HOST` are ignored with a warning; in the `gpu` and
+   * `mixed` modes, the memory of hypre follows the location of the linear
+   * solvers (an option `--hypre-on-host` or `--no-hypre-on-host`
+   * contradicting it is an error); `--hypre-device-pool-size` is an error
+   * with `--execution cpu`, and PETSc is an error if the linear solvers are
+   * placed on the GPU.
    *
    * If the option `--device <configuration>` (or `-dev`) is given, the MFEM
    * device is created with this configuration (for instance `cuda`), after
