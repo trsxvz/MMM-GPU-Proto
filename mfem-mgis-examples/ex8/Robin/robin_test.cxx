@@ -9,6 +9,7 @@
  *   T(x) = T0 + a x, with a = -h (T0 - Tinf) / (k + h L)
  */
 
+#include <type_traits>
 #include <span>
 #include <vector>
 #include <memory>
@@ -136,12 +137,15 @@ int main(int argc, char** argv) {
                                     {"MaximumNumberOfIterations", 10}}) |
       or_die;
   problem.solve(ctx, 0, 1) | or_die;
-  // comparison to the exact solution
+  // comparison to the exact solution. With float, the L2 error is 9.3e-4 K
+  // (about 3e-6 of the temperatures)
+  constexpr auto threshold =
+      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-2;
   const auto ok =
       mfem_mgis::compareToAnalyticalSolution(
           ctx, problem,
           [](mfem::Vector& T, const mfem::Vector& x) { T(0) = T0 + a * x(0); },
-          {{"CriterionThreshold", 1e-8}}) |
+          {{"CriterionThreshold", threshold}}) |
       or_die;
   if (!ok) {
     mfem_mgis::getErrorStream()

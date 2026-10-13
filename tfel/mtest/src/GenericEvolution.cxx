@@ -25,6 +25,8 @@ namespace mtest {
     using namespace tfel::system;
     using ELM = tfel::system::ExternalLibraryManager;
     auto& elm = ELM::getExternalLibraryManager();
+    // MTest computes in double (real_type option of mfront)
+    elm.checkRealSize(l, fn, sizeof(real));
     this->f = elm.getGenericMaterialProperty(l, fn);
     if (elm.getGenericMaterialPropertyNumberOfVariables(l, fn) != 0u) {
       elm.getGenericMaterialPropertyVariables(this->vnames, l, fn);

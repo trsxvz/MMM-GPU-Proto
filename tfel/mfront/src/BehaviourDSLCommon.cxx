@@ -1677,6 +1677,25 @@ namespace mfront {
     return this->standardModifier(h, var, addThisPtr);
   }  // end of tangentOperatorVariableModifier
 
+  double BehaviourDSLCommon::getConvergenceCriterionForRealType(
+      const std::string_view n, const double v, const double f) const {
+    if (getRealType(this->mb) != "float") {
+      return v;
+    }
+    const auto vmin =
+        f * 10 * static_cast<double>(std::numeric_limits<float>::epsilon());
+    if (v >= vmin) {
+      return v;
+    }
+    auto msg = std::ostringstream{};
+    msg << std::scientific << "the value of '" << n << "' (" << v
+        << ") is raised to " << vmin
+        << " for the float numerical type (real_type option): smaller "
+           "values can't be reached";
+    reportWarning(msg.str());
+    return vmin;
+  }  // end of getConvergenceCriterionForRealType
+
   void BehaviourDSLCommon::treatStrainMeasure() {
     this->checkNotEndOfFile("BehaviourDSLCommon::treatStrainMeasure",
                             "Expected strain measure name.");

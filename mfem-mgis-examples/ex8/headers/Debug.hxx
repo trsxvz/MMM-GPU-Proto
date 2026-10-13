@@ -1,5 +1,6 @@
 #pragma once
 
+#include <type_traits>
 #include <map>
 #include <cmath>
 #include <limits>
@@ -154,7 +155,9 @@ inline bool checkSwelling(const FieldStatistics& s, const TestParameters& p) {
   const auto E = (t <= p.t_ramp) ? p.source * t * t / (2 * p.t_ramp)
                                  : p.source * (t - p.t_ramp / 2);
   const auto S = A * E;
-  if ((std::abs(s.min - S) > 1e-10 * S) || (std::abs(s.max - S) > 1e-10 * S)) {
+  // with float, the swelling is computed by the model with this type
+  constexpr auto eps = std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 1e-6;
+  if ((std::abs(s.min - S) > eps * S) || (std::abs(s.max - S) > eps * S)) {
     mfem_mgis::getErrorStream()
         << "the swelling does not match its exact value " << S << " (from "
         << s.min << " to " << s.max << ")\n";
@@ -173,8 +176,9 @@ inline bool checkSwelling(const FieldStatistics& s, const TestParameters& p) {
 inline bool checkPhysicsStatistics(
     const std::map<std::string, FieldStatistics>& stats, const std::string& f) {
   // relative tolerance, the values of a field are compared to its largest
-  // absolute value
-  constexpr auto eps = 1e-6;
+  // absolute value. With float, the displacements differ from the reference
+  // values by up to 3.6e-4, with the tolerances of the Newton solvers (2e-4)
+  constexpr auto eps = std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 3e-3;
   auto in = std::ifstream(f);
   if (!in) {
     mfem_mgis::getErrorStream() << "can't open file '" << f << "'\n";

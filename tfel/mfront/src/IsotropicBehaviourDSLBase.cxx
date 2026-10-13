@@ -227,7 +227,9 @@ namespace mfront {
     this->mb.addParameter(
         h, VariableDescription("real", "\u03B5", "epsilon", 1u, 0u),
         BehaviourData::ALREADYREGISTRED);
-    this->mb.setParameterDefaultValue(h, "epsilon", epsilon);
+    this->mb.setParameterDefaultValue(
+        h, "epsilon",
+        this->getConvergenceCriterionForRealType("epsilon", epsilon));
   }  // IsotropicBehaviourDSLBase::treatEpsilon
 
   void IsotropicBehaviourDSLBase::treatIterMax() {

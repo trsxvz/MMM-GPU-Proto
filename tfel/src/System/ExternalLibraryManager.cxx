@@ -337,6 +337,19 @@ namespace tfel::system {
     return static_cast<unsigned short>(n);
   }  // end of getRealSize
 
+  void ExternalLibraryManager::checkRealSize(const std::string& l,
+                                             const std::string& f,
+                                             const unsigned short s) {
+    const auto rs = this->getRealSize(l, f);
+    raise_if(rs != s, "ExternalLibraryManager::checkRealSize: entry point '" +
+                          f + "' in library '" + l +
+                          "' uses a numerical type of " + std::to_string(rs) +
+                          " bytes, whereas " + std::to_string(s) +
+                          " bytes are expected: the library must be "
+                          "generated with the expected type (real_type "
+                          "option of mfront)");
+  }  // end of checkRealSize
+
   bool ExternalLibraryManager::contains(const std::string& l,
                                         const std::string& s) {
     const auto lib = this->loadLibrary(l);

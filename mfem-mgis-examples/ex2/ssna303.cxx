@@ -14,6 +14,7 @@
 #include <sstream>
 #include <iostream>
 #include <string_view>
+#include <type_traits>
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
@@ -227,16 +228,29 @@ int main(int argc, char** argv) {
     problem.setPredictionPolicy(
         {.strategy =
              mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+    // with float, the residual stagnates at about 200 N, 1.4e-5 of the
+    // nodal forces of the first step (1.45e7 N), so that the relative
+    // tolerance can't be reached when the initial residual of a step is
+    // small: the absolute tolerance is ten times this floor
+    constexpr auto absolute_tolerance =
+        std::is_same_v<mfem_mgis::real, double> ? 0. : 2e3;
     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                       {"RelativeTolerance", 1e-6},
-                                      {"AbsoluteTolerance", 0.},
+                                      {"AbsoluteTolerance", absolute_tolerance},
                                       {"MaximumNumberOfIterations", 10}}) |
         or_die;
     // selection of the linear solver
     if (parallel) {
       problem.setLinearSolver(ctx, "MUMPSSolver", {}) | or_die;
     } else {
+#ifdef MFEM_USE_SUITESPARSE
       problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+#else
+      // UMFPACK is not available (refused by MFEM with float, for instance)
+      mfem_mgis::abort(
+          "ssna303: the sequential computation requires UMFPACK (MFEM "
+          "with SuiteSparse): use --parallel (MUMPS)");
+#endif
     }
   }
   // post-processings
@@ -295,10 +309,14 @@ int main(int argc, char** argv) {
   // resultant force. The tolerance is above the rounding of the forces, which
   // are written with 6 significant digits. It is larger for the reference
   // values computed without FBar, which are only close to the results with
-  // FBar.
+  // FBar. With float, the forces differ from the reference values by up to
+  // 1.8e-4 (absolute tolerance of the Newton solver above).
+  constexpr auto reference_tolerance =
+      std::is_same_v<mfem_mgis::real, double> ? 1e-4 : 1e-3;
   if (mfem_mgis::isMainProcess(problem.getFiniteElementDiscretization())) {
     if ((!std::string_view{reference_file}.empty()) &&
-        (!checkVerticalForce(output_file, reference_file, 1e-4))) {
+        (!checkVerticalForce(output_file, reference_file,
+                             reference_tolerance))) {
       return EXIT_FAILURE;
     }
     if ((!std::string_view{standard_reference_file}.empty()) &&

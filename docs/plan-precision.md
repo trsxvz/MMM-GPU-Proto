@@ -192,7 +192,10 @@ PETSc et MUMPS.
   trois générateurs (`GenericBehaviourSymbolsGenerator`, propriétés
   `generic` et `generic-parallel`). Les versions d'API (`_api_version`,
   `_generic_parallel_api_version`) changent aussi en float : un MGIS
-  ancien refuse alors la bibliothèque au lieu de la lire de travers.
+  ancien refuse alors la bibliothèque au lieu de la lire de travers. Les
+  propriétés matériau `generic` n'exportent pas de version d'API : un
+  appelant ancien (MGIS ou MTest d'avant ce travail) lirait une telle
+  propriété en float de travers (trou documenté).
 - `generic-parallel` : le facteur `rdt` est codé et relu converti en
   double, des deux côtés (MFront et MGIS).
 - Code de TFEL lui-même écrit pour tout type numérique
@@ -383,6 +386,40 @@ Ce que les essais ont appris :
   sens en `float` : elles sont bornées à 10 ε, ou données explicitement
   pour `float` quand l'erreur dépend du calcul.
 
-Restent : mfem-mgis (configuration, paramètres en `double`, types MPI,
-tests), les exemples et mm-opera-hpc, puis le GPU, les mesures et la
-documentation des bibliothèques.
+Suite (13/10/2026, soir) :
+
+- D7 retenue avec des valeurs mesurées : le critère `epsilon` des lois
+  (et `numerical_jacobian_epsilon` au dixième) est borné à 10 ε (1,2e-6)
+  par MFront à la génération, avec un avertissement. Une première version
+  bornait au chargement dans MGIS, par `setParameter` : elle écrasait les
+  valeurs données à l'exécution (fichier de paramètres, `setParameter`),
+  d'où le déplacement dans MFront. Seuls les paramètres `epsilon` et
+  `numerical_jacobian_epsilon` sont bornés : un autre critère écrit pour
+  le double (critère local d'une loi, borne relative d'une brique) passe
+  tel quel.
+- Tolérances relatives des solveurs de mfem-mgis
+  (`boundRelativeTolerance`) bornées à 100 ε (1,2e-5) : les résidus
+  relatifs des tests stagnent vers 10 ε (1,2e-6), et une borne de 10 ε
+  laissait Newton juste au-dessus. Une tolérance nulle (nombre
+  d'itérations fixé) et les tolérances absolues ne sont pas touchées.
+- Modèles : seuls ceux du DSL `Model` sont refusés en float ; les modèles
+  écrits avec un DSL de lois (`RungeKuttaModelDSL`) se génèrent en float.
+- mfem-mgis : configuration (type de MFEM, refus d'un MGIS d'un autre type
+  et d'AmgX en float), paramètres stockés en `double`, types MPI, tests
+  compilés en float ; double inchangé (216/216). Adaptation des tests au
+  float en cours.
+- Exemples : tous passent en float sauf ex1 et ex3, dont les sources sont
+  des tests de mfem-mgis. Les tolérances de Newton et des comparaisons
+  restent celles du double, et sont données explicitement pour le float
+  d'après les résidus et les erreurs mesurés : le plancher du résidu suit
+  l'échelle des efforts (environ 1e-5 de celle-ci), si bien qu'une
+  tolérance relative au résidu initial d'un pas, petit en fin de
+  chargement ou d'itérations de couplage, ne peut pas être atteinte : une
+  tolérance absolue à environ dix fois ce plancher est nécessaire. ex8
+  génère aussi ses lois en double pour MTest (D4, dans son propre
+  `CMakeLists.txt`).
+- MTest contrôle aussi le type des propriétés matériau et des évolutions
+  `generic`.
+
+Restent : fin des tests de mfem-mgis en float, mm-opera-hpc, le GPU en
+float, les mesures et la documentation des bibliothèques.

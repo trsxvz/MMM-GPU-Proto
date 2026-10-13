@@ -1,3 +1,4 @@
+#include <type_traits>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -230,16 +231,25 @@ int main(int argc, char* argv[]) {
   auto& heat_transfer = heat_transfer_model->getProblem();
   auto& mechanics = mechanics_model->getProblem();
 
-  heat_transfer.setSolverParameters(ctx, {{"VerbosityLevel", 2},
-                                          {"RelativeTolerance", 1e-6},
-                                          {"AbsoluteTolerance", 1e-6},
-                                          {"MaximumNumberOfIterations", 10}}) |
+  // with float, the residuals stagnate at about 0.16 for the heat transfer
+  // and 90 for the mechanics, between 1.3e-5 and 2.8e-5 of the initial
+  // residuals of the first iteration of the coupling scheme: the relative
+  // tolerance is 2e-4, and the absolute tolerances are about ten times these
+  // floors, the initial residuals of the next iterations being small
+  constexpr auto is_double = std::is_same_v<mfem_mgis::real, double>;
+  constexpr auto relative_tolerance = is_double ? 1e-6 : 2e-4;
+  heat_transfer.setSolverParameters(
+      ctx, {{"VerbosityLevel", 2},
+            {"RelativeTolerance", relative_tolerance},
+            {"AbsoluteTolerance", is_double ? 1e-6 : 2.},
+            {"MaximumNumberOfIterations", 10}}) |
       or_die;
 
-  mechanics.setSolverParameters(ctx, {{"VerbosityLevel", 2},
-                                      {"RelativeTolerance", 1e-6},
-                                      {"AbsoluteTolerance", 1e-6},
-                                      {"MaximumNumberOfIterations", 10}}) |
+  mechanics.setSolverParameters(ctx,
+                                {{"VerbosityLevel", 2},
+                                 {"RelativeTolerance", relative_tolerance},
+                                 {"AbsoluteTolerance", is_double ? 1e-6 : 1e3},
+                                 {"MaximumNumberOfIterations", 10}}) |
       or_die;
 
   print_mesh_information(heat_transfer.getImplementation<true>());

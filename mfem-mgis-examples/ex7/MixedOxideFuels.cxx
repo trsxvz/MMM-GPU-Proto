@@ -1,4 +1,5 @@
 #include <cmath>
+#include <type_traits>
 #include <string>
 #include <vector>
 #include <cassert>
@@ -406,8 +407,11 @@ static std::vector<std::vector<mfem_mgis::real>> readMeanStresses(
  */
 static bool checkMeanStresses(const std::string& f, const std::string& r) {
   // relative tolerance, above the rounding of the values which are written
-  // with 6 significant digits
-  constexpr auto eps = mfem_mgis::real{1e-4};
+  // with 6 significant digits. With float, the differences accumulate over
+  // the time steps with the tolerance of the Newton solver (1e-4) and reach
+  // 7.5e-4 of the largest stress at the end of the 40 steps
+  constexpr auto eps =
+      mfem_mgis::real{std::is_same_v<mfem_mgis::real, double> ? 1e-4 : 5e-3};
   const auto values = readMeanStresses(f);
   const auto references = readMeanStresses(r);
   if (references.empty()) {
@@ -485,8 +489,12 @@ int main(int argc, char* argv[]) {
     setLinearSolver(mfem_mgis::may_abort, ctx, problem, p, p.verbosity_level);
   }
 
+  // with float, the relative residual stagnates between 1.2e-5 and 1.6e-5
+  // (above the bound of mfem-mgis, 1.2e-5): the relative tolerance is 1e-4
+  constexpr auto relative_tolerance =
+      std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 1e-4;
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
-                                    {"RelativeTolerance", 1e-6},
+                                    {"RelativeTolerance", relative_tolerance},
                                     {"AbsoluteTolerance", 0.},
                                     {"MaximumNumberOfIterations", 6}}) |
       or_die;

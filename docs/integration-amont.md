@@ -266,7 +266,7 @@ final, par morceaux de fichier.
 
 ## mfem-mgis-examples et mm-opera-hpc
 
-Les changements des exemples (30 patchs depuis `600da70`) et de
+Les changements des exemples (31 patchs depuis `600da70`) et de
 mm-opera-hpc (26 patchs depuis `49147f2`) suivent les contributions de
 mfem-mgis dont ils se servent. Ils seront proposés après elles, par
 thème :

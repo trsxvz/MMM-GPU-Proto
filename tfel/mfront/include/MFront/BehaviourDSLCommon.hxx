@@ -555,6 +555,20 @@ namespace mfront {
     //! \brief treat the `@StrainMeasure` keyword
     virtual void treatStrainMeasure();
     /*!
+     * \return the value of a convergence criterion or of a perturbation,
+     * bounded below, with the float numerical type (`real_type` DSL option),
+     * by `f` times 10 times the machine epsilon of this type: the values
+     * written for double (1e-14 or less) can't be reached with float. A
+     * warning is reported when the value is changed.
+     * \param[in] n: name of the parameter
+     * \param[in] v: value
+     * \param[in] f: factor (0.1 for the perturbation of the numerical
+     * jacobian, the ratio used by default)
+     */
+    double getConvergenceCriterionForRealType(const std::string_view,
+                                              const double,
+                                              const double = 1) const;
+    /*!
      * \brief treat the `@TangentOperator` keyword
      * \note this method read the code block options and determines
      * which tangent operator is computed (for finite strain behaviours)

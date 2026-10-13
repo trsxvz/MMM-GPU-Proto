@@ -379,7 +379,9 @@ namespace mfront {
     this->readSpecifiedToken("RungeKuttaDSLBase::treatEpsilon", ";");
     this->mb.addParameter(h, VariableDescription("real", "epsilon", 1u, 0u),
                           BehaviourData::ALREADYREGISTRED);
-    this->mb.setParameterDefaultValue(h, "epsilon", epsilon);
+    this->mb.setParameterDefaultValue(
+        h, "epsilon",
+        this->getConvergenceCriterionForRealType("epsilon", epsilon));
   }  // end of treatEpsilon
 
   void RungeKuttaDSLBase::treatStressErrorNormalizationFactor() {

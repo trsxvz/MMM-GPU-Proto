@@ -30,6 +30,8 @@ namespace mtest {
           "' has not been generated using the `Generic` interface");
     }
     auto& elm = ELM::getExternalLibraryManager();
+    // MTest computes in double (real_type option of mfront)
+    elm.checkRealSize(l, f, sizeof(real));
     this->fct = elm.getGenericMaterialProperty(l, f);
   }  // end of GenericMaterialProperty
 

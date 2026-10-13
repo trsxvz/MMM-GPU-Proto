@@ -5,6 +5,7 @@
  * \date   14/12/2020
  */
 
+#include <type_traits>
 #include <string>
 #include <chrono>
 #include <iomanip>
@@ -184,10 +185,14 @@ int main(int argc, char** argv) {
         {.strategy =
              mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
 
-    // solving the problem
+    // solving the problem. With float, the residual stagnates at about 0.1,
+    // 2e-6 of the residual of the first step: the absolute tolerance is ten
+    // times this floor
+    constexpr auto absolute_tolerance =
+        std::is_same_v<mfem_mgis::real, double> ? 0. : 1.;
     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                       {"RelativeTolerance", 1e-6},
-                                      {"AbsoluteTolerance", 0.},
+                                      {"AbsoluteTolerance", absolute_tolerance},
                                       {"MaximumNumberOfIterations", 20}}) |
         or_die;
 
@@ -214,12 +219,15 @@ int main(int argc, char** argv) {
                {"VerbosityLevel", 0}}}};
 
       // the number of iterations increases with the plastic strain: more
-      // than 300 iterations are needed at the end of the loading
+      // than 300 iterations are needed at the end of the loading. With
+      // float, FGMRES preconditioned by BoomerAMG stagnates above the
+      // default tolerance of MFEM (1e-6, 1.2e-5 once bounded by mfem-mgis):
+      // the Newton solver is then inexact, with a tolerance of 1e-4
+      constexpr auto linear_tolerance =
+          std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 1e-4;
       problem.setLinearSolver(ctx, solver,
                               {{"VerbosityLevel", 0},
-                               //{"AbsoluteTolerance", 1e-12},
-                               //{"RelativeTolerance", 1e-12},
-                               //{"Tolerance", 1e-12},
+                               {"Tolerance", linear_tolerance},
                                {"MaximumNumberOfIterations", 1000},
                                {"Preconditioner", prec_boomer}}) |
           or_die;

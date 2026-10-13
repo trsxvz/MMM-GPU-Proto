@@ -14,6 +14,7 @@
  *   ./rve --mesh inclusions_49.msh --no-check
  */
 
+#include <type_traits>
 #include <string_view>
 #include <string>
 #include <array>
@@ -26,6 +27,7 @@
 #include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/MPI.hxx"
 
 // Young moduli of the two materials
 constexpr auto young1 = mfem_mgis::real{2e11};
@@ -244,9 +246,13 @@ void run_solve(mfem_mgis::attributes::MayAbort,
       error = std::max(error, std::abs(Pi[0] - Pxx) / Pxx);
     }
   }
-  MPI_Allreduce(MPI_IN_PLACE, &error, 1, MPI_DOUBLE, MPI_MAX,
+  MPI_Allreduce(MPI_IN_PLACE, &error, 1, mfem_mgis::mpi_type<real>, MPI_MAX,
                 mfem_mgis::getMPICommunicator(p));
-  if (error > 1e-10) {
+  // with float, the error (3.9e-6) is bounded by the relative tolerance of
+  // the Newton solver, raised to 1.2e-5 by mfem-mgis for this type
+  constexpr auto tolerance =
+      std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 4e-5;
+  if (error > tolerance) {
     mfem_mgis::getErrorStream()
         << "the solution does not match the analytical solution (error: "
         << error << ")\n";

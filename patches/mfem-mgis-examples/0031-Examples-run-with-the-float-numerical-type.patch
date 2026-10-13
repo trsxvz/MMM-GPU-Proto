@@ -1,0 +1,327 @@
+From 45839c0654d00c66fead83c0923e19e54f6202d7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:33:35 +0200
+Subject: [PATCH] Examples run with the float numerical type
+
+The tolerances of the Newton solvers and of the comparisons are kept for
+double and given explicitly for float, from the residuals and the errors
+measured in float (comments give the values):
+- ex2 (ssna303): absolute tolerance ten times the floor of the residual
+  (200 N), comparison to the reference forces at 1e-3 (1.8e-4 measured);
+  UMFPACK only if MFEM provides it.
+- ex4 (ssna303_3d_hypre): absolute tolerance ten times the floor (0.1),
+  linear solver tolerance 1e-4 (FGMRES and BoomerAMG stagnate above 1e-5).
+- ex6 (rve): comparison to the analytical solution at 4e-5 (3.9e-6
+  measured); the reduction of the error uses the MPI type of real instead
+  of MPI_DOUBLE.
+- ex7 (mox2): relative tolerance 1e-4 (stagnation at 1.6e-5), comparison
+  of the mean stresses at 5e-3 (7.5e-4 measured at the end of 40 steps).
+- ex8 (rjh_plate, robin_test): relative tolerance 2e-4 and absolute
+  tolerances ten times the floors of the heat transfer and mechanical
+  problems, statistics compared at 3e-3 (3.6e-4 measured), swelling at
+  1e-6, L2 error of the Robin test at 1e-2 (9.3e-4 measured).
+Double: 24/24 on the CPU. Float: all the examples but ex1 and ex3, whose
+sources are tests of mfem-mgis.
+---
+ ex2/ssna303.cxx             | 24 +++++++++++++++++++++---
+ ex4/ssna303_hypre.cxx       | 20 ++++++++++++++------
+ ex6/RveNonLinearElastic.cxx | 10 ++++++++--
+ ex7/MixedOxideFuels.cxx     | 14 +++++++++++---
+ ex8/Robin/robin_test.cxx    |  8 ++++++--
+ ex8/Thermomechanical.cxx    | 26 ++++++++++++++++++--------
+ ex8/headers/Debug.hxx       | 10 +++++++---
+ 7 files changed, 85 insertions(+), 27 deletions(-)
+
+diff --git a/ex2/ssna303.cxx b/ex2/ssna303.cxx
+index fb3faed..0f399fb 100644
+--- a/ex2/ssna303.cxx
++++ b/ex2/ssna303.cxx
+@@ -14,6 +14,7 @@
+ #include <sstream>
+ #include <iostream>
+ #include <string_view>
++#include <type_traits>
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+@@ -227,16 +228,29 @@ int main(int argc, char** argv) {
+     problem.setPredictionPolicy(
+         {.strategy =
+              mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
++    // with float, the residual stagnates at about 200 N, 1.4e-5 of the
++    // nodal forces of the first step (1.45e7 N), so that the relative
++    // tolerance can't be reached when the initial residual of a step is
++    // small: the absolute tolerance is ten times this floor
++    constexpr auto absolute_tolerance =
++        std::is_same_v<mfem_mgis::real, double> ? 0. : 2e3;
+     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                       {"RelativeTolerance", 1e-6},
+-                                      {"AbsoluteTolerance", 0.},
++                                      {"AbsoluteTolerance", absolute_tolerance},
+                                       {"MaximumNumberOfIterations", 10}}) |
+         or_die;
+     // selection of the linear solver
+     if (parallel) {
+       problem.setLinearSolver(ctx, "MUMPSSolver", {}) | or_die;
+     } else {
++#ifdef MFEM_USE_SUITESPARSE
+       problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
++#else
++      // UMFPACK is not available (refused by MFEM with float, for instance)
++      mfem_mgis::abort(
++          "ssna303: the sequential computation requires UMFPACK (MFEM "
++          "with SuiteSparse): use --parallel (MUMPS)");
++#endif
+     }
+   }
+   // post-processings
+@@ -295,10 +309,14 @@ int main(int argc, char** argv) {
+   // resultant force. The tolerance is above the rounding of the forces, which
+   // are written with 6 significant digits. It is larger for the reference
+   // values computed without FBar, which are only close to the results with
+-  // FBar.
++  // FBar. With float, the forces differ from the reference values by up to
++  // 1.8e-4 (absolute tolerance of the Newton solver above).
++  constexpr auto reference_tolerance =
++      std::is_same_v<mfem_mgis::real, double> ? 1e-4 : 1e-3;
+   if (mfem_mgis::isMainProcess(problem.getFiniteElementDiscretization())) {
+     if ((!std::string_view{reference_file}.empty()) &&
+-        (!checkVerticalForce(output_file, reference_file, 1e-4))) {
++        (!checkVerticalForce(output_file, reference_file,
++                             reference_tolerance))) {
+       return EXIT_FAILURE;
+     }
+     if ((!std::string_view{standard_reference_file}.empty()) &&
+diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
+index 10fbf2e..ce1d780 100644
+--- a/ex4/ssna303_hypre.cxx
++++ b/ex4/ssna303_hypre.cxx
+@@ -5,6 +5,7 @@
+  * \date   14/12/2020
+  */
+ 
++#include <type_traits>
+ #include <string>
+ #include <chrono>
+ #include <iomanip>
+@@ -184,10 +185,14 @@ int main(int argc, char** argv) {
+         {.strategy =
+              mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+ 
+-    // solving the problem
++    // solving the problem. With float, the residual stagnates at about 0.1,
++    // 2e-6 of the residual of the first step: the absolute tolerance is ten
++    // times this floor
++    constexpr auto absolute_tolerance =
++        std::is_same_v<mfem_mgis::real, double> ? 0. : 1.;
+     problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
+                                       {"RelativeTolerance", 1e-6},
+-                                      {"AbsoluteTolerance", 0.},
++                                      {"AbsoluteTolerance", absolute_tolerance},
+                                       {"MaximumNumberOfIterations", 20}}) |
+         or_die;
+ 
+@@ -214,12 +219,15 @@ int main(int argc, char** argv) {
+                {"VerbosityLevel", 0}}}};
+ 
+       // the number of iterations increases with the plastic strain: more
+-      // than 300 iterations are needed at the end of the loading
++      // than 300 iterations are needed at the end of the loading. With
++      // float, FGMRES preconditioned by BoomerAMG stagnates above the
++      // default tolerance of MFEM (1e-6, 1.2e-5 once bounded by mfem-mgis):
++      // the Newton solver is then inexact, with a tolerance of 1e-4
++      constexpr auto linear_tolerance =
++          std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 1e-4;
+       problem.setLinearSolver(ctx, solver,
+                               {{"VerbosityLevel", 0},
+-                               //{"AbsoluteTolerance", 1e-12},
+-                               //{"RelativeTolerance", 1e-12},
+-                               //{"Tolerance", 1e-12},
++                               {"Tolerance", linear_tolerance},
+                                {"MaximumNumberOfIterations", 1000},
+                                {"Preconditioner", prec_boomer}}) |
+           or_die;
+diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
+index dc70044..e063f0d 100644
+--- a/ex6/RveNonLinearElastic.cxx
++++ b/ex6/RveNonLinearElastic.cxx
+@@ -14,6 +14,7 @@
+  *   ./rve --mesh inclusions_49.msh --no-check
+  */
+ 
++#include <type_traits>
+ #include <string_view>
+ #include <string>
+ #include <array>
+@@ -26,6 +27,7 @@
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/MPI.hxx"
+ 
+ // Young moduli of the two materials
+ constexpr auto young1 = mfem_mgis::real{2e11};
+@@ -244,9 +246,13 @@ void run_solve(mfem_mgis::attributes::MayAbort,
+       error = std::max(error, std::abs(Pi[0] - Pxx) / Pxx);
+     }
+   }
+-  MPI_Allreduce(MPI_IN_PLACE, &error, 1, MPI_DOUBLE, MPI_MAX,
++  MPI_Allreduce(MPI_IN_PLACE, &error, 1, mfem_mgis::mpi_type<real>, MPI_MAX,
+                 mfem_mgis::getMPICommunicator(p));
+-  if (error > 1e-10) {
++  // with float, the error (3.9e-6) is bounded by the relative tolerance of
++  // the Newton solver, raised to 1.2e-5 by mfem-mgis for this type
++  constexpr auto tolerance =
++      std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 4e-5;
++  if (error > tolerance) {
+     mfem_mgis::getErrorStream()
+         << "the solution does not match the analytical solution (error: "
+         << error << ")\n";
+diff --git a/ex7/MixedOxideFuels.cxx b/ex7/MixedOxideFuels.cxx
+index f11ba63..d238004 100644
+--- a/ex7/MixedOxideFuels.cxx
++++ b/ex7/MixedOxideFuels.cxx
+@@ -1,4 +1,5 @@
+ #include <cmath>
++#include <type_traits>
+ #include <string>
+ #include <vector>
+ #include <cassert>
+@@ -406,8 +407,11 @@ static std::vector<std::vector<mfem_mgis::real>> readMeanStresses(
+  */
+ static bool checkMeanStresses(const std::string& f, const std::string& r) {
+   // relative tolerance, above the rounding of the values which are written
+-  // with 6 significant digits
+-  constexpr auto eps = mfem_mgis::real{1e-4};
++  // with 6 significant digits. With float, the differences accumulate over
++  // the time steps with the tolerance of the Newton solver (1e-4) and reach
++  // 7.5e-4 of the largest stress at the end of the 40 steps
++  constexpr auto eps =
++      mfem_mgis::real{std::is_same_v<mfem_mgis::real, double> ? 1e-4 : 5e-3};
+   const auto values = readMeanStresses(f);
+   const auto references = readMeanStresses(r);
+   if (references.empty()) {
+@@ -485,8 +489,12 @@ int main(int argc, char* argv[]) {
+     setLinearSolver(mfem_mgis::may_abort, ctx, problem, p, p.verbosity_level);
+   }
+ 
++  // with float, the relative residual stagnates between 1.2e-5 and 1.6e-5
++  // (above the bound of mfem-mgis, 1.2e-5): the relative tolerance is 1e-4
++  constexpr auto relative_tolerance =
++      std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 1e-4;
+   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
+-                                    {"RelativeTolerance", 1e-6},
++                                    {"RelativeTolerance", relative_tolerance},
+                                     {"AbsoluteTolerance", 0.},
+                                     {"MaximumNumberOfIterations", 6}}) |
+       or_die;
+diff --git a/ex8/Robin/robin_test.cxx b/ex8/Robin/robin_test.cxx
+index 748e1d5..bd5e8cb 100644
+--- a/ex8/Robin/robin_test.cxx
++++ b/ex8/Robin/robin_test.cxx
+@@ -9,6 +9,7 @@
+  *   T(x) = T0 + a x, with a = -h (T0 - Tinf) / (k + h L)
+  */
+ 
++#include <type_traits>
+ #include <span>
+ #include <vector>
+ #include <memory>
+@@ -136,12 +137,15 @@ int main(int argc, char** argv) {
+                                     {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+   problem.solve(ctx, 0, 1) | or_die;
+-  // comparison to the exact solution
++  // comparison to the exact solution. With float, the L2 error is 9.3e-4 K
++  // (about 3e-6 of the temperatures)
++  constexpr auto threshold =
++      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-2;
+   const auto ok =
+       mfem_mgis::compareToAnalyticalSolution(
+           ctx, problem,
+           [](mfem::Vector& T, const mfem::Vector& x) { T(0) = T0 + a * x(0); },
+-          {{"CriterionThreshold", 1e-8}}) |
++          {{"CriterionThreshold", threshold}}) |
+       or_die;
+   if (!ok) {
+     mfem_mgis::getErrorStream()
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 522e24f..5c5cf12 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -1,3 +1,4 @@
++#include <type_traits>
+ #include <cmath>
+ #include <string>
+ #include <vector>
+@@ -230,16 +231,25 @@ int main(int argc, char* argv[]) {
+   auto& heat_transfer = heat_transfer_model->getProblem();
+   auto& mechanics = mechanics_model->getProblem();
+ 
+-  heat_transfer.setSolverParameters(ctx, {{"VerbosityLevel", 2},
+-                                          {"RelativeTolerance", 1e-6},
+-                                          {"AbsoluteTolerance", 1e-6},
+-                                          {"MaximumNumberOfIterations", 10}}) |
++  // with float, the residuals stagnate at about 0.16 for the heat transfer
++  // and 90 for the mechanics, between 1.3e-5 and 2.8e-5 of the initial
++  // residuals of the first iteration of the coupling scheme: the relative
++  // tolerance is 2e-4, and the absolute tolerances are about ten times these
++  // floors, the initial residuals of the next iterations being small
++  constexpr auto is_double = std::is_same_v<mfem_mgis::real, double>;
++  constexpr auto relative_tolerance = is_double ? 1e-6 : 2e-4;
++  heat_transfer.setSolverParameters(
++      ctx, {{"VerbosityLevel", 2},
++            {"RelativeTolerance", relative_tolerance},
++            {"AbsoluteTolerance", is_double ? 1e-6 : 2.},
++            {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+ 
+-  mechanics.setSolverParameters(ctx, {{"VerbosityLevel", 2},
+-                                      {"RelativeTolerance", 1e-6},
+-                                      {"AbsoluteTolerance", 1e-6},
+-                                      {"MaximumNumberOfIterations", 10}}) |
++  mechanics.setSolverParameters(ctx,
++                                {{"VerbosityLevel", 2},
++                                 {"RelativeTolerance", relative_tolerance},
++                                 {"AbsoluteTolerance", is_double ? 1e-6 : 1e3},
++                                 {"MaximumNumberOfIterations", 10}}) |
+       or_die;
+ 
+   print_mesh_information(heat_transfer.getImplementation<true>());
+diff --git a/ex8/headers/Debug.hxx b/ex8/headers/Debug.hxx
+index b38ab5e..f14da09 100644
+--- a/ex8/headers/Debug.hxx
++++ b/ex8/headers/Debug.hxx
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <type_traits>
+ #include <map>
+ #include <cmath>
+ #include <limits>
+@@ -154,7 +155,9 @@ inline bool checkSwelling(const FieldStatistics& s, const TestParameters& p) {
+   const auto E = (t <= p.t_ramp) ? p.source * t * t / (2 * p.t_ramp)
+                                  : p.source * (t - p.t_ramp / 2);
+   const auto S = A * E;
+-  if ((std::abs(s.min - S) > 1e-10 * S) || (std::abs(s.max - S) > 1e-10 * S)) {
++  // with float, the swelling is computed by the model with this type
++  constexpr auto eps = std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 1e-6;
++  if ((std::abs(s.min - S) > eps * S) || (std::abs(s.max - S) > eps * S)) {
+     mfem_mgis::getErrorStream()
+         << "the swelling does not match its exact value " << S << " (from "
+         << s.min << " to " << s.max << ")\n";
+@@ -173,8 +176,9 @@ inline bool checkSwelling(const FieldStatistics& s, const TestParameters& p) {
+ inline bool checkPhysicsStatistics(
+     const std::map<std::string, FieldStatistics>& stats, const std::string& f) {
+   // relative tolerance, the values of a field are compared to its largest
+-  // absolute value
+-  constexpr auto eps = 1e-6;
++  // absolute value. With float, the displacements differ from the reference
++  // values by up to 3.6e-4, with the tolerances of the Newton solvers (2e-4)
++  constexpr auto eps = std::is_same_v<mfem_mgis::real, double> ? 1e-6 : 3e-3;
+   auto in = std::ifstream(f);
+   if (!in) {
+     mfem_mgis::getErrorStream() << "can't open file '" << f << "'\n";
+-- 
+2.43.0
+

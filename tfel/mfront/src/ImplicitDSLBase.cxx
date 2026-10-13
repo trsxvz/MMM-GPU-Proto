@@ -690,7 +690,9 @@ namespace mfront {
     e.description =
         "value used to stop the iteration of the implicit algorithm";
     this->mb.addParameter(uh, e, BehaviourData::ALREADYREGISTRED);
-    this->mb.setParameterDefaultValue(uh, "epsilon", epsilon);
+    this->mb.setParameterDefaultValue(
+        uh, "epsilon",
+        this->getConvergenceCriterionForRealType("epsilon", epsilon));
     this->mb.setEntryName(uh, "epsilon", "epsilon");
   }  // ImplicitDSLBase::treatEpsilon
 
@@ -751,7 +753,10 @@ namespace mfront {
         "perturbation value used to compute a finite difference approximation "
         "of the jacobian";
     this->mb.addParameter(h, e, BehaviourData::ALREADYREGISTRED);
-    this->mb.setParameterDefaultValue(h, "numerical_jacobian_epsilon", epsilon);
+    this->mb.setParameterDefaultValue(
+        h, "numerical_jacobian_epsilon",
+        this->getConvergenceCriterionForRealType("numerical_jacobian_epsilon",
+                                                 epsilon, 0.1));
   }  // ImplicitDSLBase::treatEpsilon
 
   void ImplicitDSLBase::treatIterMax() {

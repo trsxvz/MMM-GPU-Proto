@@ -140,15 +140,7 @@ namespace mtest {
     auto& elm = ExternalLibraryManager::getExternalLibraryManager();
     // MTest computes in double: a behaviour generated with another
     // numerical type (real_type option of mfront) would be read wrongly
-    const auto rs = elm.getRealSize(l, b);
-    tfel::raise_if(rs != sizeof(real),
-                   "GenericBehaviour::GenericBehaviour: behaviour '" + b +
-                       "' in library '" + l + "' uses a numerical type of " +
-                       std::to_string(rs) + " bytes, whereas MTest requires " +
-                       std::to_string(sizeof(real)) +
-                       " bytes (double): the library must be generated "
-                       "without the real_type option of mfront, or with "
-                       "real_type set to double");
+    elm.checkRealSize(l, b, sizeof(real));
     const auto f = b + "_" + ModellingHypothesis::toString(h);
     this->fct = elm.getGenericBehaviourFunction(l, f);
     if (this->stype == 1u) {
