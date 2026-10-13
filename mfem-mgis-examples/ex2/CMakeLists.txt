@@ -80,7 +80,7 @@ function(add_ssna303_test_ex)
   endif(MGIS_HAVE_TFEL)
   # the same computations on a GPU, UMFPack computing on the CPU (see
   # ../config/TestMode.cmake)
-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx2_HAVE_GPU_BEHAVIOURS)
     add_test(NAME ${test}-gpu
              COMMAND ssna303 ${ssna303_loading}
                      --reference-file ssna303-force.ref

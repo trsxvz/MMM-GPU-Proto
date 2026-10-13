@@ -409,14 +409,22 @@ namespace mfem_mgis {
     //! \brief modelling hypothesis
     const Hypothesis hypothesis;
     /*!
-     * \brief replaces the computations of the finite elements by kernels by
-     * the computations element by element if they are an optional default
-     * (see `optional_finite_elements_kernels`) not supported by the
-     * behaviour integrators. Collective.
+     * \brief replaces the integration by batches by the integration point
+     * by point, and the computations of the finite elements by kernels by
+     * the computations element by element, if they are optional defaults of
+     * the execution settings (see `optional_batch_integration` and
+     * `optional_finite_elements_kernels`) not supported by the behaviour
+     * integrators. Collective.
      */
-    void selectOptionalFiniteElementsKernels() noexcept;
+    void selectOptionalComputations() noexcept;
     //! \brief if true, the behaviours are integrated by batches
-    const bool batch_integration;
+    bool batch_integration;
+    /*!
+     * \brief if true, the integration by batches is a default of the
+     * execution settings, replaced by the integration point by point at the
+     * first setup if the behaviour integrators do not support it
+     */
+    bool optional_batch_integration;
     /*!
      * \brief if true, the gradients of the integration by batches are
      * computed by kernels

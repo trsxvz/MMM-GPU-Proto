@@ -777,12 +777,13 @@ namespace mfem_mgis {
     parser.AddOption(
         &execution, internals::execution_short_option,
         internals::execution_option,
-        "Execution of the computations: cpu (no device, all the "
+        "Execution of the computations: cpu (no GPU, all the "
         "computations on the host), gpu (device gpu of MFEM, all the "
         "computations on the GPU) or mixed (device gpu of MFEM, each phase "
         "placed by the options --finite-elements, --behaviours, "
         "--linear-solver-device and --post-processings, gpu by default). "
-        "Read by mfem_mgis::initialize. Without this option, the "
+        "Read by mfem_mgis::initialize. With this option, the environment "
+        "variables placing the computations are ignored; without it, the "
         "computations are placed by the other options, the parameters and "
         "the environment variables.");
     static const char* finite_elements = "";
@@ -837,7 +838,9 @@ namespace mfem_mgis {
         Finalizer::no_hypre_on_host_option,
         "hypre computes on the host, even if the MFEM device uses a GPU "
         "(for small linear systems), set by mfem_mgis::initialize. Given by "
-        "the variable MFEM_MGIS_HYPRE_ON_HOST if not given.");
+        "the variable MFEM_MGIS_HYPRE_ON_HOST if not given. With "
+        "--execution, the memory of hypre is given by the location of the "
+        "linear solvers, which this option can't contradict.");
     // read by `initialize`: only declared here, so that the parser accepts
     // it
     static bool kokkos = false;

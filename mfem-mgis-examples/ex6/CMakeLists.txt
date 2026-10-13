@@ -59,7 +59,7 @@ set(test "rve")
 add_test(NAME ${test} COMMAND rve --no-post-processing)
 # the same computation on a GPU, and with the behaviours integrated on the
 # CPU (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx6_HAVE_GPU_BEHAVIOURS)
   add_test(NAME ${test}-gpu
            COMMAND rve --no-post-processing --execution gpu)
   add_test(NAME ${test}-mixed-gpu

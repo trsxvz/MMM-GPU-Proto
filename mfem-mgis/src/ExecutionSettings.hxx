@@ -83,6 +83,8 @@ namespace mfem_mgis::internals {
    * integrators do not support them
    */
   [[nodiscard]] bool areFiniteElementsKernelsOptional() noexcept;
+  //! \return true if the execution mode is given (option `--execution`)
+  [[nodiscard]] bool isExecutionModeSpecified() noexcept;
   /*!
    * \return the default choice of the computation of the post-processings:
    * `Kernels` if they are computed on the GPU, `ElementByElement` otherwise

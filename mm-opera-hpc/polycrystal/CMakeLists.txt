@@ -23,7 +23,7 @@ target_compile_definitions(uniaxial-polycrystal PRIVATE
 # testing
 add_dependencies(check uniaxial-polycrystal BehavioursPolycrystal)
 add_test(NAME UniaxialPolycrystalTest COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1)
-if(MM_OPERA_HPC_RUN_GPU_TESTS)
+if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
   add_test(NAME UniaxialPolycrystalTest-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution gpu)
   add_test(NAME UniaxialPolycrystalTest-mixed-gpu COMMAND uniaxial-polycrystal --disable-post-processing --nstep 1 --duration 0.1 --execution mixed --behaviours cpu)
   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)

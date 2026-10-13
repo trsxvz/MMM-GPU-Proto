@@ -23,7 +23,7 @@ target_compile_definitions(cermet PRIVATE
 add_dependencies(check cermet BehavioursCermet)
 add_test(NAME CermetNullStrainXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
 add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
-if(MM_OPERA_HPC_RUN_GPU_TESTS)
+if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
   add_test(NAME CermetNullStrainXXYY-gpu COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0 --execution gpu)
   set_tests_properties(CermetNullStrainXXYY-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()

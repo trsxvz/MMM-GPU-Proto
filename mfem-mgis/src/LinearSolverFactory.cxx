@@ -673,6 +673,9 @@ namespace mfem_mgis {
           "setLinearSolverPreconditioner: no options expected for "
           "preconditioner 'None'");
     }
+    if (!checkParameters(ctx, p, std::vector<std::string>{"Name"})) {
+      return {};
+    }
     return true;
   }  // end of isNoPreconditioner
 

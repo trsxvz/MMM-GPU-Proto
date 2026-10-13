@@ -134,7 +134,7 @@ set_tests_properties(rjh_plate-newton-k0 PROPERTIES
 # the same computation on a GPU, the direct solver MUMPS computing on the
 # CPU (option --execution mixed --linear-solver-device cpu), and with the
 # finite elements computed on the CPU too (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx8_HAVE_GPU_BEHAVIOURS)
   add_test(NAME rjh_plate-gpu
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
           $<TARGET_FILE:rjh_plate>

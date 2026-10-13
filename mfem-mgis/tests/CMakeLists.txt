@@ -1235,9 +1235,14 @@ if(MFEM_MGIS_HAVE_TFEL)
       # behaviour libraries for the CPU and, if MFEM uses a GPU, for the
       # GPU, chosen by getBehavioursLibrary
       include(${PROJECT_SOURCE_DIR}/cmake/modules/MFEMMGISBehaviours.cmake)
+      # the library for the GPU is only built for the tests on the GPU
+      set(_execution_settings_no_gpu NO_GPU)
+      if(enable-gpu-tests)
+        set(_execution_settings_no_gpu)
+      endif()
       mfem_mgis_add_behaviours_library(ExecutionSettingsBehaviours
         SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/IsotropicLinearHardeningPlasticity.mfront
-        EXCLUDE_FROM_ALL)
+        EXCLUDE_FROM_ALL ${_execution_settings_no_gpu})
       add_dependencies(build-tests ExecutionSettingsBehaviours)
       set(execution_settings_test_arguments
           --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
@@ -1290,6 +1295,12 @@ if(MFEM_MGIS_HAVE_TFEL)
       add_execution_settings_refusal_test(
         cpu-device "the device 'cuda' uses a GPU, which contradicts"
         --execution cpu --device cuda)
+      add_execution_settings_refusal_test(
+        missing-value "no value given to '--execution'"
+        --execution --behaviours cpu)
+      add_execution_settings_refusal_test(
+        cpu-pool-size "can't be given with '--execution cpu'"
+        --execution cpu --hypre-device-pool-size 1)
       if((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
         # refused before any use of the GPU
         add_execution_settings_refusal_test(

@@ -1,0 +1,156 @@
+From 2afbae94c38b2bdfd11ee4f21bbe2d3c6b490c2d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 14:53:44 +0200
+Subject: [PATCH] Tests on the GPU only registered when the behaviour libraries
+ are built for the GPU
+
+mfem_mgis_add_behaviours_library may not build the libraries for the GPU (configuration file of TFEL not found): the tests on the GPU of each example are then not registered, instead of failing to load a missing library.
+---
+ config/TestMode.cmake    | 5 +++--
+ ex1/CMakeLists.txt       | 2 +-
+ ex2/CMakeLists.txt       | 2 +-
+ ex3/CMakeLists.txt       | 2 +-
+ ex4/CMakeLists.txt       | 2 +-
+ ex5/CMakeLists.txt       | 2 +-
+ ex6/CMakeLists.txt       | 2 +-
+ ex7/CMakeLists.txt       | 2 +-
+ ex8/CMakeLists.txt       | 2 +-
+ ex8/Robin/CMakeLists.txt | 2 +-
+ 10 files changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/config/TestMode.cmake b/config/TestMode.cmake
+index f96f6ce..773ddf6 100644
+--- a/config/TestMode.cmake
++++ b/config/TestMode.cmake
+@@ -41,8 +41,9 @@ endif()
+ # default, a GPU being required when the tests are run): the examples which
+ # support it are also tested with the option --execution gpu (or mixed), if
+ # MFEM is compiled with CUDA or HIP (as described by mfem-mgis, which must be
+-# found before this file is included). The MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS
+-# variable is then true.
++# found before this file is included): the MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS
++# variable is then true, and each example registers its tests on the GPU if
++# its behaviour libraries are built for the GPU.
+ option(MFEM_MGIS_EXAMPLES_GPU_TESTS "Test the examples on a GPU too" OFF)
+ set(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS OFF)
+ if(MFEM_MGIS_EXAMPLES_GPU_TESTS)
+diff --git a/ex1/CMakeLists.txt b/ex1/CMakeLists.txt
+index ec34b3c..2972d9c 100644
+--- a/ex1/CMakeLists.txt
++++ b/ex1/CMakeLists.txt
+@@ -61,7 +61,7 @@ add_test(NAME uniaxial_tensile_test
+          COMMAND uniaxial_tensile_test
+                  --reference-file IsotropicLinearHardeningPlasticity.ref)
+ # the same computation on a GPU (see ../config/TestMode.cmake)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx1_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME uniaxial_tensile_test-gpu
+            COMMAND uniaxial_tensile_test
+                    --reference-file IsotropicLinearHardeningPlasticity.ref
+diff --git a/ex2/CMakeLists.txt b/ex2/CMakeLists.txt
+index edabc88..6a88d33 100644
+--- a/ex2/CMakeLists.txt
++++ b/ex2/CMakeLists.txt
+@@ -80,7 +80,7 @@ function(add_ssna303_test_ex)
+   endif(MGIS_HAVE_TFEL)
+   # the same computations on a GPU, UMFPack computing on the CPU (see
+   # ../config/TestMode.cmake)
+-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx2_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME ${test}-gpu
+              COMMAND ssna303 ${ssna303_loading}
+                      --reference-file ssna303-force.ref
+diff --git a/ex3/CMakeLists.txt b/ex3/CMakeLists.txt
+index a053b42..a2d97d7 100644
+--- a/ex3/CMakeLists.txt
++++ b/ex3/CMakeLists.txt
+@@ -68,7 +68,7 @@ if(MFEM_USE_MPI)
+   endforeach()
+ 
+   # the first case on a GPU (see ../config/TestMode.cmake)
+-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx3_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME two_layer_cube-0-gpu
+              COMMAND two_layer_cube --test-case 0 --execution gpu)
+     set_tests_properties(two_layer_cube-0-gpu PROPERTIES RESOURCE_LOCK gpu)
+diff --git a/ex4/CMakeLists.txt b/ex4/CMakeLists.txt
+index fe1d440..4b2327e 100644
+--- a/ex4/CMakeLists.txt
++++ b/ex4/CMakeLists.txt
+@@ -108,7 +108,7 @@ endforeach()
+ 
+ # the same computations on a GPU (see ../config/TestMode.cmake): hypre on the
+ # GPU, and MUMPS on the CPU (option --linear-solver-device cpu)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME ssna303_3d_hypre-gpu
+            COMMAND ssna303_3d_hypre --nbsteps ${ssna303_3d_nsteps}
+                    --end-time ${ssna303_3d_end_time}
+diff --git a/ex5/CMakeLists.txt b/ex5/CMakeLists.txt
+index 7fd74d3..86bbd92 100644
+--- a/ex5/CMakeLists.txt
++++ b/ex5/CMakeLists.txt
+@@ -59,7 +59,7 @@ if(MFEM_USE_SUITESPARSE)
+   add_test(NAME ${test} COMMAND ${test})
+   # the same computation on a GPU, UMFPack computing on the CPU (see
+   # ../config/TestMode.cmake)
+-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME ${test}-gpu
+              COMMAND ${test} --execution mixed --linear-solver-device cpu)
+     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
+diff --git a/ex6/CMakeLists.txt b/ex6/CMakeLists.txt
+index b7b3f67..a16611d 100755
+--- a/ex6/CMakeLists.txt
++++ b/ex6/CMakeLists.txt
+@@ -59,7 +59,7 @@ set(test "rve")
+ add_test(NAME ${test} COMMAND rve --no-post-processing)
+ # the same computation on a GPU, and with the behaviours integrated on the
+ # CPU (see ../config/TestMode.cmake)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx6_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME ${test}-gpu
+            COMMAND rve --no-post-processing --execution gpu)
+   add_test(NAME ${test}-mixed-gpu
+diff --git a/ex7/CMakeLists.txt b/ex7/CMakeLists.txt
+index 9c3460b..cea086c 100755
+--- a/ex7/CMakeLists.txt
++++ b/ex7/CMakeLists.txt
+@@ -101,7 +101,7 @@ endif()
+ 
+ # the same computation on a GPU, and with the behaviours integrated on the
+ # CPU (see ../config/TestMode.cmake)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx7_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME ${test}-gpu
+            COMMAND mox2 ${mox2_test_options} --execution gpu)
+   add_test(NAME ${test}-mixed-gpu
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index e30bd4c..cf86e6a 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -134,7 +134,7 @@ set_tests_properties(rjh_plate-newton-k0 PROPERTIES
+ # the same computation on a GPU, the direct solver MUMPS computing on the
+ # CPU (option --execution mixed --linear-solver-device cpu), and with the
+ # finite elements computed on the CPU too (see ../config/TestMode.cmake)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx8_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME rjh_plate-gpu
+       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+           $<TARGET_FILE:rjh_plate>
+diff --git a/ex8/Robin/CMakeLists.txt b/ex8/Robin/CMakeLists.txt
+index c180f3e..651a44f 100644
+--- a/ex8/Robin/CMakeLists.txt
++++ b/ex8/Robin/CMakeLists.txt
+@@ -22,7 +22,7 @@ add_test(NAME robin_test
+     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+ set_tests_properties(robin_test PROPERTIES PROCESSORS 2)
+ # the same computation on a GPU (see ../../config/TestMode.cmake)
+-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
++if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursRobin_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME robin_test-gpu
+       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+           $<TARGET_FILE:robin_test> --execution gpu
+-- 
+2.43.0
+

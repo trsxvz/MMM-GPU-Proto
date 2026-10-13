@@ -183,11 +183,21 @@ namespace mfem_mgis::internals {
       s.*(o.location) =
           locations[i] != nullptr ? getLocation(o.name, locations[i]) : d;
     }
+#if defined(MFEM_USE_HIP) && !defined(MFEM_MGIS_HAVE_DEVICE_SOURCES)
+    // the kernels of mfem-mgis are not compiled with HIP
+    if ((s.finite_elements == ExecutionLocation::GPU) ||
+        (s.post_processings == ExecutionLocation::GPU)) {
+      mgis::raise(
+          "initialize: the kernels of mfem-mgis are not compiled with HIP: "
+          "the finite elements and the post-processings can't be computed on "
+          "the GPU (use '--execution mixed --finite-elements cpu "
+          "--post-processings cpu')");
+    }
+#endif /* defined(MFEM_USE_HIP) && !defined(MFEM_MGIS_HAVE_DEVICE_SOURCES) */
     getMutableExecutionSettings() = s;
   }  // end of readExecutionSettings
 
-  //! \return true if the execution mode is given
-  static bool isExecutionModeSpecified() noexcept {
+  bool isExecutionModeSpecified() noexcept {
     return getExecutionSettings().mode != ExecutionMode::UNSPECIFIED;
   }  // end of isExecutionModeSpecified
 

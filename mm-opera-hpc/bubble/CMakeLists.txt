@@ -33,7 +33,7 @@ target_include_directories(test-bubble
 file(COPY Elasticity.mfront mesh DESTINATION ${PROJECT_BINARY_DIR})
 
 add_test(NAME BubbleTest COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt)
-if(MM_OPERA_HPC_RUN_GPU_TESTS)
+if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
   add_test(NAME BubbleTest-gpu COMMAND test-bubble --mesh mesh/mesh_sphere.msh --bubble-file mesh/single_bubble_ci.txt --execution gpu)
   set_tests_properties(BubbleTest-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()

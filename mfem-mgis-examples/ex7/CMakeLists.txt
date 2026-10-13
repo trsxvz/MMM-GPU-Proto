@@ -101,7 +101,7 @@ endif()
 
 # the same computation on a GPU, and with the behaviours integrated on the
 # CPU (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx7_HAVE_GPU_BEHAVIOURS)
   add_test(NAME ${test}-gpu
            COMMAND mox2 ${mox2_test_options} --execution gpu)
   add_test(NAME ${test}-mixed-gpu

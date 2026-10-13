@@ -22,7 +22,7 @@ add_test(NAME robin_test
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(robin_test PROPERTIES PROCESSORS 2)
 # the same computation on a GPU (see ../../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursRobin_HAVE_GPU_BEHAVIOURS)
   add_test(NAME robin_test-gpu
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
           $<TARGET_FILE:robin_test> --execution gpu

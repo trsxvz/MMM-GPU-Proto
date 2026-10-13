@@ -59,7 +59,7 @@ if(MFEM_USE_SUITESPARSE)
   add_test(NAME ${test} COMMAND ${test})
   # the same computation on a GPU, UMFPack computing on the CPU (see
   # ../config/TestMode.cmake)
-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
     add_test(NAME ${test}-gpu
              COMMAND ${test} --execution mixed --linear-solver-device cpu)
     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)

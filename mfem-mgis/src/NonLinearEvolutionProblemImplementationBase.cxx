@@ -220,6 +220,11 @@ namespace mfem_mgis {
             buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
         hypothesis(h),
         batch_integration(useBatchIntegration(throwing, p)),
+        optional_batch_integration(
+            internals::isExecutionModeSpecified() &&
+            (!contains(p,
+                       NonLinearEvolutionProblemImplementationBase::
+                           BehaviourIntegration))),
         gradients_kernels(useKernels(
             throwing,
             p,
@@ -543,7 +548,20 @@ namespace mfem_mgis {
   }  // end of getBoundaryConditions
 
   void NonLinearEvolutionProblemImplementationBase::
-      selectOptionalFiniteElementsKernels() noexcept {
+      selectOptionalComputations() noexcept {
+    // integration by batches, decided once by all the processes
+    if (this->optional_batch_integration) {
+      this->optional_batch_integration = false;
+      if (this->batch_integration) {
+        auto ctx = Context{};
+        const auto supported =
+            (this->mgis_integrator == nullptr) ||
+            (this->mgis_integrator->checkBatchIntegrationSupport(ctx));
+        if (!isTrueOnAllProcesses(*(this->fe_discretization), supported)) {
+          this->batch_integration = false;
+        }
+      }
+    }
     if (!this->optional_finite_elements_kernels) {
       return;
     }
@@ -568,13 +586,13 @@ namespace mfem_mgis {
       this->mgis_integrator->setInnerForcesComputedByKernels(false);
       this->mgis_integrator->setStiffnessMatricesComputedByKernels(false);
     }
-  }  // end of selectOptionalFiniteElementsKernels
+  }  // end of selectOptionalComputations
 
   bool NonLinearEvolutionProblemImplementationBase::setup(
       Context& ctx, const real t, const real dt) noexcept {
     CatchTimeSection(ctx, "NLEPIB::setup");
     this->setTimeIncrement(dt);
-    this->selectOptionalFiniteElementsKernels();
+    this->selectOptionalComputations();
     const auto success = [this, &ctx, t, dt] {
       if (this->initialization_phase) {
         if (!this->dirichlet_boundary_conditions.empty()) {

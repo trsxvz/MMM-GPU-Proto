@@ -12,6 +12,7 @@
  * \date   13/10/2026
  */
 
+#include <stdexcept>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -26,6 +27,9 @@
 #include "mfem/linalg/hypre.hpp"
 #endif /* MFEM_USE_MPI */
 #include "MGIS/Behaviour/Behaviour.hxx"
+#include "MFEMMGIS/BehaviourIntegratorBase.hxx"
+#include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+#include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Material.hxx"
@@ -140,14 +144,28 @@ static void computeUniaxialTension(const char* const mesh,
              [](const real t) noexcept { return strain * t; }}}) |
       or_die;
   // the solvers of hypre compute where its memory is: they are accepted in
-  // all the execution modes
-  problem.setLinearSolver(
-      ctx, "HyprePCG",
-      {{"VerbosityLevel", 0},
-       {"Tolerance", 1e-14},
-       {"MaximumNumberOfIterations", 1000},
-       {"Preconditioner", Parameters{{"Name", "HypreBoomerAMG"}}}}) |
-      or_die;
+  // all the execution modes, unless hypre is built without GPU support and
+  // the linear solvers are placed on the GPU, where the solvers of MFEM are
+  // used
+  if ((s.mode != ExecutionMode::UNSPECIFIED) &&
+      (s.linear_solver == ExecutionLocation::GPU) && (!isHypreUsingGPU())) {
+    problem.setLinearSolver(
+        ctx, "CGSolver",
+        {{"VerbosityLevel", 0},
+         {"RelativeTolerance", 1e-14},
+         {"AbsoluteTolerance", 0.},
+         {"MaximumNumberOfIterations", 10000},
+         {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
+        or_die;
+  } else {
+    problem.setLinearSolver(
+        ctx, "HyprePCG",
+        {{"VerbosityLevel", 0},
+         {"Tolerance", 1e-14},
+         {"MaximumNumberOfIterations", 1000},
+         {"Preconditioner", Parameters{{"Name", "HypreBoomerAMG"}}}}) |
+        or_die;
+  }
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                     {"RelativeTolerance", 1e-12},
                                     {"AbsoluteTolerance", 0.},
@@ -227,6 +245,117 @@ static void computeUniaxialTension(const char* const mesh,
               (pp_kernels ? "by kernels" : "element by element"));
   }
 }  // end of computeUniaxialTension
+
+/*!
+ * \brief a behaviour integrator which does not support the integration by
+ * batches, the default of `AbstractBehaviourIntegrator` (all the behaviour
+ * integrators of mfem-mgis support it), whose computations throw
+ */
+struct NoBatchIntegrationBehaviourIntegrator final
+    : mfem_mgis::BehaviourIntegratorBase {
+  NoBatchIntegrationBehaviourIntegrator(
+      const mfem_mgis::FiniteElementDiscretization& fed,
+      const mfem_mgis::size_type m,
+      std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
+      : mfem_mgis::BehaviourIntegratorBase(
+            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
+                fed,
+                mfem_mgis::MaterialIdentifier{.id = m},
+                selectIntegrationRule),
+            std::move(behaviour)) {}
+  static const mfem::IntegrationRule& selectIntegrationRule(
+      const mfem::FiniteElement& e, const mfem::ElementTransformation&) {
+    return mfem::IntRules.Get(e.GetGeomType(), 2);
+  }
+  const mfem::IntegrationRule& getIntegrationRule(
+      const mfem::FiniteElement& e,
+      const mfem::ElementTransformation& tr) const override {
+    return selectIntegrationRule(e, tr);
+  }
+  mfem_mgis::real getIntegrationPointWeight(
+      mfem::ElementTransformation& tr,
+      const mfem::IntegrationPoint& ip) const noexcept override {
+    return ip.weight * tr.Weight();
+  }
+  bool integrate(const mfem::FiniteElement&,
+                 mfem::ElementTransformation&,
+                 const mfem::Vector&,
+                 const mfem_mgis::IntegrationType) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void updateResidual(mfem::Vector&,
+                      const mfem::FiniteElement&,
+                      mfem::ElementTransformation&,
+                      const mfem::Vector&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void updateJacobian(mfem::DenseMatrix&,
+                      const mfem::FiniteElement&,
+                      mfem::ElementTransformation&,
+                      const mfem::Vector&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+  void computeInnerForces(mfem::Vector&,
+                          const mfem::FiniteElement&,
+                          mfem::ElementTransformation&) override {
+    throw std::runtime_error("NoBatchIntegrationBehaviourIntegrator: unused");
+  }
+};  // end of struct NoBatchIntegrationBehaviourIntegrator
+
+/*!
+ * \brief with an execution mode, the behaviours are integrated by batches,
+ * unless the behaviour integrators do not support it: a behaviour
+ * integrator without batch integration is integrated point by point (its
+ * computations throw: the resolution fails after the checks of the
+ * integration, which refuse it without this replacement)
+ * \param[in] mesh: mesh of the square
+ * \param[in] library: behaviour library
+ */
+static void checkBatchIntegrationFallback(const char* const mesh,
+                                          const char* const library) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto or_die = ctx.getFatalFailureHandler();
+  BehaviourIntegratorFactory::get(Hypothesis::PLANESTRAIN)
+          .addGenerator(
+              ctx, "NoBatchIntegration",
+              [](Context&, const FiniteElementDiscretization& fed,
+                 const size_type m, std::unique_ptr<const Behaviour> b,
+                 const Parameters&)
+                  -> std::unique_ptr<AbstractBehaviourIntegrator> {
+                return std::make_unique<NoBatchIntegrationBehaviourIntegrator>(
+                    fed, m, std::move(b));
+              }) |
+      or_die;
+  auto problem = construct<NonLinearEvolutionProblem>(
+                     ctx, Parameters{{"MeshFileName", mesh},
+                                     {"FiniteElementFamily", "H1"},
+                                     {"FiniteElementOrder", 1},
+                                     {"UnknownsSize", 2},
+                                     {"Materials", Parameters{{"Square", 1}}},
+                                     {"Hypothesis", "PlaneStrain"},
+                                     {"Parallel", true}}) |
+                 or_die;
+  problem.addBehaviourIntegrator(ctx, "NoBatchIntegration", "Square", library,
+                                 "IsotropicLinearHardeningPlasticity") |
+      or_die;
+  auto& m = problem.getMaterial(ctx, "Square", 0) | or_die;
+  for (auto* st : {&m.s0, &m.s1}) {
+    mgis::behaviour::setExternalStateVariable(ctx, *st, "Temperature", 293.15) |
+        or_die;
+  }
+  auto c = Context{};
+  const auto r = problem.solve(c, 0, 1);
+  const auto msg = std::string{c.getErrorMessage()};
+  check((!r.status) &&
+            (msg.find("NoBatchIntegrationBehaviourIntegrator: unused") !=
+             std::string::npos) &&
+            (msg.find("does not support the integration of the behaviours by "
+                      "batches") == std::string::npos),
+        "behaviour integrator without batch integration: not integrated "
+        "point by point (" +
+            msg + ")");
+}  // end of checkBatchIntegrationFallback
 
 /*!
  * \brief with `--execution cpu`, the finite elements are computed by
@@ -447,9 +576,16 @@ int main(int argc, char** argv) {
   // computations element by element when the kernels are not supported
   if ((s.mode == ExecutionMode::CPU) && (std::strlen(mixed_mesh) != 0)) {
     checkFiniteElementsKernelsFallback(mixed_mesh, library.c_str());
+    checkBatchIntegrationFallback(mixed_mesh, library.c_str());
   }
-  // no preconditioner, for the solvers of hypre and of MFEM
-  checkLinearSolver(mesh, "HyprePCG", false, "None");
+  // no preconditioner, for the solvers of hypre (where they are accepted)
+  // and of MFEM
+  const auto hypre_accepted = (s.mode == ExecutionMode::UNSPECIFIED) ||
+                              (s.linear_solver == ExecutionLocation::CPU) ||
+                              isHypreUsingGPU();
+  if (hypre_accepted) {
+    checkLinearSolver(mesh, "HyprePCG", false, "None");
+  }
   if ((s.mode != ExecutionMode::MIXED) ||
       (s.linear_solver == ExecutionLocation::GPU)) {
     checkLinearSolver(mesh, "CGSolver", false, "None");
@@ -470,8 +606,11 @@ int main(int argc, char** argv) {
                       (s.mode == ExecutionMode::MIXED) &&
                           (s.linear_solver == ExecutionLocation::CPU));
     // the preconditioner of hypre Euclid only computes on the host
-    checkLinearSolver(mesh, "HyprePCG",
-                      s.linear_solver == ExecutionLocation::GPU, "HypreEuclid");
+    if (hypre_accepted) {
+      checkLinearSolver(mesh, "HyprePCG",
+                        s.linear_solver == ExecutionLocation::GPU,
+                        "HypreEuclid");
+    }
   }
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

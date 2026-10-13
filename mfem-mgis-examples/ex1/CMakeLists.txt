@@ -61,7 +61,7 @@ add_test(NAME uniaxial_tensile_test
          COMMAND uniaxial_tensile_test
                  --reference-file IsotropicLinearHardeningPlasticity.ref)
 # the same computation on a GPU (see ../config/TestMode.cmake)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx1_HAVE_GPU_BEHAVIOURS)
   add_test(NAME uniaxial_tensile_test-gpu
            COMMAND uniaxial_tensile_test
                    --reference-file IsotropicLinearHardeningPlasticity.ref

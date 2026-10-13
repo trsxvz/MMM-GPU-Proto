@@ -26,7 +26,10 @@ namespace mfem_mgis {
      * the environment variables, as without this option
      */
     UNSPECIFIED,
-    //! \brief no device: all the computations on the host
+    /*!
+     * \brief no GPU: all the computations on the host (a device of MFEM
+     * computing on the host, such as `debug`, may be given by `--device`)
+     */
     CPU,
     //! \brief device `gpu` of MFEM: all the computations on the GPU
     GPU,
@@ -53,8 +56,14 @@ namespace mfem_mgis {
    * linear evolution problems choosing the computations (the integration of
    * the behaviours by batches, the computations by kernels), the
    * configuration of the device of MFEM and the memory of hypre. A
-   * parameter given to a problem, or an environment variable giving its
-   * default value, takes precedence. The behaviours and the linear solvers
+   * parameter given to a problem takes precedence; the environment
+   * variables placing the computations (`MFEM_MGIS_DEVICE`,
+   * `MFEM_MGIS_HYPRE_ON_HOST`, `MFEM_MGIS_BEHAVIOUR_INTEGRATION`,
+   * `MFEM_MGIS_*_COMPUTATION`) are ignored, with a warning. The integration
+   * by batches and, with `--execution cpu`, the computations of the finite
+   * elements by kernels on the host are replaced by the integration point by
+   * point and the computations element by element if the behaviour
+   * integrators do not support them. The behaviours and the linear solvers
    * are checked against these locations.
    */
   struct ExecutionSettings {

@@ -41,8 +41,9 @@ endif()
 # default, a GPU being required when the tests are run): the examples which
 # support it are also tested with the option --execution gpu (or mixed), if
 # MFEM is compiled with CUDA or HIP (as described by mfem-mgis, which must be
-# found before this file is included). The MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS
-# variable is then true.
+# found before this file is included): the MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS
+# variable is then true, and each example registers its tests on the GPU if
+# its behaviour libraries are built for the GPU.
 option(MFEM_MGIS_EXAMPLES_GPU_TESTS "Test the examples on a GPU too" OFF)
 set(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS OFF)
 if(MFEM_MGIS_EXAMPLES_GPU_TESTS)

@@ -68,7 +68,7 @@ if(MFEM_USE_MPI)
   endforeach()
 
   # the first case on a GPU (see ../config/TestMode.cmake)
-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx3_HAVE_GPU_BEHAVIOURS)
     add_test(NAME two_layer_cube-0-gpu
              COMMAND two_layer_cube --test-case 0 --execution gpu)
     set_tests_properties(two_layer_cube-0-gpu PROPERTIES RESOURCE_LOCK gpu)

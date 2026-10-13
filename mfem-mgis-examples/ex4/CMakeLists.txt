@@ -108,7 +108,7 @@ endforeach()
 
 # the same computations on a GPU (see ../config/TestMode.cmake): hypre on the
 # GPU, and MUMPS on the CPU (option --linear-solver-device cpu)
-if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS)
+if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
   add_test(NAME ssna303_3d_hypre-gpu
            COMMAND ssna303_3d_hypre --nbsteps ${ssna303_3d_nsteps}
                    --end-time ${ssna303_3d_end_time}
