@@ -602,6 +602,11 @@ if(TFEL_REQUIRES_HIP)
    endif("hip-clang" IN_LIST generic-parallel-configurations)
  elseif(HIP_PLATFORM STREQUAL "amd")
    set(TFEL_HIPCC_FLAGS "-fPIC")
+   if("hip-clang" IN_LIST generic-parallel-configurations)
+     message(WARNING "the 'hip-clang' configuration only targets the NVIDIA "
+             "platform: on the AMD platform, it installs no configuration "
+             "file and declares no test (use 'hip-hipcc')")
+   endif("hip-clang" IN_LIST generic-parallel-configurations)
  else()
    message(FATAL_ERROR "unsupported value of HIP_PLATFORM. Expected 'amd' or 'nvidia', got '${HIP_PLATFORM}'")
  endif()

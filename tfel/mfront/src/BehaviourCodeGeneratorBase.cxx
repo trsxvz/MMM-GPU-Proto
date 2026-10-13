@@ -2350,8 +2350,10 @@ namespace mfront {
        << " * \\brief check physical bounds and standard bounds\n"
        << " *\n"
        << " * \\return false if a bound is violated and if this violation\n"
-       << " * is not tolerated by the out of bounds policy. On the host,\n"
-       << " * an exception is thrown in this case.\n"
+       << " * is not tolerated by the out of bounds policy. In host code,\n"
+       << " * an exception is thrown in this case, except with the\n"
+       << " * compilers translating host and device code in a single\n"
+       << " * pass, which follow the device branch on the host too.\n"
        << " */\n"
        << "TFEL_HOST_DEVICE bool checkBounds() const{\n";
     write_physical_bounds(md.getMaterialProperties(), false);
