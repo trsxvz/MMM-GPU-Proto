@@ -81,6 +81,40 @@ poussé par la CI :
 - E4. Langue du site : anglais (comme les documentations des
   bibliothèques), le dépôt gardant ses documents en français. Recommandé.
 
+## Décisions prises (13/10/2026)
+
+E1 (a) : dépôt public, après un audit de tout l'historique (fait le
+13/10, rien à réécrire) ; le changement de visibilité reste à faire par le
+propriétaire du dépôt. E2 : CPU d'abord, puis CUDA et HIP la nuit. E3 :
+pas de runner sur la machine de développement. E4 : site en anglais.
+
+## Ébauche du niveau CPU (14/10/2026)
+
+`.github/workflows/cpu.yml` et `deps/spack/ci-cpu/spack.yaml`, pas encore
+lancés. Déclenchement manuel seulement tant que le dépôt est privé
+(minutes des machines) ; poussées, demandes de fusion et lancement de nuit
+à ajouter une fois le dépôt public.
+
+- Job `patches` : chaque série de `patches/` est appliquée sur le dépôt
+  amont à sa base, et l'arbre obtenu est comparé aux sources de la racine
+  (`diff -r`). `scripts/verify-patches.sh` fait la même vérification en
+  local, sur les dépôts imbriqués, qui n'existent pas sur la CI. Simulée en
+  local pour les cinq séries : toutes s'appliquent et redonnent l'arbre de
+  la racine.
+- Job `cpu` : dépendances par spack (paquets épinglés au même commit que
+  les environnements du prototype), TFEL des sources de la racine (backends
+  hôte `stlpar` et `openmp` seulement, sans TDLS), MGIS appliqué depuis
+  `patches/mgis`, puis mfem-mgis, les exemples et mm-opera-hpc, avec leurs
+  tests sur le CPU ; ccache par les actions composites de mfem-mgis.
+  OpenMPI 5.0.10 : `OMPI_MCA_btl=self,tcp` contre la collision des
+  identifiants de travaux des `mpirun` concurrents, et surallocation
+  permise (un test lance trois processus).
+- Sans cache des dépendances, chaque lancement reconstruit OpenMPI,
+  hypre, MUMPS, SuiteSparse et MFEM, puis TFEL : plusieurs heures sur une
+  machine à deux cœurs. Le cache sur GHCR (comme mfem-mgis) vient ensuite.
+- Le float (9b) n'est pas encore couvert : un second job avec le jumeau de
+  `deps/spack/mmm-float-cpu` viendra après le premier lancement réussi.
+
 ## Étapes, une fois E1 à E4 décidées
 
 1. Environnement `ci-cpu`, job CPU sans cache, puis avec le cache GHCR.

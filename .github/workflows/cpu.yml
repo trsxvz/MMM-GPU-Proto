@@ -1,0 +1,187 @@
+# Continuous integration on the CPU (docs/plan-ci-site.md, 9f): TFEL and
+# MGIS built from the sources and the patches of the prototype, mfem-mgis,
+# mfem-mgis-examples and mm-opera-hpc built and tested on the CPU, and the
+# series of patches checked against the upstream repositories.
+#
+# Started by hand only while the repository is private (minutes of the
+# runners); push, pull_request and schedule are added when it is public.
+name: CPU
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patches:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    - name: Check the series of patches against the upstream repositories
+      run: |
+        set -e
+        check() {
+          local directory=$1 url=$2 base=$3
+          git clone --quiet --filter=blob:none "$url" "upstream-$directory"
+          git -C "upstream-$directory" checkout --quiet "$base"
+          git -C "upstream-$directory" -c user.name=ci -c user.email=ci@localhost \
+            am --quiet --keep-cr "$PWD"/patches/"$directory"/*.patch
+          if [ -d "$directory" ]; then
+            # the sources of the prototype are the patched upstream sources
+            diff -r -q --exclude=.git "upstream-$directory" "$directory"
+          fi
+          echo "patches/$directory: applied on $base"
+        }
+        check tfel https://github.com/thelfer/tfel.git ff0959ece
+        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git e8ef4b4
+        check mfem-mgis https://github.com/thelfer/mfem-mgis.git 8fac67336e
+        check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git 600da70
+        check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git 49147f2
+
+  cpu:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      CC: gcc-14
+      CXX: g++-14
+      # concurrent mpirun of ctest -j: OpenMPI 5.0.10 may give the same job
+      # identifier to two of them, which then share their shared memory
+      # segments (open-mpi/ompi#13783, fixed in 5.0.12)
+      OMPI_MCA_btl: self,tcp
+      # some tests use more processes than the cores of the runner
+      PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Spack
+      uses: spack/setup-spack@v3
+      with:
+        spack_ref: v1.2.2             # Spack version
+        # same packages as the environments of the prototype (a commit must be
+        # given by its full hash)
+        packages_ref: 3b7fdffc24511b067b65540e0e9b3c89d07f8a7f
+        buildcache: false
+        color: true
+        spack_path: ${{ github.workspace }}/spack
+
+    - name: Install the system packages
+      run: |
+        sudo apt-get update
+        # TBB: parallel algorithms of libstdc++ (stlpar backend of TFEL)
+        sudo apt-get install -y libtbb-dev
+
+    - name: Install the dependencies
+      run: |
+        nproc
+        lscpu | head -20
+        spack compiler find
+        spack -e deps/spack/ci-cpu config add "packages:c:require:[gcc@14]"
+        spack -e deps/spack/ci-cpu config add "packages:cxx:require:[gcc@14]"
+        spack -e deps/spack/ci-cpu config add "packages:fortran:require:[gcc@14]"
+        spack -e deps/spack/ci-cpu concretize
+        spack -e deps/spack/ci-cpu install -j $(nproc)
+        spack clean -a
+        df -h .
+
+    - name: Set up ccache
+      id: ccache
+      uses: ./mfem-mgis/.github/actions/setup-ccache
+      with:
+        key: cpu
+
+    # TFEL, MGIS, mfem-mgis, the examples and mm-opera-hpc: more than the
+    # 500 MB chosen by setup-ccache for mfem-mgis alone
+    - name: Size of the cache of ccache
+      run: echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+
+    - name: Build TFEL
+      run: |
+        cmake -S tfel -B build/tfel -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -Denable-website=OFF -Denable-python=OFF -Denable-python-bindings=OFF \
+          -Denable-fortran=OFF -Denable-testing=OFF \
+          -Dgeneric-parallel-configurations="stlpar-parunseq-gcc;openmp-host-gcc"
+        cmake --build build/tfel -j $(nproc) --target install
+
+    - name: Build and test MGIS
+      run: |
+        # mfront, used by the tests, has no run path to the libraries of TFEL
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib
+        git clone --quiet --filter=blob:none \
+          https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
+        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis -c user.name=ci -c user.email=ci@localhost \
+          am --quiet --keep-cr $PWD/patches/mgis/*.patch
+        cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mgis \
+          -DCMAKE_PREFIX_PATH=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON -Denable-testing=ON \
+          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF
+        cmake --build build/mgis -j $(nproc)
+        cmake --build build/mgis -j $(nproc) --target check
+        cmake --install build/mgis
+
+    - name: Build and test mfem-mgis
+      shell: spack-sh {0}
+      run: |
+        spack env activate deps/spack/ci-cpu
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mfem-mgis \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -DMFEM_DIR=$(spack location -i mfem) \
+          -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
+          -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake
+        cmake --build build/mfem-mgis -j $(nproc) --target install
+        cmake --build build/mfem-mgis -j $(nproc) --target build-tests
+        cd build/mfem-mgis
+        ctest -j $(nproc) --timeout 900 --output-on-failure \
+          -E "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"
+
+    - name: Build and test mfem-mgis-examples
+      shell: spack-sh {0}
+      run: |
+        spack env activate deps/spack/ci-cpu
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis-examples -B build/examples -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/examples -j $(nproc)
+        cd build/examples
+        ctest -j $(nproc) --timeout 900 --output-on-failure -E gpu
+
+    - name: Build and test mm-opera-hpc
+      shell: spack-sh {0}
+      run: |
+        spack env activate deps/spack/ci-cpu
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mm-opera-hpc -B build/mm-opera-hpc -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/mm-opera-hpc -j $(nproc)
+        cd build/mm-opera-hpc
+        ctest -j $(nproc) --timeout 900 --output-on-failure -E gpu
+
+    # even when a test fails, so that the next run does not compile everything again
+    - name: Save ccache
+      if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+      uses: ./mfem-mgis/.github/actions/save-ccache
+
+    - name: Disk space
+      if: ${{ !cancelled() }}
+      run: df -h .

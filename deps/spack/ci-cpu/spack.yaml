@@ -1,0 +1,29 @@
+# Environment of the continuous integration on the CPU (plan
+# docs/plan-ci-site.md, 9f): the dependencies of mfem-mgis on the CPU, in
+# double (MFEM 4.10 with MUMPS and SuiteSparse, hypre, OpenMPI). TFEL and
+# MGIS are built from the sources of the prototype, not by spack. Same
+# packages as the environments of the prototype (develop branch of
+# spack-packages, commit 3b7fdffc24), the compilers being the ones of the
+# runner.
+spack:
+  specs:
+  - openmpi@5 +internal-hwloc +internal-pmix
+  - hypre@3.2.0 +mpi ~int64
+  - mumps +mpi
+  # C++20, as mfem-mgis
+  - mfem@4.10.0 +mpi +shared ~static cxxstd=20 +mumps +suite-sparse
+  # ccache is installed by the composite action setup-ccache of mfem-mgis
+  - cmake
+  view: true
+  concretizer:
+    unify: true
+    reuse: false
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
