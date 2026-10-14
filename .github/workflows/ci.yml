@@ -310,7 +310,11 @@ jobs:
         spack -e $ENVIRONMENT config add "packages:cxx:require:[gcc@14]"
         spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
         spack -e $ENVIRONMENT concretize
-        spack -e $ENVIRONMENT install -j $(nproc) --only dependencies
+        # all the packages but hypre and MFEM (not `--only dependencies`,
+        # which skips the roots of the environment such as openmpi and cmake,
+        # see the script)
+        spack -e $ENVIRONMENT install -j $(nproc) \
+          $(spack -e $ENVIRONMENT python scripts/spack-specs-except.py hypre mfem)
         # one job for hypre and MFEM: cicc needs up to 8.8 GB for some files
         # of MFEM (fem/lor/lor_batched.cpp; 7.6 GB for
         # fem/integ/bilininteg_diffusion_ea.cpp), and two jobs reached 12.5 GB
