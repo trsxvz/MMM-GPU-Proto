@@ -548,6 +548,8 @@ jobs:
     - name: Build TFEL
       env:
         HIP_PLATFORM: amd
+        # the CMake packages of ROCm (hip), the runner having no system HIP
+        CMAKE_PREFIX_PATH: ${{ env.ROCM }}
       run: |
         cmake -S tfel -B build/tfel -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=$PWD/install/tfel \
@@ -560,6 +562,8 @@ jobs:
         cmake --build build/tfel -j $(nproc) --target install
 
     - name: Build MGIS
+      env:
+        CMAKE_PREFIX_PATH: ${{ env.ROCM }}
       run: |
         export PATH=$PWD/install/tfel/bin:$PATH
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
@@ -582,6 +586,8 @@ jobs:
     # MFEM are given explicitly; the old HIP headers that a system package
     # may install in /usr/include/hip come after those of ROCm
     - name: Build mfem-mgis
+      env:
+        CMAKE_PREFIX_PATH: ${{ env.ROCM }}
       run: |
         MPI=$(spack -e $ENVIRONMENT location -i openmpi)
         export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
@@ -601,6 +607,8 @@ jobs:
         cmake --build build/mfem-mgis -j $(nproc) --target build-tests BehaviourTest
 
     - name: Build mfem-mgis-examples
+      env:
+        CMAKE_PREFIX_PATH: ${{ env.ROCM }}
       run: |
         MPI=$(spack -e $ENVIRONMENT location -i openmpi)
         export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
@@ -616,6 +624,8 @@ jobs:
         cmake --build build/examples -j $(nproc)
 
     - name: Build mm-opera-hpc
+      env:
+        CMAKE_PREFIX_PATH: ${{ env.ROCM }}
       run: |
         MPI=$(spack -e $ENVIRONMENT location -i openmpi)
         export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
