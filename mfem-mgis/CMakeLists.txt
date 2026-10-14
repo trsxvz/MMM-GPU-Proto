@@ -221,8 +221,8 @@ add_compile_definitions(MFEM_HYPRE_VERSION=${MFEM_HYPRE_VERSION})
 # in single precision, hypre must be built with its internal LAPACK: with an
 # external LAPACK, hypre 3.2.0 calls the LAPACK routines of the double type
 # on float arrays (ParaSails, Gaussian elimination 98, 99, 198 and 199 of
-# BoomerAMG, Schwarz, FSAI, MGR, AIR, AME, LOBPCG). Checked again at each
-# configuration
+# BoomerAMG, Schwarz, FSAI, MGR, AIR, GSMG, LOBPCG, AME). Checked again at
+# each configuration
 if(MFEM_USE_MPI AND (MFEM_MGIS_REAL_TYPE STREQUAL "float"))
   include(CMakePushCheckState)
   cmake_push_check_state(RESET)

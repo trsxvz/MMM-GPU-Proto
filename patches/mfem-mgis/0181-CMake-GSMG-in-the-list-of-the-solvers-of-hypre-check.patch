@@ -1,0 +1,31 @@
+From 60be97b9d201ad77e17fdd503ca3d7354f1a2c9b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 17:41:50 +0200
+Subject: [PATCH] CMake: GSMG in the list of the solvers of hypre checked in
+ float
+
+The comment of the configuration check of hypre in single precision now
+lists all the callers of LAPACK found in hypre 3.2.0, as the
+documentation of the prototype does.
+---
+ CMakeLists.txt | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index db3dcbfaf8..ca0cb80ce8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -221,8 +221,8 @@ add_compile_definitions(MFEM_HYPRE_VERSION=${MFEM_HYPRE_VERSION})
+ # in single precision, hypre must be built with its internal LAPACK: with an
+ # external LAPACK, hypre 3.2.0 calls the LAPACK routines of the double type
+ # on float arrays (ParaSails, Gaussian elimination 98, 99, 198 and 199 of
+-# BoomerAMG, Schwarz, FSAI, MGR, AIR, AME, LOBPCG). Checked again at each
+-# configuration
++# BoomerAMG, Schwarz, FSAI, MGR, AIR, GSMG, LOBPCG, AME). Checked again at
++# each configuration
+ if(MFEM_USE_MPI AND (MFEM_MGIS_REAL_TYPE STREQUAL "float"))
+   include(CMakePushCheckState)
+   cmake_push_check_state(RESET)
+-- 
+2.43.0
+
