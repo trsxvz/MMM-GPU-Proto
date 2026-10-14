@@ -1,0 +1,448 @@
+From 85b1a2a82f0cf2413bec32d127ea6dc3ad83c0bc Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 05:33:30 +0200
+Subject: [PATCH] Tests on CUDA in float
+
+The tests of the behaviours integrated on a GPU (GenericParallelCUDATest,
+FieldOperationsCUDATest, FunctionTest-cuda) compile and pass with float:
+- types: real instead of double for the maximum differences, the
+  constants and the angles of the rotations (no narrowing conversion);
+- the tolerances written for double are bounded by tests/Tolerance.hxx,
+  and given explicitly for float from the differences measured between the
+  host and the device (contractions of the floating point operations):
+  stresses 4.8e-7 (relative to 1e8), internal state variables 2.4e-7 and
+  tangent operators 2.5e-5 (relative to 1e10) in GenericParallelCUDATest,
+  stresses 9.5e-6 and tangent operators 4.9e-6 for the views on the
+  device, about ten times these values;
+- the integration cycle of FieldOperationsCUDATest makes three steps in
+  float instead of four: at the fourth one, the integration of the most
+  loaded points of Norton fails on the host as on the device (stress of
+  about 3e9 Pa, exponent 8.2, the residual of the implicit scheme can't
+  reach its criterion). The status of each step is now checked to be a
+  success, which the comparison of the states requires.
+Double: 51/51 (tests on CUDA included); float: 51/51.
+---
+ tests/FieldOperationsCUDATest.cu  | 70 +++++++++++++++++++++----------
+ tests/FunctionTest-cuda.cu        |  9 ++--
+ tests/GenericParallelCUDATest.cxx | 41 ++++++++++--------
+ 3 files changed, 76 insertions(+), 44 deletions(-)
+
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index 63c6b3f..3a741cf 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -25,6 +25,7 @@
+ #include <array>
+ #include <string>
+ #include <vector>
++#include <type_traits>
+ #include <cstdlib>
+ #include <iostream>
+ #include <stdexcept>
+@@ -39,11 +40,13 @@
+ #include "MGIS/Behaviour/MaterialDataView.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/MaterialProperty/MaterialProperty.hxx"
++#include "Tolerance.hxx"
+ 
+ using mgis::FieldLayout;
+ using mgis::FieldView;
+ using mgis::real;
+ using mgis::size_type;
++using mgis::tests::tolerance;
+ 
+ static bool success = true;
+ 
+@@ -206,7 +209,12 @@ static void testIntegrationCycle(const std::string& gp_library,
+   opts.integration_type =
+       IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
+   auto gradients = std::vector<real>(n * gs, 0);  // component by component
+-  for (int step = 0; step != 4; ++step) {
++  // four steps with double. With float, the integration of the most loaded
++  // points fails at the fourth step (stress of about 3e9 Pa, Norton exponent
++  // of 8.2: the residual of the implicit scheme can't reach its criterion),
++  // on the host as on the device
++  constexpr auto nsteps = std::is_same_v<real, double> ? 4 : 3;
++  for (int step = 0; step != nsteps; ++step) {
+     for (size_type i = 0; i != n; ++i) {
+       for (size_type c = 0; c != gs; ++c) {
+         const auto de = 1e-4 * static_cast<real>((step + 1) * (c + 1)) *
+@@ -218,7 +226,8 @@ static void testIntegrationCycle(const std::string& gp_library,
+     g1.copyFrom(gradients);
+     const auto rr = integrate(r, opts, 180);
+     const auto rm = integrate(p, m, opts, 180);
+-    check(rr.exit_status == rm.exit_status, "cycle: invalid status");
++    check((rr.exit_status == 1) && (rm.exit_status == 1),
++          "cycle: invalid status");
+     update(r);
+     update(m, ops);
+     checkCUDA(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+@@ -226,7 +235,8 @@ static void testIntegrationCycle(const std::string& gp_library,
+   // comparison of the states at the beginning of the next time step
+   auto compare = [&r, n](const std::vector<real>& v,
+                          const std::span<const real> ref, const size_type nc,
+-                         const double scale, const std::string& name) {
++                         const double scale, const real tol,
++                         const std::string& name) {
+     auto d = 0.;
+     for (size_type i = 0; i != n; ++i) {
+       for (size_type c = 0; c != nc; ++c) {
+@@ -234,13 +244,17 @@ static void testIntegrationCycle(const std::string& gp_library,
+       }
+     }
+     static_cast<void>(r);
+-    check(d < 1e-12, "cycle: invalid " + name + " (" + std::to_string(d) + ")");
++    check(d < tol, "cycle: invalid " + name + " (" + std::to_string(d) + ")");
+   };
++  // in float, the stresses differ by 2.0e-4 (relative to 1e8 Pa) after
++  // three steps, the differences of rounding being amplified by the flow;
++  // the internal state variables by 5.5e-8
+   compare(t0.copyToHost(), r.s0.thermodynamic_forces, ts, 1e8,
+-          "thermodynamic forces");
++          tolerance(1e-12, 2e-3), "thermodynamic forces");
+   compare(i0.copyToHost(), r.s0.internal_state_variables, is, 1,
+-          "internal state variables");
+-  compare(g0.copyToHost(), r.s0.gradients, gs, 1, "gradients");
++          tolerance(1e-12), "internal state variables");
++  compare(g0.copyToHost(), r.s0.gradients, gs, 1, tolerance(1e-12),
++          "gradients");
+   check(K.copyToHost() == std::vector<real>(n * Ks, 0),
+         "cycle: tangent operator blocks not set to zero");
+   // a copy between a value held by the manager (on the host) and an array of
+@@ -335,11 +349,12 @@ static double compareComponentByComponent(const std::vector<real>& v,
+                                           const size_type n,
+                                           const size_type nc,
+                                           const size_type ld) {
+-  auto d = 0.;
++  auto d = real{};
+   for (size_type i = 0; i != n; ++i) {
+     for (size_type c = 0; c != nc; ++c) {
+       const auto r = ref[i * nc + c];
+-      d = std::max(d, std::abs(v[c * ld + i] - r) / std::max(std::abs(r), 1.));
++      d = std::max(
++          d, std::abs(v[c * ld + i] - r) / std::max(std::abs(r), real{1}));
+     }
+   }
+   return d;
+@@ -397,7 +412,7 @@ static void testViewsOnDevice(const std::string& gp_library,
+   // rotation matrices about the z axis, given point by point
+   auto matrices = std::vector<real>(9 * n);
+   for (size_type i = 0; i != n; ++i) {
+-    const auto t = 0.2 * static_cast<double>(i + 1);
++    const auto t = static_cast<real>(0.2 * static_cast<double>(i + 1));
+     const auto m = std::array<real, 9>{
+         std::cos(t), -std::sin(t), 0, std::sin(t), std::cos(t), 0, 0, 0, 1};
+     std::copy(m.begin(), m.end(), matrices.begin() + 9 * i);
+@@ -406,7 +421,7 @@ static void testViewsOnDevice(const std::string& gp_library,
+   auto axes1 = std::vector<real>(3 * n, 0);
+   auto axes2 = std::vector<real>(3 * n, 0);
+   for (size_type i = 0; i != n; ++i) {
+-    const auto t = 0.3 * static_cast<double>(i + 1);
++    const auto t = static_cast<real>(0.3 * static_cast<double>(i + 1));
+     axes1[3 * i] = std::cos(t);
+     axes1[3 * i + 1] = std::sin(t);
+     axes2[3 * i] = -std::sin(t);
+@@ -439,7 +454,8 @@ static void testViewsOnDevice(const std::string& gp_library,
+                                               n, 9, ld),
+       mgis::MemoryLocation::DEVICE);
+   checkCUDA(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+-  check(compareComponentByComponent(dK.copyToHost(), rK, n, Ks, ld) < 1e-14,
++  check(compareComponentByComponent(dK.copyToHost(), rK, n, Ks, ld) <
++            tolerance(1e-14),
+         "views on the device: invalid rotated tangent operator blocks");
+   // asynchronous rotation of the gradients, from values stored point by
+   // point to values stored component by component, the rotation matrices
+@@ -459,7 +475,8 @@ static void testViewsOnDevice(const std::string& gp_library,
+   checkCUDA(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+   check(pg.getResult().exit_status == 1,
+         "views on the device: invalid status of the asynchronous rotation");
+-  check(compareComponentByComponent(drg.copyToHost(), rg, n, gs, ld) < 1e-14,
++  check(compareComponentByComponent(drg.copyToHost(), rg, n, gs, ld) <
++            tolerance(1e-14),
+         "views on the device: invalid rotated gradients");
+   // rotation of the thermodynamic forces without policy (default queue), in
+   // place, the matrices being given by a view of the device
+@@ -475,7 +492,8 @@ static void testViewsOnDevice(const std::string& gp_library,
+                                               n, 9, ld),
+       mgis::MemoryLocation::DEVICE);
+   checkCUDA(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
+-  check(compareComponentByComponent(dtf.copyToHost(), rtf, n, ts, ld) < 1e-14,
++  check(compareComponentByComponent(dtf.copyToHost(), rtf, n, ts, ld) <
++            tolerance(1e-14),
+         "views on the device: invalid rotated thermodynamic forces");
+   // evaluation of a material property: temperatures stored with a stride of
+   // 3, values with a stride of 2
+@@ -499,7 +517,7 @@ static void testViewsOnDevice(const std::string& gp_library,
+         std::span<const real>(dT.span()), n, 1, 3)};
+     const auto compareE = [&E, &dE] {
+       const auto e = dE.copyToHost();
+-      auto d = 0.;
++      auto d = real{};
+       for (size_type i = 0; i != n; ++i) {
+         d = std::max(d, std::abs(e[2 * i] - E[i]) / E[i]);
+       }
+@@ -517,7 +535,7 @@ static void testViewsOnDevice(const std::string& gp_library,
+         status =
+             evaluate(p, vE, gp_mp, vT, mgis::MemoryLocation::DEVICE).status;
+       }
+-      check((status == 0) && (compareE() < 1e-14),
++      check((status == 0) && (compareE() < tolerance(1e-14)),
+             std::string{"views on the device: invalid "} +
+                 (async ? "asynchronous " : "") +
+                 "evaluation of the material property");
+@@ -597,7 +615,7 @@ struct DeviceViewData {
+     for (const auto x : ref) {
+       scale = std::max(scale, std::abs(x));
+     }
+-    auto d = 0.;
++    auto d = real{};
+     for (size_type i = 0; i != this->npoints; ++i) {
+       for (size_type c = 0; c != nc; ++c) {
+         d = std::max(d, std::abs(v[c * this->stride + i] - ref[i * nc + c]));
+@@ -679,7 +697,10 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+       const auto dt = d->compare(d->t1, m.s1.thermodynamic_forces, d->ts);
+       const auto di = d->compare(d->i1, m.s1.internal_state_variables, d->is);
+       const auto dK = d->compare(d->K, m.K, d->Ks);
+-      check((dt < 1e-12) && (di < 1e-12) && (dK < 1e-12),
++      // in float, the differences measured are 9.5e-6 (stresses), 5.0e-8
++      // (internal state variables) and 4.9e-6 (tangent operators)
++      check((dt < tolerance(1e-12, 1e-4)) && (di < tolerance(1e-12)) &&
++                (dK < tolerance(1e-12, 5e-5)),
+             "views on the device: invalid outputs");
+     }
+     // extraction of the elastic strain with the operations of CUDA
+@@ -691,14 +712,17 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+         mgis::makeComponentByComponentFieldView(de.span(), n, es, ld),
+         views[0]->v.s1, "ElasticStrain", ops);
+     synchronize();
+-    check(compareComponentByComponent(de.copyToHost(), eref, n, es, ld) < 1e-12,
++    check(compareComponentByComponent(de.copyToHost(), eref, n, es, ld) <
++              tolerance(1e-12),
+           "views on the device: invalid extraction");
+     // end of the time step on the device
+     auto& d = *views[0];
+     update(d.v, ops);
+     synchronize();
+-    check((d.compare(d.t0, m.s1.thermodynamic_forces, d.ts) < 1e-12) &&
+-              (d.compare(d.i0, m.s1.internal_state_variables, d.is) < 1e-12) &&
++    check((d.compare(d.t0, m.s1.thermodynamic_forces, d.ts) <
++           tolerance(1e-12, 1e-4)) &&
++              (d.compare(d.i0, m.s1.internal_state_variables, d.is) <
++               tolerance(1e-12)) &&
+               (d.compare(d.K, std::vector<real>(n * d.Ks, 0), d.Ks) == 0),
+           "views on the device: invalid update");
+     d.copyFrom(m);
+@@ -739,7 +763,7 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+     synchronize();
+     check(r.exit_status == rv.exit_status,
+           "initialize function on the device: invalid status");
+-    check(d.compare(d.t1, m.s1.thermodynamic_forces, d.ts) < 1e-12,
++    check(d.compare(d.t1, m.s1.thermodynamic_forces, d.ts) < tolerance(1e-12),
+           "initialize function on the device: invalid outputs");
+   }
+   // post-processing, outputs on the device
+@@ -782,7 +806,7 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+     check(r.exit_status == rv.exit_status,
+           "post-processing on the device: invalid status");
+     check(compareComponentByComponent(dout.copyToHost(), outputs, n, 3, ld) <
+-              1e-12,
++              tolerance(1e-12),
+           "post-processing on the device: invalid outputs");
+   }
+   checkCUDA(cudaStreamDestroy(stream), "cudaStreamDestroy");
+diff --git a/tests/FunctionTest-cuda.cu b/tests/FunctionTest-cuda.cu
+index 7372027..f8a0121 100644
+--- a/tests/FunctionTest-cuda.cu
++++ b/tests/FunctionTest-cuda.cu
+@@ -24,6 +24,7 @@
+ #include "MGIS/Function/TFEL/Tensors.hxx"
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ #include "MGIS/Function/CUDA/Algorithms.hxx"
++#include "Tolerance.hxx"
+ 
+ template <typename Lambda>
+ __global__ void kernel(Lambda f) {
+@@ -43,7 +44,7 @@ struct CUDAFunctionTest final : public tfel::tests::TestCase {
+   void test1() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     constexpr auto layout = FunctionDataLayoutDescription{1, 1};
+     constexpr auto layout2 =
+         FunctionDataLayoutDescription{.data_size = 2, .data_stride = 2};
+@@ -123,7 +124,7 @@ struct CUDAFunctionTest final : public tfel::tests::TestCase {
+   void test2() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     auto conf = CUDAExecutionConfiguration{.number_of_threads_per_block = 4};
+     auto ctx = Context{};
+     auto space = BasicLinearSpace{2};
+@@ -306,7 +307,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test1() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     const auto conf =
+         CUDAExecutionConfiguration{.number_of_threads_per_block = 32};
+     auto ctx = Context{};
+@@ -340,7 +341,7 @@ struct CUDAMechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test2() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     auto ctx = Context{};
+     const auto conf =
+         CUDAExecutionConfiguration{.number_of_threads_per_block = 32};
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index f87dcec..22a8f2a 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -37,6 +37,9 @@
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/MaterialProperty/MaterialProperty.hxx"
+ #include "MGIS/MemoryResources/CUDAManagedMemoryResource.hxx"
++#include "Tolerance.hxx"
++
++using mgis::tests::tolerance;
+ 
+ static bool success = true;
+ 
+@@ -153,15 +156,17 @@ static void checkResults(
+     const mgis::behaviour::MaterialDataManager& gpu_m) {
+   check(r.exit_status == gpu_r.exit_status, name + ": invalid status");
+   // the results differ by rounding errors (contraction of the floating
+-  // point operations by the CUDA compiler)
+-  constexpr auto eps = 1e-10;
++  // point operations by the CUDA compiler). In float, the largest
++  // differences measured are 4.8e-7 (stresses, relative to 1e8), 2.4e-7
++  // (internal state variables) and 2.5e-5 (tangent operators, relative to
++  // 1e10)
+   check(compare(m.s1.thermodynamic_forces, gpu_m.s1.thermodynamic_forces, 1e8) <
+-            eps,
++            tolerance(1e-10, 5e-6),
+         name + ": invalid thermodynamic forces");
+   check(compare(m.s1.internal_state_variables,
+-                gpu_m.s1.internal_state_variables, 1) < eps,
++                gpu_m.s1.internal_state_variables, 1) < tolerance(1e-10, 3e-6),
+         name + ": invalid internal state variables");
+-  check(compare(m.K, gpu_m.K, 1e10) < eps,
++  check(compare(m.K, gpu_m.K, 1e10) < tolerance(1e-10, 3e-4),
+         name + ": invalid tangent operators");
+ }  // end of checkResults
+ 
+@@ -305,7 +310,7 @@ static void testElasticity(const std::string& library,
+   if (p != mps.end()) {
+     const auto& nu1 = v.s1.material_properties[static_cast<std::size_t>(
+         std::distance(mps.begin(), p))];
+-    check(nu1.isUniform() && (std::abs(nu1.data()[0] - 0.3) < 1e-14),
++    check(nu1.isUniform() && (std::abs(nu1.data()[0] - 0.3) < tolerance(1e-14)),
+           "make_unchecked_view: invalid view of a uniform value held on the "
+           "host");
+   }
+@@ -447,7 +452,8 @@ static void testStream(const std::string& library,
+         p, managers.gpu_m, "StressFromInitialPressure", pressures.span());
+     check((r.exit_status == 1) && (gpu_r.exit_status == 1) &&
+               (compare(managers.m.s1.thermodynamic_forces,
+-                       managers.gpu_m.s1.thermodynamic_forces, 1e8) < 1e-12),
++                       managers.gpu_m.s1.thermodynamic_forces,
++                       1e8) < tolerance(1e-12)),
+           "StressFromInitialPressure, stream: invalid results");
+   }
+   // post-processing, outputs in managed memory
+@@ -487,7 +493,7 @@ static void testStream(const std::string& library,
+     const auto gpu_r = executePostProcessing(gpu_outputs.span(), p,
+                                              managers.gpu_m, "PrincipalStrain");
+     check((r.exit_status == 1) && (gpu_r.exit_status == 1) &&
+-              (compare(outputs, gpu_outputs.span(), 1) < 1e-12),
++              (compare(outputs, gpu_outputs.span(), 1) < tolerance(1e-12)),
+           "PrincipalStrain, stream: invalid outputs");
+   }
+   // rotation of the gradients, data in managed memory
+@@ -508,13 +514,13 @@ static void testStream(const std::string& library,
+     rotateGradients(rg, b, g.span(), matrix.span());
+     rotateGradients(p, gpu_rg.span(), gpu_b, g.span(), matrix.span(),
+                     MemoryLocation::SHARED);
+-    check(compare(rg, gpu_rg.span(), 1) < 1e-14,
++    check(compare(rg, gpu_rg.span(), 1) < tolerance(1e-14),
+           "rotateGradients, stream: invalid rotated values");
+     // overload without execution policy (default queue)
+     std::fill(gpu_rg.span().begin(), gpu_rg.span().end(), mgis::real{});
+     rotateGradients(gpu_rg.span(), gpu_b, g.span(), matrix.span(),
+                     MemoryLocation::SHARED);
+-    check(compare(rg, gpu_rg.span(), 1) < 1e-14,
++    check(compare(rg, gpu_rg.span(), 1) < tolerance(1e-14),
+           "rotateGradients without policy: invalid rotated values");
+     check(throws(
+               [&gpu_rg, &gpu_b, &g, &matrix] {
+@@ -553,7 +559,7 @@ static void testStream(const std::string& library,
+     std::copy(g.span().begin(), g.span().end(), gpu_rg.span().begin());
+     rotateGradients(p, gpu_rg.span(), gpu_b, gpu_rg.span(), matrices,
+                     MemoryLocation::SHARED);
+-    check(compare(rg3d, gpu_rg.span(), 1) < 1e-14,
++    check(compare(rg3d, gpu_rg.span(), 1) < tolerance(1e-14),
+           "rotateGradients, matrices built by buildRotationMatrices, in "
+           "place: invalid rotated values");
+   }
+@@ -633,7 +639,7 @@ static void testMaterialProperties(const std::string& library,
+   const auto gpu_s =
+       evaluate(gpu_E.span(), gpu_mp, inputs, MemoryLocation::SHARED);
+   check((s.status == 0) && (gpu_s.status == 0) &&
+-            (compare(E, gpu_E.span(), 1e11) < 1e-12),
++            (compare(E, gpu_E.span(), 1e11) < tolerance(1e-12)),
+         "Inconel600_YoungModulus: invalid values");
+   // evaluation on a stream which is not the default one
+   {
+@@ -641,7 +647,8 @@ static void testMaterialProperties(const std::string& library,
+     std::fill(gpu_E.span().begin(), gpu_E.span().end(), mgis::real{});
+     const auto stream_s = evaluate(stream.policy(), gpu_E.span(), gpu_mp,
+                                    inputs, MemoryLocation::SHARED);
+-    check((stream_s.status == 0) && (compare(E, gpu_E.span(), 1e11) < 1e-12),
++    check((stream_s.status == 0) &&
++              (compare(E, gpu_E.span(), 1e11) < tolerance(1e-12)),
+           "Inconel600_YoungModulus, stream: invalid values");
+   }
+   // uniform temperature
+@@ -652,7 +659,7 @@ static void testMaterialProperties(const std::string& library,
+   static_cast<void>(evaluate(E, mp, uniform_inputs));
+   static_cast<void>(
+       evaluate(gpu_E.span(), gpu_mp, uniform_inputs, MemoryLocation::SHARED));
+-  check(compare(E, gpu_E.span(), 1e11) < 1e-12,
++  check(compare(E, gpu_E.span(), 1e11) < tolerance(1e-12),
+         "Inconel600_YoungModulus, uniform input: invalid values");
+   // values in the memory of the host
+   check(throws([&gpu_E, &gpu_mp,
+@@ -819,7 +826,7 @@ static void testAsynchronousComputations(const std::string& library,
+     const auto gpu_r = pending.getResult();
+     checkResults("Norton, asynchronous", r, gpu_r, managers.m, managers.gpu_m);
+     check(std::abs(r.time_step_increase_factor -
+-                   gpu_r.time_step_increase_factor) < 1e-12,
++                   gpu_r.time_step_increase_factor) < tolerance(1e-12),
+           "Norton, asynchronous: invalid time step increase factor");
+     // the status must be accessible by the computations
+     check(throws(
+@@ -852,7 +859,7 @@ static void testAsynchronousComputations(const std::string& library,
+                                          r3d, MemoryLocation::SHARED);
+     synchronize();
+     check((pending.getResult().exit_status == 1) &&
+-              (compare(rg, gpu_rg.span(), 1) < 1e-14),
++              (compare(rg, gpu_rg.span(), 1) < tolerance(1e-14)),
+           "rotateGradients, asynchronous: invalid rotated values");
+   }
+   // material property, the temperature of the third point being out of its
+@@ -882,7 +889,7 @@ static void testAsynchronousComputations(const std::string& library,
+             "policy " +
+                 std::to_string(static_cast<int>(o)));
+       if (status == 1) {
+-        check(compare(E, gpu_E.span(), 1e11) < 1e-12,
++        check(compare(E, gpu_E.span(), 1e11) < tolerance(1e-12),
+               "MaterialPropertyBoundCheck, asynchronous: invalid values");
+       }
+     }
+-- 
+2.43.0
+

@@ -489,4 +489,13 @@ Suite (13/10/2026, soir) :
   relatif croît avec la taille du problème (1,3e-5 à r4, sous 1e-5 à r2) ;
   en float, la tolérance de Newton doit être choisie au-dessus.
 
-Restent : le GPU en float.
+- MGIS sur le GPU en float (85b1a2a) : les tests CUDA passent (51/51 avec
+  CUDA, en double comme en float). Écarts mesurés entre l'hôte et le GPU
+  (contractions des opérations flottantes) : 4,8e-7 sur les contraintes,
+  2,5e-5 sur les tangentes (relatifs). Limite du float trouvée : la loi de
+  Norton des tests (exposant 8,2) n'est plus intégrable vers 3e9 Pa, le
+  résidu du schéma implicite ne pouvant pas atteindre son critère ; le
+  cycle de FieldOperationsCUDATest fait trois pas en float au lieu de
+  quatre.
+
+Restent : mfem-mgis en float sur le GPU.
