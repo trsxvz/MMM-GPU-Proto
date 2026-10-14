@@ -253,8 +253,9 @@ int main(int argc, char** argv) {
     // 2.6e-8 (absolute), increasing with the damage. Measured in float: the
     // initial residuals of the first iteration are 56.6 (mechanical problem)
     // and 3.6e-6 to 3.2e-5 (micromorphic problem, increasing with the
-    // damage); at the second iteration, the residuals are 1.8e-5 and 0.9 %
-    // of them, so that the relative tolerance 1e-2 accepts the second
+    // damage); at the second iteration, the residuals are 1.8e-5 times
+    // (mechanical problem) and 0.9 % (micromorphic problem) of the initial
+    // ones, so that the relative tolerance 1e-2 accepts the second
     // iteration (with a margin of 1.1 for the micromorphic problem; a
     // smaller residual only requires one more iteration)
     constexpr auto first_iteration_tolerance =

@@ -4,8 +4,8 @@ Cas propres au prototype, qui ne sont ni dans mfem-mgis-examples ni dans
 mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
 `build-mfem-mgis.sh` (`./build-mfem-mgis.sh cas`, dossier `build/cas`). Les
 lois sont générées dans le type numérique de ce mfem-mgis (`float` si son
-MFEM est en simple précision, option `real_type` de mfront). Les lois pour le GPU ne sont générées que si ce MFEM
-calcule sur un GPU avec CUDA.
+MFEM est en simple précision, option `real_type` de mfront). Les lois pour
+le GPU ne sont générées que si ce MFEM calcule sur un GPU avec CUDA.
 
 - `poutre/` : poutre encastrée en flexion, plasticité J2 en petites
   déformations, 3D (maillage `beam-tet.mesh` et loi

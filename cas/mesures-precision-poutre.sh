@@ -13,9 +13,11 @@
 # et build/cas-float, ou les dossiers donnés par `CAS_DOUBLE` et
 # `CAS_FLOAT`).
 #
-# Deux critères de Newton : celui du cas (1e-8, borné à 100 ε = 1,2e-5 par
-# mfem-mgis en float), puis 1,2e-5 pour les deux précisions, pour comparer
-# les temps à critère égal.
+# Critères de Newton : celui du cas (1e-8) en double seulement, comme
+# référence, puis `CRITERE` (1e-4 par défaut) pour les deux précisions, pour
+# comparer les temps à critère égal. En float, le critère du cas, borné à
+# 100 ε = 1,2e-5 par mfem-mgis, n'est pas atteint à r4 : le résidu relatif
+# plafonne vers 1,3e-5 et Newton s'arrête au bout de 50 itérations.
 #
 # usage : cas/mesures-precision-poutre.sh [dossier de résultats]
 set -u
@@ -28,6 +30,7 @@ cpus=${CPUS:-0,1}
 repetitions=${REPETITIONS:-3}
 refinements=${RAFFINEMENTS:-4}
 steps=${PAS:-10}
+criterion=${CRITERE:-1e-4}
 declare -A cas=([double]=${CAS_DOUBLE:-$P/build/cas-double-cpu}
                 [float]=${CAS_FLOAT:-$P/build/cas-float})
 declare -A mgis=([double]=$P/install/mgis [float]=$P/install/mgis-float)
@@ -66,9 +69,9 @@ run() {
 # les précisions alternent à chaque répétition, pour qu'une dérive de la
 # machine touche les deux de la même façon
 for i in $(seq 1 "$repetitions"); do
+  run double double-critere-du-cas "$i"
   for precision in double float; do
-    run "$precision" "$precision-critere-du-cas" "$i"
-    run "$precision" "$precision-critere-1.2e-5" "$i" -rt 1.2e-5
+    run "$precision" "$precision-critere-$criterion" "$i" -rt "$criterion"
   done
 done
 echo "résultats dans $out"

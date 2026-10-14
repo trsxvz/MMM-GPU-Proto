@@ -223,7 +223,8 @@ run_tests() {
   if [ "$GPU_TESTS" = ON ]; then
     serialize="${serialize}export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
   fi
-  local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --output-on-failure"
+  # délai de 600 s par test : un test bloqué ne garde pas les cœurs 1500 s
+  local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --timeout 600 --output-on-failure"
   if [ "$GPU_TESTS" = ON ] && ! id -nG | grep -qw render; then
     sg render -c "export LD_LIBRARY_PATH='$LD_LIBRARY_PATH'; $cmd"
   else

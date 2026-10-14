@@ -175,19 +175,21 @@ static bool setSolverParameters(
  * with double; with float, about ten times the largest error measured with
  * the given linear solver over the cases, sequential and parallel (the L2
  * norms of the solutions are 0.038 to 0.096). The relative tolerances of the
- * iterative solvers are bounded to 1.2e-5 by mfem-mgis in float.
+ * iterative solvers are bounded to 1.2e-5 by mfem-mgis in float. A solver
+ * which was not measured is given the largest threshold.
  * \param[in] s: linear solver
  */
 static mfem_mgis::real getThreshold(const std::string_view s) noexcept {
   // largest errors measured in float: 1.2e-4 (HypreFGMRES), 3.7e-5
   // (GMRESSolver, HypreGMRES), 3.5e-6 (CGSolver, HyprePCG, MUMPSSolver)
-  if (s == "HypreFGMRES") {
-    return mfem_mgis::unit_tests::tolerance(1e-7, 1.2e-3);
+  if ((s == "CGSolver") || (s == "HyprePCG") || (s == "MUMPSSolver") ||
+      (s == "UMFPackSolver")) {
+    return mfem_mgis::unit_tests::tolerance(1e-7, 4e-5);
   }
   if ((s == "GMRESSolver") || (s == "HypreGMRES")) {
     return mfem_mgis::unit_tests::tolerance(1e-7, 4e-4);
   }
-  return mfem_mgis::unit_tests::tolerance(1e-7, 4e-5);
+  return mfem_mgis::unit_tests::tolerance(1e-7, 1.2e-3);
 }  // end of getThreshold
 
 std::optional<bool> checkSolution(mfem_mgis::Context& ctx,

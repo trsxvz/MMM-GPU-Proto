@@ -17,6 +17,7 @@
 #include <optional>
 #include <string_view>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <algorithm>
 #include "mfem/general/optparser.hpp"
@@ -138,8 +139,9 @@ static bool check(mfem_mgis::Context& ctx,
                   const mfem_mgis::real b,
                   const mfem_mgis::real tolerance) {
   if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
-    std::cout << what << ": " << a << " (element by element), " << b
-              << " (kernels)\n";
+    std::cout << what << ": " << std::setprecision(9) << a
+              << " (element by element), " << b << " (kernels), relative "
+              << "difference " << std::abs(a - b) / std::abs(a) << '\n';
   }
   if (!((a != 0) && (std::isfinite(a)) &&
         (std::abs(a - b) <= tolerance * std::abs(a)))) {
@@ -176,9 +178,11 @@ static double computeMaterialVolume(const mfem_mgis::Mesh<parallel>& mesh,
       v += static_cast<double>(ip.weight) * static_cast<double>(tr.Weight());
     }
   }
+#ifdef MFEM_USE_MPI
   if constexpr (parallel) {
     MPI_Allreduce(MPI_IN_PLACE, &v, 1, MPI_DOUBLE, MPI_SUM, mesh.GetComm());
   }
+#endif /* MFEM_USE_MPI */
   return v;
 }  // end of computeMaterialVolume
 
@@ -380,23 +384,27 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
   using mfem_mgis::unit_tests::tolerance;
   auto success = true;
   // measures and integrals: sums over all the points, accumulated in double
-  // by mfem-mgis. In float, the relative differences are below 1e-6 (4.4e-6
-  // for the measures and 6.8e-6 for the integrals with sums in float)
+  // by mfem-mgis. In float, both computations give the same values, and the
+  // measures differ from the volumes computed by MFEM by at most 7.1e-8: the
+  // tolerance of 1e-6 detects sums made in float (relative differences of
+  // 4.4e-6 for the measures and 6.8e-6 for the integrals)
   for (size_type i = 0; i != materials.size(); ++i) {
     const auto m = std::to_string(materials[i]);
     success = check(ctx, "measure of material " + m, r1->measures[i],
-                    r2->measures[i], tolerance(1e-12, 1e-4)) &&
+                    r2->measures[i], tolerance(1e-12, 1e-6)) &&
               success;
     success = check(ctx, "integral on material " + m, r1->integrals[i],
-                    r2->integrals[i], tolerance(1e-12, 1e-4)) &&
+                    r2->integrals[i], tolerance(1e-12, 1e-6)) &&
               success;
     const auto volume = computeMaterialVolume<parallel>(mesh, materials[i]);
     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
-      std::cout << "volume of material " << m << " computed by MFEM: " << volume
-                << '\n';
+      std::cout << "volume of material " << m
+                << " computed by MFEM: " << std::setprecision(9) << volume
+                << ", relative difference "
+                << std::abs(r1->measures[i] - volume) / volume << '\n';
     }
     if (!(std::abs(r1->measures[i] - volume) <=
-          tolerance(1e-10, 1e-4) * volume)) {
+          tolerance(1e-10, 1e-6) * volume)) {
       success = ctx.registerErrorMessage("measure of material " + m +
                                          ": wrong value");
     }

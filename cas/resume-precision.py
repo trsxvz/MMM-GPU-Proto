@@ -42,8 +42,9 @@ def main():
         if not m:
             continue
         dofs, norm, total, time = read(path)
-        if time is None:
-            print(f"{path.name} : pas de temps (calcul en échec ?)")
+        if (time is None) or (norm is None):
+            print(f"{path.name} : pas de temps ou pas de norme "
+                  "(calcul en échec ?)")
             continue
         runs.setdefault((m.group(2), m.group(1)), []).append(
             (time, norm, total, dofs))

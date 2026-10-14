@@ -28,16 +28,21 @@ else()
   set(PROTO_GPU_BEHAVIOURS OFF)
 endif()
 # the behaviours are generated again when MFront changes: its executable
-# and its library, which holds the code generators
-get_filename_component(_mfront_prefix "${MFRONT}" DIRECTORY)
-get_filename_component(_mfront_prefix "${_mfront_prefix}" DIRECTORY)
-set(MFRONT_DEPENDENCIES "${MFRONT}")
-foreach(_directory lib lib64)
-  if(EXISTS "${_mfront_prefix}/${_directory}/libTFELMFront.so")
-    list(APPEND MFRONT_DEPENDENCIES
-         "${_mfront_prefix}/${_directory}/libTFELMFront.so")
-  endif()
-endforeach()
+# and its library, which holds the code generators (function of mfem-mgis,
+# or the same search for an older installation of mfem-mgis)
+if(COMMAND mfem_mgis_get_mfront_dependencies)
+  mfem_mgis_get_mfront_dependencies(MFRONT_DEPENDENCIES "${MFRONT}")
+else()
+  get_filename_component(_mfront_prefix "${MFRONT}" DIRECTORY)
+  get_filename_component(_mfront_prefix "${_mfront_prefix}" DIRECTORY)
+  set(MFRONT_DEPENDENCIES "${MFRONT}")
+  foreach(_directory lib lib64)
+    if(EXISTS "${_mfront_prefix}/${_directory}/libTFELMFront.so")
+      list(APPEND MFRONT_DEPENDENCIES
+           "${_mfront_prefix}/${_directory}/libTFELMFront.so")
+    endif()
+  endforeach()
+endif()
 
 include(CTest)
 enable_testing()

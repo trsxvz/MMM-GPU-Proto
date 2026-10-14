@@ -1233,7 +1233,8 @@ static Results compute(mfem_mgis::Context& ctx,
  * reach 5.1e-4 in parallel, the reference being computed by MUMPS, and
  * 6.3e-3 in sequential, the reference being then computed by GMRES with a
  * Jacobi preconditioner, MFEM in single precision having no sequential
- * direct solver (see `SequentialLinearSolver.hxx`)
+ * direct solver (see `SequentialLinearSolver.hxx`): in this case, the
+ * comparison only checks the order of magnitude of the results
  * \param[in] opts: options of the computation
  */
 static mfem_mgis::real getComparisonTolerance(const ComputationOptions& opts) {

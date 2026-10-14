@@ -103,6 +103,9 @@ static mfem_mgis::real residualAfterIterations(
                  {"Preconditioner",
                   Parameters{{"Name", "HypreILU"}, {"Options", ilu}}}});
   if (isInvalid(h)) {
+    if (fespace.GetMyRank() == 0) {
+      std::cout << "refused: " << ctx.getErrorMessage() << '\n';
+    }
     return -1;
   }
   auto X = mfem::Vector(B.Size());

@@ -478,4 +478,15 @@ Suite (13/10/2026, soir) :
   dépendant aussi de libTFELMFront, option de type pour la bibliothèque
   Kokkos des tests et les bancs d'essai.
 
-Restent : le GPU en float et les mesures.
+- Mesures sur le CPU (results/precision-poutre-2026-10-14-0514, poutre
+  r4, 111 843 inconnues, deux processus, environnements spack jumeaux
+  `mmm-double-cpu` et `mmm-float-cpu`) : à critère de Newton égal (1e-4),
+  le float est 1,11 fois plus rapide (20,7 s contre 23,1 s), avec les
+  mêmes itérations ; le gain vient de la résolution linéaire (1,19 fois),
+  les calculs élément par élément ne gagnant presque rien. La norme des
+  déplacements s'écarte de 8e-5 de celle du double convergé. Le critère du
+  cas (1e-8, borné à 1,2e-5) n'est pas atteint à r4 : le plancher du résidu
+  relatif croît avec la taille du problème (1,3e-5 à r4, sous 1e-5 à r2) ;
+  en float, la tolérance de Newton doit être choisie au-dessus.
+
+Restent : le GPU en float.
