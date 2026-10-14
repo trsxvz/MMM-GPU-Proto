@@ -147,21 +147,39 @@ namespace mfem_mgis {
         this->tangent_operator_blocks,
         np * static_cast<std::size_t>(
                  mgis::behaviour::getTangentOperatorArraySize(b)));
+    // index of the `c`-th of the `nc` components of the `i`-th point in a
+    // state array
+    const auto index = [pbp = l == mgis::FieldLayout::POINT_BY_POINT, np](
+                           const std::size_t i, const std::size_t c,
+                           const std::size_t nc) {
+      return pbp ? i * nc + c : c * np + i;
+    };
     // the deformation gradients are initialized to the identity, as MGIS
     // does for the arrays it allocates (the first three components are the
     // diagonal ones); the displacement gradients stay zero
     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
         (!mgis::behaviour::usesDisplacementGradient(b)) && (np != 0)) {
-      const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
-      const auto ps = pbp ? gs : std::size_t{1};
-      const auto cs = pbp ? std::size_t{1} : np;
       for (auto& g : this->state_arrays[getArrayIndex(StateArray::GRADIENTS)]) {
         auto* const F = g.HostReadWrite();
         for (std::size_t i = 0; i != np; ++i) {
           for (std::size_t c = 0; c != 3; ++c) {
-            F[i * ps + c * cs] = real{1};
+            F[index(i, c, gs)] = real{1};
           }
+        }
+      }
+    }
+    // the axial component of the deformation gradient computed by a finite
+    // strain behaviour in plane stress starts from one, as MGIS does for the
+    // arrays it allocates
+    if (const auto o = mgis::behaviour::getAxialDeformationGradientOffset(b);
+        (o.has_value()) && (np != 0)) {
+      for (auto& v :
+           this->state_arrays[getArrayIndex(
+               StateArray::INTERNAL_STATE_VARIABLES)]) {
+        auto* const isvs = v.HostReadWrite();
+        for (std::size_t i = 0; i != np; ++i) {
+          isvs[index(i, static_cast<std::size_t>(*o), is)] = real{1};
         }
       }
     }

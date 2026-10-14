@@ -4795,3 +4795,17 @@ formula as MTest). All the others give the Newton solution to within
   H as F).
 - Audit of the whole history of the repository before it becomes public:
   no secret (tokens, keys) and no internal link.
+- Initial value of the axial deformation gradient in plane stress: the
+  behaviours written with F store it in the `AxialDeformationGradient`
+  internal state variable, which TFEL now uses in the conversions. MGIS
+  and mfem-mgis initialized it to zero, as the other internal state
+  variables: the deformation gradient was singular at the first step
+  (Piola-Kirchhoff stresses converted to NaN, Newton on this component
+  divided by zero). MGIS (`getAxialDeformationGradientOffset`, also
+  bound in C, Fortran and Python) and mfem-mgis (`MaterialArrays`) set
+  it to one. Test behaviours in plane stress written with F, whose
+  Newton starts from this value; the tests fail without the fix. An
+  independent review found three gaps in the tests (offset zero, branch
+  of the initializer, layout component by component), filled. In plane
+  stress, MFront converts no tangent operator of the behaviours written
+  with F: a behaviour used by mfem-mgis must compute `DPK1_DF`.

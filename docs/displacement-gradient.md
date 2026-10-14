@@ -53,7 +53,22 @@ strain frameworks is zero. The behaviours written with the deformation
 gradient receive F as given by the caller (I + H with the displacement
 gradient) and store the axial component in the `AxialDeformationGradient`
 internal state variable, whose initial value shall be one (patches
-`patches/tfel/0125` and `patches/mgis/0074`).
+`patches/tfel/0125` and `patches/mgis/0074`). MGIS (`BehaviourData`,
+`MaterialDataManager`) and mfem-mgis (`MaterialArrays`) set it to one,
+the offset being given by `getAxialDeformationGradientOffset`, also
+bound in C, Fortran and Python (patches `patches/mgis/0075` to `0077`
+and `patches/mfem-mgis/0185`). With zero, the deformation gradient at
+the beginning of the first step was singular: the conversion of the
+Piola-Kirchhoff stresses to the Cauchy stress gave NaN, and a behaviour
+starting a Newton method from this value failed. MTest does not set it:
+an MTest file must give `@InternalStateVariable
+'AxialDeformationGradient' 1;`.
+
+In plane stress, MFront converts no tangent operator of the behaviours
+written with the deformation gradient: only the one they compute is
+available. The test behaviours compute `DS_DEGL`, whereas mfem-mgis
+requests `DPK1_DF`: a behaviour used by mfem-mgis in plane stress must
+compute it.
 
 Before, TFEL expected an axial component of zero from the caller,
 whereas MGIS, mfem-mgis and MTest give one with the deformation

@@ -1,0 +1,300 @@
+From 9ee8c200a196cd55c877a05fc10494569ce970e3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 00:11:54 +0200
+Subject: [PATCH] MaterialArrays: initialize the axial deformation gradient to
+ one
+
+As MGIS does for the arrays it allocates, the AxialDeformationGradient
+internal state variable of a finite strain behaviour written with the
+deformation gradient in plane stress is initialized to one, in both
+layouts. The generic interface of TFEL uses it as the axial component of
+the deformation gradient, which was singular at the first time step.
+The index of a component of a point is now computed by one function for
+the deformation gradients and for this variable.
+
+MaterialArraysTest checks the initial values of all the internal state
+variables in both layouts with a new test behaviour,
+PlaneStressSaintVenantKirchhoffElasticity, which stores the Green-Lagrange
+strain before the axial deformation gradient so that its offset is not
+zero. The test fails without this change, or with a wrong index in the
+component by component layout.
+---
+ include/MFEMMGIS/MaterialArrays.hxx           |  5 +-
+ src/MaterialArrays.cxx                        | 26 ++++++-
+ tests/CMakeLists.txt                          |  1 +
+ tests/MaterialArraysTest.cxx                  | 77 ++++++++++++++++++-
+ ...tressSaintVenantKirchhoffElasticity.mfront | 74 ++++++++++++++++++
+ 5 files changed, 176 insertions(+), 7 deletions(-)
+ create mode 100644 tests/PlaneStressSaintVenantKirchhoffElasticity.mfront
+
+diff --git a/include/MFEMMGIS/MaterialArrays.hxx b/include/MFEMMGIS/MaterialArrays.hxx
+index c74d2ad7f5..85090adfea 100644
+--- a/include/MFEMMGIS/MaterialArrays.hxx
++++ b/include/MFEMMGIS/MaterialArrays.hxx
+@@ -33,7 +33,10 @@ namespace mfem_mgis {
+    * host, at the `HOST` location, in the layout chosen at construction
+    * (point by point by default, or component by component, which gives
+    * coalesced accesses on a GPU). The arrays are never reallocated: they
+-   * are private, and only pointers to their values are given.
++   * are private, and only pointers to their values are given. As the
++   * arrays allocated by MGIS, they start from zero, except the deformation
++   * gradients, set to the identity, and, in plane stress, the
++   * `AxialDeformationGradient` internal state variable, set to one.
+    *
+    * Validity of the copies: MFEM keeps track of the valid copies of each
+    * array, but MGIS (and the views returned by the accessors of the
+diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
+index 6696fbb0fa..81815a5ce7 100644
+--- a/src/MaterialArrays.cxx
++++ b/src/MaterialArrays.cxx
+@@ -147,24 +147,42 @@ namespace mfem_mgis {
+         this->tangent_operator_blocks,
+         np * static_cast<std::size_t>(
+                  mgis::behaviour::getTangentOperatorArraySize(b)));
++    // index of the `c`-th of the `nc` components of the `i`-th point in a
++    // state array
++    const auto index = [pbp = l == mgis::FieldLayout::POINT_BY_POINT, np](
++                           const std::size_t i, const std::size_t c,
++                           const std::size_t nc) {
++      return pbp ? i * nc + c : c * np + i;
++    };
+     // the deformation gradients are initialized to the identity, as MGIS
+     // does for the arrays it allocates (the first three components are the
+     // diagonal ones); the displacement gradients stay zero
+     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
+         (!mgis::behaviour::usesDisplacementGradient(b)) && (np != 0)) {
+-      const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
+-      const auto ps = pbp ? gs : std::size_t{1};
+-      const auto cs = pbp ? std::size_t{1} : np;
+       for (auto& g : this->state_arrays[getArrayIndex(StateArray::GRADIENTS)]) {
+         auto* const F = g.HostReadWrite();
+         for (std::size_t i = 0; i != np; ++i) {
+           for (std::size_t c = 0; c != 3; ++c) {
+-            F[i * ps + c * cs] = real{1};
++            F[index(i, c, gs)] = real{1};
+           }
+         }
+       }
+     }
++    // the axial component of the deformation gradient computed by a finite
++    // strain behaviour in plane stress starts from one, as MGIS does for the
++    // arrays it allocates
++    if (const auto o = mgis::behaviour::getAxialDeformationGradientOffset(b);
++        (o.has_value()) && (np != 0)) {
++      for (auto& v :
++           this->state_arrays[getArrayIndex(
++               StateArray::INTERNAL_STATE_VARIABLES)]) {
++        auto* const isvs = v.HostReadWrite();
++        for (std::size_t i = 0; i != np; ++i) {
++          isvs[index(i, static_cast<std::size_t>(*o), is)] = real{1};
++        }
++      }
++    }
+   }  // end of MaterialArrays
+ 
+   mgis::behaviour::MaterialDataManagerInitializer
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 4fff8c3b33..a27b808a4d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -65,6 +65,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+     Mazars
+     SaintVenantKirchhoffElasticity
+     SaintVenantKirchhoffElasticityV2
++    PlaneStressSaintVenantKirchhoffElasticity
+     MiehePhaseFieldDamage
+     MicromorphicDamageI_SpectralSplit
+     MicromorphicDamageII
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+index 16eb654db4..a87b6577b7 100644
+--- a/tests/MaterialArraysTest.cxx
++++ b/tests/MaterialArraysTest.cxx
+@@ -2,7 +2,8 @@
+  * \file   MaterialArraysTest.cxx
+  * \brief  Test of the arrays of the materials in the memory of MFEM
+  * (`MaterialArrays`): sizes, use without copy by MGIS, identity of the
+- * deformation gradients, layouts, validity of the copies on the host and on
++ * deformation gradients (and unit axial component computed by a behaviour
++ * in plane stress), layouts, validity of the copies on the host and on
+  * the device selected by the `--device` option at each access of
+  * mfem-mgis on the host, arrays of the elements of a partial quadrature
+  * space, point-wise model integrated on the host or by batches on the
+@@ -373,6 +374,76 @@ static void testEmptyMaterial(mfem_mgis::Context& ctx,
+   }
+ }  // end of testEmptyMaterial
+ 
++/*!
++ * \brief the axial component of the deformation gradient computed by a
++ * finite strain behaviour in plane stress, stored in the
++ * `AxialDeformationGradient` internal state variable, is initialized to
++ * one, as the deformation gradient is initialized to the identity, and the
++ * other internal state variables to zero, in both layouts (the
++ * Green-Lagrange strain is stored before the axial deformation gradient)
++ * \param[in, out] ctx: execution context
++ * \param[in] mesh: two-dimensional mesh
++ * \param[in] library: behaviour library
++ */
++static void testAxialDeformationGradient(mfem_mgis::Context& ctx,
++                                         const char* const mesh,
++                                         const char* const library) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  auto fed = make_shared<FiniteElementDiscretization>(
++                 ctx, Parameters{{"MeshFileName", mesh},
++                                 {"FiniteElementFamily", "H1"},
++                                 {"FiniteElementOrder", 1},
++                                 {"UnknownsSize", 2},
++                                 {"NumberOfUniformRefinements", 0},
++                                 {"Parallel", false}}) |
++             or_die;
++  auto qspace = make_shared<const PartialQuadratureSpace>(
++                    ctx, *fed, MaterialIdentifier{.id = 5},
++                    [](const mfem::FiniteElement& e,
++                       const mfem::ElementTransformation&) noexcept
++                        -> const mfem::IntegrationRule& {
++                      return mfem::IntRules.Get(e.GetGeomType(), 2);
++                    }) |
++                or_die;
++  const auto n = qspace->getNumberOfIntegrationPoints();
++  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
++                       mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
++    const auto name =
++        std::string{"PlaneStressSaintVenantKirchhoffElasticity"} +
++        (l == mgis::FieldLayout::POINT_BY_POINT ? " (point by point)"
++                                                : " (component by component)");
++    auto b = mfem_mgis::load(ctx, library,
++                             "PlaneStressSaintVenantKirchhoffElasticity",
++                             Hypothesis::PLANESTRESS);
++    if (isInvalid(b)) {
++      std::cerr << ctx.getErrorMessage() << '\n';
++      ++failures;
++      return;
++    }
++    auto m = Material(qspace, std::move(b), l);
++    const auto o = mgis::behaviour::getAxialDeformationGradientOffset(m.b);
++    if (!o.has_value()) {
++      check(false, name + ": no axial deformation gradient");
++      continue;
++    }
++    check(*o == 4, name + ": invalid offset of the axial deformation gradient");
++    const auto nisvs = getArraySize(m.b.isvs, m.b.hypothesis);
++    for (auto* s : {&m.s0, &m.s1}) {
++      const auto isvs = mgis::behaviour::getInternalStateVariablesView(*s);
++      auto initialized = n != 0;
++      for (size_type i = 0; i != n; ++i) {
++        for (size_type c = 0; c != nisvs; ++c) {
++          initialized = initialized && (isvs(i, c) == (c == *o ? 1 : 0));
++        }
++      }
++      check(initialized,
++            name + ": internal state variables not initialized (one for "
++                   "the axial deformation gradient, zero otherwise)");
++    }
++  }
++}  // end of testAxialDeformationGradient
++
+ /*!
+  * \brief each entry point of mfem-mgis accessing the arrays on the host is
+  * called after writing all the arrays on the device: the accessors, the
+@@ -873,7 +944,8 @@ int main(int argc, char** argv) {
+   args.AddOption(&multi_material_mesh, "-mm", "--multi-material-mesh",
+                  "mesh with two materials");
+   args.AddOption(&mesh_2d, "-m2", "--mesh-2d",
+-                 "two-dimensional mesh (point-wise model on material 5)");
++                 "two-dimensional mesh (point-wise model and plane stress "
++                 "behaviour on material 5)");
+   args.AddOption(&generic_parallel_library, "-gpl",
+                  "--generic-parallel-library",
+                  "library generated by the generic-parallel interface for "
+@@ -909,6 +981,7 @@ int main(int argc, char** argv) {
+     }
+   }
+   testEmptyMaterial(ctx, library);
++  testAxialDeformationGradient(ctx, mesh_2d, library);
+   testRotation(ctx, qspace, library);
+   testPointWiseModel(ctx, mesh_2d, library);
+   if (!std::string_view{generic_parallel_library}.empty()) {
+diff --git a/tests/PlaneStressSaintVenantKirchhoffElasticity.mfront b/tests/PlaneStressSaintVenantKirchhoffElasticity.mfront
+new file mode 100644
+index 0000000000..91d8ee9ded
+--- /dev/null
++++ b/tests/PlaneStressSaintVenantKirchhoffElasticity.mfront
+@@ -0,0 +1,74 @@
++@DSL DefaultFiniteStrainDSL;
++@Behaviour PlaneStressSaintVenantKirchhoffElasticity;
++@Description{
++  "The Saint Venant - Kirchhoff hyper elastic behaviour in plane stress, "
++  "written with the deformation gradient: the axial component of the "
++  "deformation gradient is computed by the behaviour and stored in the "
++  "AxialDeformationGradient internal state variable, whose initial value "
++  "shall be one. Only used by MaterialArraysTest to check this initial "
++  "value: in plane stress, MFront does not convert the DS_DEGL tangent "
++  "operator computed by this behaviour to the DPK1_DF one requested by "
++  "mfem-mgis."
++}
++
++@ModellingHypothesis PlaneStress;
++@ProvidesSymmetricTangentOperator;
++
++@MaterialProperty stress young;
++young.setGlossaryName("YoungModulus");
++@MaterialProperty real nu;
++nu.setGlossaryName("PoissonRatio");
++
++//! Green-Lagrange strain, declared before Fzz so that the offset of the
++//! axial deformation gradient is not zero (MaterialArraysTest)
++@StateVariable StrainStensor egl;
++//! axial component of the deformation gradient
++@StateVariable real Fzz;
++Fzz.setGlossaryName("AxialDeformationGradient");
++
++@LocalVariable stress lambda;  //!< first Lamé coefficient
++@LocalVariable stress mu;      //!< second Lamé coefficient
++
++@InitLocalVariables {
++  lambda = computeLambda(young, nu);
++  mu = computeMu(young, nu);
++}
++
++@Integrator {
++  // the axial component of the deformation gradient, such that the axial
++  // stress is zero, is computed by Newton iterations starting from its
++  // value at the beginning of the time step. The one of F1, given by the
++  // interface, is not used.
++  auto Fe = F1;
++  Fe[2] = Fzz;
++  auto converged = false;
++  for (int iter = 0; (iter != 20) && (!converged); ++iter) {
++    const auto e = computeGreenLagrangeTensor(Fe);
++    // axial second Piola-Kirchhoff stress and its derivative
++    const auto r = lambda * trace(e) + 2 * mu * e[2];
++    const auto dr = (lambda + 2 * mu) * Fe[2];
++    const auto dF = r / dr;
++    Fe[2] -= dF;
++    converged = std::abs(dF) < 10 * std::numeric_limits<real>::epsilon();
++  }
++  if (!converged) {
++    return false;
++  }
++  dFzz = Fe[2] - Fzz;
++  const auto e = computeGreenLagrangeTensor(Fe);
++  degl = e - egl;
++  const auto S = lambda * trace(e) * StrainStensor::Id() + 2 * mu * e;
++  sig = convertSecondPiolaKirchhoffStressToCauchyStress(S, Fe);
++}
++
++@TangentOperator<DS_DEGL> {
++  static_cast<void>(smt);
++  // plane stress elastic operator
++  const auto lambda_ps = 2 * lambda * mu / (lambda + 2 * mu);
++  auto dS_dE =
++      Stensor4{lambda_ps * Stensor4::IxI() + 2 * mu * Stensor4::Id()};
++  for (unsigned short i = 0; i != 4; ++i) {
++    dS_dE(i, 2) = dS_dE(2, i) = stress(0);
++  }
++  Dt = dS_dE;
++}
+-- 
+2.43.0
+

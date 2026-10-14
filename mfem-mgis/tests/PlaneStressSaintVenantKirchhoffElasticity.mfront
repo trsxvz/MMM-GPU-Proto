@@ -1,0 +1,74 @@
+@DSL DefaultFiniteStrainDSL;
+@Behaviour PlaneStressSaintVenantKirchhoffElasticity;
+@Description{
+  "The Saint Venant - Kirchhoff hyper elastic behaviour in plane stress, "
+  "written with the deformation gradient: the axial component of the "
+  "deformation gradient is computed by the behaviour and stored in the "
+  "AxialDeformationGradient internal state variable, whose initial value "
+  "shall be one. Only used by MaterialArraysTest to check this initial "
+  "value: in plane stress, MFront does not convert the DS_DEGL tangent "
+  "operator computed by this behaviour to the DPK1_DF one requested by "
+  "mfem-mgis."
+}
+
+@ModellingHypothesis PlaneStress;
+@ProvidesSymmetricTangentOperator;
+
+@MaterialProperty stress young;
+young.setGlossaryName("YoungModulus");
+@MaterialProperty real nu;
+nu.setGlossaryName("PoissonRatio");
+
+//! Green-Lagrange strain, declared before Fzz so that the offset of the
+//! axial deformation gradient is not zero (MaterialArraysTest)
+@StateVariable StrainStensor egl;
+//! axial component of the deformation gradient
+@StateVariable real Fzz;
+Fzz.setGlossaryName("AxialDeformationGradient");
+
+@LocalVariable stress lambda;  //!< first Lamé coefficient
+@LocalVariable stress mu;      //!< second Lamé coefficient
+
+@InitLocalVariables {
+  lambda = computeLambda(young, nu);
+  mu = computeMu(young, nu);
+}
+
+@Integrator {
+  // the axial component of the deformation gradient, such that the axial
+  // stress is zero, is computed by Newton iterations starting from its
+  // value at the beginning of the time step. The one of F1, given by the
+  // interface, is not used.
+  auto Fe = F1;
+  Fe[2] = Fzz;
+  auto converged = false;
+  for (int iter = 0; (iter != 20) && (!converged); ++iter) {
+    const auto e = computeGreenLagrangeTensor(Fe);
+    // axial second Piola-Kirchhoff stress and its derivative
+    const auto r = lambda * trace(e) + 2 * mu * e[2];
+    const auto dr = (lambda + 2 * mu) * Fe[2];
+    const auto dF = r / dr;
+    Fe[2] -= dF;
+    converged = std::abs(dF) < 10 * std::numeric_limits<real>::epsilon();
+  }
+  if (!converged) {
+    return false;
+  }
+  dFzz = Fe[2] - Fzz;
+  const auto e = computeGreenLagrangeTensor(Fe);
+  degl = e - egl;
+  const auto S = lambda * trace(e) * StrainStensor::Id() + 2 * mu * e;
+  sig = convertSecondPiolaKirchhoffStressToCauchyStress(S, Fe);
+}
+
+@TangentOperator<DS_DEGL> {
+  static_cast<void>(smt);
+  // plane stress elastic operator
+  const auto lambda_ps = 2 * lambda * mu / (lambda + 2 * mu);
+  auto dS_dE =
+      Stensor4{lambda_ps * Stensor4::IxI() + 2 * mu * Stensor4::Id()};
+  for (unsigned short i = 0; i != 4; ++i) {
+    dS_dE(i, 2) = dS_dE(2, i) = stress(0);
+  }
+  Dt = dS_dE;
+}

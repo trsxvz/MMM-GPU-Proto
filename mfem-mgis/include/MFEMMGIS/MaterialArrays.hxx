@@ -33,7 +33,10 @@ namespace mfem_mgis {
    * host, at the `HOST` location, in the layout chosen at construction
    * (point by point by default, or component by component, which gives
    * coalesced accesses on a GPU). The arrays are never reallocated: they
-   * are private, and only pointers to their values are given.
+   * are private, and only pointers to their values are given. As the
+   * arrays allocated by MGIS, they start from zero, except the deformation
+   * gradients, set to the identity, and, in plane stress, the
+   * `AxialDeformationGradient` internal state variable, set to one.
    *
    * Validity of the copies: MFEM keeps track of the valid copies of each
    * array, but MGIS (and the views returned by the accessors of the

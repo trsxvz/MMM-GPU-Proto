@@ -65,6 +65,7 @@ if(MFEM_MGIS_HAVE_TFEL)
     Mazars
     SaintVenantKirchhoffElasticity
     SaintVenantKirchhoffElasticityV2
+    PlaneStressSaintVenantKirchhoffElasticity
     MiehePhaseFieldDamage
     MicromorphicDamageI_SpectralSplit
     MicromorphicDamageII
