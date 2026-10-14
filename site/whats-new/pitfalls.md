@@ -353,3 +353,12 @@ against deliberately wrong code revealed them.
   strain of 5e-5, a stress quantum of about 1.5e4 Pa). No workaround yet:
   an interface based on the displacement gradient H = F - I is a pending
   decision.
+- **Fixed points below the resolution of float.** The fixed point of
+  mm-opera-hpc on the lateral macroscopic stresses corrects the lateral
+  components of F, just below 1, by about (1 + ν) (1 - 2 ν) S / E. In
+  float, this correction is rounded to zero below a residual of about
+  1.5e4 Pa, above the tolerance of 1e4 Pa: the first step of the cermet
+  stagnated or oscillated, was cut in two, and the stress at 0.2 s was
+  2.7 % away from double, an effect of the time step. Workaround: a
+  tolerance of 3e4 Pa in float, twice the floor
+  (`results/cermet-float-2026-10-14`).

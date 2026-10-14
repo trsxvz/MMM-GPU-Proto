@@ -39,5 +39,7 @@ la précision relative du float) pour les lois en grandes transformations
 en float ; décision à prendre (voir docs/plan-precision.md).
 
 Ces mesures ont été faites avec un seuil de 1e4 Pa pour le point fixe
-sur les contraintes latérales. Depuis mm-opera-hpc 2e4881c, il vaut
-5e4 Pa en float (results/cermet-float-2026-10-14).
+sur les contraintes latérales. Depuis mm-opera-hpc 19d64ba, il vaut
+3e4 Pa en float (results/cermet-float-2026-10-14) : les calculs float à
+d = 0,1 et 0,4, refaits avec ce seuil, donnent les mêmes fichiers au bit
+près (le point fixe s'arrête aux mêmes itérations).

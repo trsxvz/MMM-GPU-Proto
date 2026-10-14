@@ -452,16 +452,10 @@ Suite (13/10/2026, soir) :
   quand le critère des itérations de point fixe change ; types MPI de
   `real`, tolérance de la boucle de Kröner `max(1e-10, 10 ε)` et au plus
   1000 itérations, ligne la plus proche choisie par les comparaisons, à
-  1e-6 près sur le temps. Double : 6/6, mêmes fichiers au bit près. Float : 6/6, contraintes
-  axiales à 0,06 % à 0,15 % du double et à 0,005 % à 0,23 % de Cast3M.
-  Le seuil du point fixe sur les contraintes latérales (1e4 Pa) vaut
-  5e4 Pa en float depuis 2e4881c : les composantes latérales de F, juste
-  sous 1, ne bougent que d'un ulp (6e-8), soit environ 1e4 Pa de
-  contrainte. Avec la loi du cermet compilée par gcc 14 (CI simulée), le
-  point fixe oscillait entre 1,5e4 et 1,7e4 Pa, le pas de 0,2 s était
-  coupé et la contrainte à 0,2 s s'écartait de 2,7 % du double, effet du
-  pas de temps (0,27 % du double aux mêmes pas). Avec 5e4 Pa : 0,24 % du
-  double avec gcc 13, 0,25 % avec gcc 14 (results/cermet-float-2026-10-14).
+  1e-6 près sur le temps. Double : 6/6, mêmes fichiers au bit près.
+  Float : 6/6, contraintes axiales à 0,06 % à 0,15 % du double et à
+  0,005 % à 0,23 % de Cast3M (avec le seuil de 1e4 Pa du point fixe sur
+  les contraintes latérales, changé le 14/10, voir plus bas).
 - Exemples : 21/21 en float (satoh, qui demande SuiteSparse, et les
   variantes PETSc ne sont pas déclarées) et 24/24 en double contre les
   sources actuelles de mfem-mgis. Les tolérances de Newton et des comparaisons
@@ -485,6 +479,8 @@ Suite (13/10/2026, soir) :
   d'ILU par le résidu après un nombre fixe d'itérations, sources de mfront
   dépendant aussi de libTFELMFront, option de type pour la bibliothèque
   Kokkos des tests et les bancs d'essai.
+
+Suite (14/10/2026) :
 
 - Mesures sur le CPU (results/precision-poutre-2026-10-14-0514, poutre
   r4, 111 843 inconnues, deux processus, environnements spack jumeaux
@@ -538,9 +534,24 @@ Suite (13/10/2026, soir) :
   déformation et de 1,0e-3 à 2e-4 ; sur un pas plus grand (1 s), la loi
   échoue et le calcul s'arrête. Cause probable : F, stocké en float près
   de l'identité, ne bouge que par pas d'un ulp (1e-3 d'une déformation de
-  5e-5, quantum de contrainte d'environ 1,5e4 Pa, du même ordre que le
-  seuil du point fixe sur la contrainte). La cancellation de
+  5e-5, quantum de contrainte d'environ 1,5e4 Pa). La cancellation de
   `cosh(x) - 1` dans la loi n'est pas en cause (forme en `expm1` essayée).
+- Seuil du point fixe sur les contraintes latérales de mm-opera-hpc
+  (results/cermet-float-2026-10-14), défaut trouvé par la CI simulée en
+  float : à 1e4 Pa, le premier pas du cermet ne convergeait pas dans cinq
+  calculs sur six (stagnation vers 1,1e4 Pa, ou oscillation entre 1,5e4
+  et 1,7e4 Pa), selon l'exécutable et le nombre de processus, pas selon
+  le compilateur de la loi. Le pas coupé en deux donnait 2,7 % d'écart au
+  double à 0,2 s, effet du pas de temps (0,27 % du double aux mêmes pas).
+  Cause : les composantes latérales de F, juste sous 1, ne sont connues
+  qu'à un ulp près (6e-8) ; quand les deux contraintes latérales sont
+  proches, la correction du point fixe, environ (1 + ν) (1 - 2 ν) S / E,
+  s'arrondit à zéro sous environ 1,5e4 Pa de résidu. Le seuil vaut
+  maintenant 3e4 Pa en float, deux fois ce plancher : écart au double de
+  0,10 à 0,16 % à 0,2 s, surtout dû à l'arrondi de la déformation imposée
+  (1 + 1e-4 vaut 1,000100017 en float), et de 0,06 à 0,07 % à 0,4 s ; le
+  test vérifie les mêmes instants dans les deux précisions. Polycristal
+  et double inchangés au bit près.
 
 Reste : le plancher du résidu du float croît avec la taille du problème
 (1,3e-5 à r4 sur le CPU) ; un critère de Newton adapté à la précision

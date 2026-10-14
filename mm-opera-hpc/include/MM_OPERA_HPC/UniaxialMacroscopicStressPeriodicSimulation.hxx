@@ -61,8 +61,9 @@ namespace mm_opera_hpc {
        * when the criterion is switched. None with double. With float, the
        * residual of the polycrystal and cermet cases stagnates at about 6e3
        * whatever the loading: the deformation gradient, close to the
-       * identity, is rounded to about 1e-7, so the stresses are only known
-       * to about 2e4 Pa. The absolute tolerance is ten times this floor.
+       * identity, is only known within one ulp (6e-8 below 1, 1.2e-7
+       * above), so the stresses are only known within about 1.5e4 to 3e4 Pa.
+       * The absolute tolerance is ten times this floor.
        */
       const mfem_mgis::real microscopic_equilibrium_absolute_tolerance =
           std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{0}
@@ -75,15 +76,16 @@ namespace mm_opera_hpc {
       /*!
        * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
        * with double. With float, the lateral components of the macroscopic
-       * deformation gradient, just below 1, only move by steps of one ulp
-       * (6e-8), so the lateral stresses move by steps of about 1e4 Pa: the
-       * fixed point of the cermet oscillated between 1.5e4 and 1.7e4 Pa and
-       * the time step was divided. The tolerance is five times this step
-       * with float.
+       * deformation gradient, just below 1, are only known within one ulp
+       * (6e-8). When both lateral stresses are close to S, the correction of
+       * the fixed point is about (1 + nu) (1 - 2 nu) S / E, and it is rounded
+       * to zero below about 1.5e4 Pa for the residual of the UO2 based
+       * cases: the fixed point then stagnates or oscillates between 1.1e4
+       * and 1.7e4 Pa. The tolerance is twice this floor with float.
        */
       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
           std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
-                                                  : mfem_mgis::real{5e4};
+                                                  : mfem_mgis::real{3e4};
       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
     };
     //! \brief an internal auxiliary data structure

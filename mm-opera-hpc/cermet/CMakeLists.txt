@@ -23,8 +23,10 @@ target_compile_definitions(cermet PRIVATE
 add_dependencies(check cermet BehavioursCermet)
 # two time steps of 0.2 s, the axial stress Szz (column 7 of the output
 # file) being compared to the one computed by Cast3M at each step
-# (results/cermet_cast3m.csv), in double and in single precision (gap to
-# the solution in double below 0.25 % in float)
+# (results/cermet_cast3m.csv), in double and in single precision. In float,
+# the gap to the solution in double is at most 0.16 % at 0.2 s, the imposed
+# axial strain of 1e-4 being itself rounded by 0.17 % (1 + 1e-4 in float),
+# and 0.07 % at 0.4 s.
 set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
 set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
 mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY

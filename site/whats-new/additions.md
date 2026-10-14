@@ -344,7 +344,7 @@ an environment variable.
   libraries for the CPU and the GPU chosen by `--execution`, tests on
   the GPU. Tests on the GPU are registered only when the GPU behaviour
   library is built.
-- **mm-opera-hpc** (30 patches): for the polycrystal, choice of the
+- **mm-opera-hpc** (31 patches): for the polycrystal, choice of the
   nonlinear solver (Newton, NewtonK0), of the adaptive tolerance and of
   AmgX, behaviour integrated on the GPU; for the bubble and the cermet,
   options of mfem-mgis and of the behaviour, synchronisations on the

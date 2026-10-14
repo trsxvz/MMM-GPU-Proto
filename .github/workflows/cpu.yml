@@ -70,14 +70,14 @@ jobs:
       # some tests use more processes than the cores of the runner
       PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
     steps:
-    - uses: actions/checkout@v7
-
     - name: Check the precision
       run: |
         case "$PRECISION" in
           double | float) ;;
           *) echo "unknown precision '$PRECISION'" >&2; exit 1 ;;
         esac
+
+    - uses: actions/checkout@v7
 
     - name: Set up Spack
       uses: spack/setup-spack@v3
@@ -106,6 +106,9 @@ jobs:
         spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
         spack -e $ENVIRONMENT concretize
         spack -e $ENVIRONMENT install -j $(nproc)
+        # the numerical type of the chain is the one of MFEM
+        if [ "$PRECISION" = float ]; then MFEM_PRECISION=single; else MFEM_PRECISION=double; fi
+        spack -e $ENVIRONMENT find mfem precision=$MFEM_PRECISION
         spack clean -a
         df -h .
 

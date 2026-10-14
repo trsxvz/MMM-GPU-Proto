@@ -1,0 +1,87 @@
+From 19d64ba5b5ff3dfd76013ecf93941f6bfcbd624e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 13:57:00 +0200
+Subject: [PATCH] Lateral stresses: tolerance of 3e4 Pa in single precision
+
+The previous commit took 5e4 Pa from an underestimated floor. The
+lateral components of the macroscopic deformation gradient, just below
+1, are only known within one ulp (6e-8). When both lateral stresses are
+close to S, the correction of the fixed point is about
+(1 + nu) (1 - 2 nu) S / E, which is rounded to zero below a residual of
+about 1.5e4 Pa for the effective moduli of the cermet (E = 173 GPa,
+nu = 0.321). With 1e4 Pa, the first step of the cermet stagnated
+(1.1e4 Pa) or oscillated (1.5e4 and 1.7e4 Pa) in five computations out
+of six, depending on the executable and on the number of processes, not
+on the compiler of the behaviour.
+
+The tolerance is now twice this floor, 3e4 Pa. The gap to the solution
+in double is 0.10 to 0.16 % at 0.2 s, mostly due to the rounding of the
+imposed axial strain (1 + 1e-4 in float), and 0.06 to 0.07 % at 0.4 s;
+with 5e4 Pa, the larger lateral stresses left by the fixed point gave
+0.25 % at 0.2 s. The comment of the neighbouring microscopic tolerance
+gives the same ulps. Nothing changes in double, and the measurements of
+the polycrystal in float are unchanged bit for bit.
+---
+ cermet/CMakeLists.txt                          |  6 ++++--
+ ...xialMacroscopicStressPeriodicSimulation.hxx | 18 ++++++++++--------
+ 2 files changed, 14 insertions(+), 10 deletions(-)
+
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index bf2f220..f07ac7b 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -23,8 +23,10 @@ target_compile_definitions(cermet PRIVATE
+ add_dependencies(check cermet BehavioursCermet)
+ # two time steps of 0.2 s, the axial stress Szz (column 7 of the output
+ # file) being compared to the one computed by Cast3M at each step
+-# (results/cermet_cast3m.csv), in double and in single precision (gap to
+-# the solution in double below 0.25 % in float)
++# (results/cermet_cast3m.csv), in double and in single precision. In float,
++# the gap to the solution in double is at most 0.16 % at 0.2 s, the imposed
++# axial strain of 1e-4 being itself rounded by 0.17 % (1 + 1e-4 in float),
++# and 0.07 % at 0.4 s.
+ set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
+ set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
+ mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index 6fc14a8..dcc1dcf 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -61,8 +61,9 @@ namespace mm_opera_hpc {
+        * when the criterion is switched. None with double. With float, the
+        * residual of the polycrystal and cermet cases stagnates at about 6e3
+        * whatever the loading: the deformation gradient, close to the
+-       * identity, is rounded to about 1e-7, so the stresses are only known
+-       * to about 2e4 Pa. The absolute tolerance is ten times this floor.
++       * identity, is only known within one ulp (6e-8 below 1, 1.2e-7
++       * above), so the stresses are only known within about 1.5e4 to 3e4 Pa.
++       * The absolute tolerance is ten times this floor.
+        */
+       const mfem_mgis::real microscopic_equilibrium_absolute_tolerance =
+           std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{0}
+@@ -75,15 +76,16 @@ namespace mm_opera_hpc {
+       /*!
+        * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
+        * with double. With float, the lateral components of the macroscopic
+-       * deformation gradient, just below 1, only move by steps of one ulp
+-       * (6e-8), so the lateral stresses move by steps of about 1e4 Pa: the
+-       * fixed point of the cermet oscillated between 1.5e4 and 1.7e4 Pa and
+-       * the time step was divided. The tolerance is five times this step
+-       * with float.
++       * deformation gradient, just below 1, are only known within one ulp
++       * (6e-8). When both lateral stresses are close to S, the correction of
++       * the fixed point is about (1 + nu) (1 - 2 nu) S / E, and it is rounded
++       * to zero below about 1.5e4 Pa for the residual of the UO2 based
++       * cases: the fixed point then stagnates or oscillates between 1.1e4
++       * and 1.7e4 Pa. The tolerance is twice this floor with float.
+        */
+       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
+           std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
+-                                                  : mfem_mgis::real{5e4};
++                                                  : mfem_mgis::real{3e4};
+       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
+     };
+     //! \brief an internal auxiliary data structure
+-- 
+2.43.0
+

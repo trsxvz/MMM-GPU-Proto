@@ -19,6 +19,13 @@ Contenu :
   pour comparer les deux précisions à environnement égal (dans `mmm-gpu`,
   hypre est construit pour CUDA). Ils partagent l'instance de spack, les
   paquets et les externes de `mmm-gpu`, qui n'est pas modifié ;
+- `ci-cpu/spack.yaml` et `ci-cpu-float/spack.yaml` : environnements de la
+  CI sur le CPU (`.github/workflows/cpu.yml`,
+  [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), en double (MFEM 4.10
+  avec MUMPS et SuiteSparse, hypre, OpenMPI) et en simple précision (comme
+  `mmm-float-cpu`, sans SuiteSparse, refusé par MFEM en float). Seulement
+  le dépôt de paquets de spack, au même commit que les autres
+  environnements, et les compilateurs de la machine de la CI ;
 - `repos/spack_repo/mmm_gpu` : dépôt de paquets complémentaire, prioritaire
   sur celui de spack :
   - `adaptivecpp` : AdaptiveCpp 25.10 (le paquet `hipsycl` de spack

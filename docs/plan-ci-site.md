@@ -29,7 +29,8 @@ dépendent de la visibilité du dépôt (décision E1).
 Trois niveaux, chacun dans son job :
 
 1. CPU, à chaque poussée : environnement spack `ci-cpu` (OpenMPI, hypre,
-   MFEM avec MUMPS et SuiteSparse), TFEL des sources du dépôt (ccache),
+   MFEM avec MUMPS et SuiteSparse), et `ci-cpu-float` pour la simple
+   précision, TFEL des sources du dépôt (ccache),
    MGIS appliqué depuis `patches/mgis`, mfem-mgis, exemples, mm-opera-hpc ;
    tests sur CPU de chacun. Vérifie aussi que les séries de patchs
    s'appliquent (`scripts/verify-patches.sh`).
@@ -92,9 +93,10 @@ pas de runner sur la machine de développement. E4 : site en anglais.
 ## Ébauche du niveau CPU (14/10/2026)
 
 `.github/workflows/cpu.yml`, `deps/spack/ci-cpu/spack.yaml` et
-`deps/spack/ci-cpu-float/spack.yaml`, pas encore lancés. Déclenchement manuel seulement tant que le dépôt est privé
-(minutes des machines) ; poussées, demandes de fusion et lancement de nuit
-à ajouter une fois le dépôt public.
+`deps/spack/ci-cpu-float/spack.yaml`, pas encore lancés. Déclenchement
+manuel seulement tant que le dépôt est privé (minutes des machines) ;
+poussées, demandes de fusion et lancement de nuit à ajouter une fois le
+dépôt public.
 
 - Job `patches` : chaque série de `patches/` est appliquée sur le dépôt
   amont à sa base, et l'arbre obtenu est comparé aux sources de la racine
@@ -129,21 +131,27 @@ pas de runner sur la machine de développement. E4 : site en anglais.
   `precisions`) ; les deux précisions tourneront à chaque poussée une fois
   le dépôt public. Simulé en local en float : MGIS 49/49, mfem-mgis
   204/204, exemples 21/21, mm-opera-hpc 6/6. La simulation a trouvé un
-  défaut de mm-opera-hpc en float : avec la loi du cermet compilée par
-  gcc 14, le point fixe sur les contraintes latérales oscillait entre
-  1,5e4 et 1,7e4 Pa, au-dessus de son seuil de 1e4 Pa (les composantes
-  latérales de F, juste sous 1, ne bougent que d'un ulp, 6e-8, soit
-  environ 1e4 Pa). Le premier pas était coupé, et la contrainte axiale du
-  cermet à 0,2 s s'écartait de 2,7 % du double, effet du pas de temps et
-  non de l'arrondi (0,27 % du double aux mêmes pas). Le seuil vaut
-  maintenant 5e4 Pa en float (mm-opera-hpc 2e4881c) : 0,24 % du double
-  avec gcc 13 et 0,25 % avec gcc 14 à 0,2 s, et le test vérifie les mêmes
-  instants dans les deux précisions (`results/cermet-float-2026-10-14`).
+  défaut de mm-opera-hpc en float : le point fixe sur les contraintes
+  latérales du premier pas du cermet ne descendait pas sous son seuil de
+  1e4 Pa (stagnation vers 1,1e4 Pa ou oscillation entre 1,5e4 et
+  1,7e4 Pa, selon l'exécutable et le nombre de processus). Les
+  composantes latérales de F, juste sous 1, ne sont connues qu'à un ulp
+  près (6e-8), et la correction du point fixe s'arrondit à zéro sous
+  environ 1,5e4 Pa de résidu. Le pas était coupé, et la contrainte axiale
+  du cermet à 0,2 s s'écartait de 2,7 % du double, effet du pas de temps
+  et non de l'arrondi (0,27 % du double aux mêmes pas). Le seuil vaut
+  maintenant 3e4 Pa en float : écart au double de 0,10 à 0,16 % à 0,2 s
+  (surtout l'arrondi de la déformation imposée, 1 + 1e-4 en float), et le
+  test vérifie les mêmes instants dans les deux précisions
+  (`results/cermet-float-2026-10-14`).
 - Les lois générées par mfront dans les tests sont compilées avec
   `tfel-config --oflags`, qui contient `-march=native` même en
   construction portable : leurs résultats dépendent du processeur de la
-  machine de la CI. Les tolérances des tests restent larges devant les
-  écarts mesurés entre compilateurs (0,013 % sur le cermet en float).
+  machine de la CI. Sur le cermet en float, les lois compilées par gcc 13
+  et par gcc 14 donnent les mêmes contraintes à 1e-5 près ; le point
+  d'arrêt du point fixe dépend de l'arrondi, ce qui déplace la contrainte
+  axiale d'au plus 0,08 % avec le seuil de 3e4 Pa, loin de la tolérance
+  de 1 % du test.
 
 ## Ébauche du site (14/10/2026)
 
@@ -168,7 +176,8 @@ pas de runner sur la machine de développement. E4 : site en anglais.
 
 ## Étapes, une fois E1 à E4 décidées
 
-1. Environnement `ci-cpu`, job CPU sans cache, puis avec le cache GHCR.
+1. Environnements `ci-cpu` et `ci-cpu-float`, job CPU sans cache, puis
+   avec le cache GHCR.
 2. Jobs CUDA et HIP de nuit.
 3. Construction du site (Sphinx, voir « Ébauche du site »), publication
    par la CI.

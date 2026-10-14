@@ -4627,13 +4627,22 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   échecs sur 208), corrigé. Puis matrice sur la précision
   (`deps/spack/ci-cpu-float`), simulée en double et en float.
 - La simulation en float a trouvé un seuil trop serré dans mm-opera-hpc :
-  avec la loi du cermet compilée par gcc 14, le point fixe sur les
-  contraintes latérales oscillait entre 1,5e4 et 1,7e4 Pa, au-dessus de
-  son seuil de 1e4 Pa (un ulp des composantes latérales de F vaut environ
-  1e4 Pa de contrainte). Le premier pas était coupé, d'où 2,7 % d'écart au
-  double à 0,2 s, effet du pas de temps (0,27 % aux mêmes pas). Un premier
-  correctif (fdfdafd) ne vérifiait plus que 0,4 s en float, sur une
-  explication fausse (l'arrondi de F) relevée par la relecture. Remplacé
-  par un seuil de 5e4 Pa en float (2e4881c) : 0,24 à 0,25 % du double avec
-  les deux compilateurs, mêmes vérifications dans les deux précisions,
-  double inchangé au bit près (`results/cermet-float-2026-10-14`).
+  à 1e4 Pa, le point fixe sur les contraintes latérales du premier pas du
+  cermet stagnait vers 1,1e4 Pa ou oscillait entre 1,5e4 et 1,7e4 Pa (cinq
+  calculs sur six, selon l'exécutable et le nombre de processus, pas
+  selon le compilateur de la loi). Les composantes latérales de F, juste
+  sous 1, ne sont connues qu'à un ulp près (6e-8) ; quand les deux
+  contraintes latérales sont proches, la correction du point fixe,
+  environ (1 + ν) (1 - 2 ν) S / E, s'arrondit à zéro sous environ 1,5e4 Pa
+  de résidu. Le pas coupé donnait 2,7 % d'écart au double à 0,2 s, effet
+  du pas de temps (0,27 % aux mêmes pas).
+- Deux correctifs successifs, chacun relevé par une relecture : fdfdafd
+  ne vérifiait plus que 0,4 s en float, sur une explication fausse
+  (l'arrondi de F) ; 2e4881c prenait un seuil de 5e4 Pa d'après un
+  plancher sous-estimé et des mesures de provenance mêlée. Balayage
+  refait avec un seul exécutable, à un et deux processus
+  (`results/cermet-float-2026-10-14`) : seuil de 3e4 Pa en float
+  (19d64ba), deux fois le plancher. Écart au double de 0,10 à 0,16 % à
+  0,2 s, surtout dû à l'arrondi de la déformation imposée (1 + 1e-4 en
+  float), et de 0,06 à 0,07 % à 0,4 s ; mêmes vérifications dans les deux
+  précisions ; double et mesures du polycristal inchangés au bit près.
