@@ -395,7 +395,8 @@ an environment variable.
 - The website (`site/`, `scripts/build-site.sh`,
   `.github/workflows/pages.yml`) and the continuous integration
   (`.github/workflows/ci.yml`: tests on the CPU in double and float,
-  compilation with CUDA and with HIP), both started by hand for now.
+  compilation with CUDA and with HIP), both started at each push on main
+  since the repository became public (15/10/2026).
 - Tools in `scripts/`: patch synchronisation and checking, test matrix,
   test suite of mfem-mgis on the GPU (`scripts/mfem-mgis-gpu-suite.sh`),
   host and device annotation checks, compile and run time sweeps,

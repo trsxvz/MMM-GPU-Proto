@@ -257,8 +257,8 @@ minutes and storage, and no GitHub Pages.
 
 | Decision | Choice |
 |---|---|
-| E1 | Public repository, after an audit of the whole history (done on 13/10/2026, nothing to rewrite); the change of visibility remains to be done |
-| E2 | CPU level first, then CUDA and HIP compilation at night |
+| E1 | Public repository, after an audit of the whole history (done on 13/10/2026, nothing to rewrite); public since 15/10/2026 |
+| E2 | CPU level first, then CUDA and HIP compilation at night; changed on 14/10/2026: CUDA and HIP compiled at each run, as the CPU level, their compilations being cached |
 | E3 | No runner on the development machine; GPU tests stay local (`scripts/mfem-mgis-gpu-suite.sh`) |
 | E4 | Site in English, like the documentation of the libraries; the repository first kept its documents in French, then was translated into English (14/10/2026) |
 
@@ -267,15 +267,15 @@ sources of the repository, applies MGIS from its patches, and builds and
 tests mfem-mgis, the examples and mm-opera-hpc on the CPU, with ccache,
 in double and in single precision (a matrix on the precision; double
 by default when started by hand).
-It is a draft of 14/10/2026, started by hand and not launched yet. It
-reuses the lessons of the continuous integration of mfem-mgis: pinned
+It runs at each push and pull request on main and every night since the
+repository became public (15/10/2026). It reuses the lessons of the continuous integration of mfem-mgis: pinned
 versions of the spack packages (otherwise an update of autoconf
 invalidates the whole cache), no `continue-on-error` on the upload to
-the cache, and read-only tokens for pull requests from forks. A cache of
-the dependencies on GHCR, as for mfem-mgis, remains to be done.
+the cache, and read-only tokens for pull requests from forks. The
+dependencies are cached on GHCR, as for mfem-mgis.
 
 The website is built with Sphinx (MyST Markdown) by
 `scripts/build-site.sh`: these pages, the web pages of TFEL and MGIS
 (pandoc), and the Sphinx and Doxygen documentation of mfem-mgis, all from
 the sources of the prototype. `.github/workflows/pages.yml` publishes it
-on GitHub Pages, started by hand until the repository is public.
+on GitHub Pages at each push on main.

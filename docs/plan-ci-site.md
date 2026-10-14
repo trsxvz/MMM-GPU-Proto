@@ -1,18 +1,19 @@
 # Plan: continuous integration and site of the prototype
 
 Status: plan of 13/10/2026 (tasks 9f and 9g), decisions taken on
-13/10 and 14/10 (see below); drafts of the CI (CPU, CUDA and HIP levels)
-and of the site on 14/10, triggered by hand, not yet run on GitHub. The
-two tasks depend on the visibility of the repository (decision E1).
+13/10 and 14/10 (see below); CI (CPU, CUDA and HIP levels) and site
+written on 14/10. The repository is public since 15/10/2026: the CI runs
+at each push and pull request on main and every night, and the site is
+published at each push on main (https://trsxvz.github.io/MMM-GPU-Proto/).
 
 ## Constraints
 
-- The repository is private. With a free GitHub account (conditions to be
-  checked at the time of the choice): about 2,000 minutes of Actions per month
-  for private repositories, about 500 MB of storage for private
-  packages (the spack cache of the CI of mfem-mgis weighs nearly 2 GB), and
-  GitHub Pages is not available for a private repository. A public repository
-  does not have these limits, but publishes all its content.
+- The repository was private until 15/10/2026. With a free GitHub account:
+  about 2,000 minutes of Actions per month for private repositories,
+  about 500 MB of storage for private packages (the spack cache of the CI
+  of mfem-mgis weighs nearly 2 GB), and GitHub Pages is not available for
+  a private repository. A public repository does not have these limits,
+  but publishes all its content.
 - The machines of GitHub have no GPU: the CI can compile for CUDA
   and for HIP, not run on a GPU.
 - Costs measured on the CI of mfem-mgis (4 core machines): dependencies
@@ -85,8 +86,8 @@ pushed by the CI:
 ## Decisions taken (13/10/2026)
 
 E1 (a): public repository, after an audit of the whole history (done on
-13/10, nothing to rewrite); the change of visibility remains to be done by the
-owner of the repository. E2: CPU first, then CUDA and HIP at night,
+13/10, nothing to rewrite); the repository became public on 15/10/2026.
+E2: CPU first, then CUDA and HIP at night,
 changed on 14/10: CUDA and HIP at each run of the CI, as the CPU level,
 their compilations being cached (spack build cache and ccache, as in the
 CI of TDLS and of mfem-mgis). E3:
@@ -96,8 +97,8 @@ no runner on the development machine. E4: site in English.
 
 The workflow `.github/workflows/cpu.yml` became `.github/workflows/ci.yml`
 (name `CI`), with the jobs `patches`, `cpu`, `cuda`, `hip` and
-`update_build_cache`, all started by each run of the CI (by hand while
-the repository is private).
+`update_build_cache`, all started by each run of the CI (at each push
+and pull request on main, every night, and by hand).
 
 - Caches, as in mfem-mgis: the dependencies installed by spack are pushed
   to the build cache `ghcr.io/<owner>/mmm-gpu-proto-buildcache` by the
@@ -137,10 +138,9 @@ the repository is private).
 ## Draft of the CPU level (14/10/2026)
 
 `.github/workflows/ci.yml` (then named `cpu.yml`), `deps/spack/ci-cpu/spack.yaml` and
-`deps/spack/ci-cpu-float/spack.yaml`, not yet run. Manual
-trigger only as long as the repository is private (machine minutes);
-pushes, pull requests and nightly run to be added once the
-repository is public.
+`deps/spack/ci-cpu-float/spack.yaml`. Manual trigger only while the
+repository was private (machine minutes); pushes, pull requests and a
+nightly run since it is public (15/10/2026).
 
 - Job `patches`: each series of `patches/` is applied on the upstream
   repository at its base, and the resulting tree is compared with the sources of the root repository
@@ -172,8 +172,8 @@ repository is public.
   `float`). The environment `deps/spack/ci-cpu-float` is the twin of
   `mmm-float-cpu`, and MGIS receives `MGIS_REAL_TYPE` from the matrix. Launched
   by hand, the job only takes double by default (input
-  `precisions`); both precisions will run at each push once
-  the repository is public. Simulated locally in float: MGIS 49/49, mfem-mgis
+  `precisions`); both precisions run at each push, pull request and
+  nightly run. Simulated locally in float: MGIS 49/49, mfem-mgis
   204/204, examples 21/21, mm-opera-hpc 6/6. The simulation found a
   defect of mm-opera-hpc in float: the fixed point on the lateral
   stresses of the first step of the cermet did not go below its tolerance

@@ -14,12 +14,19 @@
 # the compilations of the prototype by ccache (composite actions of
 # mfem-mgis).
 #
-# Started by hand only while the repository is private (minutes of the
-# runners), in double by default; push, pull_request and schedule are added
-# when it is public (both precisions).
+# Started at each push and pull request on main and every night, in both
+# precisions, and by hand (in double by default).
 name: CI
 
 on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  # keep the build cache up to date with the latest dependencies, not at the
+  # start of an hour, when GitHub delays the scheduled runs the most
+  schedule:
+    - cron: 37 1 * * *
   workflow_dispatch:
     inputs:
       precisions:
@@ -27,8 +34,8 @@ on:
         default: '["double"]'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   BUILD_CACHE: oci://ghcr.io/${{ github.repository_owner }}/mmm-gpu-proto-buildcache

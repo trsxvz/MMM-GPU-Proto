@@ -4,11 +4,12 @@
 # (deployment from the default branch only, as the environment
 # github-pages requires).
 #
-# Started by hand only: GitHub Pages requires a public repository (or a
-# paid account); a push on main is added when the repository is public.
+# Started at each push on main, and by hand.
 name: Website
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
