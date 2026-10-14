@@ -34,7 +34,8 @@ namespace mfront::gb::finite_strain {
     /*!
      * \brief get the deformation gradient. In plane stress, the axial
      * component of the deformation gradient is computed by the behaviour and
-     * stored in the internal state variables.
+     * stored in the internal state variables: the one given by the caller
+     * is ignored.
      * \return false if the axial component of the deformation gradient is
      * not computed by the behaviour (plane stress only)
      * \tparam Behaviour: class implementing the behaviour
@@ -51,20 +52,14 @@ namespace mfront::gb::finite_strain {
         [[maybe_unused]] const real* const isvs) {
       using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
-      constexpr auto hypothesis = Traits::hypothesis;
+      using AxialComponent = PlaneStressAxialComponent<Traits::hypothesis>;
       constexpr auto TensorSize =
-          ModellingHypothesisToTensorSize<hypothesis>::value;
+          ModellingHypothesisToTensorSize<Traits::hypothesis>::value;
       tfel::fsalgo::copy<TensorSize>::exe(gradients, F.begin());
-      if constexpr ((hypothesis == ModellingHypothesis::PLANESTRESS) ||
-                    (hypothesis == ModellingHypothesis::
-                                       AXISYMMETRICALGENERALISEDPLANESTRESS)) {
+      if constexpr (AxialComponent::exists) {
         if constexpr (Traits::has_axial_deformation_gradient_offset) {
-          const auto Fzz = isvs[Traits::axial_deformation_gradient_offset];
-          if constexpr (hypothesis == ModellingHypothesis::PLANESTRESS) {
-            F[2] += Fzz;
-          } else {
-            F[1] += Fzz;
-          }
+          F[AxialComponent::index] =
+              isvs[Traits::axial_deformation_gradient_offset];
         } else {
           reportError(d,
                       "the axial deformation gradient is not computed by the "

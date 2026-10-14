@@ -892,6 +892,31 @@ given at runtime and accepted by the behaviours exporting the symbol
 section](generic-behaviours-interface.html#sec:generic_behaviour_interface:displacement_gradient)
 for details.
 
+## Plane stress in the `generic` and `generic-parallel` interfaces
+
+In plane stress (`PlaneStress` and
+`AxisymmetricalGeneralisedPlaneStress`), the axial component of the
+deformation gradient given by the caller is no longer used by the
+interface in the conversions of the stresses and of the tangent
+operators of the finite strain behaviours: they use the one computed by
+the behaviour. The callers (MGIS, MTest) give an axial component equal
+to one. Before:
+
+- the behaviours written with the deformation gradient added the
+  computed component to it: their first and second Piola-Kirchhoff
+  stresses were wrong by a factor of two;
+- in the Green-Lagrange strain framework, the same addition made the
+  Cauchy stress wrong by a factor of two;
+- in the Hencky strain framework, the conversions used the axial
+  component of the caller: the first and second Piola-Kirchhoff stresses
+  were wrong by the axial strain, in relative value.
+
+The axial component of the strain given to the behaviours written in the
+Green-Lagrange or Hencky strain frameworks is now zero, whatever the
+caller gives. For the behaviours written with the deformation gradient,
+the initial value of the `AxialDeformationGradient` internal state
+variable, set by the caller, shall be one.
+
 ## Improvements to the `Cast3M` interface
 
 ### Improved generation of `Gibiane` input file

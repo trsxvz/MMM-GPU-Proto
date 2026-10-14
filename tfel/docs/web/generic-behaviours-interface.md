@@ -109,12 +109,18 @@ The tangent operators are unchanged: the derivatives with respect to the
 deformation gradient are the derivatives with respect to the
 displacement gradient.
 
-In plane stress, the axial component of the displacement gradient given
-by the caller is zero: the axial component of the deformation gradient
-is computed by the behaviour. The interface adds it to the deformation
-gradient for the behaviours written with the deformation gradient and
-in the Green-Lagrange strain framework, and sets it in the
-`LogarithmicStrainHandler` class in the Hencky strain framework.
+In plane stress (`PlaneStress` and
+`AxisymmetricalGeneralisedPlaneStress`), the axial component of the
+deformation gradient is computed by the behaviour. The interface does
+not use the one given by the caller, in the deformation gradient or in
+the displacement gradient: the conversions of the stresses and of the
+tangent operators use the computed one, and the axial component of the
+strain given to the behaviours written in the Green-Lagrange or Hencky
+strain frameworks is zero. The behaviours written with the deformation
+gradient receive the deformation gradient given by the caller (with
+`I + H` for the displacement gradient) and store the axial component in
+the `AxialDeformationGradient` internal state variable, whose initial
+value, set by the caller, shall be one.
 
 This option is given at runtime: the stress measure, second value of
 the `K` array, is offset by `10` (constant

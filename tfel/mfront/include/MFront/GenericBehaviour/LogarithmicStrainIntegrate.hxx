@@ -64,6 +64,11 @@ namespace mfront::gb::logarithmic_strain {
      * displacement gradient \(H = F - I\): the handler is built from the
      * Green-Lagrange strain computed from \(H\), and the logarithmic
      * strain is computed without cancellation
+     *
+     * In plane stress, the axial component of the deformation gradient is
+     * computed by the behaviour and set by `updateAxialDeformationGradient`
+     * once the handler is built: the one given by the caller is ignored,
+     * and the handler is built with an axial component equal to one.
      */
     template <typename Behaviour, unsigned short N>
     TFEL_HOST_DEVICE LogarithmicStrainHandler<N> getLogarithmicStrainHandler(
@@ -71,56 +76,51 @@ namespace mfront::gb::logarithmic_strain {
         const typename LogarithmicStrainHandler<N>::Setting setting,
         const real* const gradients,
         const bool displacement_gradient) {
-      using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
-      constexpr auto hypothesis = Traits::hypothesis;
+      using AxialComponent = PlaneStressAxialComponent<Traits::hypothesis>;
       if (displacement_gradient) {
+        // the axial component of the Green-Lagrange strain is zero
         auto E = tfel::math::stensor<N, real>{};
-        computeGreenLagrangeStrainFromDisplacementGradient<hypothesis>(
+        computeGreenLagrangeStrainFromDisplacementGradient<Traits::hypothesis>(
             E, F, gradients);
-        // in plane stress, the axial component of the deformation gradient
-        // is set by `updateAxialDeformationGradient` once the handler is
-        // built: as with the deformation gradient given by the callers, the
-        // handler is built with an axial component equal to one
-        if constexpr (hypothesis == ModellingHypothesis::PLANESTRESS) {
-          F[2] = real{1};
-          E[2] = real{0};
-        } else if constexpr (hypothesis ==
-                             ModellingHypothesis::
-                                 AXISYMMETRICALGENERALISEDPLANESTRESS) {
-          F[1] = real{1};
-          E[1] = real{0};
+        if constexpr (AxialComponent::exists) {
+          F[AxialComponent::index] = real{1};
         }
         return LogarithmicStrainHandler<N>(setting, F, E);
       }
       getDeformationGradient<Behaviour>(F, gradients);
+      if constexpr (AxialComponent::exists) {
+        F[AxialComponent::index] = real{1};
+      }
       return LogarithmicStrainHandler<N>(setting, F);
     }  // end of getLogarithmicStrainHandler
 
     /*!
      * \brief in plane stress, update the axial component of the deformation
-     * gradient from the axial strain, which is computed by the behaviour and
-     * stored in the internal state variables.
+     * gradient, in the logarithmic strain handler and in its copy used by
+     * the conversions of the stresses and of the tangent operators, from
+     * the axial strain, which is computed by the behaviour and stored in
+     * the internal state variables.
      * \return false if the axial strain is not computed by the behaviour
      * \tparam Behaviour: class implementing the behaviour
      * \param[in,out] lgh: logarithmic strain handler
+     * \param[in,out] F: deformation gradient
      * \param[in,out] d: behaviour data
      * \param[in] isvs: internal state variables
      */
     template <typename Behaviour, unsigned short N>
     TFEL_HOST_DEVICE bool updateAxialDeformationGradient(
         [[maybe_unused]] LogarithmicStrainHandler<N>& lgh,
+        [[maybe_unused]] tfel::math::tensor<N, real>& F,
         [[maybe_unused]] mfront_gb_BehaviourData& d,
         [[maybe_unused]] const real* const isvs) {
-      using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
-      constexpr auto hypothesis = Traits::hypothesis;
-      if constexpr ((hypothesis == ModellingHypothesis::PLANESTRESS) ||
-                    (hypothesis == ModellingHypothesis::
-                                       AXISYMMETRICALGENERALISEDPLANESTRESS)) {
+      using AxialComponent = PlaneStressAxialComponent<Traits::hypothesis>;
+      if constexpr (AxialComponent::exists) {
         if constexpr (Traits::has_axial_strain_offset) {
           lgh.updateAxialDeformationGradient(
               std::exp(isvs[Traits::axial_strain_offset]));
+          F = lgh.getDeformationGradient();
         } else {
           reportError(d,
                       "The behaviour does not declare the axial strain "
@@ -284,7 +284,7 @@ namespace mfront::gb::logarithmic_strain {
     auto s0 = tfel::math::stensor<N, real>{};
     auto T0 = tfel::math::stensor<N, real>{};
     if ((!internals::updateAxialDeformationGradient<Behaviour>(
-            lgh0, d, d.s0.internal_state_variables)) ||
+            lgh0, F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToDualStress(T0, s0, d, d.s0.thermodynamic_forces,
                                          F0, lgh0, o.stress_measure))) {
       return -1;
@@ -377,7 +377,7 @@ namespace mfront::gb::logarithmic_strain {
     auto T0 = tfel::math::stensor<N, real>{};
     auto T1 = tfel::math::stensor<N, real>{};
     if ((!internals::updateAxialDeformationGradient<Behaviour>(
-            lgh0, d, d.s0.internal_state_variables)) ||
+            lgh0, F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToDualStress(T0, s0, d, d.s0.thermodynamic_forces,
                                          F0, lgh0, sm))) {
       return -1;
@@ -403,7 +403,7 @@ namespace mfront::gb::logarithmic_strain {
     // the axial strain at the end of the time step is computed by the
     // behaviour
     if (!internals::updateAxialDeformationGradient<Behaviour>(
-            lgh1, d, d.s1.internal_state_variables)) {
+            lgh1, F1, d, d.s1.internal_state_variables)) {
       return -1;
     }
     const auto s1 = lgh1.convertToCauchyStress(T1);
@@ -499,9 +499,9 @@ namespace mfront::gb::logarithmic_strain {
     auto T0 = tfel::math::stensor<N, real>{};
     auto T1 = tfel::math::stensor<N, real>{};
     if ((!internals::updateAxialDeformationGradient<Behaviour>(
-            lgh0, d, d.s0.internal_state_variables)) ||
+            lgh0, F0, d, d.s0.internal_state_variables)) ||
         (!internals::updateAxialDeformationGradient<Behaviour>(
-            lgh1, d, d.s1.internal_state_variables)) ||
+            lgh1, F1, d, d.s1.internal_state_variables)) ||
         (!internals::convertToDualStress(T0, s0, d, d.s0.thermodynamic_forces,
                                          F0, lgh0, sm)) ||
         (!internals::convertToDualStress(T1, s1, d, d.s1.thermodynamic_forces,

@@ -4766,3 +4766,32 @@ formula as MTest). All the others give the Newton solution to within
 - Found by this job: the link of `HypreDevicePoolSizeTest` of mfem-mgis
   failed with a hypre built with Umpire and an MFEM built without it
   (mfem-mgis aa045a7853: Umpire linked explicitly).
+
+### 2026-10-14 (late night), plane stress of the finite strain behaviours
+
+- Found while testing the displacement gradient, and older than it: in
+  plane stress, TFEL expected an axial component of zero in the
+  deformation gradient given by the caller, whereas MGIS, mfem-mgis and
+  MTest give one. The behaviours written with F and in the Green-Lagrange
+  strain framework added the axial component they compute to the given
+  one: with one, the Piola-Kirchhoff stresses of the former and the
+  Cauchy stress of the latter were wrong by a factor of two. The Hencky
+  strain framework used the given axial component in its conversions:
+  the first and second Piola-Kirchhoff stresses were wrong by the axial
+  strain, in relative value (with F as with H; mfem-mgis uses the first
+  Piola-Kirchhoff stress).
+- Fixed in TFEL: the axial component given by the caller is not used,
+  the computed one is set in the deformation gradient and used by all
+  the conversions, and the axial strain given in the Green-Lagrange and
+  Hencky frameworks is zero (an independent review found that the
+  Green-Lagrange framework still computed it from the given component).
+  Test in MGIS against the analytical solution (Cauchy and first
+  Piola-Kirchhoff stresses, F and H, axial component shifted by the
+  caller), which detects these defects before the fix. Not fixed, older:
+  the tangent operator DSIG_DF in plane stress misses the derivative of
+  the axial component (1e-2 at 3 % of strain; DPK1_DF is exact).
+- Test of an orthotropic finite strain behaviour given the displacement
+  gradient in mfem-mgis (the gradients are rotated in the material frame,
+  H as F).
+- Audit of the whole history of the repository before it becomes public:
+  no secret (tokens, keys) and no internal link.

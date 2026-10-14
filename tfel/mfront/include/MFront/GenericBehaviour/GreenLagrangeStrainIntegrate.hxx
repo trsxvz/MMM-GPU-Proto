@@ -42,6 +42,10 @@ namespace mfront::gb::green_lagrange_strain {
      * \param[in] displacement_gradient: if true, the gradients are the
      * displacement gradient \(H = F - I\), from which the Green-Lagrange
      * strain is computed without cancellation
+     *
+     * In plane stress, the axial component of the Green-Lagrange strain
+     * given to the behaviour is zero: it is computed by the behaviour (see
+     * `PlaneStressAxialComponent`).
      */
     template <typename Behaviour, unsigned short N>
     TFEL_HOST_DEVICE void computeGreenLagrangeStrain(
@@ -51,6 +55,7 @@ namespace mfront::gb::green_lagrange_strain {
         const bool displacement_gradient) {
       using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
+      using AxialComponent = PlaneStressAxialComponent<Traits::hypothesis>;
       constexpr auto TensorSize =
           ModellingHypothesisToTensorSize<Traits::hypothesis>::value;
       if (displacement_gradient) {
@@ -60,14 +65,16 @@ namespace mfront::gb::green_lagrange_strain {
       }
       tfel::fsalgo::copy<TensorSize>::exe(gradients, F.begin());
       e = tfel::math::computeGreenLagrangeTensor(F);
+      if constexpr (AxialComponent::exists) {
+        e[AxialComponent::index] = real{0};
+      }
     }  // end of computeGreenLagrangeStrain
 
     /*!
-     * \brief in plane stress, add the axial component of the deformation
+     * \brief in plane stress, set the axial component of the deformation
      * gradient, computed from the axial strain, which is computed by the
-     * behaviour and stored in the internal state variables. This axial
-     * component is not taken into account in the Green-Lagrange strain
-     * passed to the behaviour.
+     * behaviour and stored in the internal state variables (see
+     * `PlaneStressAxialComponent`).
      * \return false if the axial strain is not computed by the behaviour
      * \tparam Behaviour: class implementing the behaviour
      * \param[in,out] F: deformation gradient
@@ -75,24 +82,16 @@ namespace mfront::gb::green_lagrange_strain {
      * \param[in] isvs: internal state variables
      */
     template <typename Behaviour, unsigned short N>
-    TFEL_HOST_DEVICE bool addAxialDeformationGradient(
+    TFEL_HOST_DEVICE bool setAxialDeformationGradient(
         [[maybe_unused]] tfel::math::tensor<N, real>& F,
         [[maybe_unused]] mfront_gb_BehaviourData& d,
         [[maybe_unused]] const real* const isvs) {
-      using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
-      constexpr auto hypothesis = Traits::hypothesis;
-      if constexpr ((hypothesis == ModellingHypothesis::PLANESTRESS) ||
-                    (hypothesis == ModellingHypothesis::
-                                       AXISYMMETRICALGENERALISEDPLANESTRESS)) {
+      using AxialComponent = PlaneStressAxialComponent<Traits::hypothesis>;
+      if constexpr (AxialComponent::exists) {
         if constexpr (Traits::has_axial_strain_offset) {
-          const auto Fzz =
+          F[AxialComponent::index] =
               std::sqrt(1 + 2 * (isvs[Traits::axial_strain_offset]));
-          if constexpr (hypothesis == ModellingHypothesis::PLANESTRESS) {
-            F[2] += Fzz;
-          } else {
-            F[1] += Fzz;
-          }
         } else {
           reportError(d,
                       "The behaviour does not declare the axial strain "
@@ -101,7 +100,7 @@ namespace mfront::gb::green_lagrange_strain {
         }
       }
       return true;
-    }  // end of addAxialDeformationGradient
+    }  // end of setAxialDeformationGradient
 
     /*!
      * \brief convert the given stress to the second Piola-Kirchhoff stress
@@ -231,7 +230,7 @@ namespace mfront::gb::green_lagrange_strain {
     auto S0 = tfel::math::stensor<N, real>{};
     internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients,
                                                      o.displacement_gradient);
-    if ((!internals::addAxialDeformationGradient<Behaviour>(
+    if ((!internals::setAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToSecondPiolaKirchhoffStress(
             S0, s0, d, d.s0.thermodynamic_forces, F0, o.stress_measure))) {
@@ -329,7 +328,7 @@ namespace mfront::gb::green_lagrange_strain {
                                                      o.displacement_gradient);
     internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients,
                                                      o.displacement_gradient);
-    if ((!internals::addAxialDeformationGradient<Behaviour>(
+    if ((!internals::setAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToSecondPiolaKirchhoffStress(
             S0, s0, d, d.s0.thermodynamic_forces, F0, sm))) {
@@ -354,7 +353,7 @@ namespace mfront::gb::green_lagrange_strain {
     }
     // the axial strain at the end of the time step is computed by the
     // behaviour
-    if (!internals::addAxialDeformationGradient<Behaviour>(
+    if (!internals::setAxialDeformationGradient<Behaviour>(
             F1, d, d.s1.internal_state_variables)) {
       return -1;
     }
@@ -442,9 +441,9 @@ namespace mfront::gb::green_lagrange_strain {
                                                      o.displacement_gradient);
     internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients,
                                                      o.displacement_gradient);
-    if ((!internals::addAxialDeformationGradient<Behaviour>(
+    if ((!internals::setAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
-        (!internals::addAxialDeformationGradient<Behaviour>(
+        (!internals::setAxialDeformationGradient<Behaviour>(
             F1, d, d.s1.internal_state_variables)) ||
         (!internals::convertToSecondPiolaKirchhoffStress(
             S0, s0, d, d.s0.thermodynamic_forces, F0, o.stress_measure)) ||

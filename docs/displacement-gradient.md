@@ -44,16 +44,25 @@ first value is offset by 100 when the speed of sound is requested.
 
 ## Plane stress
 
-TFEL expects F with a zero axial component (computed by the behaviour),
-whereas MGIS and mfem-mgis give 1 with the deformation gradient (mismatch
-older than this work, to be reported upstream). With H, the caller gives a
-zero axial component and the identity is not added to it: F = I + H has a
-zero axial component, as TFEL expects, and the standard and Green-Lagrange
-frameworks add the axial component computed by the behaviour. The axial
-Green-Lagrange strain given to the behaviour is zero, as with MGIS and the
-deformation gradient. The Hencky framework sets the axial component after
-building the logarithmic strain handler: the handler is built with
-F_zz = 1 and E_zz = 0.
+The axial component of the deformation gradient is computed by the
+behaviour. TFEL does not use the one given by the caller, in the
+deformation gradient as in the displacement gradient: the conversions of
+the stresses and of the tangent operators use the computed one, and the
+axial component of the strain given in the Green-Lagrange and Hencky
+strain frameworks is zero. The behaviours written with the deformation
+gradient receive F as given by the caller (I + H with the displacement
+gradient) and store the axial component in the `AxialDeformationGradient`
+internal state variable, whose initial value shall be one (patches
+`patches/tfel/0125` and `patches/mgis/0074`).
+
+Before, TFEL expected an axial component of zero from the caller,
+whereas MGIS, mfem-mgis and MTest give one with the deformation
+gradient. The behaviours written with F and the Green-Lagrange
+framework added the computed component to the given one (first and
+second Piola-Kirchhoff stresses wrong by a factor of two for the
+former, Cauchy stress for the latter), and the Hencky framework used
+the given one in its conversions (Piola-Kirchhoff stresses wrong by the
+axial strain, in relative value, with F as with H).
 
 ## Implementation
 
@@ -120,5 +129,3 @@ mm-opera-hpc:
 ## Next steps
 
 - Behaviours of the grains written with H or in a strain framework.
-- Plane stress with the deformation gradient: align MGIS and mfem-mgis
-  (axial component 1) with TFEL (0).

@@ -27,12 +27,30 @@
 namespace mfront::gb {
 
   /*!
+   * \brief axial component of the gradients of a finite strain behaviour in
+   * plane stress (`PLANESTRESS` and `AXISYMMETRICALGENERALISEDPLANESTRESS`),
+   * computed by the behaviour: the one given by the caller is not used by
+   * the interface, neither in the strain given to the behaviour nor in the
+   * conversions of the stresses and of the tangent operators.
+   * \tparam hypothesis: modelling hypothesis
+   */
+  template <tfel::material::ModellingHypothesis::Hypothesis hypothesis>
+  struct PlaneStressAxialComponent {
+    //! \brief true in plane stress
+    static constexpr bool exists =
+        (hypothesis == tfel::material::ModellingHypothesis::PLANESTRESS) ||
+        (hypothesis == tfel::material::ModellingHypothesis::
+                           AXISYMMETRICALGENERALISEDPLANESTRESS);
+    //! \brief index of the axial component, if any
+    static constexpr unsigned short index =
+        (hypothesis == tfel::material::ModellingHypothesis::PLANESTRESS) ? 2
+                                                                         : 1;
+  };
+
+  /*!
    * \brief compute the deformation gradient \(F = I + H\) from the
-   * displacement gradient \(H\) given to a finite strain behaviour.
-   *
-   * In plane stress, the axial component of the deformation gradient given
-   * by the caller is zero (it is computed by the behaviour): the axial
-   * component of the displacement gradient is not shifted by the identity.
+   * displacement gradient \(H\) given to a finite strain behaviour (the
+   * three first components of the tensors are the diagonal ones).
    *
    * \tparam hypothesis: modelling hypothesis
    * \param[out] F: deformation gradient
@@ -45,19 +63,9 @@ namespace mfront::gb {
     constexpr auto TensorSize =
         ModellingHypothesisToTensorSize<hypothesis>::value;
     tfel::fsalgo::copy<TensorSize>::exe(H, F);
-    if constexpr (hypothesis == ModellingHypothesis::PLANESTRESS) {
-      F[0] += real{1};
-      F[1] += real{1};
-    } else if constexpr (hypothesis ==
-                         ModellingHypothesis::
-                             AXISYMMETRICALGENERALISEDPLANESTRESS) {
-      F[0] += real{1};
-      F[2] += real{1};
-    } else {
-      F[0] += real{1};
-      F[1] += real{1};
-      F[2] += real{1};
-    }
+    F[0] += real{1};
+    F[1] += real{1};
+    F[2] += real{1};
   }  // end of computeDeformationGradient
 
   /*!
@@ -68,9 +76,8 @@ namespace mfront::gb {
    * `tfel::math::computeGreenLagrangeTensorFromDisplacementGradient`).
    *
    * In plane stress, the axial component of the Green-Lagrange strain is
-   * computed by the behaviour: the one given here is computed from the
-   * axial component of the displacement gradient, which is zero, and is
-   * thus zero.
+   * computed by the behaviour: the one given here is zero (see
+   * `PlaneStressAxialComponent`).
    *
    * \tparam hypothesis: modelling hypothesis
    * \param[out] e: Green-Lagrange strain
@@ -84,12 +91,16 @@ namespace mfront::gb {
       tfel::math::tensor<N, real>& F,
       const real* const H) noexcept {
     using namespace tfel::material;
+    using AxialComponent = PlaneStressAxialComponent<hypothesis>;
     constexpr auto TensorSize =
         ModellingHypothesisToTensorSize<hypothesis>::value;
     auto Hv = tfel::math::tensor<N, real>{};
     tfel::fsalgo::copy<TensorSize>::exe(H, Hv.begin());
     computeDeformationGradient<hypothesis>(F.begin(), H);
     e = tfel::math::computeGreenLagrangeTensorFromDisplacementGradient(Hv);
+    if constexpr (AxialComponent::exists) {
+      e[AxialComponent::index] = real{0};
+    }
   }  // end of computeGreenLagrangeStrainFromDisplacementGradient
 
 }  // end of namespace mfront::gb
