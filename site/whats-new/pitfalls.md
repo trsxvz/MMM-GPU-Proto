@@ -344,3 +344,12 @@ against deliberately wrong code revealed them.
   about ε E: a residual relative to the initial residual of a step cannot
   be reached. The relative floor also grows with the problem size.
   Workaround: an absolute tolerance about ten times the floor.
+- **Small strains in finite strain.** In the polycrystal of mm-opera-hpc,
+  in float, the axial stress exceeds the double one by 6.1e-3 at an
+  axial strain of 5e-5, and by 1.0e-3 at 2e-4; with a step of 1 s, the
+  behaviour fails and the computation stops
+  (`results/precision-polycristal-2026-10-14`). The deformation gradient,
+  stored in float close to identity, only moves by one ulp (1e-3 of a
+  strain of 5e-5, a stress quantum of about 1.5e4 Pa). No workaround yet:
+  an interface based on the displacement gradient H = F - I is a pending
+  decision.
