@@ -2,7 +2,9 @@
  * \file   src/Batch/FBarKernels.cxx
  * \brief  This file implements the kernels of the FBar formulation. It contains
  * kernels of MFEM: it is compiled as CUDA or HIP code when MFEM is compiled
- * with CUDA or HIP.
+ * with CUDA or HIP, without contraction of the floating point operations into
+ * fused multiply-add operations in single precision (see
+ * `src/CMakeLists.txt`).
  * \date   11/10/2026
  */
 

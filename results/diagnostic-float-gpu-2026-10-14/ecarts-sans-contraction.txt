@@ -1,0 +1,4 @@
+Noyaux de mfem-mgis compilés avec -fmad=false, écart au double sur GPU au même nombre de pas
+float-gpu-noyaux-nofma: 7/7 convergent, écart max 3.7e-05 ; n8: 3.2e-05, n9: 3.7e-05, n10: 3.4e-05, n11: 2.7e-05, n12: 2.4e-05, n13: 2.2e-05, n14: 2.8e-05
+float-gpu-ebe-nofma: 7/7 convergent, écart max 4.9e-05 ; n8: 4.3e-05, n9: 4.9e-05, n10: 3.2e-05, n11: 3.4e-05, n12: 3.4e-05, n13: 1.9e-05, n14: 2.0e-05
+élément par élément identique avec et sans -fmad=false (norme à 10 chiffres) : True

@@ -4583,3 +4583,29 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 - Série ssna303 refaite (`results/ssna303-ssna303-2026-10-13-0924`) :
   raffinement 1, GPU ×2,3 (FBar ×2,7) ; raffinement 2 hors de la mémoire
   du GPU.
+
+### 2026-10-14, float sur le GPU : diagnostic de la divergence de la poutre
+
+- Sur le GPU en float, au critère 1e-4, la poutre r4 divergeait dans un
+  calcul sur trois à un sur deux en assemblage atomique
+  (`results/precision-poutre-gpu-2026-10-14-0604`). En assemblage ordonné à
+  n = 10, tous les calculs avec un solveur itératif divergeaient. Avec PCG
+  et BoomerAMG, seule la tangente élément par élément (assemblée sur
+  l'hôte) convergeait.
+- Cause (`results/diagnostic-float-gpu-2026-10-14`) : les contractions en
+  multiplications-additions fusionnées de nvcc dans les noyaux de raideur.
+  Les tangentes par noyaux et élément par élément ne diffèrent que de 2e-7.
+  Mais le float travaille ici près de sa limite : au pas 8, la direction de
+  Newton n'est connue qu'à 16 à 32 % près. Avec les contractions, le Newton
+  dérivait probablement le long des modes mous de la poutre, que le critère
+  sur le résidu ne voit pas.
+- Sans contraction, les translations rigides sont mieux respectées (4,2e-8
+  contre 5,1e-8 du terme maximal). Le résidu linéaire vrai passe de 5e-3 à
+  9e-3 (K, trajectoire contractée) à 5e-4 (trajectoire sans contraction).
+- Correction dans mfem-mgis : en float, noyaux de raideur compilés pour le
+  GPU sans contraction (`mfem_mgis_disable_device_floating_point_contraction`),
+  même coût d'assemblage ; contractions gardées en double (assemblage 13 %
+  plus lent sans elles). 31 calculs sur 31 convergent, à 4,2e-5 au plus du
+  double ; test `poutre-gpu-r4` dans cas/poutre. Mesure refaite
+  (`results/precision-poutre-gpu-2026-10-14-0843`) : float 1,37 fois plus
+  rapide que le double, à 3,4e-5 au plus du double.

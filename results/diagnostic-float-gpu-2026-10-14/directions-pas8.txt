@@ -1,0 +1,86 @@
+# Notes : « K copy » et « E copy » sont des copies des matrices migrées sur le
+# GPU ; « K » et « E » sont les matrices d'origine. Le bloc « matrix E » (matrice
+# d'origine) n'a pas de résolution par MUMPS : sa colonne |c - c_mumps| compare
+# à la direction de MUMPS obtenue avec K. Les lignes du double viennent de la
+# trajectoire du double (résidu 5,68e5), pas de celle du float (5,70e5).
+# float, état de la 1re itération du pas 8 (trajectoire de la tangente par noyaux)
+directions at step 8: ||r|| 5.703580e+05 (hypre memory: host 0, device 1)
+  residual: integrated 5.703580e+05, Mult 5.703580e+05, after kernels 0.000e+00 (relative difference), after element by element 0.000e+00
+  ||r|| at x again: 5.703580e+05
+  matrix K copy: memory location 1
+  rigid translation 0 of K copy: rows 108375, rms |A t| / max|A| 5.057e-08, max 2.758e-07
+  rigid translation 1 of K copy: rows 108375, rms |A t| / max|A| 5.011e-08, max 2.738e-07
+  rigid translation 2 of K copy: rows 108375, rms |A t| / max|A| 5.209e-08, max 2.791e-07
+  mumps                        iterations    0, true linear residual 5.379e-03, |c - c_mumps| 0.000e+00, new ||r|| 1.148812e+05 (2.014e-01)
+  K copy pcg C-norm tol 1e-04  iterations   65, true linear residual 7.157e-03, |c - c_mumps| 3.181e-01, new ||r|| 1.641146e+05 (2.877e-01)
+  K copy pcg C-norm tol 1e-06  iterations  102, true linear residual 7.793e-03, |c - c_mumps| 3.184e-01, new ||r|| 1.642162e+05 (2.879e-01)
+  K copy pcg 2-norm tol 1e-04  iterations   88, true linear residual 7.797e-03, |c - c_mumps| 3.164e-01, new ||r|| 1.638921e+05 (2.873e-01)
+  ||r|| at x again: 5.703580e+05
+  matrix E copy: memory location 1
+  rigid translation 0 of E copy: rows 108375, rms |A t| / max|A| 4.165e-08, max 2.325e-07
+  rigid translation 1 of E copy: rows 108375, rms |A t| / max|A| 4.973e-08, max 2.738e-07
+  rigid translation 2 of E copy: rows 108375, rms |A t| / max|A| 4.191e-08, max 2.390e-07
+  mumps                        iterations    0, true linear residual 3.914e-03, |c - c_mumps| 0.000e+00, new ||r|| 7.990536e+04 (1.401e-01)
+  E copy pcg C-norm tol 1e-04  iterations   62, true linear residual 4.109e-03, |c - c_mumps| 1.590e-01, new ||r|| 9.451621e+04 (1.657e-01)
+  E copy pcg C-norm tol 1e-06  iterations  100, true linear residual 4.641e-03, |c - c_mumps| 1.549e-01, new ||r|| 9.408211e+04 (1.650e-01)
+  E copy pcg 2-norm tol 1e-04  iterations   75, true linear residual 4.208e-03, |c - c_mumps| 1.588e-01, new ||r|| 9.442612e+04 (1.656e-01)
+  ||r|| at x again: 5.703580e+05
+  matrix K: memory location 1
+  rigid translation 0 of K: rows 108375, rms |A t| / max|A| 5.057e-08, max 2.758e-07
+  rigid translation 1 of K: rows 108375, rms |A t| / max|A| 5.011e-08, max 2.738e-07
+  rigid translation 2 of K: rows 108375, rms |A t| / max|A| 5.209e-08, max 2.791e-07
+  mumps                        iterations    0, true linear residual 5.380e-03, |c - c_mumps| 0.000e+00, new ||r|| 1.148756e+05 (2.014e-01)
+  K pcg C-norm tol 1e-04       iterations   83, true linear residual 7.151e-03, |c - c_mumps| 3.160e-01, new ||r|| 1.638395e+05 (2.873e-01)
+  K pcg C-norm tol 1e-06       iterations  132, true linear residual 8.609e-03, |c - c_mumps| 3.177e-01, new ||r|| 1.641167e+05 (2.877e-01)
+  K pcg 2-norm tol 1e-04       iterations   83, true linear residual 7.247e-03, |c - c_mumps| 3.191e-01, new ||r|| 1.643450e+05 (2.881e-01)
+  ||r|| at x again: 5.703580e+05
+  matrix E: memory location 1
+  rigid translation 0 of E: rows 108375, rms |A t| / max|A| 4.165e-08, max 2.325e-07
+  rigid translation 1 of E: rows 108375, rms |A t| / max|A| 4.973e-08, max 2.738e-07
+  rigid translation 2 of E: rows 108375, rms |A t| / max|A| 4.191e-08, max 2.390e-07
+  E pcg C-norm tol 1e-04       iterations   63, true linear residual 4.261e-03, |c - c_mumps| 1.510e-01, new ||r|| 9.414845e+04 (1.651e-01)
+  E pcg C-norm tol 1e-06       iterations  100, true linear residual 4.573e-03, |c - c_mumps| 1.515e-01, new ||r|| 9.406440e+04 (1.649e-01)
+  E pcg 2-norm tol 1e-04       iterations   68, true linear residual 4.276e-03, |c - c_mumps| 1.508e-01, new ||r|| 9.415473e+04 (1.651e-01)
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 33.64945221 | iterations per step: 1 1 1 1 2 2 2 | total 10
+time 12.649 s
+
+# double, même pas et même itération (sa propre trajectoire)
+directions at step 8: ||r|| 5.682349e+05 (hypre memory: host 0, device 1)
+  residual: integrated 5.682349e+05, Mult 5.682349e+05, after kernels 0.000e+00 (relative difference), after element by element 0.000e+00
+  ||r|| at x again: 5.682349e+05
+  matrix K copy: memory location 1
+  rigid translation 0 of K copy: rows 108375, rms |A t| / max|A| 9.407e-17, max 5.127e-16
+  rigid translation 1 of K copy: rows 108375, rms |A t| / max|A| 9.593e-17, max 5.603e-16
+  rigid translation 2 of K copy: rows 108375, rms |A t| / max|A| 9.616e-17, max 6.438e-16
+  mumps                        iterations    0, true linear residual 8.870e-14, |c - c_mumps| 0.000e+00, new ||r|| 1.688250e+04 (2.971e-02)
+  K copy pcg C-norm tol 1e-04  iterations   64, true linear residual 1.109e-04, |c - c_mumps| 5.580e-05, new ||r|| 1.688268e+04 (2.971e-02)
+  K copy pcg C-norm tol 1e-06  iterations   76, true linear residual 1.270e-06, |c - c_mumps| 2.857e-07, new ||r|| 1.688249e+04 (2.971e-02)
+  K copy pcg 2-norm tol 1e-04  iterations   60, true linear residual 9.338e-05, |c - c_mumps| 9.969e-05, new ||r|| 1.688293e+04 (2.971e-02)
+  ||r|| at x again: 5.682349e+05
+  matrix E copy: memory location 1
+  rigid translation 0 of E copy: rows 108375, rms |A t| / max|A| 9.929e-17, max 6.200e-16
+  rigid translation 1 of E copy: rows 108375, rms |A t| / max|A| 9.590e-17, max 5.673e-16
+  rigid translation 2 of E copy: rows 108375, rms |A t| / max|A| 9.346e-17, max 7.034e-16
+  mumps                        iterations    0, true linear residual 8.837e-14, |c - c_mumps| 0.000e+00, new ||r|| 1.688250e+04 (2.971e-02)
+  E copy pcg C-norm tol 1e-04  iterations   67, true linear residual 1.314e-04, |c - c_mumps| 3.655e-04, new ||r|| 1.688184e+04 (2.971e-02)
+  E copy pcg C-norm tol 1e-06  iterations   74, true linear residual 1.311e-06, |c - c_mumps| 1.350e-06, new ||r|| 1.688250e+04 (2.971e-02)
+  E copy pcg 2-norm tol 1e-04  iterations   59, true linear residual 8.497e-05, |c - c_mumps| 2.674e-04, new ||r|| 1.688260e+04 (2.971e-02)
+  ||r|| at x again: 5.682349e+05
+  matrix K: memory location 1
+  rigid translation 0 of K: rows 108375, rms |A t| / max|A| 9.407e-17, max 5.127e-16
+  rigid translation 1 of K: rows 108375, rms |A t| / max|A| 9.593e-17, max 5.603e-16
+  rigid translation 2 of K: rows 108375, rms |A t| / max|A| 9.616e-17, max 6.438e-16
+  mumps                        iterations    0, true linear residual 8.885e-14, |c - c_mumps| 0.000e+00, new ||r|| 1.688250e+04 (2.971e-02)
+  K pcg C-norm tol 1e-04       iterations   58, true linear residual 1.251e-04, |c - c_mumps| 1.563e-04, new ||r|| 1.688275e+04 (2.971e-02)
+  K pcg C-norm tol 1e-06       iterations   80, true linear residual 1.446e-06, |c - c_mumps| 6.788e-07, new ||r|| 1.688250e+04 (2.971e-02)
+  K pcg 2-norm tol 1e-04       iterations   63, true linear residual 7.800e-05, |c - c_mumps| 3.183e-05, new ||r|| 1.688257e+04 (2.971e-02)
+  ||r|| at x again: 5.682349e+05
+  matrix E: memory location 1
+  rigid translation 0 of E: rows 108375, rms |A t| / max|A| 9.929e-17, max 6.200e-16
+  rigid translation 1 of E: rows 108375, rms |A t| / max|A| 9.590e-17, max 5.673e-16
+  rigid translation 2 of E: rows 108375, rms |A t| / max|A| 9.346e-17, max 7.034e-16
+  E pcg C-norm tol 1e-04       iterations   62, true linear residual 1.061e-04, |c - c_mumps| 1.863e-04, new ||r|| 1.688255e+04 (2.971e-02)
+  E pcg C-norm tol 1e-06       iterations   72, true linear residual 1.366e-06, |c - c_mumps| 3.677e-07, new ||r|| 1.688250e+04 (2.971e-02)
+  E pcg 2-norm tol 1e-04       iterations   60, true linear residual 9.805e-05, |c - c_mumps| 1.020e-04, new ||r|| 1.688242e+04 (2.971e-02)
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 33.65265821 | iterations per step: 1 1 1 1 2 2 2 | total 10
+time 17.839 s

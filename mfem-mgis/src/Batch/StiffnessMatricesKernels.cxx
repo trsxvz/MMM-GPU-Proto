@@ -3,7 +3,9 @@
  * \brief  This file implements the kernels computing the stiffness matrices of
  * the elements of the standard behaviour integrators (mechanics, heat transfer,
  * micromorphic damage). It contains kernels of MFEM: it is compiled as CUDA or
- * HIP code when MFEM is compiled with CUDA or HIP.
+ * HIP code when MFEM is compiled with CUDA or HIP, without contraction of the
+ * floating point operations into fused multiply-add operations in single
+ * precision (see `src/CMakeLists.txt`).
  * \date   09/10/2026
  */
 

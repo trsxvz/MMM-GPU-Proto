@@ -27,7 +27,15 @@ double, 0,81 s en float ; prédiction 0,55 et 0,49 s ; le reste est petit.
   8 sur 8 avec l'assemblage ordonné ; le calcul converge si les éléments
   finis sont sur le CPU, les lois et le solveur restant sur le GPU, et
   diverge si les éléments finis sont sur le GPU, quels que soient les
-  placements des lois et du solveur. Les mêmes noyaux en float sur le CPU
-  convergent. La convergence de Newton se dégrade de pas en pas sur le GPU :
-  défaut à trouver dans le chemin des éléments finis sur GPU en float.
-  En double, les trois calculs sont identiques au bit près.
+  placements des lois et du solveur (PCG et BoomerAMG). Les mêmes noyaux
+  en float sur le CPU convergent. La convergence de Newton se dégrade de
+  pas en pas sur le GPU.
+  En double, au critère du cas (1e-8), les trois calculs sont identiques
+  au bit près ; au critère 1e-4, ils diffèrent de 4e-7 (assemblage
+  atomique).
+- Diagnostic (results/diagnostic-float-gpu-2026-10-14) : les contractions
+  en multiplications-additions fusionnées de nvcc dans les noyaux de raideur
+  faisaient diverger le Newton en float. Corrigé dans mfem-mgis (en float,
+  noyaux de raideur compilés pour le GPU sans contraction). Mesure refaite :
+  results/precision-poutre-gpu-2026-10-14-0843 (float 1,37 fois plus
+  rapide que le double, 3 calculs sur 3 convergés, à 3,4e-5 du double).

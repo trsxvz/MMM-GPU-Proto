@@ -96,6 +96,20 @@ foreach(_backend ${poutre-behaviours_BACKENDS})
     set_tests_properties(poutre-gpu PROPERTIES ENVIRONMENT
       "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
       RESOURCE_LOCK gpu)
+    # refined beam, ten steps, assembly in a fixed order (same result at
+    # each run), compared to the solution in double precision with a tight
+    # criterion (2.4e-5 away in single precision, 2.2e-6 in double
+    # precision): in single precision, the Newton algorithm diverged at the
+    # eighth step when the stiffness kernels were compiled with contractions
+    # into fused multiply-add operations, or converged up to 3e-4 away with
+    # the atomic assembly (results/diagnostic-float-gpu-2026-10-14)
+    add_test(NAME poutre-gpu-r4
+      COMMAND mpirun -n 1 ./poutre -r 4 -n 10 -ls pcg-amg -lt 1e-4 -rt 1e-4
+              -bi Batch --device cuda -l "${_library}"
+              -en 48.83704586 -nt 5e-5)
+    set_tests_properties(poutre-gpu-r4 PROPERTIES ENVIRONMENT
+      "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered"
+      RESOURCE_LOCK gpu)
   else()
     add_test(NAME poutre-batch-${_backend}
       COMMAND mpirun -n 2 ./poutre -r 1 -n 2 -ls pcg-amg -bi Batch

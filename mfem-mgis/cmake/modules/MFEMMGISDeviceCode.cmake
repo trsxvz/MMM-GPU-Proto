@@ -23,9 +23,13 @@
 # - `mfem_mgis_compile_as_device_code(target sources...)`: compiles the
 #   given sources of the target as CUDA or HIP code if MFEM is compiled with
 #   CUDA or HIP, and does nothing otherwise.
+# - `mfem_mgis_disable_device_floating_point_contraction(target
+#   sources...)`: compiles the device code of the given sources of the
+#   target without contraction of the floating point operations into fused
+#   multiply-add operations.
 #
-# Both rely on global properties describing MFEM, set by `FindMFEM.cmake`
-# or by the configuration file of mfem-mgis:
+# The first two rely on global properties describing MFEM, set by
+# `FindMFEM.cmake` or by the configuration file of mfem-mgis:
 #
 # - `MFEM_MGIS_MFEM_USE_CUDA`: `YES` if MFEM is compiled with CUDA;
 # - `MFEM_MGIS_MFEM_USE_HIP`: `YES` if MFEM is compiled with HIP;
@@ -308,3 +312,32 @@ function(mfem_mgis_compile_as_device_code target)
     endif()
   endforeach(_flag)
 endfunction(mfem_mgis_compile_as_device_code)
+
+# usage: mfem_mgis_disable_device_floating_point_contraction(target
+#                                                           sources...)
+# Compiles the device code of the given sources of the target without
+# contraction of the floating point operations into fused multiply-add
+# operations: `-fmad=false` for nvcc, `-ffp-contract=off` for clang (HIP, or
+# CUDA compiled by clang, the option then also applying to the host code of
+# the sources). Does nothing if the sources are not compiled as CUDA or HIP
+# code (see `mfem_mgis_compile_as_device_code`).
+function(mfem_mgis_disable_device_floating_point_contraction target)
+  set(_options)
+  if(CMAKE_CUDA_COMPILER_LOADED)
+    if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
+      list(APPEND _options "$<$<COMPILE_LANGUAGE:CUDA>:-fmad=false>")
+    else()
+      list(APPEND _options "$<$<COMPILE_LANGUAGE:CUDA>:-ffp-contract=off>")
+    endif()
+  endif()
+  if(CMAKE_HIP_COMPILER_LOADED)
+    list(APPEND _options "$<$<COMPILE_LANGUAGE:HIP>:-ffp-contract=off>")
+  endif()
+  if(NOT _options)
+    return()
+  endif()
+  # the CUDA and HIP languages require CMake 3.18 or later (see
+  # `mfem_mgis_enable_device_language`)
+  set_property(SOURCE ${ARGN} TARGET_DIRECTORY ${target}
+    APPEND PROPERTY COMPILE_OPTIONS ${_options})
+endfunction(mfem_mgis_disable_device_floating_point_contraction)

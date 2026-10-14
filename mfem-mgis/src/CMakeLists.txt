@@ -189,6 +189,21 @@ list(APPEND MFEMMGIS_SOURCES
 
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
 mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
+# in single precision, the stiffness matrices are computed on the device
+# without contraction into fused multiply-add operations. With the
+# contractions of nvcc, the Newton algorithm diverged, or converged to less
+# accurate solutions, on a refined beam in plasticity, probably by drifting
+# along its soft modes (bending). The kernels of the FBar formulation and of
+# the regularization of Faltus et al., which compute stiffness matrices in
+# the same way, are compiled likewise. In double precision, the contractions
+# are kept: they did not change the convergence, and the assembly of the
+# beam was 13 % slower without them.
+if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
+  mfem_mgis_disable_device_floating_point_contraction(MFEMMGIS
+    Batch/StiffnessMatricesKernels.cxx
+    Batch/FBarKernels.cxx
+    Batch/FaltusKernels.cxx)
+endif()
 # the kernels of the library use the runtime of CUDA or HIP: the dependency
 # is carried by the library itself, not only by the target of MFEM, which a
 # project may define on its own

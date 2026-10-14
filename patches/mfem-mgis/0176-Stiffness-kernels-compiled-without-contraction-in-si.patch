@@ -1,0 +1,173 @@
+From 4d68f302692189669cedab410eda8685076ad9c3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 07:58:36 +0200
+Subject: [PATCH] Stiffness kernels compiled without contraction in single
+ precision
+
+nvcc contracts the multiplications and additions of the device code into
+fused multiply-add operations by default (-fmad=true). In single
+precision, with the stiffness matrices computed by kernels on the GPU, the
+Newton algorithm diverged, or converged to less accurate solutions, on a
+refined beam in J2 plasticity (111 843 unknowns, relative criterion 1e-4):
+- with the atomic assembly, 5 computations out of 11 diverged (8 to 14
+  steps), and the converged ones were up to 3e-4 away from the solution in
+  double precision (norm of the displacements);
+- with the ordered assembly, every computation with an iterative linear
+  solver diverged at the eighth step of ten (one with MUMPS converged).
+
+The tangent operators assembled by kernels and element by element (on the
+host) only differ by 2e-7 of their largest entry, but single precision is
+close to its limit on this case: at the eighth step, the Newton direction
+is only known within 16 to 32 %. The contractions probably make the
+algorithm drift along the soft modes of the beam (bending), which the
+criterion on the residual does not see.
+
+Without contraction, 31 computations out of 31 converge, up to 4.2e-5
+away from the solution in double precision, and the assembly costs the
+same in single precision (84 ms for 16 assemblies before and after). The
+element by element computations, which use the kernels of the gradients
+and of the inner forces, give the same results with and without
+contraction.
+
+`mfem_mgis_disable_device_floating_point_contraction` compiles the device
+code of the given sources without contraction (-fmad=false for nvcc,
+-ffp-contract=off for clang). It is applied, in single precision only, to
+the kernels which compute stiffness matrices (standard, FBar, Faltus et
+al.). In double precision, the contractions are kept: they did not change
+the convergence, and the assembly of the beam was 13 % slower without
+them. The code compiled for the host is unchanged.
+---
+ cmake/modules/MFEMMGISDeviceCode.cmake | 37 ++++++++++++++++++++++++--
+ src/Batch/FBarKernels.cxx              |  4 ++-
+ src/Batch/FaltusKernels.cxx            |  4 ++-
+ src/Batch/StiffnessMatricesKernels.cxx |  4 ++-
+ src/CMakeLists.txt                     | 15 +++++++++++
+ 5 files changed, 59 insertions(+), 5 deletions(-)
+
+diff --git a/cmake/modules/MFEMMGISDeviceCode.cmake b/cmake/modules/MFEMMGISDeviceCode.cmake
+index d79d19d5dd..f190f1f5ef 100644
+--- a/cmake/modules/MFEMMGISDeviceCode.cmake
++++ b/cmake/modules/MFEMMGISDeviceCode.cmake
+@@ -23,9 +23,13 @@
+ # - `mfem_mgis_compile_as_device_code(target sources...)`: compiles the
+ #   given sources of the target as CUDA or HIP code if MFEM is compiled with
+ #   CUDA or HIP, and does nothing otherwise.
++# - `mfem_mgis_disable_device_floating_point_contraction(target
++#   sources...)`: compiles the device code of the given sources of the
++#   target without contraction of the floating point operations into fused
++#   multiply-add operations.
+ #
+-# Both rely on global properties describing MFEM, set by `FindMFEM.cmake`
+-# or by the configuration file of mfem-mgis:
++# The first two rely on global properties describing MFEM, set by
++# `FindMFEM.cmake` or by the configuration file of mfem-mgis:
+ #
+ # - `MFEM_MGIS_MFEM_USE_CUDA`: `YES` if MFEM is compiled with CUDA;
+ # - `MFEM_MGIS_MFEM_USE_HIP`: `YES` if MFEM is compiled with HIP;
+@@ -308,3 +312,32 @@ function(mfem_mgis_compile_as_device_code target)
+     endif()
+   endforeach(_flag)
+ endfunction(mfem_mgis_compile_as_device_code)
++
++# usage: mfem_mgis_disable_device_floating_point_contraction(target
++#                                                           sources...)
++# Compiles the device code of the given sources of the target without
++# contraction of the floating point operations into fused multiply-add
++# operations: `-fmad=false` for nvcc, `-ffp-contract=off` for clang (HIP, or
++# CUDA compiled by clang, the option then also applying to the host code of
++# the sources). Does nothing if the sources are not compiled as CUDA or HIP
++# code (see `mfem_mgis_compile_as_device_code`).
++function(mfem_mgis_disable_device_floating_point_contraction target)
++  set(_options)
++  if(CMAKE_CUDA_COMPILER_LOADED)
++    if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
++      list(APPEND _options "$<$<COMPILE_LANGUAGE:CUDA>:-fmad=false>")
++    else()
++      list(APPEND _options "$<$<COMPILE_LANGUAGE:CUDA>:-ffp-contract=off>")
++    endif()
++  endif()
++  if(CMAKE_HIP_COMPILER_LOADED)
++    list(APPEND _options "$<$<COMPILE_LANGUAGE:HIP>:-ffp-contract=off>")
++  endif()
++  if(NOT _options)
++    return()
++  endif()
++  # the CUDA and HIP languages require CMake 3.18 or later (see
++  # `mfem_mgis_enable_device_language`)
++  set_property(SOURCE ${ARGN} TARGET_DIRECTORY ${target}
++    APPEND PROPERTY COMPILE_OPTIONS ${_options})
++endfunction(mfem_mgis_disable_device_floating_point_contraction)
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index d7137aff3e..7505be96cc 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -2,7 +2,9 @@
+  * \file   src/Batch/FBarKernels.cxx
+  * \brief  This file implements the kernels of the FBar formulation. It contains
+  * kernels of MFEM: it is compiled as CUDA or HIP code when MFEM is compiled
+- * with CUDA or HIP.
++ * with CUDA or HIP, without contraction of the floating point operations into
++ * fused multiply-add operations in single precision (see
++ * `src/CMakeLists.txt`).
+  * \date   11/10/2026
+  */
+ 
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+index beeabc2b02..8cadace600 100644
+--- a/src/Batch/FaltusKernels.cxx
++++ b/src/Batch/FaltusKernels.cxx
+@@ -2,7 +2,9 @@
+  * \file   src/Batch/FaltusKernels.cxx
+  * \brief  This file implements the kernels of the regularization of Faltus et
+  * al. It contains kernels of MFEM: it is compiled as CUDA or HIP code when MFEM
+- * is compiled with CUDA or HIP.
++ * is compiled with CUDA or HIP, without contraction of the floating point
++ * operations into fused multiply-add operations in single precision (see
++ * `src/CMakeLists.txt`).
+  * \date   11/10/2026
+  */
+ 
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index b47b4be686..1fd3342358 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -3,7 +3,9 @@
+  * \brief  This file implements the kernels computing the stiffness matrices of
+  * the elements of the standard behaviour integrators (mechanics, heat transfer,
+  * micromorphic damage). It contains kernels of MFEM: it is compiled as CUDA or
+- * HIP code when MFEM is compiled with CUDA or HIP.
++ * HIP code when MFEM is compiled with CUDA or HIP, without contraction of the
++ * floating point operations into fused multiply-add operations in single
++ * precision (see `src/CMakeLists.txt`).
+  * \date   09/10/2026
+  */
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 2d73c97c36..7f5c0ccac5 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -189,6 +189,21 @@ list(APPEND MFEMMGIS_SOURCES
+ 
+ mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
+ mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
++# in single precision, the stiffness matrices are computed on the device
++# without contraction into fused multiply-add operations. With the
++# contractions of nvcc, the Newton algorithm diverged, or converged to less
++# accurate solutions, on a refined beam in plasticity, probably by drifting
++# along its soft modes (bending). The kernels of the FBar formulation and of
++# the regularization of Faltus et al., which compute stiffness matrices in
++# the same way, are compiled likewise. In double precision, the contractions
++# are kept: they did not change the convergence, and the assembly of the
++# beam was 13 % slower without them.
++if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
++  mfem_mgis_disable_device_floating_point_contraction(MFEMMGIS
++    Batch/StiffnessMatricesKernels.cxx
++    Batch/FBarKernels.cxx
++    Batch/FaltusKernels.cxx)
++endif()
+ # the kernels of the library use the runtime of CUDA or HIP: the dependency
+ # is carried by the library itself, not only by the target of MFEM, which a
+ # project may define on its own
+-- 
+2.43.0
+

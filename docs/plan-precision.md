@@ -506,9 +506,25 @@ Suite (13/10/2026, soir) :
 - Poutre sur le GPU (results/precision-poutre-gpu-2026-10-14-0604) : le
   float est 1,31 fois plus rapide quand il converge, mais un calcul sur
   trois diverge, et les calculs convergés s'écartent du double de 3e-4.
-  Le défaut est dans le chemin des éléments finis sur GPU en float (le
-  calcul converge avec les éléments finis sur le CPU, et les mêmes noyaux
-  en float sur le CPU convergent) : la convergence de Newton se dégrade de
-  pas en pas. À analyser.
+- Diagnostic (results/diagnostic-float-gpu-2026-10-14) : nvcc contracte
+  par défaut les multiplications et les additions en multiplications-
+  additions fusionnées (FMA). Dans les noyaux de raideur, en float, ces
+  contractions faisaient diverger le Newton, ou converger vers des
+  solutions moins précises, probablement par une dérive le long des modes
+  mous de la poutre (flexion). Les tangentes par noyaux et élément par
+  élément ne diffèrent pourtant que de 2e-7 : le float travaille ici près
+  de sa limite (direction de Newton connue à 16 à 32 % près au pas 8).
+- Correction dans mfem-mgis : en float, le code GPU des noyaux de raideur
+  (standard, FBar, Faltus et al.) est compilé sans contraction (fonction
+  CMake `mfem_mgis_disable_device_floating_point_contraction`), au même
+  coût d'assemblage. En double, les contractions sont gardées (assemblage
+  13 % plus lent sans elles, convergence inchangée). Après correction, 31
+  calculs sur 31 convergent, à 4,2e-5 au plus du double ; test
+  reproducteur `poutre-gpu-r4` dans cas/poutre.
+- Mesure refaite après correction
+  (results/precision-poutre-gpu-2026-10-14-0843) : float 1,37 fois plus
+  rapide que le double, mêmes itérations, à 3,4e-5 au plus du double.
 
-Restent : le défaut du chemin des éléments finis sur GPU en float.
+Reste : le plancher du résidu du float croît avec la taille du problème
+(1,3e-5 à r4 sur le CPU) ; un critère de Newton adapté à la précision
+serait utile sur les grands maillages.
